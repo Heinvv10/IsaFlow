@@ -18,7 +18,7 @@ import { OverviewTables } from './OverviewTables';
 import { TodoWidget } from './TodoWidget';
 import { WorkbenchSection } from './WorkbenchSection';
 import { NoBankAccountWarning } from '@/components/accounting/banking/NoBankAccountWarning';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -60,11 +60,7 @@ function fmtCurrency(n: number): string {
   return formatMoney(n);
 }
 
-function fmtCompact(n: number): string {
-  if (Math.abs(n) >= 1_000_000) return 'R ' + (n / 1_000_000).toFixed(1) + 'M';
-  if (Math.abs(n) >= 1_000) return 'R ' + (n / 1_000).toFixed(1) + 'K';
-  return fmtCurrency(n);
-}
+const fmtCompact = (n: number): string => formatMoneyCompact(n);
 
 export function OverviewTab() {
   const [data, setData] = useState<KPIData | null>(null);

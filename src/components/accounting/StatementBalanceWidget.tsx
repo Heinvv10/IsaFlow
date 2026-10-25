@@ -108,7 +108,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
   const isReconciled = difference !== null && Math.abs(difference) < 0.01;
 
   // Format the import date for display
-  const importedOn = formatDisplayDate(batch.createdAt, '');
+  const importedOn = formatDisplayDate(batch.createdAt);
 
   return (
     <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
@@ -176,7 +176,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
       <div className="flex items-center gap-4 border-t border-[var(--ff-border-light)] px-4 py-2 text-xs text-[var(--ff-text-tertiary)]">
         <span className="flex items-center gap-1">
           <CalendarDays className="h-3 w-3" />
-          {formatDisplayDate(batch.statementDate, '')}
+          {formatDisplayDate(batch.statementDate)}
         </span>
         <span className="flex items-center gap-1">
           <Hash className="h-3 w-3" />

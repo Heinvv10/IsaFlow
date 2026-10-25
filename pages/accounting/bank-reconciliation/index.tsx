@@ -98,7 +98,7 @@ export default function BankReconciliationListPage() {
     <tr key={r.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors">
       <td className={`px-4 py-3 text-[var(--ff-text-primary)] ${indent ? 'pl-8' : ''}`}>{r.bankAccountName || '—'}</td>
       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-        {formatDisplayDate(r.statementDate, '')}
+        {formatDisplayDate(r.statementDate)}
       </td>
       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
         {formatCurrency(r.statementBalance)}
@@ -229,7 +229,7 @@ export default function BankReconciliationListPage() {
         message={
           <>
             {pendingCancel?.bankAccountName || 'This bank account'} —{' '}
-            {pendingCancel ? formatDisplayDate(pendingCancel.statementDate, '') : ''}
+            {pendingCancel ? formatDisplayDate(pendingCancel.statementDate) : ''}
             {'\n\n'}The session is deleted and its transactions are released back to the bank
             account. Matches made here are undone; allocated and excluded transactions keep
             their status and their journal entries.

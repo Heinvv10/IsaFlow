@@ -163,8 +163,8 @@ export default function ManagementPacksPage() {
                     <StatusBadge status={pack.status} />
                   </div>
                   <p className="text-xs text-zinc-500 dark:text-slate-400">
-                    Created {formatDisplayDate(pack.created_at, '')}
-                    {' · '}Updated {formatDisplayDate(pack.updated_at, '')}
+                    Created {formatDisplayDate(pack.created_at)}
+                    {' · '}Updated {formatDisplayDate(pack.updated_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

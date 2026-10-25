@@ -54,7 +54,7 @@ export default function VatNonSupplySection({ lines }: { lines: VatNonSupplyLine
           {lines.map((l, i) => (
             <tr key={`${l.journalEntryId}-${i}`}>
               <td className={td}>{l.entryNumber}</td>
-              <td className={td}>{formatDisplayDate(l.entryDate, '')}</td>
+              <td className={td}>{formatDisplayDate(l.entryDate)}</td>
               <td className={td}>{l.accountCode} {l.accountName}</td>
               <td className={`${td} text-amber-400`}>
                 {l.reason ? NON_SUPPLY_REASON_LABEL[l.reason] : '—'}

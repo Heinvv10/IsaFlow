@@ -33,7 +33,7 @@ function fmtZAR(cents: number) {
 
 function fmtDate(dateStr: string | null) {
   if (!dateStr) return 'Never';
-  return formatDisplayDate(dateStr, '');
+  return formatDisplayDate(dateStr);
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {

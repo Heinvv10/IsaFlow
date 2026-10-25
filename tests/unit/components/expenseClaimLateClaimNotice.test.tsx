@@ -44,7 +44,7 @@ describe('expense claim page — late claim notice', () => {
   it('tells the person the VAT was claimed in a later period', async () => {
     await post(ok({ claim: claim('posted', { lateClaim }) }));
     await waitFor(() => expect(notify.info).toHaveBeenCalledWith(
-      'Input VAT of R15.00 claimed late, in the VAT period from 2026-07-01', 'Period 2026-05-01 to 2026-06-30 is filed.'));
+      'Input VAT of R 15.00 claimed late, in the VAT period from 2026-07-01', 'Period 2026-05-01 to 2026-06-30 is filed.'));
   });
 
   it('says nothing for an ordinary post', async () => {

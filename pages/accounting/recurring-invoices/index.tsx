@@ -10,6 +10,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface RecurringInvoice {
   id: string; templateName: string; clientId: string; clientName?: string;
@@ -200,11 +201,11 @@ export default function RecurringInvoicesPage() {
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 capitalize">{item.frequency}</td>
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">
                           <span className="flex items-center gap-1.5">
-                            {item.nextRunDate?.split('T')[0]}
+                            {formatDisplayDate(item.nextRunDate)}
                             {due && <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-full text-xs font-medium"><Clock className="h-3 w-3" />Due</span>}
                           </span>
                         </td>
-                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{item.lastRunDate ? item.lastRunDate.split('T')[0] : '—'}</td>
+                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(item.lastRunDate)}</td>
                         <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(item.totalAmount)}</td>
                         <td className="px-5 py-3.5">
                           <StatusPill status={item.status} />

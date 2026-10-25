@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { Loader2, TrendingDown, Receipt, AlertTriangle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayMonthYear } from '@/utils/dateFormat';
 
 interface PeriodRow {
   yyyymm: string;
@@ -36,7 +37,7 @@ const fmtSmall = (n: number | null | undefined) =>
 const periodLabel = (yyyymm: string) => {
   const y = yyyymm.slice(0, 4);
   const m = Number(yyyymm.slice(4, 6));
-  return `${new Date(0, m - 1).toLocaleString('en-ZA', { month: 'short' })} ${y}`;
+  return formatDisplayMonthYear(`${y}-${String(m).padStart(2, '0')}-01`);
 };
 
 const thCls = 'px-3 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] whitespace-nowrap';

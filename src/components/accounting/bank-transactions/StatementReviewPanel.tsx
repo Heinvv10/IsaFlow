@@ -42,7 +42,7 @@ function fmtZAR(n: number) {
 
 function fmtDate(s: string | null) {
   if (!s) return '—';
-  try { return formatDisplayDate(s, ''); } catch { return String(s); }
+  return formatDisplayDate(s);
 }
 
 const TH = 'px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--ff-text-tertiary)]';

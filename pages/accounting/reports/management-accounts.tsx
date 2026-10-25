@@ -17,6 +17,7 @@ import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/compon
 import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
 import { ManagementSection } from '@/components/accounting/ManagementSection';
 import { localISODate } from '@/lib/dateUtils';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -266,7 +267,7 @@ export default function ManagementAccountsPage() {
               </ManagementSection>
 
               <p className="text-xs text-[var(--ff-text-tertiary)] text-right">
-                Generated {new Date(report.generatedAt).toLocaleString('en-ZA')}
+                Generated {formatDisplayDateTime(report.generatedAt)}
               </p>
             </>
           )}

@@ -28,7 +28,7 @@ type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
-  try { return formatDisplayDate(s, ''); } catch { return String(s); }
+  return formatDisplayDate(s);
 }
 
 function StatusBadge({ status }: { status: ImportStatus }) {

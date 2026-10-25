@@ -257,7 +257,7 @@ export default function UifDeclarationPage() {
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)]">
                             <Clock className="h-3 w-3" />
-                            {d.submittedAt ? formatDisplayDate(d.submittedAt, '') : '—'}
+                            {d.submittedAt ? formatDisplayDate(d.submittedAt) : '—'}
                           </span>
                         )}
                       </td>

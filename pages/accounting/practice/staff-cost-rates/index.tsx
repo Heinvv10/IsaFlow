@@ -10,6 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import type { StaffCostRate } from '@/modules/accounting/services/practice/practiceCostRateService';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -238,7 +239,7 @@ export default function StaffCostRatesPage() {
                   ) : rates.map((r, i) => (
                     <tr key={r.id} className={i % 2 === 1 ? 'bg-slate-50/5' : ''}>
                       <td className={`${TD} font-medium text-[var(--ff-text-primary)]`}>{getUserLabel(users, r.userId)}</td>
-                      <td className={`${TD} text-right tabular-nums`}>R{r.costRate.toFixed(2)}</td>
+                      <td className={`${TD} text-right tabular-nums`}>{formatMoney(r.costRate)}</td>
                       <td className={TD}>{r.currency}</td>
                       <td className={TD}>{r.effectiveFrom}</td>
                       <td className={TD}>{r.effectiveTo ?? '—'}</td>

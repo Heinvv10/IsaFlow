@@ -192,7 +192,7 @@ export default function BankTransactionsPage() {
                     {report.transactions.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No transactions</td></tr>}
                     {report.transactions.map((t, i) => (
                       <tr key={i} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                        <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDisplayDate(t.date, '')}</td>
+                        <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDisplayDate(t.date)}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">{t.entryNumber}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-primary)] truncate max-w-[250px]">{t.description}</td>
                         <td className="px-4 py-2 text-right tabular-nums text-teal-400">{t.deposit > 0 ? fmt(t.deposit) : ''}</td>

@@ -12,6 +12,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayMonthYear } from '@/utils/dateFormat';
 
 // ---------------------------------------------------------------------------
 // Dynamic Recharts imports (SSR disabled)
@@ -68,7 +69,7 @@ export function buildLast12Months(now: Date = new Date()): string[] {
 function monthLabel(yyyyMm: string): string {
   const [y, m] = yyyyMm.split('-');
   const d = new Date(Number(y), Number(m) - 1, 1);
-  return d.toLocaleString('en-ZA', { month: 'short', year: '2-digit' });
+  return formatDisplayMonthYear(d);
 }
 
 function aggregateByMonth(rows: InvoiceRow[]): MonthBar[] {

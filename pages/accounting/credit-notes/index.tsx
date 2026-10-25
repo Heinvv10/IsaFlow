@@ -132,7 +132,7 @@ export default function CreditNotesPage() {
                         <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TYPE_CLS[cn.type] || ''}`}>{cn.type}</span></td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.type === 'customer' ? cn.clientName : cn.supplierName || '—'}</td>
                         <td className="px-5 py-3.5 font-mono text-xs text-slate-500 dark:text-slate-400">{cn.invoiceNumber || '—'}</td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{formatDisplayDate(cn.creditDate, '')}</td>
+                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{formatDisplayDate(cn.creditDate)}</td>
                         <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(cn.totalAmount)}</td>
                         <td className="px-5 py-3.5"><StatusPill status={cn.status} /></td>
                         <td className="px-4 py-3.5 text-right"><ChevronRight className="h-4 w-4 text-slate-500 dark:text-slate-400 ml-auto" /></td>

@@ -167,7 +167,7 @@ export default function PortalContactsPage() {
                   <RoleBadge role={contact.role} />
                 </div>
                 <span className="text-xs text-slate-500">
-                  {formatDisplayDate(contact.createdAt, '')}
+                  {formatDisplayDate(contact.createdAt)}
                 </span>
                 <button
                   onClick={() => { void handleDelete(contact.id); }}

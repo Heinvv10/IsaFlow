@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { ChevronDown, ChevronRight, Shield } from 'lucide-react';
 import type { AuditLogItem, AuditAction } from '@/modules/accounting/services/core/auditTrailService';
 import { useTableDensity } from '@/contexts/TableDensityContext';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 export const ACTION_LABELS: Record<AuditAction, string> = {
   create: 'Created',
@@ -54,10 +55,7 @@ function entityRoute(entityType: string, entityId: string): string | null {
 
 function formatDateTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleString('en-ZA', {
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    });
+    return formatDisplayDateTime(iso);
   } catch {
     return iso;
   }

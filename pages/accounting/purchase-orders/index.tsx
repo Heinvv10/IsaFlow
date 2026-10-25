@@ -10,6 +10,7 @@ import { StatusPill } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface PO {
   id: string; po_number: string; supplier_name: string;
@@ -123,8 +124,8 @@ export default function PurchaseOrdersPage() {
                         <Link href={`/accounting/purchase-orders/${o.id}`} className="hover:text-amber-400 transition-colors">{o.po_number}</Link>
                       </td>
                       <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{o.supplier_name}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{o.order_date?.split('T')[0]}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{o.expected_delivery_date?.split('T')[0] || '—'}</td>
+                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(o.order_date)}</td>
+                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(o.expected_delivery_date)}</td>
                       <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(Number(o.total))}</td>
                       <td className="px-5 py-3.5">
                         <StatusPill status={o.status} />

@@ -9,6 +9,7 @@ import { StatusPill } from '@/components/ui';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { toBucketKey, relativeTimeSince } from '@/components/invoices/ARFilters';
 import { BUCKET_COLORS, BUCKET_LABELS } from '@/lib/format/aging';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 export interface CustomerInvoiceRow {
   id: string;
@@ -86,7 +87,7 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage }: P
                   {inv.last_viewed_at ? (
                     <span
                       className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-secondary)]"
-                      title={`${inv.view_count ?? 0} view${inv.view_count === 1 ? '' : 's'} · ${new Date(inv.last_viewed_at).toLocaleString('en-ZA')}`}
+                      title={`${inv.view_count ?? 0} view${inv.view_count === 1 ? '' : 's'} · ${formatDisplayDateTime(inv.last_viewed_at)}`}
                     >
                       <Eye className="h-3.5 w-3.5 text-teal-400" />
                       {relativeTimeSince(inv.last_viewed_at)}

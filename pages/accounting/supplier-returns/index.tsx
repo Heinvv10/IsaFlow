@@ -9,6 +9,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface SupplierReturn {
   id: string; return_number: string; supplier_name: string;
@@ -107,7 +108,7 @@ export default function SupplierReturnsPage() {
                         <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{r.return_number}</td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{r.supplier_name}</td>
                         <td className="px-5 py-3.5 font-mono text-xs text-slate-500 dark:text-slate-400">{r.original_invoice_number || '—'}</td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{r.return_date?.split('T')[0]}</td>
+                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{formatDisplayDate(r.return_date)}</td>
                         <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-red-500 dark:text-red-400">{formatCurrency(r.amount)}</td>
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs max-w-[200px] truncate">{r.reason}</td>
                         <td className="px-5 py-3.5"><StatusPill status={r.status} /></td>

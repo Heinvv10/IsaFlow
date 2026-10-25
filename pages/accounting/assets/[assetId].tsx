@@ -15,6 +15,7 @@ import { toDepreciationMethod } from '@/modules/accounting/services/items/farDep
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ---- Types ----
 
@@ -37,7 +38,7 @@ const fmtC = (v: number | null | undefined) =>
 
 const fmtD = (v: string | Date | null | undefined): string => {
   if (!v) return '—';
-  return (v instanceof Date ? localISODate(v) : v).split('T')[0] ?? '—';
+  return formatDisplayDate(v);
 };
 
 function currentYear(a: Asset): number {

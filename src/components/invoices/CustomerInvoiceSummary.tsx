@@ -4,6 +4,7 @@
 
 import type { CustomerInvoiceItem } from '@/modules/accounting/types/customerInvoice.types';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -51,12 +52,12 @@ export function CustomerInvoiceSummary({
   taxRate, subtotal, taxAmount, totalAmount, balance, notes, items,
 }: Props) {
   const cards = [
-    { label: 'Invoice Date', value: invoiceDate?.split('T')[0] },
-    { label: 'Due Date', value: dueDate?.split('T')[0] || '—' },
+    { label: 'Invoice Date', value: formatDisplayDate(invoiceDate) },
+    { label: 'Due Date', value: formatDisplayDate(dueDate) },
     {
       label: 'Billing Period',
       value: billingPeriodStart && billingPeriodEnd
-        ? `${String(billingPeriodStart).split('T')[0]} → ${String(billingPeriodEnd).split('T')[0]}`
+        ? `${formatDisplayDate(billingPeriodStart)} → ${formatDisplayDate(billingPeriodEnd)}`
         : '—',
     },
     { label: 'VAT Rate', value: `${taxRate}%` },

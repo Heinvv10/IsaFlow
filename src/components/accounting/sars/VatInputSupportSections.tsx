@@ -65,7 +65,7 @@ function SupportTable({ lines, linkable }: { lines: InputVatSupportLine[]; linka
         {lines.map((l) => (
           <tr key={l.journalEntryId}>
             <td className={td}>{l.entryNumber}</td>
-            <td className={td}>{formatDisplayDate(l.entryDate, '')}</td>
+            <td className={td}>{formatDisplayDate(l.entryDate)}</td>
             {/* An unlinked chain had a document; "Nothing" would read as never evidenced. */}
             <td className={td}>{l.reason === 'document_unlinked' ? 'Document removed' : SUPPORT_LABEL[l.supportKind]}</td>
             <td className={`${td} text-amber-400`}>{REASON_LABEL[l.reason]}</td>

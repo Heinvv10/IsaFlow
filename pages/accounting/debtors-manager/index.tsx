@@ -29,7 +29,7 @@ function fmt(amount: number): string {
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
-  return formatDisplayDate(iso, '');
+  return formatDisplayDate(iso);
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────

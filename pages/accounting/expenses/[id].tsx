@@ -356,7 +356,7 @@ export default function ExpenseClaimDetail() {
                 <tbody className="divide-y divide-[rgba(255,255,255,0.04)]">
                   {claim.lines.map(l => (
                     <tr key={l.id} className="hover:bg-white/5">
-                      <td className="px-6 py-3 text-slate-400">{formatDisplayDate(l.lineDate, '')}</td>
+                      <td className="px-6 py-3 text-slate-400">{formatDisplayDate(l.lineDate)}</td>
                       <td className="px-6 py-3">
                         {l.kmTravelled ? (
                           <span className="inline-flex items-center gap-1 text-xs text-teal-400"><MapPin className="h-3 w-3" /> Mileage</span>
@@ -369,7 +369,7 @@ export default function ExpenseClaimDetail() {
                         {l.merchant && <span className="text-xs text-slate-500 block">{l.merchant}</span>}
                         {l.mileageFrom && l.mileageTo && <span className="text-xs text-slate-500 block">{l.mileageFrom} → {l.mileageTo}</span>}
                       </td>
-                      <td className="px-6 py-3 text-right text-slate-400 text-xs">{l.kmTravelled ? `${l.kmTravelled} @ R${l.kmRate}` : '—'}</td>
+                      <td className="px-6 py-3 text-right text-slate-400 text-xs">{l.kmTravelled ? `${l.kmTravelled} @ ${formatMoney(Number(l.kmRate))}` : '—'}</td>
                       <td className="px-6 py-3 text-right text-slate-400 text-xs">{fmtZAR(l.vatAmount)}</td>
                       <td className="px-6 py-3 text-right text-slate-200 font-medium">{fmtZAR(l.amount)}</td>
                     </tr>

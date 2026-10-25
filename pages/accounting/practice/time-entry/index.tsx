@@ -15,12 +15,13 @@ import { BulkRangeModal } from '@/components/practice/BulkRangeModal';
 import type { PracticeTimeEntry, PracticeTimeEntryInput } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import type { BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { addDaysISO, localISODate } from '@/lib/dateUtils';
+import { formatDisplayDateWeekday } from '@/utils/dateFormat';
 
 // ---------- helpers ----------
 
 function todayIso() { return localISODate(); }
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+  return formatDisplayDateWeekday(iso);
 }
 
 const STATUS_CLS: Record<PracticeTimeEntry['status'], string> = {

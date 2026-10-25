@@ -10,6 +10,7 @@ import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download, ChevronDown, Chevr
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { countPostedAccounts, derivedAccountNote } from '@/components/reports/generalLedgerRows';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface AccountReport {
   accountCode: string;
@@ -248,7 +249,7 @@ export default function GeneralLedgerPage() {
                           </tr>
                           {r.transactions.map((t, i) => (
                             <tr key={i} className={`hover:bg-[var(--ff-bg-tertiary)]${t.derived ? ' italic' : ''}`}>
-                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.date?.split('T')[0]}</td>
+                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{formatDisplayDate(t.date)}</td>
                               <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{t.entryNumber}</td>
                               <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.description}</td>
                               <td className="px-4 py-2 text-right tabular-nums">{t.debit > 0 ? fmt(t.debit) : ''}</td>

@@ -14,7 +14,7 @@ import {
   type UnclassifiedWarning,
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -168,7 +168,7 @@ export default function ThreeWayForecastPage() {
                       <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                         <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#888' }} />
-                        <YAxis tick={{ fontSize: 12, fill: '#888' }} width={50} tickFormatter={v => `R${(v / 1000).toFixed(0)}K`} />
+                        <YAxis tick={{ fontSize: 12, fill: '#888' }} width={50} tickFormatter={v => formatMoneyCompact(Number(v), { decimals: 0 })} />
                         <Tooltip contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} formatter={(v) => [fmt(Number(v)), label]} />
                         <Line type="monotone" dataKey={key} stroke={color} strokeWidth={2} dot={{ r: 2 }} />
                       </LineChart>

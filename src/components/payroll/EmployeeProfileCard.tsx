@@ -3,6 +3,7 @@
  * Used by /payroll/employees/[id].
  */
 import { Loader2, Save } from 'lucide-react';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export interface Employee {
   id: string;
@@ -70,12 +71,12 @@ export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Prop
         </div>
         <div>
           <label className={label}>Date of birth</label>
-          <input type="date" className={field} value={employee.dateOfBirth?.slice(0, 10) ?? ''}
+          <input type="date" className={field} value={formatDisplayDate(employee.dateOfBirth)}
             onChange={e => onChange({ ...employee, dateOfBirth: e.target.value })} />
         </div>
         <div>
           <label className={label}>End date</label>
-          <input type="date" className={field} value={employee.endDate?.slice(0, 10) ?? ''}
+          <input type="date" className={field} value={formatDisplayDate(employee.endDate)}
             onChange={e => onChange({ ...employee, endDate: e.target.value || undefined })} />
         </div>
         <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">

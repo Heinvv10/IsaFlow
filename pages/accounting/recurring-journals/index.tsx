@@ -10,6 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { postingWarningsIn } from '@/components/accounting/postingWarningsNotice';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
@@ -252,7 +253,7 @@ export default function RecurringJournalsPage() {
                   <tr key={item.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{item.templateName}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">{item.frequency}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.nextRunDate?.split('T')[0]}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(item.nextRunDate)}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(item.totalAmount)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.runCount}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[item.status] || ''}`}>{item.status}</span></td>

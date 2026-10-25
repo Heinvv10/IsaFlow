@@ -128,7 +128,7 @@ export default function UserAccessPage() {
   }
 
   const fmt = (iso: string) =>
-    formatDisplayDate(iso, '');
+    formatDisplayDate(iso);
 
   return (
     <AppLayout>

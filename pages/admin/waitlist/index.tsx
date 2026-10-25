@@ -42,7 +42,7 @@ const TURNOVER_THRESHOLD_CENTS = 100_000_000;
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : formatDisplayDate(d, '');
+  return Number.isNaN(d.getTime()) ? '—' : formatDisplayDate(d);
 }
 
 function fmtTurnover(cents: number | null): string {

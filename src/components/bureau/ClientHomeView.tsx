@@ -54,7 +54,7 @@ export function ClientHomeView({ metrics, workItems, onOpenItem }: ClientHomeVie
               title={<span className="font-medium">{it.task}</span>}
               subtitle={it.detail}
               amount={it.amount ?? null}
-              meta={it.dueAt ? formatDisplayDate(it.dueAt, '') : '—'}
+              meta={it.dueAt ? formatDisplayDate(it.dueAt) : '—'}
             />
           );
         })}

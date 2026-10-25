@@ -139,7 +139,7 @@ export default function ExchangeRatesSettingsPage() {
                           <td className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">{r.fromCurrency}</td>
                           <td className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">{r.toCurrency}</td>
                           <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.rate.toFixed(6)}</td>
-                          <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.effectiveDate, '')}</td>
+                          <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.effectiveDate)}</td>
                           <td className="px-4 py-3 text-right">
                             <button
                               onClick={() => handleDelete(r.id)}

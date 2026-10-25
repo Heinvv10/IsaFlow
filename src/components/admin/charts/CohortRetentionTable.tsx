@@ -4,6 +4,7 @@
  */
 
 import type { CohortRetentionRow } from '@/modules/admin/types/admin.types';
+import { formatDisplayMonthYear } from '@/utils/dateFormat';
 
 interface Props {
   data: CohortRetentionRow[];
@@ -11,7 +12,7 @@ interface Props {
 
 function fmtMonth(dateStr: string) {
   const d = new Date(dateStr);
-  return d.toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' });
+  return formatDisplayMonthYear(d);
 }
 
 /** Map a 0–100 % value to a Tailwind bg+text class (green→yellow→red). */

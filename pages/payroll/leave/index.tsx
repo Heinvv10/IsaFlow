@@ -165,8 +165,8 @@ export default function LeaveIndexPage() {
                         <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-mono">{r.employeeNumber}</span>
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.leaveTypeName}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.startDate, '')}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.endDate, '')}</td>
+                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.startDate)}</td>
+                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.endDate)}</td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-primary)] font-medium">{r.days}</td>
                       <td className="py-3 px-4"><StatusBadge status={r.status} /></td>
                       <td className="py-3 px-4 text-right">

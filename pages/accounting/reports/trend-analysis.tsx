@@ -10,6 +10,7 @@ import { ArrowLeft, TrendingUp, Loader2, AlertTriangle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { TrendAnalysis as TrendData } from '@/modules/accounting/services/reports/trendAnalysisService';
+import { formatMoneyCompact } from '@/lib/money/formatMoney';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -22,7 +23,7 @@ const ReferenceDot = dynamic(() => import('recharts').then(m => m.ReferenceDot),
 
 type Metric = 'revenue' | 'expenses' | 'netProfit' | 'cash';
 const METRIC_LABELS: Record<Metric, string> = { revenue: 'Revenue', expenses: 'Expenses', netProfit: 'Net Profit', cash: 'Cash Balance' };
-const fmt = (n: number) => n >= 1000000 ? `R ${(n / 1000000).toFixed(1)}M` : n >= 1000 ? `R ${(n / 1000).toFixed(0)}K` : `R ${n.toFixed(0)}`;
+const fmt = (n: number) => formatMoneyCompact(n, { decimals: 0 });
 
 export default function TrendAnalysisPage() {
   const [metric, setMetric] = useState<Metric>('revenue');

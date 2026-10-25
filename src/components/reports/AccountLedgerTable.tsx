@@ -16,7 +16,7 @@ function fmtDate(d: string): string {
   const iso = d.length === 10 ? `${d}T00:00:00` : d;
   const date = new Date(iso);
   if (isNaN(date.getTime())) return d;
-  return formatDisplayDate(date, '');
+  return formatDisplayDate(date);
 }
 
 interface Props {

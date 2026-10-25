@@ -13,6 +13,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDateShort } from '@/utils/dateFormat';
 
 interface TodoItem {
   id: string;
@@ -35,7 +36,7 @@ function fmtCurrency(n: number | string): string {
 function fmtDate(raw: Date | string | null | undefined): string {
   if (!raw) return '';
   const d = raw instanceof Date ? raw : new Date(raw);
-  return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' });
+  return formatDisplayDateShort(d);
 }
 
 const CACHE_TTL_MS = 60_000;

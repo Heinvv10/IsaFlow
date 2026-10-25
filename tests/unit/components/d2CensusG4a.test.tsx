@@ -52,7 +52,7 @@ describe('ar/dunning auto-send toggle', () => {
   trio({ name: 'dunning toggle', render: () => render(<DunningPage />),
     match: (u, i) => u.includes('dunning/settings') && isPut(i), data: { settings: { auto_send_enabled: true, min_outstanding_zar: 777 } },
     others: u => (u.includes('dunning/settings') ? ok(SETTINGS) : u.includes('dunning/templates') ? ok({ templates: [] }) : undefined),
-    drive: () => click(/^enable$/i), plain: 'Could not update the auto-send setting - try again', success: /R777\.00/ });
+    drive: () => click(/^enable$/i), plain: 'Could not update the auto-send setting - try again', success: /R 777\.00/ });
 });
 
 describe('bank-reconciliation list load', () => {

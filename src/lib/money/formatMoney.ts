@@ -64,3 +64,14 @@ export function formatMoneyCompact(amount: number, options: FormatMoneyOptions =
   if (abs >= 1_000) return `${amount < 0 ? '-' : ''}R ${(abs / 1_000).toFixed(1)}K`;
   return formatMoney(amount, options);
 }
+
+/**
+ * An exchange rate: four to six decimals, no more than the rate carries ("18.3330", "0.054321"),
+ * thousands grouped as in formatAmount. A rate is a ratio, not a rand amount, so it is not rounded to cents.
+ */
+export function formatRate(rate: number): string {
+  if (!Number.isFinite(rate)) return String(rate);
+  const trimmed = rate.toFixed(6).replace(/(\.\d{4}\d*?)0+$/, '$1');
+  const [int = '', frac = ''] = trimmed.split('.');
+  return `${int.replace(/\B(?=(\d{3})+(?!\d))/g, GROUP)}.${frac}`;
+}

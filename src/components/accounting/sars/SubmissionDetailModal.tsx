@@ -8,6 +8,7 @@ import { useEffect, useId } from 'react';
 import { X, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 export interface SubmissionDetail {
   id: string;
@@ -27,10 +28,7 @@ const fmt = (n: number) => formatMoney(n);
 
 const formatDateTime = (d: string) => {
   if (!d) return '—';
-  return new Date(d).toLocaleString('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+  return formatDisplayDateTime(d);
 };
 
 function StatusBadge({ status }: { status: string }) {

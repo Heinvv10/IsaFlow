@@ -3,7 +3,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 
 export function fmtDay(iso: string | null | undefined): string {
   if (!iso) return '—';
-  return formatDisplayDate(iso, '');
+  return formatDisplayDate(iso);
 }
 
 export const PANEL_TH = 'px-4 py-2 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase';

@@ -265,7 +265,7 @@ export default function ReconciliationDetailPage() {
                     {recon.bankAccountName || 'Bank Reconciliation'}
                   </h1>
                   <p className="text-sm text-[var(--ff-text-secondary)]">
-                    Statement: {formatDisplayDate(recon.statementDate, '')}
+                    Statement: {formatDisplayDate(recon.statementDate)}
                     {isCompleted && <span className="ml-2 text-teal-400">Completed</span>}
                   </p>
                 </div>
@@ -370,7 +370,7 @@ export default function ReconciliationDetailPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-[var(--ff-text-primary)] truncate">{tx.description || '—'}</p>
                             <p className="text-xs text-[var(--ff-text-tertiary)]">
-                              {formatDisplayDate(tx.transactionDate, '')}
+                              {formatDisplayDate(tx.transactionDate)}
                               {tx.reference && ` | Ref: ${tx.reference}`}
                             </p>
                           </div>
@@ -402,7 +402,7 @@ export default function ReconciliationDetailPage() {
                               <div className="flex-1 min-w-0">
                                 <p className="text-[var(--ff-text-primary)] truncate">{tx.description || '—'}</p>
                                 <p className="text-xs text-[var(--ff-text-tertiary)]">
-                                  {formatDisplayDate(tx.transactionDate, '')}
+                                  {formatDisplayDate(tx.transactionDate)}
                                 </p>
                               </div>
                               <div className="flex items-center gap-2 ml-2">
@@ -456,7 +456,7 @@ export default function ReconciliationDetailPage() {
                             <div className="flex-1 min-w-0">
                               <p className="text-[var(--ff-text-primary)] truncate">{line.description || '—'}</p>
                               <p className="text-xs text-[var(--ff-text-tertiary)]">
-                                {line.entryNumber} | {formatDisplayDate(line.entryDate, '')}
+                                {line.entryNumber} | {formatDisplayDate(line.entryDate)}
                               </p>
                             </div>
                             <span className={`tabular-nums text-sm ml-2 ${amount >= 0 ? 'text-teal-400' : 'text-red-400'}`}>

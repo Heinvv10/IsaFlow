@@ -12,6 +12,7 @@ import {
   ShieldAlert, AlertCircle, Loader2, RefreshCw, Check, X, ScanLine,
   Info, AlertTriangle, Shield,
 } from 'lucide-react';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Alert {
   id: string;
@@ -39,7 +40,7 @@ const SEVERITY_STYLES: Record<Alert['severity'], { icon: typeof Info; text: stri
 };
 
 function fmtDate(s: string): string {
-  try { return new Date(s).toLocaleString('en-ZA'); } catch { return s; }
+  try { return formatDisplayDateTime(s); } catch { return s; }
 }
 
 export default function FraudSignalsPage() {

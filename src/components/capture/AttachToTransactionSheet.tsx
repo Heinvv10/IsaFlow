@@ -36,7 +36,7 @@ function formatAmount(a: number): string {
 }
 
 function formatDate(d: string): string {
-  return formatDisplayDate(d, '');
+  return formatDisplayDate(d);
 }
 
 export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransactionSheetProps) {

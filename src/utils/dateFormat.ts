@@ -2,7 +2,8 @@
  * Centralized Date Formatting Utility
  *
  * ALL date formatting across the app should use these functions.
- * Locale: en-ZA (South Africa) for all user-facing dates.
+ * Dates are read in Africa/Johannesburg (SAST); month names are fixed English strings, not ICU,
+ * so the output is identical on every machine and Node build.
  *
  * Display formats:
  *   formatDisplayDate()       → "25 Feb 2026" (zero-padded day: "05 Feb 2026")
@@ -15,10 +16,6 @@
  *   formatDateISO()           → "2026-02-25"
  *   formatDateTimeISO()       → "2026-02-25 14:30"
  */
-
-import { localISODate } from '@/lib/dateUtils';
-
-const LOCALE = 'en-ZA';
 
 type DateInput = Date | string | number | null | undefined | { toDate: () => Date };
 
@@ -53,95 +50,143 @@ function toDate(date: DateInput): Date | null {
 
 // ─── Display Formats (user-facing) ──────────────────────────────
 
+const NO_DATE = '—';
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const LONG_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
 const HAS_ZONE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i;
 
-/** "05 Oct 2026" from a strict ISO date; '' when it is not a real calendar date (2026-02-30). */
-function fromISODate(iso: string): string {
-  const m = ISO_DATE.exec(iso);
-  if (!m) return '';
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const real = new Date(y, mo - 1, d);
-  if (real.getFullYear() !== y || real.getMonth() !== mo - 1 || real.getDate() !== d) return '';
-  return `${String(d).padStart(2, '0')} ${SHORT_MONTHS[mo - 1]} ${y}`;
+interface Parts { y: number; m: number; d: number; hh: number; mm: number; ss: number }
+
+const SAST = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Africa/Johannesburg', hourCycle: 'h23',
+  year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+});
+
+/**
+ * The calendar day and clock time of an instant in Africa/Johannesburg: the one rule the app's
+ * "today" follows. Not the device's zone (a phone abroad would show another day), and never
+ * toISOString (UTC: a day early after 22:00Z, which is already tomorrow in SAST).
+ */
+function sastParts(instant: Date): Parts | null {
+  if (Number.isNaN(instant.getTime())) return null;
+  const got: Record<string, number> = {};
+  for (const part of SAST.formatToParts(instant)) got[part.type] = Number(part.value);
+  return { y: got.year ?? 0, m: got.month ?? 0, d: got.day ?? 0, hh: got.hour ?? 0, mm: got.minute ?? 0, ss: got.second ?? 0 };
 }
 
-/** The display date of a Date, read in LOCAL time (never via toISOString, which is UTC and can be a day early east of UTC). */
-function fromDate(d: Date): string {
-  return Number.isNaN(d.getTime()) ? '' : fromISODate(localISODate(d));
+/** Parts of a strict ISO date (no timezone shift: it names its own calendar day); null for 2026-02-30. */
+function isoParts(iso: string): Parts | null {
+  const m = ISO_DATE.exec(iso);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const real = new Date(Date.UTC(y, mo - 1, d));
+  if (real.getUTCFullYear() !== y || real.getUTCMonth() !== mo - 1 || real.getUTCDate() !== d) return null;
+  return { y, m: mo, d, hh: 0, mm: 0, ss: 0 };
 }
+
+/** The calendar day of any date input, or null when it is not a date. */
+function partsOf(date: DateInput): Parts | null {
+  if (date === null || date === undefined || date === '') return null;
+  if (typeof date === 'object' && 'toDate' in date && typeof date.toDate === 'function') return sastParts(date.toDate());
+  if (date instanceof Date) return sastParts(date);
+  if (typeof date === 'number') return sastParts(new Date(date));
+  const text = String(date).trim();
+  if (ISO_DATE.test(text)) return isoParts(text);
+  if (TIMESTAMP.test(text)) {
+    // A zoned timestamp is an instant (SAST day); a zone-less one names its own day.
+    return HAS_ZONE.test(text) ? sastParts(new Date(text)) : isoParts(text.slice(0, 10));
+  }
+  return sastParts(new Date(text));
+}
+
+const pad = (n: number): string => String(n).padStart(2, '0');
 
 /**
  * "05 Oct 2026" — THE one way a date is shown on screen (zero-padded day, month name, year).
  *
- * Takes whatever a date column or an API body holds: a plain ISO date (no timezone shift), a
- * timestamp, a Date, epoch milliseconds, or a Timestamp-like with toDate(). A timestamp WITH a zone
- * is read in local time (22:00Z is already the next day in SAST); one without names its own calendar
- * day. `fallback` is returned for nothing and for anything that is not a date. Display only: ISO
- * values in APIs and inputs are unchanged (use formatDateISO for those).
+ * Takes whatever a date column or an API body holds: a plain ISO date, a timestamp, a Date, epoch
+ * milliseconds, or a Timestamp-like with toDate(). Instants are read in Africa/Johannesburg; a plain
+ * date or a zone-less timestamp names its own day. Nothing, or an invalid Date, shows `fallback` ('—',
+ * the one "no date" mark). Text that is not a date is shown as it came, so a bad value stays visible.
+ * Display only: files, API bodies and inputs keep ISO (formatDateISO).
  */
-export function formatDisplayDate(date: DateInput, fallback = 'N/A'): string {
-  if (date === null || date === undefined || date === '') return fallback;
-  if (typeof date === 'object' && 'toDate' in date && typeof date.toDate === 'function') {
-    return fromDate(date.toDate()) || fallback;
-  }
-  if (date instanceof Date) return fromDate(date) || fallback;
-  if (typeof date === 'number') return fromDate(new Date(date)) || fallback;
-  const text = String(date).trim();
-  if (ISO_DATE.test(text)) return fromISODate(text) || fallback;
-  if (TIMESTAMP.test(text)) {
-    return (HAS_ZONE.test(text) ? fromDate(new Date(text)) : fromISODate(text.slice(0, 10))) || fallback;
-  }
-  return fromDate(new Date(text)) || fallback;
+export function formatDisplayDate(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  if (p) return `${pad(p.d)} ${SHORT_MONTHS[p.m - 1]} ${p.y}`;
+  return typeof date === 'string' && date.trim() !== '' ? date.trim() : fallback;
 }
 
 /**
- * "25 Feb 2026, 14:30" — Display date with time
+ * "25 Feb 2026, 14:30" — Display date with time (SAST)
  */
-export function formatDisplayDateTime(date: DateInput, fallback = 'N/A'): string {
-  const d = toDate(date);
-  if (!d) return fallback;
-  const datePart = formatDisplayDate(d);
-  const timePart = d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${datePart}, ${timePart}`;
+export function formatDisplayDateTime(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  if (!p) return typeof date === 'string' && date.trim() !== '' ? date.trim() : fallback;
+  return `${pad(p.d)} ${SHORT_MONTHS[p.m - 1]} ${p.y}, ${pad(p.hh)}:${pad(p.mm)}`;
 }
 
 /**
  * "25 February 2026" — Formal display (agreements, documents)
  */
-export function formatDisplayDateLong(date: DateInput, fallback = 'N/A'): string {
-  const d = toDate(date);
-  if (!d) return fallback;
-  return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
+export function formatDisplayDateLong(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  return p ? `${p.d} ${LONG_MONTHS[p.m - 1]} ${p.y}` : fallback;
 }
 
 /**
  * "25 Feb" — Compact display (alerts, timeline markers)
  */
-export function formatDisplayDateShort(date: DateInput, fallback = 'N/A'): string {
-  const d = toDate(date);
-  if (!d) return fallback;
-  return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' });
+export function formatDisplayDateShort(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  return p ? `${p.d} ${SHORT_MONTHS[p.m - 1]}` : fallback;
 }
 
 /**
  * "Feb 2026" — Month/year display (charts, reports)
  */
-export function formatDisplayMonthYear(date: DateInput, fallback = 'N/A'): string {
-  const d = toDate(date);
-  if (!d) return fallback;
-  return d.toLocaleDateString(LOCALE, { month: 'short', year: 'numeric' });
+export function formatDisplayMonthYear(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  return p ? `${SHORT_MONTHS[p.m - 1]} ${p.y}` : fallback;
 }
 
 /**
- * "14:30" — Time only display
+ * "October 2026" — Month heading (workbenches, period pickers)
  */
-export function formatDisplayTime(date: DateInput, fallback = 'N/A'): string {
-  const d = toDate(date);
-  if (!d) return fallback;
-  return d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit', hour12: false });
+export function formatDisplayMonthYearLong(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  return p ? `${LONG_MONTHS[p.m - 1]} ${p.y}` : fallback;
+}
+
+/**
+ * "Wed, 21 Oct 2026" — Day with its weekday (timesheets, diaries)
+ */
+export function formatDisplayDateWeekday(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  if (!p) return fallback;
+  const weekday = WEEKDAYS[new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay()];
+  return `${weekday}, ${pad(p.d)} ${SHORT_MONTHS[p.m - 1]} ${p.y}`;
+}
+
+/**
+ * "14:30" — Time only display (SAST)
+ */
+export function formatDisplayTime(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  return p ? `${pad(p.hh)}:${pad(p.mm)}` : fallback;
+}
+
+/**
+ * "14:30:05" — Time with seconds (SAST), for "last checked" / "refreshed" stamps
+ */
+export function formatDisplayTimeSeconds(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  return p ? `${pad(p.hh)}:${pad(p.mm)}:${pad(p.ss)}` : fallback;
 }
 
 // ─── Internal / API / Export Formats ────────────────────────────
@@ -151,20 +196,16 @@ export function formatDisplayTime(date: DateInput, fallback = 'N/A'): string {
  */
 export function formatDateISO(date: DateInput): string {
   if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  const d = toDate(date);
-  if (!d) return '';
-  return localISODate(d);
+  const p = partsOf(date);
+  return p ? `${p.y}-${pad(p.m)}-${pad(p.d)}` : '';
 }
 
 /**
  * "2026-02-25 14:30" — ISO datetime for APIs, exports
  */
 export function formatDateTimeISO(date: DateInput): string {
-  const d = toDate(date);
-  if (!d) return '';
-  const datePart = localISODate(d);
-  const timePart = d.toTimeString().slice(0, 5);
-  return `${datePart} ${timePart}`;
+  const p = partsOf(date);
+  return p ? `${p.y}-${pad(p.m)}-${pad(p.d)} ${pad(p.hh)}:${pad(p.mm)}` : '';
 }
 
 // ─── Utility ────────────────────────────────────────────────────
@@ -193,12 +234,12 @@ export const formatDateStandard = formatDateISO;
 export const formatDateTimeStandard = formatDateTimeISO;
 
 /** @deprecated Use formatDisplayDate() for display or formatDateISO() for API */
-export function formatDate(date: DateInput, fallback = 'N/A'): string {
+export function formatDate(date: DateInput, fallback = NO_DATE): string {
   return formatDisplayDate(date, fallback);
 }
 
 /** @deprecated Use formatDisplayDateTime() */
-export function formatDateTime(date: DateInput, fallback = 'N/A'): string {
+export function formatDateTime(date: DateInput, fallback = NO_DATE): string {
   return formatDisplayDateTime(date, fallback);
 }
 

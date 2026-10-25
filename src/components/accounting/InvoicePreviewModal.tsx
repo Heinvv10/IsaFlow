@@ -60,7 +60,7 @@ const fmt = (n: number) => formatMoney(n);
 
 const fmtDate = (d: string | Date | undefined): string => {
   if (!d) return '—';
-  return formatDisplayDate((d instanceof Date ? d : new Date(d)), '');
+  return formatDisplayDate((d instanceof Date ? d : new Date(d)));
 };
 
 // ── Invoice Document ─────────────────────────────────────────────────────────

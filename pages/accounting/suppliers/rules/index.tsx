@@ -27,7 +27,7 @@ interface SupplierRule {
 
 function fmtDate(val: string | Date | null): string {
   if (!val) return '—';
-  try { return formatDisplayDate(val, ''); } catch { return String(val); }
+  return formatDisplayDate(val);
 }
 
 function fmtZAR(val: number | null): string {

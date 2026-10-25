@@ -46,5 +46,5 @@ export function groupPeriodsIntoYears(periods: FiscalPeriod[]): FiscalYearGroup[
 
 export function formatDate(d: string | Date): string {
   const date = d instanceof Date ? d : new Date(d);
-  return formatDisplayDate(date, '');
+  return formatDisplayDate(date);
 }

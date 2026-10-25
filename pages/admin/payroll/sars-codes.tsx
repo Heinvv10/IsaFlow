@@ -198,7 +198,7 @@ export default function AdminSarsCodesPage() {
                     Set as current
                   </button>
                 )}
-                <span className="ml-auto text-xs text-[var(--ff-text-tertiary)]">Imported {formatDisplayDate(r.released_at, '')}</span>
+                <span className="ml-auto text-xs text-[var(--ff-text-tertiary)]">Imported {formatDisplayDate(r.released_at)}</span>
               </div>
             ))}
           </div>

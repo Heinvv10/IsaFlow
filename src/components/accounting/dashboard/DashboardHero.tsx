@@ -7,6 +7,7 @@ import { DM_Serif_Display } from 'next/font/google';
 import { TrendingUp, FileText, Landmark, Clock, ArrowDown } from 'lucide-react';
 import type { ElementType } from 'react';
 import { formatMoneyCompact } from '@/lib/money/formatMoney';
+import { formatDisplayMonthYearLong } from '@/utils/dateFormat';
 
 const serif = DM_Serif_Display({ subsets: ['latin'], weight: '400' });
 
@@ -92,10 +93,8 @@ export function DashboardHero({
   companyName, loading = false, stats, tabs, activeTab, onTabChange,
 }: DashboardHeroProps) {
   const now   = new Date();
-  const month = now.toLocaleString('en-ZA', { month: 'long' });
-  const year  = now.getFullYear();
   const tabHero = TAB_HERO[activeTab];
-  const eyebrow = tabHero ? tabHero.eyebrow : `Financial Overview · ${month} ${year}`;
+  const eyebrow = tabHero ? tabHero.eyebrow : `Financial Overview · ${formatDisplayMonthYearLong(now)}`;
   const title = tabHero ? tabHero.title : companyName;
   const subtitle = tabHero ? tabHero.subtitle : 'General Ledger, Journal Entries & Financial Reports';
 

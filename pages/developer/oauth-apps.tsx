@@ -35,9 +35,7 @@ interface NewApp {
 
 function fmt(val: string | null): string {
   if (!val) return '—';
-  try {
-    return formatDisplayDate(val, '');
-  } catch { return val; }
+  return formatDisplayDate(val);
 }
 
 function Toast({ msg, ok, onClose }: { msg: string; ok: boolean; onClose: () => void }) {

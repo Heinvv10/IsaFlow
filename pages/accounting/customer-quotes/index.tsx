@@ -11,6 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
 interface CustomerOption { id: string; name: string }
@@ -260,8 +261,8 @@ export default function CustomerQuotesPage() {
                       <tr key={q.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{q.quoteNumber}</td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{q.customerName}</td>
-                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{q.quoteDate?.split('T')[0]}</td>
-                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{q.expiryDate?.split('T')[0] || '—'}</td>
+                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(q.quoteDate)}</td>
+                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(q.expiryDate)}</td>
                         <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(q.total)}</td>
                         <td className="px-5 py-3.5"><StatusPill status={q.status} /></td>
                         <td className="px-4 py-3.5">

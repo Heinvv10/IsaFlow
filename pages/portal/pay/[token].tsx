@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { assertOk, apiErrorMessage, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -181,7 +182,7 @@ export default function PortalPayPage() {
             {data.dueDate && (
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Due Date</span>
-                <span className="text-sm font-medium text-gray-900">{data.dueDate.split('T')[0]}</span>
+                <span className="text-sm font-medium text-gray-900">{formatDisplayDate(data.dueDate)}</span>
               </div>
             )}
           </div>

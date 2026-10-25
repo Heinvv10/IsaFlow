@@ -5,6 +5,7 @@
 
 import dynamic from 'next/dynamic';
 import type { ChurnTrendPoint } from '@/modules/admin/types/admin.types';
+import { formatDisplayMonthYear } from '@/utils/dateFormat';
 
 const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
 const LineChart           = dynamic(() => import('recharts').then((m) => m.LineChart),           { ssr: false });
@@ -21,7 +22,7 @@ interface Props {
 
 function fmtMonth(dateStr: unknown) {
   const d = new Date(String(dateStr ?? ''));
-  return d.toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' });
+  return formatDisplayMonthYear(d);
 }
 
 export function ChurnTrendChart({ data }: Props) {

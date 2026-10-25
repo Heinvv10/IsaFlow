@@ -163,7 +163,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
                 <div className="min-w-0">
                   <p className="truncate text-sm text-[var(--ff-text-secondary)]">{l.label ?? 'Untitled link'}</p>
                   <p className="text-xs text-[var(--ff-text-tertiary)]">
-                    Expires {formatDisplayDate(l.expiresAt, '')} · {l.viewCount} view{l.viewCount === 1 ? '' : 's'}
+                    Expires {formatDisplayDate(l.expiresAt)} · {l.viewCount} view{l.viewCount === 1 ? '' : 's'}
                     {l.revokedAt ? ' · Revoked' : ''}
                   </p>
                 </div>

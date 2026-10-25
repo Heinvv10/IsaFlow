@@ -33,7 +33,7 @@ export function MigrationHistory({ runs }: { runs: MigrationRunSummary[] }) {
             <div>
               <span className="font-medium text-[var(--ff-text-primary)]">{run.runType.replace('_', ' ')}</span>
               <span className="text-[var(--ff-text-tertiary)] text-xs ml-2">
-                {formatDisplayDate(run.startedAt, '')}
+                {formatDisplayDate(run.startedAt)}
               </span>
             </div>
             <div className="flex items-center gap-3">

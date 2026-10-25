@@ -26,7 +26,7 @@ function fmtCurrency(n: number): string {
 }
 
 function fmtDate(s: string): string {
-  return formatDisplayDate(s, '');
+  return formatDisplayDate(s);
 }
 
 function currentPeriod(): { start: string; end: string } {

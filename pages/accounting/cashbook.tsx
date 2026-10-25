@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -178,7 +179,7 @@ export default function CashbookPage() {
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
                     <tr key={r.id} className="hover:bg-teal-500/[0.04] transition-colors">
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.transactionDate?.split('T')[0]}</td>
+                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDisplayDate(r.transactionDate)}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.reference || '—'}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.description || r.matchedEntity || '—'}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-green-400">

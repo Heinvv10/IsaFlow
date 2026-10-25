@@ -12,7 +12,7 @@ export function formatCurrency(amount: number): string {
 
 /** Format a date for display (21 Oct 2026); '—' when there is none or it is not a date */
 export function formatDate(dateStr: string | Date | null | undefined): string {
-  return formatDisplayDate(dateStr, '—');
+  return formatDisplayDate(dateStr);
 }
 
 /** Format an amount as Rand without its sign (R 1 234.56), for a figure whose direction is shown elsewhere */

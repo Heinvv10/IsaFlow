@@ -5,6 +5,7 @@
 import dynamic from 'next/dynamic';
 import type { MrrTrendPoint } from '@/modules/admin/types/admin.types';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDateShort } from '@/utils/dateFormat';
 
 const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
 const AreaChart          = dynamic(() => import('recharts').then((m) => m.AreaChart),          { ssr: false });
@@ -20,7 +21,7 @@ interface Props {
 
 function fmtShortDate(dateStr: unknown) {
   const d = new Date(String(dateStr ?? ''));
-  return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+  return formatDisplayDateShort(d);
 }
 
 function fmtZAR(cents: number) {
