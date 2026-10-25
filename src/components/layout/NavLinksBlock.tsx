@@ -5,7 +5,7 @@
  */
 
 import Link from 'next/link';
-import { isLinkActive, type DropdownItem } from '../accounting/accountingNavConfig';
+import { mostSpecificActiveHref, type DropdownItem } from '../accounting/accountingNavConfig';
 
 interface NavLinksBlockProps {
   links: DropdownItem[] | undefined;
@@ -17,10 +17,11 @@ interface NavLinksBlockProps {
 
 export function NavLinksBlock({ links, asPath, onNav, linkClassName, separatorClassName }: NavLinksBlockProps) {
   if (!links || links.length === 0) return null;
+  const activeHref = mostSpecificActiveHref(links.map(l => l.href), asPath);
   return (
     <>
       {links.map(item => (
-        <Link key={item.href} href={item.href} onClick={onNav} className={linkClassName(isLinkActive(item.href, asPath))}>
+        <Link key={item.href} href={item.href} onClick={onNav} className={linkClassName(item.href === activeHref)}>
           {item.label}
         </Link>
       ))}
