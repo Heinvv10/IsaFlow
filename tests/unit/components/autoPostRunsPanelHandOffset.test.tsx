@@ -64,7 +64,7 @@ it('describes the line and the journal, and counts the reason in the notice', as
   await undoAndSeeRefusal();
 
   const item = screen.getByText(/Line 2026-05-15/).textContent ?? '';
-  expect(item).toMatch(/Line 2026-05-15 · -R\xa0100\.00 · Office rent/);
+  expect(item).toMatch(/Line 2026-05-15 · \u2212R\xa0100\.00 · Office rent/);
   expect(item).toMatch(/\(\s*2026-05-20 · R\xa060\.00 · Reclass rent\): JE-2026-00042 may be the correction/);
   expect(screen.getByRole('status').textContent).toMatch(/1 may already be corrected by a later journal/);
 });
@@ -156,6 +156,6 @@ it('shows the projected balances in the undo-anyway dialog', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Not the correction — undo anyway' }));
 
   const table = await screen.findByRole('table', { name: 'Balances after the undo' });
-  expect(table.textContent).toMatch(/6100 Rent\s*R\xa00\.00\s*-R\xa060\.00/);
+  expect(table.textContent).toMatch(/6100 Rent\s*R\xa00\.00\s*\u2212R\xa060\.00/);
   expect(screen.getByText(/This is not what reversing JE-2026-00042 gives/)).toBeTruthy();
 });

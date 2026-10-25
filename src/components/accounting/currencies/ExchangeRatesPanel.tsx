@@ -248,9 +248,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
             </button>
             {convertResult && (
               <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-500/10 border border-violet-500/20">
-                <span className="text-xl font-bold text-violet-400">
-                  {fromSymbol(convertForm.to)}{formatAmount(convertResult.converted)}
-                </span>
+                <span className="text-xl font-bold text-violet-400">{fromSymbol(convertForm.to)}{formatAmount(convertResult.converted)}</span>
                 <span className="text-xs text-[var(--ff-text-tertiary)]">@ {convertResult.rate}</span>
               </div>
             )}

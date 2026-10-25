@@ -1,5 +1,6 @@
 /**
- * The one on-screen ZAR format: "R 25 000.00". Negative amounts render as "-R 2 300.00".
+ * The one on-screen ZAR format: "R 25 000.00". Negative amounts render as "−R 2 300.00" (U+2212; exports and
+ * other machine output keep the ASCII hyphen and never go through here).
  *
  * Every space in it, the one after the R included, is a NON-BREAKING space: a line can never break between
  * the symbol and the figure (a bank-transactions row at 390 px wrapped "R" / "150.00"). Thousands are grouped with a NON-BREAKING space and the decimal is a dot, so a figure never
@@ -19,6 +20,8 @@ interface FormatMoneyOptions {
 }
 
 const GROUP = '\u00A0';
+/** U+2212, not the ASCII hyphen: a hyphen-minus is a line-break opportunity ("-" / "R 2 450.00"), a true minus is not. */
+const MINUS = '\u2212';
 
 /** abs rounded half away from zero to `decimals` places, as a fixed-point string. */
 function toFixedHalfUp(abs: number, decimals: number): string {
@@ -46,13 +49,13 @@ function parts(amount: number, decimals: number): Parts {
 /** "R 25 000.00" / "-R 2 300.00". Non-finite inputs (NaN/Infinity) are the caller's responsibility; they pass through verbatim. */
 export function formatMoney(amount: number, options: FormatMoneyOptions = {}): string {
   const { negative, body } = parts(amount, options.decimals ?? 2);
-  return `${negative ? '-' : ''}R${GROUP}${body}`;
+  return `${negative ? MINUS : ''}R${GROUP}${body}`;
 }
 
 /** The same figure without the symbol, for a column whose header says it is rand: "25 000.00" / "-2 300.00". */
 export function formatAmount(amount: number, options: FormatMoneyOptions = {}): string {
   const { negative, body } = parts(amount, options.decimals ?? 2);
-  return `${negative ? '-' : ''}${body}`;
+  return `${negative ? MINUS : ''}${body}`;
 }
 
 /**
@@ -61,8 +64,8 @@ export function formatAmount(amount: number, options: FormatMoneyOptions = {}): 
  */
 export function formatMoneyCompact(amount: number, options: FormatMoneyOptions = {}): string {
   const abs = Math.abs(amount);
-  if (abs >= 1_000_000) return `${amount < 0 ? '-' : ''}R${GROUP}${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${amount < 0 ? '-' : ''}R${GROUP}${(abs / 1_000).toFixed(1)}K`;
+  if (abs >= 1_000_000) return `${amount < 0 ? MINUS : ''}R${GROUP}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${amount < 0 ? MINUS : ''}R${GROUP}${(abs / 1_000).toFixed(1)}K`;
   return formatMoney(amount, options);
 }
 
@@ -91,5 +94,5 @@ export function formatCents(cents: number, options: FormatCentsOptions = {}): st
   if (!Number.isSafeInteger(cents)) return formatMoney(cents / 100);
   const digits = String(Math.abs(cents)).padStart(3, '0');
   const grouped = digits.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, GROUP);
-  return `${cents < 0 ? '-' : ''}${options.symbol === false ? '' : `R${GROUP}`}${grouped}.${digits.slice(-2)}`;
+  return `${cents < 0 ? MINUS : ''}${options.symbol === false ? '' : `R${GROUP}`}${grouped}.${digits.slice(-2)}`;
 }

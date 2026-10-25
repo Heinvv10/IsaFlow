@@ -31,6 +31,8 @@ describe('the figures face', () => {
 
   it('has a metrics-matched fallback for the digits while a face loads', () => {
     expect(css).toMatch(/font-family: 'IsaFlow Figures Fallback';[^}]*size-adjust:\s*107\.9\d*%;[^}]*unicode-range:\s*U\+0030-0039/);
+    // line boxes: Plex's ascent/descent/line-gap (1025/275/0 per 1000 em) over the size-adjust
+    expect(css).toMatch(/ascent-override:\s*94\.99%;[^}]*descent-override:\s*25\.48%;[^}]*line-gap-override:\s*0%/);
   });
 
   it('is first in the sans stack, ahead of DM Sans', () => {

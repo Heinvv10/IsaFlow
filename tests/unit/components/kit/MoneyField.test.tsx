@@ -107,7 +107,7 @@ describe('MoneyField', () => {
   it('refuses a negative amount unless allowNegative', () => {
     const { unmount } = render(<Harness />);
     type('-5');
-    expect(screen.queryByText(/^-R /u)).toBeNull();
+    expect(screen.queryByText(/^\u2212R\s/u)).toBeNull();
     fireEvent.blur(input());
     expect(screen.getByRole('alert').textContent).toMatch(/negative/i);
     expect(out()).toBe('null');
@@ -116,7 +116,7 @@ describe('MoneyField', () => {
     type('-5');
     fireEvent.blur(input());
     expect(out()).toBe('-500');
-    expect(screen.getByText(/^-R\s5\.00$/u)).toBeTruthy();
+    expect(screen.getByText(/^\u2212R\s5\.00$/u)).toBeTruthy();
   });
 
   it('enforces min and max in cents', () => {

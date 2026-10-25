@@ -1,7 +1,6 @@
 /**
  * Admin Dashboard — KPI stats + recent activity feed.
  */
-
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';

@@ -60,10 +60,7 @@ const SOURCE_LABELS: Record<string, string> = {
 const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? s;
 const PAGE_SIZE = 100;
 
-function fmtR(n: number) {
-  if (!n) return '—';
-  return formatMoney(n);
-}
+const fmtR = (n: number): string => (n ? formatMoney(n) : '—');
 
 export default function AutoPostingsPage() {
   const [data, setData] = useState<AutoResponse | null>(null);

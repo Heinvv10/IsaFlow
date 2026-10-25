@@ -19,7 +19,7 @@ interface PortalSession {
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
-  try { return formatDisplayDateTime(s); } catch { return s; }
+  return formatDisplayDateTime(s);
 }
 
 async function fetchSessions(exportId: string): Promise<PortalSession[]> {

@@ -17,7 +17,6 @@ import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/p
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-
 type Tab = 'details' | 'tasks' | 'time';
 
 const ALLOWED: Record<PracticeJob['status'], PracticeJob['status'][]> = {

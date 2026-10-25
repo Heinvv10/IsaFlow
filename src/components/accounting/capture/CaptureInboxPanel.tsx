@@ -55,7 +55,7 @@ export interface InboxAddress { id: string; address: string }
 
 export function fmtDate(val: string | Date | null | undefined): string {
   if (!val) return '—';
-  try { return formatDisplayDateTime(val); } catch { return String(val); }
+  return formatDisplayDateTime(val);
 }
 
 export function fmtZAR(val: number | null | undefined): string {

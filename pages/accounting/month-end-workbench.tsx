@@ -28,8 +28,7 @@ function defaultPeriod(): string {
 }
 
 function periodLabel(period: string): string {
-  const [y, m] = period.split('-').map(Number) as [number, number];
-  return formatDisplayMonthYearLong(Date.UTC(y, m - 1, 1));
+  return formatDisplayMonthYearLong(period);
 }
 
 // Workflow-card statuses are a sibling vocabulary to record statuses

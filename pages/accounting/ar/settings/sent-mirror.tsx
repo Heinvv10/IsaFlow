@@ -46,7 +46,7 @@ type ToastState = { msg: string; ok: boolean } | null;
 
 function fmtDate(val: string | null | undefined): string {
   if (!val) return 'never';
-  try { return formatDisplayDateTime(val); } catch { return String(val); }
+  return formatDisplayDateTime(val);
 }
 
 function StatusPill({ status }: { status: Connection['status'] }) {

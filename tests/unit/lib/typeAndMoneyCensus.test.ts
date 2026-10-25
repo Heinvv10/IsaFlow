@@ -10,15 +10,21 @@
  *   3. puts font-mono on a money or numeric cell;
  *   4. formats money by hand: Intl.NumberFormat('en-ZA'), toLocaleString with fraction digits or a
  *      currency, "R" glued to toFixed/toLocaleString, a template or a "R " string concatenation;
- *   5. formats a date by hand: toLocaleDateString, toLocaleTimeString, a Date's toLocaleString, a
- *      toLocaleString with date options, or an ISO date shown raw (x.split('T')[0] in JSX).
- * Screen files are src/** and pages/** .ts/.tsx except pages/api, src/lib and the .ts services under
- * src/modules (server code keeps its own, machine, formats). Allowlists only shrink: an entry whose
- * file no longer needs it fails the test. Not seen: a size or format built at runtime.
+ *   5. formats a date by hand: toLocaleDateString, toLocaleTimeString, Intl.DateTimeFormat, a Date's
+ *      toLocaleString (by the receiver's name or `new Date(...)`), a toLocaleString with date options,
+ *      or an ISO date shown raw (x.split('T')[0] in JSX).
+ * A number can no longer be handed to a date formatter at all: dateFormat's input type is
+ * `Date | string | null | undefined`, proved in src/utils/dateFormat.typeproof.ts.
+ * Screen files are src/** and pages/** .ts/.tsx except pages/api and src/lib. The .ts services under
+ * src/modules (server messages, PDFs, emails) are scanned too, against SERVER_HITS: a per-file count
+ * of what is already there, which only shrinks (a new hit fails; a file that got cleaner must lower
+ * its count). A line that formats a fraction that is NOT money (a rate, hours, a quantity) says so with
+ * `census-ok: <reason>` and is skipped. Not seen: a size or format built at runtime.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
+import { SERVER_HITS } from './typeAndMoneyCensus.serverHits';
 
 const ROOT = process.cwd();
 const listed = (...dirs: string[]): string[] =>
@@ -26,12 +32,13 @@ const listed = (...dirs: string[]): string[] =>
     cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   }).split('\n').filter(Boolean);
 
-const SCREEN_FILES = listed('src', 'pages').filter(
-  (f) => /\.tsx?$/.test(f)
-    && !f.startsWith('pages/api/') && !f.startsWith('src/lib/')
-    && !(f.startsWith('src/modules/') && !f.endsWith('.tsx'))
-    && f !== 'src/utils/dateFormat.ts',
+const ALL_FILES = listed('src', 'pages').filter(
+  (f) => /\.tsx?$/.test(f) && !f.startsWith('pages/api/') && !f.startsWith('src/lib/') && f !== 'src/utils/dateFormat.ts'
+    && !f.endsWith('.typeproof.ts'),
 );
+const isServerTs = (f: string): boolean => f.startsWith('src/modules/') && !f.endsWith('.tsx');
+const SCREEN_FILES = ALL_FILES.filter((f) => !isServerTs(f));
+const SERVER_TS_FILES = ALL_FILES.filter(isServerTs);
 const read = (f: string): string => readFileSync(`${ROOT}/${f}`, 'utf8');
 const lines = (f: string): string[] => read(f).split('\n');
 const eachLine = (test: (line: string) => string[]): string[] =>
@@ -93,24 +100,31 @@ export function monoOnNumber(all: string[], i: number): boolean {
 
 const MONEY_DIGITS = /\.toLocaleString\([^)]*(?:FractionDigits|currency|style)/;
 const R_GLUED = /(?:^|[^\w])R ?(?:\$|\{)\{?[^}]*\.(?:toFixed|toLocaleString)\(|(?:^|[^\w])R\$\{|['"`]R ?['"`]\s*\+/;
+const SYMBOL_APART = /\b(?:ZAR|R)\s*(?:<\/\w+>)?\s*\$?\{[^}]*\.toFixed\(/;
+const OK_MARK = /census-ok:/;
 export function handMadeMoney(line: string): string[] {
+  if (OK_MARK.test(line)) return [];
   const hits: string[] = [];
   if (MONEY_DIGITS.test(line)) hits.push('toLocaleString money');
-  if (R_GLUED.test(line)) hits.push('"R" glued to a number');
+  if (R_GLUED.test(line) || SYMBOL_APART.test(line)) hits.push('"R" glued to a number');
   return hits;
 }
 
+/** x.split('T')[0] / x.slice(0, 10) on a date-named value, shown in JSX text or a label/value pair. */
+const ISO_CUT = "[\\w.?!]*(?:[dD]ate|_date|[aA]t|_at|Day|[sS]tart|[eE]nd|[dD]ue|[fF]rom|[uU]ntil|[eE]xpiry|On)\\??\\.(?:split\\('T'\\)\\[0\\]|slice\\(0, ?10\\))";
+const RAW_ISO = new RegExp(`>\\s*\\{\\s*${ISO_CUT}\\s*\\}|value: ${ISO_CUT}`);
 const DATE_OPTS = /dateStyle|timeStyle|month|year|hour|minute|timeZone|weekday/;
+/** A receiver that is a Date by its name: d, dt, new Date(..), createdAt, invoiceDate, expiresAt, lastSeenTime... */
+const DATE_RECEIVER = /(?:new Date\([^)]*\)|\b(?:d|dt|date|now|when)|\b\w*(?:[dD]ate|[aA]t|[tT]ime|[wW]hen|_at|_date))\)?\.toLocaleString\(/;
 export function handMadeDate(line: string): string[] {
   const hits: string[] = [];
   if (/\.toLocaleDateString\(|\.toLocaleTimeString\(/.test(line)) hits.push('toLocale{Date,Time}String');
-  if (/new Date\([^)]*\)\.toLocaleString\(/.test(line)) hits.push("new Date().toLocaleString");
+  if (/Intl\.DateTimeFormat\(/.test(line)) hits.push('Intl.DateTimeFormat');
+  if (DATE_RECEIVER.test(line)) hits.push("a Date's toLocaleString");
   for (const m of line.matchAll(/\.toLocaleString\(([^)]*)\)/g)) {
     if (DATE_OPTS.test(m[1] ?? '')) hits.push('toLocaleString with date options');
   }
-  if (/>\s*\{\s*[\w.?!]+\??\.(?:split\('T'\)\[0\]|slice\(0, ?10\))\s*\}/.test(line) || /value: [\w.?!]+\??\.(?:split\('T'\)\[0\]|slice\(0, ?10\))/.test(line)) {
-    hits.push('ISO date shown raw');
-  }
+  if (RAW_ISO.test(line)) hits.push('ISO date shown raw');
   return hits;
 }
 
@@ -187,7 +201,14 @@ describe('money display', () => {
     expect(handMadeMoney('`R${total}`')).toHaveLength(1);
     expect(handMadeMoney("return 'R ' + abs;")).toHaveLength(1);
     expect(handMadeMoney('(R{r.totalAmount.toLocaleString()})')).toHaveLength(1);
+    expect(handMadeMoney('`ZAR ${x.toFixed(2)}`')).toHaveLength(1);
+    expect(handMadeMoney('<span>R</span>{x.toFixed(2)}')).toHaveLength(1);
     expect(handMadeMoney('{formatMoney(r.value)} and {total.toLocaleString()} rows')).toEqual([]);
+  });
+
+  it('lets a non-money fraction say so with census-ok', () => {
+    expect(handMadeMoney("h.toLocaleString('en-ZA', { minimumFractionDigits: 2 }) // census-ok: hours")).toEqual([]);
+    expect(handMadeMoney("h.toLocaleString('en-ZA', { minimumFractionDigits: 2 })")).toHaveLength(1);
   });
 });
 
@@ -204,5 +225,28 @@ describe('date display', () => {
     expect(handMadeDate('<td>{r.invoiceDate?.split(\'T\')[0]}</td>')).toHaveLength(1);
     expect(handMadeDate("{ label: 'Due', value: inv.due_date?.slice(0, 10) }")).toHaveLength(1);
     expect(handMadeDate("{count.toLocaleString('en-ZA')} rows, form: setForm({ d: x.split('T')[0] })")).toEqual([]);
+    expect(handMadeDate("when = poll.at ? new Date(poll.at).toLocaleString('en-ZA') : ''")).toHaveLength(1);
+    expect(handMadeDate("const s = row.createdAt.toLocaleString('en-ZA')")).toHaveLength(1);
+    expect(handMadeDate("return dt.toLocaleString('en-ZA')")).toHaveLength(1);
+    expect(handMadeDate('new Intl.DateTimeFormat("en-ZA").format(d)')).toHaveLength(1);
+    // a hash cut to ten characters is not a date
+    expect(handMadeDate('{j.materialHash.slice(0, 10)}…')).toEqual([]);
+    // numbers keep their locale grouping: a count is not a date
+    expect(handMadeDate("{summary.pageviews.toLocaleString('en-ZA')} {Number(q).toLocaleString('en-ZA')}")).toEqual([]);
+  });
+});
+
+describe('server-side .ts under src/modules', () => {
+  const hitsIn = (f: string): number =>
+    lines(f).filter((l) => handMadeMoney(l).length > 0 || handMadeDate(l).length > 0
+      || /Intl\.NumberFormat\(\s*'en-ZA'/.test(l)).length;
+
+  it('has no more hand-made money or dates than the recorded per-file counts, and every count is current', () => {
+    const now: Record<string, number> = {};
+    for (const f of SERVER_TS_FILES) {
+      const n = hitsIn(f);
+      if (n > 0) now[f] = n;
+    }
+    expect(now).toEqual(SERVER_HITS);
   });
 });

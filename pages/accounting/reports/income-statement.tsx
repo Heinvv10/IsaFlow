@@ -265,7 +265,6 @@ export default function IncomeStatementPage() {
                   Profit &amp; Loss — {formatDisplayDate(periodStart)} to {formatDisplayDate(periodEnd)}
                 </h2>
               </div>
-
               <p className="sm:hidden mb-1 text-xs text-[var(--ff-text-tertiary)]">Swipe the statement sideways for the prior period and variance columns.</p>
               <IncomeStatementSections
                 costCentreId={costCentreId}

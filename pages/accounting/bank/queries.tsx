@@ -34,7 +34,7 @@ const fmtDate = (s: string | Date | null) => {
 
 const fmtDateTime = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatDisplayDateTime(s); } catch { return String(s); }
+  return formatDisplayDateTime(s);
 };
 
 // ── Tab config ────────────────────────────────────────────────────────────────
