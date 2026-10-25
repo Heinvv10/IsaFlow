@@ -49,7 +49,7 @@ describe('settleSubscriptionCharge', () => {
     expect(text(calls[0])).toMatch(/UPDATE subscription_charges SET status = 'settled'/);
     expect(text(calls[1])).toMatch(/UPDATE subscriptions s/);
     // Both statements are scoped to the charge's own company and id.
-    expect(calls[0]!.slice(1)).toEqual(['ch-1', 'co-1']);
+    expect(calls[0]!.slice(1)).toEqual(['ch-1', 'co-1', null, null]); // no paid amount: the cron's verify path
     expect(calls[1]!.slice(1)).toEqual(expect.arrayContaining(['ch-1', 'co-1']));
   });
 

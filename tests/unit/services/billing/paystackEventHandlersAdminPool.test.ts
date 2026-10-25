@@ -29,7 +29,7 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/ar/gatewayInvoiceReceiptService', () => ({ recordGatewayInvoiceReceipt: vi.fn() }));
 vi.mock('@/modules/billing/services/flowWalletService', () => ({
-  completeBundlePurchase: vi.fn(async () => ({ purchaseId: 'fp-1', balanceAfter: 10 })),
+  completePaidBundlePurchase: vi.fn(async () => ({ purchaseId: 'fp-1', balanceAfter: 10 })),
   failBundlePurchase: vi.fn(async () => undefined),
 }));
 vi.mock('@/modules/billing/services/subscriptionPeriod', () => ({ settleSubscriptionCharge: vi.fn(async () => undefined) }));
@@ -39,7 +39,7 @@ vi.mock('@/modules/billing/services/paystackMandateActivation', () => ({
   resolveAuthorisedMandate: vi.fn(),
 }));
 
-import { completeBundlePurchase, failBundlePurchase } from '@/modules/billing/services/flowWalletService';
+import { completePaidBundlePurchase, failBundlePurchase } from '@/modules/billing/services/flowWalletService';
 import { settleSubscriptionCharge } from '@/modules/billing/services/subscriptionPeriod';
 import { processEvent } from '@/modules/billing/services/paystackEventHandlers';
 
@@ -61,16 +61,17 @@ describe('Paystack webhook handlers', () => {
   });
 
   it('charge.failed on a subscription charge: the payment request first, then the charge on migration_admin', async () => {
-    h.script.push([{ id: 'pr-1', purpose: 'subscription_charge', flow_purchase_id: null, subscription_charge_id: 'ch-1' }]);
+    h.script.push([{ id: 'pr-1', company_id: 'co-1', purpose: 'subscription_charge', flow_purchase_id: null, subscription_charge_id: 'ch-1' }]);
     await processEvent('charge.failed', { event: 'charge.failed', data: { reference: 'ref-1' } });
     expect(h.order).toEqual(['app:payment_request', 'admin:paystack_charge_failed']);
-    expect(h.adminValues).toEqual([['charge.failed', 'ch-1']]);
+    // Scoped to the payment request's company: its charge link is app-writable (S-07e).
+    expect(h.adminValues).toEqual([['charge.failed', 'ch-1', 'co-1']]);
   });
 
   it('charge.failed on a flow purchase fails the purchase, and writes no subscription charge', async () => {
-    h.script.push([{ id: 'pr-1', purpose: 'flow_bundle', flow_purchase_id: 'fp-1', subscription_charge_id: null }]);
+    h.script.push([{ id: 'pr-1', company_id: 'co-1', purpose: 'flow_bundle', flow_purchase_id: 'fp-1', subscription_charge_id: null }]);
     await processEvent('charge.failed', { event: 'charge.failed', data: { reference: 'ref-1' } });
-    expect(failBundlePurchase).toHaveBeenCalledWith('fp-1', 'charge.failed');
+    expect(failBundlePurchase).toHaveBeenCalledWith('fp-1', 'charge.failed', 'co-1');
     expect(h.order).toEqual(['app:payment_request']);
   });
 
@@ -83,14 +84,16 @@ describe('Paystack webhook handlers', () => {
 
   it('charge.success on a flow bundle completes the purchase after the request is marked completed', async () => {
     h.script.push([{ ...PR, purpose: 'flow_bundle', flow_purchase_id: 'fp-1' }]);
-    await processEvent('charge.success', { event: 'charge.success', data: { reference: 'ref-1' } });
+    await processEvent('charge.success', { event: 'charge.success', data: { reference: 'ref-1', amount: 10150, requested_amount: 10000,
+      currency: 'ZAR' } });
     expect(h.order).toEqual(['app:payment_request']);
-    expect(completeBundlePurchase).toHaveBeenCalledWith('fp-1');
+    // Bound to what the checkout asked for (the payer's fee on top excluded) and to the request's company.
+    expect(completePaidBundlePurchase).toHaveBeenCalledWith('fp-1', { companyId: 'co-1', amountCents: 10000, currency: 'ZAR' });
   });
 
   it('charge.success on a subscription charge settles it', async () => {
     h.script.push([{ ...PR, purpose: 'subscription_charge', subscription_charge_id: 'ch-1' }]);
-    await processEvent('charge.success', { event: 'charge.success', data: { reference: 'ref-1' } });
-    expect(settleSubscriptionCharge).toHaveBeenCalledWith('ch-1', 'co-1');
+    await processEvent('charge.success', { event: 'charge.success', data: { reference: 'ref-1', amount: 49900 } });
+    expect(settleSubscriptionCharge).toHaveBeenCalledWith('ch-1', 'co-1', 49900);
   });
 });

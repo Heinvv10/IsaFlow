@@ -21,6 +21,12 @@ export interface RequestContext {
    */
   criticalAuditFailed?: boolean;
   /**
+   * A migration_admin transaction opened beside this one (S-07e): the Paystack
+   * webhook's. migrationAdminTx joins it in a savepoint instead of committing on
+   * its own, so a throw anywhere in the event rolls back both.
+   */
+  migrationAdminClient?: PoolClient;
+  /**
    * Set by withSavepoint when its ROLLBACK TO SAVEPOINT itself fails, carrying
    * the ORIGINAL error's message. The connection is aborted at that point, so
    * every later query on it would raise a bare 25P02 ("current transaction is
