@@ -153,7 +153,7 @@ async function buildVatCard(companyId: string, periodStart: string, periodEnd: s
       status: 'not_started',
       primary: 'No return drafted',
       secondary: 'Period awaits preparation',
-      href: '/accounting/reports/vat-return',
+      href: '/accounting/sars/vat201',
     };
   }
   const r = rows[0]!;
@@ -165,7 +165,7 @@ async function buildVatCard(companyId: string, periodStart: string, periodEnd: s
     status,
     primary: `${fmtR(Math.abs(netVat))} ${netVat >= 0 ? 'payable' : 'refund'}`,
     secondary: String(r.status ?? 'draft'),
-    href: '/accounting/reports/vat-return',
+    href: '/accounting/sars/vat201',
   };
 }
 

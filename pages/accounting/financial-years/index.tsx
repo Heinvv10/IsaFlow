@@ -4,21 +4,25 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarRange, Plus, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
-import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
-import { groupPeriodsIntoYears } from '@/components/accounting/financialYears/types';
+import { groupStoredYears } from '@/components/accounting/financialYears/types';
 import { YearCard } from '@/components/accounting/financialYears/YearCard';
 import { AddYearModal } from '@/components/accounting/financialYears/AddYearModal';
 import { CloseYearModal } from '@/components/accounting/financialYears/CloseYearModal';
 import { log } from '@/lib/logger';
 
+function loadYears() {
+  return apiJson('/api/accounting/fiscal-years', undefined, 'Could not load fiscal periods - try again');
+}
+
 export default function FinancialYearsPage() {
   const { activeCompany } = useCompany();
 
-  const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
+  const [years, setYears] = useState<Awaited<ReturnType<typeof loadYears>>>([]);
   const [jeCounts, setJeCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -30,7 +34,7 @@ export default function FinancialYearsPage() {
   const [closeYearTarget, setCloseYearTarget] = useState<number | null>(null);
   const [closingYearSaving, setClosingYearSaving] = useState(false);
 
-  const groups = groupPeriodsIntoYears(periods);
+  const groups = groupStoredYears(years);
   const existingYears = groups.map(g => g.year);
 
   // ── Data fetch ───────────────────────────────────────────────────────────
@@ -39,13 +43,10 @@ export default function FinancialYearsPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/fiscal-periods');
-      await assertOk(res, 'Could not load fiscal periods - try again');
-      const json = await res.json() as { data?: FiscalPeriod[] };
-      setPeriods(json.data ?? []);
+      setYears(await loadYears());
     } catch (err) {
       log.error('Failed to fetch fiscal periods', { error: err }, 'financial-years-page');
-      setPeriods([]);
+      setYears([]);
       setError(apiErrorMessage(err, 'Could not load fiscal periods - try again'));
     } finally {
       setLoading(false);
@@ -73,7 +74,7 @@ export default function FinancialYearsPage() {
   useEffect(() => {
     for (const g of groups) void fetchJeCounts(g.year);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periods, fetchJeCounts]);
+  }, [years, fetchJeCounts]);
 
   // ── Period actions ────────────────────────────────────────────────────────
 
@@ -166,6 +167,10 @@ export default function FinancialYearsPage() {
               className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
+            <Link href="/accounting/financial-year-end-change" data-testid="change-year-end-link"
+              className="px-3 py-2 text-sm rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
+              Change year end
+            </Link>
             <button onClick={() => setShowAddYear(true)}
               className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors">
               <Plus className="h-4 w-4" /> Add New Year

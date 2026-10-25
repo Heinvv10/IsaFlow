@@ -124,7 +124,7 @@ describe('dedupeWorkItems', () => {
   const base: WorkItem = {
     bureauId: 'bu1', bureauName: 'Bureau One', companyId: CO_A, companyName: 'Alpha Ltd',
     task: 'VAT return due', detail: 'Apr–May 2026', dueAt: '2026-06-25',
-    href: '/accounting/reports/vat-return', severity: 'info',
+    href: '/accounting/sars/vat201', severity: 'info',
   };
 
   it('collapses identical items (same company, task, due date AND href)', () => {

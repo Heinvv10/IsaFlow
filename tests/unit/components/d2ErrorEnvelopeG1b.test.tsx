@@ -29,6 +29,8 @@ const PERIOD = {
   startDate: '2026-01-01', endDate: '2026-01-31', status: 'open', createdAt: '2026-01-01', updatedAt: '2026-01-01',
 };
 
+const YEAR = { id: 'y1', fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', status: 'open', kind: 'normal', stored: true, months: 12, periods: [PERIOD] };
+
 /** POSTs whose JSON body has `action` equal to `failAction` are refused; everything else succeeds. */
 function scriptYears(failAction: string | null, failCreate: boolean, message: string) {
   vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
@@ -40,6 +42,7 @@ function scriptYears(failAction: string | null, failCreate: boolean, message: st
       if (failCreate && u.endsWith('/fiscal-periods')) return refuse(message);
     }
     if (u.includes('jeCounts')) return ok({});
+    if (u.includes('/fiscal-years')) return ok([YEAR]);
     return ok([PERIOD]);
   });
 }

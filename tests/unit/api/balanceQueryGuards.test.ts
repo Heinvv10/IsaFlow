@@ -111,9 +111,15 @@ const GA_IS_ACTIVE = /\bga?\.is_active\s*=\s*(true|TRUE)/;
  */
 const LEAKY_LINE_JOIN = /LEFT JOIN gl_journal_lines/i;
 
+/** What the fiscal-year registry reads (the budget report resolves its window through it). */
+const FISCAL_YEAR_ROW = {
+  id: null, fiscal_year: 2026, start_date: '2026-01-01', end_date: '2026-12-31', status: 'open', kind: 'normal', stored: false,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
-  sqlMock.mockImplementation(async () => []);
+  sqlMock.mockImplementation(async (strings: readonly string[]) =>
+    strings.join(' ').includes('fiscal_year_for_date') ? [FISCAL_YEAR_ROW] : []);
 });
 
 describe('class 1 — is_active never filters a balance query', () => {
