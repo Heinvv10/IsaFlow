@@ -81,6 +81,7 @@ export { AutosaveStatus, formatSavedAgo } from './AutosaveStatus';
 export type { AutosaveState, AutosaveStatusProps } from './AutosaveStatus';
 
 export { ExplainDrawer } from './ExplainDrawer';
+export type { FieldValidity } from './useParsedField';
 export type { Explanation, ExplanationLine, ExplanationSource, ExplanationStatus, ExplainDrawerProps } from './ExplainDrawer';
 
 export { FieldHelp } from './FieldHelp';
