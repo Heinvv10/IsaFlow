@@ -29,10 +29,18 @@
  * back-fill applies many sources of one supplier; `recordSupplierRefund` re-plans).
  *
  * WHO TAKES IT: `planSupplierPaymentApplication` for posted cash (REST supplier-allocations, MCP apply, the
- * back-fill) after its payment and bill locks, so it is held only while that request writes; `planSupplierRefund` after its supplier lock. An application of a payment
+ * back-fill) after its payment and bill locks; `planSupplierRefund` after its supplier lock. An application of a payment
  * created in the same request (bank allocation, provisional settlement) lowers nothing — the payment and its
  * allocation land together — and does not take it. Unapply and void raise or remove credit and do not take it:
  * a refund reading a stale, lower figure refuses early, the safe direction.
+ *
+ * HOW LONG IT IS HELD: to the end of the request. A single application holds it only while it writes. The auto-apply
+ * back-fill is ONE transaction over many sources, so it holds the key of every supplier it has applied from that
+ * supplier's first source to its COMMIT: for the length of a run, refunds and other applications of those suppliers
+ * are refused as in progress (REST 503 + Retry-After, MCP retry, a rule sweep's contended-line skip) where before they
+ * waited only on rows they shared. A plan made for an MCP `dry_run` also takes it until its rolled-back transaction
+ * ends. Both are availability, not money: nothing is written by the refused request, and the retry reads committed
+ * credit.
  *
  * 64-bit `hashtextextended`, as every other key in this codebase.
  */

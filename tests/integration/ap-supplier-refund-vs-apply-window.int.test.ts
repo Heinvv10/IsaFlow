@@ -75,16 +75,17 @@ async function supplierWithBill(): Promise<{ supplier: string; bill: string }> {
  * A processed, unapplied payment with a posted journal in the fixture's open period (or, negative, a refund document
  * as recordSupplierRefund writes it). The back-fill withholds a payment whose journal is in no period.
  */
-async function posted(supplier: string, amount: number): Promise<string> {
+async function posted(supplier: string, amount: number, date: string = DAY): Promise<string> {
   const { rows: [je] } = await pool.query(
     `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,status,created_by,fiscal_period_id,posted_at)
      VALUES($1,$2,$3::DATE,'RW payment','posted',$4,(SELECT id FROM fiscal_periods WHERE company_id = $1 LIMIT 1),NOW())
      RETURNING id`, [fx.company, `JE-RW-${crypto.randomUUID().slice(0, 8)}`, DAY, fx.user]);
+  // The journal stays in the fixture's period; only the document carries `date`.
   const { rows: [p] } = await pool.query(
     `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,payment_method,bank_account_id,
        reference,status,gl_journal_entry_id,created_by,approved_by,approved_at,processed_at)
      VALUES($1,$2,$3::DATE,$4,$5,$6,'RW','processed',$7,$8,$8,NOW(),NOW()) RETURNING id`,
-    [fx.company, supplier, DAY, amount, amount < 0 ? 'refund' : 'eft', fx.bankAccount, je.id, fx.user]);
+    [fx.company, supplier, date, amount, amount < 0 ? 'refund' : 'eft', fx.bankAccount, je.id, fx.user]);
   return String(p.id);
 }
 
@@ -232,5 +233,51 @@ describe('B — an application may not take on-account credit below zero', () =>
       credit: await credit(supplier),
       amountPaid: (await written(bill)).amountPaid,
     }).toEqual({ applied: [older], skipped: [newer], credit: 0, amountPaid: 500 });
+  }, 60_000);
+});
+
+const dayOffset = (d: string, n: number) => {
+  const t = new Date(`${d}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10);
+};
+
+describe('one credit figure across dates (adversarial review, 2026-10-25)', () => {
+  /** The refund as the bank paths take it: the plan (ceiling, supplier lock, credit key), then the document. */
+  const refund = (supplier: string, amount: number, date: string) => inTx(async () => {
+    await planSupplierRefund(fx.company, supplier, amount, date);
+    const { client } = als.getStore() as unknown as { client: { query: (q: string, p: unknown[]) => Promise<unknown> } };
+    await client.query(
+      `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,payment_method,bank_account_id,
+         reference,status,created_by,approved_by,approved_at,processed_at)
+       VALUES($1,$2,$3::DATE,$4,'refund',$5,'RW refund','processed',$6,$6,NOW(),NOW())`,
+      [fx.company, supplier, date, -amount, fx.bankAccount, fx.user]);
+  });
+  const creditAllDates = async (supplier: string) =>
+    (await inTx(() => getSupplierOnAccountCredit(fx.company, supplier, null))).creditAllDates;
+
+  it('the same cash refunded twice, the second refund dated before the first, is refused', async () => {
+    const { supplier } = await supplierWithBill();
+    await posted(supplier, 1000, dayOffset(DAY, -20));
+    const first = verdictOf(await outcomeOf(refund(supplier, 1000, DAY)));
+    // A statement line dated earlier than the one already allocated (allocated out of date order).
+    const second = verdictOf(await outcomeOf(refund(supplier, 1000, dayOffset(DAY, -10))));
+    expect({ first, second, credit: await creditAllDates(supplier) })
+      .toEqual({ first: 'passed', second: 'SUPPLIER_REFUND_REFUSED', credit: 0 });
+  }, 60_000);
+
+  it('a refund dated after today: the back-fill dry run and live run agree, and nothing is applied', async () => {
+    const { supplier, bill } = await supplierWithBill();
+    const pay = await posted(supplier, 500);
+    await posted(supplier, -500, dayOffset(new Date().toISOString().slice(0, 10), 7));
+    const run = (dryRun: boolean) => inTx(() => autoApplyUnapplied({
+      companyId: fx.company, subledger: 'ap', dryRun, userId: fx.user, entityId: supplier,
+    }));
+    const shape = (plan: Awaited<ReturnType<typeof run>>) => ({
+      applications: plan.applications.filter((a) => a.payment_id === pay).length,
+      failed: plan.failed.filter((f) => f.payment_id === pay).length,
+      skipped: plan.skipped.filter((k) => k.payment_id === pay).map((k) => k.reason),
+    });
+    const expected = { applications: 0, failed: 0, skipped: [SKIP_CREDIT_CEILING] };
+    expect({ dry: shape(await run(true)), live: shape(await run(false)) }).toEqual({ dry: expected, live: expected });
+    expect((await written(bill)).allocations).toBe(0);
   }, 60_000);
 });

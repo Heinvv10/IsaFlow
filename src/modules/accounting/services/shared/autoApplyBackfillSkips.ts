@@ -52,7 +52,7 @@ export const SKIP_REFUND = 'a refund is a negative on-account entry and is never
  * it (Hein, 2026-10-25: refuse). `planSupplierPaymentApplication` refuses the same application at write time; the
  * population decides it first so a dry run and a live run report it identically.
  */
-export const SKIP_CREDIT_CEILING = 'a refund has already returned this cash; applying it would leave the supplier owing the company';
+export const SKIP_CREDIT_CEILING = 'the supplier\'s on-account credit, after its refunds, does not cover this payment\'s whole remainder';
 export const skipUnapplicableStatus = (status: string): string =>
   `status "${status}" cannot take an application`;
 
@@ -119,30 +119,29 @@ function skipReasonFor(side: UnappliedSide, row: UnappliedPaymentBasisRow): stri
 }
 
 /**
- * The credit-ceiling skip, for every AP source at once. Each supplier's credit is the sum of ALL its basis rows'
- * remainders — refunds are rows of the other sign — not only the ones this run pages in. Walking the sources in
- * run order, every source not already skipped is assumed to consume its WHOLE remainder: conservative (a source
- * with nothing open consumed nothing), so the live run's own check, made on what was actually applied, never
- * refuses a source this one let through. A skipped source consumes nothing. A supplier with no refund is never
- * skipped here: its credit is at least the sum of its sources.
+ * The credit-ceiling skip, for every AP source at once. `creditBySupplier` is each supplier's on-account credit over
+ * EVERY date (`ap/supplierOnAccountCredit`, `creditAllDates`) — the same figure the live plan checks, so a refund
+ * dated after today counts here too. Walking the sources in run order, every source not already skipped is assumed to
+ * consume its WHOLE remainder: conservative (a source with nothing open consumed nothing), so the live run's own
+ * check, made on what was actually applied, never refuses a source this one let through. A skipped source consumes
+ * nothing. The skip is all-or-nothing, as the live refusal is: a source the credit covers only in part is left for an
+ * operator to apply by hand, up to the credit.
  */
 export function markCreditCeilingSkips(
   side: UnappliedSide,
-  rows: readonly UnappliedPaymentBasisRow[],
+  creditBySupplier: ReadonlyMap<string, number>,
   sources: readonly BackfillSource[],
 ): BackfillSource[] {
   if (side !== 'ap') return [...sources];
-  const credit = new Map<string, number>();
-  for (const r of rows) {
-    if (r.attributed && r.entityId) credit.set(r.entityId, (credit.get(r.entityId) ?? 0) + r.unappliedAmount);
-  }
+  const credit = new Map(creditBySupplier);
   return sources.map((source) => {
     if (source.kind !== 'payment' || source.skippedReason || !source.entityId) return source;
-    const left = credit.get(source.entityId) ?? 0;
+    const key = source.entityId.toLowerCase();
+    const left = credit.get(key) ?? 0;
     if (Math.round(source.remainder * 100) > Math.round(left * 100)) {
       return { ...source, skippedReason: SKIP_CREDIT_CEILING };
     }
-    credit.set(source.entityId, left - source.remainder);
+    credit.set(key, left - source.remainder);
     return source;
   });
 }

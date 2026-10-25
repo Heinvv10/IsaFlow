@@ -75,9 +75,9 @@ const { credit } = vi.hoisted(() => ({ credit: { value: 1_000_000 } }));
 vi.mock('@/modules/accounting/services/ap/supplierCreditLock', () => ({
   lockSupplierCredit: vi.fn(async () => {}),
 }));
-vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
+vi.mock('@/modules/accounting/services/ap/supplierOnAccountCredit', () => ({
   // A plain function, not vi.fn(): the file's beforeEach resets every mock's implementation.
-  getSupplierOnAccountCredit: async () => ({ credit: credit.value, supplierName: 'ACME' }),
+  getSupplierOnAccountCredit: async () => ({ credit: credit.value, creditAllDates: credit.value, supplierName: 'ACME' }),
 }));
 
 import { sql } from '@/lib/neon';
