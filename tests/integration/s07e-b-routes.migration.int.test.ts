@@ -11,7 +11,7 @@
 // transaction), so a rule dropped from the file turns a test red.
 // What 946 closes: s07e-b-routes.int.test.ts.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { closeSql, type TaggedSql } from '../../scripts/_pg';
+import { closeSql, createSql } from '../../scripts/_pg';
 import { appLoginRoleViolations } from '../../scripts/check-app-login-roles';
 import { getAuthPool } from '@/lib/auth/authPool';
 import { doBlock, fixture, migration, newIds, rolledBack, setup, teardown } from './s07b-app-pool-login-role.helpers';
@@ -81,11 +81,6 @@ const lost = (older: string, newer: string, name: string) => {
   const kept = new Set(valueRows(newer, name));
   return valueRows(older, name).filter((r) => !kept.has(r));
 };
-/** The deploy's check bound to one rolled-back transaction: values are inlined (booleans and strings only). */
-const txSql = (q: Q): TaggedSql => (async (strings: TemplateStringsArray, ...values: unknown[]) =>
-  rows(q, strings.reduce((t, part, i) => t + part + (i < values.length ? (typeof values[i] === 'boolean' ? String(values[i])
-    : `'${String(values[i]).replace(/'/g, "''")}'`) : ''), ''))) as unknown as TaggedSql;
-
 const CLOSED = Object.fromEntries(TABLES.map((t) => [t, { update: null, insert: false, delete: false, truncate: false, unreadable: 0 }]));
 
 describe('946: migration', () => {
@@ -219,15 +214,21 @@ describe('946: migration', () => {
     });
   });
 
-  it('the deploy\'s check is clean on the fixture and reports a forged re-grant (the grant is rolled back with its transaction)', async () => {
+  // A real connection (as the deploy runs it), so the check's array parameters bind as arrays; the grant is revoked in finally.
+  it('the deploy\'s check is clean on the fixture and reports a forged re-grant', async () => {
+    const url = new URL(String(fixture.options.connectionString));
+    url.searchParams.set('sslmode', 'disable');
+    const sql = createSql(url.toString());
     const reach = (v: string[] | null) => (v ?? []).filter((x) => x.includes('reachable from an app pool login'));
-    await rolledBack(async (q) => {
-      expect(reach(await appLoginRoleViolations(txSql(q)))).toEqual([]);
-      await q('GRANT UPDATE (url) ON public.webhook_endpoints TO app_service');
-      expect(await appLoginRoleViolations(txSql(q))).toContain('app_service (reachable from an app pool login) can UPDATE webhook_endpoints.url');
-    });
-    const left = await rows((text) => fixture.query(text), `SELECT has_column_privilege('app_service', 'public.webhook_endpoints', 'url', 'UPDATE') AS p`);
-    expect(left[0]!.p).toBe(false);
+    expect(reach(await appLoginRoleViolations(sql))).toEqual([]);
+    await fixture.query('GRANT UPDATE (url) ON public.webhook_endpoints TO app_service');
+    try {
+      const found = await appLoginRoleViolations(sql);
+      expect(found, JSON.stringify(found)).toContain('app_service (reachable from an app pool login) can UPDATE webhook_endpoints.url');
+    } finally {
+      await fixture.query('REVOKE UPDATE (url) ON public.webhook_endpoints FROM app_service');
+    }
+    expect(reach(await appLoginRoleViolations(sql))).toEqual([]);
   });
 
   // Every column, read from the catalog: a column added later is covered without touching this file.

@@ -38,7 +38,7 @@ vi.mock('@/lib/pgTypes', () => ({}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { als } from '@/lib/als';
-import { ROUTE_LOCK_WAIT, routeAdminQuery } from '@/lib/auth/routeAdminPool';
+import { ROUTE_LOCK_WAIT, ROUTE_STATEMENT_TIMEOUT, routeAdminQuery, routeAdminTx } from '@/lib/auth/routeAdminPool';
 
 const STAMP = 'UPDATE imap_mirror_connections SET last_scan_at = NOW() WHERE id = $1::uuid AND company_id = $2::uuid';
 
@@ -50,12 +50,13 @@ beforeEach(() => {
 });
 
 describe('routeAdminQuery', () => {
-  it('runs one statement in its own transaction that waits 2 s for a row lock, with its values bound, and returns the rows', async () => {
+  it('runs one statement in its own transaction that waits 2 s for a row lock and runs 10 s at most, with its values bound, and returns the rows', async () => {
     const rows = await routeAdminQuery('stamp', STAMP, ['c1', 'co1']);
     expect(rows).toEqual([{ id: 'r1' }]);
-    expect(h.queries.map((q) => q.text)).toEqual(['BEGIN', "SET LOCAL lock_timeout = '2s'", STAMP, 'COMMIT']);
+    expect(h.queries.map((q) => q.text)).toEqual(['BEGIN', "SET LOCAL lock_timeout = '2s'", "SET LOCAL statement_timeout = '10s'", STAMP, 'COMMIT']);
     expect(ROUTE_LOCK_WAIT).toBe('2s');
-    expect(h.queries[2]!.values).toEqual(['c1', 'co1']);
+    expect(ROUTE_STATEMENT_TIMEOUT).toBe('10s');
+    expect(h.queries[3]!.values).toEqual(['c1', 'co1']);
     expect(h.released).toEqual([false]);
   });
 
@@ -68,7 +69,7 @@ describe('routeAdminQuery', () => {
   it('a failure (a lock wait that ran out) rolls back and is rethrown with its code; the client is pooled again', async () => {
     h.failOn = 'UPDATE';
     await expect(routeAdminQuery('stamp', STAMP, ['c1', 'co1'])).rejects.toMatchObject({ code: '55P03' });
-    expect(h.queries.map((q) => q.text)).toEqual(['BEGIN', "SET LOCAL lock_timeout = '2s'", STAMP, 'ROLLBACK']);
+    expect(h.queries.map((q) => q.text)).toEqual(['BEGIN', "SET LOCAL lock_timeout = '2s'", "SET LOCAL statement_timeout = '10s'", STAMP, 'ROLLBACK']);
     expect(h.released).toEqual([false]);
   });
 
@@ -85,5 +86,24 @@ describe('routeAdminQuery', () => {
     await als.run(ctx, () => routeAdminQuery('stamp', STAMP, ['c1', 'co1']));
     expect(h.queries[0]!.text).toBe('BEGIN');
     expect(vi.mocked(ctx.client!.query)).not.toHaveBeenCalled();
+  });
+
+  it('routeAdminTx runs several statements in ONE transaction with the same bounds; a failure part-way rolls all of it back', async () => {
+    const out = await routeAdminTx('two writes', async (client) => {
+      await client.query(STAMP, ['c1', 'co1']);
+      return (await client.query('SELECT 1', [])).rows;
+    });
+    expect(out).toEqual([]);
+    expect(h.queries.map((q) => q.text)).toEqual([
+      'BEGIN', "SET LOCAL lock_timeout = '2s'", "SET LOCAL statement_timeout = '10s'", STAMP, 'SELECT 1', 'COMMIT',
+    ]);
+    h.queries.length = 0;
+    h.failOn = 'SELECT 1';
+    await expect(routeAdminTx('two writes', async (client) => {
+      await client.query(STAMP, ['c1', 'co1']);
+      await client.query('SELECT 1', []);
+    })).rejects.toMatchObject({ code: '55P03' });
+    expect(h.queries.map((q) => q.text).at(-1)).toBe('ROLLBACK');
+    expect(h.queries.map((q) => q.text)).not.toContain('COMMIT');
   });
 });

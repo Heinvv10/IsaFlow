@@ -3,10 +3,11 @@
  * due selection. The connection row's stamps (cursor, last_scan_at, last_success_at,
  * last_error, the counter) and the selection run on migration_admin, one fixed
  * statement each, keyed on the connection AND its company: no app role may write the
- * table. The scan log stays on the app pool. See mirrorScanWrite.ts for both.
+ * table. The scan log stays on the app pool. In a request (scan-now) the stamps run after its
+ * COMMIT, in order (stampScan), so a rolled-back request never moves the cursor. See mirrorScanWrite.ts for both.
  */
 import { clipMirrorText } from './mirrorScanLimits';
-import { scanWrite, stampConnection } from './mirrorScanWrite';
+import { scanWrite, stampConnection, stampScan } from './mirrorScanWrite';
 
 interface Ref { id: string; companyId: string }
 type Cursor = Record<string, number>;
@@ -65,19 +66,19 @@ export async function logScanEntry(conn: Ref, entry: ScanLogEntry): Promise<void
 
 export async function updateCursor(conn: Ref & { scanCursor: Cursor }, folder: string, uid: number): Promise<void> {
   const nextCursor = { ...conn.scanCursor, [folder]: uid };
-  await stampConnection('imap mirror cursor', SET_CURSOR, [JSON.stringify(nextCursor), conn.id, conn.companyId]);
+  await stampScan('imap-mirror', 'imap mirror cursor', SET_CURSOR, [JSON.stringify(nextCursor), conn.id, conn.companyId]);
 }
 
 /** A scan with nothing past the cursor: still bump last_scan_at so the poll interval kicks in correctly. */
 export async function stampSuccess(conn: Ref): Promise<void> {
-  await stampConnection('imap mirror success stamp', SET_SUCCESS, [conn.id, conn.companyId]);
+  await stampScan('imap-mirror', 'imap mirror success stamp', SET_SUCCESS, [conn.id, conn.companyId]);
 }
 
 /** A stop shows its error (after any progress); status stays active so the next scan retries. */
 export async function stampStopped(conn: Ref, error: string): Promise<void> {
-  await stampConnection('imap mirror stop stamp', SET_STOPPED, [error, conn.id, conn.companyId]);
+  await stampScan('imap-mirror', 'imap mirror stop stamp', SET_STOPPED, [error, conn.id, conn.companyId]);
 }
 
 export async function addIngested(conn: Ref, ingested: number): Promise<void> {
-  await stampConnection('imap mirror counter', ADD_INGESTED, [ingested, conn.id, conn.companyId]);
+  await stampScan('imap-mirror', 'imap mirror counter', ADD_INGESTED, [ingested, conn.id, conn.companyId]);
 }

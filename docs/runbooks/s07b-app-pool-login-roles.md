@@ -288,15 +288,18 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
 - No app role may write `webhook_endpoints`, `imap_mirror_connections` or
   `sent_mirror_connections` at all: the app pools keep SELECT only (no INSERT,
   UPDATE on any column, DELETE, TRUNCATE, REFERENCES or TRIGGER). Creating,
-  editing, disconnecting, reactivating and deleting them run on migration_admin
-  (`migrationAdminTx`), keyed on the verified company. What a delivery or a scan
+  editing, disconnecting, reactivating and deleting them, what a delivery or a scan
   writes (webhook: `last_triggered_at`, `failure_count` and the auto-disable after
   10 failures, in one statement; mirrors: `scan_cursor`, `last_scan_at`,
   `last_success_at`, `last_error`, the counters, the scan-error status flip and the
-  stop stamp) and the cron's due selection run on the same login in a pool of its
-  own (`routeAdminPool`, `ROUTE_ADMIN_POOL_MAX`, default 3, so a burst of deliveries
-  never queues a sign-in), one fixed statement per transaction keyed on the row's id
-  AND company, waiting at most 2 s for a row lock. `updated_at` is set by the mirror
+  stop stamp) and the cron's due selection all run on migration_admin in a pool of
+  its own (`routeAdminPool`, `ROUTE_ADMIN_POOL_MAX`, default 3), not the credential
+  pool (`migrationAdminTx`, 5 s lock wait) that sign-in, invitations and the credential
+  writes share, so neither a burst of deliveries nor a delete blocked on a row can hold a
+  sign-in's connection. Each is one fixed statement per transaction keyed on the row's id
+  AND company (an endpoint update is several statements and its re-read in one
+  `routeAdminTx` transaction), waiting at most 2 s for a row lock (a settings write that
+  waits it out answers 503) and running at most 10 s (`statement_timeout`, transaction-local). `updated_at` is set by the mirror
   tables' touch trigger, which needs no column privilege. The admin site's webhook
   page keeps writing on platform_admin. 946 refuses to apply unless migration_admin
   still can. The scan logs, `webhook_deliveries`, `captured_documents` and
@@ -322,7 +325,8 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
 - What an app pool can still do to these tables: read them. It cannot lock a row
   (`FOR UPDATE`/`FOR SHARE` need UPDATE); the key-share lock its scan-log or
   delivery-log INSERT takes does not block a stamp (an UPDATE of non-key columns)
-  nor the due selection (`FOR NO KEY UPDATE SKIP LOCKED`). So a forged NULL, past or
+  nor the due selection (`FOR NO KEY UPDATE SKIP LOCKED`). It does block a DELETE of
+  the parent row (named below). So a forged NULL, past or
   future `last_scan_at`, a forged `scan_cursor` and a forged `failure_count` are
   refused 42501 (s07e-b-routes.int.test.ts), and no tenant can pin the 20 due slots
   or skip another tenant's mail. The due selection still orders a future
@@ -335,10 +339,25 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
     file's bytes; a rejected or failed-to-read document, or one whose mirror capture
     event failed, does not count as held, so a re-sent copy of such a file is
     captured again.
-  - In scan-now, the scan's stamps commit on their own, ahead of the request: if the
-    request's COMMIT then fails, the messages it ingested are rolled back while the
-    cursor has passed them (recover by moving the cursor back on migration_admin;
-    the hash de-dupe skips what is held).
+  - A scan-now runs inside a request: its stamps (cursor, success, counters, the
+    stop stamp and the error flip) are queued and run after the request COMMITs, in
+    order (`runAfterCommit`), so a request that rolls back never moves the cursor past
+    documents it removed. They therefore land just behind the response (the settings
+    page's refresh can read the old `last_scan_at`); a stamp queued after its request
+    finished (an abandoned scan) is dropped with a warning. A scan-now is bounded for
+    the pools it ties up: at most one per company at a time, none for a connection
+    that already has a scan running (the cron's included; the cron in turn skips a
+    connection a scan-now holds), both answered 409 (`mirrorScanNow.ts`,
+    `mirrorScanActive.ts`), and its IMAP side runs under a 30 s deadline
+    (`SCAN_NOW_DEADLINE_MS`) so a request holds its auth-pool connection that long
+    at most. These guards are in-process; production runs one process.
+  - An app role's scan-log or delivery-log INSERT takes a key-share lock on the parent
+    connection or endpoint row (through the foreign key). That blocks only a DELETE of
+    that row, which now gives up after 2 s (55P03, answered 503) instead of holding a
+    connection; the tenant retries.
+  - Two scans of one connection can still overlap across processes (or after a restart
+    mid-scan): the de-dupe is a check-then-insert and `captured_documents` has no unique
+    index on the hash, so a file in both can be captured twice.
   - A stamp, flip or due selection that waits 2 s in vain (55P03; only another
     migration_admin write can hold the row now) is skipped: a scan skips its
     connection for the tick (warn, not marked 'error', cursor not advanced; the next
@@ -353,6 +372,8 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
     is below the cursor, the cursor is clamped to the new UIDNEXT - 1 and the old
     mail in the rebuilt mailbox is NOT re-captured, and if the new UIDNEXT is
     above it, new mail up to the old cursor is skipped.
+    A mailbox that reports UIDNEXT 1 is empty: nothing is clamped, warned or written for
+    it (the stored cursor stays and is clamped once mail arrives).
   - Each connection's scan runs under a hard deadline (`MIRROR_SCAN_DEADLINE_MS`,
     120 s, `mirrorScanGuard.ts`) because the mail server is the tenant's: ImapFlow's
     `socketTimeout` (lowered to 60 s) is idle-only, it has no per-command timeout,
@@ -360,7 +381,11 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
     the retries; its own first wait of up to 5 min remains). When the deadline
     passes the client is closed, the row gets `last_scan_at = NOW()` and
     `last_error = 'Scan timed out'` (status stays `active`, the row goes to the
-    back of the queue) and the tick scans the next connection.
+    back of the queue) and the tick scans the next connection. The abandoned scan
+    stops at its next `guard.check()`, which runs per message and per attachment, so
+    it can finish only the single write or attachment already in flight when the
+    deadline passed (an attachment's storage upload and inserts), not the rest of a
+    message. Its stamps are not made (the deadline's owner has stamped the row).
   - Size (`mirrorScanLimits.ts`): a message whose reported RFC822.SIZE is over
     about 13.4 MB (the capture upload limit, 10 MB, as base64 plus headers), or
     that reports no size, is not fetched: logged `skipped_too_large` and passed.

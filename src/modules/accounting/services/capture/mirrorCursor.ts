@@ -17,7 +17,9 @@
  * cursor at or past it can never be reached by the mail that is there. It is
  * clamped to UIDNEXT - 1: nothing old is scanned and the next new message is
  * picked up. The caller writes the clamped value back (`clamped`), else the stored
- * value would hold the folder silent until UIDNEXT overtook it.
+ * value would hold the folder silent until UIDNEXT overtook it. A mailbox with
+ * UIDNEXT 1 is empty: nothing is clamped, logged or written for it (the stored
+ * cursor stays, and is clamped when mail arrives and UIDNEXT is above 1).
  *
  * Limits this does not remove: (1) a mailbox rebuilt on the server (a changed
  * UIDVALIDITY, which the cursor does not record) is not detected unless its UIDNEXT
@@ -55,6 +57,9 @@ export function readCursor(
   if (value === undefined || value === null) return { uid: 0, clamped: false };
   if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= MAX_IMAP_NUMBER) {
     if (uidNext <= 0 || value < uidNext) return { uid: value, clamped: false };
+    // UIDNEXT 1: an empty mailbox, with no UID 0 to clamp to. Scan it from the start (nothing is
+    // there) and write nothing: clamping would store 0 and warn again on every tick.
+    if (uidNext === 1) return { uid: 0, clamped: false };
     log.warn('mirror scan_cursor for a folder is at or past the mailbox UIDNEXT; clamped to UIDNEXT - 1',
       { connectionId: ref.id, folder, cursor: value, uidNext }, ref.kind);
     return { uid: uidNext - 1, clamped: true };

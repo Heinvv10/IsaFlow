@@ -8,7 +8,8 @@
  *   4. disconnectSentConnection returns true on match, false otherwise
  *   5. deleteSentConnection returns false when no row deleted
  *   6. listSentScanLog passes through the row list
- *   7. every write goes through migrationAdminTx (S-07e part B, migration 946),
+ *   7. every write goes through routeAdminQuery (S-07e part B, migration 946: its own
+ *      pool, 2 s lock wait), never migrationAdminTx (the credential pool sign-in shares),
  *      bound to the verified company and never to the app pool's `sql`
  */
 
@@ -28,12 +29,14 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
-  migrationAdminTx: async (label: string, fn: (c: unknown) => Promise<unknown>) => fn({
-    query: async (text: string, values: unknown[]) => {
-      h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
-      return { rows: h.adminRows.shift() ?? [] };
-    },
-  }),
+  migrationAdminTx: async (label: string) => { throw new Error(`${label}: a sent mirror write ran on the credential pool`); },
+}));
+
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: async (label: string, text: string, values: unknown[]) => {
+    h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
+    return h.adminRows.shift() ?? [];
+  },
 }));
 
 vi.mock('@/lib/encryption', () => ({

@@ -101,8 +101,9 @@ describe('S-07e part B (946): IMAP mirror connections, through the routes on the
     const scan = await as(scanNowRoute, 'POST', { id });
     expect(scan.status).toBe(200);
     expect((scan.body as { data: Record<string, number> }).data).toMatchObject({ scanned: 1, ingested: 0, skipped: 1, errors: 0 });
+    // The stamps are queued for after the request's COMMIT (round 6): they land just behind the response.
+    await vi.waitFor(async () => expect((await row(id))!.scan_cursor).toEqual({ INBOX: 7 }));
     const r = await row(id);
-    expect(r!.scan_cursor).toEqual({ INBOX: 7 });
     expect(r!.last_scan_at).not.toBeNull();
     expect(r!.last_success_at).not.toBeNull();
     expect(r!.last_error).toBeNull();
@@ -128,8 +129,8 @@ describe('S-07e part B (946): IMAP mirror connections, through the routes on the
     const scan = await as(scanNowRoute, 'POST', { id });
     expect(scan.status).toBe(200);
     expect((scan.body as { data: Record<string, number> }).data.errors).toBe(1);
-    // Written on migration_admin before the response (no deferral since round 5: mirrorScanError.ts).
-    expect(await row(id)).toMatchObject({ status: 'error', last_error: 'connect ECONNREFUSED' });
+    // Written on migration_admin just after the request's COMMIT (round 6: mirrorScanError.ts queues it with the other stamps).
+    await vi.waitFor(async () => expect(await row(id)).toMatchObject({ status: 'error', last_error: 'connect ECONNREFUSED' }));
     expect((await row(id))!.last_scan_at).not.toBeNull();
   });
 });

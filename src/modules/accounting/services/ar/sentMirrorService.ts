@@ -210,7 +210,6 @@ async function scanBody(conn: SentMirrorConnection, result: SentMirrorScanResult
       const metas = await fetchNewMessages(client, cursorUid);
 
       let maxUidSeen = cursorUid;
-
       for (const meta of metas) {
         guard.check();
         result.scanned += 1;
@@ -251,6 +250,7 @@ async function scanBody(conn: SentMirrorConnection, result: SentMirrorScanResult
 
         try {
           for (const att of attachments) {
+            guard.check(); // an abandoned scan ingests nothing more
             const hash = sha256(att.content as Buffer);
             const existing = await findExistingByHash(conn.companyId, hash);
             if (existing) {
@@ -274,7 +274,7 @@ async function scanBody(conn: SentMirrorConnection, result: SentMirrorScanResult
             capturedDocumentIds: capturedDocumentIds.length ? capturedDocumentIds : undefined,
           });
         } catch (err) {
-          if (isScanLockSkip(err)) throw err;
+          if (guard.expired || isScanLockSkip(err)) throw err;
           const msg = err instanceof Error ? err.message : String(err);
           result.errors += 1;
           log.warn('sent mirror ingest failed', { connectionId: conn.id, uid, err: msg }, 'sent-mirror');

@@ -19,6 +19,7 @@
  */
 import type { ImapFlow } from 'imapflow';
 import { log } from '@/lib/logger';
+import { claimScan } from './mirrorScanActive';
 import { ByteMeter } from './mirrorScanLimits';
 import { MESSAGE_TOO_LARGE, SCAN_TIMED_OUT, stampScanStopped, type MirrorKind, type MirrorRef } from './mirrorScanError';
 
@@ -90,12 +91,19 @@ export class ScanGuard {
 
 /**
  * Runs `scan` under the deadline and the byte meter. `result` is the object the scan fills in;
- * when either stops it, it is returned as it stands with one more error counted.
+ * when either stops it, it is returned as it stands with one more error counted. A connection
+ * that already has a scan running is not scanned again: `result` comes back untouched.
  */
 export async function runGuardedScan<R extends { errors: number }>(
   kind: MirrorKind, conn: MirrorRef, result: R,
   scan: (guard: ScanGuard) => Promise<R>, deadlineMs: number = MIRROR_SCAN_DEADLINE_MS,
 ): Promise<R> {
+  // One scan of a connection at a time (mirrorScanActive.ts): the cron skips a connection a scan-now holds.
+  const release = claimScan(conn.id);
+  if (!release) {
+    log.info('mirror scan skipped: a scan of this connection is already running', { connectionId: conn.id, kind }, 'imap-mirror');
+    return result;
+  }
   let stopped: (reason: string) => void = () => undefined;
   const stop = new Promise<string>((resolve) => { stopped = resolve; });
   const guard = new ScanGuard((reason) => stopped(reason));
@@ -106,6 +114,7 @@ export async function runGuardedScan<R extends { errors: number }>(
     if (guard.stopReason === null && typeof won !== 'string') return won;
   } finally {
     clearTimeout(timer);
+    release();
   }
   work.catch((err: unknown) => {
     log.debug('abandoned mirror scan ended', { connectionId: conn.id, err: String((err as Error)?.message ?? err) }, 'imap-mirror');

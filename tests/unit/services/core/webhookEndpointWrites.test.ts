@@ -1,7 +1,8 @@
 /**
  * S-07e part B (migration 946): webhook_endpoints create, update and delete run
- * on the migration_admin pool (no app role may write the table at all; the
- * delivery stamp is routeAdminQuery's, fireWebhookAwaitable.test.ts). The role
+ * on routeAdminPool's pool (no app role may write the table at all; create/delete are
+ * routeAdminQuery, update is routeAdminTx so its statements and re-read stay atomic; never
+ * migrationAdminTx, the credential pool sign-in shares, which refuses here). The role
  * bypasses RLS, so each statement must carry the verified company itself.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -16,19 +17,23 @@ const h = vi.hoisted(() => ({
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
-  migrationAdminTx: async (label: string, fn: (c: unknown) => Promise<unknown>) => {
-    h.tx += 1;
-    return fn({
-      query: async (text: string, values: unknown[]) => {
-        h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
-        return { rows: h.results.shift() ?? [] };
-      },
-    });
-  },
+  migrationAdminTx: async (label: string) => { throw new Error(`${label}: a webhook endpoint write ran on the credential pool`); },
 }));
 
+const record = (label: string, text: string, values: unknown[]) => {
+  h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
+  return { rows: h.results.shift() ?? [] };
+};
+
 vi.mock('@/lib/auth/routeAdminPool', () => ({
-  routeAdminQuery: async (_label: string, text: string, values: unknown[]) => { h.route.push({ text: text.replace(/\s+/g, ' ').trim(), values }); return []; },
+  routeAdminTx: async (label: string, fn: (c: unknown) => Promise<unknown>) => {
+    h.tx += 1;
+    return fn({ query: async (text: string, values: unknown[]) => record(label, text, values) });
+  },
+  routeAdminQuery: async (label: string, text: string, values: unknown[]) => {
+    if (label.startsWith('webhook delivery')) { h.route.push({ text: text.replace(/\s+/g, ' ').trim(), values }); return []; }
+    return record(label, text, values).rows;
+  },
 }));
 
 import { sql } from '@/lib/neon';
@@ -57,7 +62,7 @@ beforeEach(() => {
   vi.mocked(sql).mockReset();
 });
 
-describe('webhook endpoint writes (migration_admin)', () => {
+describe('webhook endpoint writes (routeAdminPool)', () => {
   it('createWebhook inserts with the company as the first bound value', async () => {
     h.results.push([endpointRow()]);
     const w = await createWebhook(COMPANY, { name: 'n', url: 'https://hook.test/x', events: ['invoice.sent'] });

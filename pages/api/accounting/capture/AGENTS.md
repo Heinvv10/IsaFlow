@@ -26,7 +26,7 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 - `PATCH|DELETE /api/accounting/capture/mirror/[id]` — update senders/folder/interval / hard-delete (cascades log)
 - `POST /api/accounting/capture/mirror/[id]/disconnect` — mark disconnected + wipe creds
 - `GET /api/accounting/capture/mirror/[id]/log` — recent scan entries
-- `POST /api/accounting/capture/mirror/[id]/scan-now` — one-off scan bypassing interval gate; returns `{ scanned, ingested, skipped, errors }`
+- `POST /api/accounting/capture/mirror/[id]/scan-now` — one-off scan bypassing interval gate; returns `{ scanned, ingested, skipped, errors }` (30 s deadline; 409 while a scan of the connection or another scan-now of the company is running; stamps land just after the request commits)
 
 ## Auth
 - User routes: `withAuth(withErrorHandler(withWriteAccess(...)))` for mutating; `withAuth(withErrorHandler(...))` for GET

@@ -3,11 +3,11 @@
  * the connection row. No app role may write that row, so both writes (the error
  * with the status flip, and a stopped scan's stamp) are one statement each on
  * migration_admin (routeAdminQuery: its own pool and transaction, a 2 s lock
- * wait), keyed on id AND company_id. Review round 5 removed the after-commit
- * deferral and the app-pool fallback stamp: the request (scan-now) holds only
- * the key-share lock of its scan-log insert, which the UPDATE does not wait for,
- * so the write happens before the call returns, in a request too. Nothing here
- * ever throws, because the cron scans many connections.
+ * wait), keyed on id AND company_id. There is no app-pool fallback stamp. Outside a
+ * request the write happens before the call returns; inside one (scan-now) it is queued
+ * with the scan's other stamps and runs after the request COMMITs, in order, so a cursor
+ * stamp made earlier cannot land after, and clear, the error (mirrorScanRequestStamps.test.ts
+ * proves the rollback side). Nothing here ever throws, because the cron scans many connections.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RequestContext } from '@/lib/als';
@@ -33,6 +33,7 @@ vi.mock('@/lib/auth/routeAdminPool', () => ({
 }));
 
 import { als } from '@/lib/als';
+import { drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { MESSAGE_TOO_LARGE, SCAN_TIMED_OUT, markMirrorScanError, stampScanStopped } from '@/modules/accounting/services/capture/mirrorScanError';
 
@@ -62,12 +63,23 @@ describe.each(KINDS)('%s mirror: markMirrorScanError', (kind, table) => {
     expect(h.app).toBe(0);
   });
 
-  it('inside a request (scan-now) it is written before it returns, and nothing is queued for after the commit', async () => {
+  it('inside a request (scan-now) it is not written until the request commits, and then once, on migration_admin', async () => {
     const ctx = requestCtx();
     await als.run(ctx, () => markMirrorScanError(kind, conn, 'boom'));
-    expect(h.route).toHaveLength(1);
-    expect(ctx.afterCommit).toEqual([]);
+    expect(h.route).toHaveLength(0);
+    expect(ctx.afterCommit).toHaveLength(1);
+    drainAfterCommit(ctx);
+    await vi.waitFor(() => expect(h.route).toHaveLength(1));
+    expect(h.route[0]!.values).toEqual(['boom', conn.id, COMPANY]);
     expect(h.app).toBe(0);
+  });
+
+  it('inside a request that rolls back (the queue is dropped) nothing is written', async () => {
+    const ctx = requestCtx();
+    await als.run(ctx, () => markMirrorScanError(kind, conn, 'boom'));
+    ctx.afterCommit = undefined; // withAuth drops the queue on ROLLBACK and never drains it
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(h.route).toHaveLength(0);
   });
 
   it('a write that waits out its 2 s (55P03) warns and moves on: no throw, no second try, no app-pool fallback', async () => {

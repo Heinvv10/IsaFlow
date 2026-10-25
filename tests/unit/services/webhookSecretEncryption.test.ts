@@ -8,12 +8,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import crypto from 'crypto';
 
 const sqlMock = vi.fn();
-// Endpoint writes run on the migration_admin pool (S-07e part B): record its statements.
+// Endpoint writes run on routeAdminPool's pool (S-07e part B): record its statements.
 const admin = vi.hoisted(() => ({ calls: [] as Array<{ text: string; values: unknown[] }>, rows: [] as unknown[] }));
-vi.mock('@/lib/auth/migrationAdminPool', () => ({
-  migrationAdminTx: async (_label: string, fn: (c: unknown) => Promise<unknown>) => fn({
-    query: async (text: string, values: unknown[]) => { admin.calls.push({ text, values }); return { rows: admin.rows }; },
-  }),
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: async (_label: string, text: string, values: unknown[]) => { admin.calls.push({ text, values }); return admin.rows; },
 }));
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));

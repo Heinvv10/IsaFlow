@@ -4,18 +4,20 @@
  * on an app pool can forge the claims RLS judges: a planted or re-pointed
  * endpoint (url, events, is_active) is a standing feed of a company's events
  * to an outside URL, and a forged failure_count delays or hastens its
- * auto-disable. Create, update and delete run on migrationAdminTx (the
- * request's writes); fireWebhook's delivery stamp, which also switches an
- * endpoint off after its threshold of failures, on routeAdminQuery (a pool of
- * its own, so a burst of deliveries never queues a sign-in).
+ * auto-disable. All of them run on routeAdminPool.ts's pool (a pool of its own on
+ * that login, so neither a burst of deliveries nor a blocked delete ever holds a
+ * sign-in's connection), each waiting at most 2 s for the row (55P03 after that:
+ * the route answers 503). Create and delete are routeAdminQuery, update is
+ * routeAdminTx (its field-by-field statements and re-read are atomic);
+ * fireWebhook's delivery stamp, which also switches an endpoint off after its
+ * threshold of failures, is routeAdminQuery.
  *
  * `companyId` is the verified request's (the route's `req.companyId`) or the
  * endpoint's own company (fireWebhook). This role bypasses RLS, so every
  * statement carries `company_id = $n`.
  */
 
-import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
-import { routeAdminQuery } from '@/lib/auth/routeAdminPool';
+import { routeAdminQuery, routeAdminTx } from '@/lib/auth/routeAdminPool';
 
 type Row = Record<string, unknown>;
 
@@ -44,12 +46,12 @@ const SET_EVENTS = `UPDATE webhook_endpoints SET events = $1::TEXT[] WHERE id = 
 const SET_ACTIVE = `UPDATE webhook_endpoints SET is_active = $1 WHERE id = $2::UUID AND company_id = $3::UUID RETURNING id`;
 
 export async function insertEndpoint(companyId: string, input: EndpointInsert): Promise<Row> {
-  const rows = await migrationAdminTx('create webhook endpoint', async (client) => (await client.query(
+  const rows = await routeAdminQuery('create webhook endpoint',
     `INSERT INTO webhook_endpoints (company_id, name, url, secret, events, is_active)
      VALUES ($1::UUID, $2, $3, $4, $5::TEXT[], $6)
      RETURNING *`,
     [companyId, input.name, input.url, input.secretAtRest, input.events, input.isActive],
-  )).rows as Row[]);
+  );
   return rows[0]!;
 }
 
@@ -59,7 +61,7 @@ export async function insertEndpoint(companyId: string, input: EndpointInsert): 
  * endpoint is not this company's.
  */
 export async function updateEndpoint(companyId: string, id: string, changes: EndpointChanges): Promise<Row | null> {
-  return migrationAdminTx('update webhook endpoint', async (client) => {
+  return routeAdminTx('update webhook endpoint', async (client) => {
     const set = async (statement: string, value: unknown): Promise<boolean> =>
       (await client.query(statement, [value, id, companyId])).rows.length > 0;
     if (changes.name !== undefined && !(await set(SET_NAME, changes.name))) return null;
@@ -76,10 +78,10 @@ export async function updateEndpoint(companyId: string, id: string, changes: End
 }
 
 export async function deleteEndpoint(companyId: string, id: string): Promise<void> {
-  await migrationAdminTx('delete webhook endpoint', (client) => client.query(
+  await routeAdminQuery('delete webhook endpoint',
     `DELETE FROM webhook_endpoints WHERE id = $1::UUID AND company_id = $2::UUID`,
     [id, companyId],
-  ));
+  );
 }
 
 const STAMP_SUCCESS = `UPDATE webhook_endpoints SET last_triggered_at = NOW(), failure_count = 0
