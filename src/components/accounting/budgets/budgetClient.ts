@@ -1,5 +1,5 @@
-import { formatMoney } from '@/lib/money/formatMoney';
 /** Shapes and labels the budgets page reads from /api/accounting/budgets. */
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface BudgetMonth { month: string; amount: number }
 
