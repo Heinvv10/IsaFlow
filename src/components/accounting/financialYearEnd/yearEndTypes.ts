@@ -16,8 +16,9 @@ export function fmtDay(date: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!m) return date;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const real = new Date(Date.UTC(y, mo - 1, d)); // only to ask "does this day exist in that month"; nothing is read back in a zone
-  if (mo < 1 || mo > 12 || real.getUTCFullYear() !== y || real.getUTCMonth() !== mo - 1 || real.getUTCDate() !== d) return date;
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const daysInMonth = mo === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(mo) ? 30 : 31;
+  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth) return date;
   return `${d} ${MONTH_NAMES[mo - 1]!.slice(0, 3)} ${y}`;
 }
 
