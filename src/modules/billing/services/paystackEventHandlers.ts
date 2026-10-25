@@ -5,10 +5,17 @@
  * check, the idempotency record and the transaction) to keep both files inside
  * the 300-line limit. Every `sql` call below joins the caller's transaction via
  * ALS, so a throw here rolls the whole event back.
+ *
+ * The writes to the billing tables (flow purchases, subscription charges and
+ * mandates) are the exception: no app role may make them (S-07e, migration
+ * 945), so they run on the migration_admin pool and COMMIT before the event
+ * does. Each is placed after the payment request's own status change and is
+ * idempotent, so a redelivery of an event that rolled back repeats it safely.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
 import { completeBundlePurchase, failBundlePurchase } from './flowWalletService';
 import {
@@ -259,7 +266,7 @@ async function handleChargeFailed(reference: string, reason: string): Promise<vo
     await failBundlePurchase(pr.flow_purchase_id, reason);
   }
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
-    await sql`
+    await migrationAdminSqlTx('paystack_charge_failed', (tx) => tx`
       UPDATE subscription_charges
       SET status = 'failed',
           failure_reason = ${reason},
@@ -267,12 +274,12 @@ async function handleChargeFailed(reference: string, reason: string): Promise<vo
           last_attempt_at = now(),
           updated_at = now()
       WHERE id = ${pr.subscription_charge_id}
-    `;
+    `);
   }
 }
 
 async function handleSubscriptionDisabled(subscriptionCode: string): Promise<void> {
-  await sql`
+  await migrationAdminSqlTx('paystack_subscription_disabled', (tx) => tx`
     UPDATE subscription_mandates
     SET status = 'revoked',
         revoked_at = COALESCE(revoked_at, now()),
@@ -280,5 +287,5 @@ async function handleSubscriptionDisabled(subscriptionCode: string): Promise<voi
         updated_at = now()
     WHERE paystack_subscription_code = ${subscriptionCode}
       AND status NOT IN ('revoked','expired')
-  `;
+  `);
 }

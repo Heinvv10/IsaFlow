@@ -4,6 +4,12 @@
  * skip the next cron run because the mandate is no longer active. If the
  * mandate has a server-side Paystack subscription attached, we disable that
  * too so Paystack stops attempting charges from its side.
+ *
+ * The subscription code and email token are not readable by app roles, and
+ * subscription_mandates is not writable by them (S-07e, migration 945): both
+ * the read and the UPDATE run on the migration_admin pool, in two transactions
+ * so no connection is held across the Paystack call, each scoped to the
+ * verified request's company.
  */
 
 import type { NextApiResponse } from 'next';
@@ -11,8 +17,8 @@ import { withAuth, withRole, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { disableSubscription } from '@/modules/billing/services/paystackClient';
 
 interface Body {
@@ -26,18 +32,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { reason } = (req.body ?? {}) as Body;
 
-  const active = await sql<{
-    id: string;
-    paystack_subscription_code: string | null;
-    paystack_email_token: string | null;
-  }>`
+  const active = (await migrationAdminSqlTx('mandate_revoke_read', (tx) => tx`
     SELECT id, paystack_subscription_code, paystack_email_token
     FROM subscription_mandates
     WHERE company_id = ${req.companyId}
       AND gateway = 'paystack'
       AND status = 'active'
     LIMIT 1
-  `;
+  `)) as Array<{
+    id: string;
+    paystack_subscription_code: string | null;
+    paystack_email_token: string | null;
+  }>;
   const mandate = active[0];
   if (!mandate) return apiResponse.notFound(res, 'Active mandate');
 
@@ -56,14 +62,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
   }
 
-  await sql`
+  await migrationAdminSqlTx('mandate_revoke', (tx) => tx`
     UPDATE subscription_mandates
     SET status = 'revoked',
         revoked_at = now(),
         revoked_reason = ${reason ?? 'User-initiated revoke'},
         updated_at = now()
     WHERE id = ${mandate.id}
-  `;
+      AND company_id = ${req.companyId}
+  `);
 
   return apiResponse.success(res, { mandateId: mandate.id, revoked: true });
 }

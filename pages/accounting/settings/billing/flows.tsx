@@ -18,7 +18,6 @@ interface Wallet {
   monthFlowsUsed: number;
   autoTopupEnabled: boolean;
   autoTopupBundleId: string | null;
-  paymentMethodToken: string | null;
 }
 
 interface Bundle {
@@ -181,20 +180,16 @@ export default function FlowsSettingsPage() {
               <h2 className="text-sm font-semibold mb-3">Auto top-up</h2>
               <div className="text-sm text-gray-500 mb-3">
                 When enabled, we automatically purchase a bundle when your balance hits zero.
-                {!wallet.paymentMethodToken && (
-                  <>
-                    <br />
-                    <span className="text-xs text-amber-600">
-                      Unavailable — no payment method on file. Manual top-ups work above.
-                    </span>
-                  </>
-                )}
+                <br />
+                <span className="text-xs text-amber-600">
+                  Unavailable — no payment method on file. Manual top-ups work above.
+                </span>
               </div>
               <label className="flex items-center gap-3 mb-3">
                 <input
                   type="checkbox"
                   checked={wallet.autoTopupEnabled}
-                  disabled={!mayPay || !wallet.paymentMethodToken}
+                  disabled={!mayPay || !wallet.autoTopupEnabled}
                   onChange={(e) => updateAutoTopup(e.target.checked, wallet.autoTopupBundleId)}
                   className="disabled:opacity-50 disabled:cursor-not-allowed"
                 />
@@ -205,7 +200,7 @@ export default function FlowsSettingsPage() {
                   <label className="block text-xs text-gray-500 mb-1">Bundle to purchase</label>
                   <select
                     value={wallet.autoTopupBundleId ?? ''}
-                    disabled={!mayPay || !wallet.paymentMethodToken}
+                    disabled={!mayPay}
                     onChange={(e) => updateAutoTopup(true, e.target.value || null)}
                     className="px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
                   >

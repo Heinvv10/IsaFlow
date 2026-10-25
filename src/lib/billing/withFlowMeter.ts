@@ -14,6 +14,10 @@
  *
  * After a successful response, `recalculateNudge` is fire-and-forget so the
  * next page load sees the new banner level.
+ *
+ * The debit and the refund each COMMIT on their own migration_admin
+ * transaction (S-07e), not with the request's: a request that rolls back no
+ * longer takes the debit with it, so every failure exit refunds here.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

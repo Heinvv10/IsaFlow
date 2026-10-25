@@ -230,6 +230,43 @@ Migration 937 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   To revert, re-run 937 (it is idempotent). Until then every deploy's
   `app_pool_reach_violations()` check refuses the code switch.
 
+Migration 945 (S-07e: billing tables and TEMPORARY, 2026-10-25) also takes effect on deploy:
+
+- The billing tables are read-only to the app roles: `flow_wallet`,
+  `flow_ledger`, `flow_purchases`, `flow_bundles`, `plans`, `plan_features`,
+  `feature_flags`, `company_feature_overrides`, `subscriptions`,
+  `subscription_charges`, `subscription_mandates`. Metering, Flow purchases,
+  auto top-up settings, mandate create/verify/revoke, the subscription-charge
+  and Flow-month crons and the Paystack webhook write them on migration_admin;
+  the admin site keeps writing on platform_admin. 945 refuses to apply unless
+  both still can.
+- No app role may read `flow_wallet.payment_method_token`, or the Paystack
+  authorisation, customer, subscription and email-token columns of
+  `subscription_mandates` (and `subscription_charges.paystack_authorization_code`).
+- PUBLIC loses TEMPORARY on the database. Every role that had it through
+  PUBLIC, except the roles the app logins reach, is granted it back by name,
+  so GoTrue, storage, pgbouncer and the deploy keep it. **A role created
+  later has no TEMPORARY until it is granted** (`GRANT TEMPORARY ON DATABASE
+  isaflow TO <role>`). The rule also refuses CREATE on the database or any
+  schema for the app pools' roles.
+- Deploy window: until the new code is live (and after a code-only
+  rollback) the old release's billing writes answer 500 and write nothing:
+  metered PAYG requests, purchases, mandate flows, the two crons, and the
+  Paystack webhook's settlement (Paystack retries). On 2026-10-25 prod had no
+  PAYG subscription, no wallet and no mandate, so nothing is expected to hit it.
+- Break-glass, only if an app pool must write billing before a fix ships:
+
+  ```sql
+  -- BREAK-GLASS: undoes 945's protection (a tenant can set its own Flows and plan). Revert before deploying.
+  GRANT SELECT, INSERT, UPDATE, DELETE ON public.flow_wallet, public.flow_ledger, public.flow_purchases,
+    public.flow_bundles, public.plans, public.plan_features, public.feature_flags, public.company_feature_overrides,
+    public.subscriptions, public.subscription_charges, public.subscription_mandates TO app_user;
+  -- and, only if something on an app pool needs temp tables:
+  GRANT TEMPORARY ON DATABASE isaflow TO app_user;
+  ```
+  To revert, re-run 945 (it is idempotent). Until then every deploy's
+  `app_pool_reach_violations()` check refuses the code switch.
+
 Migration 936 (company standing and billing columns, 2026-10-24) also takes effect on deploy:
 
 - No app role may INSERT, DELETE or TRUNCATE `companies`, or UPDATE its 13
@@ -438,6 +475,44 @@ UNION ALL SELECT 'share_links', count(*) FROM share_links WHERE revoked_at IS NU
 UNION ALL SELECT 'audit_portal_sessions', count(*) FROM audit_portal_sessions WHERE revoked_at IS NULL AND expires_at > now()
 UNION ALL SELECT 'capture_inboxes', count(*) FROM capture_inboxes WHERE is_active
 UNION ALL SELECT 'bank_feed_connections', count(*) FROM bank_feed_connections WHERE is_active;
+-- 945: the writes it moves onto migration_admin, and the admin site's on platform_admin (zero rows)
+SELECT w.who, w.tbl, p.priv FROM (VALUES
+    ('migration_admin', 'public.flow_wallet', 'SELECT, INSERT, UPDATE'),
+    ('migration_admin', 'public.flow_ledger', 'SELECT, INSERT'),
+    ('migration_admin', 'public.flow_purchases', 'SELECT, INSERT, UPDATE'),
+    ('migration_admin', 'public.flow_bundles', 'SELECT'),
+    ('migration_admin', 'public.plans', 'SELECT'),
+    ('migration_admin', 'public.subscriptions', 'SELECT, UPDATE'),
+    ('migration_admin', 'public.subscription_charges', 'SELECT, INSERT, UPDATE'),
+    ('migration_admin', 'public.subscription_mandates', 'SELECT, INSERT, UPDATE'),
+    ('platform_admin', 'public.plans', 'SELECT, INSERT, UPDATE'),
+    ('platform_admin', 'public.feature_flags', 'SELECT, UPDATE'),
+    ('platform_admin', 'public.company_feature_overrides', 'SELECT, INSERT, UPDATE, DELETE'),
+    ('platform_admin', 'public.subscriptions', 'SELECT, INSERT, UPDATE'),
+    ('platform_admin', 'public.subscription_charges', 'SELECT, UPDATE'),
+    ('platform_admin', 'public.flow_wallet', 'SELECT, INSERT, UPDATE'),
+    ('platform_admin', 'public.flow_ledger', 'INSERT'),
+    ('platform_admin', 'public.flow_bundles', 'SELECT, INSERT, UPDATE')) w(who, tbl, privs),
+  unnest(string_to_array(w.privs, ', ')) p(priv)
+ WHERE NOT has_table_privilege(w.who, w.tbl, p.priv);
+-- 945: a grant on its tables to a role either login reaches, other than
+-- app_user and app_service (945 revokes from those and PUBLIC only; zero rows)
+SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
+ WHERE c.oid = ANY (ARRAY['public.flow_wallet', 'public.flow_ledger', 'public.flow_purchases', 'public.flow_bundles',
+         'public.plans', 'public.plan_features', 'public.feature_flags', 'public.company_feature_overrides',
+         'public.subscriptions', 'public.subscription_charges', 'public.subscription_mandates']::regclass[])
+   AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
+-- 945: TEMPORARY or CREATE held by a role either login reaches other than through
+-- PUBLIC (945 revokes PUBLIC's only; zero rows), and the deploy role must own or
+-- be a member of the database's owner (one row: t)
+SELECT d.datname, a.grantee::regrole, a.privilege_type FROM pg_database d, aclexplode(d.datacl) a
+ WHERE d.datname = current_database() AND a.grantee <> 0
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
+SELECT pg_has_role('postgres', datdba, 'USAGE') FROM pg_database WHERE datname = current_database();
+-- 945: how much the moved tables hold (counts only), to judge the deploy window
+SELECT (SELECT count(*) FROM flow_wallet) AS wallets, (SELECT count(*) FROM subscription_mandates) AS mandates,
+       (SELECT count(*) FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE p.code = 'payg' AND s.status = 'active') AS payg;
 -- 936: a table or column grant on companies to a role either login reaches,
 -- other than app_user (936 revokes from app_user, app_service and PUBLIC only;
 -- zero rows). Also check the owner: 936 runs its REVOKE as the owner, so the
@@ -459,7 +534,7 @@ SELECT w.role, w.priv, c.col FROM (VALUES
     ('migration_admin', 'INSERT', 'name,email,phone,is_active,annual_turnover_cents,payg_eligible,trial_ends_at')) w(role, priv, cols),
   unnest(string_to_array(w.cols, ',')) c(col)
  WHERE NOT has_column_privilege(w.role, 'public.companies', c.col, w.priv);
--- After the deploy, 930's, 932's, 936's and 937's rules run on every deploy; by hand (zero rows):
+-- After the deploy, 930's, 932's, 936's, 937's and 945's rules run on every deploy; by hand (zero rows):
 --   SELECT * FROM public.app_pool_reach_violations();
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (

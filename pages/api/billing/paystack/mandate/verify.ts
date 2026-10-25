@@ -9,6 +9,11 @@
  * the UI doesn't have to wait. Always scoped by company_id, and always
  * reported for the mandate THIS reference is linked to — never the company's
  * newest row.
+ *
+ * Mandate writes and the authorization code read run on the migration_admin
+ * pool (S-07e, migration 945), COMMITting on their own, scoped to the verified
+ * request's company. They are idempotent, so the savepoint below rolling the
+ * payment request back leaves a retry able to finish.
  */
 
 import type { NextApiResponse } from 'next';
@@ -20,6 +25,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { verifyTransaction } from '@/modules/billing/services/paystackClient';
 import {
   activateAuthorisedMandate,
@@ -134,12 +140,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
             WHERE id = ${pr.id} AND company_id = ${req.companyId}
           `;
           if (mandate) {
-            await sql`
+            await migrationAdminSqlTx('mandate_verify_failed', (tx) => tx`
               UPDATE subscription_mandates SET status = 'failed', updated_at = now()
               WHERE id = ${mandate.id}
                 AND company_id = ${req.companyId}
                 AND status = 'pending'
-            `;
+            `);
           }
         }
       });
