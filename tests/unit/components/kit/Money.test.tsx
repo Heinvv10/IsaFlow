@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest';
+import type * as React from 'react';
 import { render } from '@testing-library/react';
 import { Money } from '@/components/ui/Money';
 import { MoneyField } from '@/components/ui/MoneyField';
 
 describe('Money', () => {
+  it('with neither amount nor cents it shows a dash, never "R NaN"', () => {
+    const props = {} as unknown as React.ComponentProps<typeof Money>;
+    expect(render(<Money {...props} />).container.textContent).toBe('—');
+  });
+
   it('still shows rand amounts', () => {
     const { container } = render(<Money amount={25_000} />);
     expect(container.textContent).toBe('R\xa025\xa0000.00');

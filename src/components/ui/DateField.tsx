@@ -38,6 +38,8 @@ export interface DateFieldProps {
   minMessage?: string;
   /** Shown when the date is after `maxDate` (default names the date). */
   maxMessage?: string;
+  /** Change it to discard refused text on screen (a form reset); `value` alone cannot, null stays null. */
+  resetKey?: string | number;
   /** External error (e.g. from the server). Overrides the field's own. */
   error?: string;
   helperText?: string;
@@ -54,7 +56,7 @@ export interface DateFieldProps {
 
 export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(function DateField(
   {
-    label, value, onChange, id, name, minDate, maxDate, minMessage, maxMessage, error: externalError, helperText, help,
+    label, value, onChange, id, name, minDate, maxDate, minMessage, maxMessage, error: externalError, helperText, help, resetKey,
     placeholder = 'dd MMM yyyy', required, disabled, getToday, className, onBlur,
   },
   ref,
@@ -80,7 +82,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
     return refusal ? { ok: false, reason: refusal } : { ok: true, value: r.iso };
   };
 
-  const field = useParsedField<string>({ value, format: show, parse, onChange });
+  const field = useParsedField<string>({ value, format: show, parse, onChange, resetKey });
   const error = externalError ?? field.error;
   const understood = field.text.trim() === '' ? null : parseSaDate(field.text, now());
   const echo = understood?.ok ? formatDisplayDateWeekday(localDateFromISO(understood.iso), '') || null : null;

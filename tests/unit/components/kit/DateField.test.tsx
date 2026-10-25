@@ -249,4 +249,13 @@ describe('DateField', () => {
     type('1 Oct 2026');
     expect(screen.getByText('Thursday, 1 October 2026')).toBeTruthy();
   });
+
+  it('a form reset clears refused text via resetKey', () => {
+    const { rerender } = render(<DateField label="Invoice date" value={null} onChange={() => undefined} resetKey={0} />);
+    commit('soon');
+    expect(screen.getByRole('alert')).toBeTruthy();
+    rerender(<DateField label="Invoice date" value={null} onChange={() => undefined} resetKey={1} />);
+    expect(input().value).toBe('');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });
