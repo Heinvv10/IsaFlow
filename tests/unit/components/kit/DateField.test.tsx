@@ -2,20 +2,23 @@ import { describe, it, expect, vi, afterAll } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DateField, type DateFieldProps } from '@/components/ui/DateField';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-// SAST is UTC+2: pin it so a UTC-based "today" at 23:59 local is caught on any machine.
-// Set at import, before any Date below is built.
+// What the field shows is the canonical formatter's output (ICU decides "01" vs "1"), never its own.
+const shown = (y: number, m: number, d: number): string => formatDisplayDate(new Date(y, m - 1, d));
+
+// The field must not depend on the device's zone.
 const ORIGINAL_TZ = process.env.TZ;
-process.env.TZ = 'Africa/Johannesburg';
+process.env.TZ = 'America/Los_Angeles';
 afterAll(() => {
   if (ORIGINAL_TZ === undefined) delete process.env.TZ;
   else process.env.TZ = ORIGINAL_TZ;
 });
 
-// Thursday 15 Oct 2026, 23:59 local: a UTC-based "today" would already be tomorrow east of UTC.
-const TODAY = (): Date => new Date(2026, 9, 15, 23, 59, 30);
+// 23:59:30 SAST on Thursday 15 Oct 2026 (21:59:30Z). The device zone below is Los Angeles on purpose.
+const TODAY = (): Date => new Date('2026-10-15T21:59:30Z');
 
-function Harness(props: Partial<DateFieldProps> & { initial?: string | null; spy?: (v: string | null) => void }) {
+function Harness(props: Partial<DateFieldProps> & { initial?: string | null; spy?: DateFieldProps['onChange'] }) {
   const { initial = null, spy, ...rest } = props;
   const [value, setValue] = useState<string | null>(initial);
   return (
@@ -24,8 +27,8 @@ function Harness(props: Partial<DateFieldProps> & { initial?: string | null; spy
         label="Invoice date"
         value={value}
         getToday={TODAY}
-        onChange={(v) => {
-          spy?.(v);
+        onChange={(v, validity) => {
+          spy?.(v, validity);
           setValue(v);
         }}
         {...rest}
@@ -52,12 +55,12 @@ describe('DateField', () => {
     expect(input().type).toBe('text');
   });
 
-  it('displays dd MMM yyyy and emits ISO', () => {
+  it('displays the canonical short date and emits ISO', () => {
     const spy = vi.fn();
     render(<Harness spy={spy} />);
     commit('1 Oct 2026');
-    expect(input().value).toBe('01 Oct 2026');
-    expect(spy).toHaveBeenCalledExactlyOnceWith('2026-10-01');
+    expect(input().value).toBe(shown(2026, 10, 1));
+    expect(spy).toHaveBeenCalledExactlyOnceWith('2026-10-01', { valid: true, reason: null });
     expect(out()).toBe('2026-10-01');
   });
 
@@ -80,7 +83,7 @@ describe('DateField', () => {
     type('+1');
     fireEvent.keyDown(input(), { key: 'Enter' });
     expect(out()).toBe('2026-10-16');
-    expect(input().value).toBe('16 Oct 2026');
+    expect(input().value).toBe(shown(2026, 10, 16));
   });
 
   it('echoes the understood date with its weekday, live while typing', () => {
@@ -111,7 +114,7 @@ describe('DateField', () => {
   it('enforces minDate with a default message naming the date', () => {
     render(<Harness minDate="2026-03-01" />);
     commit('28/02/2026');
-    expect(screen.getByRole('alert').textContent).toBe('The date must be on or after 01 Mar 2026.');
+    expect(screen.getByRole('alert').textContent).toBe(`The date must be on or after ${shown(2026, 3, 1)}.`);
     expect(out()).toBe('null');
     commit('01/03/2026');
     expect(out()).toBe('2026-03-01');
@@ -168,8 +171,82 @@ describe('DateField', () => {
     const { rerender } = render(
       <DateField label="Invoice date" value="2026-10-01" onChange={() => undefined} />,
     );
-    expect(input().value).toBe('01 Oct 2026');
+    expect(input().value).toBe(shown(2026, 10, 1));
     rerender(<DateField label="Invoice date" value="2026-12-25" onChange={() => undefined} />);
-    expect(input().value).toBe('25 Dec 2026');
+    expect(input().value).toBe(shown(2026, 12, 25));
+  });
+
+  it('reports a refusal even when the value stays null', () => {
+    const spy = vi.fn();
+    render(<Harness spy={spy} />);
+    commit('31/02/2026');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[0]).toBeNull();
+    expect(spy.mock.calls[0]?.[1]).toMatchObject({ valid: false });
+    commit('1 Oct 2026');
+    expect(spy).toHaveBeenLastCalledWith('2026-10-01', { valid: true, reason: null });
+  });
+
+  it('an out-of-range date is a refusal too, so the form can block submit', () => {
+    const spy = vi.fn();
+    render(<Harness spy={spy} maxDate="2026-12-31" />);
+    commit('1 Jan 2027');
+    expect(spy).toHaveBeenLastCalledWith(null, { valid: false, reason: `The date must be on or before ${shown(2026, 12, 31)}.` });
+  });
+
+  it('minDate and maxDate are inclusive', () => {
+    render(<Harness minDate="2026-03-01" maxDate="2026-03-31" />);
+    commit('1 Mar 2026');
+    expect(out()).toBe('2026-03-01');
+    commit('31 Mar 2026');
+    expect(out()).toBe('2026-03-31');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('ArrowUp / ArrowDown leave unreadable text alone and do not swallow the key', () => {
+    render(<Harness />);
+    type('soon');
+    const notPrevented = fireEvent.keyDown(input(), { key: 'ArrowUp' });
+    expect(notPrevented).toBe(true);
+    expect(input().value).toBe('soon');
+    expect(out()).toBe('null');
+  });
+
+  it('ArrowUp on an empty field starts from the SAST day', () => {
+    render(<Harness />);
+    fireEvent.keyDown(input(), { key: 'ArrowUp' });
+    expect(out()).toBe('2026-10-15');
+  });
+
+  it('throws a RangeError for a bound that is not a real YYYY-MM-DD', () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    for (const props of [{ minDate: '2026-3-1' }, { maxDate: '31/03/2026' }, { minDate: '2026-02-30' }]) {
+      expect(() => render(<DateField label="D" value={null} onChange={() => undefined} {...props} />)).toThrow(RangeError);
+    }
+    quiet.mockRestore();
+  });
+
+  it('posts the canonical ISO date through a hidden input, never the display text', () => {
+    const { container } = render(<Harness name="due" initial="2026-10-01" />);
+    const hidden = container.querySelector('input[type="hidden"][name="due"]') as HTMLInputElement;
+    expect(hidden.value).toBe('2026-10-01');
+    expect(input().getAttribute('name')).toBeNull();
+    commit('+30');
+    expect(hidden.value).toBe('2026-11-14');
+    commit('soon');
+    expect(hidden.value).toBe('');
+  });
+
+  it('passes onBlur through', () => {
+    const onBlur = vi.fn();
+    render(<Harness onBlur={onBlur} />);
+    commit('t');
+    expect(onBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it('the echo is the canonical weekday form', () => {
+    render(<Harness />);
+    type('1 Oct 2026');
+    expect(screen.getByText('Thursday, 1 October 2026')).toBeTruthy();
   });
 });

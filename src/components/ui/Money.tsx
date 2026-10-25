@@ -4,18 +4,29 @@
  */
 import * as React from 'react';
 import { cn } from '@/utils/cn';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatCents, formatMoney } from '@/lib/money/formatMoney';
 
-export interface MoneyProps extends React.HTMLAttributes<HTMLSpanElement> {
-  amount: number;
-  /** Decimal places (default 2). */
-  decimals?: number;
-}
+type MoneyValue =
+  | {
+      /** Rand. */
+      amount: number;
+      /** Decimal places (default 2). */
+      decimals?: number;
+      cents?: never;
+    }
+  | {
+      /** Integer cents, as MoneyField hands them over: shown exactly, never divided in floating point. */
+      cents: number;
+      amount?: never;
+      decimals?: never;
+    };
 
-export function Money({ amount, decimals, className, style, ...props }: MoneyProps) {
+export type MoneyProps = React.HTMLAttributes<HTMLSpanElement> & MoneyValue;
+
+export function Money({ amount, cents, decimals, className, style, ...props }: MoneyProps) {
   return (
     <span className={cn('tabular-nums', className)} style={style} {...props}>
-      {formatMoney(amount, { decimals })}
+      {cents !== undefined ? formatCents(cents) : formatMoney(amount, { decimals })}
     </span>
   );
 }

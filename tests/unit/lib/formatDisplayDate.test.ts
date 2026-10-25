@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import {
   formatDisplayDate, formatDisplayDateTime, formatDisplayDateLong, formatDisplayDateShort,
   formatDisplayMonthYear, formatDisplayTime, formatDateISO, formatDateTimeISO, getTodayISO,
-  formatDisplayDateWeekday, formatDisplayMonthYearLong, formatDisplayTimeSeconds,
+  formatDisplayDateWeekday, formatDisplayDateWeekdayShort, formatDisplayMonthYearLong, formatDisplayTimeSeconds,
 } from '@/utils/dateFormat';
 
 // The rule is "the calendar day in Africa/Johannesburg", whatever the device zone is. Pin the device
@@ -83,10 +83,12 @@ describe('ISO forms (files and APIs) use the same SAST day', () => {
 
 describe('weekday, long month and seconds forms', () => {
   it('computes the weekday from the calendar date, in any device zone', () => {
-    expect(formatDisplayDateWeekday('2026-10-21')).toBe('Wed, 21 Oct 2026');
-    expect(formatDisplayDateWeekday('2024-02-29')).toBe('Thu, 29 Feb 2024');
-    expect(formatDisplayDateWeekday('2026-01-01')).toBe('Thu, 01 Jan 2026');
-    expect(formatDisplayDateWeekday('2026-02-29')).toBe('—');
+    expect(formatDisplayDateWeekdayShort('2026-10-21')).toBe('Wed, 21 Oct 2026');
+    expect(formatDisplayDateWeekdayShort('2024-02-29')).toBe('Thu, 29 Feb 2024');
+    expect(formatDisplayDateWeekdayShort('2026-01-01')).toBe('Thu, 01 Jan 2026');
+    expect(formatDisplayDateWeekdayShort('2026-02-29')).toBe('—');
+    expect(formatDisplayDateWeekday('2026-10-15')).toBe('Thursday, 15 October 2026');
+    expect(formatDisplayDateWeekday('2026-02-25')).toBe('Wednesday, 25 February 2026');
   });
   it('shows a long month heading and a time with seconds', () => {
     expect(formatDisplayMonthYearLong('2026-10-21')).toBe('October 2026');

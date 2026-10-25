@@ -15,6 +15,10 @@
  * garbage cell as zero silently changes a customer's books.
  *
  * Pure, no dependencies — safe on the client and the server.
+ *
+ * This is for IMPORTED data (CSV / ledger exports), where a blank is zero and a bad cell is a row error.
+ * What a person types into a form field is read by `parseSaAmount` in `@/lib/money/saAmountParser`,
+ * which refuses ambiguous text such as "1,234" instead of guessing. The two differ on purpose.
  */
 
 const SPACES = /[\s   ]/g;
