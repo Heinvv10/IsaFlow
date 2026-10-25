@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { RefreshCw, AlertCircle, Loader2, X, CheckCircle2, Clock, Search } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatDisplayDate, parseDateSafe } from '@/utils/dateFormat';
 
 interface SupplierExpectation {
   id: string; companyId: string; supplierId: string;
@@ -41,7 +41,8 @@ function nextExpected(exp: SupplierExpectation): string {
   if (exp.cadence === 'irregular' || !exp.lastInvoiceDate) return '—';
   const gap = CADENCE_GAP[exp.cadence];
   if (!gap) return '—';
-  const base = new Date(exp.lastInvoiceDate);
+  const base = parseDateSafe(exp.lastInvoiceDate);
+  if (!base) return formatDisplayDate(exp.lastInvoiceDate); // not a date: shown as it came
   base.setDate(base.getDate() + gap);
   return formatDisplayDate(base);
 }
