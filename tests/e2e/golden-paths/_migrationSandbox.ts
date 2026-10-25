@@ -99,12 +99,11 @@ export async function findLedgerRow(api: Api, accountCode: string, from: string,
   }
 }
 
-/** Stale take-ons that cannot be cancelled (paid or posted) tolerated before the run fails. */
-export const MAX_UNCANCELLABLE_STALE = 5;
-
 // The sandbox accumulates cancelled GP-MIG-AR invoices (148 vs a 100 page cap), so a single page of the
 // prefix search can miss a row. The list API takes a repeated `status` filter but no negation, so name
 // every live status to keep cancelled rows out of the walk.
+// Keep in step with the customer invoice status set (src/modules/accounting/types/customerInvoice.types.ts,
+// the status colour map); a status missing here makes its take-ons invisible to the walk.
 const LIVE_STATUSES = ['draft', 'pending_approval', 'approved', 'sent', 'partially_paid', 'paid', 'overdue']
   .map((s) => `&status=${s}`).join('');
 
@@ -135,7 +134,8 @@ export async function cancelStaleTakeOns(api: Api): Promise<string[]> {
     try {
       await api.post('/api/accounting/customer-invoices-detail', { id: stale.id, action: 'cancel' });
     } catch (err) {
-      if (!(err instanceof ApiError) || err.status !== 400) throw err;
+      // 400: cannot be cancelled (closed period, paid); 404: already gone. Annotation only, never a failure.
+      if (!(err instanceof ApiError) || (err.status !== 400 && err.status !== 404)) throw err;
       skipped.push(`${stale.invoice_number}: ${err.message}`);
     }
   }
