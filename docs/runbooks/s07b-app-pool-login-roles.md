@@ -283,7 +283,8 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
   `imap_mirror_connections` or `sent_mirror_connections`, or UPDATE them
   except the stamps a delivery or a scan writes (webhook: `last_triggered_at`,
   `failure_count`; mirrors: `scan_cursor`, `last_scan_at`, `last_success_at`,
-  `last_error`, the message counters, `updated_at`). Creating, editing,
+  `last_error`, the message counters; `updated_at` is set by the table's touch trigger, which needs no
+  column privilege). Creating, editing,
   disconnecting, reactivating and deleting them, an endpoint's auto-disable
   after 10 failures and a scan marking a connection errored run on
   migration_admin, keyed on the verified company; the admin site's webhook
@@ -293,11 +294,26 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
   downloads, captured documents, pack verify) refuse a pointer that is not
   under the reading company's `<company_id>/` prefix (code only, no privilege).
 - Deploy window: until the new code is live (and after a code-only rollback)
-  the old release's webhook and mirror-connection settings writes, the
-  auto-disable and a scan's error status are refused 42501 and write nothing;
-  deliveries and scans keep running and stamping. On 2026-10-25 prod had 0
-  webhook endpoints, 1 IMAP mirror connection (inactive) and 0 sent-mirror
-  connections.
+  the old release's webhook and mirror-connection settings writes are refused
+  42501 and write nothing. Scans and deliveries keep running and stamping, but
+  two failure paths now throw: on the OLD code a scan error's status write is
+  refused 42501 and the error escapes the scan, so the cron tick stops at that
+  connection (the ones after it wait for the next tick); and a failed
+  delivery's stamp (the old UPDATE names `is_active`) is refused 42501, so the
+  event's remaining endpoints are skipped and `failure_count` is not stamped (a
+  success's stamp is unaffected). On 2026-10-25 prod had 0 webhook endpoints, 1
+  IMAP mirror connection (inactive) and 0 sent-mirror connections.
+- Named limits: the stamp columns stay writable under forged claims, so an
+  injected request can reset or raise a webhook endpoint's `failure_count`
+  (delay or hasten its auto-disable) and move a mailbox's `scan_cursor` (skip a
+  mailbox's mail, or re-ingest it; ingestion de-dupes by hash). Integrity only:
+  no route changes and no credential is exposed.
+- 946's preflight (migration_admin's privileges and BYPASSRLS) is skipped when
+  the `migration_admin` role does not exist, as in 936, 937 and 945.
+- New in the same release, code only: a mirror connection's IMAP host must be,
+  and resolve only to, public addresses and its port 143 or 993 (checked at
+  create and again before each scan connects; a refused scan marks the
+  connection errored with the reason in `last_error`).
 - Break-glass, only if an app pool must write them before a fix ships:
 
   ```sql

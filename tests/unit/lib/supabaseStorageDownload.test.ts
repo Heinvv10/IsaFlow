@@ -4,13 +4,15 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ download: vi.fn() }));
+const m = vi.hoisted(() => ({ download: vi.fn(), remove: vi.fn() }));
 vi.mock('@supabase/storage-js', () => ({
-  StorageClient: class { from() { return { download: m.download }; } },
+  StorageClient: class { from() { return { download: m.download, remove: m.remove }; } },
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { CAPTURED_DOCS_BUCKET, CUSTOMER_INVOICES_BUCKET, CapturedDocumentMissingError, StorageObjectOutsideCompanyError, downloadCapturedDocument, signedUrlForCapturedDocument } from '@/lib/supabaseStorage';
+import * as storage from '@/lib/supabaseStorage';
+import { log } from '@/lib/logger';
+import { CAPTURED_DOCS_BUCKET, CUSTOMER_INVOICES_BUCKET, CapturedDocumentMissingError, StorageObjectOutsideCompanyError, downloadCapturedDocument, removeCapturedDocument, signedUrlForCapturedDocument } from '@/lib/supabaseStorage';
 
 const B = CAPTURED_DOCS_BUCKET;
 
@@ -94,5 +96,49 @@ describe('only the reading company\'s own objects', () => {
   ])('serves %s the app wrote', async (_, bucket, path) => {
     m.download.mockResolvedValue({ data: new Blob([new Uint8Array([7])]), error: null });
     expect([...await downloadCapturedDocument(bucket, path, 'co')]).toEqual([7]);
+  });
+});
+
+// S-07e part B: a delete is as dangerous as a read: the service-role key bypasses storage RLS.
+describe('removeCapturedDocument', () => {
+  beforeEach(() => m.remove.mockResolvedValue({ data: [], error: null }));
+
+  it.each([
+    ['another company\'s object', B, 'victim/doc'],
+    ['a prefix that only starts like it', B, 'co-other/doc'],
+    ['a climb out of the prefix', B, 'co/../victim/doc'],
+    ['no prefix at all', B, 'doc'],
+    ['a bucket the app does not write', 'avatars', 'co/doc'],
+  ])('refuses %s without asking Storage', async (_, bucket, path) => {
+    await expect(removeCapturedDocument(bucket, path, 'co')).rejects.toBeInstanceOf(StorageObjectOutsideCompanyError);
+    expect(m.remove).not.toHaveBeenCalled();
+  });
+
+  it('removes the company\'s own object', async () => {
+    await removeCapturedDocument(CUSTOMER_INVOICES_BUCKET, 'co/0b9d1c1e-3f7a-4c56-9a1e-2f3b4c5d6e7f.pdf', 'co');
+    expect(m.remove).toHaveBeenCalledWith(['co/0b9d1c1e-3f7a-4c56-9a1e-2f3b4c5d6e7f.pdf']);
+  });
+
+  it('a Storage failure is only logged (best-effort), as before', async () => {
+    m.remove.mockResolvedValue({ data: null, error: { message: 'Bad gateway' } });
+    await expect(removeCapturedDocument(B, 'co/doc', 'co')).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a refusal logs the stored path cut to 200 characters', () => {
+  it('for a read and for a delete', async () => {
+    const long = `victim/${'x'.repeat(5000)}`;
+    await expect(downloadCapturedDocument(B, long, 'co')).rejects.toBeInstanceOf(StorageObjectOutsideCompanyError);
+    await expect(removeCapturedDocument(B, long, 'co')).rejects.toBeInstanceOf(StorageObjectOutsideCompanyError);
+    const logged = vi.mocked(log.error).mock.calls.map((c) => (c[1] as { path: string }).path);
+    expect(logged).toHaveLength(2);
+    for (const p of logged) expect(p).toBe(long.slice(0, 200));
+  });
+});
+
+describe('the service-role client', () => {
+  it('is not exported: every way in goes through the company-prefix check', () => {
+    expect('getStorageClient' in storage).toBe(false);
   });
 });

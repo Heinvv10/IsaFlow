@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   docInserts: 0,
   stampFails: 0,
   stamps: 0,
+  empty: false,
 }));
 
 vi.mock('imapflow', () => ({
@@ -25,7 +26,7 @@ vi.mock('imapflow', () => ({
     async logout() { /* fake mailbox */ }
     async getMailboxLock() { return { release: () => undefined }; }
     async *fetch() {
-      for (const uid of [11, 12, 13]) yield { uid, envelope: { from: [{ address: 'ap@supplier.test' }], subject: `Invoice ${uid}` } };
+      for (const uid of h.empty ? [] : [11, 12, 13]) yield { uid, envelope: { from: [{ address: 'ap@supplier.test' }], subject: `Invoice ${uid}` } };
     }
     async fetchOne(uid: string) { return { uid: Number(uid), source: Buffer.from(`msg ${uid}`) }; }
   },
@@ -38,6 +39,8 @@ vi.mock('mailparser', () => ({
       (_, i) => ({ contentType: 'application/pdf', size: 3, content: Buffer.from(`pdf${i}`), filename: `i${i}.pdf` })),
   }),
 }));
+// The scan resolves the host before it connects (imapTargetGuard): imap.test is a public address here.
+vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
 vi.mock('@/lib/documentStorage', () => ({
   sha256: () => 'sha', storeCapturedBytes: async () => ({ bucket: 'b', path: 'p' }),
@@ -89,6 +92,7 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     h.docInserts = 0;
     h.stampFails = 0;
     h.stamps = 0;
+    h.empty = false;
   });
 
   it('a clean scan advances the cursor to the last message', async () => {
@@ -143,5 +147,37 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     const r = await scanConnection(conn);
     expect([r.errors, cursorWritten()]).toEqual([1, 13]);
     expect(documentsCreated()).toBe(4); // 11, 12a, 12b (refused), 13: none retried
+  });
+
+  // S-07e part B: the role that stamps is the app pool's, so every stamp names the company as well as the row.
+  describe('every stamp on the connection row is keyed on id AND company_id', () => {
+    const stamps = () => h.sql.filter((q) => q.text.startsWith('UPDATE imap_mirror_connections'));
+    const keyed = (q: { text: string; values: unknown[] }) =>
+      q.text.includes('WHERE id = ?::uuid AND company_id = ?::uuid') && q.values.slice(-2).join() === `${conn.id},${conn.companyId}`;
+
+    it('a scan that ingests: the cursor stamp and the counter', async () => {
+      await scanConnection(conn);
+      expect(stamps()).toHaveLength(2);
+      expect(stamps()[0]!.text).toContain('SET scan_cursor = ?');
+      expect(stamps()[1]!.text).toContain('messages_ingested_total = messages_ingested_total + ?');
+      expect(stamps().every(keyed)).toBe(true);
+    });
+
+    it('a scan with nothing new: the last_scan_at bump', async () => {
+      h.empty = true;
+      await scanConnection(conn);
+      expect(stamps()).toHaveLength(1);
+      expect(stamps()[0]!.text).toContain('last_success_at = NOW(), last_error = NULL');
+      expect(stamps().every(keyed)).toBe(true);
+    });
+
+    it('a scan that stops on a transient failure: the error stamp', async () => {
+      h.failWith = Object.assign(new Error('permission denied'), { code: '42501' });
+      h.upsertFails.add(1);
+      await scanConnection(conn);
+      expect(stamps()).toHaveLength(1);
+      expect(stamps()[0]!.text).toContain('last_error = ?');
+      expect(stamps().every(keyed)).toBe(true);
+    });
   });
 });

@@ -13,6 +13,7 @@ import {
   listMirrorConnections,
   createImapConnection,
 } from '@/modules/accounting/services/capture/mirrorConnectionService';
+import { checkImapTarget } from '@/lib/imapTargetGuard';
 
 interface CreateImapBody {
   displayName?: string;
@@ -42,6 +43,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         || !body.imapUsername || !body.imapPassword) {
       return apiResponse.badRequest(res, 'displayName, accountEmail, imapHost, imapPort, imapUsername, imapPassword are required');
     }
+
+    // The scan cron presents the stored password to this host: public hosts and IMAP ports only.
+    const refused = await checkImapTarget(body.imapHost, body.imapPort);
+    if (refused) return apiResponse.badRequest(res, refused);
 
     const created = await createImapConnection({
       companyId,

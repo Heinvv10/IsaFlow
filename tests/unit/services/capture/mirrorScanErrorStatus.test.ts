@@ -4,6 +4,9 @@
  * migration_admin pool, keyed on the connection and its company. If that write
  * is refused (scan-now's request transaction may hold the row), the error is
  * still recorded by a stamp-only app-pool UPDATE that does not touch status.
+ * (mirrorScanError.test.ts pins the helper itself.) A scan also refuses, before
+ * it connects, a host that is or resolves to private space and any port but
+ * 143/993: the connection is marked errored with the reason.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -11,13 +14,18 @@ const h = vi.hoisted(() => ({
   admin: [] as Array<{ label: string; text: string; values: unknown[] }>,
   app: [] as Array<{ text: string; values: unknown[] }>,
   adminFails: false,
+  connects: 0,
+  resolves: ['93.184.216.34'],
 }));
 
 vi.mock('imapflow', () => ({
   ImapFlow: class {
-    async connect() { throw new Error('connect ECONNREFUSED'); }
+    async connect() { h.connects += 1; throw new Error('connect ECONNREFUSED'); }
     async logout() { /* fake mailbox */ }
   },
+}));
+vi.mock('node:dns/promises', () => ({
+  lookup: async () => h.resolves.map((address) => ({ address, family: 4 })),
 }));
 vi.mock('mailparser', () => ({ simpleParser: async () => ({}) }));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
@@ -61,6 +69,8 @@ beforeEach(() => {
   h.admin.length = 0;
   h.app.length = 0;
   h.adminFails = false;
+  h.connects = 0;
+  h.resolves = ['93.184.216.34'];
 });
 
 describe.each([
@@ -86,7 +96,41 @@ describe.each([
     const stamps = h.app.filter((q) => q.text.startsWith(`UPDATE ${table}`));
     expect(stamps).toHaveLength(1);
     expect(stamps[0]!.text).toContain('SET last_scan_at = NOW(), last_error = ?');
+    expect(stamps[0]!.text).toContain('WHERE id = ?::uuid AND company_id = ?::uuid');
     expect(stamps[0]!.text).not.toContain('status');
-    expect(stamps[0]!.values[0]).toBe('connect ECONNREFUSED');
+    expect(stamps[0]!.values).toEqual(['connect ECONNREFUSED', id, COMPANY]);
+  });
+});
+
+describe.each([
+  ['imap_mirror_connections', 'c1', (over: object) => scanConnection({ ...imapConn, ...over })],
+  ['sent_mirror_connections', 's1', (over: object) => scanSentConnection({ ...sentConn, ...over })],
+] as const)('%s scan target', (table, id, scan) => {
+  it.each([
+    ['a loopback literal', { imapHost: '127.0.0.1' }, 'IMAP host is not allowed: blocked address 127.0.0.1'],
+    ['a private literal', { imapHost: '10.0.0.5' }, 'IMAP host is not allowed: blocked address 10.0.0.5'],
+    ['the metadata address', { imapHost: '169.254.169.254' }, 'IMAP host is not allowed: blocked address 169.254.169.254'],
+    ['a port that is not IMAP', { imapPort: 6379 }, 'IMAP port must be 143 or 993'],
+  ])('%s: never connects, and the connection is marked errored with the reason', async (_what, over, reason) => {
+    const r = await scan(over);
+    expect(r.errors).toBe(1);
+    expect(h.connects).toBe(0);
+    expect(h.admin).toHaveLength(1);
+    expect(h.admin[0]!.text).toContain(`UPDATE ${table}`);
+    expect(h.admin[0]!.values).toEqual([id, COMPANY, expect.stringContaining(reason)]);
+  });
+
+  it('a name that now resolves into private space (rebinding) is refused at scan time', async () => {
+    h.resolves = ['93.184.216.34', '192.168.1.10'];
+    const r = await scan({});
+    expect(r.errors).toBe(1);
+    expect(h.connects).toBe(0);
+    expect(String(h.admin[0]!.values[2])).toContain('resolves to blocked address 192.168.1.10');
+  });
+
+  it('a public host on an IMAP port connects (143 and 993)', async () => {
+    await scan({ imapPort: 143 });
+    await scan({ imapPort: 993 });
+    expect(h.connects).toBe(2);
   });
 });

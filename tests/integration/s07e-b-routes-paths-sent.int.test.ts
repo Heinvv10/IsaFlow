@@ -19,6 +19,8 @@ import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.hel
 
 const imap = vi.hoisted(() => ({ connectError: null as string | null,
   metas: [] as Array<{ uid: number; envelope: { subject: string; to: Array<{ address: string }> } }> }));
+// The create route and the scan resolve the IMAP host first (imapTargetGuard): the fake .test names are a public address here.
+vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     mailbox = { uidNext: 100 };
@@ -107,7 +109,8 @@ describe('S-07e part B (946): sent-mirror connections, through the routes on the
     const scan = await as(scanNowRoute, 'POST', { id });
     expect(scan.status).toBe(200);
     expect((scan.body as { data: Record<string, number> }).data.errors).toBe(1);
-    expect(await row(id)).toMatchObject({ status: 'error', last_error: 'connect ECONNREFUSED' });
+    // The error is stamped in the request; the status flip is deferred until it has committed (mirrorScanError.ts).
+    await vi.waitFor(async () => expect(await row(id)).toMatchObject({ status: 'error', last_error: 'connect ECONNREFUSED' }), { timeout: 10000 });
     expect((await row(id))!.last_scan_at).not.toBeNull();
   });
 });

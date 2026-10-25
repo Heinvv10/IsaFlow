@@ -4,7 +4,7 @@
  * the delivery stamps). The role bypasses RLS, so each statement must carry the
  * verified company itself.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const h = vi.hoisted(() => ({
   admin: [] as Array<{ label: string; text: string; values: unknown[] }>,
@@ -28,12 +28,20 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
 
 import { sql } from '@/lib/neon';
 import { createWebhook, updateWebhook, deleteWebhook } from '@/modules/accounting/services/core/webhookService';
+import { disableFailingEndpoint } from '@/modules/accounting/services/core/webhookEndpointWrites';
 
 const COMPANY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const endpointRow = (over: Record<string, unknown> = {}) => ({
   id: ID, company_id: COMPANY, name: 'n', url: 'https://hook.test/x', secret: null, events: ['invoice.sent'],
   is_active: true, last_triggered_at: null, failure_count: 0, created_at: '2026-01-01', ...over,
+});
+
+const ORIGINAL_KEY = process.env.ENCRYPTION_KEY;
+
+afterEach(() => {
+  if (ORIGINAL_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+  else process.env.ENCRYPTION_KEY = ORIGINAL_KEY;
 });
 
 beforeEach(() => {
@@ -92,7 +100,6 @@ describe('webhook endpoint writes (migration_admin)', () => {
     await updateWebhook(COMPANY, ID, { secret: null });
     expect(h.admin[0]!.text).toContain('SET secret = $1');
     expect(h.admin[0]!.values[0]).toBeNull();
-    delete process.env.ENCRYPTION_KEY;
   });
 
   it('deleteWebhook deletes by id AND company', async () => {
@@ -100,6 +107,15 @@ describe('webhook endpoint writes (migration_admin)', () => {
     expect(h.admin).toHaveLength(1);
     expect(h.admin[0]!.text).toBe('DELETE FROM webhook_endpoints WHERE id = $1::UUID AND company_id = $2::UUID');
     expect(h.admin[0]!.values).toEqual([ID, COMPANY]);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it('disableFailingEndpoint switches off only at or past the threshold, keyed on id AND company', async () => {
+    await disableFailingEndpoint(COMPANY, ID, 10);
+    expect(h.admin).toHaveLength(1);
+    expect(h.admin[0]!.text).toContain('SET is_active = false');
+    expect(h.admin[0]!.text).toContain('WHERE id = $1::UUID AND company_id = $2::UUID AND failure_count >= $3');
+    expect(h.admin[0]!.values).toEqual([ID, COMPANY, 10]);
     expect(sql).not.toHaveBeenCalled();
   });
 });

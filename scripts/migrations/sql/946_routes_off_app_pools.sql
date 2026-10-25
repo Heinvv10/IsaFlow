@@ -28,13 +28,30 @@
 -- under its own company's prefix (captured_documents 1266, customer_invoices
 -- 1052, audit_trail_exports 1).
 --
+-- updated_at is not among the stamp columns: the table's touch trigger sets it
+-- on every UPDATE, and a trigger's change to NEW needs no column privilege.
+--
 -- Deploy window: until the new code is live, and after a code-only rollback,
 -- the previous release's writes are refused 42501 and write nothing: webhook
 -- create, edit and delete; mirror connection create, edit, disconnect,
--- reconnect and delete; and a scan's or delivery's status change (an endpoint
--- auto-disabled after failures, a connection marked errored). Scans and
--- deliveries keep running and stamping. Production on 2026-10-25: 0 webhook
--- endpoints, 1 IMAP mirror connection (inactive), 0 sent-mirror connections.
+-- reconnect and delete. Scans and deliveries keep running and stamping, but two
+-- of their failure paths now throw: on the OLD code a scan error's status write
+-- is refused 42501 and the error ESCAPES the scan, so the cron tick stops at
+-- that connection and the connections after it wait for the next tick; and a
+-- failed delivery's stamp (the old UPDATE names is_active) is refused 42501, so
+-- the event's remaining endpoints are skipped and failure_count is not stamped
+-- (a success's stamp is unaffected). Production on
+-- 2026-10-25: 0 webhook endpoints, 1 IMAP mirror connection (inactive),
+-- 0 sent-mirror connections.
+--
+-- Named limits. The stamp columns stay writable under forged claims, so an
+-- injected request can reset or raise a webhook endpoint's failure_count (delay
+-- or hasten its auto-disable) and move a mailbox's scan_cursor (skip a
+-- mailbox's mail, or re-ingest it; ingestion de-dupes by hash). That is an
+-- integrity limit only: it changes no route and exposes no credential.
+--
+-- The preflight below (migration_admin's privileges and BYPASSRLS) is skipped
+-- when the migration_admin role does not exist, as in 936, 937 and 945.
 --
 -- Rollback (break-glass, docs/runbooks/s07b-app-pool-login-roles.md), which
 -- reopens the forgery and makes every deploy's check refuse until this
@@ -45,8 +62,8 @@
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.webhook_endpoints, public.imap_mirror_connections,
   public.sent_mirror_connections FROM app_user, app_service, PUBLIC;
 GRANT UPDATE (last_triggered_at, failure_count) ON public.webhook_endpoints TO app_user;
-GRANT UPDATE (scan_cursor, last_scan_at, last_success_at, last_error, messages_ingested_total, updated_at) ON public.imap_mirror_connections TO app_user;
-GRANT UPDATE (scan_cursor, last_scan_at, last_success_at, last_error, messages_captured_total, messages_linked_total, updated_at) ON public.sent_mirror_connections TO app_user;
+GRANT UPDATE (scan_cursor, last_scan_at, last_success_at, last_error, messages_ingested_total) ON public.imap_mirror_connections TO app_user;
+GRANT UPDATE (scan_cursor, last_scan_at, last_success_at, last_error, messages_captured_total, messages_linked_total) ON public.sent_mirror_connections TO app_user;
 
 -- app_service's mirrors follow app_user's privileges (915).
 SELECT public.app_service_sync_policies();
@@ -163,8 +180,8 @@ AS $$
     -- 946: a company's outbound routes are written on migration_admin; the
     -- scans and the deliveries keep their stamps.
     ('public.webhook_endpoints',        '{}', '{last_triggered_at,failure_count}', true,  false),
-    ('public.imap_mirror_connections',  '{}', '{scan_cursor,last_scan_at,last_success_at,last_error,messages_ingested_total,updated_at}', true,  false),
-    ('public.sent_mirror_connections',  '{}', '{scan_cursor,last_scan_at,last_success_at,last_error,messages_captured_total,messages_linked_total,updated_at}', true,  false)
+    ('public.imap_mirror_connections',  '{}', '{scan_cursor,last_scan_at,last_success_at,last_error,messages_ingested_total}', true,  false),
+    ('public.sent_mirror_connections',  '{}', '{scan_cursor,last_scan_at,last_success_at,last_error,messages_captured_total,messages_linked_total}', true,  false)
   ),
   -- 937: columns no app role may read on a table it otherwise reads.
   unreadable (tbl, col) AS (VALUES

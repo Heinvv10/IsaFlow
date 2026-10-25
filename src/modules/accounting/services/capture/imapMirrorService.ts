@@ -10,18 +10,17 @@
  * Invariant: the service never DELETEs or marks remote messages read.
  * Access is read-only — invoices stay where the user expects them.
  *
- * App-pool writes to imap_mirror_connections are the scan stamps only
- * (S-07e part B, migration 946): scan_cursor, last_scan_at, last_success_at,
- * last_error, messages_ingested_total. A write to `status` (markScanError's
- * flip to 'error') runs on the migration_admin pool, keyed on the connection
- * and its company.
+ * App-pool writes to imap_mirror_connections are the scan stamps only, each
+ * keyed on the connection AND its company (S-07e part B, migration 946). The
+ * flip of `status` to 'error' is mirrorScanError.ts's, on migration_admin.
  */
 
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
-import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
+import { markMirrorScanError } from './mirrorScanError';
+import { checkImapTarget } from '@/lib/imapTargetGuard';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
@@ -153,6 +152,9 @@ async function openImapClient(conn: MirrorConnection): Promise<ImapFlow> {
     if (!conn.imapHost || !conn.imapPort || !conn.imapUsername || !conn.imapPasswordEnc) {
       throw new Error(`Incomplete IMAP config for connection ${conn.id}`);
     }
+    // Before the password is decrypted: never connect to private space.
+    const refused = await checkImapTarget(conn.imapHost, conn.imapPort);
+    if (refused) throw new Error(refused);
     const password = decrypt(conn.imapPasswordEnc);
     return new ImapFlow({
       host: conn.imapHost,
@@ -201,31 +203,8 @@ async function updateCursor(conn: MirrorConnection, folder: string, uid: number)
         last_scan_at = NOW(),
         last_success_at = NOW(), last_error = NULL,
         messages_ingested_total = messages_ingested_total
-    WHERE id = ${conn.id}::uuid
+    WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
   `;
-}
-
-async function markScanError(conn: MirrorConnection, error: string): Promise<void> {
-  try {
-    // status is not a scan stamp: no app role may write it (migration 946).
-    await migrationAdminTx('mark imap mirror scan error', (client) => client.query(
-      `UPDATE imap_mirror_connections
-          SET last_scan_at = NOW(),
-              last_error = $3,
-              status = CASE WHEN status = 'active' THEN 'error' ELSE status END
-        WHERE id = $1::uuid AND company_id = $2::uuid`,
-      [conn.id, conn.companyId, error],
-    ));
-  } catch (adminErr) {
-    // Scan-now's request transaction may hold this row (its cursor stamp), so the
-    // status write can wait out its lock_timeout: record the error alone, keep the status.
-    log.warn('mirror scan error status write failed', { connectionId: conn.id, err: adminErr }, 'imap-mirror');
-    await sql`
-      UPDATE imap_mirror_connections
-      SET last_scan_at = NOW(), last_error = ${error}
-      WHERE id = ${conn.id}::uuid
-    `;
-  }
 }
 
 async function ingestAttachment(
@@ -385,18 +364,18 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
         await sql`
           UPDATE imap_mirror_connections
           SET last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL
-          WHERE id = ${conn.id}::uuid
+          WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
         `;
       }
       // A stop shows its error (after any progress above); status stays active so the next scan retries.
-      if (stoppedOn) await sql`UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = ${stoppedOn} WHERE id = ${conn.id}::uuid`;
+      if (stoppedOn) await sql`UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = ${stoppedOn} WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid`;
 
       // Increment total ingested counter
       if (result.ingested > 0) {
         await sql`
           UPDATE imap_mirror_connections
           SET messages_ingested_total = messages_ingested_total + ${result.ingested}
-          WHERE id = ${conn.id}::uuid
+          WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
         `;
       }
     } finally {
@@ -406,7 +385,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
     const msg = err instanceof Error ? err.message : String(err);
     log.error('mirror scan failed', { connectionId: conn.id, err: msg }, 'imap-mirror');
     result.errors += 1;
-    await markScanError(conn, msg);
+    await markMirrorScanError('imap', conn, msg);
   } finally {
     if (client) {
       try { await client.logout(); } catch { /* ignore */ }

@@ -99,6 +99,15 @@ describe('fireWebhook', () => {
       expect(w.values).toEqual([ENDPOINT, COMPANY, 10]);
     });
 
+    // The threshold is 10 failures: the ninth leaves the endpoint on, the tenth switches it off.
+    it.each([[9, 0], [10, 1], [11, 1]])('failure_count %i after the stamp: %i migration_admin disable write(s)', async (count, writes) => {
+      m.safeFetch.mockRejectedValue(new Error('endpoint down'));
+      m.failureCount = count;
+      await fireWebhook(COMPANY, 'invoice.sent', {});
+      expect(m.admin).toHaveLength(writes);
+      if (writes) expect(m.admin[0]!.values).toEqual([ENDPOINT, COMPANY, 10]);
+    });
+
     it('a success never reaches the migration_admin pool and never writes is_active', async () => {
       await fireWebhook(COMPANY, 'invoice.sent', {});
       expect(m.admin).toHaveLength(0);

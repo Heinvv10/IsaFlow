@@ -82,6 +82,7 @@ describe('mirrorConnectionService writes', () => {
     expect(await reactivateConnection(ID, COMPANY)).toBe(true);
     expect(await deleteConnection(ID, COMPANY)).toBe(true);
     expect(h.admin[0]!.text).toContain("SET status = 'active'");
+    expect(h.admin[0]!.text).toContain('WHERE id = $1::uuid AND company_id = $2::uuid');
     expect(h.admin[1]!.text).toMatch(/^DELETE FROM imap_mirror_connections WHERE id = \$1::uuid AND company_id = \$2::uuid/);
     for (const q of h.admin) expect(q.values).toEqual([ID, COMPANY]);
     expect(sql).not.toHaveBeenCalled();
