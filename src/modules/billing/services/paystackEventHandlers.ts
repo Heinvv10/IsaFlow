@@ -143,6 +143,8 @@ async function handleChargeSuccess(
   // pre-emptive 'completed' must not cost a paid purchase its credit. Re-read
   // it and take the same path: recordGatewayInvoiceReceipt and every billing
   // write below are idempotent, so a repeat posts only what is missing.
+  // A redelivery's re-read writes no outcome note: the first delivery's stands.
+  const fresh = prRows.length > 0;
   const pr = prRows[0] ?? (await sql<(typeof prRows)[number]>`
     SELECT id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, mandate_id, amount_cents, status
     FROM paystack_payment_requests
@@ -183,7 +185,7 @@ async function handleChargeSuccess(
     const credited = await completePaidBundlePurchase(pr.flow_purchase_id,
       { companyId: pr.company_id, amountCents: paidCents, currency: reported.currency });
     if (!credited) {
-      await noteAuthorisationNotAttached(pr.id, pr.company_id, 'review:flow_purchase_not_credited');
+      if (fresh) await noteAuthorisationNotAttached(pr.id, pr.company_id, 'review:flow_purchase_not_credited');
       return;
     }
     log.info(
@@ -208,7 +210,7 @@ async function handleChargeSuccess(
         { reference, companyId: pr.company_id },
         'PaystackWebhook',
       );
-      await noteAuthorisationNotAttached(pr.id, pr.company_id, 'authorisation_no_mandate_row');
+      if (fresh) await noteAuthorisationNotAttached(pr.id, pr.company_id, 'authorisation_no_mandate_row');
       return;
     }
     const outcome = await activateAuthorisedMandate(pr.company_id, mandate, {
@@ -232,7 +234,7 @@ async function handleChargeSuccess(
       { reference, companyId: pr.company_id, mandateId: mandate.id, status: mandate.status, outcome },
       'PaystackWebhook',
     );
-    await noteAuthorisationNotAttached(pr.id, pr.company_id, `authorisation_${outcome}`);
+    if (fresh) await noteAuthorisationNotAttached(pr.id, pr.company_id, `authorisation_${outcome}`);
     return;
   }
 
