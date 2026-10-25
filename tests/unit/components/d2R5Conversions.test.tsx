@@ -40,22 +40,31 @@ function script(target: (p: string, m: string) => boolean, fail: Fail, rest: (p:
  * pages/admin/companies mounts with a 300 ms debounce that clears the selection and reloads the list (and clears
  * `error`). A test that selects a row and presses a bulk button takes however long the box lets it, so on a loaded
  * machine the debounce fired in the middle: the button vanished, or the error was wiped. The debounce is collapsed to
- * 0 ms, and `mountCompanies` drains it (both list loads, counted event-loop turns) before the test touches the page.
+ * 0 ms, and `mountCompanies` drains it (both list loads settled and rendered) before the test touches the page.
  */
 const realSetTimeout = globalThis.setTimeout;
 let timers: { mockRestore: () => void } | undefined;
-beforeEach(() => {
-  vi.mocked(apiFetch).mockReset();
+beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
+afterEach(() => { cleanup(); timers?.mockRestore(); timers = undefined; });
+const turn = () => act(async () => { await new Promise<void>((r) => setImmediate(r)); });
+/**
+ * Mount the companies page and wait out its mount work. The setTimeout spy is installed here only (not for the whole
+ * file), and rewrites only the 300 ms delay: the page's search debounce is the one 300 ms timer it starts, and the
+ * other pages in this file are never rendered through this helper. Throws if the page never made its two list loads.
+ */
+async function mountCompanies() {
   timers = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...a: unknown[]) =>
     realSetTimeout(fn, ms === 300 ? 0 : ms, ...a)) as typeof setTimeout);
-});
-afterEach(() => { cleanup(); timers?.mockRestore(); });
-const turn = () => act(async () => { await new Promise<void>((r) => setImmediate(r)); });
-async function mountCompanies() {
   const view = render(<CompaniesPage />);
-  const lists = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).startsWith('/api/admin/companies?')).length;
-  for (let i = 0; i < 500 && lists() < 2; i += 1) await turn(); // the page effect's load and the debounced one
-  for (let i = 0; i < 10; i += 1) await turn(); // let the second load's state land
+  const listCalls = () => vi.mocked(apiFetch).mock.calls.flatMap(([u], i) => (String(u).startsWith('/api/admin/companies?') ? [i] : []));
+  let n = 0;
+  for (; n < 500 && listCalls().length < 2; n += 1) await turn(); // the page effect's load and the debounced one
+  if (listCalls().length < 2) throw new Error(`mountCompanies: ${listCalls().length} of 2 list loads after ${n} turns`);
+  await act(async () => { await Promise.allSettled(listCalls().map((i) => vi.mocked(apiFetch).mock.results[i]!.value)); });
+  // Rows from the last response on screen; the few extra turns let its body read (json()) hop through the event loop.
+  for (n = 0; n < 500 && screen.queryAllByText('D2 Acme Ltd').length === 0; n += 1) await turn();
+  if (screen.queryAllByText('D2 Acme Ltd').length === 0) throw new Error('mountCompanies: the list never rendered');
+  for (let i = 0; i < 3; i += 1) await turn();
   return view;
 }
 
