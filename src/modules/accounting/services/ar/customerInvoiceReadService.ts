@@ -59,6 +59,7 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
   const filterDueSoon = agingFilters.includes('due-soon');
   const filterOverdue90 = agingFilters.includes('overdue-90');
   const filterViewedUnpaid = agingFilters.includes('viewed-unpaid');
+  const asAt = asAtTodayStr();
 
   return sql`
     ci.company_id = ${companyId}::UUID
@@ -79,13 +80,13 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
     AND (NOT ${filterDueSoon} OR (
       ci.status != 'paid'
       AND ci.due_date IS NOT NULL
-      AND ci.due_date::date >= CURRENT_DATE
-      AND ci.due_date::date <= CURRENT_DATE + INTERVAL '7 days'
+      AND ci.due_date::date >= ${asAt}::date
+      AND ci.due_date::date <= ${asAt}::date + 7
     ))
     AND (NOT ${filterOverdue90} OR (
       ci.status != 'paid'
-      AND ci.due_date IS NOT NULL
-      AND (CURRENT_DATE - ci.due_date::date) > 90
+      AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0
+      AND (${asAt}::date - COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)::date) > 90
     ))
     AND (NOT ${filterViewedUnpaid} OR (
       ci.status = 'sent'
@@ -110,6 +111,11 @@ export async function listCustomerInvoices(
     : (safePage - 1) * safeLimit;
 
   const where = customerInvoiceListWhere(companyId, filters);
+  // The same app date and the same effective due date the AR tiles use, so the
+  // Aging column cannot disagree with them (the DB's CURRENT_DATE is not SA's).
+  const asAt = asAtTodayStr();
+  const effDue = sql.unsafe('COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)::date');
+  const balance = sql.unsafe('(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))');
 
   const [invoices, countResult] = await Promise.all([
     sql`
@@ -132,17 +138,15 @@ export async function listCustomerInvoices(
         vs.last_viewed_at,
         COALESCE(vs.view_count, 0) AS view_count,
         CASE
-          WHEN ci.due_date IS NOT NULL AND ci.status != 'paid'
-            THEN GREATEST(0, (CURRENT_DATE - ci.due_date::date))
-          ELSE NULL
+          WHEN ci.status = 'paid' OR ${balance} <= 0 THEN NULL
+          ELSE GREATEST(0, (${asAt}::date - ${effDue}))
         END AS days_overdue,
         CASE
-          WHEN ci.status = 'paid' THEN NULL
-          WHEN ci.due_date IS NULL THEN 'Current'
-          WHEN (CURRENT_DATE - ci.due_date::date) <= 0 THEN 'Current'
-          WHEN (CURRENT_DATE - ci.due_date::date) <= 30 THEN '1-30'
-          WHEN (CURRENT_DATE - ci.due_date::date) <= 60 THEN '31-60'
-          WHEN (CURRENT_DATE - ci.due_date::date) <= 90 THEN '61-90'
+          WHEN ci.status = 'paid' OR ${balance} <= 0 THEN NULL
+          WHEN (${asAt}::date - ${effDue}) <= 0 THEN 'Current'
+          WHEN (${asAt}::date - ${effDue}) <= 30 THEN '1-30'
+          WHEN (${asAt}::date - ${effDue}) <= 60 THEN '31-60'
+          WHEN (${asAt}::date - ${effDue}) <= 90 THEN '61-90'
           ELSE '90+'
         END AS aging_bucket
       FROM customer_invoices ci

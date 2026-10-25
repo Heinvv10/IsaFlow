@@ -30,9 +30,9 @@ function shift(days: number): string {
   return fmtDate(d);
 }
 
-interface Seed { key?: string; status: string; total: number; paid: number; due: number | null; invoiceDate?: number; deleted?: boolean; credited?: number }
+interface Seed { key?: string; status: string; total: number; paid: number; due: number | null; invoiceDate?: number; deleted?: boolean; unreversed?: boolean; credited?: number }
 const rep = (n: number, seed: Seed): Seed[] => Array.from({ length: n }, () => seed);
-/** 35 rows (34 not soft-deleted). Overdue: 5 part-paid, 5 sent, 3 approved yesterday, 2 literal 'overdue', 1 part-credited. */
+/** 36 rows (34 not soft-deleted). Overdue: 5 part-paid, 5 sent, 3 approved yesterday, 2 literal 'overdue', 1 part-credited. */
 const SEEDS: Seed[] = [
   ...rep(6, { status: 'paid', total: 1000, paid: 1000, due: -40 }),
   ...rep(5, { status: 'partially_paid', total: 2000, paid: 500, due: -10 }),
@@ -51,12 +51,16 @@ const SEEDS: Seed[] = [
   { key: 'nodue-fresh', status: 'sent', total: 450, paid: 0, due: null, invoiceDate: 0 },
   // Soft-deleted, no journal: in neither figure.
   { key: 'deleted', status: 'sent', total: 1300, paid: 0, due: -30, deleted: true },
+  // Soft-deleted but its approval journal was never reversed (K-053 legacy delete): the ledger
+  // still carries it, so OUTSTANDING does too, but nothing may chase it as overdue. Old enough
+  // to sort into the top 10 if a predicate wrongly let it through.
+  { key: 'deleted-unreversed', status: 'sent', total: 1700, paid: 0, due: -45, deleted: true, unreversed: true },
   // Credit notes applied: amount_paid already carries them.
   { key: 'part-credited', status: 'approved', total: 1000, paid: 600, due: -15, credited: 600 },
   { key: 'full-credited', status: 'approved', total: 750, paid: 750, due: -15, credited: 750 },
 ];
-// outstanding: 5*1500 + 5*1000 + 3*800 + 2*700 + 3*600 + 2*500 + 900 + 450 + 400
-const EXPECTED = { outstanding: 20850, overdueCount: 17, overdueAmount: 7500 + 5000 + 2400 + 1000 + 400 + 900 };
+// outstanding: 5*1500 + 5*1000 + 3*800 + 2*700 + 3*600 + 2*500 + 900 + 450 + 400 + 1700 (deleted-unreversed)
+const EXPECTED = { outstanding: 22550, overdueCount: 17, overdueAmount: 7500 + 5000 + 2400 + 1000 + 400 + 900 };
 const keyNumber = (key: string): string => `${TAG}-${SEEDS.findIndex((s) => s.key === key)}`;
 
 let token = '';
@@ -70,6 +74,13 @@ async function insert(company: string, customer: string, s: Seed, i: number) {
       ${due}::date, ${s.status}, ${s.total}, 0, 0, ${s.total}, ${s.paid}, ${USER}::UUID,
       ${s.deleted ? new Date() : null})
     RETURNING id`) as { id: string }[];
+  if (s.unreversed) {
+    const je = (await sql`
+      INSERT INTO gl_journal_entries (company_id, entry_date, created_by, status, description)
+      VALUES (${company}::UUID, ${shift(-60)}::date, ${USER}::UUID, 'posted', ${'D2AR unreversed ' + TAG})
+      RETURNING id`) as { id: string }[];
+    await sql`UPDATE customer_invoices SET gl_journal_entry_id = ${je[0]!.id}::UUID WHERE id = ${rows[0]!.id}::UUID`;
+  }
   if (s.credited) {
     await sql`
       INSERT INTO credit_notes (company_id, type, client_id, customer_invoice_id, credit_date, subtotal,
@@ -112,6 +123,7 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
     const all = [COMPANY, OTHER_COMPANY, LITERAL_COMPANY];
     await sql`DELETE FROM credit_notes WHERE company_id = ANY(${all}::uuid[])`;
     await sql`DELETE FROM customer_invoices WHERE company_id = ANY(${all}::uuid[])`;
+    await sql`DELETE FROM gl_journal_entries WHERE company_id = ANY(${all}::uuid[])`;
     await sql`DELETE FROM customers WHERE company_id = ANY(${all}::uuid[])`;
     await sql`DELETE FROM company_users WHERE user_id = ${USER}`;
     await sql`DELETE FROM companies WHERE id = ANY(${all}::uuid[])`;
@@ -119,15 +131,20 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
   }, 60000);
 
   it('the service equals the hand-computed totals and excludes company B', async () => {
-    expect(SEEDS).toHaveLength(35);
+    expect(SEEDS).toHaveLength(36);
     expect(await getAROutstandingSummary(COMPANY)).toEqual(EXPECTED);
   });
 
   it('the list endpoint returns the same company-wide figures although it pages 25 of 34', async () => {
-    const data = await call<{ invoices: unknown[]; total: number; arSummary: unknown }>(listRoute, { page: '1', limit: '25' });
+    const data = await call<{ invoices: unknown[]; total: number; arSummary: unknown }>(listRoute, { page: '1', limit: '25', summary: '1' });
     expect(data.invoices).toHaveLength(25);
     expect(data.total).toBe(34);
     expect(data.arSummary).toEqual(EXPECTED);
+  });
+
+  it('the list omits the company-wide summary unless asked, so page turns do not pay for it', async () => {
+    const data = await call<{ arSummary?: unknown }>(listRoute, { page: '2', limit: '25' });
+    expect(data.arSummary).toBeUndefined();
   });
 
   it('the dashboard receivable total is the same number the tile shows', async () => {
@@ -155,7 +172,9 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
     }
     for (const r of todos.overdueInvoices) expect(r.daysOverdue).toBeGreaterThan(0);
     const numbers = todos.overdueInvoices.map((r) => r.invoiceNumber);
-    for (const key of ['today', 'settled', 'nodue-fresh', 'deleted', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
+    // Oldest-first sorting only lets a wrong-predicate row into the top 10 if it is OLD: these four are
+    // (due -20, -30, -45, -15), so they would be listed by a predicate that missed them.
+    for (const key of ['settled', 'deleted', 'deleted-unreversed', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
   });
 
   it('the overdue figures exclude due-today, settled, fresh no-due-date, deleted and fully credited, and net a part-credited balance', async () => {
@@ -163,7 +182,7 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
       listRoute, { status: 'overdue', limit: '100' });
     const numbers = asked.invoices.map((r) => r.invoice_number);
     expect(asked.total).toBe(EXPECTED.overdueCount);
-    for (const key of ['today', 'settled', 'nodue-fresh', 'deleted', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
+    for (const key of ['today', 'settled', 'nodue-fresh', 'deleted', 'deleted-unreversed', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
     expect(numbers).toContain(keyNumber('part-credited'));
     // a no-due-date invoice ages from its invoice date
     expect(numbers).toContain(keyNumber('nodue'));
@@ -182,5 +201,17 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
     expect(todos.overdueInvoiceCount).toBe(1);
     expect(todos.overdueInvoices).toHaveLength(1);
     expect(todos.overdueInvoices[0]!.amount).toBe(300);
+  });
+
+  it('the Aging column uses the same effective due date and balance as the tiles', async () => {
+    const all = await call<{ invoices: { invoice_number: string; aging_bucket: string | null; days_overdue: number | null }[] }>(
+      listRoute, { limit: '100' });
+    const by = (key: string) => all.invoices.find((r) => r.invoice_number === keyNumber(key))!;
+    expect(by('nodue').aging_bucket).toBe('31-60'); // ages from the invoice date, 60 days
+    expect(by('nodue-fresh').aging_bucket).toBe('Current');
+    expect(by('settled').aging_bucket).toBeNull(); // balance 0: no overdue bucket
+    expect(by('settled').days_overdue).toBeNull();
+    expect(by('part-credited').aging_bucket).toBe('1-30');
+    expect(by('part-credited').days_overdue).toBe(15);
   });
 });

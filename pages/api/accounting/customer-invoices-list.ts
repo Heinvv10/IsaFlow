@@ -36,6 +36,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const { invoices, total } = await listCustomerInvoices(companyId, parsed.filters);
 
+    // The company-wide summary does not depend on the page or the filters, so the
+    // client asks for it once (summary=1) instead of on every page turn.
+    if (req.query.summary !== '1') return apiResponse.success(res, { invoices, total });
     const arSummary = await getAROutstandingSummary(companyId);
 
     return apiResponse.success(res, { invoices, total, arSummary });

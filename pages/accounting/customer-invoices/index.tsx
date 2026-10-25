@@ -11,7 +11,7 @@
  * shown as removable chips. The CSV export carries the same filters.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
@@ -35,6 +35,7 @@ export default function CustomerInvoicesPage() {
   const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
   const [arSummary, setArSummary] = useState<AROutstandingSummary | null>(null);
+  const haveSummary = useRef(false);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -42,6 +43,8 @@ export default function CustomerInvoicesPage() {
     setIsLoading(true);
     setError('');
     const params = new URLSearchParams({ ...arFiltersToApiParams(filters), page: String(filters.page), limit: String(LIMIT) });
+    // Company-wide tiles do not change with the page or filters: fetch them once.
+    if (!haveSummary.current) params.set('summary', '1');
     void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
@@ -51,7 +54,7 @@ export default function CustomerInvoicesPage() {
         const rows = json.data?.invoices ?? [];
         setInvoices(rows);
         setTotal(json.data?.total ?? 0);
-        setArSummary(json.data?.arSummary ?? null);
+        if (json.data?.arSummary) { setArSummary(json.data.arSummary); haveSummary.current = true; }
         // A deep link carries only the customer id; the rows carry its name.
         if (filters.customerId && rows[0]?.client_name) nameCustomer(filters.customerId, rows[0].client_name);
       } catch (err) {
@@ -59,7 +62,6 @@ export default function CustomerInvoicesPage() {
         log.warn('Customer invoice list failed to load', { error: err }, 'customer-invoices');
         setInvoices([]);
         setTotal(0);
-        setArSummary(null);
         setError(apiErrorMessage(err, 'Could not load the customer invoices - try again'));
       } finally {
         if (live) setIsLoading(false);
