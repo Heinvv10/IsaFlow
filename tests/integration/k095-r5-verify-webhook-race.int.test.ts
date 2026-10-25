@@ -62,6 +62,9 @@ let staleMandate: string;
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
+/** What each reference's real checkout carried, filled in once the rows exist. */
+const checkoutMeta: Record<string, Record<string, unknown>> = {};
+
 function chargeSuccess(reference: string, authorizationCode: string) {
   return {
     event: 'charge.success',
@@ -69,6 +72,7 @@ function chargeSuccess(reference: string, authorizationCode: string) {
       reference,
       status: 'success',
       id: 919191,
+      metadata: checkoutMeta[reference],
       customer: { customer_code: 'CUS_k095r5' },
       authorization: {
         authorization_code: authorizationCode,
@@ -82,10 +86,11 @@ function chargeSuccess(reference: string, authorizationCode: string) {
   };
 }
 
-function liveSuccess(authorizationCode: string) {
+function liveSuccess(authorizationCode: string, reference: string) {
   return {
     status: 'success',
     id: 919191,
+    metadata: checkoutMeta[reference],
     customer: { customerCode: 'CUS_k095r5' },
     authorization: {
       authorizationCode, last4: '3333', brand: 'visa',
@@ -147,6 +152,15 @@ describeIfDb('K-095 r5 verify racing the webhook resolves to the truth, not to a
        BLOCK_CO, blockPending, BLOCK_REF, FALL_CO, FALL_REF,
        STALE_CO, staleMandate, STALE_REF],
     );
+
+    const m = (company_id: string, mandate_id?: string) => ({
+      purpose: 'mandate_authorisation', company_id, ...(mandate_id ? { mandate_id } : {}),
+    });
+    checkoutMeta[LATE_REF] = m(LATE_CO, lateMandate);
+    checkoutMeta[EARLY_REF] = m(EARLY_CO, earlyMandate);
+    checkoutMeta[BLOCK_REF] = m(BLOCK_CO, blockPending);
+    checkoutMeta[FALL_REF] = m(FALL_CO);
+    checkoutMeta[STALE_REF] = m(STALE_CO, staleMandate);
 
     ({ processEvent } = (await import(
       '../../src/modules/billing/services/paystackEventHandlers'
@@ -234,7 +248,7 @@ describeIfDb('K-095 r5 verify racing the webhook resolves to the truth, not to a
     // round-4 code read as `blocked`.
     verifyTransaction.mockImplementationOnce(async () => {
       await webhookCommits(LATE_REF, AUTH_CODE);
-      return liveSuccess(AUTH_CODE);
+      return liveSuccess(AUTH_CODE, LATE_REF);
     });
 
     const body = await runVerify(LATE_CO, LATE_REF);
@@ -250,7 +264,7 @@ describeIfDb('K-095 r5 verify racing the webhook resolves to the truth, not to a
   });
 
   it('a webhook redelivered AFTER verify already activated the row changes nothing', async () => {
-    verifyTransaction.mockResolvedValueOnce(liveSuccess(AUTH_CODE));
+    verifyTransaction.mockResolvedValueOnce(liveSuccess(AUTH_CODE, EARLY_REF));
 
     const body = await runVerify(EARLY_CO, EARLY_REF);
     expect(body.status).toBe('active');
@@ -295,7 +309,7 @@ describeIfDb('K-095 r5 verify racing the webhook resolves to the truth, not to a
   });
 
   it('a genuinely blocked activation is still blocked, not healed into success', async () => {
-    verifyTransaction.mockResolvedValueOnce(liveSuccess('AUTH_k095r5_second'));
+    verifyTransaction.mockResolvedValueOnce(liveSuccess('AUTH_k095r5_second', BLOCK_REF));
 
     const body = await runVerify(BLOCK_CO, BLOCK_REF);
 
@@ -330,13 +344,14 @@ describeIfDb('K-095 r5 verify racing the webhook resolves to the truth, not to a
     expect(body.maxAmountCents).toBe(666666);
   });
 
-  it('an unattributable fallback returns no card, bank or ceiling either, not just no id', async () => {
-    verifyTransaction.mockResolvedValueOnce(liveSuccess('AUTH_k095r5_fall_second'));
+  // S-07e: an unlinked request binds to nothing.
+  it('an unlinked request returns no card, bank or ceiling either, not just no id', async () => {
+    verifyTransaction.mockResolvedValueOnce(liveSuccess('AUTH_k095r5_fall_second', FALL_REF));
 
     const body = await runVerify(FALL_CO, FALL_REF);
 
     expect(body.status).toBe('failed');
-    expect(body.failureReason).toBe('authorisation_already_active_other_code');
+    expect(body.failureReason).toBe('review:no_mandate_id');
     // The row the fallback landed on belongs to an EARLIER checkout. Hiding
     // its id while still returning its ceiling, card and bank identifies it
     // just as well — that is the mis-attribution 651 exists to retire.

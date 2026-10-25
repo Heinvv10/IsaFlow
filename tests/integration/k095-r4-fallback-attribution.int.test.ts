@@ -50,13 +50,14 @@ let foreignMandate: string;
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
-function chargeSuccess(reference: string, authorizationCode: string) {
+function chargeSuccess(reference: string, authorizationCode: string, companyId: string) {
   return {
     event: 'charge.success',
     data: {
       reference,
       status: 'success',
       id: 717171,
+      metadata: { purpose: 'mandate_authorisation', company_id: companyId },
       customer: { customer_code: 'CUS_k095r4' },
       authorization: {
         authorization_code: authorizationCode,
@@ -169,9 +170,10 @@ describeIfDb('K-095 r4 the pre-651 fallback never reports a second checkout as s
     return rows[0] as { status: string; failure_reason: string | null };
   }
 
-  it('labels a second paid checkout instead of reporting the already-active mandate as success', async () => {
+  // S-07e: an unlinked request binds to nothing.
+  it('flags an unlinked second paid checkout for review instead of reporting the already-active mandate as success', async () => {
     const { thrown, committed } = await inWebhookTx(() =>
-      processEvent('charge.success', chargeSuccess(SECOND_REF, 'AUTH_second_checkout')),
+      processEvent('charge.success', chargeSuccess(SECOND_REF, 'AUTH_second_checkout', SECOND_CO)),
     );
 
     expect(thrown).toBeNull();
@@ -182,21 +184,19 @@ describeIfDb('K-095 r4 the pre-651 fallback never reports a second checkout as s
     expect(await mandateRow(secondActive)).toEqual({ status: 'active', code: 'AUTH_first_checkout' });
     expect(await mandateRow(secondPending)).toEqual({ status: 'pending', code: null });
 
-    expect(await requestRow(SECOND_REF)).toEqual({
-      status: 'completed',
-      failure_reason: 'authorisation_already_active_other_code',
-    });
+    expect((await requestRow(SECOND_REF)).failure_reason).toBe('review:no_mandate_id');
   });
 
-  it('leaves a genuine redelivery of the SAME authorization unlabelled', async () => {
+  // S-07e: an unlinked request binds to nothing.
+  it('flags an unlinked redelivery for review and leaves the active mandate alone', async () => {
     const { thrown, committed } = await inWebhookTx(() =>
-      processEvent('charge.success', chargeSuccess(REDELIVER_REF, 'AUTH_redelivered')),
+      processEvent('charge.success', chargeSuccess(REDELIVER_REF, 'AUTH_redelivered', REDELIVER_CO)),
     );
 
     expect(thrown).toBeNull();
     expect(committed).toBe(true);
     expect(await mandateRow(redeliverActive)).toEqual({ status: 'active', code: 'AUTH_redelivered' });
-    expect(await requestRow(REDELIVER_REF)).toEqual({ status: 'completed', failure_reason: null });
+    expect((await requestRow(REDELIVER_REF)).failure_reason).toBe('review:no_mandate_id');
   });
 
   it('answers no mandate for a request whose link no longer resolves, not the company newest row', async () => {

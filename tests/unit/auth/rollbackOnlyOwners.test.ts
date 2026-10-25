@@ -17,7 +17,7 @@ const h = vi.hoisted(() => ({
 const client = {
   query: vi.fn(async (text: string) => {
     const verb = String(text).trim().split(/\s+/)[0]!.toUpperCase();
-    if (/FROM company_users|FROM users/i.test(String(text))) {
+    if (/FROM (public\.)?company_users|FROM (public\.)?users/i.test(String(text))) {
       return { rows: [{ role: 'super_admin', account_user_id: 'user-1', is_active: true, status: 'active', suspended_at: null }] };
     }
     if (verb === 'COMMIT' || verb === 'ROLLBACK') h.events.push(verb);
