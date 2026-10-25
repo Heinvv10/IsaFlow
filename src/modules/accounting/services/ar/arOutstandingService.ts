@@ -9,7 +9,10 @@
  * credit note applied to an invoice is already in amount_paid).
  * Overdue is a DATE fact on a positive balance, whatever the status string
  * says: nothing flips 'sent'/'approved' to 'overdue' when the due date passes.
- * An invoice with no due date ages from its invoice date (then created_at), as
+ * A soft-deleted invoice is never overdue, even when its journal was never
+ * reversed (K-053 legacy deletes): the dated ledger fragment alone would keep it
+ * in the OUTSTANDING figure, which must tie to the control account, but nothing
+ * should chase it. An invoice with no due date ages from its invoice date (then created_at), as
  * the aged debtors report does. Due today is not overdue.
  *
  * What it equals: the dashboard AR figure and the list tiles. It equals the
@@ -44,6 +47,7 @@ export interface OverdueInvoiceRow {
 export function arOverdueFragment(asAtStr: string, companyId: string) {
   return sql`(
     ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+    AND ci.deleted_at IS NULL
     AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
     AND COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) < ${asAtStr}::date
     AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0
