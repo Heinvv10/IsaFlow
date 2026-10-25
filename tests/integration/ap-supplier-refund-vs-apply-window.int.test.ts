@@ -143,7 +143,7 @@ describe('B — an application may not take on-account credit below zero', () =>
     const { supplier, bill } = await supplierWithBill();
     const pay = await posted(supplier, 500);
     await posted(supplier, -300);
-    await expect(inTx(apply(pay, bill, 500))).rejects.toThrow(/R500\.00.*R200\.00/);
+    await expect(inTx(apply(pay, bill, 500))).rejects.toThrow(/R\s500\.00.*R\s200\.00/);
     await inTx(apply(pay, bill, 200));
     expect({ credit: await credit(supplier), ...(await written(bill)) }).toEqual({ credit: 0, allocations: 1, amountPaid: 200 });
   }, 60_000);
