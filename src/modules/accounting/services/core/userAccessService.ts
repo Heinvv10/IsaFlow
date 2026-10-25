@@ -6,15 +6,12 @@
 
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { lockOwnersAndRequireOwner, OWNER_GRANT_REFUSED } from './ownerLock';
 
 export { OwnerProtectedError } from './ownerLock';
 
 
 export const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
-type CompanyRole = (typeof VALID_ROLES)[number];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,18 +46,6 @@ export interface InvitationResult {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function isValidRole(role: string): role is CompanyRole {
-  return (VALID_ROLES as readonly string[]).includes(role);
-}
-
-async function countOwners(companyId: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COUNT(*) AS cnt FROM company_users
-    WHERE company_id = ${companyId}::UUID AND role = 'owner'
-  `) as DbRow[];
-  return parseInt(String(rows[0]?.cnt ?? '0'), 10);
-}
 
 function toIso(val: Date | string | null): string | null {
   if (!val) return null;
@@ -97,72 +82,8 @@ export async function listCompanyUsers(companyId: string): Promise<CompanyUserRe
   }));
 }
 
-// The target's role, read under its row lock so it cannot change between this
-// check and the write (an owner promoting the target while an admin demotes
-// it). When the target is an owner OR the new role is 'owner', take the
-// per-company owner lock and require a live owner actor (ownerLock.ts), after
-// the row lock as the trigger does, so the last-owner count below is the one
-// the write is judged by. newRole also gates here so a non-owner cannot
-// promote via a future caller that skips the API-layer check, and an owner
-// being demoted at that moment cannot promote either (the trigger reads the
-// actor without the lock).
-async function lockTargetRole(
-  companyId: string,
-  userId: string,
-  actorUserId: string,
-  newRole?: string,
-): Promise<string | undefined> {
-  const rows = (await sql`
-    SELECT role FROM company_users
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
-    FOR UPDATE
-  `) as DbRow[];
-  const role = rows[0]?.role as string | undefined;
-  if (role !== 'owner' && newRole !== 'owner') return role;
-  await lockOwnersAndRequireOwner(companyId, actorUserId, role === 'owner' ? undefined : OWNER_GRANT_REFUSED);
-  return role;
-}
-
-export async function updateCompanyUserRole(
-  companyId: string,
-  userId: string,
-  newRole: string,
-  actorUserId: string,
-): Promise<void> {
-  if (!isValidRole(newRole)) {
-    throw new Error(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`);
-  }
-
-  const currentRole = await lockTargetRole(companyId, userId, actorUserId, newRole);
-  if (currentRole === 'owner' && newRole !== 'owner') {
-    const ownerCount = await countOwners(companyId);
-    if (ownerCount <= 1) {
-      throw new Error('Cannot change role: this is the last owner of the company.');
-    }
-  }
-
-  await sql`
-    UPDATE company_users
-    SET role = ${newRole}
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
-  `;
-  log.info('Company user role updated', { companyId, userId, newRole }, 'accounting');
-}
-
-export async function removeCompanyUser(companyId: string, userId: string, actorUserId: string): Promise<void> {
-  if ((await lockTargetRole(companyId, userId, actorUserId)) === 'owner') {
-    const ownerCount = await countOwners(companyId);
-    if (ownerCount <= 1) {
-      throw new Error('Cannot remove the last owner of the company.');
-    }
-  }
-
-  await sql`
-    DELETE FROM company_users
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
-  `;
-  log.info('Company user removed', { companyId, userId }, 'accounting');
-}
+// Role changes and removals run on the migration_admin pool (S-07d): memberWrites.ts.
+export { updateCompanyUserRole, removeCompanyUser, MemberRoleForbiddenError } from './memberWrites';
 
 // ── Invitations — re-exported from userInvitationService.ts ──────────────────
 export {
