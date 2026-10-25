@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { disconnectConnection } from '@/modules/accounting/services/capture/mirrorConnectionService';
+import { SCAN_ACTIVE_MESSAGE, isScanActive } from '@/modules/accounting/services/capture/mirrorScanActive';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -17,6 +18,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const id = req.query.id as string;
   const { companyId } = req;
   if (!id || !UUID_RE.test(id)) return apiResponse.notFound(res, 'Mirror connection', id);
+
+  if (isScanActive(id)) return apiResponse.conflict(res, SCAN_ACTIVE_MESSAGE, { reason: 'scan' });
 
   const ok = await disconnectConnection(id, companyId);
   if (!ok) return apiResponse.notFound(res, 'Mirror connection', id);

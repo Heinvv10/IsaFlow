@@ -39,7 +39,7 @@ export async function discardLostRaceDocument(
     companyId, documentId, storagePath: stored.path, messageSid,
   }, 'whatsapp-inbound');
   try {
-    await removeCapturedDocument(stored.bucket, stored.path);
+    await removeCapturedDocument(stored.bucket, stored.path, companyId);
   } catch (err: unknown) {
     log.warn('whatsAppInbound: duplicate document object not removed — orphaned in storage', {
       companyId, documentId, bucket: stored.bucket, storagePath: stored.path,
