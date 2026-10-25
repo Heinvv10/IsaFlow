@@ -342,31 +342,11 @@
     "maxHint": 1
    }
   ],
-  "/accounting/reports/vat-return": [
-   {
-    "rule": "color-contrast",
-    "selector": "div > div > div > div > div > button",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "span[data-testid=\"vat-box-count\"]",
-    "max": 1,
-    "dataDriven": {
-     "source": "/api/accounting/reports-vat-return",
-     "why": "count badge renders only for VAT boxes that have transactions; vatReturnService defines 12 boxes"
-    },
-    "maxHint": 12
-   },
+  "/accounting/sars/vat201": [
    {
     "rule": "document-title",
     "selector": "html",
     "max": 1
-   },
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[type=\"date\"]",
-    "max": 2
    }
   ],
   "/accounting/supplier-payments/new": [

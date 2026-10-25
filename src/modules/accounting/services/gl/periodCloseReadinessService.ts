@@ -94,7 +94,7 @@ const CHECK_FALLBACK_HREFS: string[] = [
   '/accounting/journal-entries',
   '/accounting/customer-invoices',
   '/accounting/supplier-invoices',
-  '/accounting/reports/vat-return',
+  '/accounting/sars/vat201',
   '/accounting/trial-balance',
   '/accounting/chart-of-accounts',
   '/accounting/journal-entries',

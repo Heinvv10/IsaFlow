@@ -7,7 +7,7 @@
  *   3. AP due this week                → /accounting/supplier-invoices?due_this_week=1
  *   4. Unposted journals               → /accounting/journal-entries
  *   5. Open prior periods              → /accounting/fiscal-periods
- *   6. VAT estimate (current period)   → /accounting/reports/vat-return
+ *   6. VAT estimate (current period)   → /accounting/sars/vat201
  *
  * Loading: skeleton placeholders (no layout shift).
  * Error: small banner - does not block the rest of the dashboard.
@@ -91,7 +91,7 @@ const CARDS: CardDef[] = [
   {
     key: 'vatEstimateCurrentPeriod',
     label: 'VAT estimate (current period)',
-    href: '/accounting/reports/vat-return',
+    href: '/accounting/sars/vat201',
     icon: Receipt,
     severity: () => 'normal',
     format: fmtCurrency,

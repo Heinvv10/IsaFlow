@@ -416,6 +416,22 @@ describe('getVATReturn', () => {
     expect(report.outputVAT).toBe(20000);
   });
 
+  it('numbers domestic reverse charge input tax 15, as the SARS form and vat201ReportService do, never 16 "Change in use"', async () => {
+    mockSql.mockResolvedValueOnce([
+      vatLine({ accountType: 'asset', accountSubtype: 'vat_input', vatType: 'standard', debit: 900, credit: 0, journalEntryId: 'je-a' }),
+      vatLine({ accountType: 'asset', accountSubtype: 'vat_input', vatType: 'reverse_charge', debit: 60, credit: 0, journalEntryId: 'je-b' }),
+    ]);
+    zeroInvoiceBases();
+
+    const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
+    const box15 = report.inputBoxes.find((b) => b.box === '15');
+    expect(box15?.amount).toBe(960);
+    expect(box15?.transactions?.map((t) => t.journalEntryId).sort()).toEqual(['je-a', 'je-b']);
+    expect(report.inputBoxes.map((b) => b.box)).not.toContain('16');
+    expect(report.inputBoxes.map((b) => b.label).join('|')).not.toMatch(/change in use/i);
+    expect(report.totalInputTax).toBe(960);
+  });
+
   it('computes totalInputTax as sum of debit-minus-credit for input VAT lines', async () => {
     mockSql.mockResolvedValueOnce([
       vatLine({ accountType: 'asset', accountSubtype: 'vat_input', vatType: 'standard', debit: 6000, credit: 0 }),
