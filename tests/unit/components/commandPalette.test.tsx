@@ -136,6 +136,12 @@ describe('CommandPalette', () => {
       expect(all).not.toContain('/payroll/employees/e1');
     });
 
+    it.each([['user', ''], ['company', '']])('with no %s id nothing is remembered', async (which) => {
+      if (which === 'user') who.userId = ''; else who.companyId = '';
+      await pick('Acme Ltd', [customer]);
+      expect(Object.keys(localStorage).filter((k) => k.startsWith(KEY))).toEqual([]);
+    });
+
     it('drops the old global key, and ignores what it held', () => {
       localStorage.setItem(KEY, JSON.stringify([customer]));
       render(<CommandPalette isOpen onClose={() => undefined} />);
@@ -174,6 +180,20 @@ describe('CommandPalette', () => {
       expect(active()).toBe(options[options.length - 1]!.id);
       fireEvent.keyDown(input(), { key: 'Home' });
       expect(active()).toBe(options[0]!.id);
+    });
+    it('ArrowUp and ArrowDown with no rows leave the selection alone, so rows arriving for the same query are highlighted', async () => {
+      let resolve!: (v: unknown) => void;
+      apiFetch.mockReturnValue(new Promise((r) => { resolve = r; }));
+      render(<CommandPalette isOpen onClose={() => undefined} />);
+      fireEvent.change(input(), { target: { value: 'qqzzxx' } });
+      await waitFor(() => expect(apiFetch).toHaveBeenCalled(), { timeout: 3000 });
+      expect(screen.queryAllByRole('option')).toHaveLength(0);
+      fireEvent.keyDown(input(), { key: 'ArrowUp' });
+      fireEvent.keyDown(input(), { key: 'ArrowDown' });
+      fireEvent.keyDown(input(), { key: 'ArrowUp' });
+      await act(async () => { resolve({ ok: true, json: async () => ({ success: true, data: { results: [employee] } }) }); await Promise.resolve(); });
+      await screen.findByText('Thandi Nkosi');
+      expect(input().getAttribute('aria-activedescendant')).toBe(screen.getAllByRole('option')[0]!.id);
     });
     it('Home and End stay with the caret once something is typed', () => {
       render(<CommandPalette isOpen onClose={() => undefined} />);

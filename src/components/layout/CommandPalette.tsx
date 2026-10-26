@@ -84,6 +84,8 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const last = rows.length - 1;
+    // Nothing to move through: leave the selection at the top for when rows arrive.
+    if (last < 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); setSelected(current >= last ? 0 : current + 1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(current <= 0 ? last : current - 1); }
     // Home/End belong to the caret once there is text; with an empty box they jump through the list.
