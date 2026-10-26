@@ -9,7 +9,7 @@ vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import Page from '../../../pages/accounting/supplier-statements';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 it('shows gross ageing, on-account credits and the reconciled net balance', async () => {
  vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify({data:[{entityId:'supplier-1',entityName:'Cable Feeder',current:5844901.36,days30:0,days60:0,days90:0,days120Plus:0,total:5844901.36,onAccount:884343.60,netBalance:4960557.76}]})));
  render(<Page />);
