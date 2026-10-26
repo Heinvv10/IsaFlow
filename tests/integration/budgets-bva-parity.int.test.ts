@@ -149,7 +149,7 @@ async function mcp(start: string, end: string) {
       () => budgetVarianceTool.handler({ period_start: start, period_end: end, detail: 'full' }, ctx));
     await client.query('ROLLBACK');
     return JSON.parse(out.content[0]!.text) as {
-      rows: Line[]; excludedRows: Array<{ id: string; amount: number }>; totals: { budget: number; actual: number; variance: number };
+      rows: Line[]; excludedRows: Array<{ id: string; amount: number }>; totals?: unknown;
       sections: Report['sections'];
     };
   } finally { client.release(); }
@@ -198,7 +198,7 @@ describe('budgets P0 parity on real Postgres', () => {
     }
   });
 
-  it('MCP rows + excludedRows = the report\'s lines; MCP totals = report net profit', async () => {
+  it('MCP rows + excludedRows = the report\'s lines; MCP sections (net profit) = the report\'s', async () => {
     const r = await full();
     const m = await mcp(windowOf(r).start, windowOf(r).end);
     const codes = [...m.rows.map((x) => x.account_code)];
@@ -210,8 +210,7 @@ describe('budgets P0 parity on real Postgres', () => {
       expect([row.budget_amount, row.actual_amount, row.variance, row.movement, row.favourable])
         .toEqual([l.budget_amount, l.actual_amount, l.variance, l.movement, l.favourable]);
     }
-    const np = r.sections.net_profit;
-    expect(m.totals).toEqual({ budget: np.budget, actual: np.actual, variance: np.variance });
+    expect(m).not.toHaveProperty('totals');
     expect(m.sections).toEqual(r.sections);
   });
 
