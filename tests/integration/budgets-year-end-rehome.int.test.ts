@@ -13,6 +13,8 @@ import { assessYearEndChange } from '@/modules/accounting/services/gl/financialY
 import { applyYearEndChange } from '@/modules/accounting/services/gl/financialYearEndChangeApply';
 import { undoYearEndChange } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
 import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
+import { updateCompany } from '@/modules/accounting/services/core/companyService';
+import { holdYearRegistry } from '@/modules/accounting/services/budgets/budgetVersionScope';
 import { loadWindowBudgets } from '@/modules/accounting/services/reports/budgetWindowService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { backendPid, outcome, waitUntilBlocked } from './helpers/lockWait';
@@ -209,5 +211,40 @@ describe('P1: budget months follow a change of year end', () => {
     }
     expect(await stored(id)).toBe(1200);
     expect(await windowBudget({ id, rent }, '2025-01-01', '2029-12-31')).toBe(1200);
+  });
+
+  it('a Settings save (whole company, entity type unchanged) racing a budget save takes the locks in the same order: no deadlock, and the later one is refused', async () => {
+    const id = crypto.randomUUID();
+    made.push(id);
+    await pool.query(`INSERT INTO companies (id, name, financial_year_start, entity_type) VALUES ($1, 'BV947 settings order', 1, 'pty_ltd')`, [id]);
+    const rent = (await pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+       VALUES ($1, 'RH-5000', 'Rent', 'expense', 'debit', 3, true) RETURNING id`, [id])).rows[0].id as string;
+    for (const d of ['2026-03-01', '2027-03-01']) await inTx(id, () => generateFiscalYearForDate(id, d));
+    const t1 = await pool.connect(), t2 = await pool.connect();
+    const ctx = (client: typeof t1) => ({ client, companyId: id, userId: user, claims: {} }) as never;
+    try {
+      // T2 is a budget save that has just taken the shared registry lock (its first step).
+      await t2.query('BEGIN');
+      await als.run(ctx(t2), () => holdYearRegistry(id));
+      // T1: the Settings page sends the whole company, entity type included, with a new start month.
+      await t1.query('BEGIN');
+      const pid = await backendPid(t1);
+      const settings = als.run(ctx(t1), () => updateCompany(id, { entityType: 'pty_ltd', financialYearStart: 3 }))
+        .then(() => 'ok', (e: { code?: string; name?: string }) => e.code ?? e.name ?? 'error');
+      await waitUntilBlocked(pool, pid);
+      // T2 goes on to write: its FK check needs the companies row, which T1 must not be holding yet.
+      const save = await outcome(als.run(ctx(t2), () => upsertBudget(id, { glAccountId: rent, fiscalYear: 2027, annualAmount: 1200 }, user)));
+      expect(save).toBe('ok');
+      await t2.query('COMMIT');
+      // The save went first, so its budget now holds the years: Settings is refused readably, never a 40P01 deadlock.
+      expect(await settings).toBe('FiscalPeriodsInUseError');
+      await t1.query('ROLLBACK');
+    } finally {
+      await t1.query('ROLLBACK').catch(() => undefined);
+      await t2.query('ROLLBACK').catch(() => undefined);
+      t1.release();
+      t2.release();
+    }
   });
 });
