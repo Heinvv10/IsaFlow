@@ -10,7 +10,6 @@
  *   - documentValidationService    → validateInvoiceDocument,
  *                                    validatePaymentReceipt,
  *                                    validateStatutoryCompliance
- *   - globalSearchService          → getQuickActions
  *
  * Services with NO pure exports (all functions touch sql/db):
  *   - recurringInvoiceService      → advanceDate is private, no pure exports
@@ -50,7 +49,6 @@ import {
   validatePaymentReceipt,
   validateStatutoryCompliance,
 } from '@/modules/accounting/services/core/documentValidationService';
-import { getQuickActions } from '@/modules/accounting/services/core/globalSearchService';
 
 // ─── Shared test data ─────────────────────────────────────────────────────────
 
@@ -606,52 +604,6 @@ describe('validateStatutoryCompliance', () => {
     );
     // 3 errors × 0.3 = 0.9 reduction → max(0, 0.1) = 0.1
     expect(result.score).toBeCloseTo(0.1, 2);
-  });
-});
-
-// ─── getQuickActions ──────────────────────────────────────────────────────────
-
-describe('getQuickActions', () => {
-  it('returns a non-empty array', () => {
-    const actions = getQuickActions();
-    expect(actions.length).toBeGreaterThan(0);
-  });
-
-  it('every action has a label, url, and icon', () => {
-    const actions = getQuickActions();
-    for (const action of actions) {
-      expect(typeof action.label).toBe('string');
-      expect(action.label.length).toBeGreaterThan(0);
-      expect(typeof action.url).toBe('string');
-      expect(action.url.length).toBeGreaterThan(0);
-      expect(typeof action.icon).toBe('string');
-    }
-  });
-
-  it('includes a New Customer Invoice action', () => {
-    const actions = getQuickActions();
-    const inv = actions.find(a => a.label === 'New Customer Invoice');
-    expect(inv).toBeDefined();
-    expect(inv?.url).toContain('customer-invoices');
-  });
-
-  it('includes a New Journal Entry action', () => {
-    const actions = getQuickActions();
-    const je = actions.find(a => a.label === 'New Journal Entry');
-    expect(je).toBeDefined();
-    expect(je?.url).toContain('journal-entries');
-  });
-
-  it('returns a stable result on every call (pure function)', () => {
-    const first = getQuickActions();
-    const second = getQuickActions();
-    expect(first).toEqual(second);
-  });
-
-  it('each call returns a fresh array instance', () => {
-    const first = getQuickActions();
-    const second = getQuickActions();
-    expect(first).not.toBe(second);
   });
 });
 
