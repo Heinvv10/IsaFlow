@@ -41,16 +41,9 @@ export async function getBusinessUnits(companyId: string, activeOnly = false): P
   return rows.map(mapRow);
 }
 
-/**
- * A refusal written for the operator (the action route and the MCP tools pass
- * its message through); anything else stays a generic failure.
- */
-export class BusinessUnitActionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'BusinessUnitActionError';
-  }
-}
+import { BusinessUnitActionError } from './businessUnitErrors';
+
+export { BusinessUnitActionError } from './businessUnitErrors';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UNIQUE_VIOLATION = '23505';

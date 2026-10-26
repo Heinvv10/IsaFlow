@@ -14,11 +14,11 @@ vi.mock('@/modules/accounting/services/core/budgetService', async (importOrigina
   const real = await importOriginal<typeof import('@/modules/accounting/services/core/budgetService')>();
   return {
     ...real,
-    deleteBudget: (companyId: string, glAccountId: string, fiscalYear: number) => {
+    deleteBudget: (companyId: string, glAccountId: string, fiscalYear: number, userId: string) => {
       if (glAccountId === FAULT_ACCOUNT) {
         throw Object.assign(new Error('relation "secret_internal_table" does not exist'), { code: '42P01' });
       }
-      return real.deleteBudget(companyId, glAccountId, fiscalYear);
+      return real.deleteBudget(companyId, glAccountId, fiscalYear, userId);
     },
   };
 });

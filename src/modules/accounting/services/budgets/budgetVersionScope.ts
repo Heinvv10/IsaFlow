@@ -45,8 +45,8 @@ export async function resolvePrimaryVersion(
   if (!opts.actor) throw new Error('resolvePrimaryVersion: creating a version needs an actor');
   // Any unique clash (a concurrent creator, or a version already named 'Original') does nothing.
   await sql`
-    INSERT INTO budget_versions (company_id, fiscal_year, name, kind, status, is_primary, created_by)
-    VALUES (${companyId}::UUID, ${fiscalYear}, 'Original', 'original', 'draft', true, ${opts.actor})
+    INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by)
+    VALUES (${companyId}::UUID, ${fiscalYear}, 'Original', 'original', true, ${opts.actor})
     ON CONFLICT DO NOTHING
   `;
   const made = (await sql`
@@ -64,16 +64,16 @@ export async function resolvePrimaryVersion(
  * version is BUDGET_VERSION_LOCKED and one that is not the company's BUDGET_VERSION_NOT_FOUND,
  * both before anything is written. Returns the version's fiscal-year label.
  */
-export async function lockVersionForWrite(companyId: string, versionId: string): Promise<{ fiscalYear: number }> {
+export async function lockVersionForWrite(companyId: string, versionId: string): Promise<{ fiscalYear: number; isPrimary: boolean }> {
   const rows = (await withRowLockBudget(
     () => sql`
       UPDATE budget_versions SET updated_at = clock_timestamp()
        WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID AND status <> 'locked'
-      RETURNING fiscal_year
+      RETURNING fiscal_year, is_primary
     `,
     () => new RowLockTimeoutError('This budget version'),
   )) as DbRow[];
-  if (rows[0]) return { fiscalYear: Number(rows[0].fiscal_year) };
+  if (rows[0]) return { fiscalYear: Number(rows[0].fiscal_year), isPrimary: Boolean(rows[0].is_primary) };
   const exists = (await sql`
     SELECT status FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
@@ -161,13 +161,17 @@ export async function readVersion(companyId: string, fiscalYear: number, version
 }
 
 /** The version a write of `fiscalYear` goes to, locked for this transaction (typed 409 when locked). */
-export async function writeVersion(companyId: string, fiscalYear: number, versionId: string | undefined, userId: string): Promise<string> {
-  const id = versionId ?? (await resolvePrimaryVersion(companyId, fiscalYear, { create: true, actor: userId }))!;
-  const locked = await lockVersionForWrite(companyId, id);
-  if (locked.fiscalYear !== fiscalYear) {
+export async function writeVersion(
+  companyId: string, fiscalYear: number, versionId: string | undefined, userId: string,
+): Promise<{ id: string; isPrimary: boolean }> {
+  // A named version of another year (or tenant) is refused BEFORE the lock bumps its updated_at:
+  // a 4xx commits, and a bump for a request that wrote nothing would make other readers stale.
+  if (versionId && (await versionYear(companyId, versionId)).fiscalYear !== fiscalYear) {
     throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', `Budget version not found in FY${fiscalYear}`);
   }
-  return id;
+  const id = versionId ?? (await resolvePrimaryVersion(companyId, fiscalYear, { create: true, actor: userId }))!;
+  const locked = await lockVersionForWrite(companyId, id);
+  return { id, isPrimary: locked.isPrimary };
 }
 
 export async function auditBudgetWrite(

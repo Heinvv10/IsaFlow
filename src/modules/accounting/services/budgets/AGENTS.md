@@ -15,6 +15,9 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 - Readers use the PRIMARY version of each registry year unless a `versionId` is passed. A version contributes only months of its own year; a window walks the registry years from its first day (`primaryVersionScope`), a month two years share counts once, in the earlier year.
 - Writers lock the version FIRST (`lockVersionForWrite`: `UPDATE … SET updated_at` under `withRowLockBudget`), then write amounts. This is the upgrade-deadlock rule (the DB trigger takes `FOR SHARE`) and makes "locked" a typed 409 before any write, so the request tx is never poisoned. P2's `gridSave` must do the same.
 - Every amount write leaves one `audit_log` row (entity `budget`, entity_id = version id). Status moves are audited by the DB trigger, never by the app.
+- Every write bumps the version's `updated_at` (the pre-lock), so a status move sent with an `expectedUpdatedAt` read before an amount edit is 409 STALE: "changed since you loaded it" covers amounts too.
+- The notes header (`accounting_budgets`) is per account and year, shared by every version: only a write of the PRIMARY sets notes, and `deleteBudget` removes the header only once no version of the year has months for the account.
+- Raw DB refusals (BV001/BV002/23P01 one_grain) that get past a service check are answered with the same contract codes by `respondBudgetVersionError` (`budgetDbRefusal`); app_user may INSERT versions only as drafts (column privileges).
 - Roll-ups are computed (company total = Σ dimension rows), never stored.
 - Routes answer `BudgetVersionError` through `@/lib/budgetVersionResponse` (`error.details.code` carries the contract code).
 

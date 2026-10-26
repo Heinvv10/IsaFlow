@@ -105,14 +105,27 @@ describe('947: version status moves', () => {
     });
   });
 
-  it('INSERT of a locked version, or of an approved one without its stamps, is refused', async () => {
+  it('app_user cannot insert a version with a status or a stamp at all (column privileges): drafts only', async () => {
     await asAppUser(A, async (q) => {
       expect(await codeOf(q,
+        `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, status, approved_by, approved_at, created_by)
+         VALUES ($1, 2027, 'Ap', 'scenario', 'approved', $2, now(), $2)`, [A.id, A.user])).toBe('42501');
+      expect(await codeOf(q,
+        `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, created_by) VALUES ($1, 2027, 'Draft ok', 'scenario', $2)`,
+        [A.id, A.user])).toBe('ok');
+    });
+  });
+
+  it('even as the owner, INSERT of a locked version, or of an approved one without its stamps, is refused BV002', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      expect(await codeOf(c,
         `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, status, approved_by, approved_at, locked_by, locked_at, created_by)
          VALUES ($1, 2027, 'L', 'scenario', 'locked', $2, now(), $2, now(), $2)`, [A.id, A.user])).toBe('BV002');
-      expect(await codeOf(q,
+      expect(await codeOf(c,
         `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, status, created_by) VALUES ($1, 2027, 'Ap', 'scenario', 'approved', $2)`,
         [A.id, A.user])).toBe('BV002');
-    });
+    } finally { await c.query('ROLLBACK'); c.release(); }
   });
 });

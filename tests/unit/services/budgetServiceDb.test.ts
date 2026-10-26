@@ -195,7 +195,7 @@ describe('budgetService against the real budget_month_amounts table', async () =
       expect(await copyBudgets(f.companyId, FY, FY + 1, f.userId)).toBe(0);
       expect(await getBudgets(f.companyId, FY + 1)).toHaveLength(1);
 
-      await deleteBudget(f.companyId, f.expenseAccountId, FY + 1);
+      await deleteBudget(f.companyId, f.expenseAccountId, FY + 1, f.userId);
       expect(await getBudgets(f.companyId, FY + 1)).toHaveLength(0);
       expect(await getBudgets(f.companyId, FY)).toHaveLength(1);
     });

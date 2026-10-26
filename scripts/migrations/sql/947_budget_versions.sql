@@ -118,7 +118,14 @@ CREATE POLICY tenant_isolation ON budget_versions FOR ALL TO app_user
   USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
   WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 -- UPDATE is also what the amounts trigger's FOR SHARE needs (a row lock needs UPDATE).
-GRANT SELECT, INSERT, UPDATE, DELETE ON budget_versions TO app_user;
+-- INSERT is per column: an app session creates drafts only (status and the approval, lock and
+-- unlock stamps take their defaults), so it cannot insert an approved version, which would
+-- carry no audit row (the audit trigger is on the status UPDATE). Only the migration's
+-- conversion, as the owner, inserts approved versions.
+GRANT SELECT, UPDATE, DELETE ON budget_versions TO app_user;
+REVOKE INSERT ON budget_versions FROM app_user;
+GRANT INSERT (id, company_id, fiscal_year, name, kind, based_on_version_id, is_primary, created_by)
+  ON budget_versions TO app_user;
 
 DROP TRIGGER IF EXISTS trg_budget_versions_updated_at ON budget_versions;
 CREATE TRIGGER trg_budget_versions_updated_at BEFORE UPDATE ON budget_versions
@@ -509,12 +516,18 @@ LANGUAGE sql STABLE
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  WITH prim AS (
+  -- One registry lookup per distinct company and month, not per row.
+  WITH labels AS MATERIALIZED (
+    SELECT m.company_id, m.month, public.budget_month_registry_label(m.company_id, m.month) AS label
+      FROM (SELECT DISTINCT company_id, month FROM budget_month_amounts
+             WHERE p_company IS NULL OR company_id = p_company) m
+  ), prim AS (
     SELECT bm.company_id, bm.gl_account_id, bm.amount
       FROM budget_month_amounts bm
+      JOIN labels l ON l.company_id = bm.company_id AND l.month = bm.month
       JOIN budget_versions v ON v.id = bm.version_id AND v.company_id = bm.company_id AND v.is_primary
      WHERE (p_company IS NULL OR bm.company_id = p_company)
-       AND v.fiscal_year = public.budget_month_registry_label(bm.company_id, bm.month)
+       AND v.fiscal_year = l.label
   ), after_acct AS (
     SELECT company_id::text AS c, gl_account_id::text AS a, COUNT(*)::numeric AS n, SUM(amount) AS total
       FROM prim GROUP BY 1, 2
