@@ -79,6 +79,13 @@ describe('mostSpecificActiveHref', () => {
     expect(mostSpecificActiveHref(['/s', '/s?x'], '/s?x')).toBe('/s?x');
   });
 
+  it('an exact-only link owns its own path but not its sub-pages', () => {
+    expect(mostSpecificActiveHref(['/accounting/sars'], '/accounting/sars')).toBe('/accounting/sars');
+    expect(mostSpecificActiveHref(['/accounting/sars'], '/accounting/sars/vat201')).toBeNull();
+    expect(mostSpecificActiveHref(['/accounting/sars'], '/accounting/sars?x=1#top')).toBe('/accounting/sars');
+    expect(mostSpecificActiveHref(['/accounting'], '/accounting/customers')).toBeNull();
+  });
+
   it('is null when nothing matches', () => {
     expect(mostSpecificActiveHref(['/x', '/y'], '/z')).toBeNull();
   });

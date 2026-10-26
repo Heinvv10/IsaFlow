@@ -8,6 +8,7 @@ vi.mock('next/router', () => ({
 
 import { ModuleNav } from '@/components/layout/ModuleNav';
 import { TABS, getActiveTabId } from '@/components/accounting/accountingNavConfig';
+import { stripVatNav } from '@/components/accounting/navSections/vatNav';
 
 const tab = (id: string) => document.querySelector(`[data-tour="nav-${id}"]`) as HTMLElement;
 const renderNav = () => render(<ModuleNav tabs={TABS} getActiveTabId={getActiveTabId} accentColor="teal" />);
@@ -282,7 +283,37 @@ describe('top-nav ArrowDown', () => {
   });
 });
 
+describe('top-nav focus-out of another tab', () => {
+  it('does not close a menu the pointer opened since focus left this tab', () => {
+    renderNav();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    const bankingChevron = within(tab('banking')).getByRole('button', { name: 'Banking menu' });
+    bankingChevron.focus();
+    hover('sales');
+    fireEvent.focusOut(bankingChevron, { relatedTarget: outside });
+    expect(within(tab('sales')).queryByRole('link', { name: 'Quotes' })).not.toBeNull();
+    outside.remove();
+  });
+});
+
 describe('top-nav link highlighting', () => {
+  it('a direct link does not stay lit on a page a section row owns (Reconcile vs Mapping Rules)', () => {
+    asPath = '/accounting/bank-reconciliation/rules';
+    renderNav();
+    hover('banking');
+    const reconcile = within(tab('banking')).getAllByRole('link', { name: 'Reconcile' })[0]!;
+    expect(reconcile.className).not.toContain('text-teal-400');
+  });
+
+  it('for a non-vendor, /accounting/sars/vat201 lights no Tax link (the calendar owns only its own path)', () => {
+    asPath = '/accounting/sars/vat201';
+    render(<ModuleNav tabs={stripVatNav(TABS, false)} getActiveTabId={getActiveTabId} accentColor="teal" />);
+    hover('tax');
+    const calendar = within(tab('tax')).getByRole('link', { name: 'Compliance Calendar' });
+    expect(calendar.className).not.toContain('text-teal-400');
+  });
+
   it('Compliance Calendar is lit on /accounting/sars only, not on its sub-pages', () => {
     asPath = '/accounting/sars';
     const first = renderNav();
