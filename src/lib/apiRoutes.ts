@@ -54,6 +54,7 @@ import type { unclassifiedWarning } from '@/modules/accounting/services/gl/finan
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 import type { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import type { JournalPlanPreview } from '@/modules/accounting/services/payroll/payrollApprovalGate';
+import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -119,6 +120,7 @@ interface StaticRoutes {
   '/api/accounting/budget-grid/save': SaveCellsResult;
   '/api/accounting/budget-grid/seed': SeedResult;
   '/api/accounting/budget-grid/import-preview': ImportPreview;
+  '/api/accounting/setup-checklist': Awaited<ReturnType<typeof getSetupProgress>>;
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
   '/api/accounting/bank-accounts': Awaited<ReturnType<typeof getBankAccountsStatus>> | { updated: true };

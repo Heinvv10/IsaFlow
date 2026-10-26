@@ -12,16 +12,18 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plug, Copy, Check, KeyRound, ShieldOff, Bot, Loader2 } from 'lucide-react';
 import { MCP_PROD_ENDPOINT, CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const afterDelay = useTimeoutOnce();
   return (
     <button
       type="button"
       onClick={() => {
         void navigator.clipboard?.writeText(text);
         setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+        afterDelay(() => setCopied(false), 1500);
       }}
       className="inline-flex items-center gap-1 text-xs text-teal-400 hover:text-teal-300"
       aria-label="Copy to clipboard"

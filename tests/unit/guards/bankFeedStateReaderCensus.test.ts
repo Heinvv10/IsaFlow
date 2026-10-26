@@ -85,7 +85,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/accounting/nl-query.ts': "filtered (final review A-15: bank lines are exposed to the LLM only as the bank_transactions_posted view from migration 675; the base table is off nlQueryValidationService's ALLOWED_TABLES, so generated SQL cannot read a pending/removed row)",
   'pages/api/accounting/provisional/outstanding.ts': "exempt: non-posted rows cannot carry provisional_je_id (trigger 675)",
   'pages/api/accounting/reports/cash-movement.ts': 'filtered',
-  'pages/api/accounting/setup-guide.ts': 'exempt: onboarding checklist presence flag, not a financial total',
+  'src/modules/accounting/services/core/setupProgressService.ts': 'exempt: onboarding checklist presence flag (moved from pages/api/accounting/setup-guide.ts), not a financial total',
   'pages/api/accounting/smart-categorize.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
 
   'src/lib/landing/landingStats.ts': "filtered (the landing-page aggregate moved here from pages/api/landing-stats.ts, 2026-10-20)",
@@ -179,6 +179,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/reports/vatAllocationMismatchService.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/reports/vatInputSupportQuery.ts': "exempt: joins only on matched_journal_line_id, which non-posted rows cannot carry (trigger 675) — the bank_transactions read moved here when vatInputSupport.ts split into query + classification (2026-09-25)",
   'src/modules/accounting/services/workbench/monthEndWorkbenchService.ts': 'filtered',
+  'src/modules/accounting/services/workbench/monthEndLedgerCards.ts': 'filtered',
   'src/modules/admin/services/analyticsService.ts': 'exempt: platform-admin DB-size estimate, not a financial total',
   'src/modules/admin/services/dataExportService.ts': 'exempt: full company data export must include every row regardless of feed_state (completeness)',
   'src/modules/admin/services/sageMigrationOrchestrator.ts': 'exempt: writer (Task 3) — migration import writer',

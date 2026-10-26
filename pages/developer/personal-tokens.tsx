@@ -79,6 +79,7 @@ function Toast({ msg, ok, onClose }: { msg: string; ok: boolean; onClose: () => 
 
 export default function PersonalTokensPage() {
   const [tokens, setTokens] = useState<PatItem[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [scopeSet, setScopeSet] = useState<Set<string>>(new Set(['read:reports']));
@@ -170,7 +171,7 @@ export default function PersonalTokensPage() {
     try {
       await navigator.clipboard.writeText(newPat.token);
       setTokenCopied(true);
-      setTimeout(() => setTokenCopied(false), 2000);
+      afterDelay(() => setTokenCopied(false), 2000);
     } catch {
       // Permissions denied / non-secure context / unsupported browser. The
       // token is rendered with `select-all` so the user can manually select

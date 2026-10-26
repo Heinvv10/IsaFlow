@@ -12,6 +12,7 @@ import { SupplierSelect } from '@/components/accounting/supplier-invoices/Suppli
 import { Loader2, AlertCircle, Upload, X, CheckCircle2, FileText } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 
@@ -75,6 +76,7 @@ export default function SupplierStatementsIndexPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [statements, setStatements] = useState<SupplierStatementReconciliation[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState<Toast>(null);
@@ -91,8 +93,8 @@ export default function SupplierStatementsIndexPage() {
 
   const showToast = useCallback((msg: string, kind: 'ok' | 'err') => {
     setToast({ msg, kind });
-    setTimeout(() => setToast(null), 5000);
-  }, []);
+    afterDelay(() => setToast(null), 5000);
+  }, [afterDelay]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
