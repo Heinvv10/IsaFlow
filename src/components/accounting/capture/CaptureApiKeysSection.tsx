@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Key, Copy, Check, Loader2, AlertCircle, X, ShieldOff, Plus } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface ApiKey {
   id: string;
@@ -35,6 +36,7 @@ function formatDate(val: string | null): string {
 
 export function CaptureApiKeysSection({ showToast }: Props) {
   const [keys, setKeys] = useState<ApiKey[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [newLabel, setNewLabel] = useState('');
   const [generating, setGenerating] = useState(false);
@@ -101,7 +103,7 @@ export function CaptureApiKeysSection({ showToast }: Props) {
     if (!newKey?.key) return;
     await navigator.clipboard.writeText(newKey.key);
     setKeyCopied(true);
-    setTimeout(() => setKeyCopied(false), 2000);
+    afterDelay(() => setKeyCopied(false), 2000);
   }
 
   return (

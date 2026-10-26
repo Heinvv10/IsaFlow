@@ -64,10 +64,12 @@ describe('runGate: the base-ref override in CI', () => {
 
 describe('runGate --write in CI', () => {
   it('also refuses the override: --write does not read the base, but a CI that sets it is wrong', async () => {
-    const { d, out } = deps({ writing: true, env: { CI: '1', RAW_INPUT_BASE_REF: 'HEAD' } });
+    const g = git(null);
+    const { d, out } = deps({ writing: true, env: { CI: '1', RAW_INPUT_BASE_REF: 'HEAD' }, git: g });
     expect(await runGate(d)).toBe(1);
     expect(out.error.join('\n')).toMatch(/RAW_INPUT_BASE_REF is set \(HEAD\) in CI/);
     expect(d.actualCounts).not.toHaveBeenCalled();
+    expect(g.calls).toEqual([]);
     expect(out.written).toEqual([]);
   });
 

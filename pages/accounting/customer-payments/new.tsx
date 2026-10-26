@@ -218,8 +218,8 @@ export default function NewCustomerPaymentPage() {
                   <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
                 </div>
                 <div className="p-5 space-y-3">
-                  {!form.clientId && <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center py-4">Select a client to see outstanding invoices</p>}
-                  {form.clientId && invoices.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">No outstanding invoices for this client</p>}
+                  {!form.clientId && <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">Select a client to see outstanding invoices</p>}
+                  {form.clientId && invoices.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400">No outstanding invoices for this client</p>}
                   {allocations.map(alloc => {
                     const inv = invoices.find(i => i.id === alloc.invoiceId);
                     const balance = inv ? Number(inv.total_amount) - Number(inv.amount_paid) : 0;
@@ -265,7 +265,7 @@ export default function NewCustomerPaymentPage() {
                   </button>
                   <Link href="/accounting/customer-payments" className="block w-full mt-2 py-2.5 text-center text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">Cancel</Link>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center px-2 mt-3">Payment will be recorded and allocations applied to the selected invoices.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2 mt-3">Payment will be recorded and allocations applied to the selected invoices.</p>
               </div>
             </div>
           </div>
