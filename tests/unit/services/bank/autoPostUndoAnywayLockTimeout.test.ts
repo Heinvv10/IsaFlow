@@ -2,7 +2,8 @@
  * D8 round 11 (census of the routes that reach a D8 flow): `undoAnyway` re-typed every failure of the undo it runs
  * as `HandCorrectionRefusedError` ("could not be reversed — for example, its period is closed"), a 400 — so a peer
  * holding a row of the bank reversal's flow budget read as a refusal the user should act on, not a retry. A lock
- * timeout now passes through as itself: 503 + Retry-After at the route.
+ * timeout now passes through as itself: 503 + Retry-After at the route. A void credit refusal (2026-10-26,
+ * ap/supplierVoidCredit) keeps its own message.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -27,6 +28,7 @@ vi.mock('@/modules/accounting/services/bank/autoPostUndoService', () => ({ undoR
 
 import { HandCorrectionRefusedError, undoAnyway } from '@/modules/accounting/services/bank/autoPostHandCorrection';
 import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';
+import { SupplierVoidCreditRefusal } from '@/modules/accounting/services/ap/supplierVoidCredit';
 
 describe('undoAnyway', () => {
   it('lets a lock timeout through as itself', async () => {
@@ -39,6 +41,13 @@ describe('undoAnyway', () => {
     const err = Object.assign(new Error('deadlock detected'), { code: '40P01' });
     undoRow.mockRejectedValueOnce(err);
     await expect(undoAnyway('co-1', 'run-1', 'tx-1', 'je-blocker', 'u-1')).rejects.toBe(err);
+  });
+
+  it('keeps the void credit refusal\'s own remedy (reverse the refund first), not the closed-period text', async () => {
+    undoRow.mockRejectedValueOnce(new SupplierVoidCreditRefusal('Voiding this payment would leave X owing the company … Reverse the refund first, then void the payment.'));
+    const err = await undoAnyway('co-1', 'run-1', 'tx-1', 'je-blocker', 'u-1').then(() => null, (e: unknown) => e);
+    expect({ refused: err instanceof HandCorrectionRefusedError, message: (err as Error).message })
+      .toEqual({ refused: true, message: expect.stringMatching(/Reverse the refund first/) });
   });
 
   it('still answers any other failure of the reversal as the refusal', async () => {
