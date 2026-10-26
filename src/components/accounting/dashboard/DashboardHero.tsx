@@ -3,13 +3,20 @@
  * Rounded card, white border, extended gradient + dot-grid + teal glow.
  */
 
-import { DM_Serif_Display } from 'next/font/google';
+import localFont from 'next/font/local';
 import { TrendingUp, FileText, Landmark, Clock, ArrowDown } from 'lucide-react';
 import type { ElementType } from 'react';
 import { formatMoneyCompact } from '@/lib/money/formatMoney';
 import { formatDisplayMonthYearLong } from '@/utils/dateFormat';
 
-const serif = DM_Serif_Display({ subsets: ['latin'], weight: '400' });
+// Self-hosted (OFL, src/assets/fonts/OFL-DMSerifDisplay.txt): the Google-hosted loader fetched it at build time.
+const serif = localFont({
+  src: '../../../assets/fonts/DMSerifDisplay-latin-regular.woff2',
+  weight: '400',
+  style: 'normal',
+  display: 'swap',
+  adjustFontFallback: 'Times New Roman',
+});
 
 export interface DashboardHeroStats {
   revenueMtd: number;
