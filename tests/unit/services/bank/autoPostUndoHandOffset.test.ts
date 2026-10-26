@@ -37,7 +37,7 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', async (importOriginal) 
 
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
 
-const NO_SKIPS = { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0 };
+const NO_SKIPS = { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 };
 
 function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
   const tagged = handlers.find((h) => /auto_post_run_id/.test(h.match.source))?.rows as Array<{ id: string }> | undefined;
@@ -85,7 +85,7 @@ describe('undoRun — hand offsets (R-079)', () => {
     const r = await undoRun('co-1', 'run-1', 'u-1');
 
     expect(r).toEqual({
-      reversed: 0, skipped: 1, skippedBy: { ...NO_SKIPS, offsetByHand: 1 }, alreadyUndone: 0, undone: false,
+      reversed: 0, skipped: 1, skippedBy: { ...NO_SKIPS, offsetByHand: 1, creditCeiling: 0 }, alreadyUndone: 0, undone: false,
       handOffsets: [{
         transactionId: 't1', lineDate: '2026-05-15', lineAmount: -100, lineDescription: 'Office rent',
         journalEntryId: 'je-hand', entryNumber: 'JE-2026-00042', entryDate: '2026-05-20', amount: 60,

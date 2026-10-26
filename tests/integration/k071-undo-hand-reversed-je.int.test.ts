@@ -118,7 +118,7 @@ it('finishes a line whose provisional JE was reversed by hand, closes the run, a
 
   expect(undo.status).toBe(200);
   expect(undo.body.data).toEqual({
-    reversed: 0, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0 }, alreadyUndone: 1, undone: true,
+    reversed: 0, skipped: 0, skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 }, alreadyUndone: 1, undone: true,
       handOffsets: [],
   });
   const { rows: tx } = await pool.query(
@@ -213,7 +213,7 @@ it('refuses to close a run whose provisional JE reversal was itself reversed, an
 
   expect(undo.status).toBe(200);
   expect(undo.body.data).toEqual({
-    reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 1, offsetByHand: 0 }, alreadyUndone: 0, undone: false,
+    reversed: 0, skipped: 1, skippedBy: { reconciled: 0, contended: 0, failed: 1, offsetByHand: 0, creditCeiling: 0 }, alreadyUndone: 0, undone: false,
       handOffsets: [],
   });
   // The run stays open and the line keeps its tag, so a retry still owns it.

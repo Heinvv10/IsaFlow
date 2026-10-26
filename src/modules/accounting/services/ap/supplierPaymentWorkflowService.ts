@@ -24,6 +24,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { underFlowLockBudget } from '../core/rowLockBudget';
 import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
+import { assertVoidKeepsCredit } from './supplierVoidCredit';
 type Row = DbRow;
 
 /**
@@ -206,6 +207,8 @@ async function voidSupplierPaymentInner(
     // payment is voided as a status change. Only a processed one continues.
     if (await voidIfUnprocessed(companyId, payment, userId)) return { ...payment, status: 'cancelled' };
     assertSameJournal(journalId, payment.glJournalEntryId);
+    // Before any write: a void must not leave the supplier owing the company (a refund already returned this cash).
+    await assertVoidKeepsCredit(companyId, [id]);
     // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
     // payment, contra and bank line in one call (`voidViaBankAllocation`).
     if (leg // an OUT chain too: the bank path frees the line and reverses nothing (D8)

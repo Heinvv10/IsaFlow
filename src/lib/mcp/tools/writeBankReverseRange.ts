@@ -13,8 +13,9 @@
  *
  * ALL-OR-NOTHING is therefore the whole point, not a nicety. `registry.call()`
  * wraps the handler in ONE savepoint that unwinds only on a THROW, so the
- * reversal loop has no try/catch: if the eighth reversal fails, the first seven
- * go back too. A half-reversed range is the state this tool exists to prevent,
+ * reversal loop catches nothing it does not retry: if the eighth reversal fails, the first seven
+ * go back too. (The one refusal it sets aside — a supplier payment whose refund is later in the range — has written
+ * nothing, and is retried after the rest and rethrown if it still stands: bank/reverseLinesCreditLast.) A half-reversed range is the state this tool exists to prevent,
  * so it must never be able to produce one.
  *
  * The range is the dangerous part of the design, so two guards sit in front of
@@ -33,6 +34,7 @@ import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/ban
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { assertLinesKeepCredit, reverseLinesCreditLast } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
 
 const REVERSE_RANGE_TOOL = 'reverse_allocations';
 
@@ -147,7 +149,10 @@ export const reverseAllocationsTool: McpTool = {
     const agentRefusal = await agentReversalRefusal(ctx.companyId, rows.map((r) => r.id));
     if (agentRefusal) return toolError(agentRefusal.message);
 
+    // A supplier payment whose cash a refund outside the range returned is refused live (ap/supplierVoidCredit); the
+    // preview answers the same, decided on the range's net (bank/reverseLinesCreditLast).
     if (dryRun) {
+      await assertLinesKeepCredit(ctx.companyId, rows.map((r) => r.journalEntryId));
       return ok({
         bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,
         dry_run: true,
@@ -158,18 +163,18 @@ export const reverseAllocationsTool: McpTool = {
       });
     }
 
-    // No try/catch, deliberately — see the file header. Rows arrive ordered by
+    // All-or-nothing, deliberately — see the file header. Rows arrive ordered by
     // id, the same deterministic lock order the allocate and batch-reverse
-    // paths use, so this cannot deadlock against a concurrent batch.
-    for (const row of rows) {
+    // paths use, so this cannot deadlock against a concurrent batch. A supplier payment whose refund is later in the
+    // range is set aside and retried after the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
+    await reverseLinesCreditLast(rows.map((r) => r.id), (id) =>
       // The contra journal is stamped too: without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings,
       // which is the surface a human reviews agent work through.
-      await reverseReconciledTransaction(ctx.companyId, row.id, ctx.userId, {
+      reverseReconciledTransaction(ctx.companyId, id, ctx.userId, {
         ...mcpPostingOpts(ctx, REVERSE_RANGE_TOOL),
         ...(reversalDate === undefined ? {} : { reversalDate }),
-      });
-    }
+      }));
 
     return ok({
       bank_account_id: bankAccountId, from_date: fromDate, to_date: toDate,

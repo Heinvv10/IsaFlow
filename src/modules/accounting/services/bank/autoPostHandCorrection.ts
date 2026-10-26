@@ -35,6 +35,7 @@ import { refuseLockedCash } from './reconciledCash';
 import { BankControlError } from './bankControlRefusal';
 import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
 import { recordHandCorrected } from './codingDecisionLog';
+import { isVoidCreditRefusal } from '../ap/supplierVoidCredit';
 
 /** A refusal written for the person who asked; nothing was written. */
 export class HandCorrectionRefusedError extends Error {
@@ -176,6 +177,9 @@ export async function undoAnyway(
     // D12: another line of the chain in a COMPLETED reconciliation is the shared 409, not a generic refusal.
     if (err instanceof HandCorrectionRefusedError || isRetryableContention(err) || isHeldRowError(err)
       || isReconciliationCompleted(err) || err instanceof BankControlError) throw err;
+    // The line's supplier payment would leave its supplier owing the company (a refund already returned the cash):
+    // the user's remedy is in the message — reverse the refund first — so it is kept (ap/supplierVoidCredit).
+    if (isVoidCreditRefusal(err)) throw new HandCorrectionRefusedError(err.message);
     // The reversal itself refused — a closed period, say. The savepoint rolled
     // the declaration back with it, so this is a refusal with nothing written,
     // the same `failed` the undo counts; the cause goes to the log, not the user.
