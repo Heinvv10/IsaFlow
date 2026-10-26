@@ -96,4 +96,15 @@ describe('947: a centre a budget uses keeps its kind', () => {
       expect(await codeOf(q, `UPDATE cost_centres SET cc_type = 'cc2' WHERE id = $1`, [A.cc1b])).toBe('ok');
     });
   });
+
+  it("a member of two companies working in A cannot change the kind of B's centre (B's budgets are invisible from A)", async () => {
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')", [B.id, A.user]);
+    try {
+      await asAppUser(A, async (q) => {
+        expect(await codeOf(q, `UPDATE cost_centres SET cc_type = 'cc2' WHERE id = $1`, [B.cc1b])).toBe('23514');
+      });
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [B.id, A.user]);
+    }
+  });
 });

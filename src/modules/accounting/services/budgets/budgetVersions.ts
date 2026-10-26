@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { logAuditOrThrow, type AuditAction } from '../core/auditTrailService';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { getFiscalYear } from '../gl/fiscalYearRegistry';
+import { holdYearRegistry } from './budgetVersionScope';
 import {
   BUDGET_VERSION_KINDS, BudgetVersionError, mapVersion, type BudgetVersion, type BudgetVersionKind,
 } from './budgetVersionTypes';
@@ -98,6 +99,7 @@ async function insertDraft(
 export async function createVersion(
   companyId: string, input: { fiscalYear: number; name: unknown; kind: unknown }, actor: VersionActor,
 ): Promise<BudgetVersion> {
+  await holdYearRegistry(companyId);
   const { name, kind } = parseVersionInput(input.name, input.kind);
   if (!(await getFiscalYear(companyId, input.fiscalYear))) {
     throw new BudgetVersionError('BUDGET_VERSION_INPUT', `No financial year is labelled ${input.fiscalYear}`);
@@ -111,6 +113,7 @@ export async function createVersion(
 export async function copyVersion(
   companyId: string, sourceId: string, input: { name: unknown; kind: unknown }, actor: VersionActor,
 ): Promise<BudgetVersion> {
+  await holdYearRegistry(companyId);
   const { name, kind } = parseVersionInput(input.name, input.kind);
   // The source's year is locked so a concurrent delete of the source cannot race the copy.
   await lockVersionsOfYear(companyId, sourceId);
@@ -146,6 +149,7 @@ async function lockVersionsOfYear(companyId: string, versionId: string): Promise
 
 /** Makes `versionId` its year's primary (owner or admin); the readers follow it. */
 export async function setPrimary(companyId: string, versionId: string, actor: VersionActor): Promise<BudgetVersion> {
+  await holdYearRegistry(companyId);
   if (!APPROVERS.has(actor.role)) throw new BudgetVersionError('BUDGET_VERSION_FORBIDDEN', 'Only an owner or admin can change the primary budget');
   const { fiscalYear } = await lockVersionsOfYear(companyId, versionId);
   await sql`
@@ -160,6 +164,7 @@ export async function setPrimary(companyId: string, versionId: string, actor: Ve
 
 /** Deletes a version that is neither primary nor locked; an approved one needs an owner or admin. */
 export async function deleteVersion(companyId: string, versionId: string, actor: VersionActor): Promise<void> {
+  await holdYearRegistry(companyId);
   // A writer who may never delete an approved version is refused before taking the year's locks.
   const seen = await getVersion(companyId, versionId);
   if (seen.status !== 'draft' && !APPROVERS.has(actor.role)) {

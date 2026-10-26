@@ -27,7 +27,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getFiscalYear, type FiscalYearRecord } from '../gl/fiscalYearRegistry';
 import {
-  auditBudgetWrite as auditWrite, lockVersionForWrite, readVersion, resolvePrimaryVersion, writeVersion,
+  auditBudgetWrite as auditWrite, holdYearRegistry, lockVersionForWrite, readVersion, resolvePrimaryVersion, writeVersion,
 } from '../budgets/budgetVersionScope';
 import { BudgetVersionError } from '../budgets/budgetVersionTypes';
 import { budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
@@ -149,6 +149,7 @@ export async function upsertBudget(
   input: BudgetInput,
   userId: string,
 ): Promise<BudgetEntry> {
+  await holdYearRegistry(companyId);
   const year = await yearMonths(companyId, input.fiscalYear);
   const amounts = resolveMonthAmounts(year.monthKeys, { months: input.months, annualAmount: input.annualAmount });
 
@@ -205,6 +206,7 @@ export async function upsertBudget(
  * by every version). Other versions, dimension rows and months of other years are untouched.
  */
 export async function deleteBudget(companyId: string, glAccountId: string, fiscalYear: number, userId: string): Promise<void> {
+  await holdYearRegistry(companyId);
   const year = await yearMonths(companyId, fiscalYear);
   const primary = await resolvePrimaryVersion(companyId, fiscalYear);
   if (primary) {
@@ -239,6 +241,7 @@ export async function copyBudgets(
   userId: string,
 ): Promise<number> {
   if (fromYear === toYear) throw new BudgetInputError('Cannot copy a year onto itself');
+  await holdYearRegistry(companyId);
   const from = await yearMonths(companyId, fromYear);
   const to = await yearMonths(companyId, toYear);
   const source = await resolvePrimaryVersion(companyId, fromYear);

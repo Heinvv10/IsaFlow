@@ -31,6 +31,20 @@ const MAX_YEARS_IN_WINDOW = 200;
 
 const dayAfter = (date: string): string => addDaysISO(date, 1);
 
+/**
+ * Holds the company's financial-year registry steady for this transaction: the SHARED form of the
+ * advisory lock a change of year end (and its undo) takes exclusively. A budget writer takes it
+ * BEFORE it reads the registry, so a save and a year-end change run one after the other and the
+ * change's re-home of budget months sees every committed row (no save filed under the old years).
+ * Bounded like every row-lock wait (503 on timeout).
+ */
+export async function holdYearRegistry(companyId: string): Promise<void> {
+  await withRowLockBudget(
+    () => sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`fy-end-change:${companyId}`}, 0))`,
+    () => new RowLockTimeoutError('The financial years'),
+  );
+}
+
 /** The year's primary version id; with `create`, a draft primary 'Original' when it has none. */
 export async function resolvePrimaryVersion(
   companyId: string,

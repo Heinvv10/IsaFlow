@@ -376,14 +376,23 @@ CREATE TRIGGER trg_budget_month_amounts_dimension_kinds
 ALTER TABLE budget_month_amounts ENABLE ALWAYS TRIGGER trg_budget_month_amounts_dimension_kinds;
 
 -- The kind holds after the write too: a centre a budget amount uses cannot change cc_type
--- (journal lines carry the same reference and are not covered here).
+-- (journal lines carry the same reference and are not covered here). The check runs as the
+-- caller, and the amounts' RLS shows only the ACTIVE company: a session working in another
+-- company than the centre's is refused outright, since it cannot see the centre's budgets.
+-- (Setting app.current_company_id can only widen what RLS shows, never pass the change.)
 CREATE OR REPLACE FUNCTION public.cost_centres_keep_budget_kind()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+DECLARE
+  active text := NULLIF(current_setting('app.current_company_id', true), '');
 BEGIN
+  IF active IS NOT NULL AND active IS DISTINCT FROM OLD.company_id::text THEN
+    RAISE EXCEPTION 'cost centre % belongs to another company than the active one; change its kind from that company', OLD.id
+      USING ERRCODE = '23514';
+  END IF;
   IF EXISTS (SELECT 1 FROM budget_month_amounts bm
               WHERE bm.company_id = OLD.company_id AND (bm.cc1_id = OLD.id OR bm.cc2_id = OLD.id)) THEN
     RAISE EXCEPTION 'cost centre % is used by budget amounts; its kind (cc_type) cannot change', OLD.id USING ERRCODE = '23514';
