@@ -106,7 +106,7 @@ export default function DeliveryNotesPage() {
 
           <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 w-fit">
             {TABS.map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-ink-muted hover:bg-surface-sunken'}`}>
                 {t === 'all' ? 'All' : STATUS[t]?.label ?? t}
               </button>
             ))}

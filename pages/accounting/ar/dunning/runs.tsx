@@ -49,7 +49,7 @@ const RESPONSE_BADGE: Record<ResponseAction, string> = {
   paid:     'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
   promised: 'bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300',
   disputed: 'bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300',
-  silent:   'bg-surface-sunken text-ink-muted',
+  silent:   'bg-slate-200 text-slate-800 dark:bg-slate-500/20 dark:text-slate-200',
 };
 
 function fmtDateTime(iso: string): string {
