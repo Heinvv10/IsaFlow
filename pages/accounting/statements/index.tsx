@@ -15,6 +15,7 @@ import {
   type CustomerRow,
 } from '@/components/accounting/statements/CustomerStatementTable';
 import { buildCustomerEmailMap } from '@/components/accounting/statements/customerEmails';
+import { DateField } from '@/components/ui/DateField';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -189,16 +190,13 @@ export default function StatementsPage() {
         <div className="p-6 space-y-4">
           {/* Controls row */}
           <div className="flex items-center gap-4 flex-wrap">
-            <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
-              As at:
-              <input
-                type="date"
-                name="asAtDate"
-                value={asAtDate}
-                onChange={e => setAsAtDate(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
-              />
-            </label>
+            <DateField
+              label="As at"
+              name="asAtDate"
+              required
+              value={asAtDate || null}
+              onChange={(iso, v) => { if (v.valid && iso) setAsAtDate(iso); }}
+            />
             <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer select-none">
               <input
                 type="checkbox"
