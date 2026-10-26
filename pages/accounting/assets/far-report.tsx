@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
 import { formatAmount } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 interface FarAsset {
   assetNumber: string;
@@ -125,12 +126,11 @@ export default function FarReportPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <label className="text-xs text-[var(--ff-text-secondary)] font-medium">As at</label>
-          <input
-            type="date"
-            value={asAt}
-            onChange={e => setAsAt(e.target.value)}
-            className="ff-input text-xs font-mono px-2 py-1 h-8"
+          <DateField
+            label="As at"
+            required
+            value={asAt || null}
+            onChange={(iso, v) => { if (v.valid && iso) setAsAt(iso); }}
           />
           <ExportCSVButton
             endpoint="/api/accounting/assets/far-report-xlsx"
