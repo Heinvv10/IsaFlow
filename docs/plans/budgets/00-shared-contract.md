@@ -24,6 +24,16 @@ Deferred to phase-start decision gates (pre-filled defaults, Hein answers yes/ov
 9. (P5) Overspend alerts: in-app to owner/admin first; email digest off until Hein enables.
 10. (P6) Cash timing from actual debtor/creditor days; VAT/PAYE on SARS due dates; not client-visible until Hein reviews on Demo.
 
+## Product decisions, round 2 (Hein accepted defaults, 2026-10-26 — build them, do not re-ask)
+
+11. Owner-only unlock is enforced in the app layer; the DB audits every unlock. Sufficient for MVP.
+12. A change of year end after versions exist re-homes the affected versions inside the year-end-change flow (no silently orphaned months).
+13. Owner and admin may delete an approved (unlocked) version; locked versions cannot be deleted.
+14. One dimension per account grain in a version (no CC1 + BU combined grain).
+15. Viewer roles may open Budget vs Actual (read-only).
+16. Projected FY uses actuals up to the last complete month, budget thereafter.
+17. YTD runs to the end of the current month (whole months on both sides).
+
 ## Canonical names (P1 owns them; every other phase uses exactly these)
 
 - Table `budget_versions`: `id uuid pk`, `company_id uuid not null`, `fiscal_year integer not null` (same label semantics as `accounting_budgets.fiscal_year`, resolved via `gl/fiscalYearRegistry`), `name text not null`, `kind text check in ('original','reforecast','scenario')`, `status text check in ('draft','approved','locked')`, `based_on_version_id uuid null`, `is_primary boolean not null default false` (partial unique: one primary per company + fiscal_year), `approved_by/approved_at`, `locked_by/locked_at`, `created_by/created_at`, `updated_at`. Forced RLS like `budget_month_amounts`.

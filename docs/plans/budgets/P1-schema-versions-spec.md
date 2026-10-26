@@ -389,6 +389,8 @@ Manual schema rollback (not automated, Hein-approved only, valid only while both
 
 ## 12. Open questions for Hein
 
+> **Resolved 2026-10-26:** Hein accepted the defaults — see `docs/plans/budgets/00-shared-contract.md` decisions 11–17. Build them; do not re-ask.
+
 1. **Unlock authority under S-07.** The owner-only unlock is app-enforced, so a forged session could unlock (and is always audited). Is an app-side check plus a DB-written audit row enough for MVP, or should transitions move to `migrationAdminPool()`? Default: enough.
 2. **Change of year end after versions exist.** A version is keyed by fiscal-year label. After a year-end change, a month can move into another label, and readers clip by registry year, so that month's amount silently stops counting. Default: P1 refuses nothing; P2 or the year-end change flow must re-home versions. Flag it on the 943 path?
 3. **Deleting an approved version** (allowed for owner/admin when not primary and not locked; drafts by any writer — P2's versions bar and golden-spec cleanup follow this rule). Confirm, or restrict deletion to drafts only.
