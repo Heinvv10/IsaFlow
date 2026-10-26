@@ -2,59 +2,51 @@
  * Standalone AppLayout for the Accounting app.
  * Supports two nav modes: top-bar (Sage-style, default) or sidebar.
  * User preference persisted in localStorage.
+ *
+ * Pieces: AppHeader (header bar), AppSidebar (desktop sidebar + mobile drawer), useGlobalShortcuts, PwaInstallBanner,
+ * and ShellSkeleton while the first session check runs. The nav slots are pinned to SHELL_HEIGHTS so the content
+ * does not jump when the shell arrives (CLS). Below `lg` the top nav rows give way to the hamburger drawer.
  */
 
-import { useState, useEffect, useRef, ReactNode, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo, ReactNode } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
-import Image from 'next/image';
 import { useTrackPageVisit } from '@/hooks/useTrackPageVisit';
-import {
-  BookOpen,
-  ChevronLeft,
-  ChevronRight,
-  Menu,
-  LogOut,
-  User,
-  PanelLeft,
-  PanelTop,
-  Download,
-  X as XIcon,
-  Search,
-} from 'lucide-react';
-import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
-import { ThemeToggle } from '@/components/layout/ThemeToggle';
-import { MobileHeaderMenu } from '@/components/layout/MobileHeaderMenu';
 import { useCompany } from '@/contexts/CompanyContext';
 import { startSessionHeartbeat } from '@/lib/auth/sessionHeartbeat';
-import { AuthPendingScreen } from '@/components/layout/AuthPendingScreen';
-import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
-import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
-import { SettingsMenu } from '@/components/layout/SettingsMenu';
-import { TableDensityToggle } from '@/components/ui/TableDensityToggle';
-import { SidebarNav } from '@/components/layout/SidebarNav';
+import { AccountingNav } from '@/components/accounting/AccountingNav';
 import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
-import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
+import { getActiveModuleId, TABS } from '@/components/accounting/accountingNavConfig';
+import { MODULE_BY_ID } from '@/components/accounting/navSections/secondaryNav';
+import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
-import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import type { ShortcutConfig } from '@/lib/keyboard-shortcuts';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
-import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
 import { PayrollPeriodBar } from '@/components/payroll/PayrollPeriodBar';
-
-
-
-const AccountingNav = dynamic(
-  () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),
-);
+import { AppHeader } from '@/components/layout/AppHeader';
+import { AppSidebar } from '@/components/layout/AppSidebar';
+import { ShellSkeleton } from '@/components/layout/ShellSkeleton';
+import { PwaInstallBanner } from '@/components/layout/PwaInstallBanner';
+import { useGlobalShortcuts } from '@/components/layout/useGlobalShortcuts';
+import { SHELL_HEIGHTS } from '@/components/layout/shellHeights';
+import { documentTitle, isPayrollPath } from '@/components/layout/shellRoutes';
 
 const SIDEBAR_COLLAPSED_KEY = 'accounting-sidebar-collapsed';
 const NAV_MODE_KEY = 'accounting-nav-mode';
-const PWA_INSTALL_DISMISSED_KEY = 'isaflow-pwa-install-dismissed';
 
 type NavMode = 'top' | 'side';
+
+/**
+ * The shell's fallback <title>. Memoised on the string: next/head moves a Head to the end of its list (where the
+ * last title wins) every time it re-renders, so re-rendering this one with the layout would let it beat a page's own
+ * <title>. It re-renders only when the title itself changes.
+ */
+const ShellTitle = memo(function ShellTitle({ title }: { title: string }) {
+  return <Head><title>{title}</title></Head>;
+});
 
 // ─── Props ──────────────────────────────────────────────────────────────────
 
@@ -70,8 +62,12 @@ export function AppLayout({ children }: AppLayoutProps) {
     router.pathname,
     router.query as Record<string, string | string[] | undefined>,
   );
-  const { user, loading, logout } = useAuth();
-  const { companyRole, activeCompany } = useCompany();
+  const hasModuleNav = !!MODULE_BY_ID[activeModuleId];
+  const { user, loading } = useAuth();
+  const { activeCompany } = useCompany();
+  const { isRegistered } = useVatRegistration();
+  const navIndex = useMemo(() => buildNavIndex(TABS, isRegistered), [isRegistered]);
+  const title = documentTitle(router.asPath, navIndex);
 
   // Track page visits for usage-based quick actions
   useTrackPageVisit();
@@ -109,33 +105,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
-  // PWA install prompt
-  const deferredPromptRef = useRef<Event | null>(null);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
-
   useEffect(() => {
     const savedMode = localStorage.getItem(NAV_MODE_KEY) as NavMode | null;
     if (savedMode === 'top' || savedMode === 'side') setNavMode(savedMode);
     const savedCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
     if (savedCollapsed !== null) setCollapsed(JSON.parse(savedCollapsed) as boolean);
     setHydrated(true);
-  }, []);
-
-  // Listen for PWA install prompt
-  useEffect(() => {
-    const dismissed = localStorage.getItem(PWA_INSTALL_DISMISSED_KEY);
-    if (dismissed) return;
-
-    const handler = (e: Event) => {
-      e.preventDefault();
-      deferredPromptRef.current = e;
-      setShowInstallBanner(true);
-      // Auto-hide after 10s so it doesn't permanently eat vertical space.
-      // Still available via the Install button in browser's address bar.
-      setTimeout(() => setShowInstallBanner(false), 10_000);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   useEffect(() => {
@@ -146,81 +121,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, [collapsed, navMode, hydrated]);
 
   // ─── Global keyboard shortcuts ────────────────────────────────────────────
-  const globalShortcuts = useMemo<ShortcutConfig[]>(() => [
-    {
-      key: 'ctrl+k',
-      label: 'Ctrl+K',
-      description: 'Open command palette',
-      category: 'global',
-      action: () => setCommandPaletteOpen(true),
-    },
-    {
-      key: '?',
-      label: '?',
-      description: 'Show keyboard shortcuts',
-      category: 'global',
-      action: () => setShortcutHelpOpen(true),
-    },
-    // Navigation sequences — press G then the second key within 1 second
-    {
-      key: 'g d',
-      label: 'G then D',
-      description: 'Go to Dashboard',
-      category: 'navigation',
-      action: () => { void router.push('/accounting'); },
-    },
-    {
-      key: 'g s',
-      label: 'G then S',
-      description: 'Go to Sales',
-      category: 'navigation',
-      action: () => { void router.push('/accounting/customers'); },
-    },
-    {
-      key: 'g p',
-      label: 'G then P',
-      description: 'Go to Purchases',
-      category: 'navigation',
-      action: () => { void router.push('/accounting/suppliers'); },
-    },
-    {
-      key: 'g i',
-      label: 'G then I',
-      description: 'Go to Inventory',
-      category: 'navigation',
-      action: () => { void router.push('/accounting/items'); },
-    },
-    {
-      key: 'g b',
-      label: 'G then B',
-      description: 'Go to Banking',
-      category: 'navigation',
-      action: () => { void router.push('/accounting/bank-transactions'); },
-    },
-    {
-      key: 'g a',
-      label: 'G then A',
-      description: 'Go to Accounting',
-      category: 'navigation',
-      action: () => { void router.push('/accounting/chart-of-accounts'); },
-    },
-    {
-      key: 'g r',
-      label: 'G then R',
-      description: 'Go to Reports',
-      category: 'navigation',
-      action: () => { void router.push('/accounting/reports/income-statement'); },
-    },
-    {
-      key: 'g t',
-      label: 'G then T',
-      description: 'Go to Tax',
-      category: 'navigation',
-      action: () => { void router.push('/accounting/sars/vat201'); },
-    },
-  ], [router]);
-
-  useKeyboardShortcuts(globalShortcuts);
+  const openCommandPalette = useCallback(() => setCommandPaletteOpen(true), []);
+  const openShortcutHelp = useCallback(() => setShortcutHelpOpen(true), []);
+  const globalShortcuts = useGlobalShortcuts({ openCommandPalette, openShortcutHelp });
 
   // Close mobile nav on route change
   useEffect(() => {
@@ -229,248 +132,56 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const toggleNavMode = () => setNavMode(m => m === 'top' ? 'side' : 'top');
 
-  const handleInstall = async () => {
-    const prompt = deferredPromptRef.current as (Event & { prompt: () => Promise<void> }) | null;
-    if (!prompt) return;
-    await prompt.prompt();
-    deferredPromptRef.current = null;
-    setShowInstallBanner(false);
-  };
-
-  const dismissInstall = () => {
-    setShowInstallBanner(false);
-    localStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1');
-  };
-
-  const userInitials = user
-    ? (`${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U')
-    : 'U';
+  const showSidebar = navMode === 'side';
+  const showTopNav = !showSidebar && !isAdminHost;
 
   if (loading) {
-    // D9: during an auth-service outage this explains itself and offers Retry.
-    return <AuthPendingScreen />;
+    // D9: during an auth-service outage the skeleton's content area explains itself and offers Retry.
+    return (
+      <>
+        <ShellTitle title={title} />
+        <ShellSkeleton navMode={navMode} collapsed={collapsed} showTopNav={showTopNav} hasModuleNav={hasModuleNav} />
+      </>
+    );
   }
-
-  // ─── Sidebar content (shared between mobile + desktop sidebar) ────────────
-
-  const SidebarContent = (
-    <>
-      {/* Logo */}
-      <div className={`flex items-center px-4 py-4 border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'justify-center' : ''}`}>
-        {collapsed ? (
-          <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <BookOpen className="w-4 h-4 text-white" />
-          </div>
-        ) : (
-          <Image src="/logo.png" alt="ISAFlow" width={90} height={36} className="h-9 w-auto dark:brightness-0 dark:invert" />
-        )}
-      </div>
-
-      {/* Nav — uses same TABS config as top nav */}
-      <SidebarNav collapsed={collapsed} />
-
-      {/* User area */}
-      <div className={`border-t border-gray-200 dark:border-gray-700 p-3 ${collapsed ? 'flex flex-col items-center gap-2' : ''}`}>
-        {user && !collapsed && (
-          <div className="flex items-center gap-2 px-2 py-2 mb-1">
-            <div className="w-7 h-7 bg-brand-700 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-xs text-white font-semibold">{userInitials}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
-                {user.firstName} {user.lastName}
-              </p>
-              {/* Show per-company role only. user.role is the global platform role
-                  (usually "viewer") and is not meaningful for normal customers. */}
-              {companyRole && (
-                <p className="text-xs text-ink-faint truncate capitalize">{companyRole}</p>
-              )}
-            </div>
-          </div>
-        )}
-        <button
-          onClick={() => void logout()}
-          title={collapsed ? 'Log out' : undefined}
-          className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors ${collapsed ? 'justify-center' : ''}`}
-        >
-          <LogOut className="w-4 h-4 flex-shrink-0" />
-          {!collapsed && <span>Log out</span>}
-        </button>
-      </div>
-    </>
-  );
-
-  const showSidebar = navMode === 'side';
 
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--ff-canvas-base)' }}>
+      <ShellTitle title={title} />
       <ImpersonationBanner />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-      {/* ── Desktop sidebar (only in side mode) ──────────────────────────── */}
-      {showSidebar && (
-        <aside
-          className={`hidden lg:flex flex-col transition-all duration-300 flex-shrink-0 ${collapsed ? 'w-16' : 'w-64'}`}
-          style={{ background: 'var(--ff-canvas-base)', borderRight: '1px solid var(--ff-canvas-border)' }}
-        >
-          {SidebarContent}
-
-          {/* Collapse toggle */}
-          <button
-            onClick={() => setCollapsed(c => !c)}
-            className="flex items-center justify-center h-10 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
-            style={{ borderTop: '1px solid var(--ff-canvas-border)' }}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed
-              ? <ChevronRight className="w-4 h-4" />
-              : <ChevronLeft className="w-4 h-4" />
-            }
-          </button>
-        </aside>
-      )}
-
-      {/* ── Mobile sidebar overlay (always available for mobile) ──────── */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/60 lg:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 flex flex-col lg:hidden transition-transform duration-300 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
-        style={{ background: 'var(--ff-canvas-base)', borderRight: '1px solid var(--ff-canvas-border)' }}
-      >
-        {SidebarContent}
-      </aside>
+      <AppSidebar
+        showSidebar={showSidebar}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed(c => !c)}
+        mobileOpen={mobileOpen}
+        onCloseMobile={() => setMobileOpen(false)}
+      />
 
       {/* ── Main area ────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
 
-        {/* PWA install banner */}
-        {showInstallBanner && (
-          <div className="bg-brand-600 text-white px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <Download className="w-4 h-4" />
-              <span>Install IsaFlow for a faster, app-like experience</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={handleInstall} className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-xs font-medium transition-colors">
-                Install
-              </button>
-              <button onClick={dismissInstall} className="p-1 hover:bg-white/20 rounded transition-colors" aria-label="Dismiss">
-                <XIcon className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
+        <PwaInstallBanner />
 
-        {/* Header bar */}
-        <header className="h-14 flex items-center px-4 gap-3 flex-shrink-0" style={{ background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
-          {/* Mobile hamburger */}
-          <button
-            className="lg:hidden text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
-            onClick={() => setMobileOpen(o => !o)}
-            aria-label="Open menu"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
+        <AppHeader
+          navMode={navMode}
+          isAdminHost={isAdminHost}
+          onToggleMobileNav={() => setMobileOpen(o => !o)}
+          onToggleNavMode={toggleNavMode}
+          onOpenCommandPalette={openCommandPalette}
+        />
 
-          {/* Logo (in top-nav mode, show logo here; in side mode it's in the sidebar) */}
-          <Image src="/logo.png" alt="ISAFlow" width={80} height={32} className="h-8 w-auto hidden sm:block dark:brightness-0 dark:invert" />
-
-          {/* Company switcher (hidden on admin subdomain) */}
-          {!isAdminHost && (
-            <div data-tour="company-switcher">
-              <CompanySwitcher />
-            </div>
-          )}
-
-          <div className="flex-1" />
-
-          {/* Quick create menu (hidden on admin subdomain) */}
-          {!isAdminHost && <CreateNewMenu />}
-
-          {/* Command palette trigger */}
-          <button
-            data-tour="command-palette"
-            onClick={() => setCommandPaletteOpen(true)}
-            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] hover:border-teal-400 hover:text-[var(--ff-text-primary)] transition-colors"
-            title="Search (Ctrl+K)"
-          >
-            <Search className="w-3.5 h-3.5" />
-            <span className="text-xs">Search</span>
-            <kbd className="ml-1 px-1 py-0.5 text-xs bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] rounded">
-              Ctrl+K
-            </kbd>
-          </button>
-
-          {/* Mobile search icon */}
-          <button
-            onClick={() => setCommandPaletteOpen(true)}
-            className="sm:hidden p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
-            title="Search"
-            aria-label="Open search"
-          >
-            <Search className="w-4 h-4" />
-          </button>
-
-          {/* Setup guide (hidden on admin subdomain) */}
-          {!isAdminHost && <SetupGuideButton />}
-
-          {/* Settings cog (hidden on admin subdomain) */}
-          {!isAdminHost && <SettingsMenu />}
-
-          {/* Nav mode toggle */}
-          <button
-            onClick={toggleNavMode}
-            className="hidden sm:block p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
-            title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
-          >
-            {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
-          </button>
-
-          {/* Table density toggle (below sm these live in MobileHeaderMenu) */}
-          <div className="hidden sm:block"><TableDensityToggle /></div>
-
-          {/* Theme: Light / Dark / System */}
-          <div className="hidden sm:block"><ThemeToggle /></div>
-
-          <MobileHeaderMenu
-            name={user ? `${user.firstName} ${user.lastName}` : ''}
-            navMode={navMode}
-            onToggleNavMode={toggleNavMode}
-            onLogout={showSidebar ? undefined : () => void logout()}
-          />
-
-          {/* User info */}
-          {user && (
-            <div className="hidden sm:flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-              <User className="w-4 h-4" />
-              <span className="hidden sm:inline truncate max-w-[160px]">
-                {user.firstName} {user.lastName}
-              </span>
-            </div>
-          )}
-
-          {/* Logout (visible in top-nav mode where sidebar user area is hidden) */}
-          {!showSidebar && (
-            <button
-              onClick={() => void logout()}
-              className="hidden sm:block p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
-              title="Log out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          )}
-        </header>
-
-        {/* Horizontal nav bar (only in top mode, hidden on admin subdomain) */}
-        {!showSidebar && !isAdminHost && (
-          <div className="relative z-40">
-            <AccountingNav />
-            <SecondaryModuleNav moduleId={activeModuleId} />
+        {/* Horizontal nav bars (top mode, not the admin subdomain). Their heights are pinned so nothing below moves
+            while they load. Below lg the 10 tabs do not fit and their menus cannot open inside a scrolling strip, so
+            the hamburger drawer (AppSidebar) carries the nav there. */}
+        {showTopNav && (
+          <div className="relative z-40 hidden lg:block flex-shrink-0">
+            <div style={{ height: SHELL_HEIGHTS.topNav }}><AccountingNav /></div>
+            {hasModuleNav && (
+              <div style={{ height: SHELL_HEIGHTS.moduleNav }}><SecondaryModuleNav moduleId={activeModuleId} /></div>
+            )}
           </div>
         )}
 
@@ -479,7 +190,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           className="flex-1 overflow-y-auto relative z-0"
           style={{ background: 'var(--ff-canvas-gradient)' }}
         >
-          {router.pathname.startsWith('/payroll') && <PayrollPeriodBar />}
+          {isPayrollPath(router.pathname) && <PayrollPeriodBar />}
           <div className="p-4 lg:p-6">{children}</div>
         </main>
       </div>

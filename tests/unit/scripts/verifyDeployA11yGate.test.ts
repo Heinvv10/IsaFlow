@@ -63,7 +63,7 @@ describe('verify-deploy.sh and the a11y gate', () => {
     expect(r.code).toBe(0);
     expect(r.skipA11y).toBe('1');
     const tests = listTests({ GOLDEN_SKIP_A11Y: r.skipA11y }, r.args); // throws if the spec were loaded
-    expect(tests.filter((l) => /n-a11y-main-screens|o-theme-contrast|o2-theme-behaviour|t-report-filter-dates|q2-top-nav-axe/.test(l))).toEqual([]);
+    expect(tests.filter((l) => /n-a11y-main-screens|o-theme-contrast|o2-theme-behaviour|t-report-filter-dates|q2-top-nav-axe|s-shell-cls-mobile/.test(l))).toEqual([]);
     expect(tests.length).toBeGreaterThanOrEqual(10); // one file left out, not the suite
     expect(tests.some((l) => l.includes('m-migration-wizard'))).toBe(true);
   }, 90_000);
