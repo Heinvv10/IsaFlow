@@ -35,6 +35,7 @@ import UnallocatedReceipts from '../../../pages/accounting/reports/unallocated-r
 import VatReconciliation from '../../../pages/accounting/reports/vat-reconciliation';
 import ItemListing from '../../../pages/accounting/reports/item-listing';
 import FinancialAnalysis from '../../../pages/accounting/reports/financial-analysis';
+import { bvaBody } from '../helpers/bvaReportFixture';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); });
@@ -67,7 +68,7 @@ interface Case {
 
 const PAY = [{ id: 'p1', paymentNumber: 'D2-PAY-1', supplierName: 'D2 Old Payee', clientName: 'D2 Old Payee', date: '2026-01-01', amount: 100, allocatedAmount: 0 }];
 const SC = { scorecard: [{ ratioKey: 'debtToEquity', name: 'D2 Old KPI', value: 5, target: 5, status: 'green', percentOfTarget: 100 }], summary: { green: 1, amber: 0, red: 0, total: 1 } };
-const BUD = { report: { period: 'current', lines: [{ account_code: '4000', account_name: 'D2 Old Budget Line', account_type: 'revenue', budget_amount: 10, actual_amount: 5, variance: 5, variance_pct: 50 }], total_budget: 10, total_actual: 5, total_variance: 5 } };
+const BUD = { report: { period: 'current', ...bvaBody([{ code: '4000', name: 'D2 Old Budget Line', type: 'revenue', actual: 5, budget: 10 }]) } };
 const RECON = { type: 'reconciliation', months: [], totals: { glRevenue: 0, glOutputVat: 0, glInputVat: 0, glNetVat: 0, invoiceRevenue: 0, returnNetVat: 0, capitalGoodsOutput: 0, capitalGoodsInput: 0, revenueVariance: 0, outputVatVariance: 0, inputVatVariance: 0 }, issues: [{ month: '2026-01', severity: 'error', message: 'D2 Old Recon Issue' }] };
 const item = (n: string) => [{ id: 'i1', itemCode: 'D2-1', name: n, itemName: n, category: 'c', uom: 'ea', qtyOnHand: 1, minLevel: 0, lowStock: false, costPrice: 1, stockValue: 1, sellingPrice: 1, isActive: true, date: '2026-01-01', type: 'in', reference: 'r', qtyIn: 1, qtyOut: 0, balance: 1, poCount: 1, qtyOrdered: 1, totalCost: 1, avgCost: 1, timesSold: 1, qtySold: 1, totalRevenue: 1, avgPrice: 1 }];
 const arr = (marker: string) => () => item(marker);
@@ -83,7 +84,7 @@ const CASES: Case[] = [
   { name: 'journal entries', page: () => <JournalEntries />, match: u => u.includes('reports-journal-entries'), data: () => ({ total: 1, entries: [{ id: 'j1', entryNumber: 'JE-D2-OLD', entryDate: '2026-01-01', description: 'x', source: 'manual', status: 'posted', totalDebits: 1, totalCredits: 1 }] }), shows: 'JE-D2-OLD', plain: /Could not load the journal report - try again/, reload: dateInput },
   { name: 'supplier POs', page: () => <SupplierPos />, match: u => u.includes('reports-supplier-pos'), data: () => ({ grandTotal: 1, grandPoCount: 1, suppliers: [{ supplierId: 's1', supplierName: 'D2 Old PO Supplier', poCount: 1, totalValue: 1, pos: [] }] }), shows: 'D2 Old PO Supplier', plain: /Could not load the report - try again/, reload: dateInput },
   { name: 'customer communication', page: () => <CustomerCommunication />, match: u => u.includes('customer-communication'), data: () => ({ total: 1, page: 1, limit: 50, records: [{ id: 'r1', customerId: null, customerName: 'D2 Old Recipient', email: 'a@b.c', documentType: 'invoice', subject: 's', sentAt: '2026-01-01T10:00:00Z', status: 'sent' }] }), shows: 'D2 Old Recipient', plain: /Could not load the report - try again/, reload: dateInput },
-  { name: 'budget vs actual', page: () => <BudgetVsActual />, match: u => u.includes('reports-budget-vs-actual'), data: () => BUD, shows: 'D2 Old Budget Line', plain: /Could not load the budget report - try again/, reload: select('ytd') },
+  { name: 'budget vs actual', page: () => <BudgetVsActual />, match: u => u.includes('reports-budget-vs-actual'), data: () => BUD, shows: 'D2 Old Budget Line', plain: /Could not load the budget report - try again/, reload: select('full_year') },
   { name: 'unallocated payments', page: () => <UnallocatedPayments />, match: u => u.includes('supplier-payments'), data: () => PAY, shows: 'D2-PAY-1', plain: /Could not load unallocated payments - try again/ },
   { name: 'unallocated receipts', page: () => <UnallocatedReceipts />, match: u => u.includes('customer-payments'), data: () => PAY, shows: 'D2-PAY-1', plain: /Could not load unallocated receipts - try again/ },
   { name: 'VAT reconciliation (reconData)', page: () => <VatReconciliation />, match: u => u.includes('vat-reconciliation'), data: () => RECON, shows: 'D2 Old Recon Issue', plain: /Could not load the VAT reconciliation - try again/, reload: dateInput },
@@ -166,7 +167,7 @@ describe('budget vs actual: stale export', () => {
     const btn = () => screen.getByText('Export CSV').closest('button') as HTMLButtonElement;
     expect(btn().disabled).toBe(false);
     mode = '500';
-    select('ytd')(container);
+    select('full_year')(container);
     expect(await screen.findByText(/Could not load the budget report - try again/)).toBeTruthy();
     await waitFor(() => expect(btn().disabled).toBe(true));
   });
