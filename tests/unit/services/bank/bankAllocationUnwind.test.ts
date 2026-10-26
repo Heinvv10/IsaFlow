@@ -35,6 +35,12 @@ vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOri
   loadJournalVatLines: vi.fn(async () => []),
 }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// The void credit check (ap/supplierVoidCredit) has its own integration suite; here it passes and its row lock is held.
+vi.mock('@/modules/accounting/services/ap/supplierVoidCredit', () => ({ assertVoidKeepsCredit: vi.fn(async () => {}) }));
+vi.mock('@/modules/accounting/services/core/paymentLock', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/core/paymentLock')>()),
+  lockSupplierPaymentForUpdate: vi.fn(async () => ({ id: 'p' })),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 // `importOriginal` keeps BALANCE_DERIVED real — `supplierAllocationLines`
 // builds its allocatable-status allow-list from it at module load, so a

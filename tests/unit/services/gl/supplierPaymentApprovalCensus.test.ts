@@ -239,6 +239,7 @@ describe('batch membership', () => {
     [`${AP}supplierPaymentUnapply.ts`]: READS,
     'src/modules/accounting/services/bank/bankAllocationService.ts': 'allocation_batch_id (bank_transactions); the substring matches',
     'src/modules/accounting/services/bank/bankChainLineReversal.ts': 'reads a batch label (id::TEXT AS batch_id)',
+    'src/modules/accounting/services/bank/reverseLinesCreditLast.ts': 'reads a processed batch\'s members for the range dry run\'s credit check',
     'src/modules/accounting/services/core/costCentreUsageGuard.ts': 'dimension_tag_batches.batch_id, not the payment column',
     'src/modules/accounting/services/gl/approvalDocuments.ts': READS,
     'src/modules/accounting/services/gl/approvalEnforcementPreview.ts': READS,

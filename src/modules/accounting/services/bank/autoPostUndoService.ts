@@ -18,14 +18,13 @@ import { log } from '@/lib/logger';
 import { reverseReconciledTransaction } from './bankAllocationService';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import { reverseJournalEntry } from '../gl/journalEntryService';
-import { isRetryableContention } from '../core/retryableContention';
-import { isHeldRowError } from '@/lib/lockTimeout';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { handOffsetOf, postingJournalOf, type HandOffset } from './autoPostHandOffset';
 import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
 import { postingRefOf, recordAutoPostUndone } from './codingDecisionLog';
+import { attemptUndoRow, type UndoTally } from './autoPostUndoAttempt';
 
 type Row = DbRow;
 
@@ -37,13 +36,15 @@ type Row = DbRow;
  * was itself reversed); the reason is in the log. `offsetByHand`: a manual
  * journal already offsets the posting (R-079) — reverse that journal, or
  * confirm it is the correction (autoPostHandCorrection.ts); `handOffsets`
- * names it.
+ * names it. `creditCeiling`: reverse the supplier's refund first (ap/supplierVoidCredit).
  */
 export interface UndoSkips {
   reconciled: number;
   contended: number;
   failed: number;
   offsetByHand: number;
+  /** Voiding the row's payment would leave its supplier owing the company: a refund already returned that cash. */
+  creditCeiling: number;
 }
 
 export interface UndoResult {
@@ -192,83 +193,30 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     ORDER BY id
   `) as Row[];
 
-  let reversed = 0;
-  let alreadyUndone = 0;
-  const skippedBy: UndoSkips = { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0 };
-  const handOffsets: HandOffset[] = [];
-  let contention: unknown = null;
-
+  const tally: UndoTally = {
+    reversed: 0, alreadyUndone: 0, handOffsets: [], contention: null,
+    skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 },
+  };
+  const creditRefused: Row[] = [];
+  // Each row under its own savepoint, like the sibling sweep in autoPostGateService: the body posts contra journals
+  // and takes row locks under a 5s lock_timeout, so a contended or constraint-violating row raises a REAL Postgres
+  // error inside the request transaction, and a savepoint makes one failed row roll back alone (K-140).
+  const attempt = (tx: Row, final: boolean) => attemptUndoRow(
+    { companyId, runId, txId: String(tx.id), status: String(tx.status) }, tally,
+    () => withSavepoint(UNDO_ROW_SAVEPOINT, () => undoRow(companyId, runId, userId, String(tx.id))), final);
   for (const tx of txRows) {
-    const txId = String(tx.id);
     // An unlocked fast path by the same shared rule; `undoRow` re-decides it
     // under the row lock.
     const lock = await reconciliationLockOf(companyId, tx);
     if (lock) {
-      skippedBy.reconciled += 1;
+      tally.skippedBy.reconciled += 1;
       continue;
     }
-    try {
-      // Under its own savepoint, like the sibling sweep in autoPostGateService.
-      // The body posts contra journals and takes row locks under a 5s
-      // lock_timeout, so a contended or constraint-violating row raises a REAL
-      // Postgres error inside the request transaction. Bare, the catch below
-      // swallowed it while the transaction stayed aborted: every later row then
-      // failed 25P02 and the trailing `undone` UPDATE threw. A savepoint makes
-      // one failed row roll back alone.
-      const result = await withSavepoint(UNDO_ROW_SAVEPOINT, () => undoRow(companyId, runId, userId, txId));
-      const outcome = result.kind;
-      if (result.kind === 'offsetByHand') {
-        skippedBy.offsetByHand += 1;
-        handOffsets.push(result.offset);
-        log.warn(
-          'Auto-post undo refused a transaction a manual journal already offsets — nothing posted; run stays open',
-          { companyId, runId, txId, offsetJournalId: result.offset.journalEntryId },
-          'auto-post-undo',
-        );
-      } else if (outcome === 'gone') {
-        // A peer undo or a confirmed hand correction finished it first.
-      } else if (outcome === 'reconciled') {
-        skippedBy.reconciled += 1;
-      } else if (outcome === 'reversed') {
-        reversed += 1;
-      } else if (outcome === 'alreadyUndone') {
-        alreadyUndone += 1;
-        log.info(
-          'Auto-post undo found a tagged transaction with nothing to reverse — finished it without posting',
-          { companyId, runId, txId },
-          'auto-post-undo',
-        );
-      } else {
-        skippedBy.failed += 1;
-        log.error(
-          outcome === 'reReversed'
-            ? 'Auto-post undo skipped a transaction whose provisional journal reversal was itself reversed — the posting stands; run stays open'
-            : 'Auto-post undo skipped a transaction marked posted with nothing linked to reverse — run stays open',
-          { companyId, runId, txId, status: String(tx.status) },
-          'auto-post-undo',
-        );
-      }
-    } catch (err) {
-      // The savepoint has rolled this row back alone — including
-      // `reverseReconciledTransaction`'s bank-line lock, which it takes on the
-      // enclosing transaction — so the request transaction is live and the
-      // rows already reversed stand. Contention is skipped like any failure;
-      // it is kept only to decide the answer below. Every lock timeout is contention (D8 round 11): the bank
-      // reversal's flow budget refuses a held bill or invoice after 5 s, and that row is not "failed".
-      if (isRetryableContention(err) || isHeldRowError(err)) {
-        contention ??= err;
-        skippedBy.contended += 1;
-        log.info('Auto-post undo skipped a contended transaction', { companyId, runId, txId }, 'auto-post-undo');
-      } else {
-        skippedBy.failed += 1;
-        log.error(
-          'Auto-post undo failed for transaction — run stays open; manual reversal required for this tx',
-          { companyId, runId, txId, error: err instanceof Error ? err.message : String(err) },
-          'auto-post-undo',
-        );
-      }
-    }
+    if (await attempt(tx, false) === 'creditRefused') creditRefused.push(tx);
   }
+  // A payment refused because its refund was still standing: once more, after the run's other rows (autoPostUndoAttempt).
+  for (const tx of creditRefused) await attempt(tx, true);
+  const { reversed, alreadyUndone, skippedBy, handOffsets, contention } = tally;
 
   // Nothing written at all, and a peer's lock is why: every savepoint rolled
   // back and skipped rows are never touched, so re-throwing makes the route
@@ -278,7 +226,8 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   if (contention !== null && reversed === 0 && alreadyUndone === 0) throw contention;
 
   await auditRunUndo(companyId, runId, userId, clearance, reversed + alreadyUndone);
-  const skipped = skippedBy.reconciled + skippedBy.contended + skippedBy.failed + skippedBy.offsetByHand;
+  const skipped = skippedBy.reconciled + skippedBy.contended + skippedBy.failed + skippedBy.offsetByHand
+    + skippedBy.creditCeiling;
   const undone = skipped === 0;
   if (undone) {
     await sql`

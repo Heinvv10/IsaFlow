@@ -287,7 +287,7 @@
   "pages/accounting/reports/audit-trail.tsx": 3,
   "pages/accounting/reports/supplier-pos.tsx": 2,
   "pages/accounting/reports/financial-analysis.tsx": 3,
-  "pages/accounting/reports/vat-reconciliation.tsx": 9,
+  "pages/accounting/reports/vat-reconciliation.tsx": 7,
   "pages/accounting/vat-adjustments/index.tsx": 1,
   "pages/accounting/fraud/signals.tsx": 2,
   "pages/accounting/supplier-invoices/index.tsx": 3,
