@@ -13,6 +13,7 @@ import {
   Info, AlertTriangle, Shield,
 } from 'lucide-react';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface Alert {
   id: string;
@@ -45,6 +46,7 @@ function fmtDate(s: string): string {
 
 export default function FraudSignalsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [status, setStatus] = useState<'pending' | 'dismissed' | 'confirmed' | ''>('pending');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -53,8 +55,8 @@ export default function FraudSignalsPage() {
 
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+    afterDelay(() => setToast(null), 3500);
+  }, [afterDelay]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');

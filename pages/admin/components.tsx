@@ -23,6 +23,7 @@ import { AvatarDemo } from '@/components/showcase/AvatarDemo';
 import { ProgressBarDemo } from '@/components/showcase/ProgressBarDemo';
 import { SelectDemo } from '@/components/showcase/SelectDemo';
 import { FormKitShowcase } from '@/components/admin/FormKitShowcase';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 // ---------------------------------------------------------------------------
 // Data
@@ -76,10 +77,11 @@ export default function ComponentShowcasePage() {
   const [darkMode, setDarkMode] = useState(false);
   const [activeSection, setActiveSection] = useState('Button');
   const [loadingDemo, setLoadingDemo] = useState(false);
+  const afterDelay = useTimeoutOnce();
 
   const simulateLoading = () => {
     setLoadingDemo(true);
-    setTimeout(() => setLoadingDemo(false), 2000);
+    afterDelay(() => setLoadingDemo(false), 2000);
   };
 
   return (
