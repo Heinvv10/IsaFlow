@@ -85,7 +85,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/accounting/nl-query.ts': "filtered (final review A-15: bank lines are exposed to the LLM only as the bank_transactions_posted view from migration 675; the base table is off nlQueryValidationService's ALLOWED_TABLES, so generated SQL cannot read a pending/removed row)",
   'pages/api/accounting/provisional/outstanding.ts': "exempt: non-posted rows cannot carry provisional_je_id (trigger 675)",
   'pages/api/accounting/reports/cash-movement.ts': 'filtered',
-  'pages/api/accounting/setup-guide.ts': 'exempt: onboarding checklist presence flag, not a financial total',
+  'src/modules/accounting/services/core/setupProgressService.ts': 'exempt: onboarding checklist presence flag (moved from pages/api/accounting/setup-guide.ts), not a financial total',
   'pages/api/accounting/smart-categorize.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
 
   'src/lib/landing/landingStats.ts': "filtered (the landing-page aggregate moved here from pages/api/landing-stats.ts, 2026-10-20)",
