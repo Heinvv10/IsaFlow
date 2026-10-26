@@ -4,7 +4,7 @@
  * reason. A refused cell is reported, never written.
  */
 import { describe, it, expect } from 'vitest';
-import { parseCell, parseClipboard } from '@/modules/accounting/services/budgets/grid/pasteParse';
+import { MAX_PASTE_CHARS, parseCell, parseClipboard } from '@/modules/accounting/services/budgets/grid/pasteParse';
 
 describe('parseCell', () => {
   it.each([
@@ -88,8 +88,35 @@ describe('parseClipboard', () => {
     const r = parseClipboard('"1 234,50"\t"R 2,5"\n"a""b"\t"x\ny"');
     expect(r.rows[0]).toEqual([{ kind: 'value', cents: 123450 }, { kind: 'value', cents: 250 }]);
     expect(r.rows).toHaveLength(2);
-    expect(r.rows[1][0]).toMatchObject({ kind: 'error', raw: 'a"b' });
-    expect(r.rows[1][1]).toMatchObject({ kind: 'error', raw: 'x\ny' });
+    expect(r.rows[1]?.[0]).toMatchObject({ kind: 'error', raw: 'a"b' });
+    expect(r.rows[1]?.[1]).toMatchObject({ kind: 'error', raw: 'x\ny', reason: expect.stringMatching(/more than one line/) });
+  });
+
+  it('a line break inside a quoted cell is refused, never read as one amount', () => {
+    expect(parseClipboard('"1\n234"\t5').rows[0]?.[0]).toMatchObject({ kind: 'error', raw: '1\n234' });
+  });
+
+  it('an unclosed quote is an ordinary character: it cannot swallow the rows after it', () => {
+    const r = parseClipboard('"100\n200\n300');
+    expect(r.rows).toHaveLength(3);
+    expect(r.rows[0]?.[0]).toMatchObject({ kind: 'error', raw: '"100' });
+    expect(r.rows.slice(1)).toEqual([[{ kind: 'value', cents: 20000 }], [{ kind: 'value', cents: 30000 }]]);
+  });
+
+  it('a quote in the middle of a field is data', () => {
+    expect(parseClipboard('a"b\t1').rows[0]?.[0]).toMatchObject({ kind: 'error', raw: 'a"b' });
+  });
+
+  it('keeps a last row that ends in a blank cell (no trailing newline)', () => {
+    expect(parseClipboard('1\t2\n3\t').rows).toEqual([
+      [{ kind: 'value', cents: 100 }, { kind: 'value', cents: 200 }],
+      [{ kind: 'value', cents: 300 }, { kind: 'blank' }],
+    ]);
+  });
+
+  it('refuses a clipboard over the size bound without parsing it', () => {
+    expect(parseClipboard('1'.repeat(MAX_PASTE_CHARS + 1))).toEqual({ rows: [], errors: [], tooLarge: true });
+    expect(parseClipboard('1').tooLarge).toBeUndefined();
   });
 
   it('lists each refused cell with its row and column', () => {

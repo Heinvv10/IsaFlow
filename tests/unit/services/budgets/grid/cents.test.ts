@@ -25,9 +25,11 @@ describe('toCents', () => {
     expect(Object.is(toCents(-0.001), 0)).toBe(true);
   });
 
-  it('refuses a non-finite number', () => {
+  it('refuses a non-finite number and one beyond NUMERIC(15,2)', () => {
     expect(() => toCents(Number.NaN)).toThrow(RangeError);
     expect(() => toCents(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+    expect(() => toCents(1e20)).toThrow(RangeError);
+    expect(() => toCents(-10000000000000)).toThrow(RangeError);
   });
 });
 

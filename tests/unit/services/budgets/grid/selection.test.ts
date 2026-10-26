@@ -43,6 +43,21 @@ describe('nextFocusable', () => {
   });
 });
 
+describe('degenerate shapes', () => {
+  const EMPTY: GridShape = { rowKinds: ['section', 'grand'], cols: 13 };
+
+  it('a grid with no line rows keeps the position', () => {
+    expect(nextFocusable({ r: 0, c: 2 }, 'down', EMPTY)).toEqual({ r: 0, c: 2 });
+    expect(edgeFocusable({ r: 0, c: 2 }, 'up', EMPTY)).toEqual({ r: 0, c: 2 });
+    expect(lineRows(EMPTY)).toEqual([]);
+  });
+
+  it('from a non-line row, moves to the nearest line row in that direction', () => {
+    expect(nextFocusable({ r: 3, c: 1 }, 'down', SHAPE)).toEqual({ r: 6, c: 1 });
+    expect(nextFocusable({ r: 3, c: 1 }, 'up', SHAPE)).toEqual({ r: 2, c: 1 });
+  });
+});
+
 describe('edgeFocusable (Ctrl+arrow)', () => {
   it.each([
     ['down', { r: 8, c: 3 }],

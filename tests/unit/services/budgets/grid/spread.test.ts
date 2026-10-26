@@ -36,6 +36,15 @@ describe('spreadEven', () => {
     expect(ms[11]).toBe(1000000 - 11 * 83300);
   });
 
+  it('spreads over the longest (15-month) year', () => {
+    expectUnitShape(months(spreadEven(1500000, 15, 1)), 1500000, 1);
+    expect(months(spreadEven(1500000, 15, 1))).toHaveLength(15);
+  });
+
+  it('never returns negative zero', () => {
+    expect(Object.is(months(spreadEven(-0, 2, 1))[1], 0)).toBe(true);
+  });
+
   it('spreads a negative total and a 14-month year', () => {
     expectUnitShape(months(spreadEven(-1234567, 14, 100)), -1234567, 100);
     expect(months(spreadEven(-1200000, 12, 1))).toEqual(Array<number>(12).fill(-100000));
@@ -98,9 +107,22 @@ describe('spreadStep', () => {
     expect(months(spreadStep(1234567, 12, 0, 100))).toEqual(months(spreadEven(1234567, 12, 100)));
   });
 
-  it('refuses growth at or below -100%', () => {
+  it('weights month i by (1 + g)^i exactly', () => {
+    // R331 at 10%: weights 1, 1.1, 1.21 (Σ 3.31) → R100, R110, R121
+    expect(months(spreadStep(33100, 3, 10, 1))).toEqual([10000, 11000, 12100]);
+  });
+
+  it('rounds each share half away from zero', () => {
+    // R4.50 at 100%: weights 1, 2 → R1.50 → R2, residue R2.50 on the last month
+    expect(months(spreadStep(450, 2, 100, 1))).toEqual([200, 250]);
+  });
+
+  it('refuses growth at or below -100%, above 1000%, or not a number', () => {
     expect(spreadStep(100000, 12, -100, 1).ok).toBe(false);
+    expect(spreadStep(100000, 12, 1000.01, 1).ok).toBe(false);
+    expect(spreadStep(100000, 12, 1e300, 1).ok).toBe(false);
     expect(spreadStep(100000, 12, Number.NaN, 1).ok).toBe(false);
+    expect(spreadStep(100000, 15, 1000, 1).ok).toBe(true);
   });
 });
 
@@ -123,6 +145,16 @@ describe('uplift', () => {
     const ms = months(uplift([100000, -20000, 50000], 10, 1));
     expect(ms[1]).toBe(-22000);
     expect(sum(ms)).toBe(143000);
+  });
+
+  it('refuses a result beyond NUMERIC(15,2) instead of returning lost-precision cents', () => {
+    const r = uplift(Array<number>(12).fill(100000000000000), 1000, 1);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/larger than/i);
+    expect(uplift([9e15], 10, 1).ok).toBe(false);
+    // The target (0) fits; each uplifted month (±11 × the largest amount) does not.
+    const most = 999999999999999;
+    expect(uplift([most, -most], 1000, 1).ok).toBe(false);
   });
 
   it('-100% gives zeros; refuses out of range', () => {
