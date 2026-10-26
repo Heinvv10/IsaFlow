@@ -24,6 +24,12 @@ export function isVatSurfaceHref(href: string): boolean {
   return VAT_SURFACES.some((s) => path === s || path.startsWith(`${s}/`));
 }
 
+/**
+ * Where a tab whose own landing page is a VAT surface lands for a non-vendor.
+ * Tax still has EMP201, EMP501 and the compliance calendar, so it stays.
+ */
+const NON_VENDOR_LANDING: Record<string, string> = { tax: '/accounting/sars' };
+
 function stripItems(items: NavItem[]): NavItem[] {
   const kept: NavItem[] = [];
   for (const item of items) {
@@ -43,16 +49,20 @@ function stripTab(tab: Tab): Tab | null {
   const items = tab.items ? stripItems(tab.items) : undefined;
   const topItems = tab.topItems?.filter((i) => !isVatSurfaceHref(i.href));
   const links = tab.links?.filter((i) => !isVatSurfaceHref(i.href));
+  const href = tab.href && isVatSurfaceHref(tab.href) ? NON_VENDOR_LANDING[tab.id] : tab.href;
 
   // A tab whose every link was a VAT surface has nothing left to show. This
   // must hold for a tab defined with ONLY topItems as well as one with items —
   // "had links, has none now" is the condition, not "has an items array".
   const hadLinks = Boolean(tab.items?.length) || Boolean(tab.topItems?.length) || Boolean(tab.links?.length);
   const hasLinks = Boolean(items?.length) || Boolean(topItems?.length) || Boolean(links?.length);
-  if (hadLinks && !hasLinks && (!tab.href || isVatSurfaceHref(tab.href))) {
+  if (hadLinks && !hasLinks && !href) {
     return null;
   }
-  return { ...tab, ...(items ? { items } : {}), ...(topItems ? { topItems } : {}), ...(links ? { links } : {}) };
+  const next: Tab = { ...tab, ...(items ? { items } : {}), ...(topItems ? { topItems } : {}), ...(links ? { links } : {}) };
+  if (href) next.href = href;
+  else delete next.href;
+  return next;
 }
 
 /**

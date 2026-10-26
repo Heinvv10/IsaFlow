@@ -7,6 +7,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { pathMatchesHref } from '@/components/accounting/navSections/activeTab';
 import {
   LayoutDashboard,
   Building2,
@@ -107,12 +108,11 @@ export function AdminNav() {
   const isActive = (adminPath: string) => {
     const href = buildHref(`/admin${adminPath}`);
     if (adminPath === '') return router.asPath === href;
-    return router.asPath.startsWith(href);
+    return pathMatchesHref(href, router.asPath);
   };
 
   const isSectionOpen = (adminPath: string) => {
-    const href = buildHref(`/admin${adminPath}`);
-    return router.asPath.startsWith(href);
+    return pathMatchesHref(buildHref(`/admin${adminPath}`), router.asPath);
   };
 
   return (
