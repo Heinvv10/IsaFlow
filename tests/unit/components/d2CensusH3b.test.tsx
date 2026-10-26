@@ -28,6 +28,7 @@ vi.mock('@/components/accounting/time-tracking/TimeFilters', () => ({
 }));
 vi.mock('@/components/accounting/dashboard/OverviewTables', () => ({ OverviewTables: () => null }));
 vi.mock('@/components/accounting/dashboard/TodoWidget', () => ({ TodoWidget: () => null }));
+vi.mock('@/components/accounting/dashboard/ModuleSetupChecklist', () => ({ ModuleSetupChecklist: () => null }));
 vi.mock('@/components/accounting/dashboard/WorkbenchSection', () => ({ WorkbenchSection: () => null }));
 vi.mock('@/components/accounting/banking/NoBankAccountWarning', () => ({ NoBankAccountWarning: () => null }));
 vi.mock('@/lib/auth/portalJwt', () => ({ verifyPortalToken: async () => ({ role: 'client_admin' }) }));
