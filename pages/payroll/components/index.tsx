@@ -18,7 +18,11 @@ interface Component {
   isTaxable: boolean;
   isUifApplicable: boolean;
   isSdlApplicable: boolean;
+  paidOutsidePayroll?: boolean;
 }
+
+/** Only a retirement fund contribution can be paid outside payroll (PAYE 4c; the route and a CHECK refuse the rest). */
+const RETIREMENT_CODES = new Set(['4001', '4003', '4006']);
 
 const SARS_HINTS = [
   '3601 — Basic salary',
@@ -27,6 +31,8 @@ const SARS_HINTS = [
   '3713 — Travel/cell allowance',
   '3802 — Housing allowance',
   '4001 — Pension fund (deduction)',
+  '4003 — Provident fund (deduction)',
+  '4006 — Retirement annuity (deduction)',
   '4005 — Medical aid (deduction)',
 ];
 
@@ -41,6 +47,8 @@ export default function PayComponentsPage() {
   const [isTaxable, setIsTaxable] = useState(true);
   const [isUifApplicable, setIsUifApplicable] = useState(true);
   const [isSdlApplicable, setIsSdlApplicable] = useState(true);
+  const [paidOutsidePayroll, setPaidOutsidePayroll] = useState(false);
+  const canBePaidOutside = type === 'deduction' && RETIREMENT_CODES.has(sarsCode.trim());
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
@@ -72,11 +80,12 @@ export default function PayComponentsPage() {
         body: JSON.stringify({
           name, sarsSourceCode: sarsCode, componentType: type,
           isTaxable, isUifApplicable, isSdlApplicable,
+          paidOutsidePayroll: canBePaidOutside && paidOutsidePayroll,
         }),
       });
       await assertOk(res, 'Could not create the component - try again');
       setName(''); setSarsCode('3601'); setType('earning');
-      setIsTaxable(true); setIsUifApplicable(true); setIsSdlApplicable(true);
+      setIsTaxable(true); setIsUifApplicable(true); setIsSdlApplicable(true); setPaidOutsidePayroll(false);
       await load();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the component - try again'));
@@ -146,6 +155,13 @@ export default function PayComponentsPage() {
                   <input type="checkbox" checked={isSdlApplicable} onChange={e => setIsSdlApplicable(e.target.checked)} />
                   SDL applicable
                 </label>
+                {canBePaidOutside && (
+                  <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]"
+                    title="The employee pays the fund directly (e.g. a private retirement annuity): it reduces PAYE and is on the IRP5, but is not deducted from pay.">
+                    <input type="checkbox" checked={paidOutsidePayroll} onChange={e => setPaidOutsidePayroll(e.target.checked)} />
+                    Paid outside payroll
+                  </label>
+                )}
                 <button type="submit" disabled={creating || !name}
                   className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium">
                   {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -181,7 +197,10 @@ export default function PayComponentsPage() {
                     <tr key={c.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                       <td className="py-3 px-4 text-[var(--ff-text-primary)]">{c.name}</td>
                       <td className="py-3 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{c.sarsSourceCode}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)] capitalize">{c.componentType.replace('_', ' ')}</td>
+                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
+                        <span className="capitalize">{c.componentType.replace('_', ' ')}</span>
+                        {c.paidOutsidePayroll && <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">paid outside payroll</span>}
+                      </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isTaxable ? 'Y' : 'N'}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isUifApplicable ? 'Y' : 'N'}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.isSdlApplicable ? 'Y' : 'N'}</td>

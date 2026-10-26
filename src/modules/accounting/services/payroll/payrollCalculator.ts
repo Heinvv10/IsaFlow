@@ -50,6 +50,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const warnings: ValidationResult[] = [];
 
   for (const { component, amount, directive } of components) {
+    // Only a retirement contribution can be paid outside payroll (CHECK on payroll_components, migration 948).
+    const outsidePayroll = component.componentType === 'deduction' && component.paidOutsidePayroll === true
+      && isRetirementContributionCode(component.sarsSourceCode);
     breakdown.push({
       componentId: component.id,
       componentName: component.name,
@@ -58,6 +61,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       isTaxable: component.isTaxable,
       isUifApplicable: component.isUifApplicable,
       ...(directive ? { directive } : {}),
+      ...(outsidePayroll ? { paidOutsidePayroll: true as const } : {}),
     });
 
     if (component.componentType === 'earning') {
@@ -85,7 +89,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         periodicTaxable += amount;
       }
     } else if (component.componentType === 'deduction') {
-      totalDeductions += amount;
+      // Paid by the employee to the fund directly: off the tax, not off the pay (nor the 2175 journal line).
+      if (!outsidePayroll) totalDeductions += amount;
       // A retirement contribution by its code, whatever its taxable flag: capped below, never the uncapped path.
       if (isRetirementContributionCode(component.sarsSourceCode)) retirementContributions += amount;
       else if (component.isTaxable) taxableDeductions += amount;

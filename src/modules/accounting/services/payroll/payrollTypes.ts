@@ -28,6 +28,11 @@ export interface PayrollComponent {
   isTaxable: boolean;
   isUifApplicable: boolean;
   isSdlApplicable: boolean;
+  /**
+   * A retirement fund contribution (4001/4003/4006 deduction) the employee pays the fund directly: counted for
+   * the s11F deduction and the certificate, never deducted from pay (migration 948, PAYE 4c). Absent = false.
+   */
+  paidOutsidePayroll?: boolean;
 }
 
 /** The SARS tax directive a lump-sum component (39xx) is paid under, and the PAYE it prescribes. */
@@ -158,6 +163,8 @@ export interface ComponentBreakdownItem {
   isTaxable: boolean;
   isUifApplicable: boolean;
   directive?: DirectiveFigures;
+  /** Set on a contribution paid outside payroll: not deducted from this line's net pay. */
+  paidOutsidePayroll?: true;
 }
 
 /** An employee's earlier periods of the tax year, as the cumulative PAYE needs them. */

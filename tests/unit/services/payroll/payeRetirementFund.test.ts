@@ -16,6 +16,22 @@
  *
  * Employees A-D are a real employer's March-May 2026 payroll (numbers only),
  * against the figures that employer's Sage payroll deducted.
+ *
+ * ASSUMPTION (not on file anywhere): the medical aid beneficiaries. A and C:
+ * 4, B: 3, D: none. Back-solved from Sage's PAYE: A's 12 440.51 × 12 =
+ * 149 286.12 against 164 405.89 after the rebate leaves 15 119.77 a year,
+ * ≈ 1 260 a month = 2 × 376 + 2 × 254 (four people); B's leaves 12 071.85,
+ * ≈ 1 006 = 2 × 376 + 254 (three). C's May, a cumulative month, needs the same
+ * 15 120 a year on its own figures. To be confirmed by the employer.
+ *
+ * THE 2c (A: IsaFlow 12 440.49, Sage 12 440.51) is Sage's, not 4c's: the same
+ * gap shows with no retirement fund and no medical aid (C's April 4 681.00 v
+ * 4 681.01; Sage's demo company R50 000: 11 075.58 v 11 075.60). Sage's
+ * annual equivalent is slightly above × 12, but no single factor reproduces
+ * all of A, B and D (A needs × 12(1 + ε) with ε ≤ 8.0e-7, D ε ≥ 9.6e-7), so
+ * its method is not derivable from these figures. IsaFlow's × 12 is the
+ * statutory annual-equivalent method; the figures below are asserted as it
+ * computes them.
  */
 import { describe, expect, it } from 'vitest';
 import { calculateCumulativePaye } from '@/modules/accounting/services/payroll/payeCumulative';

@@ -38,6 +38,7 @@
 
 import { normaliseSarsCode } from './payeAnnualPayment';
 import { getTaxYearConfig } from './taxTables';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { ValidationResult } from './payrollTypes';
 
 /** Section 11F(2)(b): 27.5% of the higher of remuneration and taxable income. */
@@ -72,7 +73,7 @@ export function employerContributionWarning(name: string, amount: number): Valid
   return {
     code: 'EMPLOYER_CONTRIBUTION_NOT_SUPPORTED',
     severity: 'error',
-    message: `${name} (R ${amount.toFixed(2)}) is an employer contribution, which IsaFlow does not process: it was left out of this line. `
+    message: `${name} (${formatMoney(amount)}) is an employer contribution, which IsaFlow does not process: it was left out of this line. `
       + 'An employer\'s contribution to a fund or medical scheme is a taxable fringe benefit and, for a retirement fund, a contribution '
       + 'deemed paid by the employee, so PAYE and the IRP5 are wrong while it is assigned. End the assignment, or file the benefit by hand.',
   };
@@ -83,8 +84,21 @@ export function employerFundBenefitWarning(name: string, code: string, amount: n
   return {
     code: 'EMPLOYER_FUND_BENEFIT_NOT_DEEMED',
     severity: 'warning',
-    message: `${name} (code ${normaliseSarsCode(code)}, R ${amount.toFixed(2)}) is the taxable benefit of an employer's retirement fund contribution. `
+    message: `${name} (code ${normaliseSarsCode(code)}, ${formatMoney(amount)}) is the taxable benefit of an employer's retirement fund contribution. `
       + 'It is taxed, but IsaFlow does not deduct it as a contribution deemed paid by the employee (s11F), nor report it under '
       + '4001/4003/4006 and 4472/4473/4475, so PAYE is over-deducted and the IRP5 lacks the contribution. Correct the certificate by hand.',
   };
+}
+
+/**
+ * Why `paid_outside_payroll` cannot go on this component, or null when it can: only a deduction coded 4001,
+ * 4003 or 4006 (the CHECK on payroll_components, migration 948, holds the same rule). Medical aid the employee
+ * pays privately (4005; BRS V25.3.0 p. 102 counts it in 4005 when the employer takes it into account) has the
+ * same shape and is out of scope (PAYE 4c).
+ */
+export function paidOutsidePayrollRefusal(componentType: string, code: string): string | null {
+  if (componentType === 'deduction' && isRetirementContributionCode(code)) return null;
+  return 'Only a retirement fund contribution (a deduction coded 4001 pension, 4003 provident or 4006 retirement annuity) '
+    + 'can be paid outside payroll: it then counts for PAYE and the IRP5 but is not deducted from pay. '
+    + 'Privately paid medical aid is not supported yet.';
 }

@@ -74,6 +74,32 @@ describe('PAYE 4c: a retirement fund contribution in the line', () => {
   });
 });
 
+describe('PAYE 4c: a contribution paid outside payroll (paid_outside_payroll, migration 948)', () => {
+  // A retirement annuity the employee pays the fund directly (a Sage "Private RA"): counted for the s11F
+  // deduction and the certificate, never deducted from pay. Employee A: Sage nett 60 000 − 12 440.51 − 177.12.
+  it('employee A with a private RA: PAYE 12 440.49, net pay not reduced by it (60 000 − 12 440.49 − 177.12)', () => {
+    const l = line([
+      { component: comp('3601'), amount: 60_000 },
+      { component: deduction('4006', { paidOutsidePayroll: true }), amount: 2_708.59 },
+    ], 4, false);
+    expect(l.paye.monthlyPaye).toBe(12_440.49);
+    expect([l.retirementContributions, l.retirementDeduction]).toEqual([2_708.59, 2_708.59]);
+    expect(l.netPay).toBe(47_382.39);
+    // The breakdown says so, so gross − its deductions − PAYE − UIF still explains the net pay.
+    expect(l.componentBreakdown.find(i => i.sarsSourceCode === '4006')?.paidOutsidePayroll).toBe(true);
+  });
+
+  it('beside one paid through payroll: only the payroll one comes off net pay; both count towards the cap', () => {
+    const l = line([
+      { component: comp('3601'), amount: 20_000 },
+      { component: deduction('4006', { paidOutsidePayroll: true }), amount: 4_000 },
+      { component: deduction('4001'), amount: 4_000 },
+    ]);
+    expect([l.paye.monthlyPaye, l.retirementDeduction]).toEqual([1_125, 5_500]);
+    expect(l.netPay).toBe(20_000 - 4_000 - 1_125);
+  });
+});
+
 describe('PAYE 4c: employer fund contributions (4b) are not handled silently', () => {
   it('an employer-contribution component is left out of pay and PAYE, with an error-level warning', () => {
     const withIt = line([

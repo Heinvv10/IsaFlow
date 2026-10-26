@@ -39,6 +39,8 @@ export const listPayrollComponentsTool: McpTool = {
         is_taxable: c.isTaxable,
         is_uif_applicable: c.isUifApplicable,
         is_sdl_applicable: c.isSdlApplicable,
+        // A retirement contribution the employee pays the fund directly: off PAYE, not off pay (PAYE 4c).
+        paid_outside_payroll: c.paidOutsidePayroll === true,
       })),
     });
   },
