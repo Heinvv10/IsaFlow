@@ -24,12 +24,15 @@ const VAT201: Screen = { path: '/accounting/sars/vat201', heading: 'VAT201 Retur
  * Requesting each route once before any page is open makes the compile happen with no page to reload.
  */
 test.beforeAll(async () => {
+  test.setTimeout(240_000); // three cold compiles: longer than the config's 90 s test timeout
   const { baseURL, storageState } = test.info().project.use;
+  if (!storageState) throw new Error('u-list-filter-dates warm-up needs the golden session (use.storageState); refusing to warm up unauthenticated');
   const ctx = await pwRequest.newContext({ baseURL, storageState });
   try {
     for (const s of [BANK, AGING, VAT201]) {
-      const res = await ctx.get(s.path, { timeout: 120_000 });
-      expect(res.status(), `warm-up ${s.path}`).toBe(200);
+      // GET only (read-only: this spec also runs in prod verify). No redirects: a stale session would 302 to /login and must fail here.
+      const res = await ctx.get(s.path, { timeout: 120_000, maxRedirects: 0 });
+      expect(res.status(), `warm-up ${s.path} (a 3xx means the session is not valid)`).toBe(200);
     }
   } finally {
     await ctx.dispose();
