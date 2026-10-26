@@ -77,7 +77,10 @@ export async function resolveBudgetWindow(
     const window = fiscalPeriod
       ? { startDate: `${fiscalPeriod.startDate.slice(0, 7)}-01`, endDate: monthEnd(fiscalPeriod.endDate) }
       : currentMonthWindow(now);
-    return { ...window, fiscalYear: await fiscalYearForDate(companyId, window.startDate), notStarted: false };
+    // The year label comes from the period's OWN start: widening a 15 Mar period
+    // back to 1 Mar must not label it with the previous financial year.
+    const labelDate = fiscalPeriod ? fiscalPeriod.startDate : window.startDate;
+    return { ...window, fiscalYear: await fiscalYearForDate(companyId, labelDate), notStarted: false };
   }
   const fiscalYear = await fiscalYearForDate(companyId, today);
   return {

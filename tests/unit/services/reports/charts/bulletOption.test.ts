@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildBudgetVsActualLines } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import { formatStatementFigure } from '@/lib/format/money';
 import { buildBudgetBulletOption } from '@/components/accounting/charts/bulletOption';
 import { DEFAULT_PALETTE } from '@/components/accounting/charts/chartTypes';
 
@@ -118,6 +119,19 @@ describe('buildBudgetBulletOption', () => {
     );
     const o = buildBudgetBulletOption(zero, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
     expect((o['yAxis'] as { data: string[] }).data).toEqual(['Rent']);
+    expect(labelColours(o)).toEqual([DEFAULT_PALETTE.unfav]);
+  });
+
+  it('prints the movement (actual − budget) in the tooltip and label, never the favourably signed variance', () => {
+    const over = buildBudgetVsActualLines(
+      [{ id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 1200 }],
+      { b: 1000 },
+    );
+    const o = buildBudgetBulletOption(over, DEFAULT_PALETTE) as unknown as TooltipOption & Record<string, unknown>;
+    // An expense R200 over budget: +200 printed (as the screen and CSV do), coloured unfavourable.
+    expect(o.tooltip.formatter([{ dataIndex: 0 }])).toContain(`Variance ${formatStatementFigure(200, { symbol: true })}`);
+    const label = (named(o, 'Actual') as unknown as { label: { formatter: (p: { dataIndex: number }) => string } }).label;
+    expect(label.formatter({ dataIndex: 0 })).toBe(formatStatementFigure(200));
     expect(labelColours(o)).toEqual([DEFAULT_PALETTE.unfav]);
   });
 

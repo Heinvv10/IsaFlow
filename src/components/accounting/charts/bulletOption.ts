@@ -51,7 +51,9 @@ export function buildBudgetBulletOption(
           escapeHtml(l.account_name),
           `Actual ${formatStatementFigure(l.actual_amount, { symbol: true })}`,
           `Budget ${formatStatementFigure(l.budget_amount, { symbol: true })}`,
-          `Variance ${formatStatementFigure(l.variance, { symbol: true })}`,
+          // The printed sign is the movement (actual − budget), as on the
+          // Budget vs Actual screen and CSV; good/bad news is the colour.
+          `Variance ${formatStatementFigure(l.movement, { symbol: true })}`,
         ].join('<br/>');
       },
     },
@@ -89,7 +91,7 @@ export function buildBudgetBulletOption(
           fontSize: 10,
           formatter: (p: { dataIndex: number }) => {
             const l = rows[p.dataIndex];
-            return l ? formatStatementFigure(l.variance) : '';
+            return l ? formatStatementFigure(l.movement) : '';
           },
           color: (p: { dataIndex: number }) => {
             const l = rows[p.dataIndex];
