@@ -90,7 +90,7 @@
  * the year's liability is tax(remuneration − D), the s11F year. Should D
  * exceed AE (an annual payment over 2.6 × the annual pay), the excess comes off
  * the annual payments in full, never below nil and never past the contributions
- * to date (C − AE-part × n ÷ 12). Donations (4030, s18A) are added back to the
+ * to date or the cap × n ÷ 12 (each less the AE part × n ÷ 12). Donations (4030, s18A) are added back to the
  * base (G21 2027 p. 10). The line records the deduction inside
  * the liability to date ((D − excess) × n ÷ 12 + excess) less what the earlier
  * lines recorded (ytd.retirementDeduction), as the credits are recorded.
@@ -108,6 +108,7 @@
 
 import { annualTaxAfterCredits, calculatePAYE } from './payeEngine';
 import { allowedRetirementDeduction } from './retirementFund';
+import { getTaxYearConfig } from './taxTables';
 import type { PayeResult, PayeYearToDate } from './payrollTypes';
 
 export interface CumulativePayeInput {
@@ -172,10 +173,14 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const deduction = allowedRetirementDeduction(
     annualise(contributions), annualEquivalent + annualise(donations) + annualBefore + annualNow, input.taxYear);
   // The part off the annual equivalent is weighted n ÷ 12; the rest comes off the annual payments in full, but
-  // never past what was contributed to date (review #891: an unlimited excess deducted more than was paid).
+  // never past what was contributed to date (review #891: an unlimited excess deducted more than was paid), nor
+  // past the cap × n ÷ 12, "at any time during the year" (G21 (2027) p. 10; review #891 round 2). A period paid
+  // only an annual payment counts as one.
   const offPeriodic = Math.min(deduction, annualEquivalent);
-  const offAnnual = Math.min(deduction - offPeriodic, annualBefore + annualNow,
-    Math.max(0, contributions - (offPeriodic * periods) / PERIODS_IN_YEAR));
+  const periodicToDate = (offPeriodic * periods) / PERIODS_IN_YEAR;
+  const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(periods, 1)) / PERIODS_IN_YEAR;
+  const offAnnual = Math.max(0, Math.min(deduction - offPeriodic, annualBefore + annualNow,
+    contributions - periodicToDate, capToDate - periodicToDate));
   const taxedAE = annualEquivalent - offPeriodic;
   const annualAll = annualBefore + annualNow - offAnnual;
   const annualEarlier = Math.max(0, annualBefore - offAnnual);
@@ -206,6 +211,6 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     annualEquivalent: round2(annualEquivalent),
     medicalCredit: round2(toDate(c => c.medicalCreditUsed) - ytd.medicalCredit),
     additionalMedicalCredit: round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit),
-    retirementDeduction: round2((offPeriodic * periods) / PERIODS_IN_YEAR + offAnnual - (ytd.retirementDeduction ?? 0)),
+    retirementDeduction: round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0)),
   };
 }

@@ -126,6 +126,20 @@ describe('PAYE 4c: the deduction month by month', () => {
   });
 });
 
+describe('PAYE 4c: the year to date resets on 1 March, and each year takes its own cap', () => {
+  it('February 2026 (2026: R350 000) then March 2026 (2027: R430 000): R200 000 with R50 000 RA', async () => {
+    const f = await employee('P4c year crossing', 200_000, 0);
+    await annuity(f, 50_000, '2026-02-01');
+    const february = await pay(f, 2026, 2);
+    const march = await pay(f, 2026, 3);
+    // 2026: 2 400 000 − 350 000 = 2 050 000: 644 489 + 45% × 233 000 = 749 339 − 17 235 = 732 104 ÷ 12.
+    expect([february.deduction, february.paye]).toEqual([29_166.67, 61_008.67]);
+    // 2027, February not in its year to date: 2 400 000 − 430 000 = 1 970 000: 707 469 − 17 820 = 689 649 ÷ 12.
+    // With February carried over it would be 53 932.83 (n = 2, deduction 71 666.67 to date).
+    expect([march.deduction, march.paye]).toEqual([35_833.33, 57_470.75]);
+  });
+});
+
 describe('PAYE 4c: the certificate reads the line, not today\'s components', () => {
   it('a provident fund (4003) reaches 4003 through the SQL, and stays there after its component is deleted', async () => {
     const f = await employee('P4c provident', 30_000, 0);
