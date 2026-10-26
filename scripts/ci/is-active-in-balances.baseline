@@ -9,9 +9,7 @@
 #
 # Delete a line when the file is clean. Delete the FILE when the sweep is done —
 # the guard then fails on the first offence anywhere.
-pages/api/accounting/budget-vs-actual-export.ts
 pages/api/accounting/dashboard-stats.ts
-pages/api/accounting/reports-budget-vs-actual.ts
 pages/api/accounting/reports/cash-movement.ts
 src/modules/accounting/services/afs/noteGenerators/noteHelpers.ts
 src/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers.ts

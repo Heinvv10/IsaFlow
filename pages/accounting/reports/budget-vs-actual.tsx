@@ -1,35 +1,26 @@
 /**
  * Budget vs Actual Report
  * Sage equivalent: Reports > Budget vs Actual
- * Compare budgeted amounts per GL account against actual GL balances
+ * Compare budgeted amounts per GL account against actual GL balances, in
+ * Revenue / Expenses / Net profit sections (BudgetVsActualTable). Opens on Year
+ * to date, like the API; every window covers whole months on both sides.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
-import { BarChart3, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
-import { formatCurrency } from '@/utils/formatters';
+import { BarChart3, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { longDate, monthLabel, parseReportPeriod } from '@/components/accounting/budgets/budgetClient';
-
-interface BudgetLine {
-  account_code: string;
-  account_name: string;
-  account_type: string;
-  budget_amount: number;
-  actual_amount: number;
-  variance: number;
-  variance_pct: number;
-}
+import { BudgetVsActualTable, type BvaLine, type BvaSections } from '@/components/accounting/budgets/BudgetVsActualTable';
 
 interface ReportYear { fiscalYear: number; startDate: string; endDate: string; kind: string }
 
 interface BudgetReport {
   period: string;
-  lines: BudgetLine[];
-  total_budget: number;
-  total_actual: number;
-  total_variance: number;
+  lines: BvaLine[];
+  sections: BvaSections;
+  /** Latest posted entry inside the window, or null when nothing is posted. */
+  posted_through: string | null;
   /** Year to date of a chosen year that has not begun: nothing to show; `starts_on` is its first day. */
   not_started?: boolean;
   starts_on?: string;
@@ -44,14 +35,13 @@ function reportQuery(period: string, year: number | null): string {
 
 export default function BudgetVsActualPage() {
   const [report, setReport] = useState<BudgetReport | null>(null);
-  const [fiscalPeriod, setFiscalPeriod] = useState('current');
+  const [fiscalPeriod, setFiscalPeriod] = useState('ytd');
   // The financial year picked for year to date / full year; null = the year holding today.
   const [chosenYear, setChosenYear] = useState<number | null>(null);
   const [years, setYears] = useState<ReportYear[]>([]);
   const [shownYear, setShownYear] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
 
   const selectedYear = chosenYear ?? shownYear;
   const yearOptions: Array<{ fiscalYear: number; startDate: string; endDate: string }> = years.length > 0
@@ -59,7 +49,7 @@ export default function BudgetVsActualPage() {
   // The range the report itself covers, so a drill-down foots to its line.
   const range = parseReportPeriod(report?.period);
 
-  // The current month has no year to choose; the other periods take the chosen one.
+  // This period has no year to choose; the other periods take the chosen one.
   const yearParam = fiscalPeriod !== 'current' && chosenYear !== null ? chosenYear : null;
   const loadReport = useCallback(async () => {
     setIsLoading(true);
@@ -101,7 +91,14 @@ export default function BudgetVsActualPage() {
                   </p>
                   {range && (
                     <p data-testid="report-period" className="text-xs text-[var(--ff-text-secondary)] mt-1">
-                      {longDate(range.start)} to {longDate(range.end)}
+                      {fiscalPeriod === 'current' ? 'This period: ' : ''}{longDate(range.start)} to {longDate(range.end)}
+                    </p>
+                  )}
+                  {range && report && (
+                    <p data-testid="posted-through" className="text-xs text-[var(--ff-text-secondary)]">
+                      {report.posted_through
+                        ? `Actuals posted through ${longDate(report.posted_through)}`
+                        : 'No actuals posted in this range yet'}
                     </p>
                   )}
                 </div>
@@ -123,9 +120,9 @@ export default function BudgetVsActualPage() {
               onChange={(e) => setFiscalPeriod(e.target.value)}
               className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
             >
-              <option value="current">Current Period</option>
-              <option value="ytd">Year to Date</option>
-              <option value="full_year">Full Year</option>
+              <option value="current">This period</option>
+              <option value="ytd">Year to date</option>
+              <option value="full_year">Full year</option>
             </select>
             {fiscalPeriod !== 'current' && (selectedYear !== null) && (
               <select
@@ -161,7 +158,7 @@ export default function BudgetVsActualPage() {
                     This financial year starts on {longDate(report.starts_on)}
                   </p>
                   <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
-                    There is nothing to show for year to date yet; choose Full Year to see its budget.
+                    There is nothing to show for year to date yet; choose Full year to see its budget.
                   </p>
                 </>
               ) : (
@@ -174,80 +171,7 @@ export default function BudgetVsActualPage() {
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--ff-border-light)]">
-                    <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Account</th>
-                    <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
-                    <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Budget</th>
-                    <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Actual</th>
-                    <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Variance</th>
-                    <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">%</th>
-                    <th className="py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase w-32">Bar</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.lines.map((line) => {
-                    const pct = line.budget_amount > 0 ? (line.actual_amount / line.budget_amount) * 100 : 0;
-                    return (
-                      <React.Fragment key={line.account_code}>
-                        <tr
-                          onClick={() => setExpandedAccount(expandedAccount === line.account_code ? null : line.account_code)}
-                          className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04] cursor-pointer"
-                        >
-                          <td className="py-3 px-4 font-mono text-[var(--ff-text-tertiary)]">
-                            <span className="flex items-center gap-1">
-                              {expandedAccount === line.account_code
-                                ? <ChevronDown className="h-3 w-3" />
-                                : <ChevronRight className="h-3 w-3" />}
-                              {line.account_code}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-[var(--ff-text-primary)]">{line.account_name}</td>
-                          <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{formatCurrency(line.budget_amount)}</td>
-                          <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(line.actual_amount)}</td>
-                          <td className={`py-3 px-4 text-right font-medium ${line.variance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                            {formatCurrency(line.variance)}
-                          </td>
-                          <td className={`py-3 px-4 text-right text-xs ${line.variance_pct >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                            {line.variance_pct.toFixed(1)}%
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="w-full h-2 bg-[var(--ff-bg-tertiary)] rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-amber-500' : 'bg-teal-500'}`}
-                                style={{ width: `${Math.min(pct, 100)}%` }}
-                              />
-                            </div>
-                          </td>
-                        </tr>
-                        {expandedAccount === line.account_code && range && (
-                          <AccountDrillDown
-                            accountCode={line.account_code}
-                            periodStart={range.start}
-                            periodEnd={range.end}
-                            asTableRow
-                            colSpan={7}
-                          />
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-[var(--ff-border-light)] font-bold">
-                    <td colSpan={2} className="py-3 px-4 text-[var(--ff-text-primary)]">Total</td>
-                    <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(report.total_budget)}</td>
-                    <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(report.total_actual)}</td>
-                    <td className={`py-3 px-4 text-right ${report.total_variance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                      {formatCurrency(report.total_variance)}
-                    </td>
-                    <td colSpan={2}></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+            <BudgetVsActualTable lines={report.lines} sections={report.sections} range={range} />
           )}
         </div>
       </div>

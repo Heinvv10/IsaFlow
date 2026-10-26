@@ -70,20 +70,28 @@ export interface BudgetWindow {
   endDate: string;
 }
 
+/** The last day of the month holding `isoDate` ('YYYY-MM-DD'), read off the string, never a Date. */
+export function monthEnd(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(isoDate);
+  if (!match) throw new Error(`monthEnd: invalid date ${isoDate}`);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  if (days === undefined) throw new Error(`monthEnd: invalid date ${isoDate}`);
+  return `${match[1]}-${match[2]}-${String(days)}`;
+}
+
 /**
- * The current month to date, on the LOCAL calendar.
+ * The WHOLE current month on the LOCAL calendar: budgets are whole months, so
+ * the actuals set against them cover the whole month too (budgets P0, D8).
  *
  * `new Date(y, m, 1).toISOString()` renders local midnight as UTC, which in
  * SAST (UTC+2) is 22:00 on the last day of the previous month — so the window
  * opened a day early and swept in a day of the previous month's actuals. The
- * same slice applied to `now` moved the end date back a day on any run between
- * local midnight and 02:00. Both are read off the local calendar instead.
+ * month is read off the local calendar instead.
  */
 export function currentMonthWindow(now: Date = new Date()): BudgetWindow {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  return {
-    startDate: `${year}-${month}-01`,
-    endDate: localISODate(now),
-  };
+  const today = localISODate(now);
+  return { startDate: `${today.slice(0, 7)}-01`, endDate: monthEnd(today) };
 }

@@ -57,6 +57,15 @@ afterAll(async () => {
 }, 60000);
 
 type Report = { period: string; lines: Array<{ account_code: string; budget_amount: number }> };
+type Section = { budget: number; actual: number };
+type Sections = { revenue: Section; expense: Section; net_profit: Section };
+/** The P0 CSV of a not-started year: the header plus three zero total rows. */
+const ZERO_CSV = [
+  'Section,Account Code,Account Name,Budget,Actual,Variance,Variance %,Favourable',
+  '"Revenue","","Total revenue",0.00,0.00,0.00,,',
+  '"Expenses","","Total expenses",0.00,0.00,0.00,,',
+  '"Net profit","","Net profit",0.00,0.00,0.00,,',
+].join('\n');
 const data = (r: RouteOut) => r.body.data as unknown as { report: Report; fiscal_year: number; years: Array<{ fiscalYear: number }> };
 
 describe('reports-budget-vs-actual?fiscal_year=', () => {
@@ -102,12 +111,12 @@ describe('reports-budget-vs-actual?fiscal_year=', () => {
 
 describe('year to date of a year that has not started', () => {
   // Label 2060 is the registry's template year Mar 2059 - Feb 2060: it never starts within a test's lifetime.
-  it('is empty: no lines, zero totals, and the report says when the year starts', async () => {
+  it('is empty: no lines, zero sections, and the report says when the year starts', async () => {
     const r = await rep.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2060' });
     expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
-    const d = r.body.data as unknown as { report: Report & { total_budget: number; total_actual: number; not_started?: boolean; starts_on?: string } };
+    const d = r.body.data as unknown as { report: Report & { sections: Sections; not_started?: boolean; starts_on?: string } };
     expect(d.report.lines).toEqual([]);
-    expect([d.report.total_budget, d.report.total_actual]).toEqual([0, 0]);
+    expect([d.report.sections.net_profit.budget, d.report.sections.net_profit.actual]).toEqual([0, 0]);
     expect(d.report.not_started).toBe(true);
     expect(d.report.starts_on).toBe('2059-03-01');
   });
@@ -122,12 +131,12 @@ describe('year to date of a year that has not started', () => {
        SELECT $1, (SELECT id FROM gl_accounts WHERE company_id = $1 AND account_code = 'BR-5000'), m::date, 5
          FROM unnest($2::text[]) m`, [companyId, monthsFrom('2099-03', 13)]);
     const r = await rep.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2100' });
-    const d = r.body.data as unknown as { report: Report & { total_budget: number; not_started?: boolean } };
+    const d = r.body.data as unknown as { report: Report & { sections: Sections; not_started?: boolean } };
     expect(d.report.not_started).toBe(true);
     expect(d.report.lines).toEqual([]);
-    expect(d.report.total_budget).toBe(0);
+    expect(d.report.sections.expense.budget).toBe(0);
     const c = await csv.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2100' });
-    expect(String(c.body).split('\n').every((l, i) => i === 0 || l.endsWith(',0.00,0.00,0.00,0.00'))).toBe(true);
+    expect(String(c.body)).toBe(ZERO_CSV);
     // The same year's full year does count its budget.
     const full = await rep.call(u, 'GET', undefined, { period: 'full_year', fiscal_year: '2100' });
     expect((full.body.data as unknown as { report: Report }).report.lines.find((l) => l.account_code === 'BR-5000')!.budget_amount).toBe(65);
@@ -139,13 +148,9 @@ describe('year to date of a year that has not started', () => {
     expect((r.body.data as unknown as { report: { not_started?: boolean } }).report.not_started).toBeUndefined();
   });
 
-  it('the CSV of it is all zeros, the budget of the other years not among them', async () => {
+  it('the CSV of it is the header and three zero totals, the budget of the other years not among them', async () => {
     const r = await csv.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2060' });
-    const [header, ...rows] = String(r.body).split('\n');
-    expect(header).toBe('Account Code,Account Name,Budget,Actual,Variance,Variance %');
-    expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((l) => l.endsWith(',0.00,0.00,0.00,0.00'))).toBe(true);
-    expect(rows.at(-1)).toBe('"","TOTALS",0.00,0.00,0.00,0.00');
+    expect(String(r.body)).toBe(ZERO_CSV);
   });
 });
 
@@ -153,9 +158,9 @@ describe('budget-vs-actual-export?fiscal_year=', () => {
   it('the CSV carries the chosen year\'s budget', async () => {
     const r = await csv.call(u, 'GET', undefined, { period: 'full_year', fiscal_year: '2026' });
     expect(r.status).toBe(200);
-    expect(String(r.body)).toContain('"BR-5000","Rent",140.00,');
+    expect(String(r.body)).toContain('"Expenses","BR-5000","Rent",140.00,');
     const next = await csv.call(u, 'GET', undefined, { period: 'full_year', fiscal_year: '2028' });
-    expect(String(next.body)).toContain('"BR-5000","Rent",12.00,');
+    expect(String(next.body)).toContain('"Expenses","BR-5000","Rent",12.00,');
   });
 
   it('an unknown label is a 404 and a bad one a 400', async () => {
