@@ -12,11 +12,12 @@
  * never waited on — no edge in any wait-for cycle) when the void would lower the credit, so a refund in flight has
  * committed or is refused as retryable. A void that lowers nothing takes no key.
  *
- * The two writers that cancel a posted payment call this: `voidSupplierPayment` (payments screen) and
- * `bank/bankAllocationUnwind.unwindOnePayment` (bank reverse, chain reversal, MCP void_payment, run undo). A run
- * undo that reverses a payment and its refund together passes because it retries a refused row once the run's
- * other rows are done (`autoPostUndoRetry`). The batch reversal (its members) and the bank-first settlement void
- * (`provisionalSettlementVoid`, whose payment is wholly unapplied by then) call it too.
+ * Every writer that cancels a posted payment calls this, with the payment row held: `voidSupplierPayment` (payments
+ * screen), `bank/bankAllocationUnwind.unwindOnePayment` (bank reverse, chain reversal, MCP void_payment, run undo),
+ * the batch reversal (its members) and the bank-first settlement void (`provisionalSettlementVoid`, whose payment is
+ * wholly unapplied by then). A call that reverses a payment and its refund together passes in either order because
+ * it retries a refused line once its other lines are done: the run undo (`bank/autoPostUndoAttempt`) and the MCP
+ * bulk reversals (`bank/reverseLinesCreditLast`).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
