@@ -120,9 +120,11 @@ function auditInPage(): ContrastReport {
     if ((el as HTMLButtonElement).disabled || el.closest(':disabled')) return;
     // WCAG exempts inactive components: the label of a disabled checkbox / input (a comparator with no data behind it).
     const lblEl = el.closest("label");
-    // `for=` names the control (a missing id means there is none); only a label without `for` wraps its control.
-    const controlOf = lblEl ? (lblEl.hasAttribute('for') ? lblEl.control : lblEl.querySelector('input,select,textarea')) : null;
-    // A live link or button inside the label is its own target, not the disabled control's caption.
+    // `label.control` is the HTML-spec answer for both forms: the element `for=` names (null when the id does not
+    // exist), or the first labelable descendant of a label without `for`.
+    const controlOf = lblEl ? lblEl.control : null;
+    // A live link or button inside the label is its own target, not the disabled control's caption. Deliberately
+    // stricter than axe, which exempts everything inside a disabled control's label, links included.
     const liveInside = lblEl ? el.closest('a[href],button:not(:disabled)') : null;
     if (controlOf && (controlOf as HTMLInputElement).disabled && !(liveInside && lblEl!.contains(liveInside))) return;
     if (!visible(el)) return;
