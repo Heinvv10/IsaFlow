@@ -23,12 +23,13 @@
  *   additionalMedicalCredit (additional_medical_credit, the 65+ credit);
  * - medicalSchemeFees: the fees deducted on those lines (loadMedicalRecord:
  *   medical_scheme_fees, else the breakdown's deductions coded 4005);
- * - retirementContributions / retirementDeduction: the lines'
- *   retirement_contributions / retirement_deduction (migration 948, PAYE 4c;
- *   payeCumulative). A line before 948 is NULL and counts none: one taxed
- *   with a retirement-coded taxable deduction has it inside its
- *   periodic_taxable already, as it was taxed (no production line had one,
- *   census 2026-10-26).
+ * - retirementContributions / retirementDeduction / donations: by the one
+ *   rule for them (payrollRetirementRecord, migration 948, PAYE 4c): a line
+ *   before 948 from its breakdown, and its taxable-flagged contributions,
+ *   which the old calculator took off its periodic_taxable, are added back to
+ *   periodicTaxable (named limit: such a line whose deduction took all its
+ *   periodic pay still counts as no period). Production had no such line in
+ *   tax year 2027 (read-only census 2026-10-26: 0 of 167 lines).
  *
  * Every query is scoped by company_id.
  */
@@ -40,6 +41,7 @@ import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYea
 import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 import { loadMedicalRecord } from './payrollMedicalRecord';
+import { loadRetirementRecord } from './payrollRetirementRecord';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -56,7 +58,6 @@ export async function loadPayeYearToDate(
   const rows = (await sql`
     WITH split AS (
       SELECT l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
-             l.retirement_contributions, l.retirement_deduction,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
       FROM payroll_run_lines l
@@ -82,28 +83,33 @@ export async function loadPayeYearToDate(
            SUM(paye - directive_paye)::numeric AS table_paye,
            -- SUM skips a line written before migration 926 (NULL: recorded nothing).
            SUM(medical_credit)::numeric AS medical_credit,
-           SUM(additional_medical_credit)::numeric AS additional_medical_credit,
-           COALESCE(SUM(retirement_contributions), 0)::numeric AS retirement_contributions,
-           COALESCE(SUM(retirement_deduction), 0)::numeric AS retirement_deduction
+           SUM(additional_medical_credit)::numeric AS additional_medical_credit
     FROM split
     GROUP BY employee_id
   `) as DbRow[];
-  // The same lines' medical scheme fees, by the one rule for them (a line before 926 from its breakdown).
-  const fees = await loadMedicalRecord(companyId, {
+  // The same lines' medical scheme fees and retirement fund contributions, by the one rule for each (a line
+  // before 926 / 948 from its breakdown).
+  const before = {
     start: `${taxYear - 1}-03-01`,
     end: period.month === 1 ? `${period.year - 1}-12-01` : `${period.year}-${String(period.month - 1).padStart(2, '0')}-01`,
-  }, employeeIds);
-  return new Map(rows.map(r => [String(r.employee_id), {
-    periods: Number(r.periods),
-    periodicTaxable: round2(Number(r.periodic)),
-    annualPayments: round2(Number(r.annual)),
-    tablePaye: round2(Number(r.table_paye)),
-    medicalCredit: round2(Number(r.medical_credit)),
-    additionalMedicalCredit: round2(Number(r.additional_medical_credit)),
-    medicalSchemeFees: fees.get(String(r.employee_id))?.fees ?? 0,
-    retirementContributions: round2(Number(r.retirement_contributions)),
-    retirementDeduction: round2(Number(r.retirement_deduction)),
-  }]));
+  };
+  const fees = await loadMedicalRecord(companyId, before, employeeIds);
+  const retirement = await loadRetirementRecord(companyId, before, employeeIds);
+  return new Map(rows.map(r => {
+    const fund = retirement.get(String(r.employee_id));
+    return [String(r.employee_id), {
+      periods: Number(r.periods),
+      periodicTaxable: round2(Number(r.periodic) + (fund?.legacyTaxable ?? 0)),
+      annualPayments: round2(Number(r.annual)),
+      tablePaye: round2(Number(r.table_paye)),
+      medicalCredit: round2(Number(r.medical_credit)),
+      additionalMedicalCredit: round2(Number(r.additional_medical_credit)),
+      medicalSchemeFees: fees.get(String(r.employee_id))?.fees ?? 0,
+      retirementContributions: fund?.contributions ?? 0,
+      retirementDeduction: fund?.deduction ?? 0,
+      donations: fund?.donations ?? 0,
+    }];
+  }));
 }
 
 /**

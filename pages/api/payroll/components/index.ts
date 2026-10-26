@@ -50,6 +50,11 @@ async function handler(
       return apiResponse.badRequest(res, "componentType must be 'earning' or 'deduction'");
     }
 
+    // A boolean or absent: "true" or 1 read as false would take a private contribution out of net pay.
+    if (paidOutsidePayroll !== undefined && typeof paidOutsidePayroll !== 'boolean') {
+      return apiResponse.badRequest(res, 'paidOutsidePayroll must be true or false');
+    }
+
     const data: Parameters<typeof createComponent>[1] = {
       name: String(name),
       // Normalised as PAYE classifies it (normaliseSarsCode), so the stored code is the one every reader sees.

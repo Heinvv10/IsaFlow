@@ -45,8 +45,9 @@ describe('PAYE 4c: a retirement fund contribution in the line', () => {
     const l = line([{ component: comp('3601'), amount: 60_000 }, { component: deduction('4006'), amount: 2_708.59 }], 4, false);
     expect(l.paye.monthlyPaye).toBe(12_440.49);
     expect([l.retirementContributions, l.retirementDeduction]).toEqual([2_708.59, 2_708.59]);
-    // periodicTaxable is remuneration before the deduction (the next month's year to date); taxableIncome after it.
-    expect([l.periodicTaxable, l.taxableIncome]).toEqual([60_000, 57_291.41]);
+    // periodicTaxable and taxableIncome are remuneration BEFORE the deduction (review #891: after it, a large
+    // contribution stored a negative taxable_income); the deduction is its own figure.
+    expect([l.periodicTaxable, l.taxableIncome]).toEqual([60_000, 60_000]);
     expect(l.medicalCredit).toBe(1_260);
     // Paid through payroll: it comes off net pay. 60 000 − 2 708.59 − 12 440.49 − UIF 177.12.
     expect(l.netPay).toBe(44_673.8);
@@ -64,13 +65,28 @@ describe('PAYE 4c: a retirement fund contribution in the line', () => {
 
   it('capped, not through the uncapped taxable-deduction path: R20 000 with R8 000 deducts 5 500 and PAYE 1 125', () => {
     const l = line([{ component: comp('3601'), amount: 20_000 }, { component: deduction('4006'), amount: 8_000 }]);
-    expect([l.paye.monthlyPaye, l.retirementDeduction, l.taxableIncome]).toEqual([1_125, 5_500, 14_500]);
+    expect([l.paye.monthlyPaye, l.retirementDeduction, l.taxableIncome]).toEqual([1_125, 5_500, 20_000]);
     expect(l.netPay).toBe(20_000 - 8_000 - 1_125);
   });
 
   it('a non-retirement deduction keeps its taxable flag\'s meaning (unchanged by 4c)', () => {
     const l = line([{ component: comp('3601'), amount: 20_000 }, { component: deduction('4030'), amount: 8_000 }]);
     expect([l.paye.monthlyPaye, l.retirementDeduction]).toEqual([675, 0]);
+  });
+});
+
+describe('PAYE 4c: taxable_income is never negative (review #891)', () => {
+  it('February: R20 000 with a R60 000 catch-up contribution records a 60 000 deduction; taxable income stays 20 000', () => {
+    // Eleven months of R20 000 with no contribution, then R60 000 in February: 60 000 < 27.5% × 240 000 = 66 000,
+    // so the year deducts it all, in February's record. Taxable income after it would be −40 000.
+    const ytd = { periods: 11, periodicTaxable: 220_000, annualPayments: 0, tablePaye: 11 * 2_115, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
+    const l = calculatePayrollLine({
+      employee: employee(), components: [{ component: comp('3601'), amount: 20_000 }, { component: deduction('4006'), amount: 60_000 }],
+      period: { month: 2, year: 2027 }, taxYear: 2027, annualPayrollEstimate: 'defer', ytd,
+    });
+    expect([l.retirementDeduction, l.taxableIncome, l.periodicTaxable]).toEqual([60_000, 20_000, 20_000]);
+    // Year: tax(240 000 − 60 000 = 180 000) = 32 400 − 17 820 = 14 580 against 23 265 already deducted: nil, carried.
+    expect(l.paye.monthlyPaye).toBe(0);
   });
 });
 

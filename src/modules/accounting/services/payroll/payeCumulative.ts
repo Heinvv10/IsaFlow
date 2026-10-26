@@ -89,7 +89,9 @@
  * proviso that limits the cap to the period paid (G21 2027 p. 10). At n = 12
  * the year's liability is tax(remuneration − D), the s11F year. Should D
  * exceed AE (an annual payment over 2.6 × the annual pay), the excess comes off
- * the annual payments, never below nil. The line records the deduction inside
+ * the annual payments in full, never below nil and never past the contributions
+ * to date (C − AE-part × n ÷ 12). Donations (4030, s18A) are added back to the
+ * base (G21 2027 p. 10). The line records the deduction inside
  * the liability to date ((D − excess) × n ÷ 12 + excess) less what the earlier
  * lines recorded (ytd.retirementDeduction), as the credits are recorded.
  * periodicTaxable / annualPayments (in and in ytd) are remuneration BEFORE the
@@ -122,6 +124,8 @@ export interface CumulativePayeInput {
   medicalSchemeFees: number;
   /** This period's employee retirement fund contributions (deductions coded 4001/4003/4006); absent = none. */
   retirementContributions?: number;
+  /** This period's donations deducted as taxable deductions (4030, s18A), inside regularTaxable; absent = none. */
+  donations?: number;
 }
 
 export interface CumulativePayeResult {
@@ -161,11 +165,18 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
 
   // The retirement fund deduction, on annual figures before it (see the header).
   const contributions = Math.max(0, ytd.retirementContributions ?? 0) + Math.max(0, input.retirementContributions ?? 0);
+  const annualise = (toDate: number) => (periods > 0 ? (toDate * PERIODS_IN_YEAR) / periods : toDate);
+  // The 27.5% base is taxable income "before allowing any deduction under ss11F, 6quat(1C) and 18A" (G21 (2027)
+  // p. 10): donations (4030), deducted from regularTaxable, are added back to it.
+  const donations = Math.max(0, ytd.donations ?? 0) + Math.max(0, input.donations ?? 0);
   const deduction = allowedRetirementDeduction(
-    periods > 0 ? (contributions * PERIODS_IN_YEAR) / periods : contributions,
-    annualEquivalent + annualBefore + annualNow, input.taxYear);
-  const offAnnual = Math.max(0, deduction - annualEquivalent);
-  const taxedAE = annualEquivalent - (deduction - offAnnual);
+    annualise(contributions), annualEquivalent + annualise(donations) + annualBefore + annualNow, input.taxYear);
+  // The part off the annual equivalent is weighted n ÷ 12; the rest comes off the annual payments in full, but
+  // never past what was contributed to date (review #891: an unlimited excess deducted more than was paid).
+  const offPeriodic = Math.min(deduction, annualEquivalent);
+  const offAnnual = Math.min(deduction - offPeriodic, annualBefore + annualNow,
+    Math.max(0, contributions - (offPeriodic * periods) / PERIODS_IN_YEAR));
+  const taxedAE = annualEquivalent - offPeriodic;
   const annualAll = annualBefore + annualNow - offAnnual;
   const annualEarlier = Math.max(0, annualBefore - offAnnual);
 
@@ -195,6 +206,6 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     annualEquivalent: round2(annualEquivalent),
     medicalCredit: round2(toDate(c => c.medicalCreditUsed) - ytd.medicalCredit),
     additionalMedicalCredit: round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit),
-    retirementDeduction: round2(((deduction - offAnnual) * periods) / PERIODS_IN_YEAR + offAnnual - (ytd.retirementDeduction ?? 0)),
+    retirementDeduction: round2((offPeriodic * periods) / PERIODS_IN_YEAR + offAnnual - (ytd.retirementDeduction ?? 0)),
   };
 }

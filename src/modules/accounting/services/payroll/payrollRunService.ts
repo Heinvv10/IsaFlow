@@ -205,7 +205,8 @@ export async function calculatePayrollRun(
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
     const empValidation = validateEmployee(employee, otherTaxNumbers);
     const lineValidation = validatePayrollLine({
-      taxableIncome: line.taxableIncome,
+      // After the retirement fund deduction: a contribution can legitimately bring it under the threshold.
+      taxableIncome: line.taxableIncome - line.retirementDeduction,
       monthlyPaye: line.paye.monthlyPaye,
       grossPay: line.grossPay,
     });

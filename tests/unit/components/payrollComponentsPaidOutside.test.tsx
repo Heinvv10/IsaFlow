@@ -43,6 +43,21 @@ describe('pay components: paid outside payroll', () => {
     });
   });
 
+  it('a tick is cleared when the code moves away from 4001/4003/4006, so it does not come back ticked', async () => {
+    serve(on('GET', '/api/payroll/components', () => ok([])));
+    render(<ComponentsPage />);
+    await screen.findByPlaceholderText('e.g. Basic Salary');
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'deduction' } });
+    const code = screen.getByDisplayValue('3601');
+    fireEvent.change(code, { target: { value: '4006' } });
+    fireEvent.click(box()!);
+    expect((box() as HTMLInputElement).checked).toBe(true);
+    fireEvent.change(code, { target: { value: '4005' } });
+    expect(box()).toBeNull();
+    fireEvent.change(code, { target: { value: '4003' } });
+    expect((box() as HTMLInputElement).checked).toBe(false);
+  });
+
   it('labels a component paid outside payroll in the list', async () => {
     serve(on('GET', '/api/payroll/components', () => ok([PRIVATE_RA])));
     render(<ComponentsPage />);

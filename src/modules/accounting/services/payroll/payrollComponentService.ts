@@ -69,7 +69,10 @@ export async function createComponent(
   companyId: string,
   data: Omit<PayrollComponent, 'id' | 'componentType'> & { componentType: 'earning' | 'deduction' },
 ): Promise<PayrollComponent> {
-  const paidOutsidePayroll = data.paidOutsidePayroll === true;
+  // A boolean or absent: anything else ("true", 1) would read as false and the contribution come out of net pay.
+  const flag: unknown = data.paidOutsidePayroll;
+  if (flag !== undefined && typeof flag !== 'boolean') throw new PaidOutsidePayrollRefusedError('paidOutsidePayroll must be true or false.');
+  const paidOutsidePayroll = flag === true;
   const refused = paidOutsidePayroll ? paidOutsidePayrollRefusal(data.componentType, data.sarsSourceCode) : null;
   if (refused) throw new PaidOutsidePayrollRefusedError(refused);
   log.info('Creating payroll component', { companyId, name: data.name }, 'payrollComponentService');

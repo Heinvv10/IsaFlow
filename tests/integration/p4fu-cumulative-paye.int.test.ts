@@ -171,7 +171,7 @@ describe('G4: the year-to-date', () => {
     const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 4 }, [f.employee]);
     expect(ytd.get(f.employee)).toEqual({ periods: 1, periodicTaxable: 20_000, annualPayments: 10_000, tablePaye: 4_307, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
       // PAYE 4c (migration 948): a line before it recorded no retirement fund contribution or deduction.
-      retirementContributions: 0, retirementDeduction: 0 });
+      retirementContributions: 0, retirementDeduction: 0, donations: 0 });
     // April: a severance-only line on an approved run (no periodic pay: not a period worked);
     // May: a run only calculated (not declarable: not in it).
     const april = (await pool.query(
@@ -189,7 +189,7 @@ describe('G4: the year-to-date', () => {
     const june = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 6 }, [f.employee]);
     expect(june.get(f.employee)).toEqual({ periods: 1, periodicTaxable: 20_000, annualPayments: 10_000, tablePaye: 4_307, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
       // PAYE 4c (migration 948): a line before it recorded no retirement fund contribution or deduction.
-      retirementContributions: 0, retirementDeduction: 0 });
+      retirementContributions: 0, retirementDeduction: 0, donations: 0 });
     // Not before the period itself, and not other tax years.
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2027, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();

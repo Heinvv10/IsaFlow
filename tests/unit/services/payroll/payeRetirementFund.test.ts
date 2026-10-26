@@ -136,11 +136,13 @@ describe('PAYE 4c: the deduction in the cumulative PAYE', () => {
     expect([m.regular.monthlyPaye, m.annualPaymentPaye]).toEqual([960, 7_200]);
   });
 
-  it('a deduction larger than the annual equivalent comes off the annual payments, never below nil', () => {
-    // R5 000 + R20 000 RA + R300 000 bonus: base 360 000 × 27.5% = 99 000; AE 60 000, so 39 000 comes off
-    // the bonus: tax(261 000) = 44 118 + 26% × 15 900 = 48 252 − 17 820 = 30 432. Recorded 60 000 ÷ 12 + 39 000.
+  it('a deduction larger than the annual equivalent comes off the annual payments, never past the contributions to date', () => {
+    // R5 000 + R20 000 RA + R300 000 bonus: base 360 000 × 27.5% = 99 000; AE 60 000 (5 000 of it to date), so
+    // the rest comes off the bonus, but only up to the 20 000 contributed: 15 000. tax(300 000 − 15 000 = 285 000)
+    // = 44 118 + 26% × 39 900 = 54 492 − 17 820 = 36 672. Deducted to date 5 000 + 15 000 = 20 000 (review #891:
+    // the uncapped excess deducted 44 000 against 20 000 contributed, PAYE 30 432).
     const m = year([{ salary: 5_000, contribution: 20_000, bonus: 300_000 }])[0]!;
-    expect([m.regular.monthlyPaye, m.annualPaymentPaye, m.retirementDeduction]).toEqual([0, 30_432, 44_000]);
+    expect([m.regular.monthlyPaye, m.annualPaymentPaye, m.retirementDeduction]).toEqual([0, 36_672, 20_000]);
   });
 
   it('no contributions changes nothing (the 4a figures stand)', () => {

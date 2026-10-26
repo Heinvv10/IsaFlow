@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Tags, Loader2, Plus } from 'lucide-react';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { RETIREMENT_CONTRIBUTION_CODES } from '@/modules/accounting/services/payroll/retirementFundCodes';
 
 type ComponentType = 'earning' | 'deduction' | 'employer_contribution';
 
@@ -22,7 +23,7 @@ interface Component {
 }
 
 /** Only a retirement fund contribution can be paid outside payroll (PAYE 4c; the route and a CHECK refuse the rest). */
-const RETIREMENT_CODES = new Set(['4001', '4003', '4006']);
+const RETIREMENT_CODES = new Set<string>(RETIREMENT_CONTRIBUTION_CODES);
 
 const SARS_HINTS = [
   '3601 — Basic salary',
@@ -49,6 +50,8 @@ export default function PayComponentsPage() {
   const [isSdlApplicable, setIsSdlApplicable] = useState(true);
   const [paidOutsidePayroll, setPaidOutsidePayroll] = useState(false);
   const canBePaidOutside = type === 'deduction' && RETIREMENT_CODES.has(sarsCode.trim());
+  // A code or type that cannot carry it clears the tick, so it never comes back ticked unseen.
+  useEffect(() => { if (!canBePaidOutside) setPaidOutsidePayroll(false); }, [canBePaidOutside]);
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {

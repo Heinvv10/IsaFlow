@@ -96,7 +96,8 @@ describe('PAYE 4c: the deduction month by month', () => {
     const months = [];
     for (const month of [3, 4, 5]) months.push(await pay(f, 2026, month));
     expect(months.map(m => m.paye)).toEqual([12_440.49, 12_440.49, 12_440.49]);
-    expect(months[2]).toMatchObject({ periodic: 60_000, taxable: 57_291.41, contributions: 2_708.59, deduction: 2_708.59 });
+    // taxable_income is remuneration before the deduction (review #891: never negative); the deduction is its own column.
+    expect(months[2]).toMatchObject({ periodic: 60_000, taxable: 60_000, contributions: 2_708.59, deduction: 2_708.59 });
     // Paid through payroll: 60 000 − 2 708.59 − 12 440.49 − UIF 177.12.
     expect(months[2]!.net).toBe(44_673.8);
     const lines = await certificateLines(f);
@@ -122,6 +123,22 @@ describe('PAYE 4c: the deduction month by month', () => {
     for (const month of [3, 4, 5, 6]) months.push(await pay(f, 2026, month));
     expect(months.map(m => m.paye)).toEqual([1_125, 1_125, 1_125, 3_735]);
     expect(months.map(m => m.deduction)).toEqual([5_500, 5_500, 5_500, 11_000]);
+  });
+});
+
+describe('PAYE 4c: the certificate reads the line, not today\'s components', () => {
+  it('a provident fund (4003) reaches 4003 through the SQL, and stays there after its component is deleted', async () => {
+    const f = await employee('P4c provident', 30_000, 0);
+    const componentId = await component(f, 'Provident fund', '4003', 'deduction');
+    const r = await f.call(components as Route, 'POST', `/api/payroll/employees/${f.employee}/components`, f.employee,
+      { body: { componentId, amount: 1_500, effectiveFrom: '2026-03-01' } });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+    for (const month of [3, 4]) await pay(f, 2026, month);
+    expect((await certificateLines(f)).filter(l => /^400[136],/.test(l))).toEqual(['4003,3000']);
+    // Gone from payroll_components (an assignment holds it, so remove that first): the lines still say what was paid.
+    await pool.query('DELETE FROM payroll_employee_components WHERE component_id = $1', [componentId]);
+    await pool.query('DELETE FROM payroll_components WHERE id = $1', [componentId]);
+    expect((await certificateLines(f)).filter(l => /^400[136],/.test(l))).toEqual(['4003,3000']);
   });
 });
 

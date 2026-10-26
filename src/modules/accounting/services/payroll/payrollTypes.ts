@@ -163,6 +163,8 @@ export interface ComponentBreakdownItem {
   isTaxable: boolean;
   isUifApplicable: boolean;
   directive?: DirectiveFigures;
+  /** Set on an employee retirement fund contribution (4001/4003/4006 deduction; PAYE 4c, migration 948). */
+  retirementContribution?: true;
   /** Set on a contribution paid outside payroll: not deducted from this line's net pay. */
   paidOutsidePayroll?: true;
 }
@@ -187,6 +189,8 @@ export interface PayeYearToDate {
   retirementContributions?: number;
   /** Retirement fund deduction those lines recorded (retirement_deduction; payeCumulative); absent = none. */
   retirementDeduction?: number;
+  /** Donations (4030) deducted on those lines as taxable deductions, for the s11F base; absent = none. */
+  donations?: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */
@@ -202,7 +206,7 @@ export interface PayeSplit {
 export interface PayrollLineResult {
   employeeId: string;
   grossPay: number;
-  /** Regular plus annual-payment remuneration less the retirement fund deduction: what the tax tables were applied to. Lump sums are not in it. */
+  /** Regular plus annual-payment remuneration, before the retirement fund deduction (`retirementDeduction`). Lump sums are not in it. */
   taxableIncome: number;
   /** Periodic and annual-payment remuneration BEFORE the retirement fund deduction (stored on the line for the next period's year-to-date). */
   periodicTaxable: number;

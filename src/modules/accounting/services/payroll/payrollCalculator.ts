@@ -45,14 +45,16 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // Employee retirement fund contributions: deductions coded 4001/4003/4006,
   // deducted before PAYE within section 11F (payeCumulative, retirementFund).
   let retirementContributions = 0;
+  // Donations (4030, s18A) deducted as taxable deductions: the s11F base is taken before them (payeCumulative).
+  let donations = 0;
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
 
   for (const { component, amount, directive } of components) {
     // Only a retirement contribution can be paid outside payroll (CHECK on payroll_components, migration 948).
-    const outsidePayroll = component.componentType === 'deduction' && component.paidOutsidePayroll === true
-      && isRetirementContributionCode(component.sarsSourceCode);
+    const contribution = component.componentType === 'deduction' && isRetirementContributionCode(component.sarsSourceCode);
+    const outsidePayroll = contribution && component.paidOutsidePayroll === true;
     breakdown.push({
       componentId: component.id,
       componentName: component.name,
@@ -61,6 +63,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       isTaxable: component.isTaxable,
       isUifApplicable: component.isUifApplicable,
       ...(directive ? { directive } : {}),
+      // Marked on the line itself, so the certificate never re-reads today's components (payrollRetirementRecord).
+      ...(contribution ? { retirementContribution: true as const } : {}),
       ...(outsidePayroll ? { paidOutsidePayroll: true as const } : {}),
     });
 
@@ -92,8 +96,11 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       // Paid by the employee to the fund directly: off the tax, not off the pay (nor the 2175 journal line).
       if (!outsidePayroll) totalDeductions += amount;
       // A retirement contribution by its code, whatever its taxable flag: capped below, never the uncapped path.
-      if (isRetirementContributionCode(component.sarsSourceCode)) retirementContributions += amount;
-      else if (component.isTaxable) taxableDeductions += amount;
+      if (contribution) retirementContributions += amount;
+      else if (component.isTaxable) {
+        taxableDeductions += amount;
+        if (normaliseSarsCode(component.sarsSourceCode) === '4030') donations += amount;
+      }
       if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
     } else {
       // An employer's contribution (PAYE 4b): neither the fringe benefit nor the deemed contribution is computed.
@@ -135,9 +142,11 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     monthlyMedicalBeneficiaries: medicalBeneficiaries,
     medicalSchemeFees,
     retirementContributions,
+    donations,
   });
-  // What the tables were applied to this period: remuneration less this line's retirement fund deduction.
-  const taxableIncome = regularTaxable + annualTaxable - retirementDeduction;
+  // Taxable remuneration BEFORE the retirement fund deduction, which is its own figure (retirementDeduction): a
+  // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
+  const taxableIncome = regularTaxable + annualTaxable;
   const payeSplit = { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
 

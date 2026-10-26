@@ -7,11 +7,12 @@
 -- liability to date less what the employee's earlier lines of the tax year
 -- recorded (payeCumulative.ts; the lesser of the cap and 27.5% of
 -- remuneration, SARS PAYE-GEN-01-G21 (2027) p. 10). periodic_taxable /
--- annual_taxable (913) now hold remuneration BEFORE this deduction;
--- taxable_income after it. Writer: calculatePayrollRun (payrollRunService ->
--- payrollRunLineWriter). Reader: loadPayeYearToDate (payrollYearToDate.ts),
--- which sums both for the next line's cumulative cap. A line written before
--- this migration is NULL (read as none).
+-- annual_taxable (913) and taxable_income hold remuneration BEFORE this
+-- deduction (never negative). Writer: calculatePayrollRun (payrollRunService ->
+-- payrollRunLineWriter). Reader: loadPayeYearToDate (payrollYearToDate.ts)
+-- through payrollRetirementRecord, which sums both for the next line's
+-- cumulative cap. A line written before this migration is NULL: its
+-- contributions are read from its breakdown.
 --
 -- payroll_components.paid_outside_payroll: a retirement fund contribution the
 -- employee pays the fund directly (a "private RA"): counted for the s11F

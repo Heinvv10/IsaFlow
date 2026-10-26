@@ -29,6 +29,19 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const fixtures: SeveranceFixture[] = [];
 let f: SeveranceFixture;
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** A journal's totals and its credit (net of debit) per account code. */
+async function journal(id: string) {
+  const rows = (await pool.query<{ code: string; debit: number; credit: number }>(
+    `SELECT a.account_code AS code, SUM(jl.debit)::float8 AS debit, SUM(jl.credit)::float8 AS credit
+       FROM gl_journal_lines jl JOIN gl_accounts a ON a.id = jl.gl_account_id
+      WHERE jl.journal_entry_id = $1 GROUP BY a.account_code`, [id])).rows;
+  return {
+    debit: r2(rows.reduce((t, r) => t + r.debit, 0)), credit: r2(rows.reduce((t, r) => t + r.credit, 0)),
+    byCode: Object.fromEntries(rows.map(r => [r.code, r2(r.credit - r.debit)])) as Record<string, number>,
+  };
+}
 
 async function createComponent(body: Record<string, unknown>) {
   return f.call(componentsRoute as Route, 'POST', '/api/payroll/components', undefined, { body });
@@ -57,6 +70,13 @@ describe('POST /api/payroll/components: paidOutsidePayroll', () => {
       const out = await createComponent({ name, sarsSourceCode: code, componentType, paidOutsidePayroll: true });
       expect(out.statusCode, `${name}: ${JSON.stringify(out.body)}`).toBe(400);
       expect(JSON.stringify(out.body)).toMatch(/only a retirement fund contribution/i);
+    }
+    expect(await componentNames()).toEqual(before);
+    // Not a boolean: "true" or 1 read as false would take the RA out of net pay (review #891).
+    for (const flag of ['true', 1]) {
+      const out = await createComponent({ name: `PO ${String(flag)}`, sarsSourceCode: '4006', componentType: 'deduction', paidOutsidePayroll: flag });
+      expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+      expect(JSON.stringify(out.body)).toMatch(/paidOutsidePayroll must be true or false/);
     }
     expect(await componentNames()).toEqual(before);
     const ok = await createComponent({ name: 'Private RA', sarsSourceCode: '4006', componentType: 'deduction', paidOutsidePayroll: true });
@@ -101,10 +121,35 @@ describe('a private RA in the run', () => {
            FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id WHERE l.run_id = $1`, [id])).rows[0]!);
     }
     expect(paid.map(p => [p.paye, p.net, p.contributions])).toEqual([[12_440.49, 47_382.39, 2_708.59], [12_440.49, 47_382.39, 2_708.59]]);
-    const accounts = (await pool.query<{ code: string }>(
-      `SELECT a.account_code AS code FROM gl_journal_lines jl JOIN gl_accounts a ON a.id = jl.gl_account_id
-        WHERE jl.journal_entry_id = $1`, [paid[1]!.journal])).rows.map(r => r.code);
-    expect(accounts).not.toContain('2175');
+    const april = await journal(paid[1]!.journal);
+    expect(april.debit).toBe(april.credit);
+    expect(april.byCode['2175']).toBeUndefined();
+
+    // The same employee with the RA deducted THROUGH payroll: net pay R2 708.59 lower, credited to 2175 instead,
+    // and the PAYE the same. The 2175 residual (gross − PAYE − UIF − net) is the only difference.
+    const g = await seedEmployee(pool, fixtures, 'P4c payroll RA', 60_000);
+    await pool.query('UPDATE payroll_employees SET medical_aid_main_member = true, medical_aid_dependants_count = 3 WHERE id = $1', [g.employee]);
+    await pool.query(`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+      VALUES ($1, '2175', 'Other Employee Deductions Payable', 'liability', 'credit', 1)`, [g.company]);
+    const throughPayroll = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'RA', '4006', 'deduction', false) RETURNING id`, [g.company])).rows[0]!.id;
+    await pool.query(`INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from)
+      VALUES ($1, $2, 2708.59, '2026-03-01')`, [g.employee, throughPayroll]);
+    const made = await g.call(createRun as Route, 'POST', '/api/payroll/runs', undefined, { body: { month: 3, year: 2026 } });
+    const runId = String(made.body.data!.id);
+    await calculateRun(g, runId);
+    expect((await approveRun(g, runId)).statusCode).toBe(200);
+    const other = (await pool.query(
+      `SELECT l.paye::float8 AS paye, l.net_pay::float8 AS net, h.journal_entry_id AS journal
+         FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id WHERE l.run_id = $1`, [runId])).rows[0]!;
+    const march = await journal(paid[0]!.journal);
+    const viaPayroll = await journal(other.journal);
+    expect(viaPayroll.debit).toBe(viaPayroll.credit);
+    expect([other.paye, other.net]).toEqual([12_440.49, 44_673.8]);
+    expect(viaPayroll.byCode['2175']).toBe(2_708.59);
+    expect(r2(march.byCode['1110']! - viaPayroll.byCode['1110']!)).toBe(2_708.59);
+    expect(viaPayroll.debit).toBe(march.debit);
 
     const req = request({ 'sb-access-token': f.token, active_company_id: f.company }, 'GET') as unknown as { url: string; query: Record<string, unknown> };
     req.url = '/api/payroll/irp5/easyfile-export?taxYear=2027';
