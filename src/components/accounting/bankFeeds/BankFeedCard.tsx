@@ -237,7 +237,6 @@ export function BankFeedCard({
 
       {isExtension && (
         <div className="px-5 pb-4 -mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--ff-text-secondary)]">
-          <span>Sync from</span>
           <div className="w-40">
             <DateField
               label="Sync from"

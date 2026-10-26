@@ -72,3 +72,25 @@ describe('VAT201PeriodSelector', () => {
     expect(onToChange).toHaveBeenLastCalledWith('2026-11-30');
   });
 });
+
+describe('PeriodControl range hints', () => {
+  it('a From after To is refused and never reaches the filter', () => {
+    const onChange = vi.fn();
+    render(<PeriodControl from="2026-06-02" to="2026-06-30" onChange={onChange} inputClassName="" />);
+    typeDate(screen.getByLabelText('Invoice date from'), '15 Jul 2026');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/on or before/);
+  });
+
+  it('a To before From is refused', () => {
+    const onChange = vi.fn();
+    render(<PeriodControl from="2026-06-02" to="2026-06-30" onChange={onChange} inputClassName="" />);
+    typeDate(screen.getByLabelText('Invoice date to'), '1 May 2026');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('a garbage bound from the URL does not crash the control', () => {
+    render(<PeriodControl from="2026-06-02" to="not-a-date" onChange={vi.fn()} inputClassName="" />);
+    expect(screen.getByLabelText('Invoice date from')).toBeTruthy();
+  });
+});
