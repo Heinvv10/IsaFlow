@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterAll } from 'vitest';
-import { useState } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { useRef, useState } from 'react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { DateField, type DateFieldProps } from '@/components/ui/DateField';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
@@ -257,5 +257,145 @@ describe('DateField', () => {
     rerender(<DateField label="Invoice date" value={null} onChange={() => undefined} resetKey={1} />);
     expect(input().value).toBe('');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  // The contract (see DateField's resetKey doc): a parent that sets `value` to what it ALREADY holds cannot
+  // restore the display, because a prop that did not change is not news. It bumps resetKey instead.
+  describe('refused text over a value the parent keeps', () => {
+    const FIELD = (props: { value: string | null; resetKey?: number; onChange?: DateFieldProps['onChange'] }) => (
+      <DateField label="Invoice date" getToday={TODAY} onChange={props.onChange ?? (() => undefined)} value={props.value} resetKey={props.resetKey} />
+    );
+
+    it('keeps garbage on screen when the parent re-sets the same value (a prop that did not change is not news)', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} />);
+      expect(input().value).toBe(shown(2026, 10, 21));
+      commit('garbage'); // a filtering parent ignores the refusal and keeps 2026-10-21
+      expect(input().value).toBe('garbage');
+      expect(screen.getByRole('alert')).toBeTruthy();
+      rerender(<FIELD value="2026-10-21" resetKey={0} />);
+      expect(input().value).toBe('garbage');
+    });
+
+    it('restores the display to the held value, and drops the refusal, when resetKey changes', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} />);
+      commit('garbage');
+      rerender(<FIELD value="2026-10-21" resetKey={1} />);
+      expect(input().value).toBe(shown(2026, 10, 21));
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(input().getAttribute('aria-invalid')).toBe('false');
+    });
+
+    it('a changed value restores the display by itself, no resetKey needed', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" />);
+      commit('garbage');
+      rerender(<FIELD value="2026-11-02" />);
+      expect(input().value).toBe(shown(2026, 11, 2));
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    // value -> null after a refusal is NOT restored by itself, and cannot be: the field has just reported
+    // `null` (refused), so an adopting parent's echo of that report is the same D -> null transition as a
+    // "Clear" button, and the echo must keep the refused text and its error on screen. An ASYNC adopting
+    // parent (setState after an await) makes the two indistinguishable even by timing. "Clear" bumps resetKey.
+    it('a held date, then garbage, then the parent sets null: the text stays (it reads as the echo of the refusal)', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" />);
+      commit('garbage'); // a filtering parent ignores the refusal and keeps 2026-10-21
+      rerender(<FIELD value={null} />);
+      expect(input().value).toBe('garbage');
+      expect(screen.getByRole('alert')).toBeTruthy();
+    });
+
+    it('a Clear button bumps resetKey with null: the display clears and the refusal goes', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} />);
+      commit('garbage');
+      rerender(<FIELD value={null} resetKey={1} />);
+      expect(input().value).toBe('');
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('the echo of a refusal keeps the text, whether the parent adopts null at once or after an await', async () => {
+      function Adopting({ delayMs }: { delayMs: number }) {
+        const [value, setValue] = useState<string | null>('2026-10-21');
+        return (
+          <>
+            <DateField label="Invoice date" getToday={TODAY} value={value}
+              onChange={(v) => { if (delayMs === 0) setValue(v); else setTimeout(() => setValue(v), delayMs); }} />
+            <output data-testid="adopted">{String(value)}</output>
+          </>
+        );
+      }
+      for (const delayMs of [0, 20]) {
+        const { unmount } = render(<Adopting delayMs={delayMs} />);
+        commit('garbage');
+        await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
+        // the parent really did adopt null (else the check below could pass without the echo ever arriving)
+        expect(screen.getByTestId('adopted').textContent, `delay ${delayMs}`).toBe('null');
+        expect(input().value, `delay ${delayMs}`).toBe('garbage');
+        expect(screen.getByRole('alert')).toBeTruthy();
+        unmount();
+      }
+    });
+
+    it('after a reset the same junk is news again (the refusal is forgotten)', () => {
+      const spy = vi.fn();
+      const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} onChange={spy} />);
+      commit('garbage');
+      rerender(<FIELD value="2026-10-21" resetKey={1} onChange={spy} />);
+      spy.mockClear();
+      commit('garbage');
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Enter inside a form', () => {
+    /** What a browser does on Enter in a text input: keydown (our handler), then, unless prevented, the form's submit. */
+    const pressEnter = (): void => {
+      const proceed = fireEvent.keyDown(input(), { key: 'Enter' });
+      if (proceed) fireEvent.submit(input().form as HTMLFormElement);
+    };
+
+    function Form({ onSubmitted, onValidity }: { onSubmitted: (value: string | null) => void; onValidity?: DateFieldProps['onChange'] }) {
+      const [value, setValue] = useState<string | null>(null);
+      const latest = useRef(value);
+      latest.current = value; // what a submit handler reads: the state as last rendered
+      return (
+        <form onSubmit={(e) => { e.preventDefault(); onSubmitted(latest.current); }}>
+          <DateField label="Invoice date" getToday={TODAY} value={value} onChange={(v, validity) => { onValidity?.(v, validity); setValue(v); }} />
+          <button type="submit">Save</button>
+        </form>
+      );
+    }
+
+    it('commits the typed date before the submit handler reads state', () => {
+      const submitted = vi.fn();
+      render(<Form onSubmitted={submitted} />);
+      type('1 Oct 2026');
+      pressEnter();
+      expect(submitted).toHaveBeenCalledExactlyOnceWith('2026-10-01');
+      expect(input().value).toBe(shown(2026, 10, 1));
+    });
+
+    it('a shortcut typed and entered is committed too', () => {
+      const submitted = vi.fn();
+      render(<Form onSubmitted={submitted} />);
+      type('+30');
+      pressEnter();
+      expect(submitted).toHaveBeenCalledExactlyOnceWith('2026-11-14');
+    });
+
+    it('refused text submits null, never the stale date, and reports the refusal so the parent can block', () => {
+      const submitted = vi.fn();
+      const onValidity = vi.fn();
+      render(<Form onSubmitted={submitted} onValidity={onValidity} />);
+      type('1 Oct 2026');
+      pressEnter();
+      submitted.mockClear();
+      onValidity.mockClear();
+      type('garbage');
+      pressEnter();
+      expect(submitted).toHaveBeenCalledExactlyOnceWith(null);
+      expect(onValidity).toHaveBeenCalledExactlyOnceWith(null, { valid: false, reason: expect.stringContaining('garbage') });
+      expect(screen.getByRole('alert')).toBeTruthy();
+    });
   });
 });

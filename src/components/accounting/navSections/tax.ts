@@ -2,6 +2,12 @@ import type { Tab } from './types';
 
 export const taxTab: Tab = {
   id: 'tax', label: 'Tax',
+  href: '/accounting/sars/vat201',
+  links: [
+    { label: 'VAT201', href: '/accounting/sars/vat201' },
+    { label: 'EMP201', href: '/accounting/sars/emp201' },
+    { label: 'Compliance Calendar', href: '/accounting/sars' },
+  ],
   items: [
     {
       section: 'VAT',

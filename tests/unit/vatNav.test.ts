@@ -16,7 +16,7 @@ function hrefs(items: NavItem[] | undefined): string[] {
 }
 
 function allHrefs(tabs: Tab[]): string[] {
-  return tabs.flatMap((t) => [...(t.href ? [t.href] : []), ...hrefs(t.items), ...hrefs(t.topItems)]);
+  return tabs.flatMap((t) => [...(t.href ? [t.href] : []), ...hrefs(t.items), ...hrefs(t.topItems), ...hrefs(t.links)]);
 }
 
 describe('isVatSurfaceHref', () => {
@@ -52,6 +52,28 @@ describe('stripVatNav', () => {
     expect(links).toContain('/accounting/sars/emp201');
     expect(links).toContain('/accounting/sars');
     expect(links).not.toContain('/accounting/sars/vat201');
+  });
+
+  it('points the Tax tab at the compliance calendar and drops its VAT201 link for a non-vendor', () => {
+    const tax = stripVatNav(TABS, false).find((t) => t.id === 'tax')!;
+    expect(tax.href).toBe('/accounting/sars');
+    expect(tax.links!.map((l) => l.href)).toEqual(['/accounting/sars/emp201', '/accounting/sars']);
+  });
+
+  it('keeps the Tax landing on VAT201 for a vendor', () => {
+    expect(stripVatNav(TABS, true).find((t) => t.id === 'tax')!.href).toBe('/accounting/sars/vat201');
+  });
+
+  it('drops the href of a VAT-landing tab that has no fallback but still has content', () => {
+    const tab: Tab = { id: 'x', label: 'X', href: '/accounting/drc-vat', links: [{ label: 'Other', href: '/accounting/other' }] };
+    const out = stripVatNav([tab], false)[0]!;
+    expect('href' in out).toBe(false);
+    expect(out.links).toHaveLength(1);
+  });
+
+  it('removes a tab whose landing and every link are VAT-only', () => {
+    const tab: Tab = { id: 'x', label: 'X', href: '/accounting/drc-vat', links: [{ label: 'DRC', href: '/accounting/drc-vat' }] };
+    expect(stripVatNav([tab], false)).toEqual([]);
   });
 
   it('keeps the VAT settings link so a newly-registered company can switch on', () => {

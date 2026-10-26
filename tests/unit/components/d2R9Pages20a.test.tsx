@@ -24,6 +24,7 @@ import ComparePage from '../../../pages/accounting/settings/billing/compare';
 import FlowsReturnPage from '../../../pages/accounting/settings/billing/flows/return';
 import CurrenciesPage from '../../../pages/accounting/settings/currencies';
 import SupplierInvoicesPage from '../../../pages/accounting/supplier-invoices/index';
+import { typeDate } from '../helpers/dateFields';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -45,7 +46,7 @@ describe('practice/reports/wip-aging (route: data = WipAgingRow[])', () => {
     const { container } = render(<WipAgingPage />);
     await screen.findByText('D2 Client Pty');
     fail = true;
-    fireEvent.change(container.querySelector('input[type="date"]') as HTMLInputElement, { target: { value: '2026-01-31' } });
+    typeDate(container.querySelector('input[placeholder="dd MMM yyyy"]') as HTMLInputElement, '2026-01-31');
     expect(await screen.findByText('Could not load the WIP aging report - try again')).toBeDefined();
     expect(screen.queryByText('D2 Client Pty')).toBeNull(); expectNoJargon();
   });

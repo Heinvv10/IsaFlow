@@ -10,6 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Mail, AlertCircle, CheckCircle, Clock, Send } from 'lucide-react';
 import type { EmailLogItem, EmailLogStats } from '../api/admin/email-log';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -203,22 +204,10 @@ export default function EmailLogPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">From</label>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={e => setDateFrom(e.target.value)}
-                  className="bg-gray-200 dark:bg-gray-700 border border-slate-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-1.5"
-                />
+                <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
               </div>
               <div>
-                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">To</label>
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={e => setDateTo(e.target.value)}
-                  className="bg-gray-200 dark:bg-gray-700 border border-slate-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-1.5"
-                />
+                <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
               </div>
               <div className="flex-1 min-w-40">
                 <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Recipient</label>
