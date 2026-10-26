@@ -73,6 +73,23 @@ describe('early-read byte budgets', () => {
     expect([victim.status, victim.body.error?.code], JSON.stringify(victim.body)).toEqual([200, undefined]);
   }, 60000);
 
+  it('accounts that DECLARE 63 MB and send a few bytes cannot make another user\'s LARGE (2 MB, undeclared) save 503', async () => {
+    // 63 MB declared: counting declarations would leave under 1 MB, too little for the victim's 2 MB.
+    const held = [[A, 18], [B, 18], [C, 18], [C, 9]].map(([c, mb]) => ({ c: c as GridCo, mb: mb as number, s: sendsThenHolds(16) }));
+    const pending = held.map((h) => post(h.c, h.s.stream, h.mb * MB));
+    await until(() => earlyReadStats().reads === 4, 'four declared-large uploads being read');
+    // A real save, padded with leading whitespace (JSON allows it) to 2 MB: a large body with no declared length.
+    const v = await fx.version(D);
+    const t = String((await pool.query(`SELECT ${TOKEN_SQL} t FROM budget_versions WHERE id = $1`, [v])).rows[0].t);
+    const json = JSON.stringify({ versionId: v, expectedUpdatedAt: t, cells: [{ glAccountId: D.acct.rent, cc1Id: null, cc2Id: null, buId: null, month: FY27[1], amount: 7 }] });
+    const big = Buffer.concat([Buffer.alloc(2 * MB, 0x20), Buffer.from(json)]);
+    const parts = Array.from({ length: Math.ceil(big.length / (256 * 1024)) }, (_, i) => big.subarray(i * 256 * 1024, (i + 1) * 256 * 1024));
+    const victim = await post(D, Readable.from(parts), null);
+    for (const h of held) h.s.release();
+    await Promise.all(pending);
+    expect([victim.status, victim.body.error?.details?.code], JSON.stringify(victim.body)).toEqual([200, undefined]);
+  }, 60000);
+
   it('one user holds at most 18 MB in flight: a second upload that would pass it is 429, another user is unaffected', async () => {
     const first = sendsThenHolds(10 * MB);
     const pendingFirst = post(A, first.stream, null);

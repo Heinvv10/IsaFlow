@@ -11,7 +11,7 @@ import { Readable } from 'node:stream';
 import { SignJWT } from 'jose';
 import type { NextApiHandler } from 'next';
 import { log } from '@/lib/logger';
-import { earlyReadStats, takeRawBody, withBodyFirst } from '@/lib/readJsonBody';
+import { earlyReadStats, earlySmallLaneBytes, takeRawBody, withBodyFirst } from '@/lib/readJsonBody';
 
 const MB = 1048576;
 const CSRF = 'c'.repeat(40);
@@ -119,5 +119,38 @@ describe('withBodyFirst bounds', () => {
     expect(inner).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalled();
     expect(earlyReadStats()).toEqual({ reads: 0, bytes: 0 });
+  });
+
+  it('a user with both read slots taken is 429 WITHOUT charging the rate bucket', async () => {
+    const charged: string[] = [];
+    const rate = { charge: async (u: string) => { charged.push(u); return true; }, retryAfterSecs: 60, message: 'x' };
+    const [x, y] = [holding(1024), holding(1024)];
+    const { inner, open } = gatedInner();
+    const handler = withBodyFirst(LIMITS, inner, { rate });
+    const pending = [call(handler, 'u-slots', x.stream), call(handler, 'u-slots', y.stream)];
+    for (let i = 0; i < 200 && earlyReadStats().reads < 2; i++) await sleep(5);
+    const third = await call(handler, 'u-slots', holding(1024).stream);
+    x.release(); y.release(); open();
+    await Promise.all(pending);
+    expect([third.status, third.retryAfter]).toEqual([429, '5']);
+    expect(charged).toEqual(['u-slots', 'u-slots']);
+  });
+
+  it('the small lane has its own 32 MB ceiling: filled, the next small body is 503; a large upload with large-budget room is still read', async () => {
+    // 32 users each hold a 1 MB body (the largest small one): the small lane is full.
+    const smalls = Array.from({ length: 32 }, () => holding(MB));
+    const { inner, open } = gatedInner();
+    const pending = smalls.map((b, i) => call(withBodyFirst(LIMITS, inner), `u-lane-${i}`, b.stream));
+    for (let i = 0; i < 600 && earlySmallLaneBytes() < 32 * MB; i++) await sleep(5);
+    expect(earlySmallLaneBytes()).toBe(32 * MB);
+    const plain: NextApiHandler = async (req, res) => { await takeRawBody(req); res.status(200).json({ ok: true }); };
+    const next = await call(withBodyFirst(LIMITS, plain), 'u-lane-next', Readable.from([Buffer.from('{"cells":[]}')]));
+    const large = await call(withBodyFirst(LIMITS, plain), 'u-lane-large', Readable.from([Buffer.alloc(2 * MB, 0x20)]));
+    for (const b of smalls) b.release();
+    open();
+    await Promise.all(pending);
+    expect([next.status, next.code, next.retryAfter]).toEqual([503, 'EARLY_READ_PROCESS_BUDGET', '5']);
+    expect(large.status).toBe(200);
+    expect([earlySmallLaneBytes(), earlyReadStats()]).toEqual([0, { reads: 0, bytes: 0 }]);
   });
 });

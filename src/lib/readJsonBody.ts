@@ -30,8 +30,7 @@ import { IMPERSONATION_PROOF_COOKIE } from '@/lib/auth/impersonation-cookies';
 import { JsonBodyError, discard, parseJsonBody, readRawBody, respondBodyError, tooLarge, type BodyLimits } from './readRawBody';
 
 export {
-  JsonBodyError, MIN_BYTES_PER_SEC, MIN_RATE_AFTER_MS, MIN_RATE_FROM_BYTES, parseJsonBody, readJsonBody, readRawBody,
-  respondBodyError, type BodyErrorCode, type BodyLimits, type BodyMeter,
+  JsonBodyError, parseJsonBody, readJsonBody, readRawBody, respondBodyError, type BodyErrorCode, type BodyLimits, type BodyMeter,
 } from './readRawBody';
 
 const preRead = new WeakMap<object, Buffer>();
@@ -45,17 +44,29 @@ const MAX_EARLY_READS_PER_USER = 2;
  * route's cap (counting it up front let accounts that declared 24 MB and sent nothing fill the
  * process budget, round-5 review). Per user: one route maxBytes in flight (18 MB for a save, one
  * full 100 000-cell batch). Per process: 64 MB of LARGE bodies, so three users at their limit still
- * leave room; a SMALL body (<= SMALL_BODY_BYTES, the normal grid save) is outside that budget, so
- * large uploads can never starve one (its memory is bounded by the per-user slots instead). A large
- * body must also keep MIN_BYTES_PER_SEC (readRawBody). Past the user's budget: 429; past the
- * process's: 503; both with Retry-After, at the chunk that crosses them.
+ * leave room. A SMALL body (<= SMALL_BODY_BYTES, the normal grid save) is outside that budget, so
+ * large uploads can never starve one, and has its own lane of MAX_SMALL_LANE_BYTES (32 x a 1 MB
+ * body; a grid save is a few KB, so thousands of real saves fit), so small bodies cannot grow the
+ * process either (round-6 breaker: twelve ~1 MB small reads held 12 MB nothing counted). A body
+ * that grows past SMALL_BODY_BYTES moves from the small lane to the large budget. Past the user's
+ * budget: 429; past either process budget: 503; both with Retry-After, at the chunk that crosses it.
  */
 export const MAX_EARLY_READ_BYTES = 64 * 1048576;
+export const MAX_SMALL_LANE_BYTES = 32 * 1048576;
 export const SMALL_BODY_BYTES = 1048576;
+/** The one small/large boundary: a body (declared or as received) over SMALL_BODY_BYTES is large. */
+const isLarge = (bytes: number): boolean => bytes > SMALL_BODY_BYTES;
 const RETRY_AFTER_SECONDS = 5;
 const readsOf = new Map<string, number>();
 const bytesOf = new Map<string, number>();
 let largeBytes = 0;
+
+let smallBytes = 0;
+
+/** Bytes the small lane holds right now (tests wait on it). */
+export function earlySmallLaneBytes(): number {
+  return smallBytes;
+}
 
 /** What the early reads hold right now: reads in flight and LARGE bytes held (tests wait on it). */
 export function earlyReadStats(): { reads: number; bytes: number } {
@@ -63,29 +74,37 @@ export function earlyReadStats(): { reads: number; bytes: number } {
 }
 
 /**
- * Counts one read's received bytes: all of them against the user's budget, and once the body is
- * large (declared over SMALL_BODY_BYTES, or received past it) all of them against the process's.
+ * Counts one read's received bytes: all of them against the user's budget, and against the small
+ * lane until the body is large (declared over SMALL_BODY_BYTES, or received past it), then all of
+ * them against the large budget instead.
  */
-function meterFor(user: string, userBudget: number, declaredLarge: boolean) {
+function meterFor(user: string, userBudget: number, declared: number) {
+  const declaredLarge = Number.isFinite(declared) && isLarge(declared);
   let mine = 0;
   let counted = false;
   const meter = (n: number): JsonBodyError | null => {
     if ((bytesOf.get(user) ?? 0) + n > userBudget) {
       return new JsonBodyError(429, 'EARLY_READ_USER_BUDGET', 'Your other uploads are still arriving; send this one again when they have finished');
     }
-    const large = declaredLarge || mine + n > SMALL_BODY_BYTES;
-    const add = large ? (counted ? n : mine + n) : 0;
-    if (largeBytes + add > MAX_EARLY_READ_BYTES) {
-      return new JsonBodyError(503, 'EARLY_READ_PROCESS_BUDGET', 'The server is receiving too many uploads; try again in a moment');
+    const large = declaredLarge || isLarge(mine + n);
+    const full = () => new JsonBodyError(503, 'EARLY_READ_PROCESS_BUDGET', 'The server is receiving too many uploads; try again in a moment');
+    if (large) {
+      const add = counted ? n : mine + n;
+      if (largeBytes + add > MAX_EARLY_READ_BYTES) return full();
+      if (!counted) smallBytes -= mine; // its bytes so far leave the small lane
+      largeBytes += add;
+      counted = true;
+    } else {
+      if (smallBytes + n > MAX_SMALL_LANE_BYTES) return full();
+      smallBytes += n;
     }
-    largeBytes += add;
-    counted = counted || large;
     mine += n;
     bytesOf.set(user, (bytesOf.get(user) ?? 0) + n);
     return null;
   };
   const release = () => {
     if (counted) largeBytes -= mine;
+    else smallBytes -= mine;
     const left = (bytesOf.get(user) ?? mine) - mine;
     if (left > 0) bytesOf.set(user, left);
     else bytesOf.delete(user);
@@ -137,9 +156,9 @@ export interface BodyFirstOptions {
 /**
  * Wraps a write route OUTSIDE withAuth: for a POST from a caller who passes `earlyReader`, the raw
  * body is read (bounded by `limits`) before withAuth takes a connection and opens the transaction;
- * a refusal is answered here. Before reading, in order: the route's rate bucket for the user (429;
- * 503 if the bucket itself is unavailable) and at most MAX_EARLY_READS_PER_USER reads in flight per
- * user (429); while reading, the received bytes against the user's and the process's budgets (429 /
+ * a refusal is answered here. Before reading, in order: at most MAX_EARLY_READS_PER_USER reads in
+ * flight per user (429), then the route's rate bucket for the user (429; 503 if the bucket itself is
+ * unavailable); while reading, the received bytes against the user's and the process's budgets (429 /
  * 503). A refused body is drained. Inside, the handler takes the bytes with `takeRawBody` (or
  * `takeJsonBody`) and parses them only then; slot and bytes are released when it returns.
  */
@@ -153,31 +172,34 @@ export function withBodyFirst(limits: BodyLimits, inner: NextApiHandler, opts: B
       log.debug('Early body read refused', { url: req.url, user, status }, 'API');
       return status === 503 ? apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE, message) : apiResponse.tooManyRequests(res, message);
     };
-    if (opts.rate) {
-      let admitted: boolean;
-      try {
-        admitted = await opts.rate.charge(user);
-      } catch (err) {
-        // The limiter's database is down: never admit unmetered, never Next's bare 500.
-        log.error('Early body read: rate bucket unavailable', { url: req.url, user, error: err instanceof Error ? err.message : String(err) }, 'API');
-        return refuse(503, 'Uploads are paused for a moment; try again shortly', RETRY_AFTER_SECONDS);
-      }
-      if (!admitted) return refuse(429, opts.rate.message, opts.rate.retryAfterSecs);
-    }
+    // The slot first, taken at once (no await between the check and the take): a 429 for a full
+    // slot must not spend a token from the user's rate bucket.
     const reading = readsOf.get(user) ?? 0;
     if (reading >= MAX_EARLY_READS_PER_USER) {
       return refuse(429, 'Another upload of yours is still arriving; send this one again when it has finished', RETRY_AFTER_SECONDS);
     }
-    const lim = effectiveLimits(limits);
-    const declared = Number(req.headers['content-length']);
-    if (Number.isFinite(declared) && declared > lim.maxBytes) {
-      discard(req);
-      return respondBodyError(res, tooLarge(lim.maxBytes));
-    }
     readsOf.set(user, reading + 1);
-    const budget = meterFor(user, lim.maxBytes, Number.isFinite(declared) && declared > SMALL_BODY_BYTES);
-    log.debug('Early body read start', { url: req.url, user, declared, idleMs: lim.idleMs, totalMs: lim.totalMs }, 'API');
+    let budget: ReturnType<typeof meterFor> | null = null;
     try {
+      if (opts.rate) {
+        let admitted: boolean;
+        try {
+          admitted = await opts.rate.charge(user);
+        } catch (err) {
+          // The limiter's database is down: never admit unmetered, never Next's bare 500.
+          log.error('Early body read: rate bucket unavailable', { url: req.url, user, error: err instanceof Error ? err.message : String(err) }, 'API');
+          return refuse(503, 'Uploads are paused for a moment; try again shortly', RETRY_AFTER_SECONDS);
+        }
+        if (!admitted) return refuse(429, opts.rate.message, opts.rate.retryAfterSecs);
+      }
+      const lim = effectiveLimits(limits);
+      const declared = Number(req.headers['content-length']);
+      if (Number.isFinite(declared) && declared > lim.maxBytes) {
+        discard(req);
+        return respondBodyError(res, tooLarge(lim.maxBytes));
+      }
+      budget = meterFor(user, lim.maxBytes, declared);
+      log.debug('Early body read start', { url: req.url, user, declared, idleMs: lim.idleMs, totalMs: lim.totalMs }, 'API');
       try {
         preRead.set(req, await readRawBody(req, lim, budget.meter));
       } catch (err) {
@@ -187,7 +209,7 @@ export function withBodyFirst(limits: BodyLimits, inner: NextApiHandler, opts: B
       // The slot and the bytes stay held while the handler has them (the buffer lives until it is done).
       return await inner(req, res);
     } finally {
-      budget.release();
+      budget?.release();
       const left = (readsOf.get(user) ?? 1) - 1;
       if (left > 0) readsOf.set(user, left);
       else readsOf.delete(user);
