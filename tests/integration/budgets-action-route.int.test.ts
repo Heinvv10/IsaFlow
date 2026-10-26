@@ -77,8 +77,8 @@ describe('budgets-action', () => {
     const o = await owner();
     const months = o.months.map((month) => ({ month, amount: 5 }));
     await pool.query(
-      `INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount)
-       SELECT $1, $2, (m || '-01')::date, 5 FROM unnest($3::text[]) m`, [o.u.homeCompanyId, o.account, months.map((m) => m.month)]);
+      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+       SELECT $1, (SELECT public.budget_version_original($1, fy.fiscal_year, 'test-fixture') FROM public.fiscal_year_for_date($1, (m || '-01')::date) fy), $2, (m || '-01')::date, 5 FROM unnest($3::text[]) m`, [o.u.homeCompanyId, o.account, months.map((m) => m.month)]);
     const r = await call(o.u, 'POST', { action: 'delete', glAccountId: o.account, fiscalYear: o.label });
     expect(r.status, JSON.stringify(r.body).slice(0, 200)).toBe(200);
     const left = await pool.query('SELECT COUNT(*)::int n FROM budget_month_amounts WHERE company_id = $1', [o.u.homeCompanyId]);

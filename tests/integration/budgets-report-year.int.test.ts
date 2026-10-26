@@ -43,8 +43,8 @@ beforeAll(async () => {
   // 10 a month through the 14-month year, 1 a month through 2028.
   for (const [from, count, amount] of [['2026-01', 14, 10], ['2027-03', 12, 1]] as const) {
     await pool.query(
-      `INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount)
-       SELECT $1, $2, m::date, $4 FROM unnest($3::text[]) m`, [companyId, o.account, monthsFrom(from, count), amount]);
+      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+       SELECT $1, (SELECT public.budget_version_original($1, fy.fiscal_year, 'test-fixture') FROM public.fiscal_year_for_date($1, m::date) fy), $2, m::date, $4 FROM unnest($3::text[]) m`, [companyId, o.account, monthsFrom(from, count), amount]);
   }
 });
 
@@ -118,8 +118,8 @@ describe('year to date of a year that has not started', () => {
     await pool.query(
       `INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1, 2100, '2099-03-15', '2100-03-14')`, [companyId]);
     await pool.query(
-      `INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount)
-       SELECT $1, (SELECT id FROM gl_accounts WHERE company_id = $1 AND account_code = 'BR-5000'), m::date, 5
+      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+       SELECT $1, public.budget_version_original($1, 2100, 'test-fixture'), (SELECT id FROM gl_accounts WHERE company_id = $1 AND account_code = 'BR-5000'), m::date, 5
          FROM unnest($2::text[]) m`, [companyId, monthsFrom('2099-03', 13)]);
     const r = await rep.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2100' });
     const d = r.body.data as unknown as { report: Report & { total_budget: number; not_started?: boolean } };

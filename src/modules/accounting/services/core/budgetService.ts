@@ -11,12 +11,26 @@
  *
  * A "year" here is the registry year for a label: a label no year carries (a
  * skipped label after a change of year end) is refused with a BudgetInputError.
+ *
+ * VERSIONS (migration 947): every amount belongs to a budget version. Reads use
+ * the year's PRIMARY version unless a `versionId` of that year is named; a year
+ * with no primary reads as no months. Writes go to the named version or the
+ * primary, creating a draft primary 'Original' for a year that has none. Each
+ * write locks the version first (budgets/budgetVersionScope), so a locked
+ * version is a typed 409 before anything is written, and leaves one audit row
+ * (entity 'budget', the version id). The page writes company-level amounts only:
+ * an account budgeted by dimension in the version is a typed grain refusal.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getFiscalYear, type FiscalYearRecord } from '../gl/fiscalYearRegistry';
+import {
+  auditBudgetWrite as auditWrite, lockVersionForWrite, readVersion, resolvePrimaryVersion, writeVersion,
+} from '../budgets/budgetVersionScope';
+import { BudgetVersionError } from '../budgets/budgetVersionTypes';
+import { als } from '@/lib/als';
 import { budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { BudgetInputError, resolveMonthAmounts, round2, type BudgetMonthAmount } from './budgetMonths';
 
@@ -50,6 +64,8 @@ export interface BudgetInput {
   /** Exactly the year's months. */
   months?: BudgetMonthAmount[];
   notes?: string;
+  /** The version to write; default the year's primary (created as a draft 'Original' when missing). */
+  versionId?: string;
 }
 
 interface YearMonths { fiscalYear: number; monthKeys: string[]; first: string; last: string }
@@ -69,7 +85,9 @@ async function yearMonths(companyId: string, fiscalYear: number): Promise<YearMo
 }
 
 /** Every account with a header or any month in the year, with its months. `accountId` narrows to one. */
-async function loadEntries(companyId: string, year: YearMonths, accountId: string | null): Promise<BudgetEntry[]> {
+async function loadEntries(
+  companyId: string, year: YearMonths, accountId: string | null, versionId: string | null,
+): Promise<BudgetEntry[]> {
   const accounts = (await sql`
     SELECT ga.id AS gl_account_id, ga.account_code, ga.account_name, ga.account_type,
            h.id AS header_id, h.notes, h.created_at
@@ -80,16 +98,17 @@ async function loadEntries(companyId: string, year: YearMonths, accountId: strin
       AND (${accountId}::UUID IS NULL OR ga.id = ${accountId}::UUID)
       AND (h.id IS NOT NULL OR EXISTS (
         SELECT 1 FROM budget_month_amounts bm
-        WHERE bm.company_id = ${companyId}::UUID AND bm.gl_account_id = ga.id
+        WHERE bm.company_id = ${companyId}::UUID AND bm.gl_account_id = ga.id AND bm.version_id = ${versionId}::UUID
           AND bm.month >= ${year.first}::DATE AND bm.month <= ${year.last}::DATE))
     ORDER BY ga.account_code
   `) as Row[];
   const stored = (await sql`
-    SELECT bm.gl_account_id, TO_CHAR(bm.month, 'YYYY-MM') AS month_key, bm.amount::text AS amount
+    SELECT bm.gl_account_id, TO_CHAR(bm.month, 'YYYY-MM') AS month_key, SUM(bm.amount)::text AS amount
     FROM budget_month_amounts bm
-    WHERE bm.company_id = ${companyId}::UUID
+    WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID
       AND (${accountId}::UUID IS NULL OR bm.gl_account_id = ${accountId}::UUID)
       AND bm.month >= ${year.first}::DATE AND bm.month <= ${year.last}::DATE
+    GROUP BY bm.gl_account_id, bm.month
   `) as Row[];
 
   const byAccount = new Map<string, Map<string, number>>();
@@ -116,13 +135,14 @@ async function loadEntries(companyId: string, year: YearMonths, accountId: strin
   });
 }
 
-export async function getBudgets(companyId: string, fiscalYear: number): Promise<BudgetEntry[]> {
-  return loadEntries(companyId, await yearMonths(companyId, fiscalYear), null);
+export async function getBudgets(companyId: string, fiscalYear: number, versionId?: string): Promise<BudgetEntry[]> {
+  const year = await yearMonths(companyId, fiscalYear);
+  return loadEntries(companyId, year, null, await readVersion(companyId, fiscalYear, versionId));
 }
 
 /** `getBudgets` for a year the caller has already looked up (no second registry read). */
-export async function getBudgetsForYear(companyId: string, year: FiscalYearRecord): Promise<BudgetEntry[]> {
-  return loadEntries(companyId, monthsOf(year), null);
+export async function getBudgetsForYear(companyId: string, year: FiscalYearRecord, versionId?: string): Promise<BudgetEntry[]> {
+  return loadEntries(companyId, monthsOf(year), null, await readVersion(companyId, year.fiscalYear, versionId));
 }
 
 export async function upsertBudget(
@@ -134,9 +154,21 @@ export async function upsertBudget(
   const amounts = resolveMonthAmounts(year.monthKeys, { months: input.months, annualAmount: input.annualAmount });
 
   const owned = (await sql`
-    SELECT 1 FROM gl_accounts WHERE id = ${input.glAccountId}::UUID AND company_id = ${companyId}::UUID
+    SELECT account_code FROM gl_accounts WHERE id = ${input.glAccountId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (owned.length === 0) throw new BudgetInputError('Budget account does not belong to this company');
+  const versionId = await writeVersion(companyId, input.fiscalYear, input.versionId, userId);
+  // The version row is locked, so no other writer of it runs between this check and the write.
+  const otherGrain = (await sql`
+    SELECT 1 FROM budget_month_amounts
+     WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
+       AND gl_account_id = ${input.glAccountId}::UUID AND dim_grain <> 0
+     LIMIT 1
+  `) as Row[];
+  if (otherGrain.length > 0) {
+    throw new BudgetVersionError('BUDGET_GRAIN_CONFLICT',
+      `Account ${String(owned[0]!.account_code)} is budgeted by dimension in this version; it cannot also have a company-level budget`);
+  }
 
   // The arbiter index is partial (WHERE gl_account_id IS NOT NULL), so the
   // predicate has to be repeated here or Postgres cannot pick it.
@@ -148,30 +180,43 @@ export async function upsertBudget(
     DO UPDATE SET notes = EXCLUDED.notes, updated_at = now()
   `;
   await sql`
-    INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount, created_by)
-    SELECT ${companyId}::UUID, ${input.glAccountId}::UUID, t.month::DATE, t.amount, ${userId}
+    INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
+    SELECT ${companyId}::UUID, ${versionId}::UUID, ${input.glAccountId}::UUID, t.month::DATE, t.amount, ${userId}
     FROM unnest(${amounts.map(a => monthKeyToDate(a.month))}::TEXT[], ${amounts.map(a => a.amount)}::NUMERIC[])
       AS t(month, amount)
-    ON CONFLICT (company_id, gl_account_id, month)
+    ON CONFLICT ON CONSTRAINT budget_month_amounts_one_per_cell
     DO UPDATE SET amount = EXCLUDED.amount, updated_at = now()
   `;
 
-  const [entry] = await loadEntries(companyId, year, input.glAccountId);
+  const [entry] = await loadEntries(companyId, year, input.glAccountId, versionId);
   if (!entry) throw new BudgetInputError('Budget account does not belong to this company');
+  await auditWrite(companyId, userId, 'update', versionId, input.fiscalYear, {
+    glAccountId: input.glAccountId, months: String(amounts.length), total: String(entry.annualAmount),
+  });
   log.info('Upserted budget', {
     glAccountId: input.glAccountId, fiscalYear: input.fiscalYear, annualAmount: entry.annualAmount,
   }, 'accounting');
   return entry;
 }
 
-/** Removes the account's header and every month of the year. Months of other years are untouched. */
-export async function deleteBudget(companyId: string, glAccountId: string, fiscalYear: number): Promise<void> {
+/**
+ * Removes the account's header and its company-level months of the year in the PRIMARY version.
+ * Other versions, dimension rows and months of other years are untouched.
+ */
+export async function deleteBudget(
+  companyId: string, glAccountId: string, fiscalYear: number, userId: string = requestUserId(),
+): Promise<void> {
   const year = await yearMonths(companyId, fiscalYear);
-  await sql`
-    DELETE FROM budget_month_amounts
-    WHERE company_id = ${companyId}::UUID AND gl_account_id = ${glAccountId}::UUID
-      AND month >= ${year.first}::DATE AND month <= ${year.last}::DATE
-  `;
+  const primary = await resolvePrimaryVersion(companyId, fiscalYear);
+  if (primary) {
+    await lockVersionForWrite(companyId, primary);
+    await sql`
+      DELETE FROM budget_month_amounts
+      WHERE company_id = ${companyId}::UUID AND version_id = ${primary}::UUID AND gl_account_id = ${glAccountId}::UUID
+        AND dim_grain = 0 AND month >= ${year.first}::DATE AND month <= ${year.last}::DATE
+    `;
+    await auditWrite(companyId, userId, 'delete', primary, fiscalYear, { glAccountId });
+  }
   await sql`
     DELETE FROM accounting_budgets
     WHERE company_id = ${companyId}::UUID AND gl_account_id = ${glAccountId}::UUID AND fiscal_year = ${fiscalYear}
@@ -194,23 +239,30 @@ export async function copyBudgets(
   if (fromYear === toYear) throw new BudgetInputError('Cannot copy a year onto itself');
   const from = await yearMonths(companyId, fromYear);
   const to = await yearMonths(companyId, toYear);
+  const source = await resolvePrimaryVersion(companyId, fromYear);
+  if (!source) return 0;
+  const target = await writeVersion(companyId, toYear, undefined, userId);
 
+  // Dimensions travel with the amounts. An account the target already budgets at another grain is skipped.
   const copied = (await sql`
     WITH moved AS (
-      SELECT bm.gl_account_id, bm.amount,
+      SELECT bm.gl_account_id, bm.amount, bm.cc1_id, bm.cc2_id, bm.bu_id, bm.dim_grain,
              ${to.first}::DATE + make_interval(months =>
                (EXTRACT(YEAR FROM bm.month)::INT * 12 + EXTRACT(MONTH FROM bm.month)::INT)
                - (EXTRACT(YEAR FROM ${from.first}::DATE)::INT * 12 + EXTRACT(MONTH FROM ${from.first}::DATE)::INT)
              ) AS target
       FROM budget_month_amounts bm
       JOIN gl_accounts ga ON ga.id = bm.gl_account_id AND ga.company_id = ${companyId}::UUID
-      WHERE bm.company_id = ${companyId}::UUID
+      WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${source}::UUID
         AND bm.month >= ${from.first}::DATE AND bm.month <= ${from.last}::DATE
     ), ins AS (
-      INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount, created_by)
-      SELECT ${companyId}::UUID, gl_account_id, target::DATE, amount, ${userId}
-      FROM moved WHERE target <= ${to.last}::DATE
-      ON CONFLICT (company_id, gl_account_id, month) DO NOTHING
+      INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id, cc2_id, bu_id, created_by)
+      SELECT ${companyId}::UUID, ${target}::UUID, m.gl_account_id, m.target::DATE, m.amount, m.cc1_id, m.cc2_id, m.bu_id, ${userId}
+      FROM moved m WHERE m.target <= ${to.last}::DATE
+        AND NOT EXISTS (SELECT 1 FROM budget_month_amounts t
+                         WHERE t.company_id = ${companyId}::UUID AND t.version_id = ${target}::UUID
+                           AND t.gl_account_id = m.gl_account_id AND t.dim_grain <> m.dim_grain)
+      ON CONFLICT ON CONSTRAINT budget_month_amounts_one_per_cell DO NOTHING
       RETURNING gl_account_id
     )
     SELECT COUNT(DISTINCT gl_account_id)::INT AS copied FROM ins
@@ -224,15 +276,23 @@ export async function copyBudgets(
     WHERE h.company_id = ${companyId}::UUID AND h.fiscal_year = ${fromYear} AND h.gl_account_id IS NOT NULL
       AND EXISTS (
         SELECT 1 FROM budget_month_amounts bm
-        WHERE bm.company_id = ${companyId}::UUID AND bm.gl_account_id = h.gl_account_id
+        WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${target}::UUID AND bm.gl_account_id = h.gl_account_id
           AND bm.month >= ${to.first}::DATE AND bm.month <= ${to.last}::DATE)
     ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL
     DO NOTHING
   `;
 
   const count = Number(copied[0]?.copied ?? 0);
+  await auditWrite(companyId, userId, 'create', target, toYear, { copiedFromFiscalYear: String(fromYear), accounts: String(count) });
   log.info('Copied budgets', { fromYear, toYear, count }, 'accounting');
   return count;
+}
+
+/** The signed-in user of the request transaction: the actor a write is audited under. */
+function requestUserId(): string {
+  const userId = als.getStore()?.userId;
+  if (!userId) throw new Error('deleteBudget: no actor (pass userId outside a request)');
+  return userId;
 }
 
 function budgetName(fiscalYear: number): string {
