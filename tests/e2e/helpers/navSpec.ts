@@ -12,14 +12,9 @@
  * E2E_API_DELAY_MS=3000 delays every /api response, to prove the specs under load.
  */
 import { test as base, expect, type Page } from '@playwright/test';
+import { NAV_READY_MS, TERMINAL_STATUS, Terminal, waitForRoute } from './routeProbe';
 
-/**
- * Upper bound for the nav's first paint on a loaded box (auth, companies, then the shell; measured ~35 s for a
- * whole dashboard under a 3 s API delay). It is a ceiling, not an expected time: a passing run returns as soon as
- * the nav shows. The cost is that a genuinely broken page in the post-deploy check (prod verify) goes red up to
- * this long later than with a short timeout, which is accepted so a slow runner cannot roll back a good deploy.
- */
-export const NAV_READY_MS = 60_000;
+export { NAV_READY_MS, TERMINAL_STATUS, waitForRoute };
 
 export const test = base.extend<{ apiDelay: void }>({
   apiDelay: [async ({ page }, use) => {
@@ -35,38 +30,6 @@ export const test = base.extend<{ apiDelay: void }>({
 });
 
 export { expect };
-
-/**
- * Wait until the dev server serves `target`, then return. A first request to an uncompiled route can be reset
- * (ERR_EMPTY_RESPONSE) while Next compiles it; that means "not ready yet", so poll for a real response instead of
- * letting page.goto take the reset. This is a readiness probe, not a test retry: the page's own assertions run once.
- *
- * `deadline` (epoch ms) lets a caller share one budget across several waits; default is NAV_READY_MS from now.
- * A 404 or any 4xx is terminal (a wrong path never becomes right), and a 5xx is polled: the server is still compiling.
- * Returns the last error seen so a caller can rethrow the truthful cause.
- */
-export async function waitForRoute(page: Page, target: string, deadline = Date.now() + NAV_READY_MS): Promise<void> {
-  const path = target.split('#')[0] as string; // a fragment is never sent to the server
-  const delays = [500, 1_000, 2_000, 5_000];
-  let lastError = 'no response';
-  for (let attempt = 0; ; attempt++) {
-    const left = deadline - Date.now();
-    if (left <= 0) throw new Error(`${path} was not served within ${NAV_READY_MS} ms (last: ${lastError})`);
-    try {
-      const status = (await page.request.get(path, { maxRedirects: 5, timeout: Math.min(20_000, left) })).status();
-      if (status < 400) return;
-      if (status < 500) throw new Terminal(`${path} answered ${status}: the route does not exist or is refused; this will not clear by waiting`);
-      lastError = `HTTP ${status}`;
-    } catch (err) {
-      if (err instanceof Terminal) throw err;
-      // Only connection resets and timeouts from page.request.get land here: the server is recompiling.
-      lastError = String(err).split('\n')[0] as string;
-    }
-    await page.waitForTimeout(Math.min(delays[Math.min(attempt, delays.length - 1)] as number, Math.max(0, deadline - Date.now())));
-  }
-}
-
-class Terminal extends Error {}
 
 /** Open `path` and wait for the top nav to render (not for the page body). One NAV_READY_MS budget covers it all. */
 export async function openWithNav(page: Page, path: string): Promise<void> {
@@ -94,8 +57,9 @@ export async function gotoServed(page: Page, path: string, deadline = Date.now()
       if (!DROPPED.test(String(err)) || Date.now() > deadline) throw err;
       try {
         await waitForRoute(page, path, deadline);
-      } catch {
-        throw err;
+      } catch (probeErr) {
+        // A 404 is the truthful cause; otherwise the page's own connection error is.
+        throw probeErr instanceof Terminal ? probeErr : err;
       }
     }
   }
@@ -107,13 +71,13 @@ export async function gotoServed(page: Page, path: string, deadline = Date.now()
  * destination still fails), re-probe the route, and load it directly.
  */
 export async function waitForClickNavigation(page: Page, expected: RegExp, targetHref: string): Promise<void> {
-  const deadline = Date.now() + NAV_READY_MS;
   try {
     await page.waitForURL(expected, { timeout: NAV_READY_MS });
   } catch (err) {
     const text = String(err);
     const failedUrl = /net::ERR_[A-Z_]+ at (\S+)/.exec(text)?.[1];
     if (!DROPPED.test(text) || !failedUrl || new URL(failedUrl).pathname !== targetHref.split(/[?#]/)[0]) throw err;
+    const deadline = Date.now() + NAV_READY_MS; // the budget starts at the drop, not before the click's own wait
     await waitForRoute(page, targetHref, deadline);
     await gotoServed(page, targetHref, deadline);
     await expect(page).toHaveURL(expected);

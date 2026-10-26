@@ -29,6 +29,9 @@ async function typeInto(page: Page, label: string, text: string): Promise<void> 
   await field.press('Tab');
 }
 
+// Each test settles a page (up to SETTLE_MS) and then waits on a header (up to SETTLE_MS again).
+test.setTimeout(300_000);
+
 test('P&L: typed From and "eom" To set the range the header names', async ({ page }) => {
   await page.goto('/accounting/reports/income-statement');
   await settle(page);
