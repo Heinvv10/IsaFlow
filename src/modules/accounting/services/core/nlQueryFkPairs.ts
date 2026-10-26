@@ -35,7 +35,9 @@ export const FK_PAIRS = new Set<string>([
   'bank_transactions_posted.matched_journal_line_id|gl_journal_lines.id',
   'bank_transactions_posted.predicted_supplier_id|suppliers.id',
   'bank_transactions_posted.provisional_je_id|gl_journal_entries.id',
-  'budget_month_amounts.gl_account_id|gl_accounts.id',
+  // budget_primary_month_amounts is a view over budget_month_amounts (migration 947); its edge
+  // is the base table's FK, carried by hand like bank_transactions_posted's.
+  'budget_primary_month_amounts.gl_account_id|gl_accounts.id',
   'captured_documents.id|customer_invoices.source_document_id',
   'captured_documents.id|dunning_sends.source_document_id',
   'captured_documents.id|gl_journal_entries.source_document_id',

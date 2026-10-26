@@ -99,10 +99,12 @@ export async function createCompany(input: {
 
 export async function updateCompany(id: string, input: Partial<Record<string, unknown>>): Promise<Company> {
   const v = (key: string) => input[key] !== undefined ? (input[key] === '' ? null : input[key]) : undefined;
+  // Locked after the first posting; before it the periods are rebuilt to follow (fiscalYearStartChange.ts).
+  // FIRST: a start-month change takes the year-registry advisory lock, and it must come before any lock
+  // on the companies row (the entity-type check below takes FOR UPDATE), the order budget writers use.
+  const financialYearChanged = await assertFinancialYearStartChange(id, v('financialYearStart'));
   // A new entity type needs its own required proof on file (throws EntityTypeChangeRefused).
   if (isEntityTypeCode(input.entityType)) await assertEntityTypeChangeAllowed(id, input.entityType);
-  // Locked after the first posting; before it the periods are rebuilt to follow (fiscalYearStartChange.ts).
-  const financialYearChanged = await assertFinancialYearStartChange(id, v('financialYearStart'));
 
   const rows = (await sql`
     UPDATE companies SET

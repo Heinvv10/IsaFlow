@@ -43,7 +43,12 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
 
   async function cleanup(): Promise<void> {
     for (const id of made) {
+      // Locked versions refuse DELETE (migration 947): unlock first, as QA purges do.
+      await pool.query(
+        `UPDATE budget_versions SET status = 'approved', unlocked_by = locked_by, unlocked_at = clock_timestamp(), unlock_reason = 'test cleanup'
+          WHERE company_id = $1 AND status = 'locked'`, [id]);
       await pool.query('DELETE FROM budget_month_amounts WHERE company_id = $1', [id]);
+      await pool.query('DELETE FROM budget_versions WHERE company_id = $1', [id]);
       await pool.query('DELETE FROM accounting_budgets WHERE company_id = $1', [id]);
       await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [id]);
     }
