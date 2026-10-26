@@ -1,5 +1,5 @@
 {
- "method": "tests/e2e/golden-paths/o3-banner-titles.spec.ts: every text node inside the dark-gradient banner vs the gradient stops, reporting-qa on dev Demo, 1280x720",
+ "method": "o3-banner-titles.spec.ts: every text node in the dark-gradient banner vs each gradient stop with translucent painted ancestors (bg-white/10 buttons, chips) composited over it; reporting-qa on dev Demo, 1280x720",
  "before_rule_light": {
   "credit-notes-new.light": [
    {
@@ -60,9 +60,9 @@
    },
    {
     "text": "New PO",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "assets-new.light": [
@@ -198,15 +198,15 @@
    },
    {
     "text": "CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(15, 23, 42)",
-    "ratio": 1
+    "ratio": 1.32
    },
    {
     "text": "New Credit Note",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "credit-notes.light": [
@@ -223,7 +223,7 @@
     "ratio": 1
    },
    {
-    "text": "2986",
+    "text": "2992",
     "el": "p",
     "fg": "rgb(100, 116, 139)",
     "ratio": 3.07
@@ -236,15 +236,15 @@
    },
    {
     "text": "CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(15, 23, 42)",
-    "ratio": 1
+    "ratio": 1.32
    },
    {
     "text": "New Credit Note",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "recurring-invoices-new.light": [
@@ -288,9 +288,9 @@
    },
    {
     "text": "Scan Document",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ],
   "delivery-notes.light": [
@@ -320,9 +320,9 @@
    },
    {
     "text": "New Delivery Note",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "supplier-invoices.light": [
@@ -339,7 +339,7 @@
     "ratio": 1
    },
    {
-    "text": "2410",
+    "text": "2413",
     "el": "p",
     "fg": "rgb(100, 116, 139)",
     "ratio": 3.07
@@ -352,15 +352,15 @@
    },
    {
     "text": "Export CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(226, 232, 240)",
     "ratio": 11.87
    },
    {
     "text": "New Invoice",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "items-new.light": [
@@ -430,9 +430,9 @@
    },
    {
     "text": "Scan Invoice",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ],
   "supplier-invoices-new.dark": [
@@ -456,9 +456,9 @@
    },
    {
     "text": "Scan Invoice",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ],
   "goods-received-new.light": [
@@ -508,15 +508,15 @@
    },
    {
     "text": "Run Due",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    },
    {
     "text": "New Template",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "batch-payments-new.light": [
@@ -560,9 +560,9 @@
    },
    {
     "text": "Scan Document",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ]
  },
@@ -646,9 +646,9 @@
    },
    {
     "text": "New PO",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "purchase-orders.dark": [
@@ -690,9 +690,9 @@
    },
    {
     "text": "New PO",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "assets-new.light": [
@@ -928,15 +928,15 @@
    },
    {
     "text": "CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 10.72
    },
    {
     "text": "New Credit Note",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "supplier-credit-notes.dark": [
@@ -972,15 +972,15 @@
    },
    {
     "text": "CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 10.72
    },
    {
     "text": "New Credit Note",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "credit-notes.light": [
@@ -997,7 +997,7 @@
     "ratio": 14.63
    },
    {
-    "text": "2986",
+    "text": "2992",
     "el": "p",
     "fg": "rgb(169, 182, 201)",
     "ratio": 7.12
@@ -1010,15 +1010,15 @@
    },
    {
     "text": "CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 10.72
    },
    {
     "text": "New Credit Note",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "credit-notes.dark": [
@@ -1035,7 +1035,7 @@
     "ratio": 14.63
    },
    {
-    "text": "2986",
+    "text": "2992",
     "el": "p",
     "fg": "rgb(148, 163, 184)",
     "ratio": 5.71
@@ -1048,15 +1048,15 @@
    },
    {
     "text": "CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 10.72
    },
    {
     "text": "New Credit Note",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "recurring-invoices-new.light": [
@@ -1120,9 +1120,9 @@
    },
    {
     "text": "Scan Document",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ],
   "customer-payments-new.dark": [
@@ -1146,9 +1146,9 @@
    },
    {
     "text": "Scan Document",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ],
   "delivery-notes.light": [
@@ -1178,9 +1178,9 @@
    },
    {
     "text": "New Delivery Note",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "delivery-notes.dark": [
@@ -1210,9 +1210,9 @@
    },
    {
     "text": "New Delivery Note",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "supplier-invoices.light": [
@@ -1229,7 +1229,7 @@
     "ratio": 14.63
    },
    {
-    "text": "2410",
+    "text": "2413",
     "el": "p",
     "fg": "rgb(169, 182, 201)",
     "ratio": 7.12
@@ -1242,15 +1242,15 @@
    },
    {
     "text": "Export CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(226, 232, 240)",
     "ratio": 11.87
    },
    {
     "text": "New Invoice",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "supplier-invoices.dark": [
@@ -1267,7 +1267,7 @@
     "ratio": 14.63
    },
    {
-    "text": "2410",
+    "text": "2413",
     "el": "p",
     "fg": "rgb(148, 163, 184)",
     "ratio": 5.71
@@ -1280,15 +1280,15 @@
    },
    {
     "text": "Export CSV",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(226, 232, 240)",
     "ratio": 11.87
    },
    {
     "text": "New Invoice",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "items-new.light": [
@@ -1404,9 +1404,9 @@
    },
    {
     "text": "Scan Invoice",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ],
   "supplier-invoices-new.dark": [
@@ -1430,9 +1430,9 @@
    },
    {
     "text": "Scan Invoice",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ],
   "goods-received-new.light": [
@@ -1502,15 +1502,15 @@
    },
    {
     "text": "Run Due",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    },
    {
     "text": "New Template",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "recurring-invoices.dark": [
@@ -1540,15 +1540,15 @@
    },
    {
     "text": "Run Due",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    },
    {
     "text": "New Template",
-    "el": "a",
+    "el": "a+bg",
     "fg": "rgb(255, 255, 255)",
-    "ratio": 14.63
+    "ratio": 5.47
    }
   ],
   "batch-payments-new.light": [
@@ -1612,9 +1612,9 @@
    },
    {
     "text": "Scan Document",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ],
   "supplier-payments-new.dark": [
@@ -1638,9 +1638,9 @@
    },
    {
     "text": "Scan Document",
-    "el": "button",
+    "el": "button+bg",
     "fg": "rgb(45, 212, 191)",
-    "ratio": 7.86
+    "ratio": 6.67
    }
   ]
  }
