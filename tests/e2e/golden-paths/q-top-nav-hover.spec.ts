@@ -13,7 +13,7 @@
  * Read-only: no data is created.
  */
 import type { Page } from '@playwright/test';
-import { test, expect, openWithNav, NAV_READY_MS } from '../helpers/navSpec';
+import { test, expect, openWithNav, waitForRoute, NAV_READY_MS } from '../helpers/navSpec';
 
 const NAV = 'nav:has([data-tour="nav-dashboard"])';
 
@@ -38,6 +38,8 @@ for (const { tab, link, path } of T1) {
       await expect(tabOf(page, tab).getByRole('link', { name: 'EMP201', exact: true })).toBeVisible();
       test.skip((await target.count()) === 0, 'company is not VAT registered: no VAT201 link');
     }
+    // The click lands on a route the dev server may not have compiled yet: warm it first, as openWithNav does.
+    await waitForRoute(page, (await target.getAttribute('href')) ?? '/accounting');
     await target.click();
     await page.waitForURL(path, { timeout: NAV_READY_MS });
     // The next page renders its own nav after its auth round trips.
@@ -54,6 +56,7 @@ test('keyboard only: Pay Runs from the Payroll menu button', async ({ page }) =>
   await page.keyboard.press('Escape');
   await expect(button).toBeFocused();
   await expect(tabOf(page, 'payroll').getByRole('link', { name: 'Pay Runs', exact: true })).toHaveCount(0);
+  await waitForRoute(page, '/payroll/runs');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   await page.waitForURL(/\/payroll\/runs$/, { timeout: NAV_READY_MS });
