@@ -1,3 +1,4 @@
+import { DateField } from '@/components/ui';
 /** Section 3 of the new-asset form: purchase date, cost, salvage value and useful life. */
 export const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 export const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -19,25 +20,29 @@ export function AssetFinancialFields({ form, update }: { form: AssetFinancialFor
       </h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className={lbl}>Purchase Date *</label>
-          <input type="date" name="purchaseDate" required value={form.purchaseDate}
-            onChange={e => update('purchaseDate', e.target.value)} className={inp} />
+          <DateField
+            label="Purchase Date"
+            name="purchaseDate"
+            required
+            value={form.purchaseDate || null}
+            onChange={iso => update('purchaseDate', iso ?? '')}
+          />
         </div>
         <div>
-          <label className={lbl}>Cost (Purchase Price) *</label>
-          <input type="number" name="cost" required step="0.01" min="0.01" value={form.cost}
+          <label htmlFor="asset-cost" className={lbl}>Cost (Purchase Price) *</label>
+          <input id="asset-cost" type="number" name="cost" required step="0.01" min="0.01" value={form.cost}
             onChange={e => update('cost', e.target.value)}
             placeholder="25000.00" className={inp} />
         </div>
         <div>
-          <label className={lbl}>Salvage (Residual) Value</label>
-          <input type="number" name="salvageValue" step="0.01" min="0" value={form.salvageValue}
+          <label htmlFor="asset-salvageValue" className={lbl}>Salvage (Residual) Value</label>
+          <input id="asset-salvageValue" type="number" name="salvageValue" step="0.01" min="0" value={form.salvageValue}
             onChange={e => update('salvageValue', e.target.value)}
             placeholder="0.00" className={inp} />
         </div>
         <div>
-          <label className={lbl}>Useful Life (years) *</label>
-          <input type="number" name="usefulLifeYears" required step="0.5" min="0.5" value={form.usefulLifeYears}
+          <label htmlFor="asset-usefulLifeYears" className={lbl}>Useful Life (years) *</label>
+          <input id="asset-usefulLifeYears" type="number" name="usefulLifeYears" required step="0.5" min="0.5" value={form.usefulLifeYears}
             onChange={e => update('usefulLifeYears', e.target.value)} className={inp} />
         </div>
       </div>

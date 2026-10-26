@@ -227,7 +227,7 @@
   "pages/accounting/month-end-workbench.tsx": 5,
   "pages/accounting/audit-packs/index.tsx": 4,
   "pages/accounting/assets/index.tsx": 1,
-  "pages/accounting/assets/new.tsx": 8,
+  "pages/accounting/assets/new.tsx": 7,
   "pages/accounting/assets/[assetId].tsx": 1,
   "pages/accounting/assets/categories.tsx": 2,
   "pages/accounting/expenses/[id].tsx": 14,
