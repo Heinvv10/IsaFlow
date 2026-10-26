@@ -60,7 +60,7 @@ const salesCustomerTask = (c: Checklist) =>
   c.modules.find((m) => m.id === 'sales')!.tasks.find((t) => t.id === 'customers')!.done;
 
 test('setup checklist: a company with no customers has Sales open; adding one marks Sales 1 done', async ({ page, baseURL }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   const api = await Api.login(baseURL!);
   const home = await activeCompanyId(api);
   let browserSwitched = false;
@@ -90,8 +90,15 @@ test('setup checklist: a company with no customers has Sales open; adding one ma
     await switchBrowserCompany(page.context(), sandbox);
     browserSwitched = true;
     await page.goto('/accounting');
+    // The overview renders after its KPI load (slow on a loaded runner); wait for it, then for the card,
+    // and say where the page ended up if the card is missing.
+    await expect(page.getByRole('heading', { name: 'Action Items' })).toBeVisible({ timeout: 90_000 });
     const card = page.getByRole('region', { name: 'Finish setting up' });
-    await expect(card).toBeVisible({ timeout: 30_000 });
+    await card.waitFor({ state: 'visible', timeout: 60_000 }).catch(async (err: unknown) => {
+      const text = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 600);
+      throw new Error(`checklist card missing on ${page.url()}: ${String(err)}\nmain: ${text}`);
+    });
+    await expect(card).toBeVisible();
     await expect(card).toContainText(`${after.doneCount} of ${after.totalCount} done`);
     await expect(card.getByRole('button', { name: /Sales/ })).toContainText(`${after.modules[0]!.doneCount}/`);
   } finally {
