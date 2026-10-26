@@ -9,6 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2R3a5';
+import { bvaBody } from '../helpers/bvaReportFixture';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -23,11 +24,11 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const REPORT = {
   fiscal_year: 2026, years: [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', kind: 'normal' }],
   report: {
-    period: '2026-10-01 to 2026-10-24', total_budget: 10, total_actual: 5, total_variance: 5,
-    lines: [
-      { account_code: '4000', account_name: 'Sales', account_type: 'revenue', budget_amount: 10, actual_amount: 5, variance: 5, variance_pct: 50 },
-      { account_code: '5000', account_name: 'Rent', account_type: 'expense', budget_amount: 8, actual_amount: 6, variance: 2, variance_pct: 25 },
-    ],
+    period: '2026-10-01 to 2026-10-31',
+    ...bvaBody([
+      { code: '4000', name: 'Sales', type: 'revenue', actual: 5, budget: 10 },
+      { code: '5000', name: 'Rent', type: 'expense', actual: 6, budget: 8 },
+    ]),
   },
 };
 const DRILL = { accountCode: '4000', accountName: 'Sales', openingBalance: 0, periodNet: 5, closingBalance: 5, transactions: [] };
