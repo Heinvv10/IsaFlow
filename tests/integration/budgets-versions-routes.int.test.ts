@@ -18,6 +18,7 @@ import { signSession } from './r-032-fake-gotrue.helpers';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { als } from '@/lib/als';
 import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
+import { transitionVersion } from '@/modules/accounting/services/budgets/budgetVersionStatus';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -128,6 +129,25 @@ describe('budget-versions routes', () => {
           .rejects.toMatchObject({ code: 'BUDGET_VERSION_LOCKED' });
       });
       // A statement that failed inside the transaction would make this one fail 25P02.
+      expect((await c.query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
+
+  it('a move from the wrong status is refused by the compare-and-set, not by the trigger: the transaction stays usable', async () => {
+    const v = data(await create(o.u, 'CAS'));
+    expect((await move(o.u, v.id, { action: 'approve' })).status).toBe(200);
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await als.run({ client: c, companyId: o.u.homeCompanyId, userId: o.u.userId, claims: {} } as never, async () => {
+        for (const action of ['approve', 'unlock'] as const) {
+          await expect(transitionVersion(o.u.homeCompanyId, v.id, { action, reason: 'r' }, { userId: o.u.userId, role: 'owner' }))
+            .rejects.toMatchObject({ code: 'BUDGET_VERSION_STATE' });
+        }
+      });
       expect((await c.query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
     } finally {
       await c.query('ROLLBACK');
