@@ -63,4 +63,15 @@ describe('947 catalog', () => {
     expect(r.reloptions).toContain('security_invoker=true');
     expect(r.sel).toBe(true);
   });
+
+  it('the app pools insert versions as drafts only: no INSERT on status or the stamps, through app_user or app_service', async () => {
+    for (const role of ['app_user', 'app_service']) {
+      const r = (await pool.query(
+        `SELECT has_table_privilege($1, 'budget_versions', 'INSERT') AS whole,
+                has_column_privilege($1, 'budget_versions', 'status', 'INSERT') AS status,
+                has_column_privilege($1, 'budget_versions', 'approved_by', 'INSERT') AS approved_by,
+                has_column_privilege($1, 'budget_versions', 'name', 'INSERT') AS name`, [role])).rows[0];
+      expect(r, role).toEqual({ whole: false, status: false, approved_by: false, name: true });
+    }
+  });
 });

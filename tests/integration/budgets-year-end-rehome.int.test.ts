@@ -15,6 +15,8 @@ import { undoYearEndChange } from '@/modules/accounting/services/gl/financialYea
 import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
 import { loadWindowBudgets } from '@/modules/accounting/services/reports/budgetWindowService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { backendPid, outcome, waitUntilBlocked } from './helpers/lockWait';
+import { undoRefusals, latestLiveChange } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -115,5 +117,54 @@ describe('P1: budget months follow a change of year end', () => {
     await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount) VALUES ($1, $2, $3, '2027-01-01', 5)`, [c.id, scen, c.rent]);
     const scenario = await inTx(c.id, () => assessYearEndChange(c.id, { newYearEndMonth: 2 }, TODAY));
     expect(scenario.refusals.join(' ')).toMatch(/FY2027 'Stretch' \(not the primary budget, 1 month amount\(s\) moving\)/);
+  });
+
+  it('a budget save in flight when the change starts is waited for, and its months are re-homed with the rest', async () => {
+    const c = await company();
+    const t2 = await pool.connect(), t1 = await pool.connect();
+    try {
+      await t2.query('BEGIN');
+      await als.run({ client: t2, companyId: c.id, userId: user, claims: {} } as never, () =>
+        upsertBudget(c.id, { glAccountId: c.rent, fiscalYear: 2027, annualAmount: 2400 }, user));
+      await t1.query('BEGIN');
+      const pid = await backendPid(t1);
+      const change = outcome(als.run({ client: t1, companyId: c.id, userId: user, claims: {} } as never, () =>
+        applyYearEndChange(c.id, user, { newYearEndMonth: 2, ...OK }, TODAY)).then(() => t1.query('COMMIT')));
+      await waitUntilBlocked(pool, pid);
+      await t2.query('COMMIT');
+      expect(await change).toBe('ok');
+    } finally {
+      await t1.query('ROLLBACK').catch(() => undefined);
+      await t2.query('ROLLBACK').catch(() => undefined);
+      t1.release();
+      t2.release();
+    }
+    // Every stored amount is counted by the readers across the new years.
+    expect(await stored(c.id)).toBe(1200 + 2400);
+    expect(await windowBudget(c, '2026-01-01', '2028-02-29')).toBe(1200 + 2400);
+  });
+
+  it('a change whose months would clash in the target year is refused in the preview, not with a 500 on apply', async () => {
+    const c = await company();
+    const fy2026 = (await pool.query(`SELECT id FROM budget_versions WHERE company_id = $1 AND fiscal_year = 2026 AND is_primary`, [c.id])).rows[0].id;
+    const cc = (await pool.query(`INSERT INTO cost_centres (company_id, code, name, cc_type) VALUES ($1, 'RH-C1', 'Branch', 'cc1') RETURNING id`, [c.id])).rows[0].id;
+    // FY2026 budgets rent by CC1; FY2027 at company level: Jan-Feb 2027 cannot join FY2026.
+    await pool.query('DELETE FROM budget_month_amounts WHERE version_id = $1', [fy2026]);
+    await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, cc1_id, month, amount) VALUES ($1, $2, $3, $4, '2026-06-01', 50)`,
+      [c.id, fy2026, c.rent, cc]);
+    const a = await inTx(c.id, () => assessYearEndChange(c.id, { newYearEndMonth: 2 }, TODAY));
+    expect(a.refusals.join(' ')).toMatch(/budget RH-5000 at different levels/);
+    await pool.query('DELETE FROM budget_month_amounts WHERE version_id = $1', [fy2026]);
+    await pool.query('DELETE FROM cost_centres WHERE id = $1', [cc]);
+  });
+
+  it('the undo is refused up front when a budget it would move is locked', async () => {
+    const c = await company();
+    await inTx(c.id, () => applyYearEndChange(c.id, user, { newYearEndMonth: 2, ...OK }, TODAY));
+    const fy2028 = (await pool.query(`SELECT id FROM budget_versions WHERE company_id = $1 AND fiscal_year = 2028 AND is_primary`, [c.id])).rows[0].id;
+    await pool.query(`UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`, [fy2028, user]);
+    await pool.query(`UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = clock_timestamp() WHERE id = $1`, [fy2028, user]);
+    const refusals = await inTx(c.id, async () => undoRefusals(c.id, await latestLiveChange(c.id)));
+    expect(refusals.join(' ')).toMatch(/FY2028 'Original' \(locked\)/);
   });
 });

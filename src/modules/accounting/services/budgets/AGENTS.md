@@ -21,6 +21,8 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 - Roll-ups are computed (company total = Σ dimension rows), never stored.
 - Routes answer `BudgetVersionError` through `@/lib/budgetVersionResponse` (`error.details.code` carries the contract code).
 
+- Budget writers take `holdYearRegistry` (the SHARED form of the change-of-year-end advisory lock) before reading the registry, so a save and a year-end change serialise.
+- A change of year end (and its undo) moves the PRIMARY budget's months into the year that now holds them (`budgetYearRehome.ts`, decision 12), including a stray month that sat outside its own year. Its preview refuses, conservatively, when a locked budget of the changed year or later, a non-primary version with months after the boundary, two primaries budgeting an account at different levels, or a non-primary 'Original' in a year with no primary is involved. Anything that still fails mid-change is a plain Error (500, full rollback): a 4xx would commit the half-applied change.
 ## Business rules (decisions 1-4, 11-14)
 - Approve and lock: owner or admin. Unlock: owner only, reason 1-500 chars (DB requires a non-blank reason, 23514). Owner-only is app-enforced (decision 11).
 - Approved-but-unlocked stays editable; locked is immutable in the DB (`budget_month_amounts_refuse_locked`, ENABLE ALWAYS).

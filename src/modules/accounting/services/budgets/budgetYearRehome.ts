@@ -32,10 +32,44 @@ export async function budgetRehomeRefusals(companyId: string, boundary: string, 
         OR (NOT v.is_primary AND COUNT(bm.id) > 0)
      ORDER BY v.fiscal_year, v.name
   `) as DbRow[];
-  if (rows.length === 0) return [];
-  const named = rows.map((r) => `FY${String(r.fiscal_year)} '${String(r.name)}' (${r.status === 'locked' ? 'locked' : `not the primary budget, ${String(r.n)} month amount(s) moving`})`);
-  return [`Budgets would have to move between years with this change: ${named.join('; ')}. `
-    + 'Unlock a locked budget, and delete a scenario or reforecast version (or its months after the change), before changing the year end.'];
+  const out: string[] = [];
+  if (rows.length > 0) {
+    const named = rows.map((r) => `FY${String(r.fiscal_year)} '${String(r.name)}' (${r.status === 'locked' ? 'locked' : `not the primary budget, ${String(r.n)} month amount(s) moving`})`);
+    out.push(`Budgets would have to move between years with this change: ${named.join('; ')}. `
+      + 'Unlock a locked budget, and delete a scenario or reforecast version (or its months after the change), before changing the year end.');
+  }
+  // What the move itself would hit (rehome's clash check), judged before anything is written and
+  // conservatively: any two primaries of the years involved budgeting one account at different
+  // levels, or holding the same cell, where one of them has months that can move.
+  const clash = (await sql`
+    SELECT DISTINCT ga.account_code
+      FROM budget_month_amounts r1
+      JOIN budget_versions p1 ON p1.id = r1.version_id AND p1.company_id = r1.company_id AND p1.is_primary
+      JOIN budget_versions p2 ON p2.company_id = p1.company_id AND p2.is_primary AND p2.id <> p1.id
+      JOIN budget_month_amounts r2 ON r2.company_id = p2.company_id AND r2.version_id = p2.id AND r2.gl_account_id = r1.gl_account_id
+      JOIN gl_accounts ga ON ga.id = r1.gl_account_id AND ga.company_id = r1.company_id
+     WHERE r1.company_id = ${companyId}::UUID AND p1.fiscal_year >= ${fromLabel} AND p2.fiscal_year >= ${fromLabel}
+       AND (r1.month + INTERVAL '1 month' - INTERVAL '1 day')::DATE > ${boundary}::DATE
+       AND (r1.dim_grain <> r2.dim_grain OR (r1.month = r2.month AND r1.cc1_id IS NOT DISTINCT FROM r2.cc1_id
+            AND r1.cc2_id IS NOT DISTINCT FROM r2.cc2_id AND r1.bu_id IS NOT DISTINCT FROM r2.bu_id))
+     ORDER BY 1 LIMIT 6
+  `) as DbRow[];
+  if (clash.length > 0) {
+    out.push(`The primary budgets of the years involved budget ${clash.map((r) => String(r.account_code)).join(', ')} at different levels `
+      + '(company level vs a dimension) or hold the same month twice, so their months cannot move between them. Align them before changing the year end.');
+  }
+  // A year with no primary gets a draft 'Original' when months move in: a non-primary 'Original' blocks that.
+  const unnamed = (await sql`
+    SELECT DISTINCT v.fiscal_year FROM budget_versions v
+     WHERE v.company_id = ${companyId}::UUID AND v.fiscal_year >= ${fromLabel} AND v.name = 'Original' AND NOT v.is_primary
+       AND NOT EXISTS (SELECT 1 FROM budget_versions p WHERE p.company_id = v.company_id AND p.fiscal_year = v.fiscal_year AND p.is_primary)
+     ORDER BY 1
+  `) as DbRow[];
+  if (unnamed.length > 0) {
+    out.push(`FY${unnamed.map((r) => String(r.fiscal_year)).join(', FY')} has a version named 'Original' that is not its primary budget, and no primary: `
+      + 'make a version primary there before changing the year end.');
+  }
+  return out;
 }
 
 /**
