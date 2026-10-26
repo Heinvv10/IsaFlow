@@ -50,11 +50,11 @@ export async function transitionVersion(
       UPDATE budget_versions SET
         status = ${move.to},
         approved_by = CASE WHEN ${input.action} = 'approve' THEN ${stamp} ELSE approved_by END,
-        approved_at = CASE WHEN ${input.action} = 'approve' THEN now() ELSE approved_at END,
+        approved_at = CASE WHEN ${input.action} = 'approve' THEN clock_timestamp() ELSE approved_at END,
         locked_by = CASE WHEN ${input.action} = 'lock' THEN ${stamp} ELSE locked_by END,
-        locked_at = CASE WHEN ${input.action} = 'lock' THEN now() ELSE locked_at END,
+        locked_at = CASE WHEN ${input.action} = 'lock' THEN clock_timestamp() ELSE locked_at END,
         unlocked_by = CASE WHEN ${input.action} = 'unlock' THEN ${stamp} ELSE unlocked_by END,
-        unlocked_at = CASE WHEN ${input.action} = 'unlock' THEN now() ELSE unlocked_at END,
+        unlocked_at = CASE WHEN ${input.action} = 'unlock' THEN clock_timestamp() ELSE unlocked_at END,
         unlock_reason = CASE WHEN ${input.action} = 'unlock' THEN ${reason} ELSE unlock_reason END
       WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID AND status = ${move.from}
         AND (${expected}::TIMESTAMPTZ IS NULL OR updated_at = ${expected}::TIMESTAMPTZ)

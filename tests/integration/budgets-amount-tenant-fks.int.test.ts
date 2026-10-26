@@ -85,3 +85,15 @@ describe('947 company consistency holds after the write (composite keys, not onl
     });
   });
 });
+
+describe('947: a centre a budget uses keeps its kind', () => {
+  it('changing the cc_type of a CC1 that a budget amount carries is refused 23514; an unused centre may change', async () => {
+    await asAppUser(A, async (q) => {
+      await q.query(INS, [A.id, vA, A.acct2, A.cc1b, null, null]);
+      expect(await codeOf(q, `UPDATE cost_centres SET cc_type = 'cc2' WHERE id = $1`, [A.cc1b])).toBe('23514');
+    });
+    await asAppUser(A, async (q) => {
+      expect(await codeOf(q, `UPDATE cost_centres SET cc_type = 'cc2' WHERE id = $1`, [A.cc1b])).toBe('ok');
+    });
+  });
+});

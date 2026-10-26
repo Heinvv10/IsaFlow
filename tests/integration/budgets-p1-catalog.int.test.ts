@@ -21,7 +21,7 @@ describe('947 catalog', () => {
     expect(created).toEqual(expect.arrayContaining([
       'budget_versions_guard', 'budget_versions_audit', 'budget_month_amounts_dimension_kinds', 'budget_month_amounts_refuse_locked',
       'budget_version_original', 'budget_month_registry_label', 'budget_versions_from_months', 'budget_versions_snapshot',
-      'budget_versions_parity_mismatches', 'budget_months_from_legacy']));
+      'budget_versions_parity_mismatches', 'budget_months_from_legacy', 'cost_centres_keep_budget_kind']));
     const rows = (await pool.query(
       `SELECT proname, prosecdef FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = ANY($1)`, [created])).rows;
     expect(new Set(rows.map((r) => r.proname))).toEqual(new Set(created));
@@ -45,12 +45,14 @@ describe('947 catalog', () => {
   it('the guard, audit, lock and kind triggers fire ALWAYS (also under replica)', async () => {
     const rows = (await pool.query(
       `SELECT tgname, tgenabled FROM pg_trigger WHERE tgname = ANY($1) ORDER BY 1`,
-      [['trg_budget_versions_guard', 'trg_budget_versions_audit', 'trg_budget_month_amounts_refuse_locked', 'trg_budget_month_amounts_dimension_kinds']])).rows;
+      [['trg_budget_versions_guard', 'trg_budget_versions_audit', 'trg_budget_month_amounts_refuse_locked', 'trg_budget_month_amounts_dimension_kinds',
+        'trg_cost_centres_keep_budget_kind']])).rows;
     expect(rows).toEqual([
       { tgname: 'trg_budget_month_amounts_dimension_kinds', tgenabled: 'A' },
       { tgname: 'trg_budget_month_amounts_refuse_locked', tgenabled: 'A' },
       { tgname: 'trg_budget_versions_audit', tgenabled: 'A' },
       { tgname: 'trg_budget_versions_guard', tgenabled: 'A' },
+      { tgname: 'trg_cost_centres_keep_budget_kind', tgenabled: 'A' },
     ]);
   });
 

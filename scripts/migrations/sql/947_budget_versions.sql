@@ -62,7 +62,8 @@
 -- If both are 0, old reads are exact. Otherwise old reads over-count: roll
 -- forward instead. Manual schema rollback (Hein-approved only, valid only
 -- while both counts are 0): re-add UNIQUE (company_id, gl_account_id, month);
--- drop one_grain, one_per_cell, the FKs, the triggers and the view; drop the
+-- drop one_grain, one_per_cell, one_dimension, the FKs, the triggers (also
+-- trg_cost_centres_keep_budget_kind on cost_centres) and the view; drop the
 -- columns and budget_versions; restore 944's budget_months_from_legacy body.
 -- No default-filling trigger for version_id is added on purpose: it would hide
 -- a writer that forgot the version by landing its rows in the primary.
@@ -70,8 +71,10 @@
 -- (QA purge scripts unlock first).
 --
 -- ERROR CODES (a contract with P2): BV001 locked; BV002 illegal transition or
--- immutable field; 23514 unlock without a reason, or a centre of the wrong
--- cc_type; 23P01 with constraint budget_month_amounts_one_grain.
+-- immutable field; 23514 unlock without a reason, a centre of the wrong
+-- cc_type, a used centre's cc_type change, or two dimensions on one amount
+-- (budget_month_amounts_one_dimension, decision 14); 23P01 with constraint
+-- budget_month_amounts_one_grain.
 
 SET LOCAL lock_timeout = '5s';
 
@@ -187,14 +190,19 @@ BEGIN
         RAISE EXCEPTION 'approving budget version % needs approved_by and approved_at', OLD.id USING ERRCODE = 'BV002';
       END IF;
     ELSIF OLD.status = 'approved' AND NEW.status = 'locked' THEN
-      IF NEW.locked_by IS NULL OR NEW.locked_at IS NULL THEN
-        RAISE EXCEPTION 'locking budget version % needs locked_by and locked_at', OLD.id USING ERRCODE = 'BV002';
+      -- A fresh stamp for every lock: a second lock cannot reuse the previous one's actor and time.
+      IF NEW.locked_by IS NULL OR NEW.locked_at IS NULL OR NEW.locked_at IS NOT DISTINCT FROM OLD.locked_at
+         OR NEW.locked_at < COALESCE(OLD.unlocked_at, OLD.approved_at) THEN
+        RAISE EXCEPTION 'locking budget version % needs a new locked_by and locked_at', OLD.id USING ERRCODE = 'BV002';
       END IF;
     ELSIF OLD.status = 'locked' AND NEW.status = 'approved' THEN
-      IF NEW.unlocked_by IS NULL OR NEW.unlocked_at IS NULL THEN
-        RAISE EXCEPTION 'unlocking budget version % needs unlocked_by and unlocked_at', OLD.id USING ERRCODE = 'BV002';
+      -- A fresh stamp and reason for every unlock, never the previous unlock's.
+      IF NEW.unlocked_by IS NULL OR NEW.unlocked_at IS NULL OR NEW.unlocked_at IS NOT DISTINCT FROM OLD.unlocked_at
+         OR NEW.unlocked_at < OLD.locked_at THEN
+        RAISE EXCEPTION 'unlocking budget version % needs a new unlocked_by and unlocked_at', OLD.id USING ERRCODE = 'BV002';
       END IF;
-      IF NEW.unlock_reason IS NULL OR btrim(NEW.unlock_reason) = '' THEN
+      -- Any non-whitespace character (btrim strips only spaces; a tab or newline is no reason).
+      IF NEW.unlock_reason IS NULL OR NEW.unlock_reason !~ '\S' THEN
         RAISE EXCEPTION 'unlocking budget version % needs a reason', OLD.id USING ERRCODE = '23514';
       END IF;
     ELSE
@@ -366,6 +374,27 @@ CREATE TRIGGER trg_budget_month_amounts_dimension_kinds
   BEFORE INSERT OR UPDATE OF company_id, cc1_id, cc2_id ON budget_month_amounts
   FOR EACH ROW EXECUTE FUNCTION public.budget_month_amounts_dimension_kinds();
 ALTER TABLE budget_month_amounts ENABLE ALWAYS TRIGGER trg_budget_month_amounts_dimension_kinds;
+
+-- The kind holds after the write too: a centre a budget amount uses cannot change cc_type
+-- (journal lines carry the same reference and are not covered here).
+CREATE OR REPLACE FUNCTION public.cost_centres_keep_budget_kind()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM budget_month_amounts bm
+              WHERE bm.company_id = OLD.company_id AND (bm.cc1_id = OLD.id OR bm.cc2_id = OLD.id)) THEN
+    RAISE EXCEPTION 'cost centre % is used by budget amounts; its kind (cc_type) cannot change', OLD.id USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_cost_centres_keep_budget_kind ON cost_centres;
+CREATE TRIGGER trg_cost_centres_keep_budget_kind BEFORE UPDATE OF cc_type ON cost_centres
+  FOR EACH ROW WHEN (OLD.cc_type IS DISTINCT FROM NEW.cc_type) EXECUTE FUNCTION public.cost_centres_keep_budget_kind();
+ALTER TABLE cost_centres ENABLE ALWAYS TRIGGER trg_cost_centres_keep_budget_kind;
 
 -- A locked version's amounts are immutable. FOR SHARE on the version conflicts
 -- with the FOR NO KEY UPDATE a status UPDATE takes, so a write and a lock
@@ -557,6 +586,7 @@ REVOKE ALL ON FUNCTION public.budget_versions_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_versions_audit() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_month_amounts_dimension_kinds() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_month_amounts_refuse_locked() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cost_centres_keep_budget_kind() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_version_original(uuid, int, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_month_registry_label(uuid, date) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_versions_from_months(uuid) FROM PUBLIC;
@@ -567,6 +597,12 @@ DO $$
 DECLARE
   before jsonb; converted int; bad int;
 BEGIN
+  -- Only rows without a version are converted; on a rerun there are none, and the snapshot (every
+  -- row) would no longer equal the primary read path once non-primary versions hold amounts.
+  IF NOT EXISTS (SELECT 1 FROM budget_month_amounts WHERE version_id IS NULL) THEN
+    RAISE NOTICE '947: no budget months without a version; nothing to convert';
+    RETURN;
+  END IF;
   before := public.budget_versions_snapshot(NULL);
   converted := public.budget_versions_from_months(NULL);
   RAISE NOTICE '947: % budget months assigned to versions', converted;
