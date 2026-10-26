@@ -48,14 +48,27 @@ export class BudgetVersionStaleError extends BudgetVersionError {
 
 const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
 
+/** Thrown inside the savepoint when the batch changed no row: its rollback takes back the token bump. */
+class NothingChanged extends Error {}
+
 export async function saveCells(companyId: string, userId: string, input: SaveCellsInput): Promise<SaveCellsResult> {
   const batch = validateBatch(input.cells);
   await holdYearRegistry(companyId);
   try {
     return await withSavepoint('budget_grid_save', () => write(companyId, userId, input, batch));
   } catch (err) {
+    // A batch that changes nothing (clears of absent cells, amounts equal to stored) leaves the
+    // version as it was: no token bump that would make other users' tokens stale, no audit row.
+    if (err instanceof NothingChanged) return { updatedAt: await currentToken(companyId, input.versionId), saved: 0, deleted: 0 };
     return mapBudgetDbError(err);
   }
+}
+
+async function currentToken(companyId: string, versionId: string): Promise<string> {
+  const rows = (await sql`
+    SELECT ${tokenSql()} AS token FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return String(rows[0]?.token);
 }
 
 async function write(companyId: string, userId: string, input: SaveCellsInput, batch: ValidatedBatch): Promise<SaveCellsResult> {
@@ -73,7 +86,8 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
   const sumBefore = await versionSum(companyId, versionId);
   const deleted = await deleteCells(companyId, versionId, batch.deletes);
   await assertOneGrain(companyId, versionId, batch.upserts, labels);
-  await writeCells(companyId, versionId, userId, batch.upserts);
+  const changed = await writeCells(companyId, versionId, userId, batch.upserts);
+  if (deleted === 0 && changed === 0) throw new NothingChanged();
   const sumAfter = await versionSum(companyId, versionId);
 
   await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {

@@ -51,13 +51,14 @@ export async function deleteCells(companyId: string, versionId: string, cells: r
   return Number(rows[0]?.n ?? 0);
 }
 
-/** Sets each cell's amount: an existing cell is updated (when it changes), a new one inserted. */
-export async function writeCells(companyId: string, versionId: string, userId: string, cells: ValidatedBatch['upserts']): Promise<void> {
-  if (cells.length === 0) return;
+/** Sets each cell's amount: an existing cell is updated (when it changes), a new one inserted. Returns the rows changed. */
+export async function writeCells(companyId: string, versionId: string, userId: string, cells: ValidatedBatch['upserts']): Promise<number> {
+  if (cells.length === 0) return 0;
   const k = keyArrays(cells);
   // Whole cents travel as integers and are divided in NUMERIC, so no float reaches the column.
   const cents = cells.map((c) => toCents(c.amount));
-  await sql`
+  const updated = (await sql`
+    WITH up AS (
     UPDATE budget_month_amounts bm SET amount = t.cents::NUMERIC / 100
       FROM unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[], ${cents}::BIGINT[])
            AS t(a, c1, c2, b, m, cents)
@@ -65,10 +66,14 @@ export async function writeCells(companyId: string, versionId: string, userId: s
        AND bm.gl_account_id = t.a AND bm.month = t.m AND COALESCE(bm.cc1_id, ${NIL}::UUID) = t.c1
        AND COALESCE(bm.cc2_id, ${NIL}::UUID) = t.c2 AND COALESCE(bm.bu_id, ${NIL}::UUID) = t.b
        AND bm.amount <> t.cents::NUMERIC / 100
-  `;
+    RETURNING 1
+    )
+    SELECT COUNT(*)::int AS n FROM up
+  `) as DbRow[];
   // The version row is locked, so no other writer adds one of these cells in between; the
   // conflict clause stays as the backstop.
-  await sql`
+  const inserted = (await sql`
+    WITH ins AS (
     INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, cc1_id, cc2_id, bu_id, month, amount, created_by)
     SELECT ${companyId}::UUID, ${versionId}::UUID, t.a, NULLIF(t.c1, ${NIL}::UUID), NULLIF(t.c2, ${NIL}::UUID),
            NULLIF(t.b, ${NIL}::UUID), t.m, t.cents::NUMERIC / 100, ${userId}
@@ -81,5 +86,9 @@ export async function writeCells(companyId: string, versionId: string, userId: s
           AND COALESCE(bm.cc2_id, ${NIL}::UUID) = t.c2 AND COALESCE(bm.bu_id, ${NIL}::UUID) = t.b)
     ON CONFLICT ON CONSTRAINT budget_month_amounts_one_per_cell
     DO UPDATE SET amount = EXCLUDED.amount, updated_at = now()
-  `;
+    RETURNING 1
+    )
+    SELECT COUNT(*)::int AS n FROM ins
+  `) as DbRow[];
+  return Number(updated[0]?.n ?? 0) + Number(inserted[0]?.n ?? 0);
 }

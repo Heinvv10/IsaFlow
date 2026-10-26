@@ -16,12 +16,12 @@
  * Order (round-3 N4): the upload is read BEFORE withAuth takes a pooled connection and opens the
  * request transaction (readJsonBody's withBodyFirst: at most BODY_LIMITS bytes, a total and an
  * idle deadline), so a slow client holds no connection idle in a transaction. Ahead of reading,
- * only a caller who passes the local CSRF check and holds a validly signed session is read at all
- * (withBodyFirst), and that user's preview bucket is charged (withPreviewRate: PREVIEW_RATE per 15
- * minutes across all their companies, 429). Nothing is parsed until the handler runs, after every
- * withAuth / CSRF / write-access check.
+ * only a caller who passes the CSRF check and withAuth's token gate is read at all, and that
+ * user's preview bucket is charged first (withBodyFirst's `rate`: PREVIEW_RATE per 15 minutes
+ * across all their companies, 429, the body not read). Nothing is parsed until the handler runs,
+ * after every withAuth / CSRF / write-access check.
  */
-import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import formidable from 'formidable';
 import fs from 'fs';
 import os from 'os';
@@ -31,9 +31,6 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { verifyCsrf } from '@/lib/auth/csrf';
-import { ACCESS_COOKIE, parseCookies } from '@/lib/auth/cookies';
-import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { JsonBodyError, respondBodyError, takeRawBody, withBodyFirst, type BodyLimits } from '@/lib/readJsonBody';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -62,31 +59,13 @@ function removeUploads(dir: string, context: Record<string, string>): void {
   }
 }
 
-/**
- * Charges the user's preview bucket before any of the upload is read, for a POST that passes the
- * same local gates withBodyFirst reads for (CSRF, a validly signed session); anyone else is left to
- * withAuth and withCsrf to refuse. A limiter error throws (never admits).
- */
-function withPreviewRate(inner: NextApiHandler): NextApiHandler {
-  return async (req, res) => {
-    if (req.method === 'POST' && verifyCsrf(req)) {
-      const token = parseCookies(req)[ACCESS_COOKIE];
-      const userId = token ? await verifyTokenSignature(token).then((c) => c.sub, () => null) : null;
-      if (userId && !(await checkRateLimit(`budget-import:${userId}`, { max: PREVIEW_RATE, windowSecs: 900 }))) {
-        return apiResponse.tooManyRequests(res, 'Too many import previews — wait a few minutes and try again.');
-      }
-    }
-    return inner(req, res);
-  };
-}
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const context = { companyId, userId: (req as AuthenticatedNextApiRequest).user.id };
   let raw: Buffer;
   try {
-    raw = await takeRawBody(req, BODY_LIMITS);
+    raw = await takeRawBody(req);
   } catch (err) {
     if (!(err instanceof JsonBodyError)) throw err;
     log.warn('Budget import upload refused', { ...context, error: err.message }, 'accounting');
@@ -131,4 +110,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withPreviewRate(withBodyFirst(BODY_LIMITS, withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))));
+const PREVIEW_BUCKET = {
+  charge: (userId: string) => checkRateLimit(`budget-import:${userId}`, { max: PREVIEW_RATE, windowSecs: 900 }),
+  retryAfterSecs: 900,
+  message: 'Too many import previews — wait a few minutes and try again.',
+};
+
+export default withBodyFirst(BODY_LIMITS, withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)))), { rate: PREVIEW_BUCKET });

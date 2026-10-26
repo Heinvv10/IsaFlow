@@ -243,6 +243,21 @@ describe('POST /api/accounting/budget-grid/save', () => {
     expect([r.status, errCode(r as never)], dump(r)).toEqual([400, 'BUDGET_GRAIN_CONFLICT']);
   });
 
+  it('a batch that changes nothing (clears of absent cells, amounts equal to stored) is 200 with the CURRENT token, 0/0, no audit row', async () => {
+    const v = await fx.version(w);
+    const [m0, m1] = w.months;
+    await fx.amount(w, v, w.rent, m0!, 10);
+    for (const cells of [[cell(w.sales, m1!, null)], [cell(w.rent, m0!, 10)], [cell(w.rent, m0!, 10), cell(w.sales, m0!, null)]]) {
+      const before = await fx.token(v);
+      const r = await unchanged(v, () => save(v, cells));
+      expect(r.status, dump(r)).toBe(200);
+      expect(data(r)).toEqual({ updatedAt: before, saved: 0, deleted: 0 });
+    }
+    // A batch with one real change still writes, moves the token and audits.
+    const r = await save(v, [cell(w.rent, m0!, 10), cell(w.rent, m1!, 3)]);
+    expect([r.status, data(r).saved, (await fx.audits(v)).length], dump(r)).toEqual([200, 2, 1]);
+  });
+
   it('refuses a bad batch before anything is written or the token moves', async () => {
     const v = await fx.version(w);
     await fx.amount(w, v, w.rent, w.months[0]!, 5);

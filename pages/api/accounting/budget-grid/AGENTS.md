@@ -25,5 +25,7 @@ Errors go through `respondBudgetVersionError`: 400 input/grain (the message name
 ## Gotchas
 - The token is P1's UTC ISO text with microseconds; send back exactly what the read returned.
 - An import preview's token goes stale if anyone saves in between: commit then 409s and the user re-runs the preview.
-- `import-preview` order: `withPreviewRate` (per-user bucket, charged before any byte) → `withBodyFirst` (raw upload read OUTSIDE withAuth: 10 MB + 64 KB, 60 s total, 10 s idle; only for a CSRF-checked caller with a signed session) → withAuth → … → formidable on the buffered bytes. No pooled connection is held while a client uploads.
+- `import-preview` order: `withBodyFirst` (per-user bucket charged before any byte) (raw upload read OUTSIDE withAuth: 10 MB + 64 KB, 60 s total, 10 s idle; only for a CSRF-checked caller with a signed session) → withAuth → … → formidable on the buffered bytes. No pooled connection is held while a client uploads.
 - Rate limits are per USER (`budget-import:<userId>`, `budget-template:<userId>`, 60 / 15 min), never per company+user.
+- Early body reads (`withBodyFirst`, src/lib/readJsonBody.ts) gate on the SAME `verifyToken` withAuth calls (signature, expiry, aal2 or no-MFA aal1) plus CSRF, then: a per-user rate bucket charged before any byte (`budget-save:<userId>` 120/min, `budget-import:<userId>` 60/15 min; literal keys in the routes for the rate-limit census), at most 2 early reads in flight per user (429), and 64 MB of early reads per process (503). A body that was not read early is refused (400 REQUEST_BODY_NOT_READ), never read inside the transaction.
+- A save batch that changes nothing returns 200 with the current token and writes no audit row (no false STALE for others).
