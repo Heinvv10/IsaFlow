@@ -17,6 +17,7 @@ import { loadWindowBudgets } from '@/modules/accounting/services/reports/budgetW
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { backendPid, outcome, waitUntilBlocked } from './helpers/lockWait';
 import { undoRefusals, latestLiveChange } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
+import { assertFinancialYearStartChange, rebuildUnusedFiscalPeriods } from '@/modules/accounting/services/gl/fiscalYearStartChange';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -170,5 +171,43 @@ describe('P1: budget months follow a change of year end', () => {
     await pool.query(`UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = clock_timestamp() WHERE id = $1`, [fy2028, user]);
     const refusals = await inTx(c.id, async () => undoRefusals(c.id, await latestLiveChange(c.id)));
     expect(refusals.join(' ')).toMatch(/FY2028 'Original' \(locked\)/);
+  });
+
+  it("a company's first budget save racing a Settings start-month change waits for it and files under the new years", async () => {
+    if (made.length === 0) {
+      await pool.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)`, [user, `${user}@test.local`]);
+    }
+    const id = crypto.randomUUID();
+    made.push(id);
+    await pool.query(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'BV947 start month', 1)`, [id]);
+    const rent = (await pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+       VALUES ($1, 'RH-5000', 'Rent', 'expense', 'debit', 3, true) RETURNING id`, [id])).rows[0].id as string;
+    for (const d of ['2026-03-01', '2027-03-01']) await inTx(id, () => generateFiscalYearForDate(id, d));
+    const t1 = await pool.connect(), t2 = await pool.connect();
+    try {
+      // T1: the Settings change to a March start (companyService.updateCompany's order), held open.
+      await t1.query('BEGIN');
+      await als.run({ client: t1, companyId: id, userId: user, claims: {} } as never, async () => {
+        expect(await assertFinancialYearStartChange(id, 3)).toBe(true);
+        await t1.query('UPDATE companies SET financial_year_start = 3 WHERE id = $1', [id]);
+        await rebuildUnusedFiscalPeriods(id, new Date(`${TODAY}T12:00:00`));
+      });
+      // T2: the first budget save, while T1 is open.
+      await t2.query('BEGIN');
+      const pid = await backendPid(t2);
+      const save = outcome(als.run({ client: t2, companyId: id, userId: user, claims: {} } as never, () =>
+        upsertBudget(id, { glAccountId: rent, fiscalYear: 2027, annualAmount: 1200 }, user)).then(() => t2.query('COMMIT')));
+      await waitUntilBlocked(pool, pid);
+      await t1.query('COMMIT');
+      expect(await save).toBe('ok');
+    } finally {
+      await t1.query('ROLLBACK').catch(() => undefined);
+      await t2.query('ROLLBACK').catch(() => undefined);
+      t1.release();
+      t2.release();
+    }
+    expect(await stored(id)).toBe(1200);
+    expect(await windowBudget({ id, rent }, '2025-01-01', '2029-12-31')).toBe(1200);
   });
 });

@@ -10,7 +10,7 @@ import { budgetVersionFixture } from './helpers/budgetVersionFixture';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
-const { A, B, setup, cleanup, version, asAppUser, codeOf } = budgetVersionFixture(pool);
+const { A, B, setup, cleanup, version, amount, asAppUser, codeOf } = budgetVersionFixture(pool);
 
 let vA: string, vB: string;
 beforeAll(async () => {
@@ -105,6 +105,21 @@ describe('947: a centre a budget uses keeps its kind', () => {
       });
     } finally {
       await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [B.id, A.user]);
+    }
+  });
+
+  it("with no active company at all, an app session cannot change the kind of a centre B's budget uses", async () => {
+    await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')", [B.id, A.user]);
+    const vb = await version(B);
+    await amount(B, vb, { acct: B.acct2, cc1: B.cc1b });
+    try {
+      await asAppUser(A, async (q) => {
+        await q.query("SELECT set_config('app.current_company_id', '', true)");
+        expect(await codeOf(q, `UPDATE cost_centres SET cc_type = 'cc2' WHERE id = $1`, [B.cc1b])).toBe('23514');
+      });
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [B.id, A.user]);
+      await pool.query('DELETE FROM budget_month_amounts WHERE version_id = $1', [vb]);
     }
   });
 });

@@ -17,7 +17,9 @@
 -- (decision 11): the database guarantees that locked amounts do not change
 -- while locked, and that leaving locked needs a reason and leaves an audit
 -- row the app pools cannot delete. Every function here is SECURITY INVOKER and
--- branches on row data only, never on current_user, claims or settings.
+-- decides on row data; the one exception, cost_centres_keep_budget_kind, also
+-- reads the active company and the role's RLS bypass, and only to refuse more
+-- (a forged setting can widen what RLS shows, never pass a change).
 -- Company consistency of version, CC1, CC2, BU and based-on is by composite
 -- foreign key (RI runs as the owner, cannot be steered by RLS); the CC kind
 -- (cc_type) by trigger, failing closed when the centre is not visible.
@@ -389,7 +391,10 @@ AS $$
 DECLARE
   active text := NULLIF(current_setting('app.current_company_id', true), '');
 BEGIN
-  IF active IS NOT NULL AND active IS DISTINCT FROM OLD.company_id::text THEN
+  -- A role under RLS (the app pools) sees only the active company's budgets: with no active company,
+  -- or another one, it cannot see the centre's, so it is refused. Owner and migration roles see all.
+  IF active IS DISTINCT FROM OLD.company_id::text
+     AND NOT (SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = current_user) THEN
     RAISE EXCEPTION 'cost centre % belongs to another company than the active one; change its kind from that company', OLD.id
       USING ERRCODE = '23514';
   END IF;
