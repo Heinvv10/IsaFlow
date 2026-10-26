@@ -7,6 +7,7 @@ import { Loader2, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { AdminWebhookDetail, DeliveryAttempt } from '@/modules/admin/services/adminWebhookService';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface Props {
   webhookId: string;
@@ -48,6 +49,7 @@ function DeliveryRow({ d }: { d: DeliveryAttempt }) {
 
 export function DeliveryLog({ webhookId }: Props) {
   const [detail, setDetail]       = useState<AdminWebhookDetail | null>(null);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading]     = useState(false);
   const [redelivering, setRedelivering] = useState(false);
   const [toast, setToast]         = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function DeliveryLog({ webhookId }: Props) {
 
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    afterDelay(() => setToast(null), 3000);
   };
 
   /** Returns '' on success, else the plain-sentence reason (the caller decides how to say it). */

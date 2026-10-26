@@ -3,7 +3,7 @@
  * Profile, company memberships, audit log, and admin actions.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -19,6 +19,7 @@ import { UserAuditLog } from '@/components/admin/users/UserAuditLog';
 import { UserProfileForm } from '@/components/admin/users/UserProfileForm';
 import { LoginAsModal } from '@/components/admin/users/LoginAsModal';
 import { log } from '@/lib/logger';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface UserBureau {
   bureau_id: string;
@@ -66,12 +67,12 @@ export default function AdminUserDetailPage() {
   const [toast, setToast]                         = useState<string | null>(null);
   const [loginAsModalOpen, setLoginAsModalOpen]   = useState(false);
   const [loginAsRedirect, setLoginAsRedirect]     = useState<string | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const afterToast = useTimeoutOnce();
+  const afterConfirm = useTimeoutOnce();
 
   function showToast(msg: string) {
     setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 3000);
+    afterToast(() => setToast(null), 3000);
   }
 
   const load = useCallback(async () => {
@@ -119,7 +120,7 @@ export default function AdminUserDetailPage() {
 
   function confirmAndRun(key: string, action: () => void) {
     if (confirmAction === key) { setConfirmAction(null); action(); }
-    else { setConfirmAction(key); setTimeout(() => setConfirmAction(prev => prev === key ? null : prev), 3000); }
+    else { setConfirmAction(key); afterConfirm(() => setConfirmAction(prev => prev === key ? null : prev), 3000); }
   }
 
   async function handleSaveEdit() {
