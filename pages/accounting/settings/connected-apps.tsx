@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plug, ShieldCheck, Loader2, ShieldOff, X } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface ConnectedApp {
   authorisationId: string;
@@ -39,13 +40,14 @@ function Toast({ msg, ok, onClose }: { msg: string; ok: boolean; onClose: () => 
 
 export default function ConnectedAppsPage() {
   const [apps, setApps] = useState<ConnectedApp[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const showToast = (msg: string, ok: boolean) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 4000);
+    afterDelay(() => setToast(null), 4000);
   };
 
   /** Returns '' on success, else the plain-sentence reason (the caller decides how to say it). */

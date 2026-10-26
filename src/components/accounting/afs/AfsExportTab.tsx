@@ -6,6 +6,7 @@ import { log } from '@/lib/logger';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { downloadFile } from '@/components/accounting/packs/usePackDownload';
 import { Download, FileText, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface Props {
   documentId: string;
@@ -37,6 +38,7 @@ function ExportButton({
 }) {
   const [state, setState] = useState<ExportState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const afterDone = useTimeoutOnce();
 
   async function handleClick() {
     setState('loading');
@@ -45,7 +47,7 @@ function ExportButton({
       await Promise.resolve(onExport());
       setState('done');
       // Reset after 3s so it can be triggered again
-      setTimeout(() => setState('idle'), 3000);
+      afterDone(() => setState('idle'), 3000);
     } catch (err) {
       const msg = apiErrorMessage(err, DOWNLOAD_FAILED);
       log.error('AFS export failed', { error: err, title }, 'AfsExportTab');

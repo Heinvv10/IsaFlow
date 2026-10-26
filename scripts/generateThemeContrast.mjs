@@ -11,6 +11,7 @@
  */
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const colors = createRequire(import.meta.url)('tailwindcss/colors');
 
@@ -77,4 +78,35 @@ lines.push(`
   color: var(--ff-text-secondary) !important;
 }
 `);
-writeFileSync(new URL('../styles/themeContrast.css', import.meta.url), lines.join('\n'));
+
+// ── Titles on an always-dark banner ────────────────────────────────────────────────────────────────────────────
+// ~20 pages draw their header on `bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900` (dark in BOTH
+// themes) and write the h1 as `text-slate-900 dark:text-white`: in the light theme that is near-black on
+// near-black (1.0-1.2:1). Their back links (`text-slate-500 dark:text-slate-400`) read 3.1:1 and a few buttons
+// (`text-gray-600`) 1.9:1. One rule here instead of ~20 page edits: on a dark gradient surface, in the light
+// theme, slate/gray-900 text is white and the mid greys are the light grey the dark theme already uses.
+// Specificity (0,1,0) like the utilities, so hover: / focus: variants still outrank it. The dark theme is not
+// touched: its `dark:text-white` / `dark:text-slate-400` already win there.
+const BANNER_SURFACES = [
+  ...['slate', 'gray'].flatMap((h) => [800, 900, 950].map((n) => `.from-${h}-${n}`)),
+  '.from-black',
+];
+// the panel itself and everything inside it
+const BANNER_LIGHT_PANEL_OPT_OUT = ':not(:where([data-surface="light"], [data-surface="light"] *))';
+const BANNER_ON_DARK_INK = '#ffffff';
+const BANNER_ON_DARK_MUTED = '#a9b6c9'; // 8.7:1 on slate-900, 7.1:1 on slate-800 (the dark theme's tertiary text)
+const bannerSelector = (cls) => `:where(html:not(.dark)) :where(${BANNER_SURFACES.join(', ')}) ${cls}${BANNER_LIGHT_PANEL_OPT_OUT}`;
+lines.push(`
+/*
+ * Titles and muted text on an always-dark gradient banner (light theme only; see scripts/generateThemeContrast.mjs).
+ * Put data-surface="light" on a light card nested inside a banner to opt it out.
+ */`);
+lines.push(`${['slate', 'gray'].map((h) => bannerSelector(`.text-${h}-900`)).join(',\n')} {\n  color: ${BANNER_ON_DARK_INK};\n}`);
+lines.push(`${['slate', 'gray'].flatMap((h) => [500, 600, 700].map((n) => bannerSelector(`.text-${h}-${n}`))).join(',\n')} {\n  color: ${BANNER_ON_DARK_MUTED};\n}`);
+
+/** The whole styles/themeContrast.css text. Exported so a test can hold the committed file to it. */
+export const themeContrastCss = lines.join('\n');
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  writeFileSync(new URL('../styles/themeContrast.css', import.meta.url), themeContrastCss);
+}

@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { formatDate } from '@/utils/formatters';
 import { PlusCircle, Play, Edit2, Trash2, Share2, AlertCircle, FileText } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface Template {
   id: string;
@@ -33,6 +34,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export default function MyReportsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export default function MyReportsPage() {
 
   function showToast(msg: string) {
     setToast(msg);
-    setTimeout(() => setToast(''), 3000);
+    afterDelay(() => setToast(''), 3000);
   }
 
   async function loadTemplates() {
