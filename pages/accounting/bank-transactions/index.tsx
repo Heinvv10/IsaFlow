@@ -8,7 +8,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
 import {
   BankTxTable,
   type AllocType, type BankTx, type SelectOption, type RowSelection,
@@ -66,9 +65,11 @@ export default function BankTransactionsPage() {
       didApplyQueryParam.current = true;
     }
   }, [router.query.account_id, bankAccounts]);
+  // Transaction list
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -91,6 +92,7 @@ export default function BankTransactionsPage() {
   const [batchType, setBatchType] = useState<AllocType>('account');
   const [batchSearch, setBatchSearch] = useState('');
   const { showCC, showBU, setShowCC, setShowBU } = useBankColumnVisibility();
+  // Modal triggers
   const [splitTxId, setSplitTxId] = useState<string | null>(null);
   const [excludingTxId, setExcludingTxId] = useState<string | null>(null);
   const [findMatchTxId, setFindMatchTxId] = useState<string | null>(null);

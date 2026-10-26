@@ -44,7 +44,9 @@ export default function CustomersPage() {
   // The search the rows on screen answer: until it matches the debounced one the rows are stale (no one-frame empty flash).
   const [loadedQ, setLoadedQ] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const seq = useRef(0); // only the newest request may write state: an older response landing late is dropped
+  const seq = useRef(0);
+  useEffect(() => () => { seq.current++; }, []); // unmount invalidates any request still in flight
+  // // only the newest request may write state: an older response landing late is dropped
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
