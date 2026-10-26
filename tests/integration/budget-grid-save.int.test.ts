@@ -66,9 +66,10 @@ afterAll(async () => {
   }
 }, 120000);
 
-type Cell = { glAccountId: string; cc1Id?: string | null; cc2Id?: string | null; buId?: string | null; month: string; amount: number | null };
+type Cell = { glAccountId: string; cc1Id?: string | null; cc2Id?: string | null; buId?: string | null; month: string; amount: number | null; clear?: boolean };
+/** A cell as the grid sends it: a null amount (a delete) carries `clear: true`. */
 const cell = (glAccountId: string, month: string, amount: number | null, dims: Partial<Cell> = {}): Cell =>
-  ({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, amount, ...dims });
+  ({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, amount, ...(amount === null ? { clear: true } : {}), ...dims });
 const save = async (versionId: string, cells: Cell[], u: SetupUser = w.u, expectedUpdatedAt?: string) =>
   fx.call(u, { versionId, expectedUpdatedAt: expectedUpdatedAt ?? (await fx.token(versionId)), cells });
 const k = (acct: string, month: string, amount: string, dims: { cc1?: string; cc2?: string; bu?: string } = {}) =>

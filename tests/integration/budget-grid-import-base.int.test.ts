@@ -59,7 +59,7 @@ const token = async (id: string) => String((await pool.query(
 const save = (versionId: string, expectedUpdatedAt: string, cells: unknown[]) =>
   fx.call(saveRoute, '/api/accounting/budget-grid/save', A.owner, 'POST', {}, { versionId, expectedUpdatedAt, cells });
 const colleague = async (versionId: string, cells: Array<{ acct: string; month: string; amount: number | null }>) => {
-  const r = await save(versionId, await token(versionId), cells.map((c) => ({ glAccountId: c.acct, cc1Id: null, cc2Id: null, buId: null, month: c.month, amount: c.amount })));
+  const r = await save(versionId, await token(versionId), cells.map((c) => ({ glAccountId: c.acct, cc1Id: null, cc2Id: null, buId: null, month: c.month, amount: c.amount, ...(c.amount === null ? { clear: true } : {}) })));
   expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
 };
 const amountNow = async (versionId: string, acct: string, month: string) => (await pool.query(
@@ -193,7 +193,7 @@ describe('R1 / Q4: an unparseable, forged or contradicted _base is refused', () 
 
   it.each([
     ['the signature removed', (wb: import('exceljs').Workbook) => { metaRow(wb, 'signature').getCell(2).value = null; }],
-    ['the signature altered', (wb: import('exceljs').Workbook) => { const c = metaRow(wb, 'signature').getCell(2); c.value = `0${String(c.value).slice(1)}`; }],
+    ['the signature altered', (wb: import('exceljs').Workbook) => { const c = metaRow(wb, 'signature').getCell(2); const sig = String(c.value); c.value = `${sig[0] === '0' ? '1' : '0'}${sig.slice(1)}`; }],
   ])('Q4: %s', async (_label, edit) => {
     expect(await refused(v, await editWorkbook(file, edit))).toMatch(/fresh template/i);
   });

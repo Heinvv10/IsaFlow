@@ -17,8 +17,13 @@ export interface SaveCell {
   buId: string | null;
   /** 'YYYY-MM' */
   month: string;
-  /** Rand; null deletes the cell (not budgeted). */
+  /** Rand; null (with `clear: true`) deletes the cell (not budgeted). */
   amount: number | null;
+  /**
+   * Must be true exactly when `amount` is null. A client's NaN or Infinity serialises to JSON
+   * null, so a bare null is refused instead of deleting the cell.
+   */
+  clear?: boolean;
 }
 
 /**
@@ -33,6 +38,10 @@ export interface SaveCell {
 export const MAX_SAVE_CELLS = 100_000;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+/** gridSaveWrite's stand-in for "no dimension" when it matches cells: never a real id in a save. */
+export const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+const ID_FIELDS = ['glAccountId', 'cc1Id', 'cc2Id', 'buId'] as const;
+
 /** The dim_grain the database computes for a cell (0 company, 1 CC1, 2 CC2, 4 BU). */
 export const GRAIN_CODE: Record<Exclude<Grain, 'multi'>, number> = { company: 0, cc1: 1, cc2: 2, bu: 4 };
 
@@ -41,12 +50,20 @@ export interface ValidatedBatch {
   deletes: SaveCell[];
 }
 
+/** "account <id>[, CC1 <id>] month YYYY-MM": which cell a refusal is about. */
+const cellName = (c: SaveCell): string => {
+  const dim = c.cc1Id ? `, CC1 ${c.cc1Id}` : c.cc2Id ? `, CC2 ${c.cc2Id}` : c.buId ? `, BU ${c.buId}` : '';
+  return `account ${c.glAccountId}${dim} month ${c.month}`;
+};
+
 export function validateBatch(cells: readonly SaveCell[]): ValidatedBatch {
   if (cells.length === 0) throw inputError('Nothing to save');
   if (cells.length > MAX_SAVE_CELLS) throw inputError(`A save holds at most ${MAX_SAVE_CELLS} cells; this one has ${cells.length}`);
   const seen = new Set<string>();
   const out: ValidatedBatch = { upserts: [], deletes: [] };
   for (const c of cells) {
+    const nil = ID_FIELDS.find((f) => c[f] === NIL_UUID);
+    if (nil) throw inputError(`${nil} cannot be the nil UUID (month ${c.month})`);
     if (!MONTH.test(c.month)) throw inputError(`${JSON.stringify(c.month)} is not a month (YYYY-MM)`);
     const grain = grainOf(c);
     if (grain === 'multi') throw inputError(`A budget amount carries at most one dimension (month ${c.month})`);
@@ -54,9 +71,11 @@ export function validateBatch(cells: readonly SaveCell[]): ValidatedBatch {
     if (seen.has(key)) throw inputError(`The cell for month ${c.month} appears twice in this save`);
     seen.add(key);
     if (c.amount === null) {
+      if (c.clear !== true) throw inputError(`The cell for ${cellName(c)} has no amount: send clear: true to delete it`);
       out.deletes.push(c);
       continue;
     }
+    if (c.clear === true) throw inputError(`The cell for ${cellName(c)} has an amount and clear: true; send one or the other`);
     // Checked before toCents, which throws (a 500) beyond NUMERIC(15,2)'s largest value.
     if (!Number.isFinite(c.amount) || Math.abs(c.amount) > MAX_MONEY) {
       throw inputError(`The amount for month ${c.month} is too large or not a number (at most 9 999 999 999 999.99)`);

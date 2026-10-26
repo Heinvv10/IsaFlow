@@ -56,9 +56,9 @@ afterAll(async () => {
   }
 }, 120000);
 
-type Cell = { glAccountId: string; cc1Id: null; cc2Id: null; buId: null; month: string; amount: number | null };
+type Cell = { glAccountId: string; cc1Id: null; cc2Id: null; buId: null; month: string; amount: number | null; clear?: true };
 const cell = (glAccountId: string, month: string, amount: number | null): Cell =>
-  ({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, amount });
+  ({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, amount, ...(amount === null ? { clear: true as const } : {}) });
 const save = async (versionId: string, cells: Cell[]) =>
   fx.call(w.u, { versionId, expectedUpdatedAt: await fx.token(versionId), cells });
 const k = (acct: string, month: string, amount: string) => `${acct}||||${month}=${amount}`;

@@ -11,18 +11,30 @@
  * 404 for another tenant's version; writers only (a viewer is 403), since the preview exists to
  * commit. Uploads are written to a directory of this request's own, removed with everything in it
  * however the request ends: a file formidable opens after a refusal (a second file, another field
- * name) cannot be left behind. Each member may preview at most PREVIEW_RATE files per 15 minutes
- * (429), counted before the upload is read.
+ * name) cannot be left behind.
+ *
+ * Order (round-3 N4): the upload is read BEFORE withAuth takes a pooled connection and opens the
+ * request transaction (readJsonBody's withBodyFirst: at most BODY_LIMITS bytes, a total and an
+ * idle deadline), so a slow client holds no connection idle in a transaction. Ahead of reading,
+ * only a caller who passes the local CSRF check and holds a validly signed session is read at all
+ * (withBodyFirst), and that user's preview bucket is charged (withPreviewRate: PREVIEW_RATE per 15
+ * minutes across all their companies, 429). Nothing is parsed until the handler runs, after every
+ * withAuth / CSRF / write-access check.
  */
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import formidable from 'formidable';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { Readable } from 'stream';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { verifyCsrf } from '@/lib/auth/csrf';
+import { ACCESS_COOKIE, parseCookies } from '@/lib/auth/cookies';
+import { verifyTokenSignature } from '@/lib/auth/gotrue';
+import { JsonBodyError, respondBodyError, takeRawBody, withBodyFirst, type BodyLimits } from '@/lib/readJsonBody';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isUuidParam } from '@/lib/validation';
@@ -33,6 +45,8 @@ import { buildImportPreview } from '@/modules/accounting/services/budgets/budget
 export const config = { api: { bodyParser: false } };
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** The file plus its multipart framing and one small field; a slow client gets 60 s, and 10 s between chunks. */
+const BODY_LIMITS: BodyLimits = { maxBytes: MAX_UPLOAD_BYTES + 64 * 1024, totalMs: 60_000, idleMs: 10_000 };
 const PREVIEW_RATE = 60;
 const ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -48,12 +62,35 @@ function removeUploads(dir: string, context: Record<string, string>): void {
   }
 }
 
+/**
+ * Charges the user's preview bucket before any of the upload is read, for a POST that passes the
+ * same local gates withBodyFirst reads for (CSRF, a validly signed session); anyone else is left to
+ * withAuth and withCsrf to refuse. A limiter error throws (never admits).
+ */
+function withPreviewRate(inner: NextApiHandler): NextApiHandler {
+  return async (req, res) => {
+    if (req.method === 'POST' && verifyCsrf(req)) {
+      const token = parseCookies(req)[ACCESS_COOKIE];
+      const userId = token ? await verifyTokenSignature(token).then((c) => c.sub, () => null) : null;
+      if (userId && !(await checkRateLimit(`budget-import:${userId}`, { max: PREVIEW_RATE, windowSecs: 900 }))) {
+        return apiResponse.tooManyRequests(res, 'Too many import previews — wait a few minutes and try again.');
+      }
+    }
+    return inner(req, res);
+  };
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const context = { companyId, userId: (req as AuthenticatedNextApiRequest).user.id };
-  if (!(await checkRateLimit(`budget-import:${companyId}:${context.userId}`, { max: PREVIEW_RATE, windowSecs: 900 }))) {
-    return apiResponse.tooManyRequests(res, 'Too many import previews — wait a few minutes and try again.');
+  let raw: Buffer;
+  try {
+    raw = await takeRawBody(req, BODY_LIMITS);
+  } catch (err) {
+    if (!(err instanceof JsonBodyError)) throw err;
+    log.warn('Budget import upload refused', { ...context, error: err.message }, 'accounting');
+    return respondBodyError(res, err);
   }
 
   const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-import-'));
@@ -65,7 +102,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     let fields: formidable.Fields, files: formidable.Files;
     try {
-      [fields, files] = await form.parse(req);
+      // The bytes withBodyFirst read, as the request formidable expects (its headers, then the body).
+      [fields, files] = await form.parse(Object.assign(Readable.from([raw]), { headers: req.headers }) as unknown as NextApiRequest);
     } catch (err) {
       log.warn('Budget import upload refused', { ...context, error: err instanceof Error ? err.message : String(err) }, 'accounting');
       return apiResponse.badRequest(res, 'Upload one budget template (.xlsx) of at most 10 MB, with its versionId and nothing else.');
@@ -93,4 +131,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withPreviewRate(withBodyFirst(BODY_LIMITS, withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))));

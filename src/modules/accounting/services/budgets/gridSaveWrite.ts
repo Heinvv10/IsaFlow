@@ -14,10 +14,10 @@
 import { sql, type DbRow } from '@/lib/neon';
 import { monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { toCents } from './grid/cents';
-import type { SaveCell, ValidatedBatch } from './gridSaveValidate';
+import { NIL_UUID, type SaveCell, type ValidatedBatch } from './gridSaveValidate';
 
-/** Stands in for "no dimension" in the match keys only; never written. */
-const NIL = '00000000-0000-0000-0000-000000000000';
+/** Stands in for "no dimension" in the match keys only; never written, and refused as an id by validateBatch. */
+const NIL = NIL_UUID;
 
 const keyArrays = (cells: readonly SaveCell[]) => ({
   a: cells.map((c) => c.glAccountId), c1: cells.map((c) => c.cc1Id ?? NIL), c2: cells.map((c) => c.cc2Id ?? NIL),

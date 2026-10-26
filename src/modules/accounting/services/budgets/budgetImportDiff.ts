@@ -34,7 +34,7 @@ import { parseLayout, parseLines, parseMeta, readBudgetWorkbook, type BudgetWork
 import { parseBase, tampered, threeWay } from './budgetImportBase';
 import { baseByRowKey, resolveLines, type ImportIssue } from './budgetImportResolve';
 import type { GridReadModel } from './gridReadTypes';
-import type { SaveCell } from './gridSaveValidate';
+import { MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
 
 export type { ImportIssue } from './budgetImportResolve';
 
@@ -55,7 +55,7 @@ export interface ImportPreview {
   /** The version's token at preview: commit sends it as `expectedUpdatedAt`. */
   updatedAt: string;
   changes: ImportChange[];
-  /** The changed cells in the save route's shape (`amount: null` clears). */
+  /** The changed cells in the save route's shape (`amount: null, clear: true` clears). */
   cells: SaveCell[];
   counts: DiffCounts;
   /** Cells changed in the file AND in the version since the download (rand): applied as the file's `after`. */
@@ -96,7 +96,13 @@ export function previewImport(model: GridReadModel, versionId: string, wb: Budge
     if (!signatureMatches(meta, baseDigest(wb.base.map((r) => r.cells)), meta.signature)) return tampered();
     base = baseByRowKey(model, meta.grain, lines);
   }
-  const { rows, errors, warnings } = resolveLines(model, meta.grain, parseLines(data, layout), current);
+  const lines = parseLines(data, layout);
+  if (lines.length * months.length > MAX_SAVE_CELLS) {
+    // The reader's row limit is a 12-month year's; a longer year's file must still fit one save (L2).
+    return refuse(`This file has ${lines.length} rows of ${months.length} months, more than the ${MAX_SAVE_CELLS} cells one import can save. `
+      + `Split it: download templates for fewer members, or remove rows you are not changing, and import each part.`);
+  }
+  const { rows, errors, warnings } = resolveLines(model, meta.grain, lines, current);
   const diff = threeWay(rows.map((r) => ({
     rowKey: r.rowKey,
     // No _base: the version now stands in for what was downloaded, so every difference is a change.
@@ -120,7 +126,7 @@ export function previewImport(model: GridReadModel, versionId: string, wb: Budge
   return {
     updatedAt: model.updatedAt,
     changes: diff.changes.map((c) => ({ key: c.key, before: rand(c.before), after: rand(c.after), possibleRevert: !base, currentChangedAt: null })),
-    cells: diff.changes.map((c) => ({ ...parseKey(c.key), amount: rand(c.after) })),
+    cells: diff.changes.map((c) => (c.after === null ? { ...parseKey(c.key), amount: null, clear: true } : { ...parseKey(c.key), amount: rand(c.after) })),
     counts: diff.counts,
     conflicts: diff.conflicts.map((c) => ({ key: c.key, downloaded: rand(c.downloaded), current: rand(c.current), after: rand(c.after) })),
     errors: errors.slice(0, MAX_ISSUES), warnings: warnings.slice(0, MAX_ISSUES),

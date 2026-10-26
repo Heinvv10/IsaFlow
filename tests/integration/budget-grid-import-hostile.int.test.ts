@@ -15,6 +15,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+import { Readable } from 'node:stream';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,7 +25,7 @@ import { log } from '@/lib/logger';
 import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
-import { budgetSheet, col, downloadTemplate, editWorkbook, rowOf, setCell, uploadParts, uploadPreview, withParts } from './helpers/budgetImportFixture';
+import { budgetSheet, col, downloadTemplate, editWorkbook, rowOf, setCell, uploadParts, uploadPreview, uploadStream, withParts } from './helpers/budgetImportFixture';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -128,6 +129,22 @@ describe('cell and row refusals stay cell and row errors', () => {
     expect(errors).toEqual([expect.objectContaining({ column: '2026-03', message: expect.stringMatching(/date|amount/i) })]);
   });
 
+  it('L2: a file with more row x month cells than one save holds is refused, in a 14-month year', async () => {
+    const T = await fx.company({ transition: true });
+    const vT = await fx.version(T, { name: 'Long year' });
+    const t = await template(T, vT);
+    expect(t.status).toBe(200);
+    const n = Math.floor(MAX_SAVE_CELLS / 14) + 1; // over the save's cap at 14 months, under the reader's row limit
+    const long = await editWorkbook(t.file!, (wb) => {
+      const ws = budgetSheet(wb);
+      for (let i = 0; i < n; i++) ws.addRow(['Expenses', `Z${i}`, 'x', 1]);
+    });
+    const r = await uploadPreview(previewRoute, T.owner, vT, long);
+    expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(400);
+    expect(r.body.error?.message).toMatch(new RegExp(`14 months.*${MAX_SAVE_CELLS}|${MAX_SAVE_CELLS}.*14 months`));
+    expect((await uploadPreview(previewRoute, T.owner, vT, t.file!)).status).toBe(200);
+  }, 300000);
+
   it('SEC-M1: errors are capped at 200 with the full count, and echoed text is clipped', async () => {
     const long = `X${'9'.repeat(5000)}`;
     const many = await editWorkbook(file, (wb) => {
@@ -186,14 +203,25 @@ describe('the upload itself', () => {
     expect((await uploadParts(previewRoute, A.owner, [{ field: 'versionId', value: v }, { file: 'file', content: file }])).status).toBe(200);
   });
 
-  it('Q5: previews are rate limited per member (429)', async () => {
+  it('Q5 / N5: previews are rate limited per user, across the user\'s companies (429)', async () => {
     const C = await fx.company();
+    const D = await fx.company();
     const vC = await fx.version(C, { name: 'Rate' });
+    const vD = await fx.version(D, { name: 'Rate' });
+    await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'owner', false)`, [D.id, C.owner.userId]);
     const junk = Buffer.from('PK\x03\x04 not a zip');
     const statuses: number[] = [];
-    for (let i = 0; i < 61; i++) statuses.push((await uploadPreview(previewRoute, C.owner, vC, junk)).status);
-    expect(statuses.slice(0, 60).every((s) => s === 400)).toBe(true);
-    expect(statuses[60]).toBe(429);
+    for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, C.owner, vC, junk)).status);
+    for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, { ...C.owner, homeCompanyId: D.id }, vD, junk)).status);
+    expect(statuses.every((s) => s === 400)).toBe(true);
+    // The 61st is refused before any of its body is read: a body that never arrives still gets its 429 at once.
+    let release = () => {};
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const never = Readable.from((async function* gen() { yield Buffer.from('--x'); await released; })());
+    const t0 = Date.now();
+    const last = await uploadStream(previewRoute, { ...C.owner, homeCompanyId: D.id }, never, 1000);
+    release();
+    expect([last.status, Date.now() - t0 < 2000]).toEqual([429, true]);
   }, 120000);
 
   it('SEC-L5: refusal logs name the company and the user', async () => {

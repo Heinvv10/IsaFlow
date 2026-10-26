@@ -41,21 +41,35 @@ export async function uploadPreview(route: unknown, u: SetupUser, versionId: str
   return uploadParts(route, u, [{ field: 'versionId', value: versionId }, { file: 'file', content: file }]);
 }
 
+const BOUNDARY = '----budgetImportFixture';
+
+/** The multipart body of `parts`. */
+export function multipartBody(parts: readonly Part[]): Buffer {
+  return Buffer.concat([
+    ...parts.flatMap((p) => ('field' in p
+      ? [Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="${p.field}"\r\n\r\n${p.value}\r\n`)]
+      : [Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="${p.file}"; filename="budget.xlsx"\r\nContent-Type: ${XLSX_MIME}\r\n\r\n`),
+        p.content, Buffer.from('\r\n')])),
+    Buffer.from(`--${BOUNDARY}--\r\n`),
+  ]);
+}
+
 /** POST any multipart parts to import-preview as `u`. */
 export async function uploadParts(route: unknown, u: SetupUser, parts: readonly Part[]): Promise<RouteOut> {
-  const boundary = '----budgetImportFixture';
-  const body = Buffer.concat([
-    ...parts.flatMap((p) => ('field' in p
-      ? [Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${p.field}"\r\n\r\n${p.value}\r\n`)]
-      : [Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${p.file}"; filename="budget.xlsx"\r\nContent-Type: ${XLSX_MIME}\r\n\r\n`),
-        p.content, Buffer.from('\r\n')])),
-    Buffer.from(`--${boundary}--\r\n`),
-  ]);
+  const body = multipartBody(parts);
+  return uploadStream(route, u, Readable.from([body]), body.length);
+}
+
+/** POST a multipart body that arrives as `stream` (a slow client: yield, then wait) to import-preview as `u`. */
+export async function uploadStream(route: unknown, u: SetupUser, stream: Readable, length: number, opts: { csrf?: boolean } = {}): Promise<RouteOut> {
   const { cookies, cookie } = cookieHeaders(u);
-  const req = Readable.from([body]) as unknown as Record<string, unknown>;
+  const req = stream as unknown as Record<string, unknown>;
   Object.assign(req, {
     method: 'POST', url: '/api/accounting/budget-grid/import-preview', cookies, query: {},
-    headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(body.length), cookie, 'x-csrf-token': CSRF },
+    headers: {
+      'content-type': `multipart/form-data; boundary=${BOUNDARY}`, 'content-length': String(length), cookie,
+      ...(opts.csrf === false ? {} : { 'x-csrf-token': CSRF }),
+    },
     socket: { remoteAddress: '127.0.0.92' },
   });
   const out = response();
