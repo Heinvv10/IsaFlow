@@ -31,6 +31,7 @@ Paths: every path below was checked with `git ls-files | grep -F` on `origin/mas
 | 3 | Converted "Original" versions open like any other approved primary version. |
 | 4 | **One grain per account per version.** The grid edits only at the account's grain. Other views show it read-only with a reason. Changing grain is an explicit row action that clears the old grain in the same batch (deletes before upserts). The DB still enforces it (P1), and a constraint violation is mapped to a 400 with the account named. |
 | 5 | `spread.ts` rounds to the chosen unit (R1 default, R100, R1000). The residue lands on the **last** month. The same pure function is used by the wizard (server) and the row actions (client). |
+| 18 | Headers are read-only roll-up rows (Σ sub-accounts) with a "Spread across sub-accounts" action; a new budget on a header or inactive account is refused server-side; a header that already holds amounts is flagged with Move / Spread actions, never migrated silently (§6.5). |
 | 6 | Prod validation happens only in ISAFlow Demo, through the UI. The golden spec also runs in prod post-deploy verify against Demo (`scripts/verify-deploy.sh`), so it obeys the contract's golden-spec write rule: a **non-primary `scenario`** version named `GP-<runId>`, prechecks before any write, stale-`GP-%` sweep, delete in `afterAll`/`finally` (§14 E2E). |
 
 ## 3. P1 dependency (check at session start; build only the gaps)
@@ -77,9 +78,9 @@ Directory `src/modules/accounting/services/budgets/grid/` NEW. The server reuses
 
 | File | Role |
 |---|---|
-| `gridReadModel.ts` NEW | Loads version + year months (`gl/fiscalYearRegistry`) + accounts + bands + dimensions + cells + grains. Accounts = active, postable revenue/expense accounts, plus any account holding amounts in this version (inactive ones flagged). Band via `revenueBand`/`expenseBand` from `src/modules/accounting/services/gl/accountClassification.ts`. A header is any account that another account (active or not) names as `parent_account_id`: the `leafAccountOptions` rule in `src/lib/chartAccountOptions.ts`. D9 requires excluding them. |
+| `gridReadModel.ts` NEW | Loads version + year months (`gl/fiscalYearRegistry`) + accounts + bands + dimensions + cells + grains. Accounts = active, postable revenue/expense accounts, plus any account holding amounts in this version (inactive ones flagged). Band via `revenueBand`/`expenseBand` from `src/modules/accounting/services/gl/accountClassification.ts`. A header is any account that another account (active or not) names as `parent_account_id`: the `leafAccountOptions` rule in `src/lib/chartAccountOptions.ts`. Headers are not editable lines (D9): they come back as roll-up rows (§6.5), plus a `ownAmounts` flag when the header itself holds amounts in this version (decision 18). |
 | `priorActuals.ts` NEW | (Contract ownership: if P3 PR-A's `budgets/tracking/trackingActualRead.ts` is on master, build on it; otherwise P3 PR-B later makes this delegate to it.) PY actual per account × calendar month (**the same calendar month one year earlier**, so a 14-month transition year maps correctly) × optional dimension (`gl_journal_lines.cc1_id/cc2_id/bu_id`, mig 285). Posted entries only, natural sign (revenue Cr−Dr, expense Dr−Cr). Must agree with `trendRowsService.getMonthlyMovements` for company grain (a parity test). |
-| `gridSave.ts` NEW | `saveCells(companyId, userId, {versionId, expectedUpdatedAt, cells})` (§7.2). The only batch writer for the grid; P4 later adds a `recomputeDependents` call inside it. |
+| `gridSave.ts` NEW | `saveCells(companyId, userId, {versionId, expectedUpdatedAt, cells})` (§7.2). The only batch writer for the grid; P4 later adds a `recomputeDependents` call inside it. Refuses (400, account named, nothing written) a cell on a header or inactive account that holds no amounts in the version yet (decision 18); the same refusal goes into `core/budgetService.upsertBudget` for the legacy route and MCP writers. |
 | `seedVersion.ts` NEW | Wizard: create the version (P1 `createVersion`) and the amounts in one tx (§8). Same-FY copy at 0% uplift uses P1 `copyVersion`. |
 | `budgetTemplateXlsx.ts` NEW | exceljs workbook builder (§9.1) |
 | `budgetImportParse.ts` NEW | Upload → rows, through `normaliseXlsx` + the streaming reader. Pattern of `src/lib/xlsxToCsv.ts`; `XLSX_LIMITS` reused. |
@@ -242,6 +243,12 @@ Each band has a section head row, line rows sorted by account code, and a "Total
 | Saving | Save button spinner; grid stays editable, and edits made during the save stay dirty because the save sends a snapshot |
 | Save failed (non-409) | Inline error in the save bar; dirty state kept |
 | 409 | §7.3 |
+
+### 6.5 Header accounts (decision 18)
+- A header renders as a **roll-up row** above its sub-accounts: each month and the FY are the live Σ of its children, read-only (`aria-readonly`, reason "Sub-account roll-up"). Sub-accounts are indented one level. The band totals add leaves only, so a header is never counted twice.
+- Row action **"Spread across sub-accounts"** on a header: enter a month or FY amount, choose *Evenly* or *In proportion to PY actuals* (falls back to evenly when PY is zero for all children), preview the per-child split, apply. It writes the children's cells through `spread.ts` (residue on the last child/month, decision 5) and joins the normal dirty/undo/save flow.
+- **A header that already holds its own amounts** (legacy, pre-decision 18) shows a warning chip on its row, "This header has its own R X budget", with two actions: **Move to a sub-account** (pick one child; the amounts move in one batch: delete on the header, upsert on the child) and **Spread across sub-accounts** (as above, then delete the header's own amounts). Until resolved, the header's own amounts stay visible as a separate "(own budget)" line under the roll-up, and the band total includes them once, as BvA does today. Nothing is migrated without the user choosing.
+- Inactive accounts that hold amounts stay listed (flagged "Inactive") and editable; an inactive account with no amounts is not offered.
 
 ## 7. Save and concurrency
 
@@ -436,7 +443,8 @@ Integration, `tests/integration/` NEW (real PG, CI clusters):
 | Test | Asserts | Mutation |
 |---|---|---|
 | `budget-grid-save.int.test.ts` | upsert+delete; foreign version → 404; foreign account/dim → 400, no write; audit row; stale → 409, nothing written; **two concurrent saves with one token → exactly one 200, one 409**; locked → 409 (trigger mapped), nothing written; viewer → 403; grain switch in one batch OK; grain violation → 400 | drop `AND updated_at = $expected`; drop the company check; map trigger error to 500 |
-| `budget-grid-read.int.test.ts` | read model; primary default; header/inactive excluded unless holding amounts; roll-up; tenant isolation | drop `company_id` from the cells query |
+| `budget-grid-read.int.test.ts` | read model; primary default; header/inactive excluded unless holding amounts; roll-up; tenant isolation; header roll-up row = Σ children; `ownAmounts` set only on a header holding its own amounts; band total counts a legacy header's own amounts once | drop `company_id` from the cells query; band total adds header roll-up rows |
+| `budget-grid-header-rules.int.test.ts` NEW | new cell on a header → 400 and nothing written (via `gridSave` and via `upsertBudget`); new cell on an inactive account → 400; a header already holding amounts can be edited, moved to a child (one batch) and spread (one batch) | drop the "holds no amounts" exemption; drop the header check in `upsertBudget` |
 | `budget-grid-prior-actuals.int.test.ts` | calendar-month −12 mapping incl. a 14-month FY; dimension grain; posted only; parity with `getMonthlyMovements` at company grain | position mapping instead of calendar; drafts included |
 | `budget-grid-seed.int.test.ts` | PY +10% R1000: totals = roundToUnit(PY×1.1); copy version +5%; dim grain; draft status; one tx (a fault injected after the version insert leaves no version) | non-transactional create |
 | `budget-grid-import.int.test.ts` | template → import = 0 changes; unknown code; wrong month header; meta mismatch; formula result; 5 000-row file accepted; zip-bomb refused | blank parsed as 0; month header matched by position |
