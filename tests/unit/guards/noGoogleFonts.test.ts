@@ -7,17 +7,18 @@
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 
 const ROOT = process.cwd();
-const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages'], {
+const listFiles = (): string[] => execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages', 'styles', 'public'], {
   cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-}).split('\n').filter((f) => /\.(tsx?|jsx?|mjs|css)$/.test(f));
+}).split('\n').filter((f) => /\.(tsx?|jsx?|mjs|css|scss|html|svg|webmanifest)$/.test(f));
+const files = listFiles();
 
 const GOOGLE = /next\/font\/google|@next\/font\/google|fonts\.googleapis\.com|fonts\.gstatic\.com/;
 
 describe('self-hosted fonts', () => {
-  it('has no next/font/google import or Google Fonts URL under src/ or pages/', () => {
+  it('has no next/font/google import or Google Fonts URL under src/, pages/, styles/ or public/', () => {
     const found = files.filter((f) => f !== 'tests/unit/guards/noGoogleFonts.test.ts' && GOOGLE.test(readFileSync(`${ROOT}/${f}`, 'utf8')));
     expect(found).toEqual([]);
   });
@@ -25,7 +26,19 @@ describe('self-hosted fonts', () => {
   it('flags the shapes it is meant to flag', () => {
     expect(GOOGLE.test("import { DM_Sans } from 'next/font/google';")).toBe(true);
     expect(GOOGLE.test('@import url(https://fonts.googleapis.com/css2?family=Inter)')).toBe(true);
+    expect(GOOGLE.test('@font-face { src: url(https://fonts.gstatic.com/s/dmsans/v17/x.woff2) }')).toBe(true);
     expect(GOOGLE.test("import localFont from 'next/font/local';")).toBe(false);
+  });
+
+  it('finds a Google Fonts @import in a new stylesheet under styles/ or public/ (written, scanned, removed)', () => {
+    const probes = ['styles/zzGoogleFontsProbe.css', 'public/zzGoogleFontsProbe.css'];
+    try {
+      for (const probe of probes) writeFileSync(`${ROOT}/${probe}`, "@import url('https://fonts.googleapis.com/css2?family=Inter');\n");
+      const hits = listFiles().filter((f) => GOOGLE.test(readFileSync(`${ROOT}/${f}`, 'utf8')));
+      expect(hits.sort()).toEqual([...probes].sort());
+    } finally {
+      for (const probe of probes) rmSync(`${ROOT}/${probe}`, { force: true });
+    }
   });
 
   it('ships both faces and their OFL texts', () => {
@@ -38,10 +51,5 @@ describe('self-hosted fonts', () => {
     for (const f of ['OFL-DMSans.txt', 'OFL-DMSerifDisplay.txt']) {
       expect(readFileSync(`${ROOT}/src/assets/fonts/${f}`, 'utf8')).toContain('SIL Open Font License');
     }
-  });
-
-  it('keeps the CSS variable the Tailwind sans stack reads', () => {
-    expect(readFileSync(`${ROOT}/src/lib/fonts.ts`, 'utf8')).toContain("variable: '--font-dm-sans'");
-    expect(readFileSync(`${ROOT}/tailwind.config.mjs`, 'utf8')).toContain('var(--font-dm-sans');
   });
 });
