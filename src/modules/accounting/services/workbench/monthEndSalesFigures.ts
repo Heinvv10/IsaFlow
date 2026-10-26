@@ -6,7 +6,7 @@
  * its last day is today or later, past when it is before today. fiscal_periods
  * (whether the books are locked) is deliberately never read; do not wire it in.
  *
- * Sales, current period: the shared AR aggregate (getAROutstandingSummary, the
+ * Sales, current period: the shared AR aggregate (getAROutstandingWithDebtors, the
  * figure the dashboard and the invoice-list tiles read), with the customer count
  * from the same population (debtorCount, same query). Ageing a current month "as at"
  * its future last day would count every invoice due between today and then as
