@@ -1,6 +1,7 @@
 /** Journal Entries Report — Sage Parity */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BookOpen, Loader2, Download } from 'lucide-react';
@@ -179,19 +180,8 @@ export default function JournalEntriesReport() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={e => setDateFrom(e.target.value)}
-                className="ff-input text-sm"
-              />
-              <span className="text-[var(--ff-text-tertiary)] text-sm">to</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={e => setDateTo(e.target.value)}
-                className="ff-input text-sm"
-              />
+              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
+              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
               <button
                 onClick={() => data && downloadCsv(data.entries)}
                 disabled={!data || data.entries.length === 0}
