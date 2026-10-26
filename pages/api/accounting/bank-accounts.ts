@@ -18,7 +18,7 @@ import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/servi
 import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { holderAsParentRefusal, roleBarringChildren } from '@/modules/accounting/services/gl/roleTargetRules';
-import { isSubjectToLeafRule } from '@/modules/accounting/services/gl/isReportVisibleLeaf';
+import { hasChildAccounts, isSubjectToLeafRule } from '@/modules/accounting/services/gl/isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from '@/modules/accounting/services/gl/glAccountLock';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { lockPaymentsFromAccount, recordPayingAccountEdit } from '@/modules/accounting/services/ap/payingAccountAuthors';
@@ -84,9 +84,11 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
     `;
     if (parentTx) return 'Group account has its own bank transactions — pick an account without transactions as the group';
     // A posted level 1-2 parent would become a header the balance sheet drops — the rule assertParentUsable
-    // applies to every other chart edit, with its lock taken before the read for the same reason.
+    // applies to every other chart edit, with its lock taken before the read for the same reason, and the same
+    // exemption: a group that already has a member is already a header, so another member hides nothing new.
     if (isSubjectToLeafRule(Number(parent.level), String(parent.account_type))) {
       await lockGlAccountsForUpdate(companyId, [parentId]);
+      if (await hasChildAccounts(companyId, parentId)) return setParent(companyId, id, parentId);
       const [posted] = await sql`
         SELECT 1 FROM gl_journal_lines WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID LIMIT 1`;
       if (posted) {
@@ -95,6 +97,10 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
       }
     }
   }
+  return setParent(companyId, id, parentId);
+}
+
+async function setParent(companyId: string, id: string, parentId: string | null): Promise<null> {
   await boundedRowWait(() => sql`
     UPDATE gl_accounts SET parent_account_id = ${parentId}, updated_at = NOW()
     WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
