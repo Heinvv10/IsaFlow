@@ -11,6 +11,7 @@ import { TBSummaryCards, TBBalanceFooter } from '@/components/accounting/group/T
 import { TBConsolidationWarnings } from '@/components/accounting/group/TBConsolidationWarnings';
 import type { UnmappedEntity } from '@/components/accounting/group/TBConsolidationWarnings';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 interface EntityBalance { debit: number; credit: number }
 
@@ -166,8 +167,8 @@ export default function ConsolidatedTrialBalancePage() {
                 {groups.length === 0 && <option value="">No groups</option>}
                 {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
-              <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className={cls} />
-              <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className={cls} />
+              <DateField label="Period start" required value={periodStart || null} onChange={(iso, v) => { if (v.valid && iso) setPeriodStart(iso); }} />
+              <DateField label="Period end" required value={periodEnd || null} onChange={(iso, v) => { if (v.valid && iso) setPeriodEnd(iso); }} />
               <button onClick={handleExport} disabled={!data || data.groupAccounts.length === 0}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV

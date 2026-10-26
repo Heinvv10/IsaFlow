@@ -1,4 +1,5 @@
 import { Filter, ChevronUp, ChevronDown } from 'lucide-react';
+import { DateField } from '@/components/ui/DateField';
 
 interface Customer { id: string; companyName: string }
 
@@ -59,10 +60,8 @@ export function TimeFilters({
             <option value="true">Billable</option>
             <option value="false">Non-Billable</option>
           </select>
-          <input type="date" value={filterDateFrom} onChange={e => onFilterDateFrom(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white" />
-          <input type="date" value={filterDateTo} onChange={e => onFilterDateTo(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white" />
+          <div className="w-40"><DateField label="From date" value={filterDateFrom || null} onChange={(iso, v) => { if (v.valid) onFilterDateFrom(iso ?? ''); }} /></div>
+          <div className="w-40"><DateField label="To date" value={filterDateTo || null} onChange={(iso, v) => { if (v.valid) onFilterDateTo(iso ?? ''); }} /></div>
         </div>
       )}
     </div>
@@ -80,11 +79,8 @@ export function SummaryDateFilter({ filterDateFrom, filterDateTo, onFilterDateFr
   return (
     <div className="flex gap-3 items-center">
       <Filter className="w-4 h-4 text-gray-500" />
-      <input type="date" value={filterDateFrom} onChange={e => onFilterDateFrom(e.target.value)}
-        className="border rounded-lg px-3 py-2 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white" />
-      <span className="text-gray-500">to</span>
-      <input type="date" value={filterDateTo} onChange={e => onFilterDateTo(e.target.value)}
-        className="border rounded-lg px-3 py-2 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white" />
+      <div className="w-40"><DateField label="From date" value={filterDateFrom || null} onChange={(iso, v) => { if (v.valid) onFilterDateFrom(iso ?? ''); }} /></div>
+      <div className="w-40"><DateField label="To date" value={filterDateTo || null} onChange={(iso, v) => { if (v.valid) onFilterDateTo(iso ?? ''); }} /></div>
     </div>
   );
 }

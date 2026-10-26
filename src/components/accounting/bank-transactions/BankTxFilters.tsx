@@ -8,6 +8,7 @@ import Link from 'next/link';
 import {
   Loader2, RefreshCw, CheckCheck, Upload, Download, Search, Trash2, Layers, Zap, Plus, FileText,
 } from 'lucide-react';
+import { DateField } from '@/components/ui/DateField';
 
 type Tab = 'new' | 'reviewed' | 'excluded';
 
@@ -149,20 +150,9 @@ export function BankTxFilters({
       </button>
 
       {/* Date range filter */}
-      <div className="flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]">
-        <input
-          type="date"
-          value={fromDate}
-          onChange={e => onFromDateChange(e.target.value)}
-          className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
-        />
-        <span>to</span>
-        <input
-          type="date"
-          value={toDate}
-          onChange={e => onToDateChange(e.target.value)}
-          className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
-        />
+      <div className="flex items-start gap-1 text-xs text-[var(--ff-text-secondary)]">
+        <div className="w-40"><DateField label="From date" value={fromDate || null} onChange={(iso, v) => { if (v.valid) onFromDateChange(iso ?? ''); }} /></div>
+        <div className="w-40"><DateField label="To date" value={toDate || null} onChange={(iso, v) => { if (v.valid) onToDateChange(iso ?? ''); }} /></div>
       </div>
 
       {/* Amount range filter */}

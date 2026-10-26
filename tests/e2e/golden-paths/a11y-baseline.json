@@ -40,11 +40,6 @@
     "maxHint": 20
    },
    {
-    "rule": "label",
-    "selector": "main > div > div > div > div > input[type=\"date\"]",
-    "max": 2
-   },
-   {
     "rule": "select-name",
     "selector": "main > div > div > div > select",
     "max": 5
