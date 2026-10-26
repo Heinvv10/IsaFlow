@@ -125,7 +125,7 @@ export default function RecurringInvoicesPage() {
         <PageHeader
           icon={RefreshCw}
           title="Recurring Invoices"
-          subtitle={`${items.length} ${items.length === 1 ? 'template' : 'templates'}${dueCount > 0 ? ` · ${dueCount} due` : ''}`}
+          subtitle={<>{items.length} {items.length === 1 ? 'template' : 'templates'}{dueCount > 0 && <span className="ml-2 px-2 py-0.5 bg-orange-500/15 text-orange-700 dark:text-orange-400 rounded-full text-xs font-medium">{dueCount} due</span>}</>}
           className="mb-0"
           actions={
             <>
@@ -161,7 +161,7 @@ export default function RecurringInvoicesPage() {
 
           <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 w-fit">
             {TABS.map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
+              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-ink-muted hover:bg-surface-sunken'}`}>{t}</button>
             ))}
           </div>
 

@@ -25,11 +25,11 @@ export function StatusTabs({ active, counts, onChange }: Props) {
             key={t}
             type="button"
             onClick={() => onChange(t)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${selected ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${selected ? 'bg-brand-600 text-white shadow-sm' : 'text-ink-muted hover:bg-surface-sunken'}`}
           >
             <span>{SUPPLIER_INVOICE_TAB_LABEL[t]}</span>
             {typeof count === 'number' && (
-              <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${selected ? 'bg-brand-800 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
+              <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${selected ? 'bg-brand-800 text-white' : 'bg-surface-sunken text-ink-muted'}`}>
                 {count}
               </span>
             )}

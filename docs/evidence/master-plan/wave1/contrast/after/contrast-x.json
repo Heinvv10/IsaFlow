@@ -1,7 +1,7 @@
 {
   "ap-aging.light": {
     "walker": {
-      "total": 9042,
+      "total": 9043,
       "failing": [],
       "worst": 4.99
     },
@@ -9,7 +9,7 @@
   },
   "ap-aging.dark": {
     "walker": {
-      "total": 9042,
+      "total": 9043,
       "failing": [],
       "worst": 4.86
     },

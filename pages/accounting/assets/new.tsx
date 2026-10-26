@@ -14,14 +14,7 @@ import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 
-interface Category {
-  id: string;
-  name: string;
-  code: string;
-  sars_rate: number;
-  sars_years: number;
-  description: string;
-}
+interface Category { id: string; name: string; code: string; sars_rate: number; sars_years: number; description: string }
 
 const DEPRECIATION_METHODS = [
   { value: 'straight_line', label: 'Straight-Line' },
@@ -107,13 +100,7 @@ export default function NewAssetPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Page header */}
-        <PageHeader
-          icon={Package}
-          title="New Asset"
-          backLink={{ label: 'Back to Assets', href: '/accounting/assets' }}
-          className="mb-0"
-        />
+        <PageHeader icon={Package} title="New Asset" backLink={{ label: 'Back to Assets', href: '/accounting/assets' }} className="mb-0" />
 
         <form onSubmit={handleSubmit}>
           <div className="p-6 xl:p-8">
