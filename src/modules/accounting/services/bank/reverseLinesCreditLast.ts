@@ -15,6 +15,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { assertVoidKeepsCredit, isVoidCreditRefusal } from '../ap/supplierVoidCredit';
+import { findJournalChainRoot } from '../shared/journalChainHead';
 
 /** Runs `reverse` over `ids` in the order given, retrying credit-refused ones once after the rest. */
 export async function reverseLinesCreditLast(ids: readonly string[], reverse: (id: string) => Promise<unknown>): Promise<void> {
@@ -31,15 +32,26 @@ export async function reverseLinesCreditLast(ids: readonly string[], reverse: (i
 }
 
 /**
- * The same refusal, decided up front for a preview: the supplier payments and refunds these journals carry, voided
- * together (refunds raise the credit, payments lower it), must leave each supplier at zero or above.
+ * The same refusal, decided up front for a preview: the supplier payments and refunds these lines' reversals would
+ * void, voided together (refunds raise the credit, payments lower it), must leave each supplier at zero or above.
+ * Found as the live reversal finds them: from each line's matched journal to its chain ROOT (`findJournalChainRoot`,
+ * as `peekLineChain` does), then the payments on that root and the members of a processed payment batch posted on it.
+ * A chain with no root (a loop) is skipped here: the live call refuses it as a broken chain anyway.
  */
 export async function assertLinesKeepCredit(companyId: string, journalIds: readonly (string | null)[]): Promise<void> {
-  const ids = journalIds.filter((j): j is string => j !== null);
-  if (ids.length === 0) return;
+  const roots: string[] = [];
+  for (const je of new Set(journalIds.filter((j): j is string => j !== null))) {
+    const root = await findJournalChainRoot(companyId, je);
+    if (root) roots.push(root);
+  }
+  if (roots.length === 0) return;
   const rows = (await sql`
-    SELECT id FROM supplier_payments
-    WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ANY(${ids}::UUID[])
+    SELECT sp.id FROM supplier_payments sp
+    WHERE sp.company_id = ${companyId}::UUID
+      AND (sp.gl_journal_entry_id = ANY(${roots}::UUID[])
+        OR sp.batch_id IN (SELECT b.id FROM supplier_payment_batches b
+                           WHERE b.company_id = ${companyId}::UUID AND b.status = 'processed'
+                             AND b.gl_journal_entry_id = ANY(${roots}::UUID[])))
   `) as DbRow[];
   await assertVoidKeepsCredit(companyId, rows.map((r) => String(r.id)));
 }
