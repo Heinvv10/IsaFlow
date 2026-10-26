@@ -17,6 +17,7 @@ import {
   Toast,
   PairRow,
 } from '@/components/accounting/SupplierDedupComponents';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface PendingMerge {
   keepId: string;
@@ -27,6 +28,7 @@ interface PendingMerge {
 
 export default function SupplierDedupPage() {
   const [pairs, setPairs] = useState<SupplierDuplicatePair[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [scanned, setScanned] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -36,8 +38,8 @@ export default function SupplierDedupPage() {
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 5000);
-  }, []);
+    afterDelay(() => setToast(null), 5000);
+  }, [afterDelay]);
 
   const scan = useCallback(async () => {
     setIsLoading(true);

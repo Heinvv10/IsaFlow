@@ -14,6 +14,7 @@ import {
 import { Search, X, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface CompanyOption {
   id: string;
@@ -39,6 +40,7 @@ function statusBadgeCls(status: string) {
 
 export function CompanyPicker({ value, onChange }: Props) {
   const [query, setQuery]           = useState('');
+  const afterDelay = useTimeoutOnce();
   const [results, setResults]       = useState<CompanyOption[]>([]);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
@@ -166,7 +168,7 @@ export function CompanyPicker({ value, onChange }: Props) {
           onChange={e => handleQueryChange(e.target.value)}
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0) setOpen(true); }}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onBlur={() => afterDelay(() => setOpen(false), 150)}
           placeholder="Search companies by name…"
           className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm pl-9 pr-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
         />
