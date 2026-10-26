@@ -9,7 +9,7 @@ export interface BvaFixtureAccount { code: string; name: string; type: 'revenue'
 
 export function bvaBody(accounts: BvaFixtureAccount[], postedThrough: string | null = '2026-10-20') {
   const budgets: Record<string, number> = {};
-  for (const a of accounts) if (a.budget !== undefined) budgets[a.code] = a.budget;
+  for (const a of accounts) if (a.budget !== undefined) budgets[`id-${a.code}`] = a.budget;
   const lines = buildBudgetVsActualLines(
     accounts.map((a) => ({ id: `id-${a.code}`, account_code: a.code, account_name: a.name, account_type: a.type, actual_amount: a.actual })),
     budgets,

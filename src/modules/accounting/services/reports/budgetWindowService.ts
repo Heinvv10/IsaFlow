@@ -5,8 +5,10 @@
  * The window comes from the fiscal-year registry, never from the declared
  * `financial_year_start`. Budgets are whole calendar months
  * (`budget_month_amounts`), so every window covers whole months on both sides
- * (budgets P0, D8; contract decision 17): `current` is the whole fiscal period
- * holding today (the calendar month when no period row exists), `ytd` runs from
+ * (budgets P0, D8; contract decision 17): `current` is the fiscal period holding
+ * today widened to the whole calendar months it touches (the calendar month when
+ * no period row exists), so a period of 27 Sep - 31 Oct sets September and
+ * October's budgets against September and October's actuals, `ytd` runs from
  * the start of the financial year holding today to the end of today's month,
  * capped at the year end, and `full_year` is that year's whole range (14 months
  * for a transition year). Any other `period` is refused (D12).
@@ -47,7 +49,7 @@ export interface ResolvedBudgetWindow extends BudgetWindow {
 }
 
 /**
- * `current` = the whole fiscal period holding today; `full_year` = the registry year in full;
+ * `current` = the fiscal period holding today, widened to whole calendar months; `full_year` = the registry year in full;
  * `ytd` = the year's start to the end of today's month, capped at the year end.
  * A `chosen` year (budgetReportYear) replaces the year holding today: `full_year` is its whole
  * range, year to date runs from its start to the end of today's month, held inside the year; of
@@ -70,8 +72,10 @@ export async function resolveBudgetWindow(
   }
   if (period === 'current') {
     const fiscalPeriod = await periodForDate(companyId, today);
+    // Budgets are summed by whole calendar month, so the actuals must be too:
+    // a period that starts or ends mid-month is widened to its months' edges.
     const window = fiscalPeriod
-      ? { startDate: fiscalPeriod.startDate, endDate: fiscalPeriod.endDate }
+      ? { startDate: `${fiscalPeriod.startDate.slice(0, 7)}-01`, endDate: monthEnd(fiscalPeriod.endDate) }
       : currentMonthWindow(now);
     return { ...window, fiscalYear: await fiscalYearForDate(companyId, window.startDate), notStarted: false };
   }
@@ -85,8 +89,8 @@ export async function resolveBudgetWindow(
 }
 
 /**
- * Budget per account over the window, keyed by account code AND account id (the
- * line builder looks up either). Only accounts with a stored month INSIDE the
+ * Budget per account over the window, keyed by account ID only (the line
+ * builder looks up nothing else). Only accounts with a stored month INSIDE the
  * window are present; a present key, even at 0, is what makes a line budgeted.
  */
 export async function loadWindowBudgets(
@@ -97,19 +101,15 @@ export async function loadWindowBudgets(
   const bounds = budgetMonthBounds(startDate, endDate);
   if (!bounds) return {};
   const rows = (await sql`
-    SELECT bm.gl_account_id, ga.account_code, SUM(bm.amount)::numeric AS total
+    SELECT bm.gl_account_id, SUM(bm.amount)::numeric AS total
     FROM budget_month_amounts bm
     JOIN gl_accounts ga ON ga.id = bm.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE bm.company_id = ${companyId}::UUID
       AND bm.month >= ${bounds.first}::DATE AND bm.month <= ${bounds.last}::DATE
-    GROUP BY bm.gl_account_id, ga.account_code
-  `) as Array<{ gl_account_id: string; account_code: string; total: string | number }>;
+    GROUP BY bm.gl_account_id
+  `) as Array<{ gl_account_id: string; total: string | number }>;
 
   const budgets: Record<string, number> = {};
-  for (const row of rows) {
-    const total = round2(Number(row.total));
-    budgets[row.account_code] = total;
-    budgets[row.gl_account_id] = total;
-  }
+  for (const row of rows) budgets[String(row.gl_account_id)] = round2(Number(row.total));
   return budgets;
 }

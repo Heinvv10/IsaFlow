@@ -133,13 +133,15 @@ export async function upsertBudget(
   const year = await yearMonths(companyId, input.fiscalYear);
   const amounts = resolveMonthAmounts(year.monthKeys, { months: input.months, annualAmount: input.annualAmount });
 
-  const owned = (await sql`
+  const [account] = (await sql`
     SELECT account_type FROM gl_accounts WHERE id = ${input.glAccountId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
-  if (owned.length === 0) throw new BudgetInputError('Budget account does not belong to this company');
+  if (!account) throw new BudgetInputError('Budget account does not belong to this company');
   // Every budget reader filters to revenue and expense, so a budget on any
-  // other account would be stored and then appear on no report (D13).
-  const accountType = String(owned[0]!.account_type);
+  // other account would be stored and then appear on no report (D13). Leaf-only
+  // is the Add picker's rule, not this one: budgets on header accounts exist and
+  // keep reporting (P0 spec 2.6).
+  const accountType = String(account.account_type);
   if (accountType !== 'revenue' && accountType !== 'expense') {
     throw new BudgetInputError('Budgets can only be set on revenue and expense accounts');
   }
@@ -212,6 +214,8 @@ export async function copyBudgets(
       JOIN gl_accounts ga ON ga.id = bm.gl_account_id AND ga.company_id = ${companyId}::UUID
       WHERE bm.company_id = ${companyId}::UUID
         AND bm.month >= ${from.first}::DATE AND bm.month <= ${from.last}::DATE
+        -- A legacy balance-sheet budget appears on no report: never carry it forward (D13).
+        AND ga.account_type IN ('revenue', 'expense')
     ), ins AS (
       INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount, created_by)
       SELECT ${companyId}::UUID, gl_account_id, target::DATE, amount, ${userId}

@@ -47,16 +47,13 @@ export interface BudgetVsActualLine {
 }
 
 /**
- * The budget for an account, or undefined when none is stored. Both
- * `account_code` and `id` are accepted as keys. `??`-style presence checks,
- * never `||`: a zero budget is a budget, and is different from none.
+ * The budget for an account, or undefined when none is stored. Keyed by the
+ * account ID only: a code shares no key space with ids, so an account coded
+ * like another account's id (or like `constructor`) cannot pick up a budget
+ * that is not its own. A present key, even at 0, is a budget.
  */
-function lookupBudget(budgets: Record<string, number>, row: RawActualRow): number | undefined {
-  const byCode = budgets[row.account_code];
-  if (byCode !== undefined) return Number(byCode);
-  const byId = budgets[row.id];
-  if (byId !== undefined) return Number(byId);
-  return undefined;
+function lookupBudget(budgets: Readonly<Record<string, number>>, row: RawActualRow): number | undefined {
+  return Object.hasOwn(budgets, row.id) ? Number(budgets[row.id]) : undefined;
 }
 
 /** A percentage of a budget, or null when there is nothing to divide by. A negative budget divides by its size. */
@@ -74,7 +71,8 @@ export function pctOfBudget(amount: number, budget: number, budgeted: boolean): 
  */
 export function buildBudgetVsActualLines(
   actuals: RawActualRow[],
-  budgets: Record<string, number>,
+  /** Budget per account over the window, keyed by gl_accounts.id. */
+  budgets: Readonly<Record<string, number>>,
 ): BudgetVsActualLine[] {
   return actuals
     .map<BudgetVsActualLine>((a) => {

@@ -29,14 +29,20 @@ const GL = [
   acc('g62', '6200', 'Old telephone', 'expense', { parentAccountId: 'h6', isActive: false }),
   acc('g45', '4500', 'Interest received', 'revenue'),
   acc('a1', '1000', 'Bank', 'asset'),
+  // A header whose ONLY child is inactive: it is a header to the posting rules,
+  // but a chart read without inactive rows would show it as a leaf.
+  acc('h7', '7000', 'Legacy costs (header)', 'expense'),
+  acc('g71', '7100', 'Legacy fee', 'expense', { parentAccountId: 'h7', isActive: false }),
 ];
+/** What GET /api/accounting/chart-of-accounts answers: inactive rows only when asked for. */
+const chart = (u: string) => (u.includes('includeInactive=true') ? GL : GL.filter((a) => a.isActive));
 const RENT = budgetRow({ glAccountId: 'g61', accountCode: '6100', accountName: 'Rent', accountType: 'expense' }, 50);
 // Budgeted when it was a leaf; it has since become the header above Rent.
 const HEADER_BUDGET = budgetRow({ glAccountId: 'h6', accountCode: '6000', accountName: 'Operating expenses (header)', accountType: 'expense' }, 10);
 
 function serve(items: unknown[]) {
   script((u) => {
-    if (u.includes('chart-of-accounts')) return ok(GL);
+    if (u.includes('chart-of-accounts')) return ok(chart(u));
     if (u.includes('budgets-action')) return ok({ deleted: true });
     if (/\/budgets(\?|$)/.test(u)) return ok(budgetsPayload(items));
     return undefined;
@@ -72,8 +78,8 @@ describe('budgets page delete, picker and totals', () => {
     await screen.findByRole('option', { name: /Rent/ });
     const picker = screen.getByText('Select GL Account *').closest('select')!;
     const offered = Array.from(picker.options).map((o) => o.value).filter(Boolean);
+    // h7 is a header (its child is inactive), h6 a header, g62 inactive, a1 an asset.
     expect(offered).toEqual(['g0', 'g45', 'g61']);
-    expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).includes('chart-of-accounts?includeInactive=true'))).toBe(true);
   });
 
   it('editing an account that became a header still shows it', async () => {

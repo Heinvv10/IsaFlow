@@ -8,7 +8,7 @@ const LINES = buildBudgetVsActualLines(
     { id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900_000 },
     { id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 130_000 },
   ],
-  { '1000': 1_000_000, '6000': 120_000 },
+  { a: 1_000_000, b: 120_000 },
 );
 
 type Series = {
@@ -38,7 +38,7 @@ describe('buildBudgetBulletOption', () => {
   it('escapes an account name before it reaches the tooltip formatter', () => {
     const maliciousLines = buildBudgetVsActualLines(
       [{ id: 'a', account_code: '1000', account_name: '<img src=x onerror=1>', account_type: 'revenue', actual_amount: 900_000 }],
-      { '1000': 1_000_000 },
+      { a: 1_000_000 },
     );
     const withXss = buildBudgetBulletOption(maliciousLines, DEFAULT_PALETTE) as unknown as TooltipOption;
     const html = withXss.tooltip.formatter([{ dataIndex: 0 }]);
@@ -92,10 +92,33 @@ describe('buildBudgetBulletOption', () => {
   it('marks a favourable line with the favourable colour', () => {
     const favLines = buildBudgetVsActualLines(
       [{ id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 1_100_000 }],
-      { '1000': 1_000_000 },
+      { a: 1_000_000 },
     );
     const o = buildBudgetBulletOption(favLines, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
     expect(labelColours(o)).toEqual([DEFAULT_PALETTE.fav]);
+  });
+
+  it('draws only budgeted lines: an unbudgeted account is not charted or judged', () => {
+    const mixed = buildBudgetVsActualLines(
+      [
+        { id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 1_100_000 },
+        { id: 'c', account_code: '6900', account_name: 'Unbudgeted spend', account_type: 'expense', actual_amount: 9_000_000 },
+      ],
+      { a: 1_000_000 },
+    );
+    const o = buildBudgetBulletOption(mixed, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
+    expect((o['yAxis'] as { data: string[] }).data).toEqual(['Sales']);
+    expect(labelColours(o)).toEqual([DEFAULT_PALETTE.fav]);
+  });
+
+  it('a deliberate zero budget is charted and judged by favourable', () => {
+    const zero = buildBudgetVsActualLines(
+      [{ id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 500 }],
+      { b: 0 },
+    );
+    const o = buildBudgetBulletOption(zero, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
+    expect((o['yAxis'] as { data: string[] }).data).toEqual(['Rent']);
+    expect(labelColours(o)).toEqual([DEFAULT_PALETTE.unfav]);
   });
 
   it('shows the largest absolute variances first and honours the limit', () => {

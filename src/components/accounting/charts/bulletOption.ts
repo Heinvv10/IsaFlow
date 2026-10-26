@@ -8,6 +8,9 @@
  * two bars can never be used to work that out. The polarity is issued once,
  * by `varianceColor`, into the Actual series' label colour — assert that
  * colour rather than adding a hook to the option the chart does not read.
+ * Only BUDGETED lines are drawn, coloured by their `favourable`: an account
+ * with no budget has no variance against a plan, and the Budget vs Actual
+ * screen, CSV and MCP all leave it unjudged (budgets P0).
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
@@ -21,7 +24,8 @@ export function buildBudgetBulletOption(
   palette: ChartPalette,
   opts: { limit?: number } = {},
 ): EChartsCoreOption {
-  const ranked = [...lines]
+  const ranked = lines
+    .filter((l) => l.budgeted)
     .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
     .slice(0, opts.limit ?? 10);
   // ECharts draws a horizontal category axis with index 0 at the BOTTOM.
@@ -89,7 +93,7 @@ export function buildBudgetBulletOption(
           },
           color: (p: { dataIndex: number }) => {
             const l = rows[p.dataIndex];
-            return l ? varianceColor(l.variance >= 0, palette) ?? palette.ink : palette.ink;
+            return l ? varianceColor(l.favourable ?? undefined, palette) ?? palette.ink : palette.ink;
           },
         },
       },

@@ -10,7 +10,7 @@ describe('buildBudgetVsActualSections', () => {
   it('net profit = revenue − expenses, budget and actual', () => {
     const lines = buildBudgetVsActualLines(
       [row('4000', 'revenue', 1200), row('4100', 'revenue', 300), row('6000', 'expense', 800), row('6100', 'expense', 100)],
-      { '4000': 1000, '4100': 500, '6000': 600, '6100': 200 },
+      { 'id-4000': 1000, 'id-4100': 500, 'id-6000': 600, 'id-6100': 200 },
     );
     const s = buildBudgetVsActualSections(lines);
     expect(s.revenue).toMatchObject({ budget: 1500, actual: 1500, variance: 0, movement: 0, favourable: true });
@@ -33,7 +33,7 @@ describe('buildBudgetVsActualSections', () => {
       for (let j = 0; j < n; j++) {
         const code = String(4000 + j);
         raws.push(row(code, rand() < 0.5 ? 'revenue' : 'expense', cents()));
-        if (rand() < 0.7) budgets[code] = cents();
+        if (rand() < 0.7) budgets[`id-${code}`] = cents();
       }
       const lines = buildBudgetVsActualLines(raws, budgets);
       const s = buildBudgetVsActualSections(lines);
@@ -45,7 +45,7 @@ describe('buildBudgetVsActualSections', () => {
   });
 
   it('section with nothing budgeted: pct and favourable null', () => {
-    const lines = buildBudgetVsActualLines([row('4000', 'revenue', 50), row('6000', 'expense', 80)], { '6000': 100 });
+    const lines = buildBudgetVsActualLines([row('4000', 'revenue', 50), row('6000', 'expense', 80)], { 'id-6000': 100 });
     const s = buildBudgetVsActualSections(lines);
     expect(s.revenue.variance_pct).toBeNull();
     expect(s.revenue.movement_pct).toBeNull();

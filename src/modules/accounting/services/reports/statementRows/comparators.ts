@@ -95,7 +95,9 @@ export function applyBudgetComparator(
   return rows.map((row) => {
     if (!isAccountLine(row)) return row;
     const line = byCode.get(row.accountCode!);
-    if (line === undefined) return row;
+    // An unbudgeted account has no budget to compare with: the Budget vs Actual
+    // screen, its CSV and MCP all leave it unjudged, and so does this column.
+    if (line === undefined || !line.budgeted) return row;
     // The row's PRINTED actual, never the service's GL aggregate (D7): the
     // Budget column sits beside the figure on this row, and the two can differ.
     // An expense row prints positive (debit − credit, incomeStatementRows), so

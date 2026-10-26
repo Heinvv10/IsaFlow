@@ -55,7 +55,9 @@ export interface PackBudgetRow {
  */
 export interface PackBudgetFigures {
   fiscalYear: number;
-  /** Net profit (revenue − expenses), not revenue + expense (budgets P0, D11). */
+  /** Net profit (revenue − expenses) over EVERY account with a budget or
+   *  movement, budgeted or not (budgets P0, D11): it does not foot to Σ `rows`,
+   *  which holds the budgeted accounts only. Nothing renders it yet. */
   totals: { budget: number; actual: number; variance: number };
   rows: PackBudgetRow[];
   /** Latest posted entry date inside the window, or null when nothing posted. */

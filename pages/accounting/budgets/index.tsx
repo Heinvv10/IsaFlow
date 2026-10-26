@@ -113,6 +113,11 @@ export default function BudgetManagementPage() {
   };
 
   const totals = budgetTotals(budgets);
+  const totalRows: Array<{ key: string; label: string; value: number }> = [
+    { key: 'revenue', label: 'Revenue budget', value: totals.revenue },
+    { key: 'expense', label: 'Expense budget', value: totals.expense },
+    { key: 'net', label: 'Net budgeted profit', value: totals.net },
+  ];
   const monthKeys = year?.monthKeys ?? [];
   // The year after this one in the list: after a change of year end the next label can skip one.
   const nextYear = years.find(y => year !== null && y.startDate > year.startDate) ?? null;
@@ -176,10 +181,10 @@ export default function BudgetManagementPage() {
           {/* Summary card */}
           {!loading && budgets.length > 0 && (
             <div data-testid="budget-summary" className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 flex flex-wrap items-center justify-between gap-4">
-              {[['Revenue budget', totals.revenue], ['Expense budget', totals.expense], ['Net budgeted profit', totals.net]].map(([label, value]) => (
-                <div key={label as string}>
+              {totalRows.map(({ key, label, value }) => (
+                <div key={key}>
                   <p className="text-xs text-[var(--ff-text-secondary)]">{label} for {fiscalYear}</p>
-                  <p className="text-xl font-bold text-[var(--ff-text-primary)]">{fmt(value as number)}</p>
+                  <p className="text-xl font-bold text-[var(--ff-text-primary)]">{fmt(value)}</p>
                 </div>
               ))}
               <div className="text-sm text-[var(--ff-text-secondary)]">{budgets.length} accounts budgeted</div>
@@ -230,11 +235,11 @@ export default function BudgetManagementPage() {
               </tbody>
               {budgets.length > 0 && (
                 <tfoot>
-                  {[['revenue', 'Revenue budget', totals.revenue], ['expense', 'Expense budget', totals.expense], ['net', 'Net budgeted profit', totals.net]].map(([key, label, value], i) => (
-                    <tr key={key as string} data-testid={`budget-tfoot-${key}`} className={`font-bold ${i === 0 ? 'border-t-2 border-[var(--ff-border-light)]' : ''}`}>
+                  {totalRows.map(({ key, label, value }, i) => (
+                    <tr key={key} data-testid={`budget-tfoot-${key}`} className={`font-bold ${i === 0 ? 'border-t-2 border-[var(--ff-border-light)]' : ''}`}>
                       <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-primary)]">{label}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(value as number)}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt((value as number) / (monthKeys.length || 12))}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(value)}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt(value / (monthKeys.length || 12))}</td>
                       <td colSpan={2}></td>
                     </tr>
                   ))}
