@@ -27,6 +27,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod } from '../../types/gl.types';
+import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { mapFiscalPeriodRow } from './fiscalYearCreateService';
 import { generateFiscalYearForDate } from './fiscalYearGenerator';
 import { normaliseStartMonth } from './fiscalYearCalendar';
@@ -212,7 +213,10 @@ export async function assertFinancialYearStartChange(companyId: string, requeste
   // A start-month change rebuilds the year registry, as a change of year end does: take that change's
   // lock (exclusive), so a budget save (budgets/budgetVersionScope.holdYearRegistry, shared) either
   // commits first and its version counts below, or waits and re-reads the new years.
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`fy-end-change:${companyId}`}, 0))`;
+  await withRowLockBudget(
+    () => sql`SELECT pg_advisory_xact_lock(hashtextextended(${`fy-end-change:${companyId}`}, 0))`,
+    () => new RowLockTimeoutError('The financial years'),
+  );
   // Lock, then decide again on what the lock now protects.
   const locked = await readDeclaredStartMonth(companyId, true);
   if (locked === null || locked === month) return false;
