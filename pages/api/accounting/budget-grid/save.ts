@@ -32,11 +32,13 @@ export const config = { api: { bodyParser: false } };
 
 /**
  * MAX_SAVE_CELLS (100 000) cells of compact JSON are at most ~17.2 MB (172 bytes for the widest
- * cell), so 18 MB, the same as one user's early-read budget. 290 s in all for a large body, under
- * Node's 300 s request timeout: 512 kbit/s ADSL sends 62.5 KiB/s, so 17.2 MB takes ~269 s (~282 s
- * if read as 17.2 MiB). A normal
- * save is a few KB: readRawBody's tiny tier, 15 s. 10 s idle tolerates a weak-LTE stall. What a slow
- * sender holds meanwhile is only the bytes it has sent (readJsonBody's lanes).
+ * cell), so 18 MB, the same as one user's early-read budget. 290 s in all for a large body, just
+ * under Node's 300 s request timeout. A 512 kbit/s ADSL line really carries ~54 000 B/s, so in
+ * 290 s it delivers ~15.6 MB, and the worst 17.2 MB commit (~318 s) does NOT fit: a commit over
+ * about 14 MB on such a line must be split by the client (PR-C: the grid chains saves, each sent
+ * with the token the previous one returned). A normal save is a few KB: readRawBody's tiny tier,
+ * 15 s. 10 s idle tolerates a weak-LTE stall. What a slow sender holds meanwhile is only the bytes
+ * it has sent (readJsonBody's lanes).
  */
 export const SAVE_BODY_LIMITS: BodyLimits = { maxBytes: 18 * 1048576, totalMs: 290_000, idleMs: 10_000 };
 

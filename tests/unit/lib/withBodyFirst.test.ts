@@ -1,17 +1,19 @@
 /**
- * withBodyFirst's own bounds, without a database (round 5): a user's read slot and received bytes
+ * withBodyFirst's own bounds, without a database (rounds 5-8): a user's read slot and received bytes
  * are held until the wrapped handler finishes (not only until the read does); a user holds at most
- * one route maxBytes in flight; small bodies (<= 1 MB) have a lane outside the process budget, so
- * large uploads filling it never starve a normal grid save; and a rate bucket that throws is a
- * clean 503, logged. Real streams; the session token is signed with a stubbed JWT_SECRET (aal2, so
- * verifyToken never calls GoTrue).
+ * one route maxBytes in flight; the three process lanes by body tier are independent (tiny <= 64 KB:
+ * its own 128 MB backstop; small <= 1 MB: 32 MB; large: 64 MB), so large uploads never starve a
+ * normal grid save; an undeclared body moves up the lanes as it grows (and overflows from a full
+ * small lane into the large one); a full slot is 429 before the rate bucket is charged, and a rate
+ * bucket that throws is a clean 503, logged. Real streams; the session token is signed with a
+ * stubbed JWT_SECRET (aal2, so verifyToken never calls GoTrue).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import { SignJWT } from 'jose';
 import type { NextApiHandler } from 'next';
 import { log } from '@/lib/logger';
-import { earlyReadStats, earlySmallLaneBytes, takeRawBody, withBodyFirst } from '@/lib/readJsonBody';
+import { earlyReadStats, earlySmallLaneBytes, takeRawBody, tinyLaneCap, withBodyFirst } from '@/lib/readJsonBody';
 
 const MB = 1048576;
 const CSRF = 'c'.repeat(40);
@@ -242,5 +244,30 @@ describe('withBodyFirst bounds', () => {
       expect(r.status).toBe(200);
       expect([earlySmallLaneBytes(), earlyReadStats()]).toEqual([0, { reads: 0, bytes: 0 }]);
     });
+  });
+
+  it('the tiny lane has its own process ceiling (an OOM backstop): filled, the next tiny body is 503', async () => {
+    // The production ceiling is 128 MB; a Vitest-only override lowers it to 64 KB here.
+    vi.stubEnv('BODY_READ_TINY_LANE_BYTES', String(64 * 1024));
+    const held = holding(60 * 1024);
+    const { inner, open } = gatedInner();
+    const pending = call(withBodyFirst(LIMITS, inner), 'u-tiny-a', held.stream, 60 * 1024);
+    for (let i = 0; i < 200 && earlyReadStats().reads === 0; i++) await sleep(5);
+    await sleep(50);
+    const plain: NextApiHandler = async (req, res) => { await takeRawBody(req); res.status(200).json({ ok: true }); };
+    const next = await call(withBodyFirst(LIMITS, plain), 'u-tiny-b', Readable.from([Buffer.alloc(10 * 1024, 0x20)]), 10 * 1024);
+    held.release();
+    open();
+    await pending;
+    expect([next.status, next.code, next.retryAfter]).toEqual([503, 'EARLY_READ_PROCESS_BUDGET', '5']);
+    // Once the holder is done, a tiny body is read again.
+    expect((await call(withBodyFirst(LIMITS, plain), 'u-tiny-b', Readable.from([Buffer.alloc(10 * 1024, 0x20)]), 10 * 1024)).status).toBe(200);
+  });
+
+  it('the tiny-lane override is honoured under Vitest only: production keeps 128 MB', () => {
+    vi.stubEnv('BODY_READ_TINY_LANE_BYTES', '1024');
+    expect(tinyLaneCap()).toBe(1024);
+    vi.stubEnv('VITEST', '');
+    expect(tinyLaneCap()).toBe(128 * MB);
   });
 });

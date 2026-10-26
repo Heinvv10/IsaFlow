@@ -43,11 +43,11 @@ export const config = { api: { bodyParser: false } };
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 /**
- * The file plus its multipart framing and one small field. 200 s in all: a 10 MB file on a slow
- * ADSL uplink (64 KB/s) takes ~160 s, and 200 s is still under Node's 300 s requestTimeout; at most
- * 10 s between chunks. Exported so a test pins them.
+ * The file plus its multipart framing and one small field. 280 s in all: a full 10 MB + 64 KB on a
+ * slow ADSL uplink (~54 KB/s real throughput) takes ~194 s, and 280 s is still under Node's 300 s
+ * requestTimeout; at most 10 s between chunks. Exported so a test pins them.
  */
-export const BODY_LIMITS: BodyLimits = { maxBytes: MAX_UPLOAD_BYTES + 64 * 1024, totalMs: 200_000, idleMs: 10_000 };
+export const BODY_LIMITS: BodyLimits = { maxBytes: MAX_UPLOAD_BYTES + 64 * 1024, totalMs: 280_000, idleMs: 10_000 };
 const PREVIEW_RATE = 60;
 const ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

@@ -44,8 +44,9 @@ const MAX_EARLY_READS_PER_USER = 2;
  * A declared Content-Length only earns an immediate 413 over the route's cap (counting it up front
  * let accounts that declared 24 MB and sent nothing fill the budget, round-5 review). Per user: one
  * route maxBytes in flight. Per process, by tier (readRawBody's tierOf; a body moves up a tier, and
- * its bytes with it, as it grows): tiny bodies in no lane (a normal grid save is never starved),
- * MAX_SMALL_LANE_BYTES for small ones, MAX_EARLY_READ_BYTES for large ones; the lanes are
+ * its bytes with it, as it grows): tiny bodies in their own MAX_TINY_LANE_BYTES backstop (a normal
+ * grid save is never starved by bigger uploads), MAX_SMALL_LANE_BYTES for small ones,
+ * MAX_EARLY_READ_BYTES for large ones; the lanes are
  * independent, so neither size can starve the other (an undeclared small body may overflow into
  * the large lane when its own is full, never the other way). Past the user's budget: 429; past a lane: 503;
  * both with Retry-After, at the chunk that crosses it. How long anything is held is readRawBody's
@@ -53,7 +54,19 @@ const MAX_EARLY_READS_PER_USER = 2;
  */
 export const MAX_EARLY_READ_BYTES = 64 * 1048576;
 export const MAX_SMALL_LANE_BYTES = 32 * 1048576;
-const LANE_CAP: Record<'small' | 'large', number> = { small: MAX_SMALL_LANE_BYTES, large: MAX_EARLY_READ_BYTES };
+/**
+ * The tiny lane's ceiling: not a budget anyone should meet, an out-of-memory backstop. 1 000
+ * accounts x 2 slots x 64 KB = 128 MB, so starving normal saves takes a thousand real signed-in
+ * accounts holding uploads at once, while tiny bodies can no longer grow the process without
+ * bound. Independent of the small and large lanes, so those still cannot starve it.
+ */
+export const MAX_TINY_LANE_BYTES = 128 * 1048576;
+/** The tiny lane's ceiling; under Vitest a suite may lower it (BODY_READ_TINY_LANE_BYTES) to fill it cheaply. */
+export function tinyLaneCap(): number {
+  const v = Number(process.env.BODY_READ_TINY_LANE_BYTES);
+  return process.env.VITEST === 'true' && Number.isFinite(v) && v > 0 ? v : MAX_TINY_LANE_BYTES;
+}
+const laneCap = (t: BodyTier): number => (t === 'tiny' ? tinyLaneCap() : t === 'small' ? MAX_SMALL_LANE_BYTES : MAX_EARLY_READ_BYTES);
 const RETRY_AFTER_SECONDS = 5;
 const readsOf = new Map<string, number>();
 const bytesOf = new Map<string, number>();
@@ -84,9 +97,9 @@ function meterFor(user: string, userBudget: number, undeclared: boolean) {
     // held to the small lane.
     let target: BodyTier = lane === 'large' ? 'large' : tier;
     const addTo = (t: BodyTier) => (t === lane ? n : mine + n); // a lane change takes the bytes so far along
-    if (undeclared && target === 'small' && laneBytes.small + addTo('small') > LANE_CAP.small) target = 'large';
+    if (undeclared && target === 'small' && laneBytes.small + addTo('small') > laneCap('small')) target = 'large';
     const add = addTo(target);
-    if (target !== 'tiny' && laneBytes[target] + add > LANE_CAP[target]) return full();
+    if (laneBytes[target] + add > laneCap(target)) return full();
     if (target !== lane) laneBytes[lane] -= mine;
     laneBytes[target] += add;
     lane = target;
@@ -106,7 +119,7 @@ function meterFor(user: string, userBudget: number, undeclared: boolean) {
 
 /**
  * `limits`, or under Vitest the BODY_READ_IDLE_MS / BODY_READ_TOTAL_MS a suite stubs (so a slow-body
- * test waits 1 s, not the route's 5-15 s). Never read outside Vitest.
+ * test waits 1 s, not the route's 10 s idle or 15-290 s totals). Never read outside Vitest.
  */
 export function effectiveLimits(limits: BodyLimits): BodyLimits {
   if (process.env.VITEST !== 'true') return limits;
