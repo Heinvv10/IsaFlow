@@ -1,0 +1,130 @@
+{
+  "ap-aging.light": {
+    "walker": {
+      "total": 9042,
+      "failing": [],
+      "worst": 4.99
+    },
+    "whitePanel": "DIV.min-h-screen bg-[var(--ff-bg-primary)]"
+  },
+  "ap-aging.dark": {
+    "walker": {
+      "total": 9042,
+      "failing": [],
+      "worst": 4.86
+    },
+    "whitePanel": null
+  },
+  "dunning-runs.light": {
+    "walker": {
+      "total": 43,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": null
+  },
+  "dunning-runs.dark": {
+    "walker": {
+      "total": 43,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": null
+  },
+  "supplier-invoices.light": {
+    "walker": {
+      "total": 458,
+      "failing": [],
+      "worst": 4.57
+    },
+    "whitePanel": "DIV.min-h-screen bg-slate-50 dark:bg-[var(--"
+  },
+  "supplier-invoices.dark": {
+    "walker": {
+      "total": 458,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": null
+  },
+  "recurring-invoices.light": {
+    "walker": {
+      "total": 25,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": "DIV.min-h-screen bg-slate-50 dark:bg-[var(--"
+  },
+  "recurring-invoices.dark": {
+    "walker": {
+      "total": 25,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": null
+  },
+  "delivery-notes.light": {
+    "walker": {
+      "total": 19,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": "DIV.min-h-screen bg-slate-50 dark:bg-[var(--"
+  },
+  "delivery-notes.dark": {
+    "walker": {
+      "total": 19,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": null
+  },
+  "journal-entries-new.light": {
+    "walker": {
+      "total": 42,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": "DIV.min-h-screen bg-slate-50 dark:bg-[var(--"
+  },
+  "journal-entries-new.dark": {
+    "walker": {
+      "total": 42,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": null
+  },
+  "assets-new.light": {
+    "walker": {
+      "total": 44,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": "DIV.min-h-screen bg-slate-50 dark:bg-[var(--"
+  },
+  "assets-new.dark": {
+    "walker": {
+      "total": 44,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": null
+  },
+  "disputes.light": {
+    "walker": {
+      "total": 28,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": "DIV.bg-surface-raised border border-line rou"
+  },
+  "disputes.dark": {
+    "walker": {
+      "total": 28,
+      "failing": [],
+      "worst": 5.47
+    },
+    "whitePanel": null
+  }
+}

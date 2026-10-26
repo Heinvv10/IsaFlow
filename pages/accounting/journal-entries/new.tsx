@@ -3,10 +3,10 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui';
 import { log } from '@/lib/logger';
-import { ArrowLeft, Plus, Trash2, Loader2, AlertCircle, CheckCircle2, BookOpen, Receipt } from 'lucide-react';
+import { Plus, Trash2, Loader2, AlertCircle, CheckCircle2, BookOpen, Receipt } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAutocomplete';
@@ -115,24 +115,12 @@ export default function NewJournalEntryPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting?tab=journal-entries" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Journal Entries
-            </Link>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center">
-                <BookOpen className="w-5 h-5 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-white">Journal Entry</h1>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={BookOpen}
+          title="Journal Entry"
+          backLink={{ label: 'Back to Journal Entries', href: '/accounting?tab=journal-entries' }}
+          className="mb-0"
+        />
 
         <div className="p-6 xl:p-8">
           <form onSubmit={e => void handleSubmit(e)}>
@@ -196,7 +184,7 @@ export default function NewJournalEntryPage() {
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {lines.map((line, idx) => (
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                          <td className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">{idx + 1}</td>
+                          <td className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{idx + 1}</td>
                           <td className="px-3 py-2">
                             <select name="accountId" value={line.accountId} onChange={e => updateLine(line.key, 'accountId', e.target.value)} className={inp} required>
                               <option value="">Select account…</option>

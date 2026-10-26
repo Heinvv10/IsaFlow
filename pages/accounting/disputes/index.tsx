@@ -64,23 +64,22 @@ export default function DisputesPage() {
 
   return (
     <AppLayout>
-      {/* Authored light (white cards, slate text, no dark variants): a light page inside the dark shell, not slate-900 on the dark canvas. */}
-      <div data-surface="light" className="p-6 space-y-6 bg-slate-50 min-h-full">
+      <div className="p-6 space-y-6 min-h-full">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900 flex items-center gap-2">
-              <AlertTriangle className="w-6 h-6 text-amber-500" />
+            <h1 className="text-2xl font-semibold text-ink flex items-center gap-2">
+              <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
               Customer Disputes
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-ink-muted mt-1">
               Disputes raised by customers via the portal or internally. Open disputes are
               excluded from AR overdue buckets.
             </p>
           </div>
           <div className="text-right">
-            <div className="text-xs uppercase text-slate-500">Open disputes</div>
-            <div className="text-2xl font-semibold text-slate-900">{openTotal}</div>
-            <div className="text-xs text-slate-500">
+            <div className="text-xs uppercase text-ink-muted">Open disputes</div>
+            <div className="text-2xl font-semibold text-ink">{openTotal}</div>
+            <div className="text-xs text-ink-muted">
               {formatCurrency(openDisputedAmount)} under review
             </div>
           </div>
@@ -93,8 +92,8 @@ export default function DisputesPage() {
               onClick={() => changeFilter(s)}
               className={`px-3 py-1.5 rounded-md text-sm border ${
                 statusFilter === s
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  ? 'bg-brand-600 text-white border-brand-600'
+                  : 'bg-surface-raised text-ink border-line hover:bg-surface-sunken'
               }`}
             >
               {s.charAt(0).toUpperCase() + s.slice(1)}
@@ -103,20 +102,20 @@ export default function DisputesPage() {
         </div>
 
         {isLoading && (
-          <div className="flex items-center justify-center py-10 text-slate-500">
+          <div className="flex items-center justify-center py-10 text-ink-muted">
             <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading disputes…
           </div>
         )}
         {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          <div className="p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg text-red-700 dark:text-red-300">
             {error}
           </div>
         )}
 
         {!isLoading && !error && (
-          <div data-surface="light" className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="bg-surface-raised border border-line rounded-lg overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
+              <thead className="bg-surface-sunken text-ink-muted text-xs uppercase">
                 <tr>
                   <th className="text-left px-4 py-2">Raised</th>
                   <th className="text-left px-4 py-2">Customer</th>
@@ -130,28 +129,28 @@ export default function DisputesPage() {
               <tbody>
                 {disputes.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-10 text-slate-400">
+                    <td colSpan={7} className="text-center py-10 text-ink-muted">
                       No disputes.
                     </td>
                   </tr>
                 ) : (
                   disputes.map((d) => (
-                    <tr key={d.id} className="border-t border-slate-100 hover:bg-slate-50">
-                      <td className="px-4 py-3 text-slate-700">{formatDate(d.raisedAt)}</td>
-                      <td className="px-4 py-3 text-slate-900">{d.clientName ?? '—'}</td>
+                    <tr key={d.id} className="border-t border-line hover:bg-surface-sunken">
+                      <td className="px-4 py-3 text-ink-muted">{formatDate(d.raisedAt)}</td>
+                      <td className="px-4 py-3 text-ink">{d.clientName ?? '—'}</td>
                       <td className="px-4 py-3">
                         <Link
                           href={`/accounting/customer-invoices/${d.customerInvoiceId}`}
-                          className="text-blue-600 hover:underline"
+                          className="text-brand-700 dark:text-teal-400 hover:underline"
                         >
                           {d.invoiceNumber ?? d.customerInvoiceId.slice(0, 8)}
                         </Link>
                         {d.customerInvoiceLineId && (
-                          <span className="ml-2 text-xs text-slate-400">(line-level)</span>
+                          <span className="ml-2 text-xs text-ink-muted">(line-level)</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-slate-700 max-w-md truncate">{d.reason}</td>
-                      <td className="px-4 py-3 text-right font-medium">
+                      <td className="px-4 py-3 text-ink-muted max-w-md truncate">{d.reason}</td>
+                      <td className="px-4 py-3 text-right font-medium text-ink">
                         {formatCurrency(d.disputedAmount)}
                       </td>
                       <td className="px-4 py-3">
@@ -161,12 +160,12 @@ export default function DisputesPage() {
                         {d.status === 'open' ? (
                           <button
                             onClick={() => setActive(d)}
-                            className="px-3 py-1 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800"
+                            className="px-3 py-1 text-xs rounded-md bg-brand-600 text-white hover:bg-brand-700"
                           >
                             Resolve
                           </button>
                         ) : (
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-ink-muted">
                             {d.resolutionMode ?? d.status}
                           </span>
                         )}
@@ -177,7 +176,7 @@ export default function DisputesPage() {
               </tbody>
             </table>
 
-            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-600">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-line text-sm text-ink-muted">
               <span>
                 Showing {firstOnPage}–{lastOnPage} of {total}
               </span>
@@ -185,14 +184,14 @@ export default function DisputesPage() {
                 <button
                   onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
                   disabled={offset === 0}
-                  className="px-3 py-1.5 rounded-md border border-slate-200 disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-md border border-line text-ink disabled:opacity-40"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setOffset((o) => o + PAGE_SIZE)}
                   disabled={lastOnPage >= total}
-                  className="px-3 py-1.5 rounded-md border border-slate-200 disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-md border border-line text-ink disabled:opacity-40"
                 >
                   Next
                 </button>

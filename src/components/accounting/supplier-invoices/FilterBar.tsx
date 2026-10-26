@@ -122,7 +122,7 @@ export function FilterBar({
 
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <RangeInput label="Total" minName="fromAmount" maxName="toAmount" filters={filters} onChange={setAmountRange} />
-        <span className="text-slate-300 dark:text-slate-600">|</span>
+        <span className="text-ink-muted" aria-hidden="true">|</span>
         <RangeInput label="Outstanding" minName="fromBalance" maxName="toBalance" filters={filters} onChange={setAmountRange} />
       </div>
 
