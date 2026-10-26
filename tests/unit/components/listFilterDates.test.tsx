@@ -94,3 +94,12 @@ describe('PeriodControl range hints', () => {
     expect(screen.getByLabelText('Invoice date from')).toBeTruthy();
   });
 });
+
+describe('PeriodControl impossible bound', () => {
+  it('an impossible date from the URL (2026-02-31) does not crash the control or become a bound', () => {
+    const onChange = vi.fn();
+    render(<PeriodControl from="2026-02-31" to="2026-06-30" onChange={onChange} inputClassName="" />);
+    typeDate(screen.getByLabelText('Invoice date to'), '1 Jan 2026');
+    expect(onChange).toHaveBeenLastCalledWith('2026-02-31', '2026-01-01'); // no minDate was applied from the bad value
+  });
+});
