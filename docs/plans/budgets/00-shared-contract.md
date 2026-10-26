@@ -34,6 +34,21 @@ Deferred to phase-start decision gates (pre-filled defaults, Hein answers yes/ov
 16. Projected FY uses actuals up to the last complete month, budget thereafter.
 17. YTD runs to the end of the current month (whole months on both sides).
 
+## Product decisions, round 3 (Hein, 2026-10-26, after P0 review — build them, do not re-ask)
+
+18. **Budgets live on leaf (posting) accounts only; a header shows the roll-up.** A header (any account another account,
+    active or not, names as `parent_account_id`) never holds its own budget in the grid: its row is the read-only
+    Σ of its sub-accounts. Top-down entry is a header row action, **"Spread across sub-accounts"** (evenly, or in
+    proportion to PY actuals), which writes the sub-accounts' cells; the header then shows their sum. The server
+    refuses a NEW budget on a header or inactive account (400 `BudgetInputError`); an account that already holds
+    amounts in the version stays editable. Existing header budgets (9 of 47 budgeted accounts on isaflow_dev,
+    2026-10-26) are **never migrated silently**: the grid flags each one ("This header has its own R X budget —
+    move it to a sub-account or spread it") with both actions. Reason: a header budget sits beside its children's
+    and double-counts in every section total; budgeting where you post is the Xero/QBO/Sage norm. Owner: P2.
+19. **MCP `budget_variance` drops `totals`; net profit is `sections.net_profit`.** P0 (#875) briefly shipped `totals`
+    as net profit; a field whose meaning changes silently is worse than one that disappears, so it is removed in a
+    P0 follow-up PR and the description points at `sections`. Owner: P0 follow-up.
+
 ## Canonical names (P1 owns them; every other phase uses exactly these)
 
 - Table `budget_versions`: `id uuid pk`, `company_id uuid not null`, `fiscal_year integer not null` (same label semantics as `accounting_budgets.fiscal_year`, resolved via `gl/fiscalYearRegistry`), `name text not null`, `kind text check in ('original','reforecast','scenario')`, `status text check in ('draft','approved','locked')`, `based_on_version_id uuid null`, `is_primary boolean not null default false` (partial unique: one primary per company + fiscal_year), `approved_by/approved_at`, `locked_by/locked_at`, `created_by/created_at`, `updated_at`. Forced RLS like `budget_month_amounts`.
@@ -64,9 +79,9 @@ its description states both.
 
 | Work | Owner | Later phases |
 |---|---|---|
-| D1–D14; row-model fields `account_id`, `budgeted`, `variance_pct: number \| null`, `favourable`, `movement`, `movement_pct`; Revenue/Expense/NP sections; D7 comparator fix; MCP zero-budget rows, `sections`, `totals` = NP, corrected description | P0 | P3 verifies D7 is fixed; never re-fixes it |
+| D1–D14; row-model fields `account_id`, `budgeted`, `variance_pct: number \| null`, `favourable`, `movement`, `movement_pct`; Revenue/Expense/NP sections; D7 comparator fix; MCP zero-budget rows, `sections`, corrected description; `totals` dropped for `sections.net_profit` (decision 19, P0 follow-up PR) | P0 | P3 verifies D7 is fixed; never re-fixes it |
 | Schema, lock/grain/transition triggers, version services, the version-lifecycle routes `pages/api/accounting/budget-versions/**` (list, create, get, delete, copy, primary, status), primary-version readers | P1 | P2/P4/P5 call them; never rebuild them (missing = precondition failure). P4 adds only `budget-versions/[id]/reforecast.ts` |
-| Grid, `pages/api/accounting/budget-grid/**`, `budgets/gridSave.ts` (the only batch writer for the grid), wizard seed (cross-FY copy + uplift, PY actuals), Excel round-trip, versions-bar UI over P1's routes, copy-based "New reforecast" | P2 | P4 hooks `recomputeDependents` into `gridSave.ts`; P5 adds holder mode |
+| Grid, `pages/api/accounting/budget-grid/**`, `budgets/gridSave.ts` (the only batch writer for the grid), wizard seed (cross-FY copy + uplift, PY actuals), Excel round-trip, versions-bar UI over P1's routes, copy-based "New reforecast"; header roll-up rows, "Spread across sub-accounts", new-header/inactive refusal in `gridSave.ts` and `upsertBudget`, legacy header-budget flag (decision 18) | P2 | P4 hooks `recomputeDependents` into `gridSave.ts`; P5 adds holder mode |
 | Tracking engine (bands, projection, version + dimension filters), **the one actuals SQL** `budgets/tracking/trackingActualRead.ts` (P3 PR-C makes `getBudgetVariance` a facade and retires P0's `reports/budgetWindowActuals.ts`), BvA on StatementGrid, CSV/XLSX export (retires P0's `budgetVsActualCsv.ts`, `BudgetVsActualTable.tsx` and the two old BvA routes), comparator version/dims, board-pack Budget column, management-pack `comparison_mode` + `budget_variance`/`income_vs_budget` sections, MCP `version_id`/`cc1_id`/`cc2_id`/`bu_id` | P3 | P4/P5/P6 read actuals only through `trackingActualRead.ts` |
 | PY actuals by month × dimension | P2 `budgets/priorActuals.ts` and P3 `trackingActualRead.ts` | One SQL in the end: if P3 PR-A is on master first, P2 PR-B builds `priorActuals.ts` on `trackingActualRead.ts`; if P2 PR-B is first, P3 **PR-B** (not the greenfield PR-A) makes `priorActuals.ts` delegate. Both parity tests stay |
 | Drivers, headcount, "New reforecast from actuals", rolling forecast | P4 | — |

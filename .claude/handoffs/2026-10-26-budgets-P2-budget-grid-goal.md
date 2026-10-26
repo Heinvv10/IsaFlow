@@ -76,6 +76,7 @@ Replace the one-form-per-account budgets page with a statement-styled, Excel-gra
 4. One grain per account per version (company OR one dimension set), DB-enforced (P1). The UI edits only at the account's grain (spec §11).
 5. Rounding R1 (default) / R100 / R1000; residue on the **last** month.
 6. Prod validation writes budgets only into ISAFlow Demo, via the UI, after an approved deploy.
+18. (Hein, 2026-10-26) Budgets on leaf accounts only; a header is a read-only roll-up row with "Spread across sub-accounts"; the server (`gridSave.ts` and `core/budgetService.upsertBudget`) refuses a NEW budget on a header or inactive account; legacy header budgets are flagged with Move / Spread actions, never migrated silently. Spec §6.5, tests `budget-grid-header-rules.int.test.ts` + `budget-grid-read.int.test.ts`. PR-B builds the server half, PR-C the UI.
 - Plus the spec's own decisions: mobile = read + single-cell edit (§12); no virtualisation library and no windowing (§13); exceljs (§9); text `updated_at` token (§7.1); new page at `/accounting/budgets/workspace` until the PR-D cutover.
 
 ## 3. PR-A: pure grid model `[agent builds; greenfield]`
