@@ -21,6 +21,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import InvoiceDetailPage from '../../../pages/accounting/customer-invoices/[invoiceId]';
 import CashbookPage from '../../../pages/accounting/cashbook';
 import { ComplianceTab } from '../../../src/components/accounting/settings/ComplianceTab';
+import { typeDate } from '../helpers/dateFields';
 
 useApiJsonOverMock();
 const MSG = 'D2 server says no: this request was refused';
@@ -66,7 +67,7 @@ describe('cashbook', () => {
     route(u => (u.includes('bank-accounts') ? ok(BANK) : ++txCalls > 1 ? bad400() : ok(TX)));
     const { container } = render(<CashbookPage />);
     expect(await screen.findByText('D2 deposit')).toBeTruthy();
-    fireEvent.change(container.querySelectorAll('input[type="date"]')[0]!, { target: { value: '2031-01-01' } });
+    typeDate(container.querySelectorAll('input[placeholder="dd MMM yyyy"]')[0]!, '2031-01-01');
     expect(await screen.findByText(MSG)).toBeTruthy();
     expect(screen.queryByText('D2 deposit')).toBeNull();
     expect(screen.getByText(/0 transactions/)).toBeTruthy();

@@ -43,7 +43,7 @@ it('approvals: the Approved status lists approved entries and they can be writte
   fireEvent.click(await screen.findByText('Approved work'));
   expect(screen.getByRole('button', { name: /approve selected/i })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: /write off selected/i }));
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'line disagrees with hours × rate' } });
+  fireEvent.change(screen.getByPlaceholderText(/Duplicate work/), { target: { value: 'line disagrees with hours × rate' } });
   fireEvent.click(screen.getByRole('button', { name: /confirm write-off/i }));
   expect(await screen.findByText('R120 write-off refusal text')).toBeInTheDocument();
 });
