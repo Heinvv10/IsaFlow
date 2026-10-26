@@ -21,6 +21,7 @@ import {
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { reverseLinesCreditLast } from '@/modules/accounting/services/bank/reverseLinesCreditLast';
 
 const REVERSE_TOOL = 'reverse_bank_allocation_batch';
 
@@ -113,16 +114,16 @@ export const reverseBankAllocationBatchTool: McpTool = {
       (a, b) => (a.transactionId < b.transactionId ? -1 : a.transactionId > b.transactionId ? 1 : 0),
     );
 
-    // No try/catch, same reasoning as the allocate handler: a half-reversed
-    // batch is worse than a failed one, and only a throw rolls it back.
-    for (const l of orderedReversals) {
+    // Same reasoning as the allocate handler: a half-reversed batch is worse than a failed one, and only a throw
+    // rolls it back. The one refusal set aside is a supplier payment whose refund is later in the batch: retried after
+    // the rest, rethrown if it still stands (bank/reverseLinesCreditLast).
+    await reverseLinesCreditLast(orderedReversals.map((l) => l.transactionId), (id) =>
       // The contra journal is stamped too — without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings.
-      await reverseReconciledTransaction(ctx.companyId, l.transactionId, ctx.userId, {
+      reverseReconciledTransaction(ctx.companyId, id, ctx.userId, {
         ...mcpPostingOpts(ctx, REVERSE_TOOL),
         ...(reversalDate === undefined ? {} : { reversalDate }),
-      });
-    }
+      }));
     const reversedIds = orderedReversals.map((l) => l.transactionId);
     await clearAllocationBatch(ctx.companyId, batchId, reversedIds);
 

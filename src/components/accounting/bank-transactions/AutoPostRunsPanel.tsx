@@ -26,7 +26,7 @@ interface AutoPostRunsResponse {
 /** `undoRun`'s result. `undone` is false whenever a line was skipped. */
 interface UndoResult {
   reversed: number;
-  skippedBy: { reconciled: number; contended: number; failed: number; offsetByHand: number };
+  skippedBy: { reconciled: number; contended: number; failed: number; offsetByHand: number; creditCeiling: number };
   undone: boolean;
   handOffsets: HandOffset[];
 }
@@ -48,6 +48,9 @@ function partialUndoMessage({ reversed, skippedBy }: UndoResult): string {
       : null,
     skippedBy.offsetByHand > 0
       ? `${skippedBy.offsetByHand} may already be corrected by a later journal — see below`
+      : null,
+    skippedBy.creditCeiling > 0
+      ? `${skippedBy.creditCeiling} paid a supplier whose refund already returned that cash — reverse the refund first`
       : null,
   ].filter((r): r is string => r !== null);
   return `Reversed ${reversed} line${reversed === 1 ? '' : 's'}. Not undone: ${reasons.join('; ')}.`;
