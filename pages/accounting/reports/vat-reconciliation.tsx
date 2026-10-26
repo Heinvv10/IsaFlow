@@ -2,6 +2,7 @@
 // VAT Reconciliation — monthly GL vs invoices vs submitted returns
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -163,22 +164,10 @@ export default function VatReconciliationPage() {
         {mode === 'reconciliation' && (
           <>
             <div>
-              <label className="mb-1 block text-xs text-zinc-400">From</label>
-              <input
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
-              />
+              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-zinc-400">To</label>
-              <input
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white"
-              />
+              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
             </div>
           </>
         )}

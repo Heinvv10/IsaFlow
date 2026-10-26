@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -204,12 +205,10 @@ export default function IncomeStatementPage() {
           {/* Date Range + Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
-              <input type="date" name="periodStart" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="ff-input text-sm" />
+              <DateField label="From" value={periodStart || null} name="periodStart" onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">To</label>
-              <input type="date" name="periodEnd" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="ff-input text-sm" />
+              <DateField label="To" value={periodEnd || null} name="periodEnd" onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
