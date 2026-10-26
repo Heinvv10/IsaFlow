@@ -62,7 +62,7 @@ function SidebarContent({ collapsed }: { collapsed: boolean }) {
         <button
           onClick={() => void logout()}
           title={collapsed ? 'Log out' : undefined}
-          className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors ${collapsed ? 'justify-center' : ''}`}
+          className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-ink-muted hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors ${collapsed ? 'justify-center' : ''}`}
         >
           <LogOut className="w-4 h-4 flex-shrink-0" />
           {!collapsed && <span>Log out</span>}
@@ -88,7 +88,7 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
           {/* Collapse toggle */}
           <button
             onClick={onToggleCollapsed}
-            className="flex items-center justify-center h-10 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+            className="flex items-center justify-center h-10 text-ink-muted hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
             style={{ borderTop: '1px solid var(--ff-canvas-border)' }}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
