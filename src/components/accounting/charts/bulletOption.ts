@@ -2,12 +2,13 @@
  * Budget bullets: one horizontal row per account, the actual bar read
  * against the budget outline behind it.
  *
- * `BudgetVsActualLine.variance` is signed FAVOURABLY by the service — for
- * revenue it is actual − budget, for an expense it is budget − actual — so
- * `variance >= 0` means favourable in both directions and the length of the
- * two bars can never be used to work that out. The polarity is issued once,
- * by `varianceColor`, into the Actual series' label colour — assert that
- * colour rather than adding a hook to the option the chart does not read.
+ * The printed variance (tooltip and label) is the line's `movement`, actual −
+ * budget, as on the Budget vs Actual screen and CSV. Whether that is good news
+ * comes from the line's `favourable` alone — the length of the two bars can
+ * never be used to work it out. The polarity is issued once, by
+ * `varianceColor`, into the Actual series' label colour — assert that colour
+ * rather than adding a hook to the option the chart does not read. Rows are
+ * ranked by |variance|, which equals |movement|.
  * Only BUDGETED lines are drawn, coloured by their `favourable`: an account
  * with no budget has no variance against a plan, and the Budget vs Actual
  * screen, CSV and MCP all leave it unjudged (budgets P0).
