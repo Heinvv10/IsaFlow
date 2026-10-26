@@ -48,9 +48,10 @@ describe('buildSetupProgress', () => {
       .modules.find((m) => m.id === 'payroll')!.tasks.find((t) => t.id === 'paye-reference')!.done).toBe(true);
   });
 
-  it('Payroll applies for a real pay run without an employee, but then has no PAYE task', () => {
+  it('Payroll applies for a real pay run without an employee (all employees terminated): no employee or PAYE task, so it can complete', () => {
     const p = buildSetupProgress({ ...NO_FACTS, hasPayrollRuns: true });
-    expect(mod(p, 'payroll')!.tasks.map((t) => t.id)).toEqual(['employees', 'payroll-run']);
+    expect(mod(p, 'payroll')!.tasks.map((t) => t.id)).toEqual(['payroll-run']);
+    expect(buildSetupProgress({ ...ALL_FACTS, hasEmployees: false, payeReference: false }).allComplete).toBe(true);
   });
 
   it('everything set up is complete', () => {

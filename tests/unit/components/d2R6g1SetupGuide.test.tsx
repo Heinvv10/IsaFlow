@@ -78,4 +78,15 @@ describe('SetupGuideButton ticks', () => {
     expect(await screen.findByText('D2 server says no')).toBeTruthy();
     expect(screen.getByText('done:')).toBeTruthy();
   });
+
+  it('a failing setup-guide endpoint (500) hides the guide quietly: no tick UI, no crash', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => String(url).includes('setup-guide')
+      ? new Response(JSON.stringify({ success: false, error: { code: 'INTERNAL', message: 'boom' } }), { status: 500 })
+      : ok({}));
+    const { container } = render(<SetupGuideButton />);
+    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(2));
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(container.innerHTML).toBe('');
+    expect(screen.queryByText(/^done:/)).toBeNull();
+  });
 });
