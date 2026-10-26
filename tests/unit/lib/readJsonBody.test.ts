@@ -2,10 +2,10 @@
  * readJsonBody's bounds (round-3): size, the whole-body deadline, the gap between chunks, JSON.
  * Real streams with real timers, at small limits.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import type { IncomingMessage } from 'http';
-import { JsonBodyError, readJsonBody } from '@/lib/readJsonBody';
+import { JsonBodyError, effectiveLimits, readJsonBody } from '@/lib/readJsonBody';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A request whose body is `parts`, each sent `gapMs` after the last. */
@@ -44,3 +44,21 @@ describe('readJsonBody', () => {
     expect(await refusal(readJsonBody(req(['{"a":']), limits))).toBe('400 REQUEST_BODY_INVALID');
   });
 });
+
+describe('effectiveLimits: the test override', () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+  const route = { maxBytes: 100, totalMs: 15_000, idleMs: 5_000 };
+
+  it('under Vitest, BODY_READ_IDLE_MS / BODY_READ_TOTAL_MS replace the route limits (bytes never)', () => {
+    vi.stubEnv('BODY_READ_IDLE_MS', '1000');
+    vi.stubEnv('BODY_READ_TOTAL_MS', '3000');
+    expect(effectiveLimits(route)).toEqual({ maxBytes: 100, totalMs: 3000, idleMs: 1000 });
+  });
+
+  it('outside Vitest the variables are ignored, so production keeps the route limits', () => {
+    vi.stubEnv('BODY_READ_IDLE_MS', '1000');
+    vi.stubEnv('VITEST', '');
+    expect(effectiveLimits(route)).toEqual(route);
+  });
+});
+

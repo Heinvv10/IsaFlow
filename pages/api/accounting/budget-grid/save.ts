@@ -18,6 +18,7 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { BudgetVersionStaleError, MAX_SAVE_CELLS, saveCells } from '@/modules/accounting/services/budgets/gridSave';
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
@@ -53,7 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   let body: unknown;
   try {
-    body = await takeJsonBody(req, BODY_LIMITS);
+    body = await takeJsonBody(req);
   } catch (err) {
     if (!(err instanceof JsonBodyError)) throw err;
     return respondBodyError(res, err);
@@ -72,4 +73,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withBodyFirst(BODY_LIMITS, withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)))));
+/**
+ * Charged per user before the body is read: 120 saves a minute is two a second, sustained, well above
+ * a person editing the grid (the page saves on blur / every few seconds), and caps what a script can
+ * make the server read at 120 x 24 MB a minute per user.
+ */
+const SAVE_RATE = {
+  charge: (userId: string) => checkRateLimit(`budget-save:${userId}`, { max: 120, windowSecs: 60 }),
+  retryAfterSecs: 60,
+  message: 'Too many budget saves; wait a minute and try again.',
+};
+
+export default withBodyFirst(BODY_LIMITS, withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)))), { rate: SAVE_RATE });

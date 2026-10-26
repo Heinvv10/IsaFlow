@@ -22,6 +22,7 @@ import path from 'node:path';
 import templateRoute from '../../pages/api/accounting/budget-grid/template';
 import previewRoute from '../../pages/api/accounting/budget-grid/import-preview';
 import { log } from '@/lib/logger';
+import { clearRateLimitCache } from '@/lib/rateLimit';
 import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
@@ -210,18 +211,23 @@ describe('the upload itself', () => {
     const vD = await fx.version(D, { name: 'Rate' });
     await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'owner', false)`, [D.id, C.owner.userId]);
     const junk = Buffer.from('PK\x03\x04 not a zip');
-    const statuses: number[] = [];
-    for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, C.owner, vC, junk)).status);
-    for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, { ...C.owner, homeCompanyId: D.id }, vD, junk)).status);
-    expect(statuses.every((s) => s === 400)).toBe(true);
-    // The 61st is refused before any of its body is read: a body that never arrives still gets its 429 at once.
-    let release = () => {};
-    const released = new Promise<void>((resolve) => { release = resolve; });
-    const never = Readable.from((async function* gen() { yield Buffer.from('--x'); await released; })());
-    const t0 = Date.now();
-    const last = await uploadStream(previewRoute, { ...C.owner, homeCompanyId: D.id }, never, 1000);
-    release();
-    expect([last.status, Date.now() - t0 < 2000]).toEqual([429, true]);
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, C.owner, vC, junk)).status);
+      for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, { ...C.owner, homeCompanyId: D.id }, vD, junk)).status);
+      expect(statuses.every((s) => s === 400)).toBe(true);
+      // The 61st is refused before any of its body is read: its body is held back until after the
+      // answer, so a 429 that arrives at all was never waited for.
+      let release = () => {};
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const never = Readable.from((async function* gen() { yield Buffer.from('--x'); await released; })());
+      const last = await uploadStream(previewRoute, { ...C.owner, homeCompanyId: D.id }, never, 1000);
+      release();
+      expect(last.status).toBe(429);
+    } finally {
+      await pool.query(`DELETE FROM rate_limit_counters WHERE key = $1`, [`budget-import:${C.owner.userId}`]);
+      clearRateLimitCache();
+    }
   }, 120000);
 
   it('SEC-L5: refusal logs name the company and the user', async () => {

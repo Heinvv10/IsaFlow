@@ -144,33 +144,33 @@ describe('save: the body', () => {
   it('a caller without a CSRF match or a signed session is refused at once, its body never waited for', async () => {
     const cases = [['no CSRF match', { 'x-csrf-token': 'x'.repeat(44) }, A.owner.token, 403], ['forged token', {}, 'not.a.jwt', 401]] as const;
     for (const [label, headers, cookieToken, status] of cases) {
-      // The body never arrives: a route that waited for it would answer only after the 5 s idle bound.
+      // The body is withheld until after the answer: a route that waited for it would answer 400 REQUEST_BODY_TIMEOUT.
       const { stream, release } = blocking(0);
       const base = request({ 'sb-access-token': cookieToken, active_company_id: A.owner.homeCompanyId }, 'POST') as unknown as { headers: Record<string, string> };
       const req = Object.assign(stream, base, { url: URL, query: {}, headers: { ...base.headers, 'content-type': 'application/json', ...headers } });
       const out = response();
-      const t0 = Date.now();
       await (saveRoute as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
-      const ms = Date.now() - t0;
       release();
-      expect([out.state.statusCode, ms < 2000], `${label} ${ms}ms ${JSON.stringify(out.state.body)}`).toEqual([status, true]);
+      expect(out.state.statusCode, `${label} ${JSON.stringify(out.state.body)}`).toBe(status);
     }
   });
 
-  it('a body that stalls longer than 5 s between chunks is refused (REQUEST_BODY_TIMEOUT), nothing saved', async () => {
-    const v = await fx.version(A);
-    const before = await token(v);
-    let release = () => {};
-    const released = new Promise<void>((resolve) => { release = resolve; });
-    const stream = Readable.from((async function* gen() { yield Buffer.from('{"versionId":'); await released; yield Buffer.from('"x"}'); })());
-    const t0 = Date.now();
-    const r = await postStream(stream);
-    const ms = Date.now() - t0;
-    release();
-    expect([r.status, (r.body.error as { details?: { code?: string } } | undefined)?.details?.code], dump(r)).toEqual([400, 'REQUEST_BODY_TIMEOUT']);
-    expect(ms).toBeGreaterThanOrEqual(4900);
-    expect(ms).toBeLessThan(9000);
-    expect(await token(v)).toBe(before);
+  it('a body that stalls past the idle bound is refused (REQUEST_BODY_TIMEOUT) while still withheld, nothing saved', async () => {
+    vi.stubEnv('BODY_READ_IDLE_MS', '1000'); // the route's 5 s, shortened for the test (Vitest only)
+    try {
+      const v = await fx.version(A);
+      const before = await token(v);
+      let release = () => {};
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const stream = Readable.from((async function* gen() { yield Buffer.from('{"versionId":'); await released; yield Buffer.from('"x"}'); })());
+      const r = await postStream(stream);
+      // Answered before the rest of the body was ever released: the idle timer fired.
+      release();
+      expect([r.status, (r.body.error as { details?: { code?: string } } | undefined)?.details?.code], dump(r)).toEqual([400, 'REQUEST_BODY_TIMEOUT']);
+      expect(await token(v)).toBe(before);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   }, 20000);
 
   it(`a batch over MAX_SAVE_CELLS (${MAX_SAVE_CELLS}) is refused before anything is read`, async () => {

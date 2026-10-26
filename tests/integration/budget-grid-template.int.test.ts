@@ -12,6 +12,7 @@ import ExcelJS from 'exceljs';
 import templateRoute from '../../pages/api/accounting/budget-grid/template';
 import previewRoute from '../../pages/api/accounting/budget-grid/import-preview';
 import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
+import { clearRateLimitCache } from '@/lib/rateLimit';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
 import { budgetSheet, col, downloadTemplate, editWorkbook, uploadPreview } from './helpers/budgetImportFixture';
@@ -90,12 +91,17 @@ describe('Q5 / N5: template downloads are rate limited per user, across companie
     const vD = await fx.version(D, { name: 'Rate' });
     await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'viewer', false)`, [D.id, C.viewer.userId]);
     const inD = { ...C.viewer, homeCompanyId: D.id };
-    const statuses: number[] = [];
-    for (let i = 0; i < 30; i++) statuses.push((await downloadTemplate(templateRoute, C.viewer, { version_id: vC, grain: 'company' })).status);
-    for (let i = 0; i < 31; i++) statuses.push((await downloadTemplate(templateRoute, inD, { version_id: vD, grain: 'company' })).status);
-    expect(statuses.slice(0, 60).every((s) => s === 200)).toBe(true);
-    expect(statuses[60]).toBe(429);
-    expect((await downloadTemplate(templateRoute, C.owner, { version_id: vC, grain: 'company' })).status).toBe(200); // another user's bucket
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 30; i++) statuses.push((await downloadTemplate(templateRoute, C.viewer, { version_id: vC, grain: 'company' })).status);
+      for (let i = 0; i < 31; i++) statuses.push((await downloadTemplate(templateRoute, inD, { version_id: vD, grain: 'company' })).status);
+      expect(statuses.slice(0, 60).every((s) => s === 200)).toBe(true);
+      expect(statuses[60]).toBe(429);
+      expect((await downloadTemplate(templateRoute, C.owner, { version_id: vC, grain: 'company' })).status).toBe(200); // another user's bucket
+    } finally {
+      await pool.query(`DELETE FROM rate_limit_counters WHERE key = ANY($1)`, [[`budget-template:${C.viewer.userId}`, `budget-template:${C.owner.userId}`]]);
+      clearRateLimitCache();
+    }
   }, 300000);
 });
 

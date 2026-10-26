@@ -128,10 +128,33 @@ export function checkXmlPart(xml: Buffer): void {
   if (open.length > 0) throw malformed();
 }
 
-/** The normalised zip as ExcelJS's input, in READ_CHUNK_BYTES pieces so a parser error stops the read within one piece. */
+/**
+ * Where the piece starting at `start` ends: just after the last `>` within READ_CHUNK_BYTES (ASCII,
+ * so never inside a character), else at the last UTF-8 character start in reach (never before a
+ * continuation byte 10xxxxxx), else at the full length (no character starts there: zip binary).
+ * ExcelJS decodes each piece on its own, so a character cut in two would read as U+FFFD (U8).
+ */
+function pieceEnd(zip: Buffer, start: number): number {
+  const end = Math.min(start + READ_CHUNK_BYTES, zip.length);
+  if (end === zip.length) return end;
+  const gt = zip.lastIndexOf(GT, end - 1);
+  if (gt >= start) return gt + 1;
+  let cut = end;
+  while (cut > start && ((zip[cut] ?? 0) & 0xc0) === 0x80) cut--;
+  return cut > start ? cut : end;
+}
+
+/**
+ * The normalised zip as ExcelJS's input, in pieces of at most READ_CHUNK_BYTES so a parser error
+ * stops the read within one piece, each cut where no character is split (`pieceEnd`).
+ */
 export function readerInput(zip: Buffer): Readable {
   return Readable.from((function* pieces() {
-    for (let at = 0; at < zip.length; at += READ_CHUNK_BYTES) yield zip.subarray(at, at + READ_CHUNK_BYTES);
+    for (let at = 0; at < zip.length;) {
+      const end = pieceEnd(zip, at);
+      yield zip.subarray(at, end);
+      at = end;
+    }
   })());
 }
 
