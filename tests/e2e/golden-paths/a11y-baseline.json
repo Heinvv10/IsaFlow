@@ -282,11 +282,6 @@
     "max": 1
    },
    {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[type=\"date\"]",
-    "max": 2
-   },
-   {
     "rule": "select-name",
     "selector": "select[data-testid=\"cost-centre-filter\"]",
     "max": 1,

@@ -8,6 +8,7 @@
  * checks the window itself: neither request is sent, and the reason sits
  * under the dates.
  */
+import { dateFieldInputs, typeDate } from '../../helpers/dateFields';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 
@@ -41,9 +42,9 @@ describe('the executive dashboard\'s date window', () => {
 
     // The default window starts on 1 January this year; an end the day
     // before it runs backwards.
-    const [from, to] = Array.from(container.querySelectorAll('input[type="date"]')) as HTMLInputElement[];
-    const end = `${Number(from!.value.slice(0, 4)) - 1}-12-31`;
-    fireEvent.change(to!, { target: { value: end } });
+    const [from, to] = dateFieldInputs(container);
+    const end = `${Number(from!.value.slice(-4)) - 1}-12-31`;
+    typeDate(to!, end);
 
     expect(await screen.findByText('The start date is after the end date.')).toBeInTheDocument();
     expect(reportCalls()).toHaveLength(2);
@@ -56,8 +57,8 @@ describe('the executive dashboard\'s date window', () => {
     const { container } = render(<ExecutiveDashboardPage />);
     await waitFor(() => expect(reportCalls()).toHaveLength(2));
 
-    const [, to] = Array.from(container.querySelectorAll('input[type="date"]')) as HTMLInputElement[];
-    fireEvent.change(to!, { target: { value: '' } });
+    const [, to] = dateFieldInputs(container);
+    typeDate(to!, '');
 
     expect(await screen.findByText('Choose a start and an end date.')).toBeInTheDocument();
     expect(reportCalls()).toHaveLength(2);
@@ -69,9 +70,9 @@ describe('the executive dashboard\'s date window', () => {
     const { container } = render(<ExecutiveDashboardPage />);
     await waitFor(() => expect(reportCalls()).toHaveLength(2));
 
-    const [from, to] = Array.from(container.querySelectorAll('input[type="date"]')) as HTMLInputElement[];
-    fireEvent.change(to!, { target: { value: '2025-01-01' } });
-    fireEvent.change(from!, { target: { value: '2024-12-01' } });
+    const [from, to] = dateFieldInputs(container);
+    typeDate(to!, '2025-01-01');
+    typeDate(from!, '2024-12-01');
 
     await waitFor(() => expect(reportCalls())
       .toContain('/api/accounting/reports-kpi-scorecard?from=2024-12-01&to=2025-01-01'));
