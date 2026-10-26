@@ -153,14 +153,19 @@ describe('class 1 — is_active never filters a balance query', () => {
     expect(q!).not.toMatch(GA_IS_ACTIVE);
   });
 
-  it('budget-vs-actual-export actuals ignore is_active and keep the level-3 leaf filter', async () => {
+  it('budget-vs-actual-export reads the same actuals as the report (no level filter)', async () => {
     const { req, res } = mockReqRes({ period: 'ytd' });
-    await (budgetVsActualExportHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
+    await (budgetVsActualHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
+    const [reportQuery] = matching(/actual_amount/i);
+    vi.clearAllMocks();
+    const exp = mockReqRes({ period: 'ytd' });
+    await (budgetVsActualExportHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(exp.req, exp.res);
 
-    const [q] = matching(/actual_amount/i);
-    expect(q).toBeDefined();
-    expect(q!).toMatch(/ga\.level = 3/);
-    expect(q!).not.toMatch(GA_IS_ACTIVE);
+    const exportQueries = matching(/actual_amount/i);
+    expect(exportQueries).toHaveLength(1);
+    expect(exportQueries[0]).toBe(reportQuery);
+    expect(exportQueries[0]!).not.toMatch(/\blevel\b/);
+    expect(exportQueries[0]!).not.toMatch(GA_IS_ACTIVE);
   });
 
   it('bureau client cash ignores is_active', async () => {

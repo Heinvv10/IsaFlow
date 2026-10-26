@@ -2,120 +2,40 @@
  * Budget vs Actual Export API
  * GET — export budget vs actual report as CSV
  *
- * Uses the same window and budget loaders as reports-budget-vs-actual.ts
- * (budgetWindowService) so the CSV matches exactly what the UI report shows.
+ * Built from the SAME result as the screen (loadBudgetVsActualReport →
+ * getBudgetVariance) and rendered by the pure budgetVsActualCsv: no SQL of its
+ * own, so the CSV cannot drift from the report (budgets P0, D3/D14).
  *
  * Query params:
- *   period       current | ytd | full_year   (default: ytd)
+ *   period       current | ytd | full_year   (default: ytd; anything else is a 400)
  *   fiscal_year  optional financial-year label (ytd and full_year); 404 if no year carries it, 400 if not a label
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
-
-import { csvVal } from '@/lib/csv';
 import { localISODate } from '@/lib/dateUtils';
-import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
-import { loadWindowBudgets, resolveBudgetWindow } from '@/modules/accounting/services/reports/budgetWindowService';
-import { BudgetReportYearError, chosenReportYear } from '@/modules/accounting/services/reports/budgetReportYear';
+import { BudgetReportYearError } from '@/modules/accounting/services/reports/budgetReportYear';
+import { BudgetPeriodError } from '@/modules/accounting/services/reports/budgetWindowService';
+import { loadBudgetVsActualReport } from '@/modules/accounting/services/reports/budgetVsActualReport';
+import { budgetVsActualCsv } from '@/modules/accounting/services/reports/budgetVsActualCsv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   const { companyId } = req as CompanyAuthedRequest;
-  const period = (req.query.period as string) || 'ytd';
 
   try {
-    // The same window and budgets as the report (reports-budget-vs-actual.ts):
-    // registry year for ytd / full_year, calendar months summed from
-    // budget_month_amounts.
-    const chosen = await chosenReportYear(companyId, req.query.fiscal_year, period);
-    const { startDate, endDate, notStarted } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
-    // A year that has not started has no budget and no actuals, whatever dates its window happens to name.
-    const budgets = notStarted ? {} : await loadWindowBudgets(companyId, startDate, endDate);
-
-    // Fetch actual GL amounts for expense and revenue accounts in the period
-    // The period filter MUST live inside this subquery. It used to sit in the
-    // ON-clause of a LEFT JOIN onto gl_journal_entries while the SUM read
-    // gl_journal_lines, so neither the date range nor the posted check
-    // restricted anything: a line whose entry fell outside the period simply
-    // got NULL entry columns and was still summed. Every period therefore
-    // reported all-time totals -- Brightsphere September 2026 showed
-    // R18,728,651.55 of actuals against a true R0.00.
-    //
-    // is_active is deliberately absent: it is a picker flag, and an account
-    // deactivated mid-year still earned or spent what it earned or spent.
-    const actuals = notStarted ? [] : await sql`
-      SELECT
-        ga.id, ga.account_code, ga.account_name, ga.account_type,
-        COALESCE(
-          CASE
-            WHEN ga.account_type = 'revenue' THEN b.credit_less_debit
-            ELSE b.debit_less_credit
-          END
-        , 0)::numeric AS actual_amount
-      FROM gl_accounts ga
-      LEFT JOIN (
-        SELECT jl.gl_account_id,
-               SUM(jl.debit - jl.credit) AS debit_less_credit,
-               SUM(jl.credit - jl.debit) AS credit_less_debit
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        WHERE jl.company_id = ${companyId}::UUID
-          AND je.company_id = ${companyId}::UUID
-          AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-          AND je.entry_date >= ${startDate}
-          AND je.entry_date <= ${endDate}
-        GROUP BY jl.gl_account_id
-      ) b ON b.gl_account_id = ga.id
-      WHERE ga.level = 3
-        AND ga.company_id = ${companyId}
-        AND ga.account_type IN ('expense', 'revenue')
-      ORDER BY ga.account_code
-    `;
-
-    let totalBudget = 0;
-    let totalActual = 0;
-    let totalVariance = 0;
-
-    const csvLines: string[] = [
-      'Account Code,Account Name,Budget,Actual,Variance,Variance %',
-    ];
-
-    for (const row of actuals) {
-      const accountCode = String(row.account_code);
-      const accountName = String(row.account_name);
-      const budget = Number(budgets[accountCode] || budgets[String(row.id)] || 0);
-      const actual = Number(row.actual_amount);
-      const variance = budget - actual;
-      const variancePct = budget > 0 ? (variance / budget) * 100 : 0;
-
-      totalBudget += budget;
-      totalActual += actual;
-      totalVariance += variance;
-
-      csvLines.push(
-        `${csvVal(accountCode)},${csvVal(accountName)},${budget.toFixed(2)},${actual.toFixed(2)},${variance.toFixed(2)},${variancePct.toFixed(2)}`
-      );
-    }
-
-    // Totals row
-    const totalVariancePct = totalBudget > 0 ? (totalVariance / totalBudget) * 100 : 0;
-    csvLines.push(
-      `${csvVal('')},${csvVal('TOTALS')},${totalBudget.toFixed(2)},${totalActual.toFixed(2)},${totalVariance.toFixed(2)},${totalVariancePct.toFixed(2)}`
-    );
-
-    const csv = csvLines.join('\n');
+    const { result } = await loadBudgetVsActualReport(companyId, req.query.period, req.query.fiscal_year);
     const filename = `budget-vs-actual-${localISODate()}.csv`;
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    return res.status(200).send(csv);
+    return res.status(200).send(budgetVsActualCsv(result));
   } catch (err) {
+    if (err instanceof BudgetPeriodError) return apiResponse.badRequest(res, err.message);
     if (err instanceof BudgetReportYearError) {
       return err.unknown ? apiResponse.notFound(res, 'Financial year', String(err.label)) : apiResponse.badRequest(res, err.message);
     }

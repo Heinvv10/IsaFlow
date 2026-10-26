@@ -25,8 +25,8 @@ const KEYS = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', 
   '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02'];
 const TRANSITION = { fiscalYear: 2026, startDate: '2026-01-01', endDate: '2027-02-28', kind: 'transition', monthKeys: KEYS };
 const NEXT = { ...YEAR_2027, fiscalYear: 2028, startDate: '2027-03-01', endDate: '2028-02-29', monthKeys: ['2027-03', '2027-04', '2027-05', '2027-06', '2027-07', '2027-08', '2027-09', '2027-10', '2027-11', '2027-12', '2028-01', '2028-02'] };
-const GL = [{ id: 'g0', accountCode: '4000', accountName: 'Sales', accountType: 'revenue' },
-  { id: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense' }];
+const GL = [{ id: 'g0', accountCode: '4000', accountName: 'Sales', accountType: 'revenue', isActive: true },
+  { id: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense', isActive: true }];
 const SALES = {
   id: 'b1', glAccountId: 'g0', accountCode: '4000', accountName: 'Sales', accountType: 'revenue', fiscalYear: 2026,
   annualAmount: 10500, months: KEYS.map((month, i) => ({ month, amount: (i + 1) * 100 })), notes: 'n',
@@ -95,6 +95,7 @@ describe('budgets page, 14-month transition year', () => {
     render(<BudgetsPage />);
     await screen.findByText('Sales');
     fireEvent.click(screen.getByTitle('Delete'));
+    fireEvent.click(await screen.findByText('Delete')); // delete asks first
     await waitFor(() => expect(posted('budgets-action')).toBeDefined());
     expect(posted('budgets-action')).toEqual({ action: 'delete', glAccountId: 'g0', fiscalYear: 2026 });
     cleanup();
