@@ -8,8 +8,9 @@
  * version, a month outside its year, a grain clash), 404 for another company's version, 409
  * BUDGET_VERSION_LOCKED / BUDGET_VERSION_STALE (with `currentUpdatedAt` and `status`). Every
  * refusal leaves the version, its amounts and its token as they were. The Excel import commits here.
- * The body is read before the transaction opens: at most 18 MB (413), within 280 s and with no pause
- * over 5 s (400 REQUEST_BODY_TIMEOUT); at most MAX_SAVE_CELLS cells.
+ * The body is read before the transaction opens: at most 18 MB (413); within 15 s (up to 64 KB),
+ * 30 s (up to 1 MB) or 290 s, no pause over 10 s, and a large body at 16 KB/s or more after 10 s
+ * (400 REQUEST_BODY_TIMEOUT); at most MAX_SAVE_CELLS cells.
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -31,11 +32,13 @@ export const config = { api: { bodyParser: false } };
 
 /**
  * MAX_SAVE_CELLS (100 000) cells of compact JSON are at most ~17.2 MB (172 bytes for the widest
- * cell), so 18 MB, the same as one user's early-read budget. 280 s in all (under Node's 300 s
- * request timeout): that body takes ~270 s on a 512 kbit/s ADSL uplink (64 KB/s); a normal save
- * is a few KB. What a slow sender holds meanwhile is only the bytes it has sent (readJsonBody).
+ * cell), so 18 MB, the same as one user's early-read budget. 290 s in all for a large body, under
+ * Node's 300 s request timeout: 512 kbit/s ADSL sends 62.5 KiB/s, so 17.2 MB takes ~269 s (~282 s
+ * if read as 17.2 MiB). A normal
+ * save is a few KB: readRawBody's tiny tier, 15 s. 10 s idle tolerates a weak-LTE stall. What a slow
+ * sender holds meanwhile is only the bytes it has sent (readJsonBody's lanes).
  */
-const BODY_LIMITS: BodyLimits = { maxBytes: 18 * 1048576, totalMs: 280_000, idleMs: 5_000 };
+export const SAVE_BODY_LIMITS: BodyLimits = { maxBytes: 18 * 1048576, totalMs: 290_000, idleMs: 10_000 };
 
 const SaveSchema = z.object({
   versionId: UUID,
@@ -89,4 +92,4 @@ const SAVE_RATE = {
   message: 'Too many budget saves; wait a minute and try again.',
 };
 
-export default withBodyFirst(BODY_LIMITS, withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)))), { rate: SAVE_RATE });
+export default withBodyFirst(SAVE_BODY_LIMITS, withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)))), { rate: SAVE_RATE });

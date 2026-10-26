@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { Pool } from 'pg';
 import { Readable } from 'node:stream';
 import templateRoute from '../../pages/api/accounting/budget-grid/template';
-import previewRoute from '../../pages/api/accounting/budget-grid/import-preview';
+import previewRoute, { BODY_LIMITS } from '../../pages/api/accounting/budget-grid/import-preview';
 import gridRoute from '../../pages/api/accounting/budget-grid/index';
 import { earlyReadStats } from '@/lib/readJsonBody';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -71,6 +71,10 @@ afterAll(async () => {
 }, 120000);
 
 describe('N4: a slow upload holds no connection', () => {
+  it('the read limits: 10 MB + 64 KB, 200 s in all (a 10 MB file at 64 KB/s is ~160 s), 10 s between chunks', () => {
+    expect(BODY_LIMITS).toEqual({ maxBytes: 10 * 1024 * 1024 + 64 * 1024, totalMs: 200_000, idleMs: 10_000 });
+  });
+
   it('with ten uploads stalled mid-body, an unrelated GET answers and nothing is idle in a transaction', async () => {
     const before = earlyReadStats().reads;
     const slow = Array.from({ length: 10 }, () => stalled(body));
