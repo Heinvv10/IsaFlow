@@ -25,7 +25,7 @@ The spec is `docs/plans/budgets/P0-correctness-spec.md`. It holds the verified d
   - The Add picker offers active **leaf** revenue/expense accounts only.
   - Edit works for an account that has since become inactive or a header.
   - The server refuses a budget on a balance-sheet account.
-- **BudgetForm inputs.** Visible borders in dark mode. They use the undefined global `ff-input` today.
+- **BudgetForm inputs: NOT in P0.** PR #871 (`fix/budgetform-moneyfield-20261026`, queued) replaces the annual and month inputs with the kit `MoneyField`, which fixes the borderless inputs. Do not edit `BudgetForm.tsx` amount inputs or `budgetFormValidation.test.tsx`; rebase on #871 once it merges. The account `<select>` still uses the undefined `ff-select`; leave it, because P2 replaces the page.
 
 "Real" means a real-PG parity test proves screen JSON = CSV = MCP to the cent on a fixture that exercises every defect, and each listed mutation turns it red. No mocked SQL in the evidence.
 
