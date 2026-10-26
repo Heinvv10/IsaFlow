@@ -32,6 +32,7 @@ import {
 import { BudgetVersionError } from '../budgets/budgetVersionTypes';
 import { budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { BudgetInputError, resolveMonthAmounts, round2, type BudgetMonthAmount } from './budgetMonths';
+import { budgetAccountCode } from './budgetAccount';
 
 export { BudgetInputError, type BudgetMonthAmount } from './budgetMonths';
 
@@ -153,10 +154,7 @@ export async function upsertBudget(
   const year = await yearMonths(companyId, input.fiscalYear);
   const amounts = resolveMonthAmounts(year.monthKeys, { months: input.months, annualAmount: input.annualAmount });
 
-  const owned = (await sql`
-    SELECT account_code FROM gl_accounts WHERE id = ${input.glAccountId}::UUID AND company_id = ${companyId}::UUID
-  `) as Row[];
-  if (owned.length === 0) throw new BudgetInputError('Budget account does not belong to this company');
+  const accountCode = await budgetAccountCode(companyId, input.glAccountId);
   const { id: versionId, isPrimary } = await writeVersion(companyId, input.fiscalYear, input.versionId, userId);
   // The version row is locked, so no other writer of it runs between this check and the write.
   const otherGrain = (await sql`
@@ -167,7 +165,7 @@ export async function upsertBudget(
   `) as Row[];
   if (otherGrain.length > 0) {
     throw new BudgetVersionError('BUDGET_GRAIN_CONFLICT',
-      `Account ${String(owned[0]!.account_code)} is budgeted by dimension in this version; it cannot also have a company-level budget`);
+      `Account ${accountCode} is budgeted by dimension in this version; it cannot also have a company-level budget`);
   }
 
   // The notes header is per account and year, shared by every version: only a write of the
@@ -260,6 +258,8 @@ export async function copyBudgets(
       JOIN gl_accounts ga ON ga.id = bm.gl_account_id AND ga.company_id = ${companyId}::UUID
       WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${source}::UUID
         AND bm.month >= ${from.first}::DATE AND bm.month <= ${from.last}::DATE
+        -- A legacy balance-sheet budget appears on no report: never carry it forward (D13).
+        AND ga.account_type IN ('revenue', 'expense')
     ), ins AS (
       INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id, cc2_id, bu_id, created_by)
       SELECT ${companyId}::UUID, ${target}::UUID, m.gl_account_id, m.target::DATE, m.amount, m.cc1_id, m.cc2_id, m.bu_id, ${userId}

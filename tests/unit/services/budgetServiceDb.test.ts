@@ -66,6 +66,24 @@ describe('budgetService against the real budget_month_amounts table', async () =
     });
   });
 
+  it.skipIf(!reachable)('refuses a budget on a balance-sheet account before any write (D13)', async () => {
+    await inRequestTx(async (f) => {
+      const [asset] = (await sql`
+        SELECT id FROM gl_accounts
+        WHERE company_id = ${f.companyId}::uuid AND account_type NOT IN ('revenue', 'expense')
+        ORDER BY account_code LIMIT 1
+      `) as Array<{ id: string }>;
+      expect(asset).toBeDefined();
+      await expect(upsertBudget(f.companyId, { glAccountId: asset!.id, fiscalYear: FY, annualAmount: 1200 }, f.userId))
+        .rejects.toMatchObject({ name: 'BudgetInputError', message: 'Budgets can only be set on revenue and expense accounts' });
+      expect(await storedMonths(f.companyId, asset!.id)).toEqual([]);
+      const headers = (await sql`
+        SELECT 1 FROM accounting_budgets WHERE company_id = ${f.companyId}::uuid AND gl_account_id = ${asset!.id}::uuid
+      `) as unknown[];
+      expect(headers).toHaveLength(0);
+    });
+  });
+
   it.skipIf(!reachable)('honours an explicit month split rather than spreading evenly', async () => {
     await inRequestTx(async (f) => {
       const keys = await monthsOf(f.companyId, FY);

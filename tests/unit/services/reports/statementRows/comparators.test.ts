@@ -12,6 +12,7 @@ import {
   applyBudgetComparator, applyTrend, baseComparison,
 } from '@/modules/accounting/services/reports/statementRows/comparators';
 import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
+import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import { comparativeOnlyColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
@@ -38,13 +39,18 @@ function line(row: Partial<StatementRow> & { id: string; label: string; actual: 
 
 function budgetLine(overrides: Partial<BudgetVsActualLine>): BudgetVsActualLine {
   return {
+    account_id: 'id-6000',
     account_code: '6000',
     account_name: 'Salaries',
     account_type: 'expense',
+    budgeted: true,
     budget_amount: 0,
     actual_amount: 0,
     variance: 0,
-    variance_pct: 0,
+    movement: 0,
+    variance_pct: null,
+    movement_pct: null,
+    favourable: true,
     ...overrides,
   };
 }
@@ -54,7 +60,7 @@ const LINES = buildBudgetVsActualLines(
     { id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900_000 },
     { id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 130_000 },
   ],
-  { '1000': 1_000_000, '6000': 120_000 },
+  { a: 1_000_000, b: 120_000 },
 );
 
 describe('applyTrend', () => {
@@ -122,9 +128,10 @@ describe('applyBudgetComparator', () => {
   it('marks a favourable line favourable', () => {
     const good = buildBudgetVsActualLines(
       [{ id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 110_000 }],
-      { '6000': 120_000 },
+      { b: 120_000 },
     );
-    const out = applyBudgetComparator(ROWS, good);
+    // The statement prints the same R110 000 the service summed.
+    const out = applyBudgetComparator(ROWS.map((r) => (r.accountCode === '6000' ? { ...r, actual: 110_000 } : r)), good);
     expect(out[2]!.budget?.favourable).toBe(true);
     expect(out[2]!.budget?.variance).toBe(-10_000);
   });
@@ -137,9 +144,10 @@ describe('applyBudgetComparator', () => {
     // `favourable: false` carrying the judgement instead.
     const expenseLines = buildBudgetVsActualLines(
       [{ id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 150 }],
-      { '6000': 100 },
+      { b: 100 },
     );
-    const [, , expenseOut] = applyBudgetComparator(ROWS, expenseLines);
+    const printed150 = ROWS.map((r) => (r.accountCode ? { ...r, actual: 150 } : r));
+    const [, , expenseOut] = applyBudgetComparator(printed150, expenseLines);
     expect(expenseOut!.budget?.variance).toBe(50);
     expect(expenseOut!.budget?.variancePct).toBe(50);
     expect(expenseOut!.budget?.favourable).toBe(false);
@@ -148,9 +156,9 @@ describe('applyBudgetComparator', () => {
     // judgement agree.
     const revenueLines = buildBudgetVsActualLines(
       [{ id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 150 }],
-      { '1000': 100 },
+      { a: 100 },
     );
-    const [, revenueOut] = applyBudgetComparator(ROWS, revenueLines);
+    const [, revenueOut] = applyBudgetComparator(printed150, revenueLines);
     expect(revenueOut!.budget?.variance).toBe(50);
     expect(revenueOut!.budget?.variancePct).toBe(50);
     expect(revenueOut!.budget?.favourable).toBe(true);
@@ -159,7 +167,7 @@ describe('applyBudgetComparator', () => {
   it('omits variancePct when the budget base is exactly zero', () => {
     const rows = [line({ id: '1', label: 'Salaries', accountCode: '6000', actual: 5500 })];
     const lines = [
-      budgetLine({ account_code: '6000', budget_amount: 0, actual_amount: 5500, variance: -5500, variance_pct: 0 }),
+      budgetLine({ account_code: '6000', budget_amount: 0, actual_amount: 5500, variance: -5500, variance_pct: null }),
     ];
 
     const [result] = applyBudgetComparator(rows, lines);
@@ -197,9 +205,78 @@ describe('applyBudgetComparator', () => {
     expect(out[3]!.budget).toBeUndefined(); // subtotal
   });
 
+  it('an unbudgeted account gets no budget comparison (no 0 budget, no judgement)', () => {
+    const lines = buildBudgetVsActualLines(
+      [
+        { id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900_000 },
+        { id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 130_000 },
+      ],
+      { a: 1_000_000 },
+    );
+    const out = applyBudgetComparator(ROWS, lines);
+    expect(out[1]!.budget?.value).toBe(1_000_000);
+    expect(out[2]!.budget).toBeUndefined();
+  });
+
+  it('exactly on budget is favourable for revenue and expense alike', () => {
+    const rows = [
+      line({ id: '1', label: 'Rent', accountCode: '6000', actual: 120_000 }),
+      line({ id: '2', label: 'Sales', accountCode: '1000', actual: 90_000 }),
+    ];
+    const lines = [
+      budgetLine({ account_code: '6000', budget_amount: 120_000 }),
+      budgetLine({ account_code: '1000', account_type: 'revenue', budget_amount: 90_000 }),
+    ];
+    const [rent, sales] = applyBudgetComparator(rows, lines);
+    expect(rent!.budget).toMatchObject({ variance: 0, favourable: true });
+    expect(sales!.budget).toMatchObject({ variance: 0, favourable: true });
+  });
+
   it('does not mutate the rows it was given', () => {
     applyBudgetComparator(ROWS, LINES);
     expect(ROWS[1]!.budget).toBeUndefined();
+  });
+  it('budget variance uses the row\'s printed actual, not the GL aggregate (D7)', () => {
+    // The statement printed R125 000 on the Rent row; the GL aggregate the
+    // budget service summed says R130 000 (e.g. a reclassification the
+    // statement applies). The Budget column must sit beside the printed figure.
+    const rows = [line({ id: '1', label: 'Rent', accountCode: '6000', actual: 125_000 })];
+    const lines = [budgetLine({ account_code: '6000', budget_amount: 120_000, actual_amount: 130_000, variance: -10_000 })];
+    const [result] = applyBudgetComparator(rows, lines);
+    expect(result.budget!.variance).toBe(5_000);
+    expect(result.budget!.variancePct).toBeCloseTo(5_000 / 120_000 * 100);
+  });
+
+  it('favourable follows account type from the row\'s own variance', () => {
+    // Service says the GL aggregate is over budget (variance −10 000, unfavourable),
+    // but the printed row is UNDER budget: the row's own variance decides.
+    const rows = [
+      line({ id: '1', label: 'Rent', accountCode: '6000', actual: 115_000 }),
+      line({ id: '2', label: 'Sales', accountCode: '1000', actual: 95_000 }),
+    ];
+    const lines = [
+      budgetLine({ account_code: '6000', budget_amount: 120_000, actual_amount: 130_000, variance: -10_000, favourable: false }),
+      budgetLine({ account_code: '1000', account_type: 'revenue', budget_amount: 90_000, actual_amount: 80_000, variance: -10_000, favourable: false }),
+    ];
+    const [rent, sales] = applyBudgetComparator(rows, lines);
+    expect(rent!.budget).toMatchObject({ variance: -5_000, favourable: true });
+    expect(sales!.budget).toMatchObject({ variance: 5_000, favourable: true });
+  });
+});
+
+describe('the income statement prints an expense row POSITIVE (the D7 operand)', () => {
+  it('row.actual on an expense line is debit − credit, so actual − budget needs no sign flip', () => {
+    const rows = toIncomeStatementRows({
+      revenue: [{ accountCode: '1000', accountName: 'Sales', amount: 900_000 }],
+      costOfSales: [], otherIncome: [], otherExpenses: [],
+      operatingExpenses: [{ accountCode: '6000', accountName: 'Rent', amount: 130_000 }],
+      totalRevenue: 900_000, totalCostOfSales: 0, grossProfit: 900_000, totalOtherIncome: 0,
+      totalOperatingExpenses: 130_000, operatingProfit: 770_000, totalOtherExpenses: 0, netProfit: 770_000,
+    } as unknown as Parameters<typeof toIncomeStatementRows>[0], { comparative: false });
+    const rent = rows.find((r) => r.accountCode === '6000')!;
+    expect(rent.actual).toBe(130_000);
+    const [withBudget] = applyBudgetComparator([rent], [budgetLine({ account_code: '6000', budget_amount: 120_000 })]);
+    expect(withBudget!.budget).toMatchObject({ variance: 10_000, favourable: false });
   });
 });
 
