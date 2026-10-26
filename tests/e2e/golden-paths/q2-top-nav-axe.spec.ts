@@ -5,10 +5,10 @@
  * Split from q-top-nav-hover because it loads @axe-core/playwright, a dev/CI gate that
  * playwright-golden.config.ts ignores for the post-deploy run (GOLDEN_SKIP_A11Y=1).
  */
-import { test, expect } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
-import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { seedTheme, THEMES } from '../helpers/themeSpec';
+import { test, expect, openWithNav, NAV_READY_MS } from '../helpers/navSpec';
 
 const NAV = 'nav:has([data-tour="nav-dashboard"])';
 const EVIDENCE_DIR = 'docs/evidence/master-plan/wave1/nav';
@@ -17,8 +17,9 @@ for (const theme of THEMES) {
   test(`${theme} theme: menu and sub-panel are axe-clean`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await seedTheme(page, theme);
-    await page.goto('/accounting');
-    await settle(page);
+    // The scan covers the nav only, so wait for the nav and the theme, not for the dashboard's widgets to stop spinning.
+    await openWithNav(page, '/accounting');
+    await page.waitForSelector(`html[data-theme-applied="${theme}"]`, { timeout: NAV_READY_MS });
     await page.locator('[data-tour="nav-sales"]').hover();
     await page.locator('[data-tour="nav-sales"]').getByRole('button', { name: 'Customers' }).hover();
     await expect(page.locator('[data-tour="nav-sales"]').getByRole('link', { name: 'Debtors Manager' })).toBeVisible();
@@ -34,8 +35,9 @@ for (const theme of THEMES) {
   test(`${theme} theme: a hovered top tab and a keyboard-focused top tab are axe-clean`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await seedTheme(page, theme);
-    await page.goto('/accounting');
-    await settle(page);
+    // The scan covers the nav only, so wait for the nav and the theme, not for the dashboard's widgets to stop spinning.
+    await openWithNav(page, '/accounting');
+    await page.waitForSelector(`html[data-theme-applied="${theme}"]`, { timeout: NAV_READY_MS });
     // A hovered tab with no menu (hover colour on the bare tab) and one with a menu open.
     await page.locator('[data-tour="nav-workbench"] a').hover();
     await expectNoSeriousA11yViolations(page, { include: [NAV], key: 'shell:top-nav-menu', includeShell: true });
