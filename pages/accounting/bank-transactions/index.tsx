@@ -20,21 +20,19 @@ import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxMo
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
-import { Loader2, AlertCircle } from 'lucide-react';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
 import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
+import { BankTxPagination, BankTxReviewBar } from '@/components/accounting/bank-transactions/BankTxPagination';
+import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-transactions/BankTxTabs';
+import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
+import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
+import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
+import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
 
-type Tab = 'new' | 'reviewed' | 'excluded';
 const PAGE_SIZE = 25;
-
-function tabToStatus(tab: Tab): string {
-  if (tab === 'new') return 'imported';
-  if (tab === 'excluded') return 'excluded';
-  return 'matched';
-}
 
 export default function BankTransactionsPage() {
   const router = useRouter();
@@ -124,17 +122,8 @@ export default function BankTransactionsPage() {
     if (!selectedBank) { setIsLoading(false); setTransactions([]); setTotal(0); return; }
     setIsLoading(true); setError('');
     try {
-      const params = new URLSearchParams({ bank_account_id: selectedBank, status: tabToStatus(tab), limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
-      if (fromDate) params.set('from_date', fromDate);
-      if (toDate) params.set('to_date', toDate);
-      if (fromAmount) params.set('from_amount', fromAmount);
-      if (toAmount) params.set('to_amount', toAmount);
-      if (debouncedSearch) params.set('search', debouncedSearch);
-      if (sortOrder !== 'desc') params.set('sort_order', sortOrder);
-      if (allocationFilter !== 'all') params.set('allocation_filter', allocationFilter);
-      if (txType !== 'all') params.set('tx_type', txType);
-      if (allocType !== 'all') params.set('alloc_type', allocType);
-      if (hasSuggestion !== 'all') params.set('has_suggestion', hasSuggestion);
+      const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
+        search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion });
       const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
       const json = await res.json();
       const data = json.data || json;
@@ -146,49 +135,14 @@ export default function BankTransactionsPage() {
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
-  const [aiPolling, setAiPolling] = useState(0);
-  const transactionsRef = useRef<BankTx[]>([]);
-  useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
-  const aiPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => () => { if (aiPollTimerRef.current) clearInterval(aiPollTimerRef.current); }, []);
-
-  const pollForLlmResults = useCallback((residualCount: number) => {
-    if (residualCount <= 0) return;
-    if (aiPollTimerRef.current) clearInterval(aiPollTimerRef.current);
-    setAiPolling(residualCount);
-    let ticks = 0;
-    let lastLlm = -1;
-    aiPollTimerRef.current = setInterval(async () => {
-      ticks += 1;
-      await loadTransactions();
-      const llmCount = transactionsRef.current.filter((t) => t.suggestedStrategy === 'llm').length;
-      if ((llmCount === lastLlm && ticks > 1) || ticks >= 8) {
-        if (aiPollTimerRef.current) clearInterval(aiPollTimerRef.current);
-        aiPollTimerRef.current = null;
-        setAiPolling(0);
-      }
-      lastLlm = llmCount;
-    }, 4000);
-  }, [loadTransactions]);
+  const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, loadTransactions);
 
   const relinkFailed = useRelinkTransfers(selectedBank);
 
   // ---- Seed rowSelections from DB suggestion fields ----
   useEffect(() => {
     if (transactions.length === 0) return;
-    const initial: Record<string, RowSelection> = {};
-    for (const tx of transactions) {
-      if (rowSelections[tx.id]?.entityId) continue;
-      const dim = { cc1Id: tx.cc1Id, cc2Id: tx.cc2Id, buId: tx.buId };
-      if (tx.suggestedSupplierId) {
-        initial[tx.id] = { type: 'supplier', entityId: tx.suggestedSupplierId, label: tx.suggestedSupplierName || tx.suggestedCategory || '', vatCode: 'none', ...dim };
-      } else if (tx.suggestedClientId) {
-        initial[tx.id] = { type: 'customer', entityId: tx.suggestedClientId, label: tx.suggestedClientName || tx.suggestedCategory || '', vatCode: 'none', ...dim };
-      } else if (tx.suggestedGlAccountId) {
-        initial[tx.id] = { type: 'account', entityId: tx.suggestedGlAccountId, vatCode: (tx.suggestedVatCode || 'none') as RowSelection['vatCode'], ...dim,
-          label: tx.suggestedGlAccountCode ? `${tx.suggestedGlAccountCode} ${tx.suggestedGlAccountName || ''}` : tx.suggestedGlAccountName || tx.suggestedCategory || '' };
-      }
-    }
+    const initial = suggestedRowSelections(transactions, rowSelections);
     if (Object.keys(initial).length > 0) {
       setRowSelections(prev => {
         const merged = { ...prev };
@@ -220,7 +174,6 @@ export default function BankTransactionsPage() {
   const transferTargets: SelectOption[] = bankAccounts
     .filter(b => b.id !== selectedBank)
     .map(b => ({ id: b.id, code: b.accountCode, name: b.groupName ? `${b.groupName} › ${b.accountName}` : b.accountName }));
-  const totalPages = Math.ceil(total / PAGE_SIZE);
   // Pending rows are read-only — select-all only ever selects the actionable
   // (non-pending) rows, so "all selected" is judged against that subset too.
   const selectableTxIds = actionableIds(transactions, transactions.map(t => t.id));
@@ -247,17 +200,7 @@ export default function BankTransactionsPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} tab={tab} total={total} onSelectBank={setSelectedBank} onAccountsChanged={refreshBankAccounts} />
 
-        {/* Tabs */}
-        <div className="px-6 border-b border-[var(--ff-border-light)]">
-          <div className="flex gap-0">
-            {(['new', 'reviewed', 'excluded'] as Tab[]).map(t => (
-              <button key={t} onClick={() => setTab(t)}
-                className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t ? (t === 'excluded' ? 'border-red-500 text-red-400' : 'border-teal-500 text-teal-400') : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
-                {t === 'new' ? 'New Transactions' : t === 'excluded' ? 'Excluded' : 'Reviewed Transactions'}
-              </button>
-            ))}
-          </div>
-        </div>
+        <BankTxTabs tab={tab} onTab={setTab} />
 
         <BankTxFilters
           tab={tab} page={page} total={total} pageSize={PAGE_SIZE} selectedCount={selectedIds.size}
@@ -299,80 +242,34 @@ export default function BankTransactionsPage() {
         <div className="px-4 py-2">
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
-          {relinkFailed && (
-            <div className="flex items-center gap-2 text-xs text-amber-400 py-1 pb-2">
-              <AlertCircle className="h-3 w-3" /> Transfer re-linking failed for this account — counterpart transfers may still show as unallocated.
-            </div>
-          )}
-          {aiPolling > 0 && (
-            <div className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] py-1 pb-2">
-              <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
-            </div>
-          )}
-          {/* One container for every state: its height is held while the rows load, so the swap shifts nothing. */}
-          <div className="min-h-[480px]">
-            {isLoading ? (
-              <div className="space-y-2 py-2" role="status" aria-busy="true" aria-label="Loading transactions">
-                {Array.from({ length: 8 }, (_, i) => <div key={i} className="h-12 animate-pulse rounded bg-[var(--ff-bg-tertiary)]" />)}
-              </div>
-            ) : error ? (
-              <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
-            ) : transactions.length === 0 ? (
-              <div data-testid="bank-tx-empty" className="text-center py-12 text-[var(--ff-text-secondary)]">
-                No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : 'reviewed'} transactions for this account
-              </div>
-            ) : (
-              <BankTxTable
-                transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
-                customers={customers} transferTargets={transferTargets}
-                cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
-                showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
-                allSelected={allSelected} tab={tab}
-                onToggleSelect={toggleSelect}
-                onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
-                onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
-                onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
-                onAccept={actions.handleAccept} onExclude={actions.handleExclude}
-                onUnmatch={actions.handleUnmatch} onSplit={id => setSplitTxId(id)}
-                onUpdateNotes={actions.handleUpdateNotes} onFindMatch={id => setFindMatchTxId(id)}
-                onReverse={actions.handleReverse} onAttachments={id => setAttachmentsTxId(id)}
-                onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
-                onCreateRule={tx => setCreateRuleTx(tx)}
-                onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
-                onLink={tx => setLinkTx(tx)}
-              />
-            )}
-          </div>
+          <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
+            empty={transactions.length === 0} tab={tab}>
+            <BankTxTable
+              transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
+              customers={customers} transferTargets={transferTargets}
+              cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
+              showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
+              allSelected={allSelected} tab={tab}
+              onToggleSelect={toggleSelect}
+              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
+              onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
+              onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
+              onAccept={actions.handleAccept} onExclude={actions.handleExclude}
+              onUnmatch={actions.handleUnmatch} onSplit={id => setSplitTxId(id)}
+              onUpdateNotes={actions.handleUpdateNotes} onFindMatch={id => setFindMatchTxId(id)}
+              onReverse={actions.handleReverse} onAttachments={id => setAttachmentsTxId(id)}
+              onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
+              onCreateRule={tx => setCreateRuleTx(tx)}
+              onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
+              onLink={tx => setLinkTx(tx)}
+            />
+          </BankTxListFrame>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-6 py-3 border-t border-[var(--ff-border-light)] flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <button disabled={page <= 1} onClick={() => setPage(1)} className="px-3 py-2 rounded text-xs text-[var(--ff-text-secondary)] disabled:opacity-30">First</button>
-              {Array.from({ length: Math.min(totalPages, 10) }, (_, i) => {
-                const p = totalPages <= 10 ? i + 1 : page <= 5 ? i + 1 : page >= totalPages - 4 ? totalPages - 9 + i : page - 5 + i;
-                return (
-                  <button key={p} onClick={() => setPage(p)}
-                    className={`w-7 h-7 rounded text-xs ${p === page ? 'bg-brand-600 text-white font-bold' : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-secondary)]'}`}>
-                    {p}
-                  </button>
-                );
-              })}
-              <button disabled={page >= totalPages} onClick={() => setPage(totalPages)} className="px-3 py-2 rounded text-xs text-[var(--ff-text-secondary)] disabled:opacity-30">Last</button>
-            </div>
-            <span className="text-xs text-[var(--ff-text-tertiary)]">Displaying {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}</span>
-          </div>
-        )}
+        <BankTxPagination page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />
 
-        {/* Bottom bar */}
         {tab === 'new' && transactions.length > 0 && (
-          <div className="sticky bottom-0 bg-[var(--ff-bg-secondary)] border-t border-[var(--ff-border-light)] px-6 py-3 flex items-center justify-center">
-            <button onClick={actions.handleBulkAccept} disabled={selectedIds.size === 0}
-              className="px-5 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
-              Mark Selected as Reviewed ({selectedIds.size})
-            </button>
-          </div>
+          <BankTxReviewBar selectedCount={selectedIds.size} onReview={actions.handleBulkAccept} />
         )}
       </div>
 

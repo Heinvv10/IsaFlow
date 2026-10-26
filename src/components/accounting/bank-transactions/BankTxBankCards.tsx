@@ -76,7 +76,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
   const hints = useMemo(() => findUngroupedHints(primaries, groups), [primaries, groups]);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const expandedGroup = groups.find(g => g.groupId === expandedGroupId);
-  const row = useOverflowRight(primaries.length + groups.length);
+  const { ref: rowRef, more: rowMore, measure: measureRow } = useOverflowRight(primaries.length + groups.length);
 
   // Deep links (?account_id=) can select a sub-account before any user
   // interaction — auto-expand its group so the selection is visible.
@@ -111,7 +111,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
     <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
       <h1 className="text-2xl font-bold text-[var(--ff-text-primary)] mb-3">Bank Transactions</h1>
       <div className="relative min-w-0">
-        <div ref={row.ref} onScroll={row.measure} data-testid="bank-cards-row"
+        <div ref={rowRef} onScroll={measureRow} data-testid="bank-cards-row"
           className="flex items-stretch gap-3 overflow-x-auto pb-2">
           {primaries.map(b => {
             const active = b.id === selectedBank;
@@ -172,7 +172,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
             />
           ))}
         </div>
-        {row.more && (
+        {rowMore && (
           <div aria-hidden data-testid="bank-cards-fade"
             className="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-[var(--ff-bg-secondary)] to-transparent" />
         )}
