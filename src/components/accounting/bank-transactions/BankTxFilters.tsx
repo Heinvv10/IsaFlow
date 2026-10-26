@@ -150,9 +150,9 @@ export function BankTxFilters({
       </button>
 
       {/* Date range filter */}
-      <div className="flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]">
-        <DateField label="From date" value={fromDate || null} onChange={(iso, v) => { if (v.valid) onFromDateChange(iso ?? ''); }} />
-        <DateField label="To date" value={toDate || null} onChange={(iso, v) => { if (v.valid) onToDateChange(iso ?? ''); }} />
+      <div className="flex items-start gap-1 text-xs text-[var(--ff-text-secondary)]">
+        <div className="w-40"><DateField label="From date" value={fromDate || null} onChange={(iso, v) => { if (v.valid) onFromDateChange(iso ?? ''); }} /></div>
+        <div className="w-40"><DateField label="To date" value={toDate || null} onChange={(iso, v) => { if (v.valid) onToDateChange(iso ?? ''); }} /></div>
       </div>
 
       {/* Amount range filter */}

@@ -178,8 +178,8 @@ export default function AuditLogPage() {
                   <option key={a} value={a}>{ACTION_LABELS[a]}</option>
                 ))}
               </select>
-              <DateField label="From date" value={filters.dateFrom || null} onChange={(iso, v) => { if (v.valid) handleFilterChange('dateFrom', iso ?? ''); }} />
-              <DateField label="To date" value={filters.dateTo || null} onChange={(iso, v) => { if (v.valid) handleFilterChange('dateTo', iso ?? ''); }} />
+              <div className="w-40"><DateField label="From date" value={filters.dateFrom || null} onChange={(iso, v) => { if (v.valid) handleFilterChange('dateFrom', iso ?? ''); }} /></div>
+              <div className="w-40"><DateField label="To date" value={filters.dateTo || null} onChange={(iso, v) => { if (v.valid) handleFilterChange('dateTo', iso ?? ''); }} /></div>
             </div>
           </div>
 

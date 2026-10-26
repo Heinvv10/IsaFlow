@@ -157,16 +157,20 @@ export default function AutoPostingsPage() {
                 <option key={src} value={src}>{sourceLabel(src)} ({n})</option>
               ))}
             </select>
-            <DateField
-              label="From"
-              value={fromDate || null}
-              onChange={(iso, v) => { if (v.valid) { setPage(0); setFromDate(iso ?? ''); } }}
-            />
-            <DateField
-              label="To"
-              value={toDate || null}
-              onChange={(iso, v) => { if (v.valid) { setPage(0); setToDate(iso ?? ''); } }}
-            />
+            <div className="w-40">
+              <DateField
+                label="From"
+                value={fromDate || null}
+                onChange={(iso, v) => { if (v.valid) { setPage(0); setFromDate(iso ?? ''); } }}
+              />
+            </div>
+            <div className="w-40">
+              <DateField
+                label="To"
+                value={toDate || null}
+                onChange={(iso, v) => { if (v.valid) { setPage(0); setToDate(iso ?? ''); } }}
+              />
+            </div>
             {(sourceFilter || fromDate || toDate) && (
               <button
                 onClick={() => { setSourceFilter(''); setFromDate(''); setToDate(''); setPage(0); }}
