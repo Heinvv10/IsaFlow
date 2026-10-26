@@ -22,6 +22,7 @@ import { useRelinkTransfers } from '@/components/accounting/bank-transactions/us
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
+import { BankTxLoading, BankTxEmpty } from '@/components/accounting/bank-transactions/BankTxListStates';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
@@ -312,15 +313,11 @@ export default function BankTransactionsPage() {
           {/* One container for every state: its height is held while the rows load, so the swap shifts nothing. */}
           <div className="min-h-[480px]">
             {isLoading ? (
-              <div className="space-y-2 py-2" role="status" aria-busy="true" aria-label="Loading transactions">
-                {Array.from({ length: 8 }, (_, i) => <div key={i} className="h-12 animate-pulse rounded bg-[var(--ff-bg-tertiary)]" />)}
-              </div>
+              <BankTxLoading />
             ) : error ? (
               <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
             ) : transactions.length === 0 ? (
-              <div data-testid="bank-tx-empty" className="text-center py-12 text-[var(--ff-text-secondary)]">
-                No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : 'reviewed'} transactions for this account
-              </div>
+              <BankTxEmpty tab={tab} />
             ) : (
               <BankTxTable
                 transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}

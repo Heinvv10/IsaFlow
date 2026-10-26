@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
+import { findDemoMembership } from './demoMembership';
 
 import { notify } from '@/utils/toast';
 import { apiErrorMessage } from '@/lib/apiFetch';
@@ -18,21 +19,13 @@ interface DemoCompanyCTAProps {
 
 export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
   const [dismissed, setDismissed] = useState(true); // default hidden until we read localStorage
-  const [demoCompanyId, setDemoCompanyId] = useState<string | null>(null);
-  const { companies, switchCompany } = useCompany();
+  const { companies, activeCompany, switchCompany } = useCompany();
+  const demoCompanyId = findDemoMembership(companies, activeCompany?.id)?.companyId ?? null;
 
   useEffect(() => {
     const stored = localStorage.getItem(DISMISSED_KEY);
     if (!stored) setDismissed(false);
   }, []);
-
-  useEffect(() => {
-    // Find a company whose name contains "demo" (case-insensitive)
-    const demo = companies.find(c =>
-      c.companyName.toLowerCase().includes('demo'),
-    );
-    setDemoCompanyId(demo?.companyId ?? null);
-  }, [companies]);
 
   const handleDismiss = () => {
     localStorage.setItem(DISMISSED_KEY, '1');

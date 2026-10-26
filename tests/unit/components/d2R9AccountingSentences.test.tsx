@@ -19,7 +19,7 @@ vi.mock('next/router', () => ({ useRouter: () => router }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
 vi.mock('next/head', () => ({ default: () => null }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1' }) }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1', companies: [], activeCompany: { id: 'c1' } }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ isAuthenticated: true, loading: false, user: { id: 'u-1', role: 'admin' } }) }));
 vi.mock('@/components/accounting/AccountReportingGroupModal', () => ({ AccountReportingGroupModal: () => null }));
 vi.mock('@/components/shared/ExportCSVButton', () => ({ ExportCSVButton: () => null }));

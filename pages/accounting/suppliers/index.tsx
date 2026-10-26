@@ -6,8 +6,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Truck, Loader2, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
+import { Truck, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
+import { ListEmpty } from '@/components/ui/ListEmpty';
 import { KpiStrip } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
@@ -142,31 +144,24 @@ export default function SuppliersPage() {
 
           {/* Content */}
           {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" />
-            </div>
+            <ListSkeleton label="Loading suppliers" />
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
               <AlertCircle className="h-5 w-5" />
               <span>{error}</span>
             </div>
           ) : suppliers.length === 0 ? (
-            <div className="text-center py-16">
-              <Truck className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)] font-medium">No suppliers found</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
-                {search ? 'Try a different search term' : 'Add your first supplier to get started'}
-              </p>
-              {!search && (
-                <Link
-                  href="/accounting/suppliers/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Supplier
-                </Link>
-              )}
-            </div>
+            <ListEmpty
+              filtered={!!debouncedSearch}
+              onClearFilters={() => setSearch('')}
+              firstRun={{
+                icon: Truck,
+                title: 'No suppliers yet',
+                description: 'Suppliers are who you buy from. Add one to capture their bills.',
+                checklist: ['Add the supplier', 'Capture their invoice', 'Pay it from the bank'],
+                primaryAction: { label: 'New Supplier', href: '/accounting/suppliers/new' },
+              }}
+            />
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
               <table className="w-full text-sm">

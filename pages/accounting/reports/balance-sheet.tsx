@@ -7,9 +7,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { PageHeader } from '@/components/ui/PageHeader';
 import {
-  BarChart3, Loader2, AlertCircle,
+  BarChart3, AlertCircle,
   Download, FileSpreadsheet,
 } from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
@@ -205,9 +206,7 @@ export default function BalanceSheetPage() {
           )}
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
-            </div>
+            <ListSkeleton rows={14} label="Loading balance sheet" />
           ) : report ? (
             <>
             <p className="sm:hidden mb-1 text-xs text-[var(--ff-text-tertiary)]">Swipe the statement sideways for the prior period and variance columns.</p>

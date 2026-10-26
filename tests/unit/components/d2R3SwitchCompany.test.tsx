@@ -19,7 +19,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({
     activeCompany: { id: 'co-1', name: 'First Co' }, loading: false, switchCompany: h.switchCompany,
-    companies: [{ companyId: 'co-1', companyName: 'First Co' }, { companyId: 'co-2', companyName: 'Demo Company', role: 'owner' }],
+    companies: [{ companyId: 'co-1', companyName: 'First Co' }, { companyId: 'co-2', companyName: 'Demo Company', role: 'owner', isDemo: true }],
   }),
 }));
 

@@ -21,6 +21,7 @@ interface CompanyRow {
   is_active: boolean;
   status: string;
   suspended_at: Date | null;
+  is_demo?: boolean;
 }
 interface MembershipRow {
   user_id: string;
@@ -68,6 +69,7 @@ const sqlMock = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]
     company_name: live.find((c) => c.id === m.company_id)!.name,
     role: m.role,
     is_default: m.is_default,
+    is_demo: live.find((c) => c.id === m.company_id)!.is_demo ?? false,
   }));
 });
 
@@ -179,7 +181,14 @@ describe('getUserCompanies — the switcher / landing list', () => {
     companies = [company('live')];
     memberships = [membership('live', { is_default: true, role: 'admin' })];
     expect(await getUserCompanies(USER)).toEqual([
-      { companyId: 'live', companyName: 'Co live', role: 'admin', isDefault: true },
+      { companyId: 'live', companyName: 'Co live', role: 'admin', isDefault: true, isDemo: false },
     ]);
+  });
+
+  it('carries companies.is_demo so the UI never finds the demo tenant by its name', async () => {
+    companies = [company('demo', { name: 'Acme Plumbing', is_demo: true }), company('live', { name: 'Demo Plumbing' })];
+    memberships = [membership('demo'), membership('live', { is_default: true })];
+    const list = await getUserCompanies(USER);
+    expect(list.map((c) => [c.companyId, c.isDemo])).toEqual([['live', false], ['demo', true]]);
   });
 });
