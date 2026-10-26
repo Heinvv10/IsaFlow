@@ -70,7 +70,8 @@ function ledger(raws: Raw[], budgets: Record<string, number>, postedThrough = '2
   vi.mocked(loadWindowActuals).mockResolvedValue(raws.map((r) => ({
     id: `id-${r.code}`, account_code: r.code, account_name: `Account ${r.code}`, account_type: r.type, actual_amount: r.actual,
   })));
-  vi.mocked(loadWindowBudgets).mockResolvedValue(budgets);
+  // Budgets are keyed by account id (budgetWindowService); the fixture writes codes for readability.
+  vi.mocked(loadWindowBudgets).mockResolvedValue(Object.fromEntries(Object.entries(budgets).map(([c, v]) => [`id-${c}`, v])));
   vi.mocked(sql).mockResolvedValue([{ posted_through: postedThrough }] as never);
 }
 
@@ -172,6 +173,8 @@ describe('budget_variance', () => {
     expect(d).toMatch(/variance_pct is null where the budget is zero or absent/);
     expect(d).not.toMatch(/reported as 0 where there is no budget/);
     expect(d).toMatch(/totals are NET PROFIT/);
+    expect(d).toMatch(/they do not foot to the rows/);
+    expect(d).not.toMatch(/equal to the sum of the row and excluded-row variances/);
     expect(d).toMatch(/movement is actual less budget/);
     expect(d).toMatch(/A deliberate zero budget is a budget/);
   });

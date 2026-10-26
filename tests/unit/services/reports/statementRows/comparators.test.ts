@@ -60,7 +60,7 @@ const LINES = buildBudgetVsActualLines(
     { id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900_000 },
     { id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 130_000 },
   ],
-  { '1000': 1_000_000, '6000': 120_000 },
+  { a: 1_000_000, b: 120_000 },
 );
 
 describe('applyTrend', () => {
@@ -128,7 +128,7 @@ describe('applyBudgetComparator', () => {
   it('marks a favourable line favourable', () => {
     const good = buildBudgetVsActualLines(
       [{ id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 110_000 }],
-      { '6000': 120_000 },
+      { b: 120_000 },
     );
     // The statement prints the same R110 000 the service summed.
     const out = applyBudgetComparator(ROWS.map((r) => (r.accountCode === '6000' ? { ...r, actual: 110_000 } : r)), good);
@@ -144,7 +144,7 @@ describe('applyBudgetComparator', () => {
     // `favourable: false` carrying the judgement instead.
     const expenseLines = buildBudgetVsActualLines(
       [{ id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 150 }],
-      { '6000': 100 },
+      { b: 100 },
     );
     const printed150 = ROWS.map((r) => (r.accountCode ? { ...r, actual: 150 } : r));
     const [, , expenseOut] = applyBudgetComparator(printed150, expenseLines);
@@ -156,7 +156,7 @@ describe('applyBudgetComparator', () => {
     // judgement agree.
     const revenueLines = buildBudgetVsActualLines(
       [{ id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 150 }],
-      { '1000': 100 },
+      { a: 100 },
     );
     const [, revenueOut] = applyBudgetComparator(printed150, revenueLines);
     expect(revenueOut!.budget?.variance).toBe(50);
@@ -203,6 +203,33 @@ describe('applyBudgetComparator', () => {
     expect(out[0]!.budget).toBeUndefined(); // section
     expect(out[2]!.budget).toBeUndefined(); // coded line with no budget line
     expect(out[3]!.budget).toBeUndefined(); // subtotal
+  });
+
+  it('an unbudgeted account gets no budget comparison (no 0 budget, no judgement)', () => {
+    const lines = buildBudgetVsActualLines(
+      [
+        { id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900_000 },
+        { id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 130_000 },
+      ],
+      { a: 1_000_000 },
+    );
+    const out = applyBudgetComparator(ROWS, lines);
+    expect(out[1]!.budget?.value).toBe(1_000_000);
+    expect(out[2]!.budget).toBeUndefined();
+  });
+
+  it('exactly on budget is favourable for revenue and expense alike', () => {
+    const rows = [
+      line({ id: '1', label: 'Rent', accountCode: '6000', actual: 120_000 }),
+      line({ id: '2', label: 'Sales', accountCode: '1000', actual: 90_000 }),
+    ];
+    const lines = [
+      budgetLine({ account_code: '6000', budget_amount: 120_000 }),
+      budgetLine({ account_code: '1000', account_type: 'revenue', budget_amount: 90_000 }),
+    ];
+    const [rent, sales] = applyBudgetComparator(rows, lines);
+    expect(rent!.budget).toMatchObject({ variance: 0, favourable: true });
+    expect(sales!.budget).toMatchObject({ variance: 0, favourable: true });
   });
 
   it('does not mutate the rows it was given', () => {

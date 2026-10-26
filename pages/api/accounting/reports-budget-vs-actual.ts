@@ -37,8 +37,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // A year that has not started has no window to name; the page says when it starts.
       period: notStarted ? 'not started' : `${startDate} to ${endDate}`,
       ...(notStarted ? { not_started: true, starts_on: startDate } : {}),
-      start_date: startDate,
-      end_date: endDate,
       lines: result.lines,
       sections: result.sections,
       posted_through: result.postedThrough,

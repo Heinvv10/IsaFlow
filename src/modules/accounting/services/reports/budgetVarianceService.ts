@@ -25,20 +25,17 @@ import { buildBudgetVsActualSections, type BudgetVsActualSections } from './budg
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 
-/** One line of the row model; `account_id` lives on the shared type. */
-export type BudgetVarianceRow = BudgetVsActualLine;
-
 export interface BudgetVarianceResult {
   /** The financial year (registry label) holding the window's start. */
   fiscalYear: number;
   /** The 'YYYY-MM' calendar months the budget was summed over, in window order. */
   monthKeys: string[];
   /** Every line the report prints: budgeted, or carrying movement. */
-  lines: BudgetVarianceRow[];
+  lines: BudgetVsActualLine[];
   /** Accounts that carry a budget for this window, a deliberate zero included. */
-  rows: BudgetVarianceRow[];
+  rows: BudgetVsActualLine[];
   /** Accounts with real posted movement and no budget at all. */
-  unbudgeted: BudgetVarianceRow[];
+  unbudgeted: BudgetVsActualLine[];
   /** Revenue / Expenses / Net profit over `lines`. */
   sections: BudgetVsActualSections;
   /** Budgeted + unbudgeted — every account this report had to classify. */
@@ -86,10 +83,8 @@ export async function getBudgetVariance(
     rows,
     unbudgeted,
     sections,
-    // Every revenue and expense account the actuals query returned, before
-    // the budgeted/unbudgeted split — the candidate set itself, not the sum of
-    // the two halves buildEnvelope checks against. An account lost from BOTH
-    // halves changes this number; it could not change the old one.
+    // Every account the report prints (budgeted, or carrying movement): the
+    // two halves are a partition of it, so it always equals rows + unbudgeted.
     universeTotal: lines.length,
     totals: {
       budget: sections.net_profit.budget,

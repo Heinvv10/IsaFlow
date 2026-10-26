@@ -155,8 +155,9 @@ describe('a 14-month transition year', () => {
     expect(feb.rows.find(r => r.account_code === 'B-5')).toMatchObject({ budget_amount: 1400, actual_amount: 600 });
 
     const mid = await inTx(() => loadWindowBudgets(companyId, '2026-12-15', '2027-01-10'));
-    expect(mid['B-5']).toBe(1200 + 1300);
-    expect(mid[ids.rent]).toBe(2500);
+    expect(mid[ids.rent]).toBe(1200 + 1300);
+    // Keyed by account id only: a code is never a key.
+    expect(Object.keys(mid)).toEqual([ids.rent]);
   });
 
   it('ytd and current windows come from the registry year, not the declared start month', async () => {

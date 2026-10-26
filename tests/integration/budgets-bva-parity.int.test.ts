@@ -17,6 +17,7 @@ import report from '../../pages/api/accounting/reports-budget-vs-actual';
 import exportCsv from '../../pages/api/accounting/budget-vs-actual-export';
 import comparator from '../../pages/api/accounting/reports-budget-comparator';
 import budgets from '../../pages/api/accounting/budgets';
+import budgetsAction from '../../pages/api/accounting/budgets-action';
 import { budgetVarianceTool } from '@/lib/mcp/tools/budgetVariance';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
@@ -30,6 +31,7 @@ const rep = budgetsRouteFixture(pool, report, '/api/accounting/reports-budget-vs
 const csv = budgetsRouteFixture(pool, exportCsv, '/api/accounting/budget-vs-actual-export');
 const cmp = budgetsRouteFixture(pool, comparator, '/api/accounting/reports-budget-comparator');
 const bud = budgetsRouteFixture(pool, budgets, '/api/accounting/budgets');
+const act = budgetsRouteFixture(pool, budgetsAction, '/api/accounting/budgets-action');
 let u: SetupUser;
 let companyId: string;
 let label: number;
@@ -41,7 +43,9 @@ interface Line {
   variance: number; movement: number; variance_pct: number | null; movement_pct: number | null; favourable: boolean | null;
 }
 interface Section { budget: number; actual: number; variance: number; movement: number; movement_pct: number | null; favourable: boolean | null }
-interface Report { period: string; start_date: string; end_date: string; lines: Line[]; sections: Record<'revenue' | 'expense' | 'net_profit', Section> }
+interface Report { period: string; lines: Line[]; sections: Record<'revenue' | 'expense' | 'net_profit', Section> }
+/** The report's own window, from its `period` ('YYYY-MM-DD to YYYY-MM-DD'). */
+const windowOf = (r: Report) => { const [start, end] = r.period.split(' to '); return { start: start!, end: end! }; };
 
 const ACCOUNTS: Array<[string, string, string, number, boolean]> = [
   // code, type, normal balance, level, active
@@ -100,7 +104,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    for (const f of [rep, csv, cmp, bud]) await f.cleanup();
+    for (const f of [rep, csv, cmp, bud, act]) await f.cleanup();
     await pool.query('DELETE FROM gl_journal_lines WHERE company_id = $1', [companyId]);
   } finally { await pool.end(); }
 }, 60000);
@@ -176,7 +180,8 @@ describe('budgets P0 parity on real Postgres', () => {
     const rows = parseCsv(String(c.body));
     expect(rows[0]!.join(',')).toBe('Section,Account Code,Account Name,Budget,Actual,Variance,Variance %,Favourable');
     const lineRows = rows.slice(1).filter((x) => x[1] !== '');
-    expect(lineRows.map((x) => x[1])).toEqual(r.lines.map((l) => l.account_code));
+    const sectionOrder = [...r.lines.filter((l) => l.account_type === 'revenue'), ...r.lines.filter((l) => l.account_type === 'expense')];
+    expect(lineRows.map((x) => x[1])).toEqual(sectionOrder.map((l) => l.account_code));
     for (const l of r.lines) {
       const x = lineRows.find((y) => y[1] === l.account_code)!;
       expect(x[0]).toBe(l.account_type === 'revenue' ? 'Revenue' : 'Expenses');
@@ -195,7 +200,7 @@ describe('budgets P0 parity on real Postgres', () => {
 
   it('MCP rows + excludedRows = the report\'s lines; MCP totals = report net profit', async () => {
     const r = await full();
-    const m = await mcp(r.start_date, r.end_date);
+    const m = await mcp(windowOf(r).start, windowOf(r).end);
     const codes = [...m.rows.map((x) => x.account_code)];
     expect(codes).toEqual(r.lines.filter((l) => l.budgeted).map((l) => l.account_code));
     expect(codes).toContain('P-6100');
@@ -212,7 +217,7 @@ describe('budgets P0 parity on real Postgres', () => {
 
   it('comparator budgetedCount counts the zero-budget account', async () => {
     const r = await full();
-    const c = await cmp.call(u, 'GET', undefined, { period_start: r.start_date, period_end: r.end_date });
+    const c = await cmp.call(u, 'GET', undefined, { period_start: windowOf(r).start, period_end: windowOf(r).end });
     expect(c.status, JSON.stringify(c.body).slice(0, 300)).toBe(200);
     const d = c.body.data as unknown as { budgetedCount: number; lines: Line[] };
     expect(d.budgetedCount).toBe(4);
@@ -221,7 +226,7 @@ describe('budgets P0 parity on real Postgres', () => {
 
   it('Σ report actuals per type = Σ posted lines per type in the window (independent SQL)', async () => {
     const r = await full();
-    const [start, end] = [r.start_date, r.end_date];
+    const { start, end } = windowOf(r);
     const sums = (await pool.query(
       `SELECT ga.account_type,
               SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE jl.debit - jl.credit END)::float8 AS total
@@ -255,4 +260,24 @@ describe('budgets P0 parity on real Postgres', () => {
       [companyId, acc['P-1100']])).rows[0];
     expect(written).toEqual({ months: 0, headers: 0 });
   });
+
+  // Last: it writes the next year's budgets, which no earlier case may see.
+  it('copying a year forward never carries a legacy balance-sheet budget', async () => {
+    // A legacy row on the bank account (what migration 944 converted), written directly.
+    await pool.query(`INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount) VALUES ($1, $2, $3::date, 77)`,
+      [companyId, acc['P-1100'], `${month}-01`]);
+    const r = await act.call(u, 'POST', { action: 'copy', fromYear: label, toYear: label + 1 });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const next = (await pool.query(
+      `SELECT ga.account_code FROM budget_month_amounts bm JOIN gl_accounts ga ON ga.id = bm.gl_account_id
+        WHERE bm.company_id = $1 AND bm.month > $2::date GROUP BY ga.account_code ORDER BY 1`,
+      [companyId, `${o12(month)}-01`])).rows.map((x: { account_code: string }) => x.account_code);
+    expect(next).toEqual(['P-4000', 'P-6000', 'P-6100', 'P-6200']);
+  });
 });
+
+/** The 'YYYY-MM' eleven months after `m`: the last month of the source year when `m` is its second. */
+function o12(m: string): string {
+  const ord = Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1 + 10;
+  return `${Math.floor(ord / 12)}-${String((ord % 12) + 1).padStart(2, '0')}`;
+}

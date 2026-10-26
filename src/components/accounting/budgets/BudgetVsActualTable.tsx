@@ -15,30 +15,14 @@ import { useChartPalette } from '@/components/accounting/charts/ChartFrame';
 import { varianceColor } from '@/components/accounting/charts/ibcs';
 import type { ChartPalette } from '@/components/accounting/charts/chartTypes';
 import { formatMoney } from '@/lib/money/formatMoney';
+import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import type { BudgetVsActualSection, BudgetVsActualSections } from '@/modules/accounting/services/reports/budgetVsActualSections';
 import { variancePctLabel } from './budgetClient';
 
-export interface BvaLine {
-  account_id: string;
-  account_code: string;
-  account_name: string;
-  account_type: 'revenue' | 'expense';
-  budgeted: boolean;
-  budget_amount: number;
-  actual_amount: number;
-  movement: number;
-  movement_pct: number | null;
-  favourable: boolean | null;
-}
-
-export interface BvaSection {
-  budget: number;
-  actual: number;
-  movement: number;
-  movement_pct: number | null;
-  favourable: boolean | null;
-}
-
-export interface BvaSections { revenue: BvaSection; expense: BvaSection; net_profit: BvaSection }
+/** The report's own row model (type-only), so the screen cannot drift from the service. */
+export type BvaLine = BudgetVsActualLine;
+export type BvaSection = BudgetVsActualSection;
+export type BvaSections = BudgetVsActualSections;
 
 interface Props {
   lines: BvaLine[];

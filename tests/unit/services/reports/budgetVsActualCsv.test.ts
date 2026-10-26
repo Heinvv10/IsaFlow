@@ -36,7 +36,7 @@ function parse(csv: string): string[][] {
 
 const FIXTURE = model(
   [row('4000', 'revenue', 1200, 'Sales, local'), row('4100', 'revenue', 300), row('6000', 'expense', 800), row('6100', 'expense', 50)],
-  { '4000': 1000, '6000': 500, '6100': 0 },
+  { 'id-4000': 1000, 'id-6000': 500, 'id-6100': 0 },
 );
 
 describe('budgetVsActualCsv', () => {
@@ -85,7 +85,7 @@ describe('budgetVsActualCsv', () => {
   });
 
   it('a negative movement prints as a bare number, not a formula-guarded string', () => {
-    const t = parse(budgetVsActualCsv(model([row('4000', 'revenue', 700)], { '4000': 1000 })));
+    const t = parse(budgetVsActualCsv(model([row('4000', 'revenue', 700)], { 'id-4000': 1000 })));
     expect(t[1]!.slice(3, 8)).toEqual(['1000.00', '700.00', '-300.00', '-30.00', 'no']);
   });
 
