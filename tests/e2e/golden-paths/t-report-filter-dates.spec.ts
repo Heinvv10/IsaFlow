@@ -5,10 +5,11 @@
  * refused text ("zz") leaves the report on its last good range; the filter dates carry no serious axe
  * violation; light and dark screenshots. Read-only: it only filters a report.
  */
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from '../helpers/navSpec';
 import { mkdirSync } from 'fs';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
-import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
+import { seedTheme, settle, SETTLE_MS, THEMES } from '../helpers/themeSpec';
 
 const SHOTS = 'docs/evidence/master-plan/wave1/report-filter-dates';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -33,9 +34,9 @@ test('P&L: typed From and "eom" To set the range the header names', async ({ pag
   await settle(page);
   await typeInto(page, 'From', '1 Sep 2026');
   await typeInto(page, 'To', 'eom');
-  await expect(heading(page)).toContainText(`01 Sep 2026 to ${endOfThisMonth()}`, { timeout: 30_000 });
+  await expect(heading(page)).toContainText(`01 Sep 2026 to ${endOfThisMonth()}`, { timeout: SETTLE_MS });
   await typeInto(page, 'To', '30 Sep 2026');
-  await expect(heading(page)).toContainText('01 Sep 2026 to 30 Sep 2026', { timeout: 30_000 });
+  await expect(heading(page)).toContainText('01 Sep 2026 to 30 Sep 2026', { timeout: SETTLE_MS });
 });
 
 test('P&L: refused text does not change the range or fetch', async ({ page }) => {
@@ -47,7 +48,7 @@ test('P&L: refused text does not change the range or fetch', async ({ page }) =>
   await expect(page.getByLabel('To', { exact: true })).toHaveAttribute('aria-invalid', 'true');
   await page.waitForTimeout(500);
   expect(fetched, 'no report request for refused text').toHaveLength(0);
-  await expect(heading(page)).toContainText('01 Sep 2026 to 30 Sep 2026');
+  await expect(heading(page)).toContainText('01 Sep 2026 to 30 Sep 2026', { timeout: SETTLE_MS });
 });
 
 test('P&L: the filter dates are clean for axe and look right in both themes', async ({ page }) => {
