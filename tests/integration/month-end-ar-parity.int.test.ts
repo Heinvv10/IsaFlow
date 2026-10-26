@@ -22,6 +22,7 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const COMPANY = '00000000-0000-0000-0000-00000000e2a1';
 const CUSTOMER = '00000000-0000-0000-0000-00000000e2a2';
 const SUPPLIER = '00000000-0000-0000-0000-00000000e2a4';
+const CUSTOMER2 = '00000000-0000-0000-0000-00000000e2a5';
 const BANK = '00000000-0000-0000-0000-00000000e2a3';
 
 const OVERDUE_BAL = 1000;   // due 10 days ago: overdue today and at any later date
@@ -57,6 +58,7 @@ describeIfDb('month-end Sales card agrees with the shared AR aggregate', () => {
     await cleanup(admin);
     await admin.query(`INSERT INTO companies (id, name, is_active) VALUES ($1,'Month End Parity Fixture',true)`, [COMPANY]);
     await admin.query(`INSERT INTO customers (id, company_id, name) VALUES ($1,$2,'ME Customer')`, [CUSTOMER, COMPANY]);
+    await admin.query(`INSERT INTO customers (id, company_id, name) VALUES ($1,$2,'ME Customer 2')`, [CUSTOMER2, COMPANY]);
     await admin.query(`INSERT INTO suppliers (id, company_id, name) VALUES ($1,$2,'ME Supplier')`, [SUPPLIER, COMPANY]);
     await admin.query(
       `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
@@ -68,7 +70,7 @@ describeIfDb('month-end Sales card agrees with the shared AR aggregate', () => {
     await admin.query(
       `INSERT INTO customer_invoice_disputes (company_id, customer_invoice_id, reason, raised_by, disputed_amount)
        VALUES ($1,$2,'fixture',$4,$3)`, [COMPANY, disputed, DISPUTED_BAL, COMPANY]);
-    await insertInvoice(admin, 'ME-7', addDays(now, 2), addDays(now, 30), NOT_ISSUED_BAL);
+    await insertInvoice(admin, 'ME-7', addDays(now, 2), addDays(now, 30), NOT_ISSUED_BAL, CUSTOMER2);
     await insertInvoice(admin, 'ME-3', addDays(now, -5), addDays(now, 90), FUTURE_BAL);
     await insertBill(admin, 'MEB-1', addDays(now, -100), addDays(now, -10), AP_OVERDUE);
     await insertBill(admin, 'MEB-2', addDays(now, -20), addDays(now, 3), AP_DUE_SOON);
@@ -104,7 +106,9 @@ describeIfDb('month-end Sales card agrees with the shared AR aggregate', () => {
     expect(sales.primary).toBe(`${formatMoney(summary.overdueAmount)} overdue`);
     // OUTSTANDING includes the not-yet-issued invoice the aging drops, so this
     // fails if `total` is read from anywhere but the aggregate.
-    expect(sales.secondary).toBe(`${formatMoney(summary.outstanding)} outstanding · 1 customers`);
+    expect(sales.secondary).toBe(`${formatMoney(summary.outstanding)} outstanding · 2 customers`);
+    // The aging at today sees only CUSTOMER (the invoice dated ahead of today is not in it yet).
+    expect((await getARAging(COMPANY, fmtDate(now))).length).toBe(1);
     expect(summary.outstanding).toBeCloseTo(OUTSTANDING, 2);
     expect(sales.href).toBe('/accounting/debtors-manager');
   });
@@ -134,7 +138,7 @@ describeIfDb('month-end Sales card agrees with the shared AR aggregate', () => {
   });
 
   it('a closed period still reads the aged debtors report at its end date', async () => {
-    // Two months back: its end is about 28-61 days ago, so ME-4 (due 95 days ago) is
+    // Two months back: its end is about 29-62 days ago, so ME-4 (due 95 days ago) is
     // overdue then and ME-1 (due 10 days ago) is not. Today's aggregate says 1 070.
     const back = new Date(now.getFullYear(), now.getMonth() - 2, 1);
     const closed = `${back.getFullYear()}-${String(back.getMonth() + 1).padStart(2, '0')}`;
@@ -160,12 +164,12 @@ async function insertBill(admin: Pool, number: string, invoiceDate: string, dueD
   );
 }
 
-async function insertInvoice(admin: Pool, number: string, invoiceDate: string, dueDate: string, total: number): Promise<string> {
+async function insertInvoice(admin: Pool, number: string, invoiceDate: string, dueDate: string, total: number, customer: string = CUSTOMER): Promise<string> {
   const { rows } = await admin.query(
     `INSERT INTO customer_invoices
        (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by)
      VALUES ($1,$2,$2,$3,$4,$5,'approved',$6,0,$7) RETURNING id`,
-    [COMPANY, CUSTOMER, number, invoiceDate, dueDate, total, COMPANY],
+    [COMPANY, customer, number, invoiceDate, dueDate, total, COMPANY],
   );
   return rows[0].id as string;
 }
