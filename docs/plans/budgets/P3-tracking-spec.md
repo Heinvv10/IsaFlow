@@ -439,5 +439,7 @@ Screenshots: dark and light, 1280 and 390.
 
 ## 10. Open questions for Hein (defaults in bold; the executing session builds the default)
 
+> **Resolved 2026-10-26:** Hein accepted the defaults — see `docs/plans/budgets/00-shared-contract.md` decisions 11–17. Build them; do not re-ask.
+
 - **Q1** The old BvA routes required `withWriteAccess` on a GET. The new route is read-only like the income statement, so **viewer roles can open BvA**. Override?
 - **Q2** The projection cutoff is **the last complete month; the in-progress month uses its budget**. Alternative: the last *closed fiscal period* (period-close status).

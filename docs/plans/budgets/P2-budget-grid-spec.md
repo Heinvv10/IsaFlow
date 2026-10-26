@@ -510,6 +510,8 @@ On dev and then ISAFlow Demo (prod, after an approved after-hours deploy, via th
 
 ## 19. Open questions (non-blocking; defaults in brackets)
 
+> **Resolved 2026-10-26:** Hein accepted the defaults — see `docs/plans/budgets/00-shared-contract.md` decisions 11–17. Build them; do not re-ask.
+
 1. Multi-dimension grain (CC1 × BU on one account): needed in MVP? [No, P2 is single-dimension only]
 2. On wizard seed by dimension, untagged PY actuals: keep those accounts at company level, or drop them? [Prompt per seed, default keep at company level]
 3. "Distribute by PY share" when changing grain: in P2 or later? [P2 if ≤1 day, else P4]
