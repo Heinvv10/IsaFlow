@@ -44,6 +44,8 @@ const LIMIT = 25;
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // The search the rows on screen answer: until it matches the debounced one the rows are stale (no one-frame empty flash).
+  const [loadedQ, setLoadedQ] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -77,6 +79,7 @@ export default function SuppliersPage() {
       setSuppliers([]); setTotal(0);
       setError(apiErrorMessage(err, 'Could not load the suppliers - try again'));
     } finally {
+      setLoadedQ(debouncedSearch);
       setIsLoading(false);
     }
   }, [debouncedSearch, page]);
@@ -143,7 +146,7 @@ export default function SuppliersPage() {
           </div>
 
           {/* Content */}
-          {isLoading ? (
+          {isLoading || loadedQ !== debouncedSearch ? (
             <ListSkeleton label="Loading suppliers" />
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
@@ -152,8 +155,11 @@ export default function SuppliersPage() {
             </div>
           ) : suppliers.length === 0 ? (
             <ListEmpty
-              filtered={!!debouncedSearch}
+              filtered={!!loadedQ}
               onClearFilters={() => setSearch('')}
+              page={page}
+              total={total}
+              onFirstPage={() => setPage(1)}
               firstRun={{
                 icon: Truck,
                 title: 'No suppliers yet',

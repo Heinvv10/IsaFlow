@@ -7,9 +7,8 @@ import { useState, useEffect } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { findDemoMembership } from './demoMembership';
+import { TryDemoLink } from './TryDemoLink';
 
-import { notify } from '@/utils/toast';
-import { apiErrorMessage } from '@/lib/apiFetch';
 const DISMISSED_KEY = 'isaflow_demo_cta_dismissed';
 
 interface DemoCompanyCTAProps {
@@ -19,7 +18,7 @@ interface DemoCompanyCTAProps {
 
 export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
   const [dismissed, setDismissed] = useState(true); // default hidden until we read localStorage
-  const { companies, activeCompany, switchCompany } = useCompany();
+  const { companies, activeCompany } = useCompany();
   const demoCompanyId = findDemoMembership(companies, activeCompany?.id)?.companyId ?? null;
 
   useEffect(() => {
@@ -32,16 +31,6 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
     setDismissed(true);
   };
 
-  const handleTryDemo = async () => {
-    try {
-      if (demoCompanyId) await switchCompany(demoCompanyId);
-    } catch (e) {
-      notify.error(apiErrorMessage(e, 'Could not switch company - try again'));
-      return;   // still on the old company: keep the offer
-    }
-    handleDismiss();
-  };
-
   if (dismissed || !demoCompanyId) return null;
 
   return (
@@ -50,12 +39,7 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
       <p className="flex-1 text-teal-800 dark:text-teal-200">
         {message ?? 'New here? Explore our demo company to see ISAFlow in action.'}
       </p>
-      <button
-        onClick={() => void handleTryDemo()}
-        className="flex-shrink-0 px-3 py-1 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium transition-colors"
-      >
-        Try Demo
-      </button>
+      <TryDemoLink onSwitched={handleDismiss} />
       <button
         onClick={handleDismiss}
         aria-label="Dismiss"

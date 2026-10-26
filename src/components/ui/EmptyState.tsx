@@ -12,10 +12,10 @@
  *   />
  */
 
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/utils/cn';
-import { TryDemoLink } from '@/components/onboarding/TryDemoLink';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,8 +36,8 @@ interface EmptyStateProps {
   secondaryAction?: ActionButton;
   /** What a first run involves, as short steps (rendered as a numbered list). */
   checklist?: string[];
-  /** True first run only: offer "Try the demo company" (needs a CompanyProvider). */
-  demo?: boolean;
+  /** Extra content under the actions (e.g. the demo-company offer). */
+  footer?: ReactNode;
   className?: string;
 }
 
@@ -72,7 +72,7 @@ function ActionLink({ action, primary }: { action: ActionButton; primary: boolea
 // Component
 // ---------------------------------------------------------------------------
 
-// WORKING: presentational; `demo` mounts TryDemoLink, the only part that reads CompanyContext
+// WORKING: Pure presentational component — no state, no context
 export function EmptyState({
   icon: Icon,
   title,
@@ -80,7 +80,7 @@ export function EmptyState({
   primaryAction,
   secondaryAction,
   checklist,
-  demo,
+  footer,
   className,
 }: EmptyStateProps) {
   return (
@@ -118,7 +118,7 @@ export function EmptyState({
           {secondaryAction && <ActionLink action={secondaryAction} primary={false} />}
         </div>
       )}
-      {demo && <div className="mt-4"><TryDemoLink /></div>}
+      {footer && <div className="mt-4">{footer}</div>}
     </div>
   );
 }

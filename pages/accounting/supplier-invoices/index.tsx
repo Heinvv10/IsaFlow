@@ -190,8 +190,8 @@ export default function SupplierInvoicesPage() {
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {isLoading ? (
-              <ListSkeleton label="Loading supplier invoices" />
-            ) : (
+              <ListSkeleton label="Loading supplier invoices" bare />
+            ) : error && invoices.length === 0 ? null : (
               <InvoiceTable
                 invoices={invoices}
                 selected={selected}

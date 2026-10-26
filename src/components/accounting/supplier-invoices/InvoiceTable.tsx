@@ -47,6 +47,9 @@ export function InvoiceTable({
       <ListEmpty
         filtered={filtersActive}
         onClearFilters={onClearFilters}
+        page={page}
+        total={total}
+        onFirstPage={() => onPage(1)}
         firstRun={{
           icon: FileText,
           title: 'No supplier invoices yet',
