@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // The DATA loaders are mocked; the service, the line builder and the sections
-// are real, so the budgeted/unbudgeted split (D5) and totals = net profit (D11)
+// are real, so the budgeted/unbudgeted split (D5) and net profit in sections (D11, decision 19)
 // are proved through the tool rather than restated in a fixture.
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/budgetWindowActuals', () => ({ loadWindowActuals: vi.fn() }));
@@ -52,7 +52,7 @@ interface Env {
   posted_through: string;
   fiscal_year: number;
   months_covered: string[];
-  totals: { budget: number; actual: number; variance: number };
+  totals?: unknown;
   sections: Record<'revenue' | 'expense' | 'net_profit', { budget: number; actual: number; variance: number; movement: number }>;
   unbudgeted_accounts: number;
   unbudgeted_movement: number;
@@ -132,14 +132,15 @@ describe('budget_variance', () => {
     expect(env.posted_through).toBe('2026-05-29T00:00:00.000Z');
   });
 
-  it('serves totals but no rows at detail: summary', async () => {
+  it('serves sections but no rows at detail: summary', async () => {
     const env = json(await budgetVarianceTool.handler(
       { period_start: '2026-03-01', period_end: '2026-05-31', detail: 'summary' }, ctx,
     ));
     expect(env.rows).toHaveLength(0);
     expect(env.rowsTotal).toBe(1);
-    // totals are net profit: an expense-only budget is a planned loss.
-    expect(env.totals.budget).toBe(-30000);
+    // Net profit lives in sections: an expense-only budget is a planned loss.
+    expect(env.sections.net_profit.budget).toBe(-30000);
+    expect(env).not.toHaveProperty('totals');
     expect(env.completenessFault).toBeUndefined();
   });
 
@@ -152,7 +153,7 @@ describe('budget_variance', () => {
     expect(zero).toMatchObject({ budgeted: true, budget_amount: 0, variance: -1200, movement: 1200, variance_pct: null, favourable: false });
   });
 
-  it('totals are net profit; sections carried; rows carry movement and favourable', async () => {
+  it('no totals field: net profit is sections.net_profit; rows carry movement and favourable', async () => {
     ledger([
       { code: '4000', type: 'revenue', actual: 120000 },
       { code: '6000', type: 'expense', actual: 25000 },
@@ -160,7 +161,8 @@ describe('budget_variance', () => {
     ], { '4000': 100000, '6000': 30000 });
     const env = json(await budgetVarianceTool.handler({ period_start: '2026-03-01', period_end: '2026-05-31' }, ctx));
     // NP budget 100 000 − 30 000; actual 120 000 − 25 500; variance = Σ line variance (20 000 + 5 000 − 500).
-    expect(env.totals).toEqual({ budget: 70000, actual: 94500, variance: 24500 });
+    // A field whose meaning changed silently is worse than one that is gone (contract decision 19).
+    expect(env).not.toHaveProperty('totals');
     expect(env.sections.revenue).toMatchObject({ budget: 100000, actual: 120000, variance: 20000, movement: 20000 });
     expect(env.sections.expense).toMatchObject({ budget: 30000, actual: 25500, variance: 4500, movement: -4500 });
     expect(env.sections.net_profit).toMatchObject({ budget: 70000, actual: 94500, variance: 24500, movement: 24500 });
@@ -168,11 +170,13 @@ describe('budget_variance', () => {
     expect(exp).toMatchObject({ variance: 5000, movement: -5000, favourable: true });
   });
 
-  it('description says variance_pct is null where there is no budget, and what totals and movement are', () => {
+  it('description says variance_pct is null where there is no budget, that there is no totals field, and what movement is', () => {
     const d = budgetVarianceTool.description;
     expect(d).toMatch(/variance_pct is null where the budget is zero or absent/);
     expect(d).not.toMatch(/reported as 0 where there is no budget/);
-    expect(d).toMatch(/totals are NET PROFIT/);
+    expect(d).toMatch(/There is no totals field: net profit is sections\.net_profit/);
+    expect(d).not.toMatch(/totals are NET PROFIT/);
+    expect(d).not.toMatch(/returns totals with no rows/);
     expect(d).toMatch(/they do not foot to the rows/);
     expect(d).not.toMatch(/equal to the sum of the row and excluded-row variances/);
     expect(d).toMatch(/movement is actual less budget/);
