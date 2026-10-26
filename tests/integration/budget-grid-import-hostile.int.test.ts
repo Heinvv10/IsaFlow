@@ -8,7 +8,10 @@
  *     is a cell error, not a 500. SEC-M1: errors are capped and echoed text is clipped.
  *   - SEC-L1: every uploaded temp file is removed, whatever field it came in on, and on refusal.
  *     SEC-L3: few, small fields. SEC-L5: refusal logs carry company and user.
- *   - R3: a template past the import's row limit is refused; one at the limit round-trips.
+ *   - Round 2: hostile XML through the route (BRK2-N1/N4, SEC2-L3: deep nesting, a `<c>` with no
+ *     `r`, a DOCTYPE) and a 23 MB styles part (BRK2-N6) are fast 400s with neutral messages;
+ *     15 000 copies of one row (SEC2-M1) are grouped in linear time; Q5: previews are rate limited.
+ *   (R3, the template's row cap, moved to budget-grid-template.int.test.ts with ruling Q1.)
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -18,6 +21,7 @@ import path from 'node:path';
 import templateRoute from '../../pages/api/accounting/budget-grid/template';
 import previewRoute from '../../pages/api/accounting/budget-grid/import-preview';
 import { log } from '@/lib/logger';
+import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
 import { budgetSheet, col, downloadTemplate, editWorkbook, rowOf, setCell, uploadParts, uploadPreview, withParts } from './helpers/budgetImportFixture';
@@ -80,7 +84,38 @@ describe('BRK-H2: one bounded pass', () => {
   });
 });
 
+describe('round 2: hostile XML and styles through the route', () => {
+  const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const sheetXml = (rows: string) => `<?xml version="1.0"?><worksheet ${NS}><sheetData>${rows}</sheetData></worksheet>`;
+  it.each([
+    ['breaker U1: 3M unclosed tags in the Budget sheet', 'xl/worksheets/sheet1.xml', () => sheetXml(`<row r="1">${'<x>'.repeat(3_000_000)}`)],
+    ['breaker U1: <c> without r', 'xl/worksheets/sheet1.xml', () => sheetXml(`<row r="1">${'<c><v>1</v></c>'.repeat(50)}</row>`)],
+    ['breaker U1: a DOCTYPE entity in shared strings', 'xl/sharedStrings.xml', () => `<?xml version="1.0"?><!DOCTYPE l [<!ENTITY a "aaaa">]><sst ${NS}><si><t>&a;</t></si></sst>`],
+    ['BRK2-N6: 23 MB of <font> in styles.xml', 'xl/styles.xml', () => `<?xml version="1.0"?><styleSheet ${NS}><fonts>${'<font><b/><sz val="11"/></font>'.repeat(Math.floor((23 * MB) / 32))}</fonts></styleSheet>`],
+  ])('%s is a fast 400 that echoes no parser text', async (_label, part, xml) => {
+    const bad = await withParts(file, { [part]: xml() });
+    const { ms, out } = await timed(() => preview(bad));
+    expect(out.status, JSON.stringify(out.body).slice(0, 300)).toBe(400);
+    expect(out.body.error?.message).not.toMatch(/\d+:\d+|entity|undefined|properties/);
+    expect(ms).toBeLessThan(5000);
+  }, 120000);
+});
+
 describe('cell and row refusals stay cell and row errors', () => {
+  it('SEC2-M1: 15 000 copies of one row are grouped in linear time; each error names a few other rows', async () => {
+    const n = Math.min(15000, Math.floor(MAX_SAVE_CELLS / 12) - 20); // under the import's row limit
+    const copies = await editWorkbook(file, (wb) => {
+      const ws = budgetSheet(wb);
+      for (let i = 0; i < n; i++) ws.addRow(['Revenue', '4000', 'Sales', i]);
+    });
+    const { ms, out } = await timed(() => preview(copies));
+    expect(out.status).toBe(200);
+    const p = out.body.data as unknown as { errors: Array<{ message: string }>; errorCount: number };
+    expect(p.errorCount).toBeGreaterThanOrEqual(n);
+    expect(Math.max(...p.errors.map((e) => e.message.length))).toBeLessThan(200);
+    expect(ms).toBeLessThan(4000);
+  }, 120000);
+
   it('SEC-L2: a date cell no calendar holds is a cell error, not a 500', async () => {
     const bad = await editWorkbook(file, (wb) => {
       const ws = budgetSheet(wb);
@@ -151,6 +186,16 @@ describe('the upload itself', () => {
     expect((await uploadParts(previewRoute, A.owner, [{ field: 'versionId', value: v }, { file: 'file', content: file }])).status).toBe(200);
   });
 
+  it('Q5: previews are rate limited per member (429)', async () => {
+    const C = await fx.company();
+    const vC = await fx.version(C, { name: 'Rate' });
+    const junk = Buffer.from('PK\x03\x04 not a zip');
+    const statuses: number[] = [];
+    for (let i = 0; i < 61; i++) statuses.push((await uploadPreview(previewRoute, C.owner, vC, junk)).status);
+    expect(statuses.slice(0, 60).every((s) => s === 400)).toBe(true);
+    expect(statuses[60]).toBe(429);
+  }, 120000);
+
   it('SEC-L5: refusal logs name the company and the user', async () => {
     const warn = vi.spyOn(log, 'warn');
     try {
@@ -163,40 +208,4 @@ describe('the upload itself', () => {
       warn.mockRestore();
     }
   });
-});
-
-describe('R3: the template never has more rows than the import reads', () => {
-  let Big: GridCo, vBig: string;
-  beforeAll(async () => {
-    Big = await fx.company();
-    await pool.query(`UPDATE gl_accounts SET is_active = false WHERE company_id = $1 AND id <> $2`, [Big.id, Big.acct.sales]);
-    // GC1 and GC1B are active already: 14 999 more is 15 001 CC1 rows.
-    await pool.query(
-      `INSERT INTO cost_centres (id, company_id, code, name, cc_type, is_active)
-       SELECT gen_random_uuid(), $1, 'M' || lpad(g::text, 5, '0'), 'Member ' || g, 'cc1', true FROM generate_series(1, 14999) g`, [Big.id]);
-    vBig = await fx.version(Big, { name: 'Big' });
-  }, 300000);
-
-  it('refuses a template one row past the limit', async () => {
-    const r = await template(Big, vBig, 'cc1');
-    expect(r.status).toBe(400);
-    expect(r.json?.error?.message).toMatch(/15 ?001 rows.*15 ?000/);
-  }, 120000);
-
-  it('a filled template at the limit round-trips with no change', async () => {
-    await pool.query(`UPDATE cost_centres SET is_active = false WHERE company_id = $1 AND code = 'M00001'`, [Big.id]);
-    await pool.query(
-      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id)
-       SELECT $1, $2, $3, m::date, 123456.78, cc.id
-         FROM cost_centres cc CROSS JOIN generate_series('2026-03-01'::date, '2027-02-01'::date, interval '1 month') m
-        WHERE cc.company_id = $1 AND cc.cc_type = 'cc1' AND cc.is_active`, [Big.id, vBig, Big.acct.sales]);
-    const t = await template(Big, vBig, 'cc1');
-    expect(t.status, JSON.stringify(t.json).slice(0, 300)).toBe(200);
-    const r = await uploadPreview(previewRoute, Big.owner, vBig, t.file!);
-    expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
-    const p = r.body.data as unknown as { changes: unknown[]; errors: unknown[]; counts: { unchanged: number } };
-    expect(p.errors).toEqual([]);
-    expect(p.changes).toEqual([]);
-    expect(p.counts.unchanged).toBe(15000 * 12);
-  }, 600000);
 });

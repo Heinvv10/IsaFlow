@@ -1,7 +1,8 @@
 /**
  * normaliseXlsx / normaliseXlsxSheets against hostile workbooks (budgets P2 PR-B round 1):
- *   - SEC-H1: workbook.xml and its rels are size-capped before any regex reads them, and the tag
- *     and attribute regexes are bounded, so a run of unclosed `<sheet ` tags costs linear time;
+ *   - SEC-H1: workbook.xml's <sheets> list is size-capped before any regex reads it (round 2:
+ *     only that list, SEC2-L1), the rels are scanned element by element, and the tag and attribute
+ *     regexes are bounded, so a run of unclosed `<sheet ` or `<Relationship ` tags costs linear time;
  *   - BRK-H2: shared strings are capped on their own (inflated bytes and entry count), and several
  *     sheets come out of ONE pass (one shared-strings part, one budget);
  *   - QA-6: a corrupt zip (or a corrupt entry) that starts with PK is malformed (a 400), not a crash;
@@ -57,7 +58,7 @@ describe('SEC-H1: no regex backtracking on workbook.xml or its rels', () => {
     }
   }, 60000);
 
-  it('refuses a ~1 MB rels part of unclosed <Relationship tags fast', async () => {
+  it('refuses a ~1 MB rels part of unclosed <Relationship tags fast (read element by element, then malformed)', async () => {
     const rels = `<Relationships>${'<Relationship '.repeat(Math.ceil(MB / 14))}`;
     const bomb = await replaced(await threeSheets(), { 'xl/_rels/workbook.xml.rels': rels });
     const { ms, err } = await timed(() => normaliseXlsxSheets(bomb, ['_meta'], { maxBytes: 8 * MB }));
@@ -65,9 +66,9 @@ describe('SEC-H1: no regex backtracking on workbook.xml or its rels', () => {
     expect(ms).toBeLessThan(FAST_MS);
   }, 60000);
 
-  it('reads a just-under-cap workbook.xml of unclosed tags, or of tags full of attribute-name runs, in linear time', async () => {
-    const runs = `<workbook><sheets>${`<sheet ${'a'.repeat(2030)}>`.repeat(120)}`;
-    for (const xml of [unclosed('sheet', 250 * 1024), `<workbook><sheets><sheet ${'a'.repeat(200 * 1024)}`, runs]) {
+  it('reads a just-under-cap <sheets> list of unclosed tags, or of tags full of attribute-name runs, in linear time', async () => {
+    const runs = `<workbook><sheets>${`<sheet ${'a'.repeat(2030)}/>`.repeat(28)}</sheets></workbook>`;
+    for (const xml of [`${unclosed('sheet', 60 * 1024)}</sheets>`, `<workbook><sheets><sheet ${'a'.repeat(60 * 1024)}</sheets>`, runs]) {
       const crafted = await replaced(await threeSheets(), { 'xl/workbook.xml': xml });
       const first = await timed(() => normaliseXlsx(crafted, 8 * MB));
       expect(first.ms).toBeLessThan(FAST_MS);

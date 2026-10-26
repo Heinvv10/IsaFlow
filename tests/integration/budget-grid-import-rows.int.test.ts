@@ -4,6 +4,9 @@
  *   - SEC-L4: text that starts with = + - @ is written neutralised (a leading apostrophe), and codes
  *     written that way still match on import.
  *   - BRK low: an account or member code with trailing spaces round-trips (codes compare trimmed).
+ *   - VER-L6: codes that differ only by whitespace ("4000" and "4000 ") match exactly first, and
+ *     trimmed only when the trimmed form is unique, so neither breaks the file.
+ *   - SEC2-L2: a parser reason that echoes the cell is clipped.
  *   - QA-6: new amounts on a header or inactive account, a formula with no saved result, an
  *     ambiguous "1,234", a blank account code with amounts are row/cell errors; a month column
  *     twice refuses the file.
@@ -30,7 +33,8 @@ let A: GridCo, v: string;
 const ids: Record<string, string> = {};
 
 async function template(grain = 'company'): Promise<Buffer> {
-  const r = await downloadTemplate(templateRoute, A.owner, { version_id: v, grain });
+  // CC1 rows: the members the tests budget (a dimension template offers held or PY-active members by default, Q1).
+  const r = await downloadTemplate(templateRoute, A.owner, { version_id: v, grain, ...(grain === 'cc1' ? { members: `${ids.cc},${A.cc1},${ids.cc1Spaced}` } : {}) });
   expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
   return r.file!;
 }
@@ -52,9 +56,14 @@ beforeAll(async () => {
   await account('=1+2', '@SUM(1)');
   await account('7100', '=HYPERLINK("http://evil.example","x")');
   await account('7000 ', 'Spaced');
+  await account('4000 ', 'Sales, spaced twin'); // the fixture's Sales is '4000'
+  await account("'7300", 'Apostrophe code'); // breaker J3: a code that starts with the neutralising apostrophe
+  await account("''7600", 'Two apostrophes');
   ids.cc = crypto.randomUUID();
+  ids.cc1Spaced = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO cost_centres (id, company_id, code, name, cc_type, is_active) VALUES ($1, $2, '+GC9 ', '-Branch', 'cc1', true)`, [ids.cc, A.id]);
+    `INSERT INTO cost_centres (id, company_id, code, name, cc_type, is_active)
+     VALUES ($1, $3, '+GC9 ', '-Branch', 'cc1', true), ($2, $3, 'GC1 ', 'Cape Town, spaced twin', 'cc1', true)`, [ids.cc, ids.cc1Spaced, A.id]);
   v = await fx.version(A, { name: 'Rows' });
 }, 120000);
 
@@ -88,14 +97,48 @@ describe('codes and text in the template', () => {
     expect(p.errors).toEqual([]);
     const tail = grain === 'cc1' ? `|${ids.cc}||` : '|||';
     expect(p.changes).toEqual(expect.arrayContaining([
-      { key: `${ids['=1+2']}${tail}|2026-03`, before: null, after: 5 },
-      { key: `${ids['7000 ']}${tail}|2026-04`, before: null, after: 6 },
+      expect.objectContaining({ key: `${ids['=1+2']}${tail}|2026-03`, before: null, after: 5 }),
+      expect.objectContaining({ key: `${ids['7000 ']}${tail}|2026-04`, before: null, after: 6 }),
     ]));
     expect(p.changes).toHaveLength(2);
   });
 });
 
+describe('VER-L6: codes that differ only by whitespace', () => {
+  it.each(['company', 'cc1'])('round-trip at %s grain, and each twin\'s edit lands on its own row', async (grain) => {
+    const file = await template(grain);
+    expect((await ok(file)).errors).toEqual([]);
+    const cc1 = grain === 'cc1';
+    const p = await ok(await editWorkbook(file, (wb) => {
+      setCell(budgetSheet(wb), '4000', '2026-03', 1, cc1 ? 'GC1' : undefined);
+      setCell(budgetSheet(wb), '4000 ', '2026-03', 2, cc1 ? 'GC1 ' : undefined);
+    }));
+    expect(p.errors).toEqual([]);
+    expect(p.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: `${A.acct.sales}|${cc1 ? A.cc1 : ''}|||2026-03`, after: 1 }),
+      expect.objectContaining({ key: `${ids['4000 ']}|${cc1 ? ids.cc1Spaced : ''}|||2026-03`, after: 2 }),
+    ]));
+    expect(p.changes).toHaveLength(2);
+  });
+
+  it('a trimmed code still matches when only one code trims to it', async () => {
+    const p = await ok(await editWorkbook(await template(), (wb) => {
+      const ws = budgetSheet(wb);
+      setCell(ws, '7000 ', 'Account code', '7000');
+      setCell(ws, '7000', '2026-05', 4);
+    }));
+    expect(p.errors).toEqual([]);
+    expect(p.changes.map((c) => c.key)).toEqual([`${ids['7000 ']}||||2026-05`]);
+  });
+});
+
 describe('QA-6: row and cell errors', () => {
+  it('SEC2-L2: a refused text amount is echoed clipped, reason included', async () => {
+    const p = await ok(await editWorkbook(await template(), (wb) => { setCell(budgetSheet(wb), '5000', '2026-04', `${'1.'.repeat(1500)}5`); })); // the parser's own reason quotes the cell
+    expect(p.errors).toHaveLength(1);
+    expect(p.errors[0]!.message.length).toBeLessThan(200);
+  });
+
   it('new amounts on a header or an inactive account that hold none are row errors', async () => {
     const p = await ok(await editWorkbook(await template(), (wb) => {
       budgetSheet(wb).addRow(['Expenses', '6100', 'Premises', 5]);

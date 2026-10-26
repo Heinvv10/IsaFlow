@@ -1,32 +1,47 @@
 /**
  * Budget grid Excel template (budgets P2, spec §9.1)
- * GET ?version_id=<uuid>&grain=company|cc1|cc2|bu → .xlsx download
+ * GET ?version_id=<uuid>&grain=company|cc1|cc2|bu[&members=<uuid>,<uuid>,…] → .xlsx download
+ * At a dimension grain the rows are the named members' (each the company's member of that kind),
+ * else those of members holding amounts at that grain in the version or with prior-year activity.
  * Sheet `Budget` (text YYYY-MM month headers; blank = not budgeted, 0 = budgeted zero), hidden
  * `_meta` tying the file to the version, year and grain, hidden `_base` (the amounts as
- * downloaded, which the import diffs against), and `Instructions`. Upload it back through
- * POST budget-grid/import-preview. A template of more rows than the import reads (accounts x
- * members past MAX_TEMPLATE_ROWS) is a 400. Another tenant's version id is a 404. Any member may
- * download.
+ * downloaded, which the import diffs against, signed in `_meta`), and `Instructions`. Upload it
+ * back through POST budget-grid/import-preview. A template of more rows than one save holds
+ * (templateRowCap) is a 400 asking for fewer members. Another tenant's version id is a 404. Any
+ * member may download; each member at most TEMPLATE_RATE downloads per 15 minutes (429).
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { isUuidParam } from '@/lib/validation';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { loadBudgetTemplate, TEMPLATE_GRAINS, type TemplateGrain } from '@/modules/accounting/services/budgets/budgetTemplateXlsx';
 
+const TEMPLATE_RATE = 60;
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   const { companyId } = req as CompanyAuthedRequest;
-  const { version_id: versionId, grain: grainRaw } = req.query;
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
+  const { version_id: versionId, grain: grainRaw, members: membersRaw } = req.query;
   if (!isUuidParam(versionId)) return apiResponse.badRequest(res, 'version_id must be a version id');
   const grain = (grainRaw === undefined || grainRaw === '' ? 'company' : grainRaw) as TemplateGrain;
   if (!TEMPLATE_GRAINS.includes(grain)) return apiResponse.badRequest(res, `grain must be one of ${TEMPLATE_GRAINS.join(', ')}`);
+  let members: string[] | undefined;
+  if (membersRaw !== undefined) {
+    if (typeof membersRaw !== 'string') return apiResponse.badRequest(res, 'members must be one comma-separated list of member ids');
+    members = membersRaw.split(',').map((m) => m.trim()).filter((m) => m !== '');
+    if (members.length === 0 || !members.every((m) => isUuidParam(m))) return apiResponse.badRequest(res, 'members must be a comma-separated list of member ids');
+  }
+  if (!(await checkRateLimit(`budget-template:${companyId}:${userId}`, { max: TEMPLATE_RATE, windowSecs: 900 }))) {
+    return apiResponse.tooManyRequests(res, 'Too many template downloads — wait a few minutes and try again.');
+  }
 
   try {
-    const { file, fileName } = await loadBudgetTemplate(companyId, versionId, grain);
+    const { file, fileName } = await loadBudgetTemplate(companyId, versionId, grain, members);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Length', file.byteLength);

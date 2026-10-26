@@ -16,11 +16,11 @@ import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { isHeaderSql } from '../core/budgetAccount';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { getFiscalYear } from '../gl/fiscalYearRegistry';
-import { budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
+import { budgetMonthKeysInWindow } from '../reports/budgetPeriodWindow';
 import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { BudgetVersionError, mapBudgetDbError, type BudgetVersionStatus } from './budgetVersionTypes';
-import { toCents } from './grid/cents';
 import { inputError, tokenSql } from './gridErrors';
+import { deleteCells, versionSum, writeCells } from './gridSaveWrite';
 import { accountWithTwoGrains, assertMonthsInYear, validateBatch, type SaveCell, type ValidatedBatch } from './gridSaveValidate';
 
 export { MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
@@ -73,7 +73,7 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
   const sumBefore = await versionSum(companyId, versionId);
   const deleted = await deleteCells(companyId, versionId, batch.deletes);
   await assertOneGrain(companyId, versionId, batch.upserts, labels);
-  await upsertCells(companyId, versionId, userId, batch.upserts);
+  await writeCells(companyId, versionId, userId, batch.upserts);
   const sumAfter = await versionSum(companyId, versionId);
 
   await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {
@@ -167,32 +167,6 @@ async function checkDimensions(companyId: string, cells: SaveCell[]): Promise<vo
 const grainClash = (label: string) => new BudgetVersionError('BUDGET_GRAIN_CONFLICT',
   `Account ${label} is budgeted at one level per version (company level or one dimension): clear its other cells in the same save to change its level`);
 
-async function versionSum(companyId: string, versionId: string): Promise<string> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(amount), 0.00)::text AS s FROM budget_month_amounts
-     WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
-  `) as DbRow[];
-  return String(rows[0]?.s ?? '0.00');
-}
-
-async function deleteCells(companyId: string, versionId: string, cells: SaveCell[]): Promise<number> {
-  if (cells.length === 0) return 0;
-  const rows = (await sql`
-    WITH gone AS (
-      DELETE FROM budget_month_amounts bm
-       USING unnest(${cells.map((c) => c.glAccountId)}::UUID[], ${cells.map((c) => c.cc1Id)}::UUID[],
-                    ${cells.map((c) => c.cc2Id)}::UUID[], ${cells.map((c) => c.buId)}::UUID[],
-                    ${cells.map((c) => monthKeyToDate(c.month))}::DATE[]) AS t(a, c1, c2, b, m)
-       WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID
-         AND bm.gl_account_id = t.a AND bm.month = t.m
-         AND bm.cc1_id IS NOT DISTINCT FROM t.c1 AND bm.cc2_id IS NOT DISTINCT FROM t.c2 AND bm.bu_id IS NOT DISTINCT FROM t.b
-      RETURNING 1
-    )
-    SELECT COUNT(*)::int AS n FROM gone
-  `) as DbRow[];
-  return Number(rows[0]?.n ?? 0);
-}
-
 /**
  * After the deletes: an upserted account that still has cells at another grain in the version is
  * a typed 400 naming it (the exclusion constraint stays as the backstop, mapped the same way).
@@ -209,19 +183,4 @@ async function assertOneGrain(
      LIMIT 1
   `) as DbRow[];
   if (clash[0]) throw grainClash(labels.get(String(clash[0].id)) ?? String(clash[0].id));
-}
-
-async function upsertCells(companyId: string, versionId: string, userId: string, cells: ValidatedBatch['upserts']): Promise<void> {
-  if (cells.length === 0) return;
-  // Whole cents travel as integers and are divided in NUMERIC, so no float reaches the column.
-  await sql`
-    INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, cc1_id, cc2_id, bu_id, month, amount, created_by)
-    SELECT ${companyId}::UUID, ${versionId}::UUID, t.a, t.c1, t.c2, t.b, t.m, t.cents::NUMERIC / 100, ${userId}
-      FROM unnest(${cells.map((c) => c.glAccountId)}::UUID[], ${cells.map((c) => c.cc1Id)}::UUID[],
-                  ${cells.map((c) => c.cc2Id)}::UUID[], ${cells.map((c) => c.buId)}::UUID[],
-                  ${cells.map((c) => monthKeyToDate(c.month))}::DATE[], ${cells.map((c) => toCents(c.amount))}::BIGINT[])
-           AS t(a, c1, c2, b, m, cents)
-    ON CONFLICT ON CONSTRAINT budget_month_amounts_one_per_cell
-    DO UPDATE SET amount = EXCLUDED.amount, updated_at = now()
-  `;
 }

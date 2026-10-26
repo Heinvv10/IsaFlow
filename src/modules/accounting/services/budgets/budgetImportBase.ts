@@ -5,8 +5,9 @@
  * moved on since (no silent revert of a colleague's save). A cell the user changed that also
  * changed in the version is a CONFLICT: listed, and still applied as the user's value (PR-A
  * `rebaseDirty`'s rule). A row in the file with no `_base` row (added by the user) is diffed
- * against blank. `_base` is machine-written: anything that does not read back exactly is refused
- * 400 "re-download".
+ * against blank. `_base` is machine-written and signed (budgetTemplateSignature): anything that
+ * does not read back exactly is refused 400, asking for a fresh template (never for old values to
+ * be re-entered, Q3a).
  */
 import { MAX_CENTS } from './grid/cents';
 import type { CellKey } from './grid/cellKey';
@@ -15,35 +16,30 @@ import { inputError } from './gridErrors';
 import { COLUMN, type TemplateGrain } from './budgetTemplateXlsx';
 import { codeOf, textOf, type SheetRow } from './budgetImportParse';
 
-/** `_base` rows by line key: each year month's downloaded cents, null where not budgeted. */
-export type BaseRows = Map<string, Array<number | null>>;
-
-/** A file row's identity in `_base`: its account code and, at a dimension grain, its member code. */
-export const lineKey = (accountCode: string, dimensionCode: string | null): string => `${accountCode}\u0000${dimensionCode ?? ''}`;
+/** One `_base` row: its codes as written (the apostrophe removed) and each year month's downloaded cents, null where not budgeted. */
+export interface BaseLine { accountCode: string; dimensionCode: string | null; cents: Array<number | null> }
 
 export const tampered = (): never => {
-  throw inputError('This template\'s hidden _base sheet is missing or was changed, so IsaFlow cannot tell what you edited. Re-download the template and enter your amounts in that.');
+  throw inputError('This template\'s hidden _base or _meta sheet was changed, so IsaFlow cannot tell what you edited. Download a fresh template and make your changes in it.');
 };
 
 /** The `_base` sheet: a header of exactly the template's code columns and year months, then integer-cent rows. */
-export function parseBase(rows: readonly SheetRow[], months: readonly string[], grain: TemplateGrain): BaseRows {
+export function parseBase(rows: readonly SheetRow[], months: readonly string[], grain: TemplateGrain): BaseLine[] {
   const [header, ...data] = rows;
   const codes = grain === 'company' ? [COLUMN.accountCode] : [COLUMN.accountCode, COLUMN.dimensionCode];
   const expected = [...codes, ...months];
   const texts = (header?.cells ?? []).map(textOf);
   if (expected.some((t, i) => texts[i] !== t) || texts.slice(expected.length).some((t) => t !== '')) return tampered();
-  const out: BaseRows = new Map();
+  const out: BaseLine[] = [];
   for (const r of data) {
     const accountCode = codeOf(r.cells[0]);
     const dimensionCode = grain === 'company' ? null : codeOf(r.cells[1]);
-    if (accountCode === '' || dimensionCode === '' || r.cells.slice(expected.length).some((c) => c !== null)) return tampered();
-    const key = lineKey(accountCode, dimensionCode);
-    if (out.has(key)) return tampered();
-    out.set(key, months.map((_, i) => {
+    if (accountCode.trim() === '' || dimensionCode?.trim() === '' || r.cells.slice(expected.length).some((c) => c !== null)) return tampered();
+    out.push({ accountCode, dimensionCode, cents: months.map((_, i) => {
       const c = r.cells[codes.length + i];
       if (c === null || c === undefined) return null;
       return typeof c === 'number' && Number.isSafeInteger(c) && Math.abs(c) <= MAX_CENTS ? c : tampered();
-    }));
+    }) });
   }
   return out;
 }

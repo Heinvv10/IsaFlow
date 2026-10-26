@@ -7,6 +7,7 @@
  * version, a month outside its year, a grain clash), 404 for another company's version, 409
  * BUDGET_VERSION_LOCKED / BUDGET_VERSION_STALE (with `currentUpdatedAt` and `status`). Every
  * refusal leaves the version, its amounts and its token as they were. The Excel import commits here.
+ * The body is read after authentication, at most 24 MB (413 above it); at most MAX_SAVE_CELLS cells.
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -18,9 +19,14 @@ import { UUID } from '@/lib/schemas/common';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { BudgetVersionStaleError, MAX_SAVE_CELLS, saveCells } from '@/modules/accounting/services/budgets/gridSave';
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
+import { JsonBodyError, readJsonBody } from '@/lib/readJsonBody';
 
-// MAX_SAVE_CELLS cells at ~150 bytes of JSON each: 200 000 cells is about 30 MB.
-export const config = { api: { bodyParser: { sizeLimit: '32mb' } } };
+// The handler reads the body itself, after the auth wrappers: Next's parser would buffer and parse
+// it before withAuth, and withErrorHandler would log it (round-2 SEC2-M2, M3).
+export const config = { api: { bodyParser: false } };
+
+/** MAX_SAVE_CELLS (100 000) cells of compact JSON are at most ~17 MB (172 bytes for the widest cell). */
+const MAX_BODY_BYTES = 24 * 1048576;
 
 const SaveSchema = z.object({
   versionId: UUID,
@@ -40,7 +46,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  const parsed = SaveSchema.safeParse(req.body);
+  let body: unknown;
+  try {
+    body = await readJsonBody(req, MAX_BODY_BYTES);
+  } catch (err) {
+    if (!(err instanceof JsonBodyError)) throw err;
+    return apiResponse.error(res, err.status === 413 ? ErrorCode.PAYLOAD_TOO_LARGE : ErrorCode.BAD_REQUEST, err.message);
+  }
+  const parsed = SaveSchema.safeParse(body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   try {
     return apiResponse.success(res, await saveCells(companyId, userId, parsed.data));

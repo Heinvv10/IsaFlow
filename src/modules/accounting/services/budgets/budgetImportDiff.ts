@@ -7,16 +7,20 @@
  * made between preview and commit is a 409 there and the user re-runs the preview.
  *
  * The upload is read (bounded) before the read model loads. Refused whole (400): another version's
- * or year's file, an altered `_meta`, a missing or altered `_base`, month headers that are not the
- * year's months. Per row: an unknown account or member code, an account budgeted at
+ * or year's file, an altered `_meta`, an altered or forged `_base` (its signature, Q4), month
+ * headers that are not the year's months. A file with NO `_base` (Q3b) is diffed against the
+ * version as it is now, every change flagged `possibleRevert`, with a warning. Every change
+ * carries `currentChangedAt`, when the cell it replaces was last written (Q3c). Per row: an unknown account or member code, an account budgeted at
  * another grain in this version (decision 4), a row key twice (both copies), a cell that is not an
  * amount, and new amounts on a header or inactive account that holds none (save refuses those,
  * decision 18) are ERRORS and the row is left out; a header or inactive account that already holds
  * amounts is a WARNING, as is a version saved since the download. Rows absent from the file are
- * untouched; a blank cell clears; 0 is a budgeted zero. Codes compare trimmed. At most MAX_ISSUES
+ * untouched; a blank cell clears; 0 is a budgeted zero. Codes match as budgetImportResolve says. At most MAX_ISSUES
  * errors and warnings are listed (`errorCount` / `warningCount` count them all), and upload text
  * echoed in a message is clipped. Amounts on the wire are rand, as the read model's.
  */
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { fromCents } from './grid/cents';
 import { parseKey, type CellKey } from './grid/cellKey';
 import type { DiffCounts } from './grid/diff';
@@ -24,27 +28,33 @@ import type { BandTotals } from './grid/subtotals';
 import { inputError } from './gridErrors';
 import { loadGridReadModel } from './gridReadModel';
 import { bandTotals, ownMonths } from './gridTotals';
-import { cellsInCents, COLUMN, GRAIN_LABEL, templateRowKey, type TemplateGrain } from './budgetTemplateXlsx';
-import { clip, parseLayout, parseLines, parseMeta, readBudgetWorkbook, type BudgetWorkbook, type ImportLine } from './budgetImportParse';
-import { lineKey, parseBase, tampered, threeWay } from './budgetImportBase';
-import type { GridAccount, GridMember, GridReadModel } from './gridReadTypes';
+import { cellsInCents } from './budgetTemplateXlsx';
+import { baseDigest, signatureMatches } from './budgetTemplateSignature';
+import { parseLayout, parseLines, parseMeta, readBudgetWorkbook, type BudgetWorkbook } from './budgetImportParse';
+import { parseBase, tampered, threeWay } from './budgetImportBase';
+import { baseByRowKey, resolveLines, type ImportIssue } from './budgetImportResolve';
+import type { GridReadModel } from './gridReadTypes';
 import type { SaveCell } from './gridSaveValidate';
+
+export type { ImportIssue } from './budgetImportResolve';
 
 /** Errors and warnings listed in one preview; the counts say how many there were. */
 export const MAX_ISSUES = 200;
 
-export interface ImportIssue {
-  /** The sheet row (1-based); 0 for the file as a whole. */
-  row: number;
-  /** The column's header text ('Account code', 'Dimension code', '2026-03', ...). */
-  column: string;
-  message: string;
+export interface ImportChange {
+  key: CellKey;
+  before: number | null;
+  after: number | null;
+  /** The file has no `_base`, so this change may undo someone else's later save (Q3b). */
+  possibleRevert: boolean;
+  /** When the cell this replaces was last written (UTC ISO, microseconds); null for a new cell. */
+  currentChangedAt: string | null;
 }
 
 export interface ImportPreview {
   /** The version's token at preview: commit sends it as `expectedUpdatedAt`. */
   updatedAt: string;
-  changes: Array<{ key: CellKey; before: number | null; after: number | null }>;
+  changes: ImportChange[];
   /** The changed cells in the save route's shape (`amount: null` clears). */
   cells: SaveCell[];
   counts: DiffCounts;
@@ -64,91 +74,38 @@ export interface ImportPreview {
 const refuse = (message: string): never => { throw inputError(message); };
 const rand = (cents: number | null): number | null => (cents === null ? null : fromCents(cents));
 
-interface Resolved { line: ImportLine; account: GridAccount; rowKey: string }
+const NO_BASE = 'This file has no record of what you downloaded; every difference is shown as a change, including values others saved since — check each one before you commit.';
 
-/** Each line's account and member, or the issues that leave it out. */
-function resolveLines(model: GridReadModel, grain: TemplateGrain, lines: readonly ImportLine[], cents: ReadonlyMap<CellKey, number>) {
-  const errors: ImportIssue[] = [];
-  const warnings: ImportIssue[] = [];
-  const byCode = new Map<string, GridAccount | null>();
-  for (const a of model.accounts) byCode.set(a.code.trim(), byCode.has(a.code.trim()) ? null : a);
-  const members = new Map<string, GridMember>((grain === 'company' ? [] : model.dimensions[grain]).map((m) => [m.code.trim(), m]));
-  const holds = new Set([...cents.keys()].map((k) => k.slice(0, k.indexOf('|'))));
-  const resolved: Resolved[] = [];
-
-  for (const line of lines) {
-    const error = (column: string, message: string) => errors.push({ row: line.row, column, message });
-    const account = byCode.get(line.accountCode);
-    if (line.accountCode === '') { error(COLUMN.accountCode, 'This row has amounts but no account code.'); continue; }
-    if (account === null) { error(COLUMN.accountCode, `Account code ${clip(line.accountCode)} is used by more than one account; fix the chart of accounts first.`); continue; }
-    if (account === undefined) {
-      error(COLUMN.accountCode, `Account code ${clip(line.accountCode)} is not a revenue or expense account you can budget (unknown, or inactive without a budget).`);
-      continue;
-    }
-    if (account.grain !== null && account.grain !== grain) {
-      const held = account.grain;
-      error(COLUMN.accountCode, held === 'mixed'
-        ? `${account.code} ${account.name} is budgeted at more than one level in this version; change it in the budget grid.`
-        : `${account.code} ${account.name} is budgeted by ${GRAIN_LABEL[held]} in this version, not by ${GRAIN_LABEL[grain]}: download the ${GRAIN_LABEL[held]} template to change it.`);
-      continue;
-    }
-    let memberId: string | null = null;
-    if (grain !== 'company') {
-      const member = members.get(line.dimensionCode ?? '');
-      if (!member) { error(COLUMN.dimensionCode, `${GRAIN_LABEL[grain]} code ${clip(line.dimensionCode || '(blank)')} is not one of this company's ${GRAIN_LABEL[grain]} members.`); continue; }
-      memberId = member.id;
-    }
-    const bad = line.amounts.filter((a) => a.cell.kind === 'error');
-    for (const a of bad) if (a.cell.kind === 'error') error(a.month, a.cell.raw === '' ? a.cell.reason : `"${clip(a.cell.raw)}": ${a.cell.reason}`);
-    if (bad.length > 0) continue;
-    const kind = account.isHeader ? 'a header account' : !account.isActive ? 'inactive' : null;
-    if (kind && !holds.has(account.id)) {
-      if (line.amounts.some((a) => a.cell.kind === 'value')) {
-        error(COLUMN.accountCode, `${account.code} ${account.name} is ${kind} with no budget in this version; a new budget there is refused. Budget a sub-account or an active account instead.`);
-        continue;
-      }
-    } else if (kind) {
-      warnings.push({ row: line.row, column: COLUMN.accountCode, message: `${account.code} ${account.name} is ${kind}; it keeps the budget it already holds.` });
-    }
-    resolved.push({ line, account, rowKey: templateRowKey(account.id, grain, memberId) });
-  }
-
-  // A row key twice: neither copy is known to be the one meant, so both are left out.
-  const rowsOf = new Map<string, number[]>();
-  for (const r of resolved) rowsOf.set(r.rowKey, [...(rowsOf.get(r.rowKey) ?? []), r.line.row]);
-  const unique = resolved.filter((r) => {
-    const at = rowsOf.get(r.rowKey)!;
-    if (at.length === 1) return true;
-    const others = at.filter((n) => n !== r.line.row).join(', ');
-    errors.push({ row: r.line.row, column: COLUMN.accountCode, message: `${r.account.code}${r.line.dimensionCode ? ` / ${clip(r.line.dimensionCode)}` : ''} appears more than once (also on row ${clip(others)}).` });
-    return false;
-  });
-  errors.sort((a, b) => a.row - b.row);
-  return { rows: unique, errors, warnings };
-}
-
-/** The preview of `wb` against the version `versionId` as `model` holds it now. Pure. */
+/** The preview of `wb` against the version `versionId` as `model` holds it now. Pure (`currentChangedAt` is null here). */
 export function previewImport(model: GridReadModel, versionId: string, wb: BudgetWorkbook): ImportPreview {
   if (!model.version || model.updatedAt === null) return refuse('Budget version not found');
   const meta = parseMeta(wb.meta);
   if (meta.versionId !== versionId.toLowerCase()) {
-    return refuse('This file was downloaded for another budget version. Pick that version or re-download the template for this one.');
+    return refuse('This file was downloaded for another budget version. Pick that version, or download a fresh template for this one and make your changes in it.');
   }
   if (meta.fiscalYear !== model.year.fiscalYear) {
-    return refuse(`This file is for financial year ${meta.fiscalYear}, but this version is for ${model.year.fiscalYear}. Re-download the template.`);
+    return refuse(`This file is for financial year ${meta.fiscalYear}, but this version is for ${model.year.fiscalYear}. Download a fresh template and make your changes in it.`);
   }
   const months = model.year.monthKeys;
   const [header, ...data] = wb.budget;
   const layout = parseLayout(header, months, meta.grain);
-  const base = parseBase(wb.base, months, meta.grain);
   const current = cellsInCents(model);
+  let base: Map<string, ReadonlyArray<number | null>> | null = null;
+  if (wb.base) {
+    const lines = parseBase(wb.base, months, meta.grain);
+    if (!signatureMatches(meta, baseDigest(wb.base.map((r) => r.cells)), meta.signature)) return tampered();
+    base = baseByRowKey(model, meta.grain, lines);
+  }
   const { rows, errors, warnings } = resolveLines(model, meta.grain, parseLines(data, layout), current);
   const diff = threeWay(rows.map((r) => ({
     rowKey: r.rowKey,
-    base: base.get(lineKey(r.line.accountCode, r.line.dimensionCode)) ?? null,
+    // No _base: the version now stands in for what was downloaded, so every difference is a change.
+    base: base ? base.get(r.rowKey) ?? null : months.map((m) => current.get(`${r.rowKey}|${m}`) ?? null),
     file: r.line.amounts.map((a) => (a.cell.kind === 'value' ? a.cell.cents : null)),
   })), months, current);
-  if (meta.updatedAt === model.updatedAt) {
+  if (!base) {
+    warnings.unshift({ row: 0, column: '', message: NO_BASE });
+  } else if (meta.updatedAt === model.updatedAt) {
     if (diff.moved > 0) return tampered(); // nothing was saved since the download, so _base must be the version
   } else {
     const n = diff.moved, k = diff.conflicts.length;
@@ -162,7 +119,7 @@ export function previewImport(model: GridReadModel, versionId: string, wb: Budge
   for (const c of diff.changes) after.set(c.key, c.after);
   return {
     updatedAt: model.updatedAt,
-    changes: diff.changes.map((c) => ({ key: c.key, before: rand(c.before), after: rand(c.after) })),
+    changes: diff.changes.map((c) => ({ key: c.key, before: rand(c.before), after: rand(c.after), possibleRevert: !base, currentChangedAt: null })),
     cells: diff.changes.map((c) => ({ ...parseKey(c.key), amount: rand(c.after) })),
     counts: diff.counts,
     conflicts: diff.conflicts.map((c) => ({ key: c.key, downloaded: rand(c.downloaded), current: rand(c.current), after: rand(c.after) })),
@@ -172,8 +129,26 @@ export function previewImport(model: GridReadModel, versionId: string, wb: Budge
   };
 }
 
+/** When each changed cell that exists now was last written (Q3c), read for the changed accounts only. */
+async function changedAt(companyId: string, versionId: string, changes: readonly ImportChange[]): Promise<Map<CellKey, string>> {
+  const replaced = changes.filter((c) => c.before !== null);
+  if (replaced.length === 0) return new Map();
+  const accounts = [...new Set(replaced.map((c) => c.key.slice(0, c.key.indexOf('|'))))];
+  const rows = (await sql`
+    SELECT bm.gl_account_id, bm.cc1_id, bm.cc2_id, bm.bu_id, to_char(bm.month, 'YYYY-MM') AS month,
+           to_char(bm.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS changed_at
+      FROM budget_month_amounts bm
+     WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID
+       AND bm.gl_account_id IN (SELECT unnest(${accounts}::UUID[]))
+  `) as DbRow[];
+  const id = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+  return new Map(rows.map((r) => [`${id(r.gl_account_id)}|${id(r.cc1_id)}|${id(r.cc2_id)}|${id(r.bu_id)}|${String(r.month)}`, String(r.changed_at)]));
+}
+
 /** Read the upload (bounded, before any database read), then preview it against the company's version (another tenant's: BUDGET_VERSION_NOT_FOUND). */
 export async function buildImportPreview(companyId: string, versionId: string, file: Buffer): Promise<ImportPreview> {
   const wb = await readBudgetWorkbook(file);
-  return previewImport(await loadGridReadModel(companyId, { versionId }), versionId, wb);
+  const preview = previewImport(await loadGridReadModel(companyId, { versionId }), versionId, wb);
+  const at = await changedAt(companyId, versionId, preview.changes);
+  return { ...preview, changes: preview.changes.map((c) => ({ ...c, currentChangedAt: at.get(c.key) ?? null })) };
 }

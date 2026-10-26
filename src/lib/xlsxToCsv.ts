@@ -14,11 +14,12 @@
  * non-increasing ones are refused), columns are capped per row, and the CSV
  * being written has a byte budget, so one long shared string repeated in every
  * cell cannot multiply into gigabytes. Each limit refuses with a
- * SpreadsheetRefusedError, whose message is for the client.
+ * SpreadsheetRefusedError, whose message is for the client; so does anything
+ * the parser itself throws (`readNormalised`), with a neutral message.
  */
 import { Readable } from 'node:stream';
 import ExcelJS from 'exceljs';
-import { normaliseXlsx } from './xlsxNormalise';
+import { normaliseXlsx, readNormalised } from './xlsxNormalise';
 import { SpreadsheetMalformedError, SpreadsheetTooLargeError } from './spreadsheetErrors';
 
 export { SpreadsheetMalformedError, SpreadsheetRefusedError, SpreadsheetTooLargeError } from './spreadsheetErrors';
@@ -72,6 +73,10 @@ function csvField(text: string): string {
 export async function xlsxBufferToCsv(buf: Buffer, limits: XlsxLimits = XLSX_LIMITS): Promise<string> {
   const normalised = await normaliseXlsx(buf, limits.maxUncompressedBytes);
   if (!normalised) return '';
+  return readNormalised(() => readFirstSheet(normalised, limits));
+}
+
+async function readFirstSheet(normalised: Buffer, limits: XlsxLimits): Promise<string> {
   const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([normalised]), {
     worksheets: 'emit', sharedStrings: 'cache', styles: 'cache', hyperlinks: 'ignore', entries: 'ignore',
   });
