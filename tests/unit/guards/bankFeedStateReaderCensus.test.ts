@@ -178,6 +178,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/reports/kpiDashboardService.ts': 'filtered',
   'src/modules/accounting/services/reports/vatAllocationMismatchService.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/reports/vatInputSupportQuery.ts': "exempt: joins only on matched_journal_line_id, which non-posted rows cannot carry (trigger 675) — the bank_transactions read moved here when vatInputSupport.ts split into query + classification (2026-09-25)",
+  'src/modules/accounting/services/workbench/monthEndWorkbenchService.ts': 'filtered',
   'src/modules/accounting/services/workbench/monthEndLedgerCards.ts': 'filtered',
   'src/modules/admin/services/analyticsService.ts': 'exempt: platform-admin DB-size estimate, not a financial total',
   'src/modules/admin/services/dataExportService.ts': 'exempt: full company data export must include every row regardless of feed_state (completeness)',
