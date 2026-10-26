@@ -64,7 +64,7 @@ it('refuses the measured hand offset: posts nothing, keeps the run open and name
   expect(res.status).toBe(200);
   expect(res.body.data).toEqual({
     reversed: 0, skipped: 1, alreadyUndone: 0, undone: false,
-    skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 1 },
+    skippedBy: { reconciled: 0, contended: 0, failed: 0, offsetByHand: 1, creditCeiling: 0 },
     handOffsets: [{
       transactionId: line, lineDate: DAY, lineAmount: -100, lineDescription: 'K074 payment',
       journalEntryId: offset.id, entryNumber: offset.entryNumber, entryDate: DAY, amount: 60, description: 'R079 journal',

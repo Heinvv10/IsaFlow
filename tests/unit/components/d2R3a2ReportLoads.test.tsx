@@ -3,6 +3,7 @@
  * the new filter next to the error. Per page: real 400 envelope, empty-body 500, a good 200, and
  * "load OK, change the filter, the reload 500s -> old rows gone, error shown".
  */
+import { typeDate, dateFieldInputs } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -56,7 +57,7 @@ function script(match: (u: string) => boolean, data: (u: string) => unknown) {
 }
 
 type Trigger = (c: HTMLElement) => void;
-const dateInput: Trigger = c => fireEvent.change(c.querySelector('input[type="date"]') as HTMLInputElement, { target: { value: '2026-02-01' } });
+const dateInput: Trigger = c => typeDate(dateFieldInputs(c)[0]!, '2026-02-01');
 const select: (v: string) => Trigger = v => c => fireEvent.change(c.querySelector('select') as HTMLSelectElement, { target: { value: v } });
 
 interface Case {

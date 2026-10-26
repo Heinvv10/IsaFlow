@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Users, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -165,13 +166,7 @@ export default function ARAgingPage() {
             </div>
             <div className="flex items-center gap-3">
               <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">As at date</label>
-                <input
-                  type="date"
-                  value={asAtDate}
-                  onChange={e => setAsAtDate(e.target.value)}
-                  className="ff-input text-sm"
-                />
+                <DateField label="As at date" value={asAtDate || null} onChange={(iso, v) => { if (v.valid) setAsAtDate(iso ?? ''); }} />
               </div>
               <button
                 onClick={handleExport}

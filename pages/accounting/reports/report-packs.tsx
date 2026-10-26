@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, Presentation } from 'lucide-react';
@@ -197,9 +198,8 @@ function ReportPacksScreen() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="ff-input text-sm" />
-              <span className="text-[var(--ff-text-secondary)]">to</span>
-              <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
+              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
+              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
               <button onClick={() => void download('pdf')} disabled={downloading !== null || !pack} className="ff-btn-secondary flex items-center gap-1 text-sm">
                 {downloading === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 PDF
