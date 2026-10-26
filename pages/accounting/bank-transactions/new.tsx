@@ -346,7 +346,7 @@ export default function NewBankTransactionPage() {
                     type="button"
                     onClick={(e) => handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>)}
                     disabled={isSubmitting || isLoadingRef}
-                    className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                    className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
                   >
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Recording…</> : <><Banknote className="h-4 w-4" />Record Transaction</>}
                   </button>

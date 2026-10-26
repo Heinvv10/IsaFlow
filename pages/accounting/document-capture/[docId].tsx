@@ -389,7 +389,7 @@ export default function DocumentCaptureDetailPage() {
                 <button
                   onClick={handleConfirm}
                   disabled={isSaving || isReading}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium disabled:opacity-50"
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                   {doc.status === 'reviewed' ? 'Update' : 'Confirm & Save'}
@@ -433,7 +433,7 @@ export default function DocumentCaptureDetailPage() {
                     <button
                       onClick={handleMatchBankTx}
                       disabled={isMatching || isReading || !bankTxId.trim()}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium disabled:opacity-50"
                     >
                       {isMatching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
                       Match

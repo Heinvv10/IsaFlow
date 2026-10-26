@@ -136,7 +136,7 @@ export function VAT201SarsSubmit({ submissionId, exceptionsReady, exceptionsClea
           data-testid="sars-submit-btn"
           onClick={() => void call('submit')}
           disabled={busy || blocked || !submissionId || !exceptionsReady || !!result}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-success-700 text-white text-sm font-medium hover:bg-success-800 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Submit to SARS
         </button>

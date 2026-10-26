@@ -12,7 +12,7 @@ const COLORS: Record<string, string> = {
   green: '#14b8a6',
   red: '#f43f5e',
   blue: '#3b82f6',
-  teal: '#0d9488',
+  teal: '#0f766e',
 };
 
 const defaultFormat = (n: number) => formatMoneyCompact(n, { decimals: 0 });

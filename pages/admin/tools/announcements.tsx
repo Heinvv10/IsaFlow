@@ -148,7 +148,7 @@ export default function AdminAnnouncementsPage() {
           </div>
           <button
             onClick={() => setShowNew(true)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg"
+            className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg"
           >
             <Plus className="w-4 h-4" />
             New Announcement

@@ -37,6 +37,7 @@ const STATUS_COLOR: Record<AvatarStatus, string> = {
   busy: 'bg-amber-500',
 };
 
+// brand-fill-tokens: skip - these hues are a categorical palette, not brand fills.
 // Palette of accessible background colors for initials avatars
 const PALETTE = [
   'bg-teal-600',

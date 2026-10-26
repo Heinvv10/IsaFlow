@@ -9,7 +9,7 @@ export default function OfflinePage() {
       <div className="text-center max-w-md">
         {/* Logo */}
         <div className="mb-8 flex justify-center">
-          <div className="w-16 h-16 bg-teal-600 rounded-2xl flex items-center justify-center">
+          <div className="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center">
             <svg
               className="w-8 h-8 text-slate-900 dark:text-white"
               fill="none"
@@ -40,7 +40,7 @@ export default function OfflinePage() {
 
         <button
           onClick={() => window.location.reload()}
-          className="inline-flex items-center gap-2 px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium rounded-lg transition-colors"
+          className="inline-flex items-center gap-2 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path

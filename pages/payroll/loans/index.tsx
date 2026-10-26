@@ -106,7 +106,7 @@ export default function LoansListPage() {
             </div>
           </div>
           <WriteOnly>
-            <Link href="/payroll/loans/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
+            <Link href="/payroll/loans/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium">
               <Plus className="h-4 w-4" /> New Loan
             </Link>
           </WriteOnly>
@@ -154,7 +154,7 @@ export default function LoansListPage() {
               <Banknote className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No loans yet</p>
               <WriteOnly>
-                <Link href="/payroll/loans/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
+                <Link href="/payroll/loans/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium">
                   <Plus className="h-4 w-4" /> Create first loan
                 </Link>
               </WriteOnly>

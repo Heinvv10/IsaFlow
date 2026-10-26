@@ -67,7 +67,7 @@ export const INPUT_CLS =
   'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none';
 export const LABEL_CLS = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
 export const BTN_PRIMARY =
-  'flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50';
+  'flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50';
 export const BTN_SECONDARY =
   'flex items-center gap-2 px-3 py-1.5 border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] rounded-lg text-sm transition-colors disabled:opacity-50';
 export const SECTION_CLS =

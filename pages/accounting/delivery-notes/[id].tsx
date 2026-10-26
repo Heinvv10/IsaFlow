@@ -153,7 +153,7 @@ export default function DeliveryNoteDetailPage() {
                   <button
                     onClick={() => void handleStatusChange('dispatched')}
                     disabled={patching}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg disabled:opacity-50"
                   >
                     {patching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                     Dispatch
@@ -163,7 +163,7 @@ export default function DeliveryNoteDetailPage() {
                   <button
                     onClick={() => void handleStatusChange('delivered')}
                     disabled={patching}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg disabled:opacity-50"
                   >
                     {patching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
                     Mark Delivered

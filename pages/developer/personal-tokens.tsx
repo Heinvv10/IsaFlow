@@ -310,7 +310,7 @@ export default function PersonalTokensPage() {
           <button
             onClick={() => void handleGenerate()}
             disabled={generating || !name.trim() || scopeSet.size === 0}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-teal-700 hover:bg-teal-600 disabled:opacity-50 text-white transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-brand-700 hover:bg-brand-600 disabled:opacity-50 text-white transition-colors"
           >
             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Create token

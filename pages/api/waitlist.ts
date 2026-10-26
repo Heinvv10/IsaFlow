@@ -44,7 +44,7 @@ function buildNotificationHtml(lead: {
     ? null
     : `R${(lead.annual_turnover_cents / 100).toLocaleString('en-ZA', { maximumFractionDigits: 0 })}`;
   const paygHint = lead.annual_turnover_cents !== null && lead.annual_turnover_cents < 100_000_000
-    ? ' <span style="color:#0d9488;font-weight:600;">(PAYG eligible)</span>'
+    ? ' <span style="color:#0f766e;font-weight:600;">(PAYG eligible)</span>'
     : '';
 
   return `

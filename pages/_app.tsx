@@ -4,6 +4,7 @@ import type { AppProps } from 'next/app';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { isLightOnlyPath } from '@/lib/theme/themePreference';
 import { CompanyProvider } from '@/contexts/CompanyContext';
 import { isPrintRender } from '@/lib/pdf/printRenderQuery';
 import { TableDensityProvider } from '@/contexts/TableDensityContext';
@@ -13,6 +14,7 @@ import { TrackerScript } from '@/components/analytics/TrackerScript';
 import { isSharePath } from '@/lib/paths/isSharePath';
 import { dmSans } from '@/lib/fonts';
 import '../styles/globals.css';
+import '../styles/themeContrast.css';
 import '../styles/print.css';
 
 /**
@@ -93,7 +95,7 @@ export default function App({ Component, pageProps }: AppProps) {
     // re-render every PDF in DM Sans, changing text metrics on layouts that are
     // tuned to IBM Plex. The variable still goes on, so nothing else breaks.
     <div className={printRender ? dmSans.variable : `${dmSans.variable} font-sans`}>
-    <ThemeProvider>
+    <ThemeProvider lightOnly={isLightOnlyPath(router.pathname)}>
       <AuthProvider skipFetch={skipProviders}>
         <CompanyProvider skipFetch={skipProviders}>
         <ThemeModeProvider>

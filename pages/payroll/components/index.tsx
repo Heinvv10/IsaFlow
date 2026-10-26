@@ -147,7 +147,7 @@ export default function PayComponentsPage() {
                   SDL applicable
                 </label>
                 <button type="submit" disabled={creating || !name}
-                  className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium">
+                  className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium">
                   {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   Add component
                 </button>

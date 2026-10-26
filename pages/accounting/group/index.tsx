@@ -117,7 +117,7 @@ export default function GroupDashboardPage() {
                 {loadingGroups ? (
                   <Loader2 className="h-5 w-5 animate-spin text-teal-500" />
                 ) : groupsFailed ? null /* the error banner below carries Retry; "Create Group" would say there are none */ : groups.length === 0 ? (
-                  <Link href="/accounting/group/setup" className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium">
+                  <Link href="/accounting/group/setup" className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium">
                     <Plus className="h-4 w-4" /> Create Group
                   </Link>
                 ) : (
@@ -166,7 +166,7 @@ export default function GroupDashboardPage() {
               <Building2 className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-4" />
               <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-2">No Company Groups</h2>
               <p className="text-sm text-[var(--ff-text-secondary)] mb-6 max-w-md mx-auto">Create a group to consolidate financial data across multiple entities.</p>
-              <Link href="/accounting/group/setup" className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium">
+              <Link href="/accounting/group/setup" className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium">
                 <Plus className="h-4 w-4" /> Create Your First Group
               </Link>
             </div>

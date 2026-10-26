@@ -69,7 +69,7 @@ export default function GoodsReceivedPage() {
           actions={
             <button
               onClick={() => router.push('/accounting/goods-received/new')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <Plus className="w-4 h-4" /> New GRN
             </button>
@@ -111,7 +111,7 @@ export default function GoodsReceivedPage() {
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Record your first delivery</p>
                 <button
                   onClick={() => router.push('/accounting/goods-received/new')}
-                  className="mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors"
+                  className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors"
                 >
                   New GRN
                 </button>

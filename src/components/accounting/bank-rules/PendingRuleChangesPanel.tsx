@@ -65,7 +65,7 @@ function ChangeItem({ change, busy, names, onDecide }: {
           <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="Note (optional)"
             aria-label={`Note on the change to ${change.ruleName}`} className="ff-input text-xs flex-1 min-w-[12rem]" />
           <button type="button" disabled={busy} onClick={() => void onDecide(change, 'approve', note)}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-teal-600 text-white text-xs disabled:opacity-50">
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-brand-600 text-white text-xs disabled:opacity-50">
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Approve
           </button>
           <button type="button" disabled={busy} onClick={() => void onDecide(change, 'reject', note)}

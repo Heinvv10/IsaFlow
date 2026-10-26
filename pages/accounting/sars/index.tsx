@@ -188,7 +188,7 @@ export default function SARSDashboard() {
                   href="/accounting/sars/emp201"
                   title="Generate EMP201"
                   description="Monthly PAYE, UIF and SDL return"
-                  icon={<FileText className="h-5 w-5 text-blue-500" />}
+                  icon={<FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
                 />
                 <QuickAction
                   href="/accounting/sars/submissions"

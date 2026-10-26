@@ -76,7 +76,7 @@ export default function AuditSnapshotPage() {
                   <button onClick={() => void verify()} disabled={!!busy || snap.status !== 'sealed'} className="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-slate-200 text-sm disabled:opacity-50">
                     {busy === 'verify' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Verify
                   </button>
-                  <button onClick={() => void compare()} disabled={!!busy || snap.status !== 'sealed'} className="px-3 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-50">Compare to today</button>
+                  <button onClick={() => void compare()} disabled={!!busy || snap.status !== 'sealed'} className="px-3 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">Compare to today</button>
                 </div>
               </div>
               {verification && (

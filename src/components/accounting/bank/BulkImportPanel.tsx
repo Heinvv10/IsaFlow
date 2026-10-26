@@ -432,7 +432,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
             </h3>
             <div className="flex items-center gap-3 text-xs text-[var(--ff-text-muted)]">
               <span>{stats.ready} ready</span>
-              {stats.blocking > 0 && <span className="text-rose-500">{stats.blocking} blocking</span>}
+              {stats.blocking > 0 && <span className="text-rose-600 dark:text-rose-400">{stats.blocking} blocking</span>}
               {stats.inFlight > 0 && (
                 <span className="inline-flex items-center gap-1">
                   <Loader2 className="h-3 w-3 animate-spin" /> {stats.inFlight} parsing
@@ -474,7 +474,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           type="button"
           onClick={onCommit}
           disabled={!canCommit}
-          className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:bg-[var(--ff-bg-tertiary)] disabled:text-[var(--ff-text-muted)]"
+          className="inline-flex items-center gap-2 rounded-lg bg-success-700 px-4 py-2 text-sm font-medium text-white hover:bg-success-800 disabled:bg-[var(--ff-bg-tertiary)] disabled:text-[var(--ff-text-muted)]"
         >
           {isCommitting && <Loader2 className="h-4 w-4 animate-spin" />}
           {isCommitting

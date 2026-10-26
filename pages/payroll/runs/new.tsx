@@ -90,7 +90,7 @@ export default function NewPayrollRunPage() {
           </div>
           <div className="flex items-center gap-3">
             <button type="submit" disabled={submitting}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium">
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium">
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Create Run
             </button>

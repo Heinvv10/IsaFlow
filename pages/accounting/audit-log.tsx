@@ -130,7 +130,7 @@ export default function AuditLogPage() {
             </div>
             <button
               onClick={handleExport}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium"
             >
               <Download className="h-4 w-4" />
               Export CSV

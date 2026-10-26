@@ -6,7 +6,7 @@ export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'Jun
   'September', 'October', 'November', 'December'];
 
 export const CARD_CLS = 'bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl p-6';
-export const BTN_PRIMARY = 'px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed';
+export const BTN_PRIMARY = 'px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed';
 export const BTN_SECONDARY = 'px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]';
 
 export const MIN_REASON = 10;

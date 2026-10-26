@@ -137,7 +137,7 @@ export default function JournalEntryDetailPage() {
                   <button
                     onClick={() => handleAction('post')}
                     disabled={actionLoading === 'post'}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium disabled:opacity-50"
                   >
                     {actionLoading === 'post' ? (
                       <Loader2 className="h-4 w-4 animate-spin" />

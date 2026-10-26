@@ -88,7 +88,7 @@ export default function CustomersPage() {
             </div>
             <Link
               href="/accounting/customers/new"
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
             >
               <Plus className="h-4 w-4" />
               New Customer
@@ -148,7 +148,7 @@ export default function CustomersPage() {
               {!search && (
                 <Link
                   href="/accounting/customers/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
                 >
                   <Plus className="h-4 w-4" />
                   New Customer

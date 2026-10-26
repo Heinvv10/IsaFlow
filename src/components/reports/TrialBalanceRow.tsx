@@ -76,24 +76,29 @@ export function TrialBalanceRow({
   // A derived row has no journals behind it: expanding it or drilling into it
   // would show an empty ledger and imply the figure was posted. Neither is offered.
   const derived = r.derived === true;
+  // The Code and Account cells stay pinned on horizontal scroll, so they need an opaque surface.
+  const stickyBg = derived
+    ? 'bg-[var(--ff-bg-tertiary)]'
+    : 'bg-[var(--ff-bg-secondary)] group-hover:bg-[var(--ff-bg-primary)]';
 
   return (
     <React.Fragment>
       <tr
         onClick={derived ? undefined : () => onToggle(r.accountCode)}
-        className={`border-b border-[var(--ff-border-light)] ${derived
+        className={`group border-b border-[var(--ff-border-light)] ${derived
           ? 'bg-[var(--ff-bg-tertiary)]/40'
           : 'hover:bg-[var(--ff-bg-primary)]/50 cursor-pointer'}`}
       >
-        <td className={`${rowClass} font-mono text-[var(--ff-text-tertiary)]`}>
-          <span className="flex items-center gap-1">
-            {derived ? <span className="w-3" aria-hidden="true" /> : isExpanded
-              ? <ChevronDown className="h-3 w-3" />
-              : <ChevronRight className="h-3 w-3" />}
-            {r.accountCode}
+        <td className={`${rowClass} font-mono text-[var(--ff-text-tertiary)] w-28 min-w-[7rem] sticky left-0 z-10 print:static ${stickyBg}`}>
+          {/* Fixed content width, so the pinned Account column (left-28) can never be overlapped by a long code. */}
+          <span className="flex items-center gap-1 w-20">
+            {derived ? <span className="w-3 shrink-0" aria-hidden="true" /> : isExpanded
+              ? <ChevronDown className="h-3 w-3 shrink-0" />
+              : <ChevronRight className="h-3 w-3 shrink-0" />}
+            <span className="truncate" title={r.accountCode}>{r.accountCode}</span>
           </span>
         </td>
-        <td className={`${rowClass} text-[var(--ff-text-primary)]`}>
+        <td className={`${rowClass} text-[var(--ff-text-primary)] sticky left-28 z-10 print:static ${stickyBg}`}>
           {derived ? (
             <span className="flex items-center gap-2">
               <span
@@ -158,7 +163,7 @@ export function TrialBalanceRow({
           ) : (
             <button
               onClick={() => onEvidence(r.accountCode, r.accountName)}
-              className="px-2 py-1 rounded text-xs bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 whitespace-nowrap"
+              className="px-2 py-1 rounded text-xs bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/25 whitespace-nowrap"
             >
               Evidence
             </button>

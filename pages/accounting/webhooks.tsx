@@ -13,7 +13,7 @@ import { WebhookForm, type WebhookFormState } from '@/components/accounting/webh
 import { WebhookCard } from '@/components/accounting/webhooks/WebhookCard';
 import type { Webhook as WebhookType, Delivery } from '@/modules/accounting/services/core/webhookService';
 
-const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium';
+const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium';
 const DEFAULT_FORM: WebhookFormState = { name: '', url: '', secret: '', events: [], isActive: true };
 
 type TestResult = { success: boolean; status: number; body: string };

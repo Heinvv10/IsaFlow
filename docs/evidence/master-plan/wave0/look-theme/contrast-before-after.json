@@ -1,0 +1,245 @@
+{
+ "method": "tests/e2e/helpers/themeContrast.ts, computed styles, 1568x765, reporting-qa on isaflow_dev Demo; before = master+kit-core, light measured after toggling in the UI because a saved light preference was lost on reload",
+ "results": {
+  "balance-sheet.light": {
+   "before": {
+    "textNodes": 127,
+    "belowAA": 66,
+    "worstRatio": 1.7
+   },
+   "after": {
+    "textNodes": 128,
+    "belowAA": 0,
+    "worstRatio": 5.09
+   }
+  },
+  "balance-sheet.dark": {
+   "before": {
+    "textNodes": 127,
+    "belowAA": 1,
+    "worstRatio": 3.77
+   },
+   "after": {
+    "textNodes": 128,
+    "belowAA": 0,
+    "worstRatio": 5.48
+   }
+  },
+  "bank-transactions.light": {
+   "before": {
+    "textNodes": 323,
+    "belowAA": 176,
+    "worstRatio": 1.34
+   },
+   "after": {
+    "textNodes": 323,
+    "belowAA": 0,
+    "worstRatio": 5.18
+   }
+  },
+  "bank-transactions.dark": {
+   "before": {
+    "textNodes": 323,
+    "belowAA": 17,
+    "worstRatio": 3.74
+   },
+   "after": {
+    "textNodes": 325,
+    "belowAA": 0,
+    "worstRatio": 5.04
+   }
+  },
+  "customer-invoice-new.light": {
+   "before": {
+    "textNodes": 62,
+    "belowAA": 22,
+    "worstRatio": 1
+   },
+   "after": {
+    "textNodes": 62,
+    "belowAA": 0,
+    "worstRatio": 5.47
+   }
+  },
+  "customer-invoice-new.dark": {
+   "before": {
+    "textNodes": 62,
+    "belowAA": 4,
+    "worstRatio": 3.31
+   },
+   "after": {
+    "textNodes": 62,
+    "belowAA": 0,
+    "worstRatio": 5.47
+   }
+  },
+  "customer-invoices.light": {
+   "before": {
+    "textNodes": 271,
+    "belowAA": 142,
+    "worstRatio": 1.67
+   },
+   "after": {
+    "textNodes": 271,
+    "belowAA": 0,
+    "worstRatio": 4.51
+   }
+  },
+  "customer-invoices.dark": {
+   "before": {
+    "textNodes": 271,
+    "belowAA": 1,
+    "worstRatio": 3.74
+   },
+   "after": {
+    "textNodes": 271,
+    "belowAA": 0,
+    "worstRatio": 5.47
+   }
+  },
+  "dashboard.light": {
+   "before": {
+    "textNodes": 175,
+    "belowAA": 59,
+    "worstRatio": 1.12
+   },
+   "after": {
+    "textNodes": 175,
+    "belowAA": 0,
+    "worstRatio": 5
+   }
+  },
+  "dashboard.dark": {
+   "before": {
+    "textNodes": 147,
+    "belowAA": 25,
+    "worstRatio": 2.74
+   },
+   "after": {
+    "textNodes": 175,
+    "belowAA": 0,
+    "worstRatio": 5
+   }
+  },
+  "general-ledger.light": {
+   "before": {
+    "textNodes": 185,
+    "belowAA": 70,
+    "worstRatio": 1.86
+   },
+   "after": {
+    "textNodes": 186,
+    "belowAA": 0,
+    "worstRatio": 5.37
+   }
+  },
+  "general-ledger.dark": {
+   "before": {
+    "textNodes": 185,
+    "belowAA": 26,
+    "worstRatio": 4.04
+   },
+   "after": {
+    "textNodes": 186,
+    "belowAA": 0,
+    "worstRatio": 5.04
+   }
+  },
+  "income-statement.light": {
+   "before": {
+    "textNodes": 122,
+    "belowAA": 62,
+    "worstRatio": 1.46
+   },
+   "after": {
+    "textNodes": 123,
+    "belowAA": 0,
+    "worstRatio": 5.09
+   }
+  },
+  "income-statement.dark": {
+   "before": {
+    "textNodes": 122,
+    "belowAA": 4,
+    "worstRatio": 3.74
+   },
+   "after": {
+    "textNodes": 123,
+    "belowAA": 0,
+    "worstRatio": 5.04
+   }
+  },
+  "payroll-employees.light": {
+   "before": {
+    "textNodes": 88,
+    "belowAA": 36,
+    "worstRatio": 1.7
+   },
+   "after": {
+    "textNodes": 88,
+    "belowAA": 0,
+    "worstRatio": 5.47
+   }
+  },
+  "payroll-employees.dark": {
+   "before": {
+    "textNodes": 88,
+    "belowAA": 1,
+    "worstRatio": 3.74
+   },
+   "after": {
+    "textNodes": 88,
+    "belowAA": 0,
+    "worstRatio": 5.07
+   }
+  },
+  "trial-balance.light": {
+   "before": {
+    "textNodes": 197,
+    "belowAA": 73,
+    "worstRatio": 1.86
+   },
+   "after": {
+    "textNodes": 197,
+    "belowAA": 0,
+    "worstRatio": 4.51
+   }
+  },
+  "trial-balance.dark": {
+   "before": {
+    "textNodes": 197,
+    "belowAA": 25,
+    "worstRatio": 4.18
+   },
+   "after": {
+    "textNodes": 197,
+    "belowAA": 0,
+    "worstRatio": 5.04
+   }
+  },
+  "vat201.light": {
+   "before": {
+    "textNodes": 30,
+    "belowAA": 17,
+    "worstRatio": 1.86
+   },
+   "after": {
+    "textNodes": 26,
+    "belowAA": 0,
+    "worstRatio": 5.47
+   }
+  },
+  "vat201.dark": {
+   "before": {
+    "textNodes": 30,
+    "belowAA": 2,
+    "worstRatio": 3.74
+   },
+   "after": {
+    "textNodes": 32,
+    "belowAA": 0,
+    "worstRatio": 5.47
+   }
+  }
+ }
+}

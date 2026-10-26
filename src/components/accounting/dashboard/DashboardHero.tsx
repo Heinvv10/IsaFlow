@@ -128,7 +128,7 @@ export function DashboardHero({
 
       {/* Content */}
       <div className="relative z-10 px-8 pt-12 pb-6 max-w-7xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] mb-3" style={{ color: 'var(--ff-brand-light)' }}>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] mb-3" style={{ color: 'var(--ff-brand-eyebrow)' }}>
           {eyebrow}
         </p>
 
@@ -140,7 +140,7 @@ export function DashboardHero({
           </h1>
         )}
 
-        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 font-medium tracking-wide">
+        <p className="mt-2 text-sm text-ink-muted font-medium tracking-wide">
           {subtitle}
         </p>
 
@@ -157,7 +157,7 @@ export function DashboardHero({
                     <Icon className="h-3.5 w-3.5 text-slate-900 dark:text-white" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 leading-none mb-1.5">{label}</p>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-ink-muted leading-none mb-1.5">{label}</p>
                     <p className={`text-sm font-bold leading-none flex items-center gap-1 ${valueColor}`}>
                       {warning && <ArrowDown className="h-3 w-3" aria-label="Negative" />}
                       {value}

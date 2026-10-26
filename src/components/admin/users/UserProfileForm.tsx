@@ -56,7 +56,7 @@ export function UserProfileForm({ user, editing, editState, actionLoading, onSav
         {editing && (
           <div className="flex gap-2">
             <button onClick={onSave} disabled={actionLoading}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-lg disabled:opacity-50 transition-colors">
               {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Save
             </button>
             <button onClick={onCancel}

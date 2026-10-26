@@ -200,7 +200,7 @@ export default function BankAccountsPage() {
               </div>
               <button
                 onClick={openAddModal}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm"
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-2 text-sm"
               >
                 <Plus className="h-4 w-4" />
                 Add Bank Account

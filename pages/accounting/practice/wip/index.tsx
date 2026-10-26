@@ -54,7 +54,7 @@ function WipClientGroup({ group, selectedIds, expanded, onToggleExpand, onToggle
         <span className="text-xs text-[var(--ff-text-tertiary)] w-36 text-right hidden lg:block">Oldest: {fmtDate(group.oldestApprovedDate)}</span>
         <div onClick={(e) => e.stopPropagation()} className="ml-2">
           {group.linkCustomerId != null
-            ? <button disabled={selCount === 0} onClick={onGenerate} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"><FileText className="h-3.5 w-3.5" />Generate Invoice</button>
+            ? <button disabled={selCount === 0} onClick={onGenerate} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"><FileText className="h-3.5 w-3.5" />Generate Invoice</button>
             : <Link href={`/accounting/practice/clients/${group.practiceClientId}`} className="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2">Set linked customer →</Link>}
         </div>
       </div>
@@ -132,7 +132,7 @@ function InvoiceModal({ client, selectedIds, state, onChange, onConfirm, onCance
         </div>
         <div className="px-6 py-4 border-t border-[var(--ff-border-primary)] flex justify-end gap-3">
           <button onClick={onCancel} disabled={loading} className="px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-          <button onClick={onConfirm} disabled={loading} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+          <button onClick={onConfirm} disabled={loading} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}{loading ? 'Generating…' : 'Confirm'}
           </button>
         </div>

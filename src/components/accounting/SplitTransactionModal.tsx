@@ -187,7 +187,7 @@ export function SplitTransactionModal({
                 Cancel
               </button>
               <button onClick={handleSubmit} disabled={!canSubmit || submitting}
-                className="px-4 py-1.5 rounded text-xs font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white transition-colors">
+                className="px-4 py-1.5 rounded text-xs font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white transition-colors">
                 {submitting ? 'Splitting…' : 'Split & Allocate'}
               </button>
             </div>

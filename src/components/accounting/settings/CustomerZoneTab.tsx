@@ -97,19 +97,19 @@ export function CustomerZoneTab({ company, onChange }: Props) {
             <input
               type="color"
               className="h-9 w-14 rounded-lg border border-[var(--ff-border-primary)] cursor-pointer bg-transparent p-0.5"
-              value={company.portalPrimaryColor ?? '#0d9488'}
+              value={company.portalPrimaryColor ?? '#0f766e'}
               onChange={e => onChange('portalPrimaryColor', e.target.value)}
             />
             <input
               className={INPUT_CLS}
               maxLength={7}
-              placeholder="#0d9488"
+              placeholder="#0f766e"
               value={company.portalPrimaryColor ?? ''}
               onChange={e => handleColorChange(e.target.value)}
             />
           </div>
           <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
-            Hex colour used for portal buttons and accents (e.g. #0d9488).
+            Hex colour used for portal buttons and accents (e.g. #0f766e).
           </p>
         </div>
       </section>

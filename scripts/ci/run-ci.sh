@@ -64,6 +64,9 @@ run_step "lint"              bun run lint
 # The raw-input allowlist (eslint/raw-input-allowlist.json) only shrinks: an entry whose file no
 # longer violates the kit-form rule fails here, so fixing a form removes it from the list.
 run_step "raw-input-allowlist" bun scripts/ci/check-raw-input-allowlist.ts
+# Raw muted text greys (text-gray/slate-400/500) are what styles/themeContrast.css exists to paper
+# over; their count may only fall (scripts/ci/raw-muted-text-stops.baseline.json).
+run_step "raw-muted-text-stops" bun scripts/ci/check-raw-muted-text-stops.ts
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
 # User identity is a string in this schema (users.id varchar,

@@ -236,7 +236,7 @@ export function NoSubscription({ companyId }: { companyId: string }) {
       <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">This company has no subscription linked to a billing plan.</p>
       {createError && <p className="text-xs text-red-500 mb-3">{createError}</p>}
       <button onClick={handleCreate} disabled={creating}
-        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-500 hover:bg-teal-600 text-white transition-colors disabled:opacity-50">
+        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50">
         {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
         Create Subscription
       </button>

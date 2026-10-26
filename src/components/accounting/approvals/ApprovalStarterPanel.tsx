@@ -142,7 +142,7 @@ export function ApprovalStarterPanel({ actorRole, rules, onCreated, onClose }: P
           {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={() => void confirm()} disabled={busy}
-              className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+              className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
               Create selected rules
             </button>
             <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-lg text-sm text-[var(--ff-text-secondary)]">Cancel</button>

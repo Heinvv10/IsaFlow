@@ -226,7 +226,7 @@ export function TodoWidget() {
           {(data?.pendingBankTxCount ?? 0) > 0 && (
             <section>
               <div className="flex items-center gap-1.5 mb-1.5">
-                <Landmark className="h-3.5 w-3.5 text-blue-500" />
+                <Landmark className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                 <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
                   Unreconciled bank transactions ({data!.pendingBankTxCount})
                 </span>

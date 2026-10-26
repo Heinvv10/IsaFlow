@@ -291,7 +291,7 @@ export default function BatchGridPage() {
             )}
             {batch.status === 'validated' && (
               <button onClick={runPost} disabled={busy}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50">
                 <Send className="h-4 w-4" /> Post
               </button>
             )}

@@ -8,7 +8,6 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { User, Lock, Settings2 } from 'lucide-react';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTheme } from '@/contexts/ThemeContext';
 import toast from 'react-hot-toast';
 import { log } from '@/lib/logger';
 import {
@@ -36,7 +35,6 @@ const PAGE_TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
 
 export default function MyAccountPage() {
   const { user, refreshUser } = useAuth();
-  const { theme, toggleTheme } = useTheme();
 
   const [activeTab, setActiveTab] = useState<TabId>('profile');
 
@@ -246,8 +244,7 @@ export default function MyAccountPage() {
             </div>
           )}
           {activeTab === 'preferences' && (
-            <PreferencesTab prefs={prefs} saving={prefsSaving} theme={theme}
-              onToggleTheme={toggleTheme} onChange={setPrefs}
+            <PreferencesTab prefs={prefs} saving={prefsSaving} onChange={setPrefs}
               onSave={() => void handlePrefsSave()} />
           )}
         </div>

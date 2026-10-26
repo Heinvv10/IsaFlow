@@ -78,7 +78,7 @@ export default function WaterfallPage() {
                 key={t}
                 onClick={() => setTab(t)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  tab === t ? 'bg-teal-500 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+                  tab === t ? 'bg-brand-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
                 }`}
               >
                 {t === 'profit' ? 'Profit Waterfall' : 'Cash Flow Waterfall'}

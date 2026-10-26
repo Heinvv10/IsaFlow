@@ -105,7 +105,7 @@ export default function BillingOverviewPage() {
           <div className="flex gap-3 flex-wrap mb-8">
             <Link
               href={adminHref('/admin/billing/plans')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
             >
               <CreditCard className="w-4 h-4" /> Manage Plans <ArrowRight className="w-4 h-4" />
             </Link>

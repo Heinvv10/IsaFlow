@@ -29,7 +29,7 @@ function LinkedBankTransactions({ assetId, version }: { assetId: string; version
 
   useEffect(() => { void load(); }, [load, version]);
 
-  if (loading) return <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-blue-500" /></div>;
+  if (loading) return <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" /></div>;
   if (error) return <div className="text-xs text-red-400 bg-red-500/10 rounded px-3 py-2">{error}</div>;
   if (rows.length === 0) {
     return <p className="text-xs text-[var(--ff-text-tertiary)] py-4 text-center">No bank transactions linked. Link one from Banking → Bank Transactions.</p>;

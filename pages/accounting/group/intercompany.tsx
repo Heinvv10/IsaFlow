@@ -265,7 +265,7 @@ export default function IntercompanyReconciliationPage() {
             ))}
             {matchSelection.length === 2 && (
               <button onClick={handleMatch} disabled={saving}
-                className="ml-auto flex items-center gap-2 px-4 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium transition-colors">
+                className="ml-auto flex items-center gap-2 px-4 py-1.5 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium transition-colors">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
                 Match Selected ({matchSelection.length})
               </button>

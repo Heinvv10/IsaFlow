@@ -138,7 +138,7 @@ export function ManagementPackConfigTab({ config, onSave }: Props) {
             <option value="final">Final</option>
             <option value="both">Both</option>
           </select>
-          <button onClick={addRecipient} className="inline-flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-lg">
+          <button onClick={addRecipient} className="inline-flex items-center gap-1 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-lg">
             <Plus className="w-4 h-4" /> Add
           </button>
         </div>
@@ -147,7 +147,7 @@ export function ManagementPackConfigTab({ config, onSave }: Props) {
       {error && <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-1"><AlertCircle className="w-4 h-4" />{error}</p>}
 
       <button onClick={handleSave} disabled={saving}
-        className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg disabled:opacity-50">
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-lg disabled:opacity-50">
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
         Save Configuration
       </button>

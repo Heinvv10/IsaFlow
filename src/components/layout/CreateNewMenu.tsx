@@ -262,8 +262,8 @@ export function CreateNewMenu() {
           className={cn(
             'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-colors',
             open
-              ? 'bg-teal-700 text-white'
-              : 'bg-teal-600 hover:bg-teal-700 text-white',
+              ? 'bg-brand-700 text-white'
+              : 'bg-brand-600 hover:bg-brand-700 text-white',
           )}
         >
           <Plus className="w-4 h-4" />

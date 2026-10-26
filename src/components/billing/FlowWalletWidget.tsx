@@ -79,7 +79,7 @@ export function FlowWalletWidget() {
           <button
             onClick={() => setShowModal(true)}
             disabled={!mayPay}
-            className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-teal-600"
+            className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-brand-600"
           >
             <Plus className="w-4 h-4" /> Top up
           </button>

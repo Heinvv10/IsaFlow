@@ -136,12 +136,12 @@ export function HandOffsetNotice({ runId, offset, onDecided }: Props) {
       </span>{' '}
       {offset.netsPostingOut && (
         <>
-          <button type="button" onClick={() => setOpen('confirmHandCorrection')} className="text-blue-500 hover:underline">
+          <button type="button" onClick={() => setOpen('confirmHandCorrection')} className="text-blue-600 dark:text-blue-400 hover:underline">
             Mark as corrected by hand
           </button>{' · '}
         </>
       )}
-      <button type="button" onClick={() => setOpen('undoAnyway')} className="text-blue-500 hover:underline">
+      <button type="button" onClick={() => setOpen('undoAnyway')} className="text-blue-600 dark:text-blue-400 hover:underline">
         Not the correction — undo anyway
       </button>
       {error && <p className="text-red-400 mt-1">{error}</p>}

@@ -146,7 +146,7 @@ export function TwoFactorSection() {
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-2">
           <button
-            className="px-3 py-1.5 bg-teal-600 text-white rounded-md disabled:opacity-50"
+            className="px-3 py-1.5 bg-brand-600 text-white rounded-md disabled:opacity-50"
             onClick={confirmEnroll}
             disabled={busy || code.length !== 6}
           >
@@ -196,7 +196,7 @@ export function TwoFactorSection() {
       <p className="text-sm text-gray-600">Adds a second step to every login. You will need an authenticator app.</p>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <button
-        className="px-3 py-1.5 bg-teal-600 text-white rounded-md disabled:opacity-50"
+        className="px-3 py-1.5 bg-brand-600 text-white rounded-md disabled:opacity-50"
         onClick={startEnroll}
         disabled={busy}
       >

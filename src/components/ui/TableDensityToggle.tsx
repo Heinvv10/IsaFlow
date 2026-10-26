@@ -32,7 +32,7 @@ function Segment({ label, value, current, onClick, children }: SegmentProps) {
       className={[
         'flex items-center justify-center w-7 h-7 rounded transition-colors',
         active
-          ? 'bg-teal-600 text-white dark:bg-teal-500 dark:text-gray-900'
+          ? 'bg-brand-600 text-white dark:bg-teal-500 dark:text-gray-900'
           : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10',
       ].join(' ')}
     >

@@ -80,7 +80,7 @@ const TOAST_STYLES: Record<ToastType, { bg: string; icon: ReactNode; text: strin
   info: {
     bg: 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700',
     text: 'text-blue-800 dark:text-blue-200',
-    icon: <Info className="w-5 h-5 text-blue-500 shrink-0" />,
+    icon: <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />,
   },
 };
 

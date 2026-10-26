@@ -26,12 +26,12 @@ export function WizardProgress({ steps, step, skippedIndex, onJump }: Props) {
                 onClick={() => { if (isPast && !isSkipped) onJump(i); }}
                 disabled={i > step || isSkipped}
                 title={isSkipped ? 'Already captured from Smart Setup' : s.title}
-                className={`w-7 h-7 text-xs sm:w-9 sm:h-9 sm:text-sm rounded-full flex items-center justify-center font-medium shrink-0 transition-colors ${ isSkipped ? 'bg-teal-600/40 text-white/70 cursor-default' : isPast ? 'bg-teal-600 text-white cursor-pointer' : isCurrent ? 'bg-teal-500 text-white ring-2 ring-teal-400' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-500' }`}
+                className={`w-7 h-7 text-xs sm:w-9 sm:h-9 sm:text-sm rounded-full flex items-center justify-center font-medium shrink-0 transition-colors ${ isSkipped ? 'bg-teal-600/40 text-white/70 cursor-default' : isPast ? 'bg-brand-600 text-white cursor-pointer' : isCurrent ? 'bg-brand-600 text-white ring-2 ring-teal-400' : 'bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-500' }`}
               >
                 {isSkipped || isPast ? <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : i + 1}
               </button>
               {i < steps.length - 1 && (
-                <div className={`h-0.5 flex-1 min-w-1 mx-0.5 sm:mx-1 ${(isPast || isSkipped) ? 'bg-teal-600' : 'bg-gray-200 dark:bg-gray-800'}`} />
+                <div className={`h-0.5 flex-1 min-w-1 mx-0.5 sm:mx-1 ${(isPast || isSkipped) ? 'bg-brand-600' : 'bg-gray-200 dark:bg-gray-800'}`} />
               )}
             </div>
           );

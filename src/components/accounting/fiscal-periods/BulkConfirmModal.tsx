@@ -21,7 +21,7 @@ export function BulkConfirmModal({ action, count, busy, onCancel, onConfirm }: P
   const verb = action === 'bulk_close' ? 'Close' : action === 'bulk_lock' ? 'Lock' : 'Reopen';
   const tone =
     action === 'bulk_lock'   ? 'bg-red-600 hover:bg-red-700'
-    : action === 'bulk_reopen' ? 'bg-emerald-600 hover:bg-emerald-700'
+    : action === 'bulk_reopen' ? 'bg-success-700 hover:bg-success-800'
     : 'bg-blue-600 hover:bg-blue-700';
   const explainer =
     action === 'bulk_close'  ? 'Closed periods refuse new postings until reopened.'

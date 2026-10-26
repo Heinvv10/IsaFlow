@@ -6,9 +6,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
+import { PageHeader } from '@/components/ui/PageHeader';
 import {
-  ArrowLeft, BarChart3, Loader2, AlertCircle,
+  BarChart3, Loader2, AlertCircle,
   Download, FileSpreadsheet,
 } from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
@@ -67,7 +67,6 @@ export default function BalanceSheetPage() {
     business_unit_id: businessUnitId,
     prior: String(columns.prior), variance: String(columns.variance), trend: String(columns.trend) });
   const showComparative = columns.prior;
-  const anyColumn = columns.prior || columns.trend;
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
@@ -134,40 +133,34 @@ export default function BalanceSheetPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4">
-            <Link href="/accounting?tab=reports" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2">
-              <ArrowLeft className="h-4 w-4" /> Back to Reports
-            </Link>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-500/10">
-                  <BarChart3 className="h-6 w-6 text-blue-500" />
-                </div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Balance Sheet</h1>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {/* The balance sheet is an as-at figure with no period start
-                    of its own. The deck's range is the same year-to-date
-                    window the account drill-down already uses, so the two
-                    surfaces cannot disagree about what "this period" means. */}
-                <PresentLink from={drillDownStart} to={drillDownEnd} />
-                <button onClick={handleXlsxExport} disabled={!report}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
-                  <FileSpreadsheet className="h-4 w-4" /> Export Excel
-                </button>
-                <button onClick={handleExport} disabled={!report}
-                  className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
-                  <Download className="h-4 w-4" /> Export CSV
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={BarChart3}
+          title="Balance Sheet"
+          breadcrumb={[{ label: 'Reports', href: '/accounting?tab=reports' }, { label: 'Balance Sheet' }]}
+          chipColor="bg-blue-500/10 text-blue-700 dark:text-blue-400"
+          className="mb-0"
+          actions={
+            <>
+              {/* The balance sheet is an as-at figure with no period start
+                  of its own. The deck's range is the same year-to-date
+                  window the account drill-down already uses, so the two
+                  surfaces cannot disagree about what "this period" means. */}
+              <PresentLink from={drillDownStart} to={drillDownEnd} />
+              <button onClick={handleXlsxExport} disabled={!report}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
+                <FileSpreadsheet className="h-4 w-4" /> Export Excel
+              </button>
+              <button onClick={handleExport} disabled={!report}
+                className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
+                <Download className="h-4 w-4" /> Export CSV
+              </button>
+            </>
+          }
+        />
 
-        {/* Two grids side by side already; a comparator column on each needs
-            the wider container or both scroll horizontally. */}
-        <div className={`p-6 space-y-6 ${anyColumn ? 'max-w-7xl' : 'max-w-4xl'}`}>
+        {/* Full width: two grids side by side, each scrolling inside its own frame with the header
+            row and the label column pinned. */}
+        <div className="p-6 space-y-6">
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">As at</label>
@@ -213,7 +206,7 @@ export default function BalanceSheetPage() {
 
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
             </div>
           ) : report ? (
             <>

@@ -91,7 +91,7 @@ export default function VerifyEmailPage() {
               </p>
               <Link
                 href="/login"
-                className="mt-2 w-full rounded-lg bg-teal-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-lg shadow-teal-600/25 transition hover:bg-teal-700"
+                className="mt-2 w-full rounded-lg bg-brand-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-lg shadow-teal-600/25 transition hover:bg-brand-700"
               >
                 Sign in
               </Link>

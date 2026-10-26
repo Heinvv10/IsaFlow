@@ -146,7 +146,7 @@ function SectionCommentsPanel({ documentId, section }: {
               type="button"
               onClick={() => { void handlePost(); }}
               disabled={posting || !body.trim()}
-              className="p-1 text-blue-500 hover:text-blue-400 disabled:opacity-40"
+              className="p-1 text-blue-600 dark:text-blue-400 hover:text-blue-400 disabled:opacity-40"
             >
               <Send className="w-4 h-4" />
             </button>

@@ -301,7 +301,7 @@ export default function AdminCompaniesPage() {
         </a>
         <button
           onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors"
         >
           <Plus className="w-4 h-4" /> Add Company
         </button>
@@ -407,7 +407,7 @@ export default function AdminCompaniesPage() {
                         title="View / Impersonate"
                         onClick={e => handleImpersonate(e, c.id)}
                         disabled={actionLoading !== null}
-                        className="p-1.5 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50"
+                        className="p-1.5 rounded text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50"
                       >
                         <UserCog className="w-4 h-4" />
                       </button>
@@ -517,7 +517,7 @@ export default function AdminCompaniesPage() {
                   Cancel
                 </button>
                 <button type="submit" disabled={creating}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:opacity-50">
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50">
                   {creating && <Loader2 className="w-4 h-4 animate-spin" />}
                   Create Company
                 </button>

@@ -144,7 +144,7 @@ export default function JobDetailPage() {
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <AlertCircle className="h-12 w-12 text-[var(--ff-text-tertiary)]" />
         <p className="text-[var(--ff-text-secondary)] text-lg font-medium">{error || 'Job not found'}</p>
-        <Link href="/accounting/practice/jobs" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"><ArrowLeft className="h-4 w-4" />Back to Jobs</Link>
+        <Link href="/accounting/practice/jobs" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"><ArrowLeft className="h-4 w-4" />Back to Jobs</Link>
       </div>
     </AppLayout>
   );
@@ -244,7 +244,7 @@ export default function JobDetailPage() {
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Engagement Budget (R)</span><input type="number" min="0" step="0.01" value={form.budgetAmount ?? ''} placeholder="No budget" onChange={e => setForm(f => ({ ...f, budgetAmount: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
               </div>
               <div className="flex justify-end pt-2">
-                <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
                   {saving && <Loader2 className="h-4 w-4 animate-spin" />}Save Changes
                 </button>
               </div>
@@ -264,7 +264,7 @@ export default function JobDetailPage() {
               }
               <div className="flex gap-2">
                 <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void addTask(); }} placeholder="New task title…" className={`flex-1 ${inp}`} />
-                <button onClick={() => void addTask()} disabled={adding || !taskTitle.trim()} className="px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">Add</button>
+                <button onClick={() => void addTask()} disabled={adding || !taskTitle.trim()} className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">Add</button>
               </div>
             </div>
           )}

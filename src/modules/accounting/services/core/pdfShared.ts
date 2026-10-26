@@ -84,7 +84,7 @@ const FALLBACK_COMPANY_DETAILS: CompanyDetails = {
   address: '', phone: '', email: '', vatNumber: '',
   bankName: '', bankAccountName: '', bankAccountNumber: '',
   bankBranchCode: '', bankReference: '',
-  logoData: null, primaryColor: '#0d9488',
+  logoData: null, primaryColor: '#0f766e',
   invoiceLayout: 'classic', quoteLayout: 'classic', statementLayout: 'classic',
 };
 
@@ -159,7 +159,7 @@ export async function getCompanyDetailsFromCompany(companyId: string): Promise<C
     bankBranchCode: c.bank_branch_code ? String(c.bank_branch_code) : '',
     bankReference: '',
     logoData: c.logo_data ? String(c.logo_data) : null,
-    primaryColor: c.primary_color ? String(c.primary_color) : '#0d9488',
+    primaryColor: c.primary_color ? String(c.primary_color) : '#0f766e',
     invoiceLayout: (c.invoice_layout ? String(c.invoice_layout) : 'classic') as DocumentLayout,
     quoteLayout: (c.quote_layout ? String(c.quote_layout) : 'classic') as DocumentLayout,
     statementLayout: (c.statement_layout ? String(c.statement_layout) : 'classic') as DocumentLayout,

@@ -109,7 +109,7 @@ export default function BudgetVsActualPage() {
               <button onClick={() => {
                 window.open(`/api/accounting/budget-vs-actual-export?${reportQuery(fiscalPeriod, yearParam)}`, '_blank');
               }} disabled={!report || !report.lines || report.lines.length === 0}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>

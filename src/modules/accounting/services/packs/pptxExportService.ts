@@ -18,7 +18,7 @@ import type { DeckSlide } from './packDeckModel';
 
 const INK = '15202B';
 const MUTED = '6B7280';
-const ACCENT = '0D9488';
+const ACCENT = '0F766E';
 const RULE = 'E5E7EB';
 
 /** C0/C1 control characters, minus the tab, newline and carriage return that

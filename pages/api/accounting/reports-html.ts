@@ -233,16 +233,16 @@ function buildReportHtml(
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; }
-    .header { background: #14b8a6; color: #fff; padding: 28px 32px; }
+    .header { background: #0f766e; color: #fff; padding: 28px 32px; }
     .header h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
     .header .meta { font-size: 12px; opacity: 0.85; }
-    .company-name { padding: 20px 32px 0; font-size: 18px; font-weight: 700; color: #14b8a6; }
-    .period-info { padding: 4px 32px 16px; font-size: 12px; color: #555; border-bottom: 2px solid #14b8a6; margin-bottom: 8px; }
+    .company-name { padding: 20px 32px 0; font-size: 18px; font-weight: 700; color: #0f766e; }
+    .period-info { padding: 4px 32px 16px; font-size: 12px; color: #555; border-bottom: 2px solid #0f766e; margin-bottom: 8px; }
     .content { padding: 16px 32px 32px; }
     section { margin-bottom: 28px; }
-    section h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #fff; background: #14b8a6; padding: 6px 10px; margin-bottom: 8px; }
+    section h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #fff; background: #0f766e; padding: 6px 10px; margin-bottom: 8px; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
-    th { background: #f0fdf9; color: #14b8a6; font-weight: 700; font-size: 11px; padding: 7px 10px; text-align: left; border-bottom: 2px solid #14b8a6; }
+    th { background: #f0fdf9; color: #0f766e; font-weight: 700; font-size: 11px; padding: 7px 10px; text-align: left; border-bottom: 2px solid #0f766e; }
     td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; font-size: 12px; }
     tr:nth-child(even) td { background: #f9fafb; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }

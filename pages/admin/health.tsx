@@ -88,7 +88,7 @@ export default function SystemHealthPage() {
         <button
           onClick={() => void load(true)}
           disabled={refreshing || loading}
-          className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           Refresh

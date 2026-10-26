@@ -95,7 +95,7 @@ export function DocumentApprovalPanel({ documentType, documentId, noun, approval
           type="button"
           onClick={() => { void submit(); }}
           disabled={submitting}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-60"
         >
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           Submit for approval

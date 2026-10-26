@@ -111,7 +111,7 @@ export default function DisclosureNotesPage() {
                 </div>
               </div>
               <button onClick={handleExport} disabled={notes.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export TXT
               </button>
             </div>
@@ -128,7 +128,7 @@ export default function DisclosureNotesPage() {
               </select>
             </div>
             <button onClick={() => void loadNotes()}
-              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium">
+              className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
               Generate Notes
             </button>
           </div>
@@ -199,7 +199,7 @@ export default function DisclosureNotesPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <button onClick={() => void handleSaveManual()} disabled={isSaving}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
                     {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                     Save Note
                   </button>

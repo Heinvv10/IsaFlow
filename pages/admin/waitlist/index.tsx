@@ -226,8 +226,8 @@ export default function AdminWaitlistPage() {
                     </td>
                     <td className="px-4 py-3">
                       {r.promoted_company_id
-                        ? <a href={adminHref(`/admin/companies/${r.promoted_company_id}`)} className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"><ExternalLink className="w-3 h-3" /> View company</a>
-                        : <button onClick={() => openPromote(r)} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-teal-600 hover:bg-teal-700 text-white transition-colors"><UserPlus className="w-3 h-3" /> Promote</button>
+                        ? <a href={adminHref(`/admin/companies/${r.promoted_company_id}`)} className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"><ExternalLink className="w-3 h-3" /> View company</a>
+                        : <button onClick={() => openPromote(r)} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-700 text-white transition-colors"><UserPlus className="w-3 h-3" /> Promote</button>
                       }
                     </td>
                   </tr>
@@ -284,7 +284,7 @@ export default function AdminWaitlistPage() {
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setPromoteTarget(null)} className="px-4 py-2 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-                <button type="submit" disabled={promoting} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:opacity-50">
+                <button type="submit" disabled={promoting} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50">
                   {promoting && <Loader2 className="w-4 h-4 animate-spin" />}
                   Create company
                 </button>

@@ -50,10 +50,10 @@ function ActionRow({
   badgeColor?: 'rose' | 'amber' | 'blue' | 'gray';
 }) {
   const badgeClasses: Record<string, string> = {
-    rose: 'bg-rose-500/10 text-rose-500',
-    amber: 'bg-amber-500/10 text-amber-600',
-    blue: 'bg-blue-500/10 text-blue-500',
-    gray: 'bg-gray-500/10 text-gray-500',
+    rose: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
+    amber: 'bg-amber-500/10 text-amber-800 dark:text-amber-400',
+    blue: 'bg-blue-500/10 text-blue-700 dark:text-blue-400',
+    gray: 'bg-gray-500/10 text-gray-600 dark:text-gray-400',
   };
 
   return (
@@ -81,7 +81,7 @@ function InvoiceDetailRow({ invoice }: { invoice: OverdueInvoice }) {
       </div>
       <div className="flex items-center gap-3 flex-shrink-0">
         <span className="text-xs font-medium text-[var(--ff-text-primary)]">{fmtZAR(invoice.amount)}</span>
-        <span className="text-xs text-rose-500 font-medium">{invoice.daysOverdue}d overdue</span>
+        <span className="text-xs text-rose-600 dark:text-rose-400 font-medium">{invoice.daysOverdue}d overdue</span>
       </div>
     </div>
   );
@@ -142,7 +142,7 @@ export function TodoWidget() {
       )}
 
       {!loading && error && (
-        <p className="text-sm text-rose-500 px-4 py-3">{error}</p>
+        <p className="text-sm text-rose-600 dark:text-rose-400 px-4 py-3">{error}</p>
       )}
 
       {!loading && !error && isAllClear && (

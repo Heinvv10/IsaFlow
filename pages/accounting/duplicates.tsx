@@ -64,7 +64,7 @@ function DuplicatePairCard({ pair, pairKey, onDismiss, onMerge }: {
           <button onClick={onDismiss} className="text-xs text-[var(--ff-text-muted)] hover:text-[var(--ff-text-primary)] px-3 py-1.5 rounded-lg border border-[var(--ff-border)] hover:bg-[var(--ff-bg-secondary)] transition-colors">
             Dismiss
           </button>
-          <button onClick={onMerge} className="flex items-center gap-1.5 text-xs text-white bg-teal-600 hover:bg-teal-700 px-3 py-1.5 rounded-lg transition-colors">
+          <button onClick={onMerge} className="flex items-center gap-1.5 text-xs text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg transition-colors">
             <Merge className="h-3.5 w-3.5" />
             Merge
           </button>
@@ -200,7 +200,7 @@ export default function DuplicatesPage() {
               <button
                 onClick={() => void handleScan()}
                 disabled={loading}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
                 {loading ? 'Scanning…' : 'Scan for Duplicates'}

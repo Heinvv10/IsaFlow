@@ -18,7 +18,7 @@ import type { RecurringTemplate } from '@/modules/accounting/services/core/recur
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
-const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium';
+const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium';
 const BTN_GHOST = 'inline-flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-primary)] transition-colors';
 
 type ExecResult = { entityType: string; entityId: string; posted: boolean } | 'error';

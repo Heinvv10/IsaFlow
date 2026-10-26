@@ -155,7 +155,7 @@ export default function AssetDetailPage() {
     } finally { setSubmitting(false); }
   };
 
-  if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div></AppLayout>;
+  if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" /></div></AppLayout>;
   if (!asset) return (
     <AppLayout>
       <div className="flex items-center justify-center min-h-[60vh] flex-col gap-3">
@@ -191,7 +191,7 @@ export default function AssetDetailPage() {
           </Link>
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10"><Package className="h-6 w-6 text-blue-500" /></div>
+              <div className="p-2 rounded-lg bg-blue-500/10"><Package className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{asset.name}</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">{asset.asset_number}</p>

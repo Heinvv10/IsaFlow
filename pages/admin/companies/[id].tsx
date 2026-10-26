@@ -347,7 +347,7 @@ export default function AdminCompanyDetailPage() {
                 <Download className="w-4 h-4" /> Export Data
               </button>
               <button onClick={() => void handleImpersonate()} disabled={actionLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-blue-400 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50">
                 <UserCog className="w-4 h-4" /> Impersonate
               </button>
               {company.status !== 'suspended' && company.status !== 'deleted'
@@ -437,7 +437,7 @@ export default function AdminCompanyDetailPage() {
                       <button
                         onClick={() => void handleEditSave()}
                         disabled={editSaving}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:opacity-60"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-60"
                       >
                         {editSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                         Save Changes

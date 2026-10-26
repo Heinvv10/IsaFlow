@@ -238,7 +238,7 @@ export default function AfsMappingPage() {
                 <button
                   onClick={() => { void handleSeedTaxonomy(); }}
                   disabled={isSeeding}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
                 >
                   {isSeeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
                   Seed Default Taxonomy

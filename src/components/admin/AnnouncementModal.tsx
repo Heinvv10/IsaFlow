@@ -157,7 +157,7 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
           <button
             onClick={handleSave}
             disabled={saving || !form.title || !form.message || !form.starts_at}
-            className="px-4 py-2 text-sm font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
+            className="px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2"
           >
             {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             Save

@@ -95,7 +95,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
         </p>
         <button
           onClick={() => setShowAdd(s => !s)}
-          className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-1.5 text-sm"
+          className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-1.5 text-sm"
         >
           <Plus className="h-3.5 w-3.5" />
           Add Currency
@@ -161,7 +161,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
             <button
               onClick={handleAdd}
               disabled={saving}
-              className="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm flex items-center gap-1.5"
+              className="px-4 py-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-sm flex items-center gap-1.5"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               Save Currency

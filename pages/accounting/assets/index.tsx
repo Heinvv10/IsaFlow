@@ -102,7 +102,7 @@ export default function AssetsListPage() {
               <ExportCSVButton endpoint="/api/accounting/assets?format=csv" filenamePrefix="assets" label="Export CSV" />
               <Link
                 href="/accounting/assets/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
               >
                 <Plus className="h-4 w-4" />
                 Add Asset

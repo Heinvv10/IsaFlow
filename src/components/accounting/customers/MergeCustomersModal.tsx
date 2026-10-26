@@ -184,7 +184,7 @@ export function MergeCustomersModal({ candidateA, candidateB, onClose, onMerged 
           <button
             onClick={() => void handleMerge()}
             disabled={isMerging}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
           >
             {isMerging ? (
               <>

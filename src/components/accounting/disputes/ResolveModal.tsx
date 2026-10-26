@@ -56,7 +56,7 @@ export function ResolveModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+      <div data-surface="light" className="bg-white rounded-lg shadow-xl w-full max-w-lg">
         <div className="p-5 border-b border-slate-100">
           <h2 className="text-lg font-semibold text-slate-900">Resolve dispute</h2>
           <p className="text-sm text-slate-500 mt-1">

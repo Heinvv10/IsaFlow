@@ -253,7 +253,7 @@ export default function ExpenseClaimDetail() {
               )}
               {canPost && (
                 <button onClick={() => setPostMode(true)} disabled={busy}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-60">
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-60">
                   <FileCheck className="h-4 w-4" /> Post to GL
                 </button>
               )}
@@ -310,7 +310,7 @@ export default function ExpenseClaimDetail() {
                 <div className="col-span-6 flex gap-2 justify-end">
                   <button onClick={() => setAddMode('none')} className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs">Cancel</button>
                   <button onClick={() => void handleAddReceipt()} disabled={busy}
-                    className="px-3 py-1.5 rounded bg-teal-600 hover:bg-teal-500 text-white text-xs font-medium disabled:opacity-60">
+                    className="px-3 py-1.5 rounded bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-60">
                     {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Add line'}
                   </button>
                 </div>
@@ -331,7 +331,7 @@ export default function ExpenseClaimDetail() {
                   <p className="text-xs text-slate-500 flex-1">Uses SARS prescribed rate (from company settings).</p>
                   <button onClick={() => setAddMode('none')} className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs">Cancel</button>
                   <button onClick={() => void handleAddMileage()} disabled={busy}
-                    className="px-3 py-1.5 rounded bg-teal-600 hover:bg-teal-500 text-white text-xs font-medium disabled:opacity-60">
+                    className="px-3 py-1.5 rounded bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-60">
                     {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Add mileage'}
                   </button>
                 </div>
@@ -412,7 +412,7 @@ export default function ExpenseClaimDetail() {
                     reimbursementAccountId: postReimbAcct,
                     vatInputAccountId: postVatAcct || null,
                   })} disabled={busy || !postReimbAcct}
-                  className="px-4 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-60">
+                  className="px-4 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-60">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Post'}
                 </button>
               </div>

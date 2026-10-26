@@ -171,7 +171,7 @@ export default function OauthAppsPage() {
           </div>
           <button
             onClick={() => setShowForm(true)}
-            className="shrink-0 px-3 py-2 rounded-lg text-sm font-medium bg-teal-700 hover:bg-teal-600 text-white flex items-center gap-1.5"
+            className="shrink-0 px-3 py-2 rounded-lg text-sm font-medium bg-brand-700 hover:bg-brand-600 text-white flex items-center gap-1.5"
           >
             <Plus className="h-4 w-4" /> Register app
           </button>
@@ -247,7 +247,7 @@ export default function OauthAppsPage() {
                 Cancel
               </button>
               <button onClick={() => void handleCreate()} disabled={creating || !name.trim()}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-teal-700 hover:bg-teal-600 text-white disabled:opacity-50 flex items-center gap-2">
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-700 hover:bg-brand-600 text-white disabled:opacity-50 flex items-center gap-2">
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                 Create app
               </button>
