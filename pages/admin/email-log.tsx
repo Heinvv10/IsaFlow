@@ -10,6 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Mail, AlertCircle, CheckCircle, Clock, Send } from 'lucide-react';
 import type { EmailLogItem, EmailLogStats } from '../api/admin/email-log';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ export default function EmailLogPage() {
   const [total, setTotal]   = useState(0);
   const [page, setPage]     = useState(1);
   const [loading, setLoading] = useState(true);
+  const afterResend = useTimeoutOnce();
   const [error, setError]   = useState<string | null>(null);
   const [stats, setStats]   = useState<EmailLogStats>({ total_sent: 0, total_failed: 0, success_rate: 100 });
 
@@ -126,10 +128,10 @@ export default function EmailLogPage() {
       const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ logId }), credentials: 'include' });
       await assertOk(res, 'Could not resend the email - try again');
       setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));
-      setTimeout(() => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
+      afterResend(() => setResendStatus({}), 4000);
     } catch {
       setResendStatus(prev => ({ ...prev, [logId]: 'err' }));
-      setTimeout(() => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
+      afterResend(() => setResendStatus({}), 4000);
     } finally {
       setResendingId(null);
     }
