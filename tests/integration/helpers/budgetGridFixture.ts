@@ -12,7 +12,6 @@
  * FY2027 = Jan 2026 - Feb 2027 (the label 2026 is skipped, as after a change of year end).
  */
 import type { Pool } from 'pg';
-import { Readable } from 'node:stream';
 import { request, response } from '../mfa-impersonation-postgres.helpers';
 import { signSession } from '../r-032-fake-gotrue.helpers';
 import { clearRateLimitCache } from '@/lib/rateLimit';
@@ -39,10 +38,10 @@ export interface JournalLine extends Dims { acct: string; debit?: number; credit
 type Q = Pick<Pool, 'query'>;
 
 /** The per-user budget rate buckets the grid routes charge. */
-export const BUDGET_RATE_BUCKETS = ['budget-import', 'budget-template', 'budget-save'] as const;
+export const BUDGET_RATE_BUCKETS = ['budget-import', 'budget-template', 'budget-save', 'budget-prior-actuals'] as const;
 
 /**
- * Removes `userIds`' budget rate buckets (preview, template download, save) from
+ * Removes `userIds`' budget rate buckets (preview, template download, save, prior actuals) from
  * rate_limit_counters and clears the limiter's in-process refusal cache. `cleanup()` calls it for
  * the fixture's members; a suite that makes users of its own calls it for those.
  */
@@ -192,14 +191,13 @@ export function budgetGridFixture(pool: Pool) {
 }
 
 /**
- * `req` with `body` both parsed (`req.body`, for a route that keeps Next's body parser) and as a
- * readable JSON stream with its Content-Length (for a route that reads its own body, budget-grid/save).
+ * `req` with `body` as Next's body parser would hand it over: parsed from its JSON (so a client's
+ * NaN or Infinity arrives as null, as it does over the wire), with a JSON content type.
  */
 export function withJsonBody<T extends object>(req: T, body: unknown): T {
   if (body === undefined) return req;
-  const json = Buffer.from(JSON.stringify(body));
-  const headers = { ...(req as { headers?: Record<string, string> }).headers, 'content-type': 'application/json', 'content-length': String(json.length) };
-  return Object.assign(Readable.from([json]), req, { body, headers }) as unknown as T;
+  const headers = { ...(req as { headers?: Record<string, string> }).headers, 'content-type': 'application/json' };
+  return Object.assign(req, { body: JSON.parse(JSON.stringify(body)) as unknown, headers });
 }
 
 /** The twelve 'YYYY-MM' months from `start` ('YYYY-MM'), `count` of them. */

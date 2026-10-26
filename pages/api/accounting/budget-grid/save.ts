@@ -8,9 +8,10 @@
  * version, a month outside its year, a grain clash), 404 for another company's version, 409
  * BUDGET_VERSION_LOCKED / BUDGET_VERSION_STALE (with `currentUpdatedAt` and `status`). Every
  * refusal leaves the version, its amounts and its token as they were. The Excel import commits here.
- * The body is read before the transaction opens: at most 18 MB (413); within 15 s (up to 64 KB),
- * 30 s (up to 1 MB) or 290 s, no pause over 10 s, and a large body at 16 KB/s or more after 10 s
- * (400 REQUEST_BODY_TIMEOUT); at most MAX_SAVE_CELLS cells.
+ * Next's own body parser reads the JSON (at most 4 MB: 413 past it); one request carries at most
+ * MAX_SAVE_CELLS (20 000) cells, so a bigger commit (an import of up to MAX_IMPORT_CELLS) is
+ * CHAINED by the client, each chunk sent with the token the previous save returned. Each save is
+ * charged to the user's bucket first (120 a minute; 429 with Retry-After past it).
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -23,24 +24,13 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { BudgetVersionStaleError, MAX_SAVE_CELLS, saveCells } from '@/modules/accounting/services/budgets/gridSave';
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
-import { JsonBodyError, respondBodyError, takeJsonBody, withBodyFirst, type BodyLimits } from '@/lib/readJsonBody';
-
-// The route reads the body itself (withBodyFirst, before withAuth opens the transaction, for a
-// CSRF-checked caller with a signed session): Next's parser would buffer and parse it for any
-// caller, and withErrorHandler would log it (round-2 SEC2-M2, M3; round-3 slow-body hold).
-export const config = { api: { bodyParser: false } };
 
 /**
- * MAX_SAVE_CELLS (100 000) cells of compact JSON are at most ~17.2 MB (172 bytes for the widest
- * cell), so 18 MB, the same as one user's early-read budget. 290 s in all for a large body, just
- * under Node's 300 s request timeout. A 512 kbit/s ADSL line really carries ~54 000 B/s, so in
- * 290 s it delivers ~15.6 MB, and the worst 17.2 MB commit (~318 s) does NOT fit: a commit over
- * about 14 MB on such a line must be split by the client (PR-C: the grid chains saves, each sent
- * with the token the previous one returned). A normal save is a few KB: readRawBody's tiny tier,
- * 15 s. 10 s idle tolerates a weak-LTE stall. What a slow sender holds meanwhile is only the bytes
- * it has sent (readJsonBody's lanes).
+ * Next's body parser, like every other route (it reads before withAuth, so it never holds a pooled
+ * connection). 4 MB holds MAX_SAVE_CELLS of the widest valid cell (~172 bytes each, ~3.4 MB), pinned
+ * by tests/unit/api/budgetGridSaveLimits.test.ts.
  */
-export const SAVE_BODY_LIMITS: BodyLimits = { maxBytes: 18 * 1048576, totalMs: 290_000, idleMs: 10_000 };
+export const config = { api: { bodyParser: { sizeLimit: '4mb' } } };
 
 const SaveSchema = z.object({
   versionId: UUID,
@@ -62,14 +52,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  let body: unknown;
-  try {
-    body = await takeJsonBody(req);
-  } catch (err) {
-    if (!(err instanceof JsonBodyError)) throw err;
-    return respondBodyError(res, err);
+  // 120 saves a minute is two a second, sustained: well above a person editing the grid or a chained import.
+  if (!(await checkRateLimit(`budget-save:${userId}`, { max: 120, windowSecs: 60 }))) {
+    res.setHeader('Retry-After', '60');
+    return apiResponse.tooManyRequests(res, 'Too many budget saves; wait a minute and try again.');
   }
-  const parsed = SaveSchema.safeParse(body);
+  const parsed = SaveSchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   try {
     return apiResponse.success(res, await saveCells(companyId, userId, parsed.data));
@@ -83,15 +71,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-/**
- * Charged per user before the body is read: 120 saves a minute is two a second, sustained, well above
- * a person editing the grid (the page saves on blur / every few seconds), and caps what a script can
- * make the server read at 120 x 18 MB a minute per user.
- */
-const SAVE_RATE = {
-  charge: (userId: string) => checkRateLimit(`budget-save:${userId}`, { max: 120, windowSecs: 60 }),
-  retryAfterSecs: 60,
-  message: 'Too many budget saves; wait a minute and try again.',
-};
-
-export default withBodyFirst(SAVE_BODY_LIMITS, withAuth(withErrorHandler(withCsrf(withWriteAccess(handler)))), { rate: SAVE_RATE });
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

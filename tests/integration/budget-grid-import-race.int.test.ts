@@ -4,12 +4,15 @@
  * statement (one snapshot), so a save between reading the version row and reading the cells shows
  * as "saved since you downloaded" (a warning), not as a `_base` that contradicts the version at
  * the same token (a 400). The window is opened by wrapping `@/lib/neon`'s sql and saving through a
- * separate pool right after the version row is read.
+ * separate pool right after the version row is read. Round 9: the version's status comes from that
+ * statement too, so a status move in the same window never pairs one state's status with another's
+ * token.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import templateRoute from '../../pages/api/accounting/budget-grid/template';
 import previewRoute from '../../pages/api/accounting/budget-grid/import-preview';
+import gridRoute from '../../pages/api/accounting/budget-grid/index';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, monthsFrom, type GridCo } from './helpers/budgetGridFixture';
 import { downloadTemplate, uploadPreview } from './helpers/budgetImportFixture';
@@ -61,5 +64,18 @@ describe('VER-L2: a save during the preview\'s read', () => {
     const p = r.body.data as unknown as { changes: unknown[]; warnings: Array<{ message: string }> };
     expect(p.changes).toEqual([]);
     expect(p.warnings.map((w) => w.message).join(' ')).toMatch(/1 cell .*changed since you downloaded/i);
+  });
+
+  it('round 9: the read model\'s status and token come from one statement', async () => {
+    const v = await fx.version(A, { name: 'Race status' });
+    hooks.afterVersionRead = async () => {
+      await pool.query(`UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`, [v, A.user]);
+    };
+    const r = await fx.call(gridRoute, '/api/accounting/budget-grid', A.owner, 'GET', { version_id: v });
+    expect(hooks.fired).toBe(2);
+    expect(r.status).toBe(200);
+    const m = r.body.data as unknown as { updatedAt: string; version: { status: string; updatedAt: string } };
+    const now = (await pool.query(`SELECT status, to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') t FROM budget_versions WHERE id = $1`, [v])).rows[0];
+    expect({ status: m.version.status, token: m.updatedAt, versionToken: m.version.updatedAt }).toEqual({ status: now.status, token: now.t, versionToken: now.t });
   });
 });

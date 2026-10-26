@@ -202,7 +202,7 @@ describe('budgetService against the real budget_month_amounts table', async () =
         f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 24000, notes: 'carried' }, f.userId,
       );
       const copied = await copyBudgets(f.companyId, FY, FY + 1, f.userId);
-      expect(copied).toBe(1);
+      expect(copied).toEqual({ copied: 1, skipped: 0 });
 
       const next = await getBudgets(f.companyId, FY + 1);
       expect(next).toHaveLength(1);
@@ -210,7 +210,7 @@ describe('budgetService against the real budget_month_amounts table', async () =
       expect(next[0]!.months.map(m => m.amount)).toEqual((await getBudgets(f.companyId, FY))[0]!.months.map(m => m.amount));
 
       // Re-running the copy must not create a second row for the same account or month.
-      expect(await copyBudgets(f.companyId, FY, FY + 1, f.userId)).toBe(0);
+      expect(await copyBudgets(f.companyId, FY, FY + 1, f.userId)).toEqual({ copied: 0, skipped: 0 });
       expect(await getBudgets(f.companyId, FY + 1)).toHaveLength(1);
 
       await deleteBudget(f.companyId, f.expenseAccountId, FY + 1, f.userId);

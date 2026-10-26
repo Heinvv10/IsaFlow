@@ -19,7 +19,7 @@
  * budgeted month, never on a month the source left blank.
  */
 import { sql, type DbRow } from '@/lib/neon';
-import { isHeaderSql } from '../core/budgetAccount';
+import { isHeaderSql } from './headerSql';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { requireFiscalYear } from '../gl/fiscalYearRegistry';
 import { toBudgetYearInfo } from '../core/budgetYears';

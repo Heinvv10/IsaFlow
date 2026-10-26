@@ -22,6 +22,7 @@ import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { copyVersion, createVersion, getVersion, parseVersionInput, setPrimary, type VersionActor } from './budgetVersions';
 import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
 import { inputError } from './gridErrors';
+import { MAX_IMPORT_CELLS } from './gridSaveValidate';
 import { ROUNDING_UNITS, type RoundingUnit } from './grid/cents';
 import { uplift } from './grid/spread';
 import type { PriorGrain } from './priorActuals';
@@ -153,6 +154,10 @@ export async function seedVersion(companyId: string, actor: VersionActor, input:
   const wholeYear = input.makePrimary || (source.type === 'version' && source.upliftPct === 0);
   const sourceYear = await lockSeedVersions(companyId, source.type === 'version' ? source.versionId : null, wholeYear ? input.fiscalYear : null);
   const p = await plan(companyId, input, sourceYear);
+  // One seed holds what one import may (the grid, the template and a chained commit are sized to it).
+  if (p.cells && p.cells.length > MAX_IMPORT_CELLS) {
+    throw inputError(`This seed would create ${p.cells.length} cells, more than the ${MAX_IMPORT_CELLS} one budget version is built for; seed a dimension grain with fewer members, or leave out accounts with no activity`);
+  }
   try {
     return await withSavepoint('budget_grid_seed', () => write(companyId, actor, input, p, name, kind));
   } catch (err) {

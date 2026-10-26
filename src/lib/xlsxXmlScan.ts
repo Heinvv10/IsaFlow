@@ -13,7 +13,8 @@
  * left to the parser, which `readerInput` makes stop at its first error: the normalised zip is fed
  * in READ_CHUNK_BYTES pieces, and ExcelJS throws a parser error after each piece it parsed.
  * `readNormalised` turns anything the parser throws into SpreadsheetMalformedError with a neutral
- * message; the parser's own text, which echoes the upload, is logged, never answered.
+ * message; only the error's class and line:column are logged, never its text (which can quote the
+ * upload).
  */
 import { Readable } from 'node:stream';
 import { log } from './logger';
@@ -172,7 +173,9 @@ export async function readNormalised<T>(read: () => Promise<T>): Promise<T> {
     return await read();
   } catch (err) {
     if (err instanceof SpreadsheetRefusedError) throw err;
-    log.warn('Spreadsheet refused: the parser failed on it', { error: err instanceof Error ? `${err.name}: ${err.message.slice(0, 200)}` : String(err).slice(0, 200) }, 'spreadsheet');
+    // The error's class and the parser's line:column only: its message can quote the upload.
+    const position = err instanceof Error ? (/^(\d+:\d+):/.exec(err.message)?.[1] ?? null) : null;
+    log.warn('Spreadsheet refused: the parser failed on it', { errorClass: err instanceof Error ? err.name : typeof err, position }, 'spreadsheet');
     throw new SpreadsheetMalformedError('This workbook could not be read: it is damaged or was not written by a spreadsheet program. Open it in Excel, save it again, and upload it.');
   }
 }

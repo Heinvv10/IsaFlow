@@ -1,9 +1,8 @@
 /**
  * Budget-grid Excel round-trip plumbing (budgets P2 PR-B, T9): download the real template through
  * its route, edit the workbook the way a user would in Excel (ExcelJS, independent of the builder
- * under test), upload it to the real import-preview route as multipart, and a zip bomb.
+ * under test), upload it to the real import-preview route (JSON, the file as base64), and a zip bomb.
  */
-import { Readable } from 'node:stream';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { response } from '../mfa-impersonation-postgres.helpers';
@@ -11,7 +10,6 @@ import type { SetupUser } from './onboardingSetupFixture';
 import type { RouteOut } from './budgetGridFixture';
 
 const CSRF = 'disposable-postgres-workflow-csrf-0123456789';
-const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 type Route = (req: never, res: never) => Promise<unknown>;
 
 function cookieHeaders(u: SetupUser) {
@@ -33,48 +31,22 @@ export async function downloadTemplate(route: unknown, u: SetupUser, query: Reco
   };
 }
 
-/** One multipart part: a field, or a file (an .xlsx by type). */
-export type Part = { field: string; value: string } | { file: string; content: Buffer };
-
-/** POST multipart `file` (+ `versionId`) to import-preview as `u`. */
-export async function uploadPreview(route: unknown, u: SetupUser, versionId: string, file: Buffer): Promise<RouteOut> {
-  return uploadParts(route, u, [{ field: 'versionId', value: versionId }, { file: 'file', content: file }]);
+/** POST the file (as base64 JSON, the route's shape) and `versionId` to import-preview as `u`; `extra` is merged into the body. */
+export async function uploadPreview(route: unknown, u: SetupUser, versionId: string, file: Buffer, extra: Record<string, unknown> = {}): Promise<RouteOut> {
+  return postPreview(route, u, { versionId, fileName: 'budget.xlsx', fileData: file.toString('base64'), ...extra });
 }
 
-const BOUNDARY = '----budgetImportFixture';
-
-/** The multipart body of `parts`. */
-export function multipartBody(parts: readonly Part[]): Buffer {
-  return Buffer.concat([
-    ...parts.flatMap((p) => ('field' in p
-      ? [Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="${p.field}"\r\n\r\n${p.value}\r\n`)]
-      : [Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="${p.file}"; filename="budget.xlsx"\r\nContent-Type: ${XLSX_MIME}\r\n\r\n`),
-        p.content, Buffer.from('\r\n')])),
-    Buffer.from(`--${BOUNDARY}--\r\n`),
-  ]);
-}
-
-/** POST any multipart parts to import-preview as `u`. */
-export async function uploadParts(route: unknown, u: SetupUser, parts: readonly Part[]): Promise<RouteOut> {
-  const body = multipartBody(parts);
-  return uploadStream(route, u, Readable.from([body]), body.length);
-}
-
-/** POST a multipart body that arrives as `stream` (a slow client: yield, then wait) to import-preview as `u`. */
-export async function uploadStream(route: unknown, u: SetupUser, stream: Readable, length: number, opts: { csrf?: boolean } = {}): Promise<RouteOut> {
+/** POST any JSON body to import-preview as `u` (CSRF header and cookies as a browser sends them). */
+export async function postPreview(route: unknown, u: SetupUser, body: unknown): Promise<RouteOut & { headers: Map<string, unknown> }> {
   const { cookies, cookie } = cookieHeaders(u);
-  const req = stream as unknown as Record<string, unknown>;
-  Object.assign(req, {
-    method: 'POST', url: '/api/accounting/budget-grid/import-preview', cookies, query: {},
-    headers: {
-      'content-type': `multipart/form-data; boundary=${BOUNDARY}`, 'content-length': String(length), cookie,
-      ...(opts.csrf === false ? {} : { 'x-csrf-token': CSRF }),
-    },
+  const req = {
+    method: 'POST', url: '/api/accounting/budget-grid/import-preview', cookies, query: {}, body,
+    headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': CSRF },
     socket: { remoteAddress: '127.0.0.92' },
-  });
+  };
   const out = response();
   await (route as Route)(req as never, out.res as never);
-  return { status: out.state.statusCode, body: (out.state.body ?? {}) as RouteOut['body'] };
+  return { status: out.state.statusCode, body: (out.state.body ?? {}) as RouteOut['body'], headers: out.headers };
 }
 
 /** Load, edit, write back: what a user does in Excel. */

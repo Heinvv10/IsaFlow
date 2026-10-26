@@ -2,7 +2,9 @@
  * The request-body scrubber for error logs (api-error-handler). Credentials are
  * redacted; uploaded files and ID numbers are replaced by a size marker at any
  * depth, so a logged body never carries a certificate, an ID scan or an ID
- * number (onboarding complete-setup, company-directors, company-documents).
+ * number (onboarding complete-setup, company-directors, company-documents). An
+ * array of more than MAX_LOGGED_ITEMS is logged as its count: a bulk body (a
+ * 20 000-cell budget save, ~3.4 MB) is never written to the request log whole.
  */
 
 const SENSITIVE_KEYS = new Set([
@@ -40,11 +42,13 @@ function holdsFiles(value: unknown, depth = 0): boolean {
 const omitted = (value: unknown) => (typeof value === 'string' ? `[omitted: ${value.length} chars]`
   : Array.isArray(value) ? `[omitted: ${value.length} items]` : '[omitted]');
 const present = (value: unknown) => value !== null && value !== undefined && value !== '';
+/** Longer arrays are logged as `[omitted: N items]`. */
+const MAX_LOGGED_ITEMS = 50;
 
 export function sanitizeRequestBody(body: unknown, depth = 0): unknown {
   if (!body || typeof body !== 'object') return body;
   if (depth > 8) return '[omitted: nested too deep]';
-  if (Array.isArray(body)) return body.map((v) => sanitizeRequestBody(v, depth + 1));
+  if (Array.isArray(body)) return body.length > MAX_LOGGED_ITEMS ? omitted(body) : body.map((v) => sanitizeRequestBody(v, depth + 1));
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
     if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';

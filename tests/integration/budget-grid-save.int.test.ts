@@ -254,9 +254,10 @@ describe('POST /api/accounting/budget-grid/save', () => {
       expect(r.status, dump(r)).toBe(200);
       expect(data(r)).toEqual({ updatedAt: before, saved: 0, deleted: 0 });
     }
-    // A batch with one real change still writes, moves the token and audits.
+    // One real change still writes and audits; `saved` and the audit's upserts count rows changed (1), not cells sent (2).
     const r = await save(v, [cell(w.rent, m0!, 10), cell(w.rent, m1!, 3)]);
-    expect([r.status, data(r).saved, (await fx.audits(v)).length], dump(r)).toEqual([200, 2, 1]);
+    const audits = await fx.audits(v);
+    expect([r.status, data(r).saved, audits.length, audits[0]?.changes.metadata?.upserts], dump(r)).toEqual([200, 1, 1, '1']);
   });
 
   it('a no-op answers the token it verified, even if another writer moves the version right after its rollback', async () => {

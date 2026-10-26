@@ -14,15 +14,9 @@
  */
 import { sql } from '@/lib/neon';
 import { writeVersion } from '../budgets/budgetVersionScope';
+import { isHeaderSql } from '../budgets/headerSql';
 import { BudgetVersionError } from '../budgets/budgetVersionTypes';
 import { BudgetInputError } from './budgetMonths';
-
-/**
- * Decision 18's header test as a `sql` fragment: the `gl_accounts` row aliased `ga` is named as
- * `parent_account_id` by another account of its company, active or not (the leafAccountOptions rule).
- * Built per call, not at import, so a unit test's `vi.mock('@/lib/neon')` is never called while modules load.
- */
-export const isHeaderSql = () => sql`EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = ga.company_id AND ch.parent_account_id = ga.id)`;
 
 /** The account's code, or a BudgetInputError when the company may not budget it in `versionId`. */
 async function budgetAccountCode(companyId: string, glAccountId: string, versionId: string): Promise<string> {

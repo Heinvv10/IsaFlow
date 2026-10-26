@@ -13,7 +13,7 @@ import { loadPriorActuals, type PriorActuals } from '@/modules/accounting/servic
 import { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { budgetGridFixture, monthsFrom, type GridCo } from './helpers/budgetGridFixture';
+import { budgetGridFixture, clearBudgetRateCounters, monthsFrom, type GridCo } from './helpers/budgetGridFixture';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -191,6 +191,17 @@ describe('budget-grid prior actuals: input and tenants', () => {
     expect((await get(A, { fiscal_year: 'x', grain: 'company' })).status).toBe(400);
     expect((await get(A, { fiscal_year: '2027', grain: 'project' })).status).toBe(400);
     expect((await get(A, { fiscal_year: '1', grain: 'company' })).status).toBe(404);
+  });
+
+  it('a user whose prior-actuals bucket is full is 429 with Retry-After', async () => {
+    await pool.query(`INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 60, now())
+                      ON CONFLICT (key) DO UPDATE SET count = 60, window_start = now()`, [`budget-prior-actuals:${A.viewer.userId}`]);
+    try {
+      const r = await get(A, { fiscal_year: '2027' }, 'viewer');
+      expect([r.status, r.body.error?.code]).toEqual([429, 'RATE_LIMIT']);
+    } finally {
+      await clearBudgetRateCounters(pool, [A.viewer.userId]);
+    }
   });
 
   it('defaults to the company grain; a viewer may read', async () => {

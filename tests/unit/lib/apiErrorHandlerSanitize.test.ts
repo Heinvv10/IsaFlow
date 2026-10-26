@@ -119,3 +119,21 @@ describe('sanitizeBody — file payloads and ID numbers (onboarding complete-set
     expect((sanitizeBody({ data: deep }) as Record<string, unknown>).data).toBe('[omitted]');
   });
 });
+
+describe('sanitizeBody — long arrays', () => {
+  it('logs an array of more than 50 items as a count, at any depth; 50 or fewer are kept (and scrubbed)', () => {
+    const cell = (i: number) => ({ glAccountId: `acct-${i}`, amount: i, token: 't' });
+    const out = sanitizeBody({
+      versionId: 'v1',
+      cells: Array.from({ length: 51 }, (_, i) => cell(i)),
+      nested: { rows: Array.from({ length: 20_000 }, (_, i) => i) },
+      few: Array.from({ length: 50 }, (_, i) => cell(i)),
+    }) as Record<string, any>;
+    expect(out.versionId).toBe('v1');
+    expect(out.cells).toBe('[omitted: 51 items]');
+    expect(out.nested).toEqual({ rows: '[omitted: 20000 items]' });
+    expect(out.few).toHaveLength(50);
+    expect(out.few[0]).toEqual({ glAccountId: 'acct-0', amount: 0, token: '[REDACTED]' });
+    expect(sanitizeBody(Array.from({ length: 51 }, (_, i) => i))).toBe('[omitted: 51 items]');
+  });
+});

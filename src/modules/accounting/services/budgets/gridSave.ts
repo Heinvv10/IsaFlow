@@ -13,7 +13,7 @@
  * as its parent) or an inactive account unless that account already holds amounts in the version.
  */
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
-import { isHeaderSql } from '../core/budgetAccount';
+import { isHeaderSql } from './headerSql';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { getFiscalYear } from '../gl/fiscalYearRegistry';
 import { budgetMonthKeysInWindow } from '../reports/budgetPeriodWindow';
@@ -23,7 +23,7 @@ import { inputError, tokenSql } from './gridErrors';
 import { deleteCells, versionSum, writeCells } from './gridSaveWrite';
 import { accountWithTwoGrains, assertMonthsInYear, validateBatch, type SaveCell, type ValidatedBatch } from './gridSaveValidate';
 
-export { MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
+export { MAX_IMPORT_CELLS, MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
 
 export interface SaveCellsInput {
   versionId: string;
@@ -105,10 +105,11 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
   if (deleted === 0 && changed === 0) throw new NothingChanged();
   const sumAfter = await versionSum(companyId, versionId);
 
+  // `saved` and the audit count the rows the batch changed (updated or inserted), not the cells sent.
   await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {
-    upserts: String(batch.upserts.length), deletes: String(deleted), sumBefore, sumAfter, versionStatus: version.status,
+    upserts: String(changed), deletes: String(deleted), sumBefore, sumAfter, versionStatus: version.status,
   });
-  return { updatedAt: version.updatedAt, saved: batch.upserts.length, deleted };
+  return { updatedAt: version.updatedAt, saved: changed, deleted };
 }
 
 /**
@@ -138,8 +139,9 @@ async function takeVersion(companyId: string, versionId: string, expected: strin
 }
 
 /**
- * Every account must be a revenue or expense account of the company; an upserted one must also be
- * a leaf and active, unless it already holds amounts in this version (decision 18). Returns each
+ * Every account must be the company's. An upserted one must also be a revenue or expense account,
+ * and a leaf and active unless it already holds amounts in this version (decision 18); a cleared
+ * one need not (an account retyped since can still have its stale budget cleared). Returns each
  * account's "code name" label for messages.
  */
 async function checkAccounts(companyId: string, versionId: string, cells: SaveCell[], batch: ValidatedBatch): Promise<Map<string, string>> {
@@ -158,10 +160,13 @@ async function checkAccounts(companyId: string, versionId: string, cells: SaveCe
     if (r.account_code === null || r.account_code === undefined) throw inputError(`Account ${id} is not an account of this company`);
     const label = `${String(r.account_code)} ${String(r.account_name ?? '')}`.trim();
     labels.set(id, label);
+    // Only a cell WITH an amount must be on a revenue/expense account: a clear may remove the stale
+    // budget of an account retyped since.
+    if (!upserted.has(id)) continue;
     if (r.account_type !== 'revenue' && r.account_type !== 'expense') {
       throw inputError(`Account ${label} is not a revenue or expense account; budgets are set on revenue and expense accounts only`);
     }
-    if (!upserted.has(id) || r.holds) continue;
+    if (r.holds) continue;
     if (r.is_header) throw inputError(`Account ${label} is a header account: budget its sub-accounts instead`);
     if (!r.is_active) throw inputError(`Account ${label} is inactive: a new budget cannot be set on it`);
   }

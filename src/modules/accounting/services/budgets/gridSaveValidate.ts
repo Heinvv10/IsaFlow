@@ -1,6 +1,6 @@
 /**
  * The grid save's checks that need no database (spec §7.2 step 1): a non-empty batch of at most
- * 100 000 cells, each a 'YYYY-MM' month with a finite amount NUMERIC(15,2) holds, in cents (or null:
+ * MAX_SAVE_CELLS cells, each a 'YYYY-MM' month with a finite amount NUMERIC(15,2) holds, in cents (or null:
  * delete the cell), at most one dimension, no key twice, and one grain per account among the
  * upserts (decision 4). Every refusal is a 400 BudgetVersionError raised before anything is read
  * or written, so the version's token does not move.
@@ -27,15 +27,18 @@ export interface SaveCell {
 }
 
 /**
- * The largest batch, set by how long it holds the version row and the year registry (target ~10 s;
- * round-2 Q2). Measured 2026-10-26 on the integration cluster (velo-server at load 14-22; the box
- * is never idle), lock held from the compare-and-set to the commit, after gridSaveWrite's rewrite:
- * 100 000 cells insert 7.9-8.9 s, update 7.4-7.5 s, delete 2.7-3.8 s; 200 000 cells insert
- * 16.8 s, update 15.5 s. Per-row triggers (the lock check, dimension kinds, same company, six
- * FKs) are most of it, so the time grows linearly with the batch. The import template's row cap
- * is derived from this.
+ * The most cells ONE save request may carry (round-9 ruling). It keeps the body small enough for
+ * Next's own body parser (20 000 widest cells are ~3.4 MB of JSON; save.ts sets a 4 MB limit) and
+ * the version lock short: the lock time grows linearly with the batch (measured 2026-10-26 at box
+ * load 14-28: 100 000 cells held it 7.4-10.4 s, so 20 000 is ~2 s). A bigger commit (an Excel
+ * import) is CHAINED by the client: each chunk is sent with the token the previous save returned.
  */
-export const MAX_SAVE_CELLS = 100_000;
+export const MAX_SAVE_CELLS = 20_000;
+/**
+ * The most cells one whole IMPORT (and one wizard seed) may hold, across its chained saves: the
+ * template and import row caps are floor(MAX_IMPORT_CELLS / months), 8 333 rows at 12 months.
+ */
+export const MAX_IMPORT_CELLS = 100_000;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** gridSaveWrite's stand-in for "no dimension" when it matches cells: never a real id in a save. */
