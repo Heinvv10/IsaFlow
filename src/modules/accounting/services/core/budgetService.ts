@@ -30,7 +30,6 @@ import {
   auditBudgetWrite as auditWrite, lockVersionForWrite, readVersion, resolvePrimaryVersion, writeVersion,
 } from '../budgets/budgetVersionScope';
 import { BudgetVersionError } from '../budgets/budgetVersionTypes';
-import { als } from '@/lib/als';
 import { budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { BudgetInputError, resolveMonthAmounts, round2, type BudgetMonthAmount } from './budgetMonths';
 
@@ -157,7 +156,7 @@ export async function upsertBudget(
     SELECT account_code FROM gl_accounts WHERE id = ${input.glAccountId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (owned.length === 0) throw new BudgetInputError('Budget account does not belong to this company');
-  const versionId = await writeVersion(companyId, input.fiscalYear, input.versionId, userId);
+  const { id: versionId, isPrimary } = await writeVersion(companyId, input.fiscalYear, input.versionId, userId);
   // The version row is locked, so no other writer of it runs between this check and the write.
   const otherGrain = (await sql`
     SELECT 1 FROM budget_month_amounts
@@ -170,9 +169,10 @@ export async function upsertBudget(
       `Account ${String(owned[0]!.account_code)} is budgeted by dimension in this version; it cannot also have a company-level budget`);
   }
 
-  // The arbiter index is partial (WHERE gl_account_id IS NOT NULL), so the
-  // predicate has to be repeated here or Postgres cannot pick it.
-  await sql`
+  // The notes header is per account and year, shared by every version: only a write of the
+  // PRIMARY version (the budget every report shows) sets it. The arbiter index is partial
+  // (WHERE gl_account_id IS NOT NULL), so the predicate has to be repeated here.
+  if (isPrimary) await sql`
     INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes, created_by)
     VALUES (${companyId}::UUID, ${budgetName(input.fiscalYear)}, ${input.fiscalYear},
             ${input.glAccountId}::UUID, ${input.notes ?? null}, ${userId})
@@ -200,12 +200,11 @@ export async function upsertBudget(
 }
 
 /**
- * Removes the account's header and its company-level months of the year in the PRIMARY version.
- * Other versions, dimension rows and months of other years are untouched.
+ * Removes the account's company-level months of the year in the PRIMARY version, and the year's
+ * notes header once no version of the year still has months for the account (the header is shared
+ * by every version). Other versions, dimension rows and months of other years are untouched.
  */
-export async function deleteBudget(
-  companyId: string, glAccountId: string, fiscalYear: number, userId: string = requestUserId(),
-): Promise<void> {
+export async function deleteBudget(companyId: string, glAccountId: string, fiscalYear: number, userId: string): Promise<void> {
   const year = await yearMonths(companyId, fiscalYear);
   const primary = await resolvePrimaryVersion(companyId, fiscalYear);
   if (primary) {
@@ -218,8 +217,11 @@ export async function deleteBudget(
     await auditWrite(companyId, userId, 'delete', primary, fiscalYear, { glAccountId });
   }
   await sql`
-    DELETE FROM accounting_budgets
-    WHERE company_id = ${companyId}::UUID AND gl_account_id = ${glAccountId}::UUID AND fiscal_year = ${fiscalYear}
+    DELETE FROM accounting_budgets h
+    WHERE h.company_id = ${companyId}::UUID AND h.gl_account_id = ${glAccountId}::UUID AND h.fiscal_year = ${fiscalYear}
+      AND NOT EXISTS (
+        SELECT 1 FROM budget_month_amounts bm JOIN budget_versions v ON v.id = bm.version_id AND v.company_id = bm.company_id
+        WHERE bm.company_id = ${companyId}::UUID AND bm.gl_account_id = ${glAccountId}::UUID AND v.fiscal_year = ${fiscalYear})
   `;
 }
 
@@ -241,7 +243,7 @@ export async function copyBudgets(
   const to = await yearMonths(companyId, toYear);
   const source = await resolvePrimaryVersion(companyId, fromYear);
   if (!source) return 0;
-  const target = await writeVersion(companyId, toYear, undefined, userId);
+  const { id: target } = await writeVersion(companyId, toYear, undefined, userId);
 
   // Dimensions travel with the amounts. An account the target already budgets at another grain is skipped.
   const copied = (await sql`
@@ -286,13 +288,6 @@ export async function copyBudgets(
   await auditWrite(companyId, userId, 'create', target, toYear, { copiedFromFiscalYear: String(fromYear), accounts: String(count) });
   log.info('Copied budgets', { fromYear, toYear, count }, 'accounting');
   return count;
-}
-
-/** The signed-in user of the request transaction: the actor a write is audited under. */
-function requestUserId(): string {
-  const userId = als.getStore()?.userId;
-  if (!userId) throw new Error('deleteBudget: no actor (pass userId outside a request)');
-  return userId;
 }
 
 function budgetName(fiscalYear: number): string {

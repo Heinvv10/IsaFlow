@@ -16,6 +16,8 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import { signSession } from './r-032-fake-gotrue.helpers';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
+import { als } from '@/lib/als';
+import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
@@ -110,6 +112,27 @@ describe('budget-versions routes', () => {
       .call(o.u, 'POST', { action: 'delete', glAccountId: o.account, fiscalYear: o.label });
     expect(del.status).toBe(409);
     expect((await move(o.u, prim, { action: 'unlock', reason: 'reopen for the next cases' })).status).toBe(200);
+  });
+
+  it('the save refuses a locked version BEFORE writing anything: the request transaction is still usable afterwards', async () => {
+    const x = await budgets.owner();
+    await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 });
+    const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
+    expect((await move(x.u, prim, { action: 'approve' })).status).toBe(200);
+    expect((await move(x.u, prim, { action: 'lock' })).status).toBe(200);
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await als.run({ client: c, companyId: x.u.homeCompanyId, userId: x.u.userId, claims: {} } as never, async () => {
+        await expect(upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 99, notes: 'no' }, x.u.userId))
+          .rejects.toMatchObject({ code: 'BUDGET_VERSION_LOCKED' });
+      });
+      // A statement that failed inside the transaction would make this one fail 25P02.
+      expect((await c.query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
   });
 
   it('a company-level save for an account budgeted by dimension is 400 BUDGET_GRAIN_CONFLICT naming the account', async () => {

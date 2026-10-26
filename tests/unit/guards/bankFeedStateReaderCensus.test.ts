@@ -149,7 +149,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/capture/evidenceAttachmentService.ts': "exempt: non-posted rows cannot carry provisional_je_id (trigger 675)",
   'src/modules/accounting/services/capture/provisionalEvidenceAttach.ts': "exempt: the peek is keyed on provisional_je_id, which a non-posted row cannot carry (trigger 675); it locks lines, no total or queue scope",
   'src/modules/accounting/services/capture/provisionalPostingService.ts': 'exempt: writer (Task 3)',
-  'src/modules/accounting/services/core/businessUnitService.ts': 'exempt: FK/usage guard before delete — must see every feed_state to prevent orphaned refs',
+  'src/modules/accounting/services/core/businessUnitUsage.ts': 'exempt: FK/usage guard before delete — must see every feed_state to prevent orphaned refs',
   'src/modules/accounting/services/core/costCentreUsageGuard.ts': 'exempt: FK/usage guard before delete/merge — must see every feed_state',
   'src/modules/accounting/services/core/documentQueryService.ts': 'filtered',
   'src/modules/accounting/services/core/globalSearchService.ts': 'filtered',

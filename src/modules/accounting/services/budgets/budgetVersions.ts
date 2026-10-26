@@ -82,8 +82,8 @@ async function insertDraft(
   companyId: string, fiscalYear: number, name: string, kind: BudgetVersionKind, basedOn: string | null, actor: VersionActor,
 ): Promise<string> {
   const rows = (await sql`
-    INSERT INTO budget_versions (company_id, fiscal_year, name, kind, status, based_on_version_id, created_by)
-    VALUES (${companyId}::UUID, ${fiscalYear}, ${name}, ${kind}, 'draft', ${basedOn}::UUID, ${actor.userId})
+    INSERT INTO budget_versions (company_id, fiscal_year, name, kind, based_on_version_id, created_by)
+    VALUES (${companyId}::UUID, ${fiscalYear}, ${name}, ${kind}, ${basedOn}::UUID, ${actor.userId})
     ON CONFLICT DO NOTHING
     RETURNING id
   `) as DbRow[];
@@ -112,6 +112,8 @@ export async function copyVersion(
   companyId: string, sourceId: string, input: { name: unknown; kind: unknown }, actor: VersionActor,
 ): Promise<BudgetVersion> {
   const { name, kind } = parseVersionInput(input.name, input.kind);
+  // The source's year is locked so a concurrent delete of the source cannot race the copy.
+  await lockVersionsOfYear(companyId, sourceId);
   const source = await getVersion(companyId, sourceId);
   const id = await insertDraft(companyId, source.fiscalYear, name, kind, source.id, actor);
   const copied = (await sql`
@@ -130,7 +132,7 @@ export async function copyVersion(
 }
 
 /** Locks every version of the year (bounded), so primary changes and deletes of one year serialise. */
-async function lockYear(companyId: string, versionId: string): Promise<{ fiscalYear: number }> {
+async function lockVersionsOfYear(companyId: string, versionId: string): Promise<{ fiscalYear: number }> {
   const v = await getVersion(companyId, versionId);
   await withRowLockBudget(
     () => sql`
@@ -145,7 +147,7 @@ async function lockYear(companyId: string, versionId: string): Promise<{ fiscalY
 /** Makes `versionId` its year's primary (owner or admin); the readers follow it. */
 export async function setPrimary(companyId: string, versionId: string, actor: VersionActor): Promise<BudgetVersion> {
   if (!APPROVERS.has(actor.role)) throw new BudgetVersionError('BUDGET_VERSION_FORBIDDEN', 'Only an owner or admin can change the primary budget');
-  const { fiscalYear } = await lockYear(companyId, versionId);
+  const { fiscalYear } = await lockVersionsOfYear(companyId, versionId);
   await sql`
     UPDATE budget_versions SET is_primary = false
      WHERE company_id = ${companyId}::UUID AND fiscal_year = ${fiscalYear} AND is_primary AND id <> ${versionId}::UUID
@@ -158,7 +160,12 @@ export async function setPrimary(companyId: string, versionId: string, actor: Ve
 
 /** Deletes a version that is neither primary nor locked; an approved one needs an owner or admin. */
 export async function deleteVersion(companyId: string, versionId: string, actor: VersionActor): Promise<void> {
-  await lockYear(companyId, versionId);
+  // A writer who may never delete an approved version is refused before taking the year's locks.
+  const seen = await getVersion(companyId, versionId);
+  if (seen.status !== 'draft' && !APPROVERS.has(actor.role)) {
+    throw new BudgetVersionError('BUDGET_VERSION_FORBIDDEN', 'Only an owner or admin can delete an approved budget version');
+  }
+  await lockVersionsOfYear(companyId, versionId);
   const v = await getVersion(companyId, versionId);
   if (v.isPrimary) throw new BudgetVersionError('BUDGET_VERSION_STATE', 'The primary budget cannot be deleted; make another version primary first');
   if (v.status === 'locked') throw new BudgetVersionError('BUDGET_VERSION_LOCKED', 'A locked budget version cannot be deleted');

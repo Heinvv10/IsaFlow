@@ -65,17 +65,24 @@ export class BudgetVersionError extends Error {
 }
 
 /**
- * A database refusal of migration 947 as a BudgetVersionError: BV001 locked, BV002 an illegal
- * move, 23P01 on budget_month_amounts_one_grain a grain clash. Anything else is rethrown as is.
+ * A database refusal of migration 947 as a BudgetVersionError (BV001 locked, BV002 an illegal
+ * move, 23P01 on budget_month_amounts_one_grain a grain clash), or null for any other error.
+ * The services refuse these before writing; this maps the trigger/constraint backstop (a race
+ * past the service check) onto the same contract codes instead of a 500.
  */
-export function mapBudgetDbError(err: unknown): never {
+export function budgetDbRefusal(err: unknown): BudgetVersionError | null {
   const e = err as { code?: string; constraint?: string } | null;
-  if (e?.code === 'BV001') throw new BudgetVersionError('BUDGET_VERSION_LOCKED', 'This budget version is locked');
-  if (e?.code === 'BV002') throw new BudgetVersionError('BUDGET_VERSION_STATE', 'That change is not allowed for this budget version');
+  if (e?.code === 'BV001') return new BudgetVersionError('BUDGET_VERSION_LOCKED', 'This budget version is locked');
+  if (e?.code === 'BV002') return new BudgetVersionError('BUDGET_VERSION_STATE', 'That change is not allowed for this budget version');
   if (e?.code === '23P01' && e.constraint === 'budget_month_amounts_one_grain') {
-    throw new BudgetVersionError('BUDGET_GRAIN_CONFLICT', 'An account is budgeted at one level per version: company level or one dimension');
+    return new BudgetVersionError('BUDGET_GRAIN_CONFLICT', 'An account is budgeted at one level per version: company level or one dimension');
   }
-  throw err;
+  return null;
+}
+
+/** `budgetDbRefusal`, thrown; anything else is rethrown as is. */
+export function mapBudgetDbError(err: unknown): never {
+  throw budgetDbRefusal(err) ?? err;
 }
 
 const text = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));

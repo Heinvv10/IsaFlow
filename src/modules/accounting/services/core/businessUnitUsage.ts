@@ -3,7 +3,7 @@
  * (300-line rule). Every count is company-scoped.
  */
 import { sql } from '@/lib/neon';
-import { BusinessUnitActionError } from './businessUnitService';
+import { BusinessUnitActionError } from './businessUnitErrors';
 
 /**
  * Throws a counted refusal when anything still carries the BU. The document and
