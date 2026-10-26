@@ -21,6 +21,7 @@ export default defineConfig({
       // see tests/stubs/nextFontGoogle.ts — next/font is a build-time
       // transform vitest does not apply, so the real export is not callable
       'next/font/google': path.resolve(__dirname, './tests/stubs/nextFontGoogle.ts'),
+      'next/font/local': path.resolve(__dirname, './tests/stubs/nextFontLocal.ts'),
       '@': path.resolve(__dirname, './src'),
     },
   },

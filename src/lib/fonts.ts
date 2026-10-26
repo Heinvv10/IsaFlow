@@ -1,4 +1,4 @@
-import { DM_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 
 /**
  * The app's typeface, instantiated once.
@@ -14,4 +14,17 @@ import { DM_Sans } from 'next/font/google';
  * Times New Roman. Applied at the _app root instead, so a page gets the font
  * whether or not it uses the app chrome.
  */
-export const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-dm-sans', display: 'swap' });
+
+/**
+ * Self-hosted: the Google-hosted loader fetches the font over the network at BUILD time, and a flaky
+ * network failed the CI build and the deploy more than once. The file is the one Google serves for DM Sans (latin
+ * subset, variable wght 100-1000, OFL; src/assets/fonts/OFL-DMSans.txt), so rendering is unchanged.
+ */
+export const dmSans = localFont({
+  src: '../assets/fonts/DMSans-latin-variable.woff2',
+  weight: '100 1000',
+  style: 'normal',
+  variable: '--font-dm-sans',
+  display: 'swap',
+  adjustFontFallback: 'Arial',
+});
