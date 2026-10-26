@@ -4,12 +4,13 @@
  *
  * The bounds hold while reading: a declared Content-Length over the cap is refused before a byte
  * is read, a stream that passes the cap at the chunk that crosses it, a body that pauses longer
- * than `idleMs` or takes longer than `totalMs` when the bound runs out, and a LARGE body that
- * arrives slower than MIN_BYTES_PER_SEC on average once MIN_RATE_AFTER_MS have passed (so a
- * client cannot hold a large in-flight budget by trickling). An optional `meter` sees every chunk
- * before it is kept and may refuse it (the early-read byte budgets). On a refusal the reader's
- * listeners come off and the request is resumed, so the rest drains unbuffered and the connection
- * is free again; only 'data' is ever listened to, never 'readable' (with a 'readable' listener on,
+ * than `idleMs` or takes longer than `totalMs` when the bound runs out, and a request already
+ * aborted at once. There is deliberately no minimum transfer rate: what a slow sender holds is
+ * bounded by the bytes it has actually sent (the meter) and by these two timers, and a rate rule
+ * refused real slow uplinks (ADSL / weak LTE, 64-128 KB/s; round-6 review). An optional `meter`
+ * sees every chunk before it is kept and may refuse it (the early-read byte budgets). On a refusal
+ * the reader's listeners come off and the request is resumed, so the rest drains unbuffered and the
+ * connection is free again; only 'data' is ever listened to, never 'readable' (with a 'readable' listener on,
  * or removed afterwards, resume() does nothing and an over-cap upload stalled the socket).
  */
 import type { IncomingMessage } from 'http';
@@ -24,17 +25,6 @@ export interface BodyLimits {
   /** No gap between two chunks may be longer than this. */
   idleMs: number;
 }
-
-/**
- * The minimum average rate for a large body, measured from the first byte awaited. A slow real
- * uplink is about 2 Mbit/s (250 KB/s), and a full 100 000-cell save (~17.2 MB) takes ~70 s on it;
- * half that rate is required, so such a client passes with room to spare, while one that sends a
- * few bytes a second to keep a large declared upload in flight is refused within seconds. Bodies
- * under MIN_RATE_FROM_BYTES (declared or received) are bounded by the idle and total limits only.
- */
-export const MIN_BYTES_PER_SEC = 128 * 1024;
-export const MIN_RATE_AFTER_MS = 2000;
-export const MIN_RATE_FROM_BYTES = 1048576;
 
 export type BodyErrorCode =
   | 'REQUEST_BODY_TOO_LARGE' | 'REQUEST_BODY_TIMEOUT' | 'REQUEST_BODY_INVALID' | 'REQUEST_BODY_NOT_READ'
@@ -74,12 +64,16 @@ export function readRawBody(req: IncomingMessage, limits: BodyLimits, meter?: Bo
       reject(tooLarge(maxBytes));
       return;
     }
-    const started = Date.now();
-    const large = Number.isFinite(declared) && declared >= MIN_RATE_FROM_BYTES;
+    // A client that has already gone emits nothing more: refuse now, not when the idle timer fires
+    // (until then the request would hold its read slot).
+    if (req.destroyed || (req as { aborted?: boolean }).aborted) {
+      reject(new JsonBodyError(400, 'REQUEST_BODY_INVALID', 'The request was aborted before its body arrived'));
+      return;
+    }
     const chunks: Buffer[] = [];
     let size = 0;
     let idle: NodeJS.Timeout | undefined;
-    const slow = (timer: 'idle' | 'total' | 'rate') => {
+    const slow = (timer: 'idle' | 'total') => {
       log.debug('Request body timer fired', { url: req.url, timer, idleMs, totalMs, bytes: size }, 'API');
       return new JsonBodyError(400, 'REQUEST_BODY_TIMEOUT', 'The request body arrived too slowly; send it again');
     };
@@ -107,10 +101,6 @@ export function readRawBody(req: IncomingMessage, limits: BodyLimits, meter?: Bo
       const refused = meter?.(buf.length);
       if (refused) return fail(refused);
       chunks.push(buf);
-      const elapsed = Date.now() - started;
-      if ((large || size >= MIN_RATE_FROM_BYTES) && elapsed > MIN_RATE_AFTER_MS && size / (elapsed / 1000) < MIN_BYTES_PER_SEC) {
-        return fail(slow('rate'));
-      }
       armIdle();
     }
     function onEnd() {

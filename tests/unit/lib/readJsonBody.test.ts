@@ -62,34 +62,27 @@ describe('effectiveLimits: the test override', () => {
   });
 });
 
-
-describe('readRawBody: the minimum rate for a large body', () => {
-  /** `head` at once, then one byte every `gapMs` for `trickleMs`, then the end. */
-  function trickle(head: number, gapMs: number, trickleMs: number, declared: number): IncomingMessage {
-    const stream = Readable.from((async function* gen() {
-      yield Buffer.alloc(head, 0x20);
-      for (let t = 0; t < trickleMs; t += gapMs) { await sleep(gapMs); yield Buffer.from(' '); }
-    })());
-    return Object.assign(stream, { headers: { 'content-length': String(declared) } }) as unknown as IncomingMessage;
-  }
+describe('readRawBody: slow links and aborted requests', () => {
   const big = { maxBytes: 32 * 1048576, totalMs: 60_000, idleMs: 5_000 };
 
-  it('a large declared body that trickles under MIN_BYTES_PER_SEC is refused soon after MIN_RATE_AFTER_MS, before it ends', async () => {
-    const t0 = Date.now();
-    const out = await refusal(readRawBody(trickle(64 * 1024, 300, 6000, 4 * 1048576), big));
-    expect(out).toBe('400 REQUEST_BODY_TIMEOUT');
-    // Refused by the rate rule (~2.1 s), not by the end of the 6 s trickle or the 5 s idle bound.
-    expect(Date.now() - t0).toBeLessThan(4500);
-  }, 15000);
+  it('a 2 MB body sent at about 64 KB/s (ADSL / weak LTE uplink), after a 2.5 s pause before the first byte, is read whole', async () => {
+    const chunk = 64 * 1024;
+    const stream = Readable.from((async function* gen() {
+      await sleep(2500);
+      for (let i = 0; i < 32; i++) { if (i) await sleep(1000); yield Buffer.alloc(chunk, 0x20); }
+    })());
+    const req = Object.assign(stream, { headers: { 'content-length': String(32 * chunk) } }) as unknown as IncomingMessage;
+    expect((await readRawBody(req, big)).length).toBe(32 * chunk);
+  }, 60000);
 
-  it('a 4 MB body at about 250 KB/s (a slow 2 Mbit/s uplink) is read whole', async () => {
-    const chunk = 256 * 1024;
-    const stream = Readable.from((async function* gen() { for (let i = 0; i < 16; i++) { if (i) await sleep(1000); yield Buffer.alloc(chunk, 0x20); } })());
-    const req = Object.assign(stream, { headers: { 'content-length': String(16 * chunk) } }) as unknown as IncomingMessage;
-    expect((await readRawBody(req, big)).length).toBe(16 * chunk);
-  }, 30000);
-
-  it('a small body is never held to the rate', async () => {
-    expect((await readRawBody(trickle(10, 300, 3000, 20), big)).length).toBe(20);
-  }, 15000);
+  it('a request already aborted or destroyed is refused at once, not when the idle timer fires', async () => {
+    const patient = { maxBytes: 1024, totalMs: 60_000, idleMs: 60_000 };
+    const destroyed = Readable.from((async function* gen() { await sleep(60_000); yield Buffer.from('{}'); })());
+    destroyed.destroy();
+    const aborted = Object.assign(Readable.from((async function* gen() { await sleep(60_000); yield Buffer.from('{}'); })()), { aborted: true });
+    for (const stream of [destroyed, aborted]) {
+      const req = Object.assign(stream, { headers: {} }) as unknown as IncomingMessage;
+      expect(await refusal(readRawBody(req, patient))).toBe('400 REQUEST_BODY_INVALID');
+    }
+  }, 3000);
 });

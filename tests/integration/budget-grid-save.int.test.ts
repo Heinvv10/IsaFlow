@@ -265,11 +265,14 @@ describe('POST /api/accounting/budget-grid/save', () => {
     hooks.fired = 0;
     hooks.before = true;
     // Any read of the version's token after the savepoint rolled back: a concurrent rename lands first.
-    hooks.match = /^\s*SELECT \? AS token FROM budget_versions WHERE id = /;
+    // The no-op's token statement, whichever way it is built: the old re-read of the row, or the
+    // normalising of the verified token. The rename commits just before it runs.
+    hooks.match = /^\s*SELECT (\?|to_char\(\?::TIMESTAMPTZ[^)]*\)) AS token\b/;
     hooks.fn = async () => { await pool.query(`UPDATE budget_versions SET name = name || ' renamed' WHERE id = $1`, [v]); };
     const r = await save(v, [cell(w.sales, w.months[0]!, null)], w.u, expected.replace('T', ' ').replace('Z', '+00'));
     hooks.match = null;
     hooks.before = false;
+    expect(hooks.fired, 'the concurrent rename ran before the no-op answered').toBe(1);
     expect(r.status, dump(r)).toBe(200);
     expect(data(r)).toEqual({ updatedAt: expected, saved: 0, deleted: 0 });
   });
