@@ -21,16 +21,24 @@ const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclud
   cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
 }).split('\n').filter((f) => /\.tsx?$/.test(f) && !PENDING_OWNER.includes(f));
 
-/** Line numbers of `setTimeout(` calls whose handle is discarded and whose callback sets state. */
+/** The text of the call's argument list, from just after `(` to its balanced `)`. */
+function callArgs(src: string, open: number): string {
+  let depth = 1;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === '(') depth += 1;
+    else if (src[i] === ')' && (depth -= 1) === 0) return src.slice(open, i);
+  }
+  return src.slice(open);
+}
+
+/** Line numbers of `setTimeout(` / `window.setTimeout(` calls whose handle is discarded and whose callback sets state. */
 export function findBareStateTimers(source: string): number[] {
   const src = source.replace(/^[ \t]*\/\/.*$/gm, '');
   const hits: number[] = [];
-  for (const m of src.matchAll(/\bsetTimeout\(/g)) {
+  for (const m of src.matchAll(/(?:\b(?:window|globalThis)\.)?\bsetTimeout\(/g)) {
     const before = src.slice(0, m.index).trimEnd();
-    const prev = before.slice(-1);
-    const discarded = before === '' || ';{})>'.includes(prev) || /\belse$/.test(before);
-    if (!discarded) continue;
-    if (/^setTimeout\(\s*(?:\(\)\s*=>|function\s*\(\))\s*\{?\s*(?:[\w.]+\s*&&\s*)?set[A-Z]\w*\(/.test(src.slice(m.index, m.index! + 160))) {
+    const discarded = before === '' || ';{})>'.includes(before.slice(-1)) || /\belse$/.test(before);
+    if (discarded && /\bset[A-Z]\w*\(/.test(callArgs(src, m.index! + m[0].length))) {
       hits.push(src.slice(0, m.index).split('\n').length);
     }
   }
@@ -47,6 +55,10 @@ describe('no uncleared UI state timers', () => {
     expect(findBareStateTimers("  setTimeout(() => setCopied(false), 2000);")).toEqual([1]);
     expect(findBareStateTimers("if (ok) setTimeout(() => setMsg(''), 3000);")).toEqual([1]);
     expect(findBareStateTimers("onBlur={() => setTimeout(() => setOpen(false), 150)}")).toEqual([1]);
+    expect(findBareStateTimers("window.setTimeout(() => setCopied(false), 2000);")).toEqual([1]);
+    expect(findBareStateTimers("globalThis.setTimeout(() => setCopied(false), 2000);")).toEqual([1]);
+    expect(findBareStateTimers("setTimeout(() => { if (open) setOpen(false); }, 150);")).toEqual([1]);
+    expect(findBareStateTimers("setTimeout(() => (ok ? setA(1) : setB(2)), 150);")).toEqual([1]);
     expect(findBareStateTimers("x();\n// after a comment.\nsetTimeout(() => { setToast(null); }, 3000);")).toEqual([3]);
   });
 
@@ -54,6 +66,8 @@ describe('no uncleared UI state timers', () => {
     expect(findBareStateTimers("const t = setTimeout(() => setToast(null), 3500);")).toEqual([]);
     expect(findBareStateTimers("ref.current = setTimeout(() => setOpen(false), 150);")).toEqual([]);
     expect(findBareStateTimers("setTimeout(() => window.location.reload(), 500);")).toEqual([]);
+    expect(findBareStateTimers("const t = window.setTimeout(() => setX(1), 5);")).toEqual([]);
+    expect(findBareStateTimers("setTimeout(() => reload(), 5); setX(1);")).toEqual([]);
   });
 
   it('lists only files that still exist (a stale exemption is a failure)', () => {
