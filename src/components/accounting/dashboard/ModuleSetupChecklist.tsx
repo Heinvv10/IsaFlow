@@ -31,9 +31,8 @@ function ModuleSection({ module }: { module: SetupModuleProgress }) {
           <Chevron className="h-4 w-4 text-[var(--ff-text-tertiary)]" aria-hidden="true" />
           {module.label}
         </span>
-        <span
-          className={`text-xs font-semibold ${module.complete ? 'text-brand-600 dark:text-brand-400' : 'text-[var(--ff-text-secondary)]'}`}
-        >
+        <span className="flex items-center gap-1 text-xs font-semibold text-[var(--ff-text-secondary)]">
+          {module.complete && <CheckCircle2 className="h-3.5 w-3.5 text-brand-500" aria-hidden="true" />}
           {module.complete ? 'Complete' : `${module.doneCount}/${module.totalCount}`}
         </span>
       </button>
