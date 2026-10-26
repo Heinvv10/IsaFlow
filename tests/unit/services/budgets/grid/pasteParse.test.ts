@@ -105,6 +105,8 @@ describe('parseClipboard', () => {
 
   it('a quote in the middle of a field is data', () => {
     expect(parseClipboard('a"b\t1').rows[0]?.[0]).toMatchObject({ kind: 'error', raw: 'a"b' });
+    // Not a quoted "2" spliced into 1…3: that would read as 123.
+    expect(parseClipboard('1"2"3').rows[0]?.[0]).toMatchObject({ kind: 'error', raw: '1"2"3' });
   });
 
   it('keeps a last row that ends in a blank cell (no trailing newline)', () => {
