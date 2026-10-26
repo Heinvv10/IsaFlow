@@ -23,6 +23,12 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   reverseReconciledTransaction: vi.fn(),
 }));
+// The credit retry and the dry run's credit check have their own integration suite
+// (ap-supplier-void-after-refund-mcp-bulk); here lines reverse in order and the check passes.
+vi.mock('@/modules/accounting/services/bank/reverseLinesCreditLast', () => ({
+  reverseLinesCreditLast: async (ids: readonly string[], fn: (id: string) => Promise<unknown>) => { for (const id of ids) await fn(id); },
+  assertLinesKeepCredit: async () => {},
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationRangeService', () => ({
   findAllocatedInRange: vi.fn(),
   countAllocatedInRange: vi.fn(),

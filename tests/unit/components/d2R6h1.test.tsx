@@ -1,5 +1,6 @@
 // D2 round 6 h1: stale rows cleared after a failing reload (audit trail), a failed compliance run reports the server message
 // and clears its flag, and a 2xx convert-to-order without an id neither navigates nor claims the conversion failed.
+import { typeDate, dateFieldInputs } from '../helpers/dateFields';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -35,7 +36,7 @@ describe('audit trail: a failing reload clears the old rows', () => {
     vi.mocked(apiFetch).mockImplementation(async () => (++calls === 1 ? ok([row]) : bad400()));
     const { container } = render(<AuditTrailPage />);
     expect(await screen.findByText('JE-D2-STALE')).toBeTruthy();
-    fireEvent.change(container.querySelectorAll('input[type="date"]')[0]!, { target: { value: '2025-12-01' } });
+    typeDate(dateFieldInputs(container)[0]!, '2025-12-01');
     expect(await screen.findByText(MSG)).toBeTruthy();
     expect(screen.queryByText('JE-D2-STALE')).toBeNull();
   });

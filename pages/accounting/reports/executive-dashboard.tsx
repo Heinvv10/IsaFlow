@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
@@ -153,9 +154,8 @@ export default function ExecutiveDashboardPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2 gap-y-2">
               <DensityToggle density={density} onChange={setDensity} />
-              <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="ff-input text-sm" />
-              <span className="text-[var(--ff-text-secondary)]">to</span>
-              <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
+              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
+              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
             </div>
           </div>
           {densityError && (
