@@ -62,7 +62,13 @@ function prependHiddenEntries(real: Buffer, hidden: Buffer): Buffer {
 describe('xlsxBufferToCsv on hostile workbooks', () => {
   it('reads the entry jszip counted, not a local entry the central directory hides', async () => {
     const real = await workbook([['GOOD']]);
+    // The hidden zip carries its own workbook, rels and (empty) shared strings ahead of the sheet. ExcelJS's streaming
+    // reader needs the workbook model before it can emit a sheet; with the sheet alone it reads the sheet first, and
+    // about 1 run in 100 the stream ends before the real workbook.xml (stored last) arrives: "reading 'sheets'".
     const evil = new JSZip();
+    const realZip = await JSZip.loadAsync(real);
+    for (const path of ['xl/_rels/workbook.xml.rels', 'xl/workbook.xml']) evil.file(path, await realZip.file(path)!.async('string'));
+    evil.file('xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"/>');
     evil.file('xl/worksheets/sheet1.xml', sheetXml('<row r="1"><c r="A1" t="inlineStr"><is><t>EVIL</t></is></c></row>'));
     const hidden = await evil.generateAsync({ type: 'nodebuffer', compression: 'STORE' });
     const crafted = prependHiddenEntries(real, hidden);

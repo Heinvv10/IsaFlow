@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import {
   BankTxTable,
   type AllocType, type BankTx, type SelectOption, type RowSelection,
@@ -19,24 +20,19 @@ import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxMo
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
-import { Loader2, AlertCircle } from 'lucide-react';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
-import { BankTxLoading, BankTxEmpty } from '@/components/accounting/bank-transactions/BankTxListStates';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
-import { useBankColumnVisibility, useLlmResultPoll, useSeedRowSelections } from '@/components/accounting/bank-transactions/useBankTxPageEffects';
-import { BankTxTabs, BankTxPagination, BankTxBottomBar, type BankTxTab } from '@/components/accounting/bank-transactions/BankTxChrome';
 import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
+import { BankTxPagination, BankTxReviewBar } from '@/components/accounting/bank-transactions/BankTxPagination';
+import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-transactions/BankTxTabs';
+import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
+import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
+import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
+import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
 
-type Tab = BankTxTab;
 const PAGE_SIZE = 25;
-
-function tabToStatus(tab: Tab): string {
-  if (tab === 'new') return 'imported';
-  if (tab === 'excluded') return 'excluded';
-  return 'matched';
-}
 
 export default function BankTransactionsPage() {
   const router = useRouter();
@@ -85,13 +81,15 @@ export default function BankTransactionsPage() {
   const [allocType, setAllocType] = useState<'all' | 'account' | 'supplier' | 'customer' | 'transfer'>('all');
   const [hasSuggestion, setHasSuggestion] = useState<'all' | 'yes' | 'no'>('all');
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Selection / UI
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [rowSelections, setRowSelections] = useState<Record<string, RowSelection>>({});
   const [smartRunning, setSmartRunning] = useState(false);
   const [showBatchEdit, setShowBatchEdit] = useState(false);
   const [batchType, setBatchType] = useState<AllocType>('account');
   const [batchSearch, setBatchSearch] = useState('');
-  const { showCC, showBU, setShowCC, setShowBU } = useBankColumnVisibility();
+  const [showCC, setShowCC] = useState(false);
+  const [showBU, setShowBU] = useState(false);
   // Modal triggers
   const [splitTxId, setSplitTxId] = useState<string | null>(null);
   const [excludingTxId, setExcludingTxId] = useState<string | null>(null);
@@ -103,6 +101,16 @@ export default function BankTransactionsPage() {
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
   const [createEntityTxId, setCreateEntityTxId] = useState<string | null>(null);
   const [createEntityType, setCreateEntityType] = useState<AllocType | null>(null);
+  // Column visibility — company settings + localStorage override
+  useEffect(() => {
+    const readSetting = (key: string) => apiFetch(`/api/accounting/accounting-settings?key=${key}`).then(async r => { await assertOk(r, 'Could not load the column settings'); return r.json(); });
+    Promise.all([readSetting('enable_cost_centres'), readSetting('enable_business_units')]).then(([ccJson, buJson]) => {
+      const ccLocal = localStorage.getItem('isaflow_bank_showCC');
+      const buLocal = localStorage.getItem('isaflow_bank_showBU');
+      setShowCC(ccLocal !== null ? ccLocal !== 'false' : ccJson.data?.value === 'true');
+      setShowBU(buLocal !== null ? buLocal !== 'false' : buJson.data?.value === 'true');
+    }).catch(err => log.warn('Column settings unavailable, using defaults', { error: err }, 'bank-transactions'));
+  }, []);
   // Debounce search — 500ms
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -114,17 +122,8 @@ export default function BankTransactionsPage() {
     if (!selectedBank) { setIsLoading(false); setTransactions([]); setTotal(0); return; }
     setIsLoading(true); setError('');
     try {
-      const params = new URLSearchParams({ bank_account_id: selectedBank, status: tabToStatus(tab), limit: String(PAGE_SIZE), offset: String((page - 1) * PAGE_SIZE) });
-      if (fromDate) params.set('from_date', fromDate);
-      if (toDate) params.set('to_date', toDate);
-      if (fromAmount) params.set('from_amount', fromAmount);
-      if (toAmount) params.set('to_amount', toAmount);
-      if (debouncedSearch) params.set('search', debouncedSearch);
-      if (sortOrder !== 'desc') params.set('sort_order', sortOrder);
-      if (allocationFilter !== 'all') params.set('allocation_filter', allocationFilter);
-      if (txType !== 'all') params.set('tx_type', txType);
-      if (allocType !== 'all') params.set('alloc_type', allocType);
-      if (hasSuggestion !== 'all') params.set('has_suggestion', hasSuggestion);
+      const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
+        search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion });
       const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
       const json = await res.json();
       const data = json.data || json;
@@ -135,10 +134,24 @@ export default function BankTransactionsPage() {
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
 
+  // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, loadTransactions);
+
   const relinkFailed = useRelinkTransfers(selectedBank);
 
-  useSeedRowSelections(transactions, rowSelections, setRowSelections);
+  // ---- Seed rowSelections from DB suggestion fields ----
+  useEffect(() => {
+    if (transactions.length === 0) return;
+    const initial = suggestedRowSelections(transactions, rowSelections);
+    if (Object.keys(initial).length > 0) {
+      setRowSelections(prev => {
+        const merged = { ...prev };
+        for (const [id, sel] of Object.entries(initial)) { if (!merged[id]?.entityId) merged[id] = sel; }
+        return merged;
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions]);
 
   // ---- Reset filters when bank or tab changes ----
   useEffect(() => {
@@ -185,9 +198,9 @@ export default function BankTransactionsPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} tab={tab} total={total} onSelectBank={setSelectedBank} />
+        <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} tab={tab} total={total} onSelectBank={setSelectedBank} onAccountsChanged={refreshBankAccounts} />
 
-        <BankTxTabs tab={tab} setTab={setTab} />
+        <BankTxTabs tab={tab} onTab={setTab} />
 
         <BankTxFilters
           tab={tab} page={page} total={total} pageSize={PAGE_SIZE} selectedCount={selectedIds.size}
@@ -229,51 +242,35 @@ export default function BankTransactionsPage() {
         <div className="px-4 py-2">
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
-          {relinkFailed && (
-            <div className="flex items-center gap-2 text-xs text-amber-400 py-1 pb-2">
-              <AlertCircle className="h-3 w-3" /> Transfer re-linking failed for this account — counterpart transfers may still show as unallocated.
-            </div>
-          )}
-          {aiPolling > 0 && (
-            <div className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] py-1 pb-2">
-              <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
-            </div>
-          )}
-          {/* One container for every state: its height is held while the rows load, so the swap shifts nothing. */}
-          <div className="min-h-[480px]">
-            {isLoading ? (
-              <BankTxLoading />
-            ) : error ? (
-              <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
-            ) : transactions.length === 0 ? (
-              <BankTxEmpty tab={tab} />
-            ) : (
-              <BankTxTable
-                transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
-                customers={customers} transferTargets={transferTargets}
-                cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
-                showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
-                allSelected={allSelected} tab={tab}
-                onToggleSelect={toggleSelect}
-                onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
-                onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
-                onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
-                onAccept={actions.handleAccept} onExclude={actions.handleExclude}
-                onUnmatch={actions.handleUnmatch} onSplit={id => setSplitTxId(id)}
-                onUpdateNotes={actions.handleUpdateNotes} onFindMatch={id => setFindMatchTxId(id)}
-                onReverse={actions.handleReverse} onAttachments={id => setAttachmentsTxId(id)}
-                onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
-                onCreateRule={tx => setCreateRuleTx(tx)}
-                onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
-                onLink={tx => setLinkTx(tx)}
-              />
-            )}
-          </div>
+          <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
+            empty={transactions.length === 0} tab={tab}>
+            <BankTxTable
+              transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
+              customers={customers} transferTargets={transferTargets}
+              cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
+              showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
+              allSelected={allSelected} tab={tab}
+              onToggleSelect={toggleSelect}
+              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
+              onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
+              onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
+              onAccept={actions.handleAccept} onExclude={actions.handleExclude}
+              onUnmatch={actions.handleUnmatch} onSplit={id => setSplitTxId(id)}
+              onUpdateNotes={actions.handleUpdateNotes} onFindMatch={id => setFindMatchTxId(id)}
+              onReverse={actions.handleReverse} onAttachments={id => setAttachmentsTxId(id)}
+              onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
+              onCreateRule={tx => setCreateRuleTx(tx)}
+              onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
+              onLink={tx => setLinkTx(tx)}
+            />
+          </BankTxListFrame>
         </div>
 
-        <BankTxPagination page={page} total={total} pageSize={PAGE_SIZE} setPage={setPage} />
+        <BankTxPagination page={page} total={total} pageSize={PAGE_SIZE} onPage={setPage} />
 
-        <BankTxBottomBar show={tab === 'new' && transactions.length > 0} selectedCount={selectedIds.size} onAccept={actions.handleBulkAccept} />
+        {tab === 'new' && transactions.length > 0 && (
+          <BankTxReviewBar selectedCount={selectedIds.size} onReview={actions.handleBulkAccept} />
+        )}
       </div>
 
       <BankTxModals
