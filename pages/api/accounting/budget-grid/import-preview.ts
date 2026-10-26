@@ -2,7 +2,8 @@
  * Budget grid Excel import preview (budgets P2, spec §9.2)
  * POST multipart/form-data: file (the budget template, .xlsx, ≤ 10 MB), versionId (no other fields)
  *   → { updatedAt, changes: [{key, before, after}], cells, counts: {added, changed, cleared, unchanged},
- *       conflicts: [{key, downloaded, current, after}], errors: [{row, column, message}], warnings,
+ *       (each change: possibleRevert, currentChangedAt), conflicts: [{key, downloaded, current, after}],
+ *       errors: [{row, column, message}], warnings,
  *       errorCount, warningCount, truncated, totals: {before, after} }
  * WRITES NOTHING. The commit sends `cells` and `updatedAt` (as expectedUpdatedAt) to POST
  * budget-grid/save, the one write path. 400 for a file that is not this version's template (another
@@ -10,7 +11,8 @@
  * 404 for another tenant's version; writers only (a viewer is 403), since the preview exists to
  * commit. Uploads are written to a directory of this request's own, removed with everything in it
  * however the request ends: a file formidable opens after a refusal (a second file, another field
- * name) cannot be left behind.
+ * name) cannot be left behind. Each member may preview at most PREVIEW_RATE files per 15 minutes
+ * (429), counted before the upload is read.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import formidable from 'formidable';
@@ -22,6 +24,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { isUuidParam } from '@/lib/validation';
 import { SpreadsheetRefusedError } from '@/lib/xlsxToCsv';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
@@ -30,6 +33,7 @@ import { buildImportPreview } from '@/modules/accounting/services/budgets/budget
 export const config = { api: { bodyParser: false } };
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const PREVIEW_RATE = 60;
 const ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/octet-stream', // some browsers send this for .xlsx
@@ -48,6 +52,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const context = { companyId, userId: (req as AuthenticatedNextApiRequest).user.id };
+  if (!(await checkRateLimit(`budget-import:${companyId}:${context.userId}`, { max: PREVIEW_RATE, windowSecs: 900 }))) {
+    return apiResponse.tooManyRequests(res, 'Too many import previews — wait a few minutes and try again.');
+  }
 
   const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-import-'));
   const form = formidable({

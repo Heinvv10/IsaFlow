@@ -2,8 +2,9 @@
  * Read an uploaded budget template (P2 spec 9.2) into rows, with no database. The upload goes
  * through `normaliseXlsxSheets` ONCE (the `_meta`, `_base` and `Budget` sheets, one counted inflate,
  * one shared-strings table, a zip bomb refused) and then ONE ExcelJS streaming reader, under
- * BUDGET_IMPORT_LIMITS: sized to the largest template (MAX_TEMPLATE_ROWS), not to the general
- * importer's 80 MB. Rows are counted by this code (a sheet's own row numbers must increase), columns
+ * BUDGET_IMPORT_LIMITS: sized to the largest template (MAX_IMPORT_ROWS), not to the general
+ * importer's 80 MB. Anything the parser itself throws is a 400 with a neutral message
+ * (`readNormalised`). Rows are counted by this code (a sheet's own row numbers must increase), columns
  * are capped per row, and the text read has one budget, so one long shared string repeated in every
  * cell cannot multiply. Each limit refuses with a SpreadsheetRefusedError, whose message is for the
  * client.
@@ -11,19 +12,20 @@
  * Cells keep their type: a number stays a number (rounded to cents, as the template's `#,##0.00`
  * shows it), text goes through the kit amount parser (`grid/pasteParse.parseCell`), a formula cell
  * counts its cached result, and an empty cell is BLANK: "not budgeted", never 0. Month columns are
- * found by their header TEXT ('YYYY-MM'), never by position. Codes compare trimmed, and with the
- * template's formula-neutralising apostrophe removed.
+ * found by their header TEXT ('YYYY-MM'), never by position. Codes are read as written, with the
+ * template's formula-neutralising apostrophe removed; budgetImportResolve matches them exactly
+ * first and trimmed only when that is unambiguous (VER-L6).
  */
 import { Readable } from 'node:stream';
 import ExcelJS from 'exceljs';
-import { normaliseXlsxSheets, type NormaliseOptions } from '@/lib/xlsxNormalise';
+import { normaliseXlsxSheets, readNormalised, type NormaliseOptions } from '@/lib/xlsxNormalise';
 import { looksLikeXlsx, SpreadsheetMalformedError, SpreadsheetTooLargeError, type XlsxLimits } from '@/lib/xlsxToCsv';
 import { MAX_MONEY } from '@/lib/money/wholeCents';
 import { toCents } from './grid/cents';
 import { parseCell, type ParsedCell } from './grid/pasteParse';
 import { inputError } from './gridErrors';
 import {
-  BASE_SHEET, BUDGET_SHEET, COLUMN, MAX_TEMPLATE_ROWS, META_SHEET, TEMPLATE_GRAINS, TEMPLATE_VERSION, unneutralise,
+  BASE_SHEET, BUDGET_SHEET, COLUMN, MAX_IMPORT_ROWS, META_SHEET, TEMPLATE_GRAINS, TEMPLATE_VERSION, unneutralise,
   type TemplateGrain, type TemplateMeta,
 } from './budgetTemplateXlsx';
 
@@ -39,8 +41,8 @@ export interface SheetRow {
 
 export interface BudgetWorkbook {
   meta: SheetRow[];
-  /** The `_base` sheet: the template's rows as downloaded (cents). */
-  base: SheetRow[];
+  /** The `_base` sheet: the template's rows as downloaded (cents); null when the file has none (Q3b). */
+  base: SheetRow[] | null;
   budget: SheetRow[];
 }
 
@@ -60,26 +62,31 @@ export interface ImportLine {
 }
 
 /**
- * The largest template (MAX_TEMPLATE_ROWS rows, each sheet) with room to spare: a filled 15 000-row
- * CC1 template is ~20 MB inflated, ~5 MB of text and ~30 000 shared strings. Deliberately below spec
- * 9.2's "50 000 rows, 80 MB" (XLSX_LIMITS): measured 2026-10-26, a filled 50 000-row CC1 template
- * with `_base` is 66.5 MB inflated (Budget 38.5 MB, _base 24.7 MB, shared strings 3.3 MB / 100 000
- * entries), so 50 000 rows would need the general importer's budget, which let a 0.2 MB upload of
- * shared-string filler cost 86 s and 4 GB (breaker I5). The worst file these limits accept parses
- * in ~1.2 s. The template refuses past MAX_TEMPLATE_ROWS, so export -> import always round-trips (R3).
+ * The largest template (MAX_IMPORT_ROWS rows, each sheet) with room to spare, per row: measured
+ * 2026-10-26, a 16 666-row CC1 template filled with 12-digit amounts and 60-character names is
+ * 24.9 MB of XML (1.6 KB a row), 9.1 MB of text (0.6 KB) and 1.6 MB of shared strings (0.1 KB);
+ * budget-grid-template.int.test.ts imports one at the cap after a re-save (VER-L3).
+ * Deliberately below spec 9.2's "50 000 rows, 80 MB" (XLSX_LIMITS): measured 2026-10-26, a filled
+ * 50 000-row CC1 template with `_base` is 66.5 MB inflated (Budget 38.5 MB, _base 24.7 MB, shared
+ * strings 3.3 MB / 100 000 entries), and the general importer's budget let a 0.2 MB upload of
+ * shared-string filler cost 86 s and 4 GB (breaker I5). Styles are capped apart: the template's are
+ * a few kB, and 23 MB of <font> cost 720 MB (BRK2-N6). The template refuses past templateRowCap, so
+ * export -> import always round-trips (R3, Q1).
  */
-export const BUDGET_IMPORT_LIMITS: XlsxLimits & Required<Pick<NormaliseOptions, 'maxSharedStringsBytes' | 'maxSharedStrings'>> = {
-  maxUncompressedBytes: 24 * 1024 * 1024,
-  maxRows: MAX_TEMPLATE_ROWS + 1,
+const PER_ROW = { inflated: 2560, text: 1024, sharedStrings: 512 };
+export const BUDGET_IMPORT_LIMITS: XlsxLimits & Required<Pick<NormaliseOptions, 'maxSharedStringsBytes' | 'maxSharedStrings' | 'maxStylesBytes'>> = {
+  maxUncompressedBytes: MAX_IMPORT_ROWS * PER_ROW.inflated,
+  maxRows: MAX_IMPORT_ROWS + 1,
   maxColumns: 40,
-  maxOutputBytes: 8 * 1024 * 1024,
-  maxSharedStringsBytes: 8 * 1024 * 1024,
-  maxSharedStrings: 2 * (MAX_TEMPLATE_ROWS + 1) + 10_000,
+  maxOutputBytes: MAX_IMPORT_ROWS * PER_ROW.text,
+  maxSharedStringsBytes: MAX_IMPORT_ROWS * PER_ROW.sharedStrings,
+  maxSharedStrings: 2 * (MAX_IMPORT_ROWS + 1) + 10_000,
+  maxStylesBytes: 1024 * 1024,
 };
 
 /** Echoed upload text is clipped to this many characters. */
 const CLIP = 40;
-export const clip = (text: string): string => (text.length > CLIP ? `${text.slice(0, CLIP)}…` : text);
+export const clip = (text: string, max = CLIP): string => (text.length > max ? `${text.slice(0, max)}…` : text);
 
 const refuse = (message: string): never => { throw inputError(message); };
 
@@ -142,18 +149,18 @@ async function readSheets(zip: Buffer, names: readonly string[], limits: XlsxLim
   return out;
 }
 
-/** The upload's `_meta`, `_base` and `Budget` sheets. Refuses a file that is not a template workbook. */
+/** The upload's `_meta`, `_base` (null when absent) and `Budget` sheets. Refuses a file that is not a template workbook. */
 export async function readBudgetWorkbook(buf: Buffer, limits = BUDGET_IMPORT_LIMITS): Promise<BudgetWorkbook> {
   if (!looksLikeXlsx(buf)) refuse('This file is not an Excel workbook (.xlsx). Upload the budget template saved as .xlsx.');
   const names = [META_SHEET, BASE_SHEET, BUDGET_SHEET];
   const { zip, sheets } = await normaliseXlsxSheets(buf, names, {
     maxBytes: limits.maxUncompressedBytes, maxSharedStringsBytes: limits.maxSharedStringsBytes, maxSharedStrings: limits.maxSharedStrings,
+    maxStylesBytes: limits.maxStylesBytes,
   });
-  if (!sheets.includes(META_SHEET)) refuse('This workbook is not an IsaFlow budget template (it has no _meta sheet). Download the template and fill that in.');
-  if (!sheets.includes(BUDGET_SHEET)) refuse(`This workbook has no "${BUDGET_SHEET}" sheet. Download the template and fill that in.`);
-  if (!sheets.includes(BASE_SHEET)) refuse('This template has no hidden _base sheet (it is from an older download, or was changed). Re-download the template and enter your amounts in that.');
-  const read = await readSheets(zip, sheets, limits);
-  return { meta: read.get(META_SHEET) ?? [], base: read.get(BASE_SHEET) ?? [], budget: read.get(BUDGET_SHEET) ?? [] };
+  if (!sheets.includes(META_SHEET)) refuse('This workbook is not an IsaFlow budget template (it has no _meta sheet). Download a fresh template and make your changes in it.');
+  if (!sheets.includes(BUDGET_SHEET)) refuse(`This workbook has no "${BUDGET_SHEET}" sheet. Download a fresh template and make your changes in it.`);
+  const read = await readNormalised(() => readSheets(zip, sheets, limits));
+  return { meta: read.get(META_SHEET) ?? [], base: read.get(BASE_SHEET) ?? null, budget: read.get(BUDGET_SHEET) ?? [] };
 }
 
 /** A cell as trimmed text ('' when empty); a number prints as JS does (4000 -> '4000'). */
@@ -162,20 +169,23 @@ export function textOf(c: RawCell | undefined): string {
   return String(c).trim();
 }
 
-/** An account or dimension code cell as the chart holds it: trimmed, the template's apostrophe removed. */
-export const codeOf = (c: RawCell | undefined): string => unneutralise(textOf(c)).trim();
+/** An account or dimension code cell as written, the template's apostrophe removed ('' when empty). */
+export function codeOf(c: RawCell | undefined): string {
+  if (c === null || c === undefined || typeof c === 'object') return '';
+  return unneutralise(String(c));
+}
 
 /** The `_meta` sheet's key/value rows as a TemplateMeta; refuses one that is missing or altered. */
 export function parseMeta(rows: readonly SheetRow[]): TemplateMeta {
   const kv = new Map(rows.map((r) => [textOf(r.cells[0]), textOf(r.cells[1])]));
-  const altered = () => refuse('This template\'s hidden _meta sheet is missing or was changed. Download the template again.');
+  const altered = () => refuse('This template\'s hidden _meta sheet is missing or was changed. Download a fresh template and make your changes in it.');
   const versionId = kv.get('versionId') ?? '';
   const fiscalYear = Number(kv.get('fiscalYear'));
   const grain = kv.get('grain') as TemplateGrain;
   const templateVersion = Number(kv.get('templateVersion'));
   if (!/^[0-9a-f-]{36}$/i.test(versionId) || !Number.isInteger(fiscalYear) || !TEMPLATE_GRAINS.includes(grain)) return altered();
-  if (templateVersion !== TEMPLATE_VERSION) return refuse(`This template is format ${clip(kv.get('templateVersion') ?? '?')}; IsaFlow reads format ${TEMPLATE_VERSION}. Download the template again.`);
-  return { versionId: versionId.toLowerCase(), fiscalYear, grain, updatedAt: kv.get('updatedAt') ?? '', templateVersion };
+  if (templateVersion !== TEMPLATE_VERSION) return refuse(`This template is format ${clip(kv.get('templateVersion') ?? '?')}; IsaFlow reads format ${TEMPLATE_VERSION}. Download a fresh template and make your changes in it.`);
+  return { versionId: versionId.toLowerCase(), fiscalYear, grain, updatedAt: kv.get('updatedAt') ?? '', templateVersion, signature: kv.get('signature') ?? '' };
 }
 
 const MONTH_LIKE = /^\d{4}-\d{1,2}(-\d{1,2})?$/;
@@ -186,15 +196,15 @@ const MONTH_LIKE = /^\d{4}-\d{1,2}(-\d{1,2})?$/;
  * exactly: none missing, none twice, none outside the year. Other columns are ignored.
  */
 export function parseLayout(header: SheetRow | undefined, months: readonly string[], grain: TemplateGrain): ImportLayout {
-  if (!header) return refuse('The Budget sheet is empty. Download the template and fill that in.');
+  if (!header) return refuse('The Budget sheet is empty. Download a fresh template and make your changes in it.');
   const texts = header.cells.map(textOf);
   const find = (label: string): number | null => {
     const at = texts.indexOf(label);
     return at < 0 ? null : at;
   };
-  const accountCol = find(COLUMN.accountCode) ?? refuse(`The Budget sheet has no "${COLUMN.accountCode}" column. Download the template again.`);
+  const accountCol = find(COLUMN.accountCode) ?? refuse(`The Budget sheet has no "${COLUMN.accountCode}" column. Download a fresh template and make your changes in it.`);
   const dimensionCol = grain === 'company' ? null
-    : find(COLUMN.dimensionCode) ?? refuse(`This ${grain.toUpperCase()} template has no "${COLUMN.dimensionCode}" column. Download the template again.`);
+    : find(COLUMN.dimensionCode) ?? refuse(`This ${grain.toUpperCase()} template has no "${COLUMN.dimensionCode}" column. Download a fresh template and make your changes in it.`);
   const yearMonths = new Set(months);
   const seen = new Map<string, number>();
   texts.forEach((t, col) => {
@@ -225,7 +235,7 @@ export function parseLines(rows: readonly SheetRow[], layout: ImportLayout): Imp
   for (const r of rows) {
     const amounts = layout.months.map(({ month, col }) => ({ month, cell: amountOf(r.cells[col]) }));
     const accountCode = codeOf(r.cells[layout.accountCol]);
-    if (accountCode === '' && amounts.every((a) => a.cell.kind === 'blank')) continue;
+    if (accountCode.trim() === '' && amounts.every((a) => a.cell.kind === 'blank')) continue;
     const dimensionCode = layout.dimensionCol === null ? null : codeOf(r.cells[layout.dimensionCol]);
     out.push({ row: r.row, accountCode, dimensionCode, amounts });
   }

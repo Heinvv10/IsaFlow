@@ -8,6 +8,8 @@
 import type { Pool } from 'pg';
 import { budgetsRouteFixture, type RouteOut } from './budgetsRouteFixture';
 import { signSession } from '../r-032-fake-gotrue.helpers';
+import { request, response } from '../mfa-impersonation-postgres.helpers';
+import { withJsonBody } from './budgetGridFixture';
 import type { SetupUser } from './onboardingSetupFixture';
 
 export interface GridWorld {
@@ -120,8 +122,14 @@ export function budgetGridSaveFixture(pool: Pool, route: unknown, url: string) {
     await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [members]);
   }
 
-  const call = (u: SetupUser, body: unknown): Promise<RouteOut> => base.call(u, 'POST', body);
-  return { world, member, version, token, amount, cells, audits, cleanup, call, callAs: base.call };
+  /** POSTs to the route as `u`, the body as a JSON stream too (the save route reads its own body). */
+  async function call(u: SetupUser, body: unknown): Promise<RouteOut> {
+    const req = Object.assign(request({ 'sb-access-token': u.token, active_company_id: u.homeCompanyId }, 'POST'), { url, query: {} });
+    const out = response();
+    await (route as (a: never, b: never) => Promise<unknown>)(withJsonBody(req, body) as never, out.res as never);
+    return { status: out.state.statusCode, body: (out.state.body ?? {}) as RouteOut['body'] };
+  }
+  return { world, member, version, token, amount, cells, audits, cleanup, call };
 }
 
 export const errCode = (r: RouteOut) => (r.body.error as { details?: { code?: string } } | undefined)?.details?.code;

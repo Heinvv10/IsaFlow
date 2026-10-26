@@ -221,20 +221,24 @@ describe('POST /api/accounting/budget-grid/save', () => {
   it('a grain clash that lands after the grain check hits the exclusion backstop (23P01): 400 BUDGET_GRAIN_CONFLICT, nothing written', async () => {
     const v = await fx.version(w);
     const [m0, m1] = w.months;
-    await fx.amount(w, v, w.sales, m0!, 10);
+    await fx.amount(w, v, w.rent, m0!, 10);
     const companyId = w.u.homeCompanyId;
+    let hookInserted = false;
     hooks.fired = 0;
-    // A CC1 row for Sales arrives between the save's grain check and its company-grain upsert. It is
-    // written in the save's own transaction: a separate one would wait on the version row the save holds.
+    // Sales holds nothing in the version. Between the save's grain check and its company-grain
+    // insert of Sales, a CC1 row for Sales arrives: it is accepted (no other grain yet), so it is the
+    // SAVE's insert that breaks the exclusion. Written in the save's own transaction: a separate
+    // one would wait on the version row the save holds.
     hooks.match = /dim_grain <> t\.g/;
     hooks.fn = async (realSql) => {
       await realSql`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id)
                     VALUES (${companyId}::UUID, ${v}::UUID, ${w.sales}::UUID, ${`${m1}-01`}::DATE, 5, ${w.cc1}::UUID)`;
+      hookInserted = true;
     };
     // The savepoint takes the hook's row back with the save: amounts, token and audit rows as they were.
     const r = await unchanged(v, () => save(v, [cell(w.sales, m0!, 11)]));
     hooks.match = null;
-    expect(hooks.fired).toBe(1);
+    expect([hooks.fired, hookInserted]).toEqual([1, true]);
     expect([r.status, errCode(r as never)], dump(r)).toEqual([400, 'BUDGET_GRAIN_CONFLICT']);
   });
 

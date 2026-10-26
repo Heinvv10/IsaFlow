@@ -78,6 +78,10 @@ beforeAll(async () => {
     `INSERT INTO cost_centres (id, company_id, code, name, cc_type, is_active)
      SELECT gen_random_uuid(), $1, 'M' || lpad(g::text, 5, '0'), 'Member ' || g, 'cc1', true FROM generate_series(1, 5000) g`, [Big.id]);
   vBig = await fx.version(Big, { fy: 2027, name: 'Big' });
+  // Each member holds an April amount, so the CC1 template offers it (Q1: held or PY-active members by default).
+  await pool.query(
+    `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id)
+     SELECT $1, $2, $3, '2026-04-01', 1, id FROM cost_centres WHERE company_id = $1 AND cc_type = 'cc1' AND is_active`, [Big.id, vBig, Big.acct.sales]);
 }, 180000);
 
 afterAll(async () => {
@@ -153,7 +157,7 @@ describe('budget-grid import-preview', () => {
       { glAccountId: a.childB, cc1Id: null, cc2Id: null, buId: null, month: '2026-06', amount: 1234.5 },
     ]));
     expect(p.cells).toHaveLength(4);
-    expect(p.changes.find((c) => c.key === `${a.sales}||||2026-03`)).toEqual({ key: `${a.sales}||||2026-03`, before: 1000, after: 1500 });
+    expect(p.changes.find((c) => c.key === `${a.sales}||||2026-03`)).toMatchObject({ key: `${a.sales}||||2026-03`, before: 1000, after: 1500, possibleRevert: false });
     expect(p.totals.after.fy.turnover - p.totals.before.fy.turnover).toBe(500);
   });
 
@@ -162,7 +166,7 @@ describe('budget-grid import-preview', () => {
       setCell(budgetSheet(wb), '4000', '2026-03', { formula: '1000*2', result: 2000 });
     });
     const p = await ok(A, v, file);
-    expect(p.changes).toEqual([{ key: `${A.acct.sales}||||2026-03`, before: 1000, after: 2000 }]);
+    expect(p.changes).toMatchObject([{ key: `${A.acct.sales}||||2026-03`, before: 1000, after: 2000 }]);
   });
 
   it('matches month columns by header text, not position', async () => {
@@ -194,7 +198,7 @@ describe('budget-grid import-preview', () => {
     expect(p.errors.filter((e) => /more than once/i.test(e.message))).toHaveLength(2);
     expect(p.errors.some((e) => /CC1/.test(e.message))).toBe(true);
     expect(p.errors).toHaveLength(5);
-    expect(p.changes).toEqual([{ key: `${A.acct.cos}||||2026-04`, before: 400.5, after: 401 }]);
+    expect(p.changes).toMatchObject([{ key: `${A.acct.cos}||||2026-04`, before: 400.5, after: 401 }]);
   });
 
   it('an unknown dimension code is an error row', async () => {
@@ -221,7 +225,7 @@ describe('budget-grid import-preview', () => {
   it('refuses another version\'s file and another year\'s file', async () => {
     const r = await preview(A, vOther, await template(A, v));
     expect(r.status).toBe(400);
-    expect(r.body.error?.message).toMatch(/re-download/i);
+    expect(r.body.error?.message).toMatch(/fresh template/i);
     const otherYear = await editWorkbook(await template(A, v), (wb) => {
       const meta = wb.getWorksheet('_meta')!;
       meta.eachRow((row) => { if (row.getCell(1).value === 'fiscalYear') row.getCell(2).value = '2028'; });

@@ -10,6 +10,7 @@
  * FY2027 = Jan 2026 - Feb 2027 (the label 2026 is skipped, as after a change of year end).
  */
 import type { Pool } from 'pg';
+import { Readable } from 'node:stream';
 import { request, response } from '../mfa-impersonation-postgres.helpers';
 import { signSession } from '../r-032-fake-gotrue.helpers';
 import type { SetupUser } from './onboardingSetupFixture';
@@ -150,7 +151,7 @@ export function budgetGridFixture(pool: Pool) {
     req.query = query;
     req.body = body;
     const out = response();
-    await (route as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
+    await (route as (a: never, b: never) => Promise<unknown>)(withJsonBody(req, body) as never, out.res as never);
     return { status: out.state.statusCode, body: (out.state.body ?? {}) as RouteOut['body'] };
   }
 
@@ -170,6 +171,17 @@ export function budgetGridFixture(pool: Pool) {
   }
 
   return { company, version, amount, amounts, journal, call, cleanup };
+}
+
+/**
+ * `req` with `body` both parsed (`req.body`, for a route that keeps Next's body parser) and as a
+ * readable JSON stream with its Content-Length (for a route that reads its own body, budget-grid/save).
+ */
+export function withJsonBody<T extends object>(req: T, body: unknown): T {
+  if (body === undefined) return req;
+  const json = Buffer.from(JSON.stringify(body));
+  const headers = { ...(req as { headers?: Record<string, string> }).headers, 'content-type': 'application/json', 'content-length': String(json.length) };
+  return Object.assign(Readable.from([json]), req, { body, headers }) as unknown as T;
 }
 
 /** The twelve 'YYYY-MM' months from `start` ('YYYY-MM'), `count` of them. */

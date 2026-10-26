@@ -1,6 +1,6 @@
 /**
  * The grid save's checks that need no database (spec §7.2 step 1): a non-empty batch of at most
- * 200 000 cells, each a 'YYYY-MM' month with a finite amount NUMERIC(15,2) holds, in cents (or null:
+ * 100 000 cells, each a 'YYYY-MM' month with a finite amount NUMERIC(15,2) holds, in cents (or null:
  * delete the cell), at most one dimension, no key twice, and one grain per account among the
  * upserts (decision 4). Every refusal is a 400 BudgetVersionError raised before anything is read
  * or written, so the version's token does not move.
@@ -21,8 +21,16 @@ export interface SaveCell {
   amount: number | null;
 }
 
-/** A safety bound, not a product cap (250 accounts × 15 months × 40 members = 150 000). */
-export const MAX_SAVE_CELLS = 200_000;
+/**
+ * The largest batch, set by how long it holds the version row and the year registry (target ~10 s;
+ * round-2 Q2). Measured 2026-10-26 on the integration cluster (velo-server at load 14-22; the box
+ * is never idle), lock held from the compare-and-set to the commit, after gridSaveWrite's rewrite:
+ * 100 000 cells insert 7.9-8.9 s, update 7.4-7.5 s, delete 2.7-3.8 s; 200 000 cells insert
+ * 16.8 s, update 15.5 s. Per-row triggers (the lock check, dimension kinds, same company, six
+ * FKs) are most of it, so the time grows linearly with the batch. The import template's row cap
+ * is derived from this.
+ */
+export const MAX_SAVE_CELLS = 100_000;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** The dim_grain the database computes for a cell (0 company, 1 CC1, 2 CC2, 4 BU). */
