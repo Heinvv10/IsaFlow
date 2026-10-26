@@ -10,6 +10,7 @@ import { Camera, Loader2, ShieldCheck, ShieldAlert, Package, AlertCircle } from 
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { TRIGGER_LABEL, fmtAt, getData, type SnapshotSummary, type Verification } from './auditSnapshotApi';
+import { DateField } from '@/components/ui/DateField';
 
 interface Props { onPackBuilt: () => void; notify: (msg: string, ok?: boolean) => void }
 
@@ -107,9 +108,8 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
         </div>
         <div className="flex items-end gap-2">
           <div>
-            <label htmlFor="audit-snapshot-cutoff" className="text-xs text-slate-400 mb-1 block">Cutoff</label>
-            <input id="audit-snapshot-cutoff" type="date" value={cutoff} onChange={(e) => setCutoff(e.target.value)}
-              className="px-3 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-sm" />
+            <DateField id="audit-snapshot-cutoff" label="Cutoff" value={cutoff || null}
+              onChange={(iso, v) => { if (v.valid) setCutoff(iso ?? ''); }} />
           </div>
           <button onClick={() => void verifyChain()} disabled={busy !== null}
             className="px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-slate-200 text-sm">

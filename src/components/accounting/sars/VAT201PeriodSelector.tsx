@@ -1,4 +1,5 @@
 import { Loader2, FileText, Calendar } from 'lucide-react';
+import { DateField } from '@/components/ui/DateField';
 
 interface VATQuickPeriod {
   label: string;
@@ -53,26 +54,20 @@ export function VAT201PeriodSelector({
       )}
 
       <div className="flex flex-wrap items-end gap-4">
-        <div>
-          <label htmlFor="vat201-period-start" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period Start</label>
-          <input
-            id="vat201-period-start"
-            type="date"
-            value={from}
-            onChange={(e) => onFromChange(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm"
-          />
-        </div>
-        <div>
-          <label htmlFor="vat201-period-end" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period End</label>
-          <input
-            id="vat201-period-end"
-            type="date"
-            value={to}
-            onChange={(e) => onToChange(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm"
-          />
-        </div>
+        <DateField
+          id="vat201-period-start"
+          label="Period Start"
+          required
+          value={from || null}
+          onChange={(iso, v) => { if (v.valid && iso) onFromChange(iso); }}
+        />
+        <DateField
+          id="vat201-period-end"
+          label="Period End"
+          required
+          value={to || null}
+          onChange={(iso, v) => { if (v.valid && iso) onToChange(iso); }}
+        />
         <button
           onClick={onGenerate}
           disabled={loading}

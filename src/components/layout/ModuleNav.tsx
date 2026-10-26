@@ -1,83 +1,30 @@
 /**
  * Generic Sage-style horizontal navigation bar for module pages.
- * Tabs with dropdown menus; supports up to three-level flyout nesting.
+ * Every tab with a menu opens it on hover; up to three-level flyout nesting.
  *
  * Usage:
  *   <ModuleNav tabs={TABS} getActiveTabId={getActiveTabId} accentColor="teal" />
+ *
+ * A tab with `href` and a menu is a split control: the label links to the
+ * landing page, a chevron button beside it opens the menu (Enter/Space), and
+ * ArrowDown on the label opens it too. A tab with a menu and no `href` is one
+ * button. On touch the first tap on a split label opens the menu instead of
+ * navigating.
  *
  * Accent classes are pre-written in full so Tailwind's purge pass retains them.
  */
 
 import { useState, useRef, useEffect } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, FocusEvent as ReactFocusEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { ChevronDown, ChevronRight, Settings } from 'lucide-react';
-import { NavLinksBlock } from './NavLinksBlock';
-import {
-  isFlyout, activeHrefAmong,
-  type Tab, type DropdownItem, type NavItem,
-} from '../accounting/accountingNavConfig';
+import { ChevronDown } from 'lucide-react';
+import { isFlyout, type Tab, type DropdownItem } from '../accounting/accountingNavConfig';
+import { ACCENT_CLASSES, type AccentColor } from './moduleNavAccent';
+import { FlyoutDropdown, FlatDropdown, panelItems } from './ModuleNavMenus';
 
-// 🟢 WORKING: Full class strings — never use template literals with Tailwind.
-export type AccentColor = 'teal' | 'blue' | 'amber' | 'emerald' | 'violet' | 'slate' | 'rose' | 'cyan';
-
-interface AccentTokens {
-  activeBorder: string;
-  activeText: string;
-  activeLinkBg: string;
-  activeSectionText: string;
-}
-
-export const ACCENT_CLASSES: Record<AccentColor, AccentTokens> = {
-  teal: {
-    activeBorder: 'border-teal-500',
-    activeText: 'text-teal-400',
-    activeLinkBg: 'text-teal-400 bg-teal-500/10',
-    activeSectionText: 'text-teal-400',
-  },
-  blue: {
-    activeBorder: 'border-blue-500',
-    activeText: 'text-blue-400',
-    activeLinkBg: 'text-blue-400 bg-blue-500/10',
-    activeSectionText: 'text-blue-400',
-  },
-  amber: {
-    activeBorder: 'border-amber-500',
-    activeText: 'text-amber-400',
-    activeLinkBg: 'text-amber-400 bg-amber-500/10',
-    activeSectionText: 'text-amber-400',
-  },
-  emerald: {
-    activeBorder: 'border-emerald-500',
-    activeText: 'text-emerald-400',
-    activeLinkBg: 'text-emerald-400 bg-emerald-500/10',
-    activeSectionText: 'text-emerald-400',
-  },
-  violet: {
-    activeBorder: 'border-violet-500',
-    activeText: 'text-violet-400',
-    activeLinkBg: 'text-violet-400 bg-violet-500/10',
-    activeSectionText: 'text-violet-400',
-  },
-  slate: {
-    activeBorder: 'border-slate-500',
-    activeText: 'text-slate-400',
-    activeLinkBg: 'text-slate-400 bg-slate-500/10',
-    activeSectionText: 'text-slate-400',
-  },
-  rose: {
-    activeBorder: 'border-rose-500',
-    activeText: 'text-rose-400',
-    activeLinkBg: 'text-rose-400 bg-rose-500/10',
-    activeSectionText: 'text-rose-400',
-  },
-  cyan: {
-    activeBorder: 'border-cyan-500',
-    activeText: 'text-cyan-400',
-    activeLinkBg: 'text-cyan-400 bg-cyan-500/10',
-    activeSectionText: 'text-cyan-400',
-  },
-};
+export { ACCENT_CLASSES };
+export type { AccentColor };
 
 export interface ModuleNavProps {
   tabs?: Tab[];
@@ -85,214 +32,11 @@ export interface ModuleNavProps {
   accentColor: AccentColor;
 }
 
-// ─── Shared static classes ────────────────────────────────────────────────────
+const hasMenu = (t: Tab) => (t.items?.length ?? 0) > 0;
+const hasFlyout = (t: Tab) => t.items?.some(isFlyout) ?? false;
 
-const panelCls =
-  'absolute left-full top-0 bg-gray-800 border border-gray-700 rounded-r-lg shadow-xl min-w-[210px] py-1';
-
-const inactiveLinkCls =
-  'text-gray-300 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50';
-
-// ─── Internal helpers that need accent tokens ─────────────────────────────────
-
-function makeLinkCls(active: boolean, accent: AccentTokens): string {
-  return `block px-4 py-2 text-sm whitespace-nowrap transition-colors ${
-    active ? accent.activeLinkBg : inactiveLinkCls
-  }`;
-}
-
-function makeSectionCls(hovered: boolean, active: boolean, accent: AccentTokens): string {
-  return `flex items-center justify-between px-4 py-2.5 text-sm cursor-default transition-colors ${
-    hovered
-      ? 'bg-gray-700 text-white'
-      : active
-        ? accent.activeSectionText
-        : 'text-gray-300'
-  }`;
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-interface SubMenuItemsProps {
-  items: NavItem[];
-  asPath: string;
-  onClose: () => void;
-  accent: AccentTokens;
-}
-
-function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsProps) {
-  const [hovered, setHovered] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeHref = activeHrefAmong(items, asPath);
-  const clear = () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  const delayed = () => { timerRef.current = setTimeout(() => setHovered(null), 150); };
-  useEffect(() => () => clear(), []);
-
-  return (
-    <>
-      {items.map(item => {
-        if (!isFlyout(item)) {
-          if (item.isSetting) {
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 pt-2 whitespace-nowrap transition-colors ${ item.href === activeHref ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50' }`}
-              >
-                <Settings className="h-3.5 w-3.5 flex-shrink-0" />
-                {item.label}
-              </Link>
-            );
-          }
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onClose}
-              className={makeLinkCls(item.href === activeHref, accent)}
-            >
-              {item.label}
-            </Link>
-          );
-        }
-        const isHov = hovered === item.section;
-        return (
-          <div
-            key={item.section}
-            className="relative"
-            onMouseEnter={() => { clear(); setHovered(item.section); }}
-            onMouseLeave={delayed}
-          >
-            <div className={makeSectionCls(isHov, false, accent)}>
-              <span className="font-medium">{item.section}</span>
-              <ChevronRight className="h-3.5 w-3.5 ml-6 flex-shrink-0" />
-            </div>
-            {isHov && (
-              <div onMouseEnter={clear} onMouseLeave={delayed} className={panelCls}>
-                <SubMenuItems items={item.items} asPath={asPath} onClose={onClose} accent={accent} />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
-interface FlatDropdownProps {
-  items: DropdownItem[];
-  asPath: string;
-  onClose: () => void;
-  accent: AccentTokens;
-}
-
-function FlatDropdown({ items, asPath, onClose, accent }: FlatDropdownProps) {
-  const activeHref = activeHrefAmong(items, asPath);
-  return (
-    <div className="absolute top-full left-0 bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[220px] py-1 z-40">
-      {items.map(item => (
-        <Link
-          key={item.href}
-          href={item.href}
-          onClick={onClose}
-          className={makeLinkCls(item.href === activeHref, accent)}
-        >
-          {item.label}
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-interface FlyoutDropdownProps {
-  tab: Tab;
-  asPath: string;
-  onClose: () => void;
-  accent: AccentTokens;
-}
-
-function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
-  const [hoveredSection, setHoveredSection] = useState<string | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearTimer = () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  const delayedClose = () => { timeoutRef.current = setTimeout(() => setHoveredSection(null), 150); };
-  useEffect(() => () => clearTimer(), []);
-
-  const allSections = (tab.items ?? []).filter(isFlyout);
-  // Settings sections render inline (no flyout chevron) — all items are isSetting links
-  const settingsSections = allSections.filter(s => s.section === 'Settings');
-  const settingsItems = settingsSections.flatMap(s => s.items);
-  const settingsActiveHref = activeHrefAmong(settingsItems, asPath);
-  const regularSections = allSections.filter(s => s.section !== 'Settings');
-
-  return (
-    <div className="absolute top-full left-0 z-40">
-      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[200px] py-1">
-        <NavLinksBlock
-          links={tab.links}
-          asPath={asPath}
-          onNav={onClose}
-          linkClassName={active => makeLinkCls(active, accent)}
-          separatorClassName="border-t border-gray-300 dark:border-gray-700 my-1"
-        />
-        {tab.topItems?.map(item => (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onClose}
-            className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
-          >
-            {item.label}
-          </Link>
-        ))}
-        {tab.topItems && tab.topItems.length > 0 && (
-          <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
-        )}
-
-        {regularSections.map(section => {
-          const isHovered = hoveredSection === section.section;
-          return (
-            <div
-              key={section.section}
-              className="relative"
-              onMouseEnter={() => { clearTimer(); setHoveredSection(section.section); }}
-              onMouseLeave={delayedClose}
-            >
-              <div className={makeSectionCls(isHovered, false, accent)}>
-                <span className="font-medium">{section.section}</span>
-                <ChevronRight className="h-3.5 w-3.5 ml-6 flex-shrink-0" />
-              </div>
-              {isHovered && (
-                <div onMouseEnter={clearTimer} onMouseLeave={delayedClose} className={panelCls}>
-                  <SubMenuItems items={section.items} asPath={asPath} onClose={onClose} accent={accent} />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Settings items — rendered inline with separator, no flyout */}
-        {settingsItems.map(item => {
-          if (isFlyout(item)) return null;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onClose}
-              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 whitespace-nowrap transition-colors ${ item.href === settingsActiveHref ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50' }`}
-            >
-              <Settings className="h-3.5 w-3.5 flex-shrink-0" />
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Public component ─────────────────────────────────────────────────────────
+/** Menus open on hover for a real mouse only; touch and pen open on tap. */
+const isHoverPointer = (e: { pointerType: string }) => e.pointerType === 'mouse';
 
 /**
  * Generic Sage-style module nav bar.
@@ -304,7 +48,10 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
 export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps) {
   const router = useRouter();
   const [openTab, setOpenTab] = useState<string | null>(null);
-  const navRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const lastPointer = useRef<string>('');
+  const focusOnOpen = useRef(false);
+  const openedByHover = useRef(false);
   const activeTab = typeof getActiveTabId === 'function'
     ? getActiveTabId(router.pathname, router.query)
     : 'dashboard';
@@ -312,8 +59,8 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
 
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearHover = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); };
-  const delayedClose = () => { hoverTimer.current = setTimeout(() => setOpenTab(null), 150); };
-  useEffect(() => () => clearHover(), []);
+  const delayedClose = () => { clearHover(); hoverTimer.current = setTimeout(() => setOpenTab(null), 150); };
+  useEffect(() => clearHover, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -323,68 +70,141 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  useEffect(() => { setOpenTab(null); }, [router.pathname]);
+  useEffect(() => { setOpenTab(null); }, [router.asPath]);
 
-  const hasFlyout = (t: Tab) => t.items?.some(isFlyout) ?? false;
+  // A menu opened from the keyboard moves focus to its first entry.
+  const focusFirst = (id: string) => {
+    const panel = navRef.current?.querySelector<HTMLElement>(`[data-tour="nav-${id}"] [data-nav-panel]`);
+    if (panel) panelItems(panel)[0]?.focus();
+  };
+  useEffect(() => {
+    if (!openTab || !focusOnOpen.current) return;
+    focusOnOpen.current = false;
+    focusFirst(openTab);
+  }, [openTab]);
+
+  const open = (id: string, keyboard = false, byHover = false) => {
+    clearHover();
+    focusOnOpen.current = keyboard;
+    openedByHover.current = byHover;
+    setOpenTab(id);
+  };
+
+  /** Chevron or button click. A click on a menu the pointer just opened keeps it open; any other click on an open menu closes it. */
+  const activate = (id: string, isOpen: boolean, keyboard: boolean) => {
+    if (!isOpen) return open(id, keyboard);
+    if (openedByHover.current && !keyboard) { openedByHover.current = false; return; }
+    setOpenTab(null);
+  };
+
+  /** ArrowDown: open and focus the first entry, or, when already open (hover), just move focus in. */
+  const arrowDown = (id: string, isOpen: boolean) => (e: ReactKeyboardEvent) => {
+    if (e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    if (isOpen) focusFirst(id);
+    else open(id, true);
+  };
+
+  // Focus leaving the tab and its panel closes the menu (Tab past the last entry).
+  // Closes only this tab's own menu: another tab may have been opened since (hover) while focus sat here.
+  const closeOnFocusOut = (id: string) => (e: ReactFocusEvent<HTMLElement>) => {
+    const next = e.relatedTarget as Node | null;
+    if (next && !e.currentTarget.contains(next)) setOpenTab(cur => (cur === id ? null : cur));
+  };
+
+  const closeToTrigger = (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.key !== 'Escape' || openTab === null) return;
+    const trigger = e.currentTarget.querySelector<HTMLElement>('[data-nav-trigger]');
+    const panel = e.currentTarget.querySelector<HTMLElement>('[data-nav-panel]');
+    const focusInPanel = !!panel && panel.contains(document.activeElement);
+    setOpenTab(null);
+    if (focusInPanel) trigger?.focus();
+  };
+
+  const textCls = (t: Tab) =>
+    `text-sm font-medium whitespace-nowrap transition-colors ${
+      activeTab === t.id ? accent.activeText : 'text-ink-muted hover:text-ink'
+    }`;
+  const borderCls = (t: Tab) => `border-b-2 ${activeTab === t.id ? accent.activeBorder : 'border-transparent'}`;
+
+  const dropdown = (t: Tab, id: string) => {
+    const props = { asPath: router.asPath, onClose: () => setOpenTab(null), accent, id };
+    return hasFlyout(t)
+      ? <FlyoutDropdown tab={t} {...props} />
+      : <FlatDropdown items={t.items as DropdownItem[]} {...props} />;
+  };
 
   return (
     <nav ref={navRef} className="bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700 relative z-30">
       <div className="flex items-center gap-0 px-2">
         {(tabs ?? []).map(t => {
-          const linkFlyout = !!(t.href && t.items?.length);
+          const menu = hasMenu(t);
+          const isOpen = menu && openTab === t.id;
+          const panelId = `nav-menu-${t.id}`;
+          const trigger = {
+            'data-nav-trigger': '',
+            'aria-expanded': isOpen,
+            'aria-controls': isOpen ? panelId : undefined,
+          };
           return (
-          <div
-            key={t.id}
-            className="relative"
-            data-tour={`nav-${t.id}`}
-            onMouseEnter={linkFlyout
-              ? () => { clearHover(); setOpenTab(t.id); }
-              : () => clearHover()}
-            onMouseLeave={linkFlyout ? delayedClose : undefined}
-          >
-            {t.href && !t.items?.length ? (
-              <Link
-                href={t.href}
-                className={`block px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  activeTab === t.id
-                    ? `${accent.activeBorder} ${accent.activeText}`
-                    : 'border-transparent text-gray-400 hover:text-white'
-                }`}
-              >
-                {t.label}
-              </Link>
-            ) : linkFlyout ? (
-              <Link
-                href={t.href as string}
-                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors flex items-center gap-1 ${
-                  activeTab === t.id
-                    ? `${accent.activeBorder} ${accent.activeText}`
-                    : 'border-transparent text-gray-400 hover:text-white'
-                }`}
-              >
-                {t.label}
-                <ChevronDown className={`h-3 w-3 transition-transform ${openTab === t.id ? 'rotate-180' : ''}`} />
-              </Link>
-            ) : (
-              <button
-                onClick={() => setOpenTab(openTab === t.id ? null : t.id)}
-                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors inline-flex items-center gap-1 ${
-                  activeTab === t.id
-                    ? `${accent.activeBorder} ${accent.activeText}`
-                    : 'border-transparent text-gray-400 hover:text-white'
-                }`}
-              >
-                {t.label}
-                <ChevronDown className={`h-3 w-3 transition-transform ${openTab === t.id ? 'rotate-180' : ''}`} />
-              </button>
-            )}
-
-            {t.items && openTab === t.id && (
-              hasFlyout(t)
-                ? <FlyoutDropdown tab={t} asPath={router.asPath} onClose={() => setOpenTab(null)} accent={accent} />
-                : <FlatDropdown items={t.items as DropdownItem[]} asPath={router.asPath} onClose={() => setOpenTab(null)} accent={accent} />
-            )}
-          </div>
+            <div
+              key={t.id}
+              className="relative"
+              data-tour={`nav-${t.id}`}
+              onPointerDown={e => { lastPointer.current = e.pointerType; }}
+              onPointerEnter={menu ? e => { if (!isHoverPointer(e)) return; clearHover(); if (openTab !== t.id) open(t.id, false, true); } : undefined}
+              onPointerLeave={menu ? e => { if (isHoverPointer(e)) delayedClose(); } : undefined}
+              onKeyDownCapture={() => { lastPointer.current = ''; }}
+              onKeyDown={menu ? closeToTrigger : undefined}
+              onBlur={menu ? closeOnFocusOut(t.id) : undefined}
+            >
+              {t.href && !menu && (
+                <Link href={t.href} aria-current={activeTab === t.id ? 'true' : undefined} className={`block px-4 py-2.5 ${borderCls(t)} ${textCls(t)}`}>{t.label}</Link>
+              )}
+              {t.href && menu && (
+                <div className={`flex items-center ${borderCls(t)}`}>
+                  <Link
+                    href={t.href}
+                    aria-current={activeTab === t.id ? 'true' : undefined}
+                    className={`py-2.5 pl-4 pr-1 ${textCls(t)}`}
+                    onClick={e => {
+                      // Touch and pen: the first tap opens the menu, the second follows the link.
+                      if (!isOpen && lastPointer.current !== 'mouse' && lastPointer.current !== '') {
+                        e.preventDefault();
+                        open(t.id);
+                      }
+                    }}
+                    onKeyDown={arrowDown(t.id, isOpen)}
+                  >
+                    {t.label}
+                  </Link>
+                  <button
+                    type="button"
+                    {...trigger}
+                    aria-label={`${t.label} menu`}
+                    className={`py-2.5 pl-0.5 pr-3 ${textCls(t)}`}
+                    onClick={e => activate(t.id, isOpen, e.detail === 0)}
+                    onKeyDown={arrowDown(t.id, isOpen)}
+                  >
+                    <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              {!t.href && menu && (
+                <button
+                  type="button"
+                  {...trigger}
+                  aria-current={activeTab === t.id ? 'true' : undefined}
+                  className={`px-4 py-2.5 inline-flex items-center gap-1 ${borderCls(t)} ${textCls(t)}`}
+                  onClick={e => activate(t.id, isOpen, e.detail === 0)}
+                  onKeyDown={arrowDown(t.id, isOpen)}
+                >
+                  {t.label}
+                  <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                </button>
+              )}
+              {isOpen && dropdown(t, panelId)}
+            </div>
           );
         })}
       </div>
