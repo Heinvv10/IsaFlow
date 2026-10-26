@@ -49,11 +49,11 @@ const BUCKET_LABELS: Record<Bucket, string> = {
 };
 
 const BUCKET_COLORS: Record<Bucket, string> = {
-  current: 'text-blue-400',
-  '1-30': 'text-yellow-400',
-  '31-60': 'text-orange-400',
-  '61-90': 'text-red-400',
-  '90+': 'text-red-600',
+  current: 'text-blue-700 dark:text-blue-400',
+  '1-30': 'text-yellow-800 dark:text-yellow-400',
+  '31-60': 'text-orange-800 dark:text-orange-400',
+  '61-90': 'text-red-700 dark:text-red-400',
+  '90+': 'text-red-800 dark:text-red-300',
 };
 
 const BUCKET_BG: Record<Bucket, string> = {
@@ -191,7 +191,7 @@ export default function APAgingPage() {
             </div>
           )}
           {error && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}
             </div>
           )}

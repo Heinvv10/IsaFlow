@@ -3,6 +3,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui';
 import Link from 'next/link';
 import { RefreshCw, Plus, Pause, Play, XCircle, Zap, Loader2, Pencil, Download, Clock, CheckCircle, AlertCircle, X } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
@@ -121,31 +122,28 @@ export default function RecurringInvoicesPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10 flex items-center justify-between">
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Documents</p>
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Recurring Invoices</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">{items.length} {items.length === 1 ? 'template' : 'templates'}{dueCount > 0 && <span className="ml-2 px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded-full text-xs font-medium">{dueCount} due</span>}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => void runAllDue()} disabled={runAllBusy || dueCount === 0} className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-40 shadow-lg shadow-teal-500/25">
+        <PageHeader
+          icon={RefreshCw}
+          title="Recurring Invoices"
+          subtitle={`${items.length} ${items.length === 1 ? 'template' : 'templates'}${dueCount > 0 ? ` · ${dueCount} due` : ''}`}
+          className="mb-0"
+          actions={
+            <>
+              <button onClick={() => void runAllDue()} disabled={runAllBusy || dueCount === 0} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-40">
                 {runAllBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                 Run Due{dueCount > 0 ? ` (${dueCount})` : ''}
               </button>
               {items.length > 0 && (
-                <button onClick={exportCSV} className="inline-flex items-center gap-2 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-slate-900 dark:text-white rounded-xl text-sm font-medium transition-colors">
+                <button onClick={exportCSV} className="inline-flex items-center gap-2 px-3 py-2 bg-surface-raised hover:bg-surface-sunken text-ink border border-line rounded-lg text-sm font-medium transition-colors">
                   <Download className="h-4 w-4" /> CSV
                 </button>
               )}
-              <Link href="/accounting/recurring-invoices/new" className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25">
+              <Link href="/accounting/recurring-invoices/new" className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors">
                 <Plus className="w-4 h-4" /> New Template
               </Link>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <div className="p-6 space-y-4">
           {error && (
@@ -163,7 +161,7 @@ export default function RecurringInvoicesPage() {
 
           <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 w-fit">
             {TABS.map(t => (
-              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
+              <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
             ))}
           </div>
 

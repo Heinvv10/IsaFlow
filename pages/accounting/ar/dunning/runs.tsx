@@ -46,10 +46,10 @@ const RESPONSE_LABEL: Record<ResponseAction, string> = {
 };
 
 const RESPONSE_BADGE: Record<ResponseAction, string> = {
-  paid:     'bg-emerald-100 text-emerald-800',
-  promised: 'bg-blue-100 text-blue-800',
-  disputed: 'bg-red-100 text-red-800',
-  silent:   'bg-gray-100 text-gray-700',
+  paid:     'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
+  promised: 'bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300',
+  disputed: 'bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300',
+  silent:   'bg-surface-sunken text-ink-muted',
 };
 
 function fmtDateTime(iso: string): string {
@@ -106,21 +106,21 @@ export default function DunningRunsPage() {
           <div>
             <Link
               href="/accounting/ar/dunning"
-              className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline mb-2"
+              className="inline-flex items-center gap-1 text-sm text-brand-700 dark:text-teal-400 hover:underline mb-2"
             >
               <ArrowLeft className="w-4 h-4" /> Back to templates
             </Link>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-ink flex items-center gap-2">
               <History className="w-6 h-6" /> Dunning Send History
             </h1>
-            <p className="text-sm text-gray-600 mt-1">
+            <p className="text-sm text-ink-muted mt-1">
               Every reminder — manual + cron — with response tracking.
             </p>
           </div>
         </header>
 
         {error && (
-          <div className="border border-red-300 bg-red-50 text-red-800 rounded-md p-3 text-sm flex items-center gap-2">
+          <div className="border border-red-300 bg-red-50 text-red-800 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300 rounded-md p-3 text-sm flex items-center gap-2">
             <AlertCircle className="w-4 h-4" /> {error}
           </div>
         )}
@@ -142,8 +142,8 @@ export default function DunningRunsPage() {
               onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-md border ${
                 filter === f
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  ? 'bg-brand-600 text-white border-brand-600'
+                  : 'bg-surface-raised text-ink border-line hover:bg-surface-sunken'
               }`}
             >
               {f === '' ? 'All' : f === 'none' ? 'Awaiting response' : RESPONSE_LABEL[f as ResponseAction]}
@@ -152,13 +152,13 @@ export default function DunningRunsPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center h-32 text-gray-500">
+          <div className="flex items-center justify-center h-32 text-ink-muted">
             <Loader2 className="animate-spin mr-2" /> Loading…
           </div>
         ) : (
-          <div className="border rounded-lg overflow-x-auto">
+          <div className="border border-line rounded-lg overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="bg-gray-50 text-gray-700 text-left">
+              <thead className="bg-surface-sunken text-ink-muted text-left">
                 <tr>
                   <th className="px-3 py-2">Sent</th>
                   <th className="px-3 py-2">Invoice</th>
@@ -171,8 +171,8 @@ export default function DunningRunsPage() {
               </thead>
               <tbody>
                 {sends.map((s) => (
-                  <tr key={s.id} className="border-t">
-                    <td className="px-3 py-2 whitespace-nowrap text-gray-600">
+                  <tr key={s.id} className="border-t border-line text-ink">
+                    <td className="px-3 py-2 whitespace-nowrap text-ink-muted">
                       {fmtDateTime(s.sent_at)}
                     </td>
                     <td className="px-3 py-2 font-medium">{s.invoice_number}</td>
@@ -183,18 +183,18 @@ export default function DunningRunsPage() {
                         {s.template_name}
                       </span>
                     </td>
-                    <td className="px-3 py-2 capitalize text-gray-600">{s.trigger_source}</td>
+                    <td className="px-3 py-2 capitalize text-ink-muted">{s.trigger_source}</td>
                     <td className="px-3 py-2">
                       {s.email_status === 'sent' ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
                           <CheckCircle2 className="w-4 h-4" /> Sent
                         </span>
                       ) : s.email_status === 'failed' ? (
-                        <span className="inline-flex items-center gap-1 text-red-700" title={s.email_error ?? ''}>
+                        <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-400" title={s.email_error ?? ''}>
                           <AlertCircle className="w-4 h-4" /> Failed
                         </span>
                       ) : (
-                        <span className="text-gray-500">Pending</span>
+                        <span className="text-ink-muted">Pending</span>
                       )}
                     </td>
                     <td className="px-3 py-2">
@@ -203,14 +203,14 @@ export default function DunningRunsPage() {
                           {RESPONSE_LABEL[s.response_action]}
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-ink-muted">—</span>
                       )}
                     </td>
                   </tr>
                 ))}
                 {sends.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-gray-500">
+                    <td colSpan={7} className="px-3 py-8 text-center text-ink-muted">
                       No sends yet.
                     </td>
                   </tr>
@@ -228,14 +228,14 @@ function Stat({
   label, value, tone,
 }: { label: string; value: number | string; tone: 'emerald' | 'red' | 'blue' | 'gray' }) {
   const toneMap = {
-    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-    red:     'border-red-200 bg-red-50 text-red-900',
-    blue:    'border-blue-200 bg-blue-50 text-blue-900',
-    gray:    'border-gray-200 bg-gray-50 text-gray-900',
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200',
+    red:     'border-red-200 bg-red-50 text-red-900 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200',
+    blue:    'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200',
+    gray:    'border-line bg-surface-sunken text-ink',
   };
   return (
     <div className={`border rounded-md p-3 ${toneMap[tone]}`}>
-      <div className="text-xs uppercase tracking-wide opacity-70">{label}</div>
+      <div className="text-xs uppercase tracking-wide">{label}</div>
       <div className="text-xl font-semibold mt-1">{value}</div>
     </div>
   );

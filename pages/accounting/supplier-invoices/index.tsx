@@ -10,8 +10,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Download, Loader2, Plus } from 'lucide-react';
+import { AlertCircle, Download, FileText, Loader2, Plus } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
@@ -218,33 +219,28 @@ export default function SupplierInvoicesPage() {
 
 function Header({ total, filtersActive, onExport }: { total: number; filtersActive: boolean; onExport: () => void }) {
   return (
-    <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
-      <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-      <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="relative z-10 flex items-center justify-between">
-        <div>
-          <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Suppliers</p>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Supplier Invoices</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">
-            {total} {total === 1 ? 'invoice' : 'invoices'}{filtersActive ? ' (filtered)' : ''}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <PageHeader
+      icon={FileText}
+      title="Supplier Invoices"
+      subtitle={`${total} ${total === 1 ? 'invoice' : 'invoices'}${filtersActive ? ' (filtered)' : ''}`}
+      className="mb-0"
+      actions={
+        <>
           <button
             type="button"
             onClick={onExport}
-            className="flex items-center gap-2 px-3 py-2.5 bg-slate-800/70 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-medium transition-colors border border-slate-700"
+            className="flex items-center gap-2 px-3 py-2 bg-surface-raised hover:bg-surface-sunken text-ink rounded-lg text-sm font-medium transition-colors border border-line"
           >
             <Download className="w-4 h-4" /> Export CSV
           </button>
           <Link
             href="/accounting/supplier-invoices/new"
-            className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors"
           >
             <Plus className="w-4 h-4" /> New Invoice
           </Link>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }
