@@ -31,8 +31,9 @@
  * WHO TAKES IT: `planSupplierPaymentApplication` for posted cash (REST supplier-allocations, MCP apply, the
  * back-fill) after its payment and bill locks; `planSupplierRefund` after its supplier lock. An application of a payment
  * created in the same request (bank allocation, provisional settlement) lowers nothing — the payment and its
- * allocation land together — and does not take it. Unapply and void raise or remove credit and do not take it:
- * a refund reading a stale, lower figure refuses early, the safe direction.
+ * allocation land together — and does not take it. Unapply raises credit and does not take it: a refund reading a
+ * stale, lower figure refuses early, the safe direction. A void that LOWERS credit (an unapplied remainder) takes it,
+ * since 2026-10-26 (`ap/supplierVoidCredit`); one that lowers nothing does not.
  *
  * HOW LONG IT IS HELD: to the end of the request. A single application holds it only while it writes. The auto-apply
  * back-fill is ONE transaction over many sources, so it holds the key of every supplier it has applied from that

@@ -32,7 +32,7 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', async (importOriginal) 
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
 import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
 
-const NO_SKIPS = { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0 };
+const NO_SKIPS = { reconciled: 0, contended: 0, failed: 0, offsetByHand: 0, creditCeiling: 0 };
 
 function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
   const tagged = handlers.find((h) => /auto_post_run_id/.test(h.match.source))?.rows as Array<{ id: string }> | undefined;
