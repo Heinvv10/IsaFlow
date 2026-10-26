@@ -72,12 +72,6 @@
     "reason": "Machine diagnostic: it only becomes the data-print-error-fonts attribute the PDF renderer reads (pinned as 'HTTP <n>' by the playwright/gotenberg transport tests); no person sees it."
   },
   {
-    "file": "pages/admin/email-log.tsx",
-    "kind": "b",
-    "line": "<AlertCircle className=\"w-3 h-3\" /> Failed",
-    "reason": "A status badge for a failed email in the log, not a message about a failed request; the badge is a label next to an icon."
-  },
-  {
     "file": "pages/forgot-password.tsx",
     "kind": "g",
     "line": "if (!res.ok) {",

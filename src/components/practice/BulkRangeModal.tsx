@@ -10,6 +10,7 @@ import { fetchEntryTemplates, type EntryTemplate } from './practiceApi';
 import { JobBudgetPicker } from './JobBudgetPicker';
 import type { BulkFromTemplateInput, BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { addDaysISO, localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 function todayIso() { return localISODate(); }
 
@@ -111,14 +112,8 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
             selectClassName="w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:opacity-50"
             labelClassName="block text-xs font-medium text-[var(--ff-text-secondary)]" />
           <div className="grid grid-cols-2 gap-3">
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-[var(--ff-text-secondary)]">From</span>
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500" />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-[var(--ff-text-secondary)]">To</span>
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-teal-500" />
-            </label>
+            <DateField label="From" required value={dateFrom || null} onChange={(iso, v) => { if (v.valid && iso) setDateFrom(iso); }} />
+            <DateField label="To" required value={dateTo || null} onChange={(iso, v) => { if (v.valid && iso) setDateTo(iso); }} />
           </div>
           <div className="space-y-1">
             <span className="text-xs font-medium text-[var(--ff-text-secondary)]">Weekdays</span>
