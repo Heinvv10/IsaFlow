@@ -37,6 +37,7 @@ import FinancialAnalysisPage from '../../../pages/accounting/reports/financial-a
 import ChartOfAccountsPage from '../../../pages/accounting/chart-of-accounts/index';
 import { FiscalPeriodsTab } from '../../../src/components/accounting/dashboard/FiscalPeriodsTab';
 import { LoanComplianceTab } from '../../../src/components/loans/LoanComplianceTab';
+import { bvaBody } from '../helpers/bvaReportFixture';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); route.query = {}; });
@@ -59,7 +60,7 @@ const cases: Case[] = [
     data: [{ id: 'p1', itemCode: 'D2-PBI-CODE', name: 'D2 Purchased Item', category: 'x', poCount: 1, qtyOrdered: 2, totalCost: 10, avgCost: 5 }],
     seen: 'D2 Purchased Item', sentence: /Could not load the purchases report/ },
   { name: 'budget vs actual', Page: BudgetVsActualPage, url: 'reports-budget-vs-actual',
-    data: { report: { period: 'current', total_budget: 1, total_actual: 1, total_variance: 0, lines: [{ account_code: '9999', account_name: 'D2 Budget Account', account_type: 'expense', budget_amount: 1, actual_amount: 1, variance: 0, variance_pct: 0 }] } },
+    data: { report: { period: 'current', ...bvaBody([{ code: '9999', name: 'D2 Budget Account', type: 'expense', actual: 1, budget: 1 }]) } },
     seen: 'D2 Budget Account', sentence: /Could not load the budget report/ },
   { name: 'customer allocations receipts', Page: CustomerAllocationsPage, url: 'customer-payments',
     data: [{ id: 'p1', paymentNumber: 'D2-RCPT-001', clientName: 'D2 Receipt Client', clientId: 'c1', date: '2026-09-01', totalAmount: 100, allocatedAmount: 0 }],
