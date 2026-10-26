@@ -108,21 +108,31 @@ test('"Try the demo company" lands on the demo company with data', async ({ page
 
 test('a slow list paints a skeleton, not a spinner', async ({ page }) => {
   mkdirSync(SHOTS, { recursive: true });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  // The list request is the only thing that gates the skeleton: GET /api/accounting/customers (exact path).
+  const isList = (url: URL) => url.pathname === '/api/accounting/customers';
   for (const theme of THEMES) {
     await seedTheme(page, theme);
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.route('**/api/accounting/customers*', async (route) => {
-      await new Promise((r) => setTimeout(r, 4_000));
+    // Held until THIS iteration releases it (no timer: nothing can fire on a route that is already handled).
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(isList, async (route) => {
+      await gate;
       await route.continue();
     });
-    await page.goto('/accounting/customers');
-    const skeleton = page.getByRole('status', { name: 'Loading customers' });
-    await expect(skeleton).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator('main .animate-spin')).toHaveCount(0);
-    await page.waitForSelector(`html[data-theme-applied="${theme}"]`);
-    await page.screenshot({ path: `${SHOTS}/customers-skeleton-${theme}.png` });
-    await page.unroute('**/api/accounting/customers*');
-    await expect(skeleton).toBeHidden({ timeout: 30_000 });
+    try {
+      await page.goto('/accounting/customers');
+      const skeleton = page.getByRole('status', { name: 'Loading customers' });
+      await expect(skeleton).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('main .animate-spin')).toHaveCount(0);
+      await page.waitForSelector(`html[data-theme-applied="${theme}"]`);
+      await page.screenshot({ path: `${SHOTS}/customers-skeleton-${theme}.png` });
+      release();
+      await expect(skeleton).toBeHidden({ timeout: 30_000 });
+    } finally {
+      release();
+      await page.unroute(isList, { behavior: 'wait' });
+    }
   }
 });
 
