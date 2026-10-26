@@ -243,6 +243,12 @@ describe('assign_employee_component', () => {
     expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![6]).toBe(true);
   });
 
+  it('passes the dates through as the YYYY-MM-DD given, never a Date (a local-midnight Date lost a day in SAST, PAYE 4c)', async () => {
+    await assignEmployeeComponentTool.handler(args({ effective_from: '2026-10-01', effective_to: '2026-10-31', is_recurring: false }), ctx());
+    const call = vi.mocked(assignComponentToEmployee).mock.calls[0]!;
+    expect([call[4], call[5]]).toEqual(['2026-10-01', '2026-10-31']);
+  });
+
   it('honours is_recurring: false for a once-off', async () => {
     await assignEmployeeComponentTool.handler(args({ is_recurring: false }), ctx());
     expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![6]).toBe(false);

@@ -19,8 +19,8 @@
  *     3230 number, 3231 issued date, 3232 income source code, 3233 income
  *     amount (BRS "Directive Information", p. 41–44; the optional 3234 type
  *     indicator is left out). 3601 excludes them.
- *   - Deduction codes 4102 (PAYE), 4115 (PAYE on lump sums), 4141 (total UIF:
- *     employee + employer), 4142 (SDL)
+ *   - Deduction codes 4001/4003/4006 (retirement funds, easyFileRetirementFields), 4102 (PAYE),
+ *     4115 (PAYE on lump sums), 4141 (total UIF: employee + employer), 4142 (SDL)
  *   - Periods-of-employment field derived from employee start/end dates
  *
  * Deliberately out of scope — will be added in later iterations:
@@ -45,6 +45,7 @@ import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
 import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
+import { retirementFieldLines, type RetirementContributions } from './easyFileRetirementFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -99,6 +100,8 @@ export interface EmployeeInput {
   taxThreshold?: number;
   /** Medical scheme fees and credits (4005, 4116, 4120); absent = none reported. */
   medical?: MedicalCertificateInput;
+  /** Retirement fund contributions (4001, 4003, 4006; PAYE 4c); absent = none reported. */
+  retirementFund?: RetirementContributions;
   /** The payroll record's date of birth (local calendar day): 3080, which must be the ID number's date (birthDate3080). */
   dateOfBirth?: Date | null;
 }
@@ -202,6 +205,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
   const reason = it3a ? nilTaxReason(emp) : null;
   const medical = medicalFieldLines(emp);
+  const retirement = retirementFieldLines(emp.retirementFund);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
@@ -226,7 +230,9 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
     ...lumpIncome(lumpSums),
+    ...retirement.beforeMedical,
     ...medical.fees,
+    ...retirement.afterMedical,
     it3a ? null : formatField(4102, emp.paye4102, 'N_CENTS'),
     // 4115 only for 3901 / 3915 / 3920-3924 (lumpSumPayeCode); a 3907's PAYE is in 4102.
     !it3a && under4115.length > 0 ? formatField(4115, paye4115, 'N_CENTS') : null,

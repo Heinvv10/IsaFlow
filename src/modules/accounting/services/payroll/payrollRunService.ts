@@ -220,6 +220,8 @@ export async function calculatePayrollRun(
       medicalCredit: line.medicalCredit,
       additionalMedicalCredit: line.additionalMedicalCredit,
       medicalSchemeFees: line.medicalSchemeFees,
+      retirementContributions: line.retirementContributions,
+      retirementDeduction: line.retirementDeduction,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,
       sdl: 0, // set below, once the run's own leviable total decides leviability

@@ -343,8 +343,9 @@ export const assignEmployeeComponentTool: McpTool = {
       employeeId,
       componentId,
       amount,
-      asDate(effectiveFrom),
-      effectiveTo === undefined ? undefined : asDate(effectiveTo),
+      // The day as given: a Date here was stored a day early east of UTC (PAYE 4c).
+      effectiveFrom,
+      effectiveTo,
       args.is_recurring !== false,
     );
 

@@ -22,7 +22,13 @@
  *   next line's record carries its credit: payeCumulative); likewise
  *   additionalMedicalCredit (additional_medical_credit, the 65+ credit);
  * - medicalSchemeFees: the fees deducted on those lines (loadMedicalRecord:
- *   medical_scheme_fees, else the breakdown's deductions coded 4005).
+ *   medical_scheme_fees, else the breakdown's deductions coded 4005);
+ * - retirementContributions / retirementDeduction: the lines'
+ *   retirement_contributions / retirement_deduction (migration 948, PAYE 4c;
+ *   payeCumulative). A line before 948 is NULL and counts none: one taxed
+ *   with a retirement-coded taxable deduction has it inside its
+ *   periodic_taxable already, as it was taxed (no production line had one,
+ *   census 2026-10-26).
  *
  * Every query is scoped by company_id.
  */
@@ -50,6 +56,7 @@ export async function loadPayeYearToDate(
   const rows = (await sql`
     WITH split AS (
       SELECT l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
+             l.retirement_contributions, l.retirement_deduction,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
       FROM payroll_run_lines l
@@ -75,7 +82,9 @@ export async function loadPayeYearToDate(
            SUM(paye - directive_paye)::numeric AS table_paye,
            -- SUM skips a line written before migration 926 (NULL: recorded nothing).
            SUM(medical_credit)::numeric AS medical_credit,
-           SUM(additional_medical_credit)::numeric AS additional_medical_credit
+           SUM(additional_medical_credit)::numeric AS additional_medical_credit,
+           COALESCE(SUM(retirement_contributions), 0)::numeric AS retirement_contributions,
+           COALESCE(SUM(retirement_deduction), 0)::numeric AS retirement_deduction
     FROM split
     GROUP BY employee_id
   `) as DbRow[];
@@ -92,6 +101,8 @@ export async function loadPayeYearToDate(
     medicalCredit: round2(Number(r.medical_credit)),
     additionalMedicalCredit: round2(Number(r.additional_medical_credit)),
     medicalSchemeFees: fees.get(String(r.employee_id))?.fees ?? 0,
+    retirementContributions: round2(Number(r.retirement_contributions)),
+    retirementDeduction: round2(Number(r.retirement_deduction)),
   }]));
 }
 

@@ -1,6 +1,7 @@
 import { getAge } from './payeEngine';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
 import { calculateCumulativePaye } from './payeCumulative';
+import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode } from './retirementFund';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
@@ -41,6 +42,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // (the 3810 fringe benefit, deemed paid by the employee) is not supported.
   // They decide the 65+ additional medical expenses tax credit (payeEngine).
   let medicalSchemeFees = 0;
+  // Employee retirement fund contributions: deductions coded 4001/4003/4006,
+  // deducted before PAYE within section 11F (payeCumulative, retirementFund).
+  let retirementContributions = 0;
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
@@ -60,6 +64,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       grossPay += amount;
       if (component.isUifApplicable) uifLeviable += amount;
       if (component.isSdlApplicable) sdlLeviable += amount;
+      if (isEmployerFundBenefitCode(component.sarsSourceCode)) warnings.push(employerFundBenefitWarning(component.name, component.sarsSourceCode, amount));
       const treatment = payeTreatment(component.sarsSourceCode);
       // Any lump-sum earning, taxable flag or not: para 9(3) of the Fourth
       // Schedule requires the directive before a lump sum is paid at all.
@@ -81,8 +86,13 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       }
     } else if (component.componentType === 'deduction') {
       totalDeductions += amount;
-      if (component.isTaxable) taxableDeductions += amount;
+      // A retirement contribution by its code, whatever its taxable flag: capped below, never the uncapped path.
+      if (isRetirementContributionCode(component.sarsSourceCode)) retirementContributions += amount;
+      else if (component.isTaxable) taxableDeductions += amount;
       if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
+    } else {
+      // An employer's contribution (PAYE 4b): neither the fringe benefit nor the deemed contribution is computed.
+      warnings.push(employerContributionWarning(component.name, amount));
     }
   }
 
@@ -95,7 +105,6 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   }
   const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
   const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
-  const taxableIncome = regularTaxable + annualTaxable;
 
   const medicalBeneficiaries = employee.medicalAidMainMember
     ? 1 + employee.medicalAidDependantsCount
@@ -112,7 +121,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
     });
   }
-  const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit } = calculateCumulativePaye({
+  const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction } = calculateCumulativePaye({
     regularTaxable,
     annualPayments: annualTaxable,
     ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
@@ -120,7 +129,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     rebateAge,
     monthlyMedicalBeneficiaries: medicalBeneficiaries,
     medicalSchemeFees,
+    retirementContributions,
   });
+  // What the tables were applied to this period: remuneration less this line's retirement fund deduction.
+  const taxableIncome = regularTaxable + annualTaxable - retirementDeduction;
   const payeSplit = { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
 
@@ -175,6 +187,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     medicalCredit,
     additionalMedicalCredit,
     medicalSchemeFees: round2(medicalSchemeFees),
+    retirementContributions: round2(retirementContributions),
+    retirementDeduction,
     uif,
     sdl: Math.round(sdl * 100) / 100,
     sdlLeviable: Math.round(sdlLeviable * 100) / 100,

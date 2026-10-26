@@ -129,10 +129,11 @@ describe('P3: a lump sum (39xx) is never taxed by the tables', () => {
 describe('P3: taxable deductions and the split', () => {
   it('a taxable deduction larger than regular pay comes off the annual payment', () => {
     // Regular 5 000 − 8 000 deduction → 0; the 3 000 excess comes off the 130 000 bonus.
-    // tax(127 000) = 22 860 − 17 820 = 5 040.
+    // tax(127 000) = 22 860 − 17 820 = 5 040. Not a retirement fund code: since PAYE 4c those
+    // (4001/4003/4006) are capped by section 11F instead (payrollCalculatorRetirement.test.ts).
     const l = line([
       { component: comp('3601'), amount: 5_000 },
-      { component: comp('4001', { componentType: 'deduction' }), amount: 8_000 },
+      { component: comp('4030', { componentType: 'deduction' }), amount: 8_000 },
       { component: comp('3605'), amount: 130_000 },
     ]);
     expect(l.payeSplit).toEqual({ regular: 0, annualPayment: 5040, directive: 0 });
