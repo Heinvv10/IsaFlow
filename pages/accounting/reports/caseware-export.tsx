@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
@@ -170,14 +171,10 @@ export default function CaseWareExportPage() {
             <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-3">Export Trial Balance</h3>
             <div className="flex flex-wrap items-end gap-4">
               <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period From</label>
-                <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)}
-                  className="ff-input text-sm" />
+                <DateField label="Period From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
               </div>
               <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period To</label>
-                <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)}
-                  className="ff-input text-sm" />
+                <DateField label="Period To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
               </div>
               <button onClick={handleExport}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">

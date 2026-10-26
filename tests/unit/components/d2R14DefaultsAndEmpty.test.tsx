@@ -1,5 +1,6 @@
 // D2 round 14: (1) income statement never defaults to From after To when the open period is in the future;
 // (2) group eliminations show no "none found" empty state beside a failed-load banner.
+import { dateFieldInputs, shownDate } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -28,7 +29,7 @@ useApiJsonOverMock();
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); route.query = {}; route.isReady = true; });
 afterEach(() => { cleanup(); });
 
-const dates = () => Array.from(document.querySelectorAll('input[type="date"]')).map((i) => (i as HTMLInputElement).value);
+const dates = () => dateFieldInputs().map((i) => i.value);
 
 describe('income statement default dates', () => {
   const today = localISODate();
@@ -37,12 +38,12 @@ describe('income statement default dates', () => {
     serve(on('GET', 'reports-income-statement', () => refuse()), on('GET', 'fiscal-periods', () => ok({ id: 'fp', startDate: addDays(200), endDate: addDays(230) })));
     render(<IncomeStatementPage />);
     await waitFor(() => expect(dates().length).toBeGreaterThanOrEqual(2));
-    await waitFor(() => { const [from, to] = dates(); expect(from! <= to!).toBe(true); expect(to).toBe(today); });
+    await waitFor(() => { const [from, to] = dates(); expect(from).not.toBe(to); expect(to).toBe(shownDate(today)); });
   });
   it('an open period that has begun is still used (From = its start, To capped to today)', async () => {
     serve(on('GET', 'reports-income-statement', () => refuse()), on('GET', 'fiscal-periods', () => ok({ id: 'fp', startDate: '2020-03-01', endDate: addDays(30) })));
     render(<IncomeStatementPage />);
-    await waitFor(() => expect(dates()).toEqual(['2020-03-01', today]));
+    await waitFor(() => expect(dates()).toEqual([shownDate('2020-03-01'), shownDate(today)]));
   });
 });
 

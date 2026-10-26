@@ -3,6 +3,7 @@
 //   suppliers/new: the button stays busy while the detail page loads (no second supplier on a double click);
 //   disclosure-notes delete: a refusal / dropped connection is shown; project-profitability: a failed reload clears the old rows;
 //   balance-sheet / income-statement / cash-flow: a failed reference list is logged, not swallowed.
+import { typeDate, dateFieldInputs } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -194,7 +195,7 @@ describe('project profitability', () => {
     serve(on('GET', 'reports-project-profitability', () => (n++ === 0 ? ok([ROW]) : empty500())));
     render(<ProjectProfitabilityPage />);
     expect(await screen.findByText('D2 Project')).toBeTruthy();
-    fireEvent.change(document.querySelector('input[type="date"]') as HTMLInputElement, { target: { value: '2025-02-01' } });
+    typeDate(dateFieldInputs()[0]!, '2025-02-01');
     expect(await screen.findByText('Could not load the project profitability report - try again')).toBeTruthy();
     expect(screen.queryByText('D2 Project')).toBeNull();
   });
