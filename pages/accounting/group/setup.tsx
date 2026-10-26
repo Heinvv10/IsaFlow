@@ -12,6 +12,7 @@ import { GroupCoaTab } from '@/components/accounting/group/GroupCoaTab';
 import { GroupMappingTab } from '@/components/accounting/group/GroupMappingTab';
 import type { CompanyGroup, GroupMember, GroupAccount, CoaMapping, SimpleCompany, GroupSetupTab, UserCompanyRow } from '@/components/accounting/group/types';
 import { toSimpleCompanies } from '@/components/accounting/group/types';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 const TABS: { key: GroupSetupTab; label: string; icon: typeof Layers }[] = [
   { key: 'details', label: 'Group Details', icon: Users },
@@ -21,6 +22,7 @@ const TABS: { key: GroupSetupTab; label: string; icon: typeof Layers }[] = [
 
 export default function GroupSetupPage() {
   const [activeTab, setActiveTab] = useState<GroupSetupTab>('details');
+  const afterDelay = useTimeoutOnce();
   const [group, setGroup] = useState<CompanyGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -42,12 +44,12 @@ export default function GroupSetupPage() {
     if (type === 'success') {
       setSuccess(msg);
       setError('');
-      setTimeout(() => setSuccess(''), 3000);
+      afterDelay(() => setSuccess(''), 3000);
     } else {
       setError(msg);
       setSuccess('');
     }
-  }, []);
+  }, [afterDelay]);
 
   /* ------------------------------------------------------------------ */
   /*  Data fetchers                                                       */

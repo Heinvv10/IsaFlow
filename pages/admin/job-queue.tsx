@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { Loader2, RefreshCw, Zap, Trash2 } from 'lucide-react';
 import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
 import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ interface BulkResult { processed: number; errors: string[] }
 
 export default function JobQueuePage() {
   const [jobs, setJobs]           = useState<BackgroundJob[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [total, setTotal]         = useState(0);
   const [loading, setLoading]     = useState(true);
   const [activeTab, setActiveTab] = useState<typeof STATUS_TABS[number]>('all');
@@ -38,7 +40,7 @@ export default function JobQueuePage() {
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3500);
+    afterDelay(() => setToastMsg(null), 3500);
   };
 
   const load = useCallback(async () => {

@@ -7,8 +7,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
   Plus, BarChart3, Landmark, FileText, CreditCard, TrendingUp,
-  BookOpen, FileSpreadsheet, Calculator, Calendar, Loader2, ArrowRight, DollarSign,
-  ArrowDown, Clock, AlertCircle,
+  BookOpen, FileSpreadsheet, Calculator, Calendar, ArrowRight, Clock, AlertCircle,
 } from 'lucide-react';
 import { Users, Upload } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -16,6 +15,9 @@ import { log } from '@/lib/logger';
 import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/accounting/constants/pageRegistry';
 import { OverviewTables } from './OverviewTables';
 import { TodoWidget } from './TodoWidget';
+import { ModuleSetupChecklist } from './ModuleSetupChecklist';
+import { OverviewKpiCards } from './OverviewKpiCards';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { WorkbenchSection } from './WorkbenchSection';
 import { NoBankAccountWarning } from '@/components/accounting/banking/NoBankAccountWarning';
 import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
@@ -125,8 +127,10 @@ export function OverviewTab() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+      <div className="space-y-6" aria-busy="true">
+        <Skeleton variant="card" height="96px" />
+        <Skeleton variant="card" height="160px" />
+        <Skeleton variant="card" height="96px" />
       </div>
     );
   }
@@ -139,6 +143,8 @@ export function OverviewTab() {
 
       {/* Action Items */}
       <TodoWidget />
+
+      <ModuleSetupChecklist />
 
       {/* Quick Actions — unified teal chip for visual cohesion on the dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -200,50 +206,7 @@ export function OverviewTab() {
         <NoBankAccountWarning />
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Revenue</span>
-            <TrendingUp className="h-4 w-4 text-teal-500" />
-          </div>
-          <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.revenue.total ?? 0)}</p>
-          <p className={`text-xs mt-1 ${(kpis?.revenue.changePercent ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
-            {(kpis?.revenue.changePercent ?? 0) >= 0 ? '+' : ''}{(kpis?.revenue.changePercent ?? 0).toFixed(1)}% vs prior period
-          </p>
-        </div>
-        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Gross Profit</span>
-            <DollarSign className="h-4 w-4 text-teal-500" />
-          </div>
-          <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.grossProfit.amount ?? 0)}</p>
-          <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Margin: {(kpis?.grossProfit.margin ?? 0).toFixed(1)}%</p>
-        </div>
-        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Cash Position</span>
-            <Landmark className="h-4 w-4 text-teal-500" />
-          </div>
-          <p className={`text-2xl font-bold flex items-center gap-1.5 ${(kpis?.cash.total ?? 0) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-[var(--ff-text-primary)]'}`}>
-            {(kpis?.cash.total ?? 0) < 0 && <ArrowDown className="h-5 w-5" aria-label="Negative" />}
-            {fmtCompact(kpis?.cash.total ?? 0)}
-          </p>
-          <p className={`text-xs mt-1 ${(kpis?.cash.change ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
-            {(kpis?.cash.change ?? 0) >= 0 ? '+' : ''}{fmtCompact(kpis?.cash.change ?? 0)} change
-          </p>
-        </div>
-        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Outstanding AR</span>
-            <CreditCard className="h-4 w-4 text-teal-500" />
-          </div>
-          <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.receivables.total ?? 0)}</p>
-          {(kpis?.receivables.overdue ?? 0) > 0
-            ? <p className="text-xs mt-1 text-rose-600 dark:text-rose-400">{fmtCompact(kpis?.receivables.overdue ?? 0)} overdue</p>
-            : <p className="text-xs mt-1 text-teal-500">No overdue</p>}
-        </div>
-      </div>
+      <OverviewKpiCards kpis={kpis} />
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

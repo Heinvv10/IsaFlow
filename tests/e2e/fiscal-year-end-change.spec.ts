@@ -102,8 +102,14 @@ test('E: a budget for the 14-month year, then Budget vs Actual (full year)', asy
   await page.waitForSelector('[data-testid="budget-month-2026-01"]');
   await expect(page.locator('[data-testid^="budget-month-"]')).toHaveCount(14);
   await page.locator('form select').first().selectOption({ label: '4000 — ' + (await page.locator('form select option', { hasText: '4000' }).first().innerText()).split('— ')[1] });
-  await page.locator('input[placeholder="Annual Amount *"]').fill('14000');
-  for (const k of MONTH_KEYS) await page.getByTestId(`budget-month-${k}`).fill('1000');
+  // MoneyFields parse on blur: the annual amount spreads when it is left, and each month resets it to the sum.
+  await page.getByLabel('Annual amount').fill('14000');
+  await page.getByLabel('Annual amount').blur();
+  for (const k of MONTH_KEYS) {
+    const month = page.getByTestId(`budget-month-${k}`).getByRole('textbox');
+    await month.fill('1000');
+    await month.blur();
+  }
   await shot('E1-budget-form');
   await page.getByTestId('budget-save').click();
   await expect(page.getByTestId('budget-total-4000')).toContainText(/14[\s,]?000/);

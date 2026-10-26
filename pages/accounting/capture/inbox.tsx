@@ -13,11 +13,13 @@ import {
   CaptureInboxPanel, StatusBadge, CHANNEL_ICONS, fmtDate, fmtZAR,
   type CaptureEventRow, type InboxAddress,
 } from '@/components/accounting/capture/CaptureInboxPanel';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 const PENDING_STATUSES = ['received', 'extracting', 'extracted', 'failed'];
 
 export default function CaptureInboxPage() {
   const [events, setEvents] = useState<CaptureEventRow[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showProcessed, setShowProcessed] = useState(false);
@@ -107,7 +109,7 @@ export default function CaptureInboxPage() {
     if (!inboxAddr?.address) return;
     await navigator.clipboard.writeText(inboxAddr.address);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    afterDelay(() => setCopied(false), 2000);
   }
 
   const visible = showProcessed ? events : events.filter(e => PENDING_STATUSES.includes(e.status));

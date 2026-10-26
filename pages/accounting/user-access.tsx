@@ -8,6 +8,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface CompanyUser { userId: string; name: string; email: string; role: string; joinedAt: string; }
 // Note: no `token` field — the API never returns the raw token for
@@ -27,6 +28,7 @@ const ROLE_BADGE: Record<string, string> = {
 export default function UserAccessPage() {
   const { user } = useAuth();
   const [users, setUsers] = useState<CompanyUser[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +69,7 @@ export default function UserAccessPage() {
 
   useEffect(() => { void loadData(); }, [loadData]);
 
-  const showFeedback = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(null), 4000); };
+  const showFeedback = (msg: string) => { setFeedback(msg); afterDelay(() => setFeedback(null), 4000); };
 
   async function writeUsers(method: string, body: object, ok: string, fallback: string): Promise<boolean> {
     setError(null);
