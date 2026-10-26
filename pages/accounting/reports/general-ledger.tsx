@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
@@ -145,9 +146,8 @@ export default function GeneralLedgerPage() {
                 placeholder="Filter accounts..."
                 className="ff-input text-sm"
               />
-              <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="ff-input text-sm" />
-              <span className="text-[var(--ff-text-tertiary)]">to</span>
-              <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="ff-input text-sm" />
+              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
               <button
                 onClick={() => {
                   const params = new URLSearchParams({ period_start: periodStart ?? '', period_end: periodEnd ?? '' });
