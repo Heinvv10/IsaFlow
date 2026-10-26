@@ -144,6 +144,40 @@ describe('BudgetForm amounts', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
+  it('Enter in the annual amount commits it before the form submits', () => {
+    const onSubmit = open(KEYS, '');
+    fireEvent.change(annual(), { target: { value: '300' } });
+    fireEvent.keyDown(annual(), { key: 'Enter' });
+    submit();
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ annualAmount: 300, months: [{ amount: 150 }, { amount: 150 }] });
+  });
+
+  it('clicking Save commits the month being typed in (the click blurs it) and saves its amount', () => {
+    const onSubmit = open();
+    fireEvent.change(month('2026-04'), { target: { value: '80' } });
+    fireEvent.blur(month('2026-04'));
+    fireEvent.click(screen.getByTestId('budget-save'));
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ annualAmount: 130, months: [{ amount: 50 }, { amount: 80 }] });
+  });
+
+  it('negative amounts are accepted (a budget may be negative) and spread with the cents on the last month', () => {
+    const onSubmit = open(KEYS, '-100.01');
+    expect(screen.queryByRole('alert')).toBeNull();
+    submit();
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      annualAmount: -100.01, months: [{ amount: -50.01 }, { amount: -50 }],
+    });
+  });
+
+  it('a valid month edit replaces a refused annual amount with the sum, and the save goes through', () => {
+    const onSubmit = open(KEYS, '1,234');
+    enter(month('2026-04'), '10');
+    expect(annual().value).toBe(shown(1000));
+    expect(screen.queryByText(/ambiguous/)).toBeNull();
+    submit();
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ annualAmount: 10, months: [{ amount: 0 }, { amount: 10 }] });
+  });
+
   it('edit starts from the stored amounts', () => {
     render(<BudgetForm fiscalYear={2027} monthKeys={KEYS} accounts={ACCOUNTS} busy={false} onSubmit={vi.fn()} onCancel={vi.fn()}
       editing={{ glAccountId: 'g1', months: [{ month: '2026-03', amount: 10.1 }, { month: '2026-04', amount: 0.2 }] }} />);
