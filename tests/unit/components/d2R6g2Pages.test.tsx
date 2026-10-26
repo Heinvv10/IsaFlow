@@ -3,6 +3,7 @@
  * and after a GOOD write whose reload fails the page still says the write succeeded.
  * Pages: report builder, customer report, webhooks, admin subscriptions, trial balance (reference data).
  */
+import { typeDate, dateFieldInputs } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -94,7 +95,7 @@ describe('customer report: a failed reload clears the rows, shows no "No data fo
     vi.mocked(apiFetch).mockImplementation(async () => (++loads === 1 ? ok([row]) : second()));
     const { container } = render(<CustomerReports />);
     await screen.findByText('D2 Acme Ltd');
-    fireEvent.change(container.querySelectorAll('input[type="date"]')[0]!, { target: { value: '2026-01-02' } });
+    typeDate(dateFieldInputs(container)[0]!, '2026-01-02');
   };
   it('400', async () => {
     await load(bad400);
