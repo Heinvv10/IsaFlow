@@ -38,3 +38,17 @@ describe('getActiveSectionId', () => {
     expect(getActiveSectionId(salesTab, '/accounting/items')).toBe('');
   });
 });
+
+describe('isSectionActive on a sibling that shares a prefix', () => {
+  it('does not light /accounting/customers for /accounting/customers-x', () => {
+    const customers = moduleSectionsToTabs(salesTab)[0]!;
+    expect(isSectionActive(customers, '/accounting/customers-x')).toBe(false);
+    expect(isSectionActive(customers, '/accounting/customers/42')).toBe(true);
+  });
+
+  it('matches a section that is a bare link on a segment boundary', () => {
+    const bare: Tab = { id: '/accounting/foo', label: 'Foo', href: '/accounting/foo' };
+    expect(isSectionActive(bare, '/accounting/foobar')).toBe(false);
+    expect(isSectionActive(bare, '/accounting/foo#top')).toBe(true);
+  });
+});
