@@ -115,4 +115,29 @@ describe('MCP bulk reversal of a supplier payment AND its refund together', () =
       pay: await statusOf(out.payment), credit: await credit(s3),
     }).toEqual({ dry: 'SUPPLIER_PAYMENT_REFUSED', live: 'SUPPLIER_PAYMENT_REFUSED', pay: 'processed', credit: 0 });
   }, 60_000);
+
+  it('the range dry run finds a payment through its chain root (a line matched to a later member of the chain)', async () => {
+    const s4 = await newSupplier();
+    const out = await bankAllocated(s4, -500, lowId());
+    // A refund outside the range has returned that cash: credit 0.
+    await pool.query(
+      `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,payment_method,reference,status,created_by)
+       VALUES($1,$2,$3::DATE,-500,'refund','VAR refund','processed',$4)`, [fx.company, s4, OTHER_DAY, fx.user]);
+    // The statement line matched to a journal whose chain root is the payment's journal (planted: a member R of the
+    // chain, reversal_of_id = the payment's journal), as a line matched to a re-reversal's head is.
+    const { rows: [root] } = await pool.query(
+      `SELECT jl.journal_entry_id AS id FROM bank_transactions bt JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id
+       WHERE bt.id = $1`, [out.line]);
+    const { rows: [member] } = await pool.query(
+      `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,status,created_by,fiscal_period_id,posted_at,reversal_of_id)
+       VALUES($1,$2,$3::DATE,'VAR chain member','posted',$4,(SELECT id FROM fiscal_periods WHERE company_id = $1 LIMIT 1),NOW(),$5)
+       RETURNING id`, [fx.company, `JE-VAR-${crypto.randomUUID().slice(0, 8)}`, DAY, fx.user, root.id]);
+    const { rows: [bankLine] } = await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id)
+       VALUES($1,$2,0,500,$3),($1,$4,500,0,$3) RETURNING id`, [member.id, fx.bankAccount, fx.company, fx.apAccount]);
+    await pool.query('UPDATE bank_transactions SET matched_journal_line_id = $1 WHERE id = $2', [bankLine.id, out.line]);
+    const ctx = { companyId: fx.company, userId: fx.user, scopes: ['write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
+    const args = { bank_account_id: fx.bankAccount, from_date: DAY, to_date: DAY, idempotency_key: crypto.randomUUID(), dry_run: true };
+    expect(await verdict(inTx(() => reverseAllocationsTool.handler(args, ctx as never)))).toBe('SUPPLIER_PAYMENT_REFUSED');
+  }, 60_000);
 });
