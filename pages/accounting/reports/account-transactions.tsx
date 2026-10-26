@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -129,12 +130,10 @@ export default function AccountTransactionsPage() {
             <AccountPicker label="Account" valueKey="code" refine={postableAccounts} value={accountCode} onChange={code => setAccountCode(code ?? '')}
               className="w-72" labelClassName={REPORT_FILTER_LABEL_CLASS} />
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
-              <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="ff-input text-sm" />
+              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">To</label>
-              <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="ff-input text-sm" />
+              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
             </div>
             {costCentres.length > 0 && (
               <div>

@@ -115,7 +115,7 @@ it('restores the actual BS link round trip with date, centre, business unit and 
   await screen.findByRole('link', {name:'Bank'});
   expect(await screen.findByDisplayValue('CC2 — Project')).toBeInTheDocument();
   expect(await screen.findByDisplayValue('OPS — Operations')).toBeInTheDocument();
-  expect(screen.getByDisplayValue('2026-04-30')).toBeInTheDocument();
+  expect(screen.getByDisplayValue('30 Apr 2026')).toBeInTheDocument();
   expect(screen.getByRole('checkbox', {name:'Prior period'})).toBeChecked();
   expect(params('reports-balance-sheet').at(-1)?.get('compare_date')).toBe('2025-04-30');
   expect(params('reports-balance-sheet').at(-1)?.get('business_unit_id')).toBe(bu);

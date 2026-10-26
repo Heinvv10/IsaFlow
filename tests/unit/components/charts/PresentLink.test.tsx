@@ -5,6 +5,7 @@
  * pages are the entry point, and the link must carry the period the reader is
  * actually looking at, not a default the deck would pick for itself.
  */
+import { dateFieldInputs, typeDate } from '../../helpers/dateFields';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
@@ -65,9 +66,9 @@ describe('the income statement page', () => {
     stubFetches();
     const { container } = render(<IncomeStatementPage />);
 
-    const from = container.querySelector('input[name="periodStart"]');
+    const from = dateFieldInputs(container)[0];
     if (!from) throw new Error('no period-start input');
-    fireEvent.change(from, { target: { value: '2026-04-01' } });
+    typeDate(from, '2026-04-01');
 
     await waitFor(() => expect(
       screen.getByRole('link', { name: /Present/ }).getAttribute('href'),
@@ -82,9 +83,9 @@ describe('the balance sheet page', () => {
     stubFetches();
     const { container } = render(<BalanceSheetPage />);
 
-    const asAt = container.querySelector('input[type="date"]');
+    const asAt = dateFieldInputs(container)[0];
     if (!asAt) throw new Error('no as-at input');
-    fireEvent.change(asAt, { target: { value: '2026-08-31' } });
+    typeDate(asAt, '2026-08-31');
 
     await waitFor(() => expect(
       screen.getByRole('link', { name: /Present/ }).getAttribute('href'),
