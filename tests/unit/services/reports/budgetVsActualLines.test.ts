@@ -99,9 +99,10 @@ describe('buildBudgetVsActualLines', () => {
   });
 
   describe('variance_pct edge cases', () => {
-    it('returns -100 when budget is 0 but actual is positive', () => {
+    it('returns null (not the old -100 sentinel) when there is no budget and actual is positive', () => {
       const lines = buildBudgetVsActualLines([REVENUE_ROW], {});
-      expect(lines[0]?.variance_pct).toBe(-100);
+      expect(lines[0]?.variance_pct).toBeNull();
+      expect(lines[0]?.movement_pct).toBeNull();
     });
 
     it('returns 0 when both budget and actual are 0 (and the row would be filtered out anyway)', () => {
@@ -149,6 +150,83 @@ describe('buildBudgetVsActualLines', () => {
       ], { '4000': 1000 });
       expect(lines[0]?.actual_amount).toBeCloseTo(1234.56);
       expect(lines[0]?.variance).toBeCloseTo(234.56);
+    });
+  });
+
+  describe('row model (budgets P0)', () => {
+    it('a deliberate zero budget is budgeted, pct null', () => {
+      const lines = buildBudgetVsActualLines([EXPENSE_ROW], { '6000': 0 });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.budgeted).toBe(true);
+      expect(lines[0]?.budget_amount).toBe(0);
+      expect(lines[0]?.variance_pct).toBeNull();
+      expect(lines[0]?.movement_pct).toBeNull();
+      // Budgeted at zero and R800 spent: over budget, so unfavourable.
+      expect(lines[0]?.favourable).toBe(false);
+      expect(lines[0]?.account_id).toBe(EXPENSE_ACCOUNT_ID);
+    });
+
+    it('no budget: pct null, favourable null, variance still signed', () => {
+      const lines = buildBudgetVsActualLines([EXPENSE_ROW, REVENUE_ROW], {});
+      const exp = lines.find((l) => l.account_code === '6000')!;
+      const rev = lines.find((l) => l.account_code === '4000')!;
+      expect(exp.budgeted).toBe(false);
+      expect(exp.favourable).toBeNull();
+      expect(exp.variance_pct).toBeNull();
+      expect(exp.variance).toBe(-800);
+      expect(exp.movement).toBe(800);
+      expect(rev.favourable).toBeNull();
+      expect(rev.variance).toBe(1200);
+      expect(rev.movement).toBe(1200);
+    });
+
+    it('negative budget: pct over the absolute budget', () => {
+      // A contra-expense budgeted at -500 that came in at -400: 100 more cost than planned.
+      const lines = buildBudgetVsActualLines([{ ...EXPENSE_ROW, actual_amount: -400 }], { '6000': -500 });
+      expect(lines[0]?.variance).toBe(-100);
+      expect(lines[0]?.variance_pct).toBeCloseTo(-20);
+      expect(lines[0]?.movement).toBe(100);
+      expect(lines[0]?.movement_pct).toBeCloseTo(20);
+      expect(lines[0]?.favourable).toBe(false);
+    });
+
+    it('revenue over budget is favourable', () => {
+      const [l] = buildBudgetVsActualLines([REVENUE_ROW], { '4000': 1000 });
+      expect(l?.favourable).toBe(true);
+      expect(l?.movement).toBe(200);
+      expect(l?.movement_pct).toBeCloseTo(20);
+    });
+
+    it('expense over budget is unfavourable', () => {
+      const [l] = buildBudgetVsActualLines([EXPENSE_ROW], { '6000': 500 });
+      expect(l?.favourable).toBe(false);
+      expect(l?.variance).toBe(-300);
+      expect(l?.movement).toBe(300);
+      expect(l?.movement_pct).toBeCloseTo(60);
+    });
+
+    it('movement = actual − budget for both types; movement_pct null on a zero budget', () => {
+      const [rev] = buildBudgetVsActualLines([REVENUE_ROW], { '4000': 1500 });
+      const [exp] = buildBudgetVsActualLines([EXPENSE_ROW], { '6000': 1000 });
+      expect(rev?.movement).toBe(-300);
+      expect(exp?.movement).toBe(-200);
+      expect(exp?.variance).toBe(200);
+      const [zero] = buildBudgetVsActualLines([EXPENSE_ROW], { '6000': 0 });
+      expect(zero?.movement).toBe(800);
+      expect(zero?.movement_pct).toBeNull();
+    });
+
+    it('rounds movement and variance to the cent (no float noise)', () => {
+      const [l] = buildBudgetVsActualLines([{ ...REVENUE_ROW, actual_amount: '130000.10' }], { '4000': 120000.2 });
+      expect(l?.movement).toBe(9999.9);
+      expect(l?.variance).toBe(9999.9);
+    });
+
+    it('keeps a budgeted zero/zero row, drops an unbudgeted zero/zero row', () => {
+      const lines = buildBudgetVsActualLines([HEADER_ROW, NEW_ROW_NO_ACTUALS], { '7000': 0 });
+      expect(lines.map((l) => l.account_code)).toEqual(['7000']);
+      expect(lines[0]?.budgeted).toBe(true);
+      expect(lines[0]?.favourable).toBe(true);
     });
   });
 });

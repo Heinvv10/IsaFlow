@@ -31,9 +31,10 @@ export const budgetVarianceTool: McpTool = {
   name: 'budget_variance',
   description:
     'Budget against actual for every revenue and expense account over a date range: the budgeted amount for the months in the range, the posted movement, and the variance between them. ' +
-    'READ THE EXCLUSIONS BEFORE THE ROWS. Only accounts that carry a budget appear in rows. An account with real spend and no budget cannot produce a variance, so it appears in excludedRows with reason no_budget_set and its actual value — and on a company where nobody has ever set a budget, rows is EMPTY and looks identical to a company that is perfectly on plan. unbudgeted_movement totals what is sitting outside any budget. ' +
+    'READ THE EXCLUSIONS BEFORE THE ROWS. Only accounts that carry a budget appear in rows. A deliberate zero budget is a budget: the account is a row (budgeted: true, budget_amount 0), not an exclusion. An account with real spend and no budget cannot produce a variance, so it appears in excludedRows with reason no_budget_set and its actual value — and on a company where nobody has ever set a budget, rows is EMPTY and looks identical to a company that is perfectly on plan. unbudgeted_movement totals what is sitting outside any budget. ' +
     'The actual is posted journal-line movement per account, signed so revenue and expense are both positive when larger: the same figure the trial balance shows. It is deliberately NOT the income statement, and DO NOT "improve" it into one — no cost-of-sales bucketing, no other-income or finance-cost layer, no tax. incomeStatementService has open defects in exactly the classification layer a variance would inherit, and a variance computed against a net profit already known to be wrong is worse than no variance, because it wears the authority of a reconciliation. The raw per-account aggregate borrows none of it. Draft journals are excluded. ' +
-    'Variance is signed so positive is favourable: revenue actual less budget, expense budget less actual. variance_pct is a percentage of budget, and is reported as 0 where there is no budget to be a percentage of. ' +
+    'Each row carries two signed differences. variance is signed so positive is favourable: revenue actual less budget, expense budget less actual. movement is actual less budget for every account type, the figure the Budget vs Actual screen and CSV print; favourable (true/false) says whether it is good news. variance_pct and movement_pct are percentages of the absolute budget, and variance_pct is null where the budget is zero or absent: there is nothing to be a percentage of. ' +
+    'totals are NET PROFIT (revenue less expenses: budget, actual, and a favourably signed variance equal to the sum of the row and excluded-row variances), not revenue plus expenses. sections carries revenue, expense and net_profit, each with budget, actual, variance, movement, variance_pct, movement_pct and favourable; sections and totals cover unbudgeted movement too. ' +
     'Budgets are stored per calendar month (budget_month_amounts), not per fiscal year: the budget for a range is the sum of the budgeted months from the month of period_start to the month of period_end, a month counted whole, across as many financial years as the range spans. A financial year can be 1-15 months long (a 14-month transition year after a change of year end), and any window sums exactly its months. fiscal_year is the financial year holding period_start and months_covered lists the YYYY-MM months summed, so the match can be re-derived rather than assumed. ' +
     'detail: "summary" returns totals with no rows; "standard" and "full" return the account lines.',
   scope: 'read:reports',
@@ -89,7 +90,9 @@ export const budgetVarianceTool: McpTool = {
       period_end: end,
       fiscal_year: result.fiscalYear,
       months_covered: result.monthKeys,
+      // Net profit, not revenue + expense (budgets P0, D11).
       totals: result.totals,
+      sections: result.sections,
       unbudgeted_accounts: result.unbudgeted.length,
       unbudgeted_movement: result.unbudgetedMovement,
     });

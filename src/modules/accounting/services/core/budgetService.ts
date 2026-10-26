@@ -134,9 +134,15 @@ export async function upsertBudget(
   const amounts = resolveMonthAmounts(year.monthKeys, { months: input.months, annualAmount: input.annualAmount });
 
   const owned = (await sql`
-    SELECT 1 FROM gl_accounts WHERE id = ${input.glAccountId}::UUID AND company_id = ${companyId}::UUID
+    SELECT account_type FROM gl_accounts WHERE id = ${input.glAccountId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (owned.length === 0) throw new BudgetInputError('Budget account does not belong to this company');
+  // Every budget reader filters to revenue and expense, so a budget on any
+  // other account would be stored and then appear on no report (D13).
+  const accountType = String(owned[0]!.account_type);
+  if (accountType !== 'revenue' && accountType !== 'expense') {
+    throw new BudgetInputError('Budgets can only be set on revenue and expense accounts');
+  }
 
   // The arbiter index is partial (WHERE gl_account_id IS NOT NULL), so the
   // predicate has to be repeated here or Postgres cannot pick it.

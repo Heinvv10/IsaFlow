@@ -1,11 +1,17 @@
 /**
- * Pure helper for the Budget vs Actual report. Builds the list of report
- * lines from raw GL aggregate rows + a budget lookup map, applying the
- * variance / variance% rules and the "drop empty (zero/zero) rows" filter.
+ * Pure helper for the Budget vs Actual report: THE row model every budget
+ * surface reads (screen, CSV, MCP, the statement Budget column, bullets).
+ * Builds the report lines from raw GL aggregate rows + a budget lookup map.
+ * Nothing outside this file derives a variance, a percentage or a sign.
  *
- * Extracted from pages/api/accounting/reports-budget-vs-actual.ts so the
- * logic can be unit-tested without mocking the SQL layer.
+ * Two variances, on purpose (shared contract, "Variance sign"):
+ *   - `variance` is signed FAVOURABLY (revenue A−B, expense B−A). MCP,
+ *     the presentation bullets and the net-profit invariant read it.
+ *   - `movement` is actual − budget for every type. Screens and exports
+ *     print it; `favourable` alone says whether it is good news.
  */
+
+import { round2 } from '../core/budgetMonths';
 
 export interface RawActualRow {
   id: string;
@@ -15,97 +21,84 @@ export interface RawActualRow {
   actual_amount: number | string;
 }
 
+export type BudgetLineType = 'revenue' | 'expense';
+
 export interface BudgetVsActualLine {
+  account_id: string;
   account_code: string;
   account_name: string;
-  account_type: string;
+  account_type: BudgetLineType;
+  /** A budget_month_amounts row exists in the window. A deliberate zero budget counts. */
+  budgeted: boolean;
+  /** 0 when !budgeted. */
   budget_amount: number;
+  /** Revenue credit − debit, expense debit − credit. */
   actual_amount: number;
+  /** Favourably signed: revenue actual − budget, expense budget − actual. */
   variance: number;
-  variance_pct: number;
+  /** actual − budget, for every type: the sign screens and exports print. */
+  movement: number;
+  /** variance / |budget| × 100; null when the budget is zero or absent. */
+  variance_pct: number | null;
+  /** movement / |budget| × 100; same null rule. The % screens and exports print. */
+  movement_pct: number | null;
+  /** variance ≥ 0; null when nothing was budgeted. */
+  favourable: boolean | null;
 }
 
 /**
- * Look up the budget for an account. Both `account_code` and `id` are
- * accepted as keys because callers may store budgets keyed by either.
- *
- * Uses `??` (nullish coalescing) instead of `||` so a legitimate zero
- * budget — `{ '6000': 0 }` — is preserved instead of silently falling
- * through to the id-keyed entry. A zero budget is meaningfully different
- * from "no budget set" for the variance calculation.
+ * The budget for an account, or undefined when none is stored. Both
+ * `account_code` and `id` are accepted as keys. `??`-style presence checks,
+ * never `||`: a zero budget is a budget, and is different from none.
  */
-function lookupBudget(budgets: Record<string, number>, row: RawActualRow): number {
+function lookupBudget(budgets: Record<string, number>, row: RawActualRow): number | undefined {
   const byCode = budgets[row.account_code];
   if (byCode !== undefined) return Number(byCode);
   const byId = budgets[row.id];
   if (byId !== undefined) return Number(byId);
-  return 0;
+  return undefined;
 }
 
-/**
- * Apply the variance rules:
- *   - Revenue: positive variance = good (actual > budget)
- *   - Expense: positive variance = good (actual < budget, i.e. under budget)
- */
-function computeVariance(
-  accountType: string,
-  budgetAmount: number,
-  actualAmount: number,
-): number {
-  if (accountType === 'revenue') return actualAmount - budgetAmount;
-  return budgetAmount - actualAmount;
-}
-
-/**
- * Variance percentage. When the budget is zero we can't compute a real
- * percentage (division by zero), so we use sentinel values:
- *   - `-100`  : actual movement happened but no budget was set ("over by 100%
- *               of nothing"). Magnitude is intentionally lost; the consumer
- *               UI should display "—" or use `budget_amount === 0` to flag
- *               the row instead of relying on the percent.
- *   - `0`     : no budget AND no actual — neutral.
- * This sentinel behaviour is preserved verbatim from the legacy inline code
- * to avoid surprising existing report consumers.
- */
-function computeVariancePct(
-  budgetAmount: number,
-  actualAmount: number,
-  variance: number,
-): number {
-  if (budgetAmount > 0) return (variance / budgetAmount) * 100;
-  return actualAmount > 0 ? -100 : 0;
+/** A percentage of a budget, or null when there is nothing to divide by. A negative budget divides by its size. */
+export function pctOfBudget(amount: number, budget: number, budgeted: boolean): number | null {
+  if (!budgeted || budget === 0) return null;
+  return (amount / Math.abs(budget)) * 100;
 }
 
 /**
  * Build the report lines from raw aggregate rows + a budget map.
  *
- * Header rows (a parent account that's never had a journal entry posted to
- * it AND has no budget) appear as zero/zero from the SQL aggregate; the
- * filter at the end of the pipeline drops them so the report is not
- * cluttered with empty entries.
- *
- * Rows with EITHER a budget OR an actual movement are kept — including a
- * brand-new account that has a budget set but no actuals yet.
+ * A row is kept when it is budgeted (even at zero, even with no actuals) or
+ * carries movement. An unbudgeted zero/zero row (a header, a dormant account)
+ * is dropped.
  */
 export function buildBudgetVsActualLines(
   actuals: RawActualRow[],
   budgets: Record<string, number>,
 ): BudgetVsActualLine[] {
   return actuals
-    .map(a => {
-      const budgetAmount = lookupBudget(budgets, a);
-      const actualAmount = Number(a.actual_amount);
-      const variance = computeVariance(a.account_type, budgetAmount, actualAmount);
-      const variancePct = computeVariancePct(budgetAmount, actualAmount, variance);
+    .map<BudgetVsActualLine>((a) => {
+      const stored = lookupBudget(budgets, a);
+      const budgeted = stored !== undefined;
+      const budget = stored ?? 0;
+      const actual = Number(a.actual_amount);
+      const type: BudgetLineType = a.account_type === 'revenue' ? 'revenue' : 'expense';
+      const movement = round2(actual - budget);
+      const variance = type === 'revenue' ? movement : round2(budget - actual);
       return {
+        account_id: String(a.id),
         account_code: a.account_code,
         account_name: a.account_name,
-        account_type: a.account_type,
-        budget_amount: budgetAmount,
-        actual_amount: actualAmount,
+        account_type: type,
+        budgeted,
+        budget_amount: budget,
+        actual_amount: actual,
         variance,
-        variance_pct: variancePct,
+        movement,
+        variance_pct: pctOfBudget(variance, budget, budgeted),
+        movement_pct: pctOfBudget(movement, budget, budgeted),
+        favourable: budgeted ? variance >= 0 : null,
       };
     })
-    .filter(l => l.budget_amount !== 0 || l.actual_amount !== 0);
+    .filter((l) => l.budgeted || l.actual_amount !== 0);
 }
