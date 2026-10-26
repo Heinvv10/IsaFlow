@@ -33,7 +33,7 @@ const click = (el: Element | null) => { expect(el).toBeTruthy(); fireEvent.click
 const submit = (btn: Element) => fireEvent.submit(btn.closest('form')!);
 
 const BUDGET = budgetRow();
-const GL = [{ id: 'g1', accountCode: '5000', accountName: 'D2 Rent', accountType: 'expense' }];
+const GL = [{ id: 'g1', accountCode: '5000', accountName: 'D2 Rent', accountType: 'expense', isActive: true }];
 const budgetsApi = (write: (url: string, m: string) => Response | undefined, reload?: () => Response) => (u: string, m: string) => {
   if (m !== 'GET') return write(u, m);
   if (u.includes('chart-of-accounts')) return ok(GL);
@@ -95,6 +95,7 @@ describe('budgets', () => {
     script(budgetsApi(() => refuse()));
     await budgetsLoaded();
     click(screen.getByTitle('Delete'));
+    click(await screen.findByText('Delete')); // delete asks first
     expect(await screen.findByText(MSG)).toBeTruthy();
     expect(screen.getByText('D2 Sales Budget')).toBeTruthy();
     expect(screen.queryByText('Budget deleted')).toBeNull();
