@@ -37,11 +37,12 @@ export async function uploadPreview(route: unknown, u: SetupUser, versionId: str
 }
 
 /** POST any JSON body to import-preview as `u` (CSRF header and cookies as a browser sends them). */
-export async function postPreview(route: unknown, u: SetupUser, body: unknown): Promise<RouteOut & { headers: Map<string, unknown> }> {
+export async function postPreview(route: unknown, u: SetupUser, body: unknown, opts: { csrf?: string | null } = {}): Promise<RouteOut & { headers: Map<string, unknown> }> {
   const { cookies, cookie } = cookieHeaders(u);
+  const csrf = opts.csrf === undefined ? CSRF : opts.csrf;
   const req = {
     method: 'POST', url: '/api/accounting/budget-grid/import-preview', cookies, query: {}, body,
-    headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': CSRF },
+    headers: { 'content-type': 'application/json', cookie, ...(csrf === null ? {} : { 'x-csrf-token': csrf }) },
     socket: { remoteAddress: '127.0.0.92' },
   };
   const out = response();

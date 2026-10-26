@@ -86,6 +86,10 @@ describe('BRK-H2: one bounded pass', () => {
   it('round 9: a version on a financial-year label the registry does not have is 404, not 500', async () => {
     // Label 1 belongs to no year (the read route answers it 404 too); the version row itself exists.
     const vC = await fx.version(A, { fy: 1, name: 'No year' });
+    // Final batch L1: the year is checked with the version, before the file is decoded: a body that
+    // is not even base64 is still the year's 404, not the decode's 400.
+    const early = await postPreview(previewRoute, A.owner, { versionId: vC, fileData: 'not base64!' });
+    expect([early.status, early.body.error?.message]).toEqual([404, expect.stringMatching(/financial year/i)]);
     const r = await uploadPreview(previewRoute, A.owner, vC, file);
     expect([r.status, r.body.error?.message], JSON.stringify(r.body).slice(0, 300)).toEqual([404, expect.stringMatching(/financial year/i)]);
   });
@@ -180,8 +184,20 @@ describe('the upload itself (round 9: JSON, the file as base64)', () => {
     expect((await postPreview(previewRoute, A.owner, body({ note: 'x' }))).status).toBe(400);
     expect((await postPreview(previewRoute, A.owner, { versionId: v })).status).toBe(400);
     expect((await postPreview(previewRoute, A.owner, body({ versionId: 'nope' }))).status).toBe(400);
+    expect((await postPreview(previewRoute, A.owner, body({ versionId: vB, fileData: 'not base64!' }))).status).toBe(404); // version before decode
     expect((await postPreview(previewRoute, A.owner, 'not an object')).status).toBe(400);
     expect((await postPreview(previewRoute, A.owner, body())).status).toBe(200);
+  });
+
+  it('CSRF: no token, or one that does not match the cookie, is 403 (nothing read)', async () => {
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      expect((await postPreview(previewRoute, A.owner, body(), { csrf: null })).status).toBe(403);
+      expect((await postPreview(previewRoute, A.owner, body(), { csrf: 'x'.repeat(44) })).status).toBe(403);
+      expect(warn.mock.calls.filter(([m]) => /budget import (upload|workbook) refused/i.test(String(m)))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('fileData that is not standard base64 is 400; a decoded file over MAX_FILE_BYTES is 400', async () => {

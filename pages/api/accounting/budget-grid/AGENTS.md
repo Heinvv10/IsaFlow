@@ -26,8 +26,8 @@ Errors go through `respondBudgetVersionError`: 400 input/grain (the message name
 - The token is P1's UTC ISO text with microseconds; send back exactly what the read returned.
 - An import preview's token goes stale if anyone saves in between: commit then 409s and the user re-runs the preview.
 - Bodies are parsed by Next before withAuth (no pooled connection is held while a client uploads). The custom early body reader of rounds 3-8 was deleted in round 9 (review death spiral); do not reintroduce one.
-- Template and import-preview run their spreadsheet work in `BUDGET_SPREADSHEET_SLOT` (`src/lib/withCpuSlot.ts`) OUTSIDE withAuth: 2 running, 4 waiting, ≤ 10 s wait, else 503 + Retry-After 5.
-- import-preview order: CSRF, write access, the per-user bucket, then a one-row version check (404 before any parse; also 404 for an unknown financial-year label), then decode/size/.xls checks (400), then the parse. The file never touches disk.
+- Template and import-preview run their spreadsheet work in `BUDGET_SPREADSHEET_SLOT` (`src/lib/withCpuSlot.ts`) OUTSIDE withAuth: 2 running, 4 waiting, at most 2 places per user (429), ≤ 10 s wait, else 503 + Retry-After 5.
+- import-preview order: CPU slot (outside withAuth; per user 2 places, 429; full 503) → withAuth → CSRF (403) → write access (403) → `budget-import:<userId>` bucket (429) → body shape (400) → version + financial year check (404, before any decode or parse) → base64/decoded size/.xls (400) → parse. Queued requests whose client has gone are skipped. The file never touches disk.
 - Rate limits are per USER, charged in the handlers with literal keys (the census reads them): `budget-save:<userId>` 120/min, `budget-import:<userId>` and `budget-template:<userId>` 60/15 min, `budget-prior-actuals:<userId>` 60/min. 429 with Retry-After.
 - A save batch that changes nothing returns 200 with the verified token and writes no audit row (no false STALE for others).
 - Request logs: `sanitizeRequestBody` omits arrays over 50 items and the `fileData` key, so cells and files are never logged.

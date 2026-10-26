@@ -198,4 +198,20 @@ describe('decision 18 through the legacy year copy (copyBudgets, budgets-action 
         WHERE bm.company_id = $1 AND v.fiscal_year = $2`, [c.u.homeCompanyId, c.label + 1])).rows.map((x) => x.a);
     expect(copied).toEqual([c.child1]);
   });
+
+  it('a header or inactive account that ALREADY holds amounts in the target year is still copied', async () => {
+    const c = await fx.world();
+    const prim = await fx.version(c, { primary: true, name: 'Original' });
+    for (const acct of [c.header, c.inactive]) await fx.amount(c, prim, acct, c.months[0]!, 100);
+    // Next year's primary already budgets the header (another month): only the inactive account is skipped.
+    const next = String((await pool.query(
+      `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by) VALUES ($1, $2, 'Original', 'original', true, $3) RETURNING id`,
+      [c.u.homeCompanyId, c.label + 1, c.u.userId])).rows[0].id);
+    await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+                      VALUES ($1, $2, $3, ($4 || '-01')::DATE + INTERVAL '12 months', 5)`, [c.u.homeCompanyId, next, c.header, c.months[1]]);
+    const r = await action.call(c.u, 'POST', { action: 'copy', fromYear: c.label, toYear: c.label + 1 });
+    expect([r.status, r.body.data], dump(r)).toEqual([200, { copied: 1, skipped: 1 }]);
+    const rows = (await pool.query(`SELECT gl_account_id::text a, COUNT(*)::int n FROM budget_month_amounts WHERE version_id = $1 GROUP BY 1`, [next])).rows;
+    expect(rows).toEqual([{ a: c.header, n: 2 }]);
+  });
 });

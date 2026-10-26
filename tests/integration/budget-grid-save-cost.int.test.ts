@@ -27,7 +27,7 @@ vi.mock('@/lib/neon', async (orig) => {
 import saveRoute, { config } from '../../pages/api/accounting/budget-grid/save';
 import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSave';
 import { IN_INTEGRATION_GATE } from '../helpers/integrationGate';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, clearBudgetRateCounters, monthsFrom, type GridCo } from './helpers/budgetGridFixture';
 import { TOKEN_SQL } from './helpers/budgetGridSaveFixture';
 
@@ -72,6 +72,18 @@ describe('save: the body and the request', () => {
     const requestLine = lines.find((l) => l.includes('API Request: POST'));
     expect(requestLine).toContain('[omitted: 60 items]');
     expect(lines.filter((l) => l.includes(String(marker)) || l.includes(A.acct.rent))).toEqual([]);
+  });
+
+  it('a save without a CSRF match is 403 and writes nothing (no route census covers CSRF)', async () => {
+    const v = await fx.version(A);
+    const before = await token(v);
+    const req = request({ 'sb-access-token': A.owner.token, active_company_id: A.id }, 'POST') as unknown as Record<string, unknown> & { headers: Record<string, string> };
+    Object.assign(req, { url: URL, query: {}, body: { versionId: v, expectedUpdatedAt: before, cells: [cell(A.acct.rent, FY27[0]!, 5)] },
+      headers: { ...req.headers, 'x-csrf-token': 'x'.repeat(44) } });
+    const out = response();
+    await (saveRoute as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
+    expect(out.state.statusCode).toBe(403);
+    expect(await token(v)).toBe(before);
   });
 
   it('a user whose save bucket is full is 429 with Retry-After 60, and nothing is written', async () => {

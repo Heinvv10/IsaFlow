@@ -28,6 +28,7 @@ import type { BandTotals } from './grid/subtotals';
 import { inputError } from './gridErrors';
 import { BudgetVersionError } from './budgetVersionTypes';
 import { loadGridReadModel } from './gridReadModel';
+import { requireFiscalYear } from '../gl/fiscalYearRegistry';
 import { bandTotals, ownMonths } from './gridTotals';
 import { cellsInCents } from './budgetTemplateXlsx';
 import { baseDigest, signatureMatches } from './budgetTemplateSignature';
@@ -153,13 +154,22 @@ async function changedAt(companyId: string, versionId: string, changes: readonly
 }
 
 /**
- * Preview the upload against the company's version. The version is confirmed first (one indexed
- * row), so another tenant's or a deleted one is BUDGET_VERSION_NOT_FOUND without paying the parse;
- * then the upload is read (bounded), then the read model.
+ * The cheap checks that come before any upload is decoded or parsed: the version is the
+ * company's (one indexed row; another tenant's or a deleted one is BUDGET_VERSION_NOT_FOUND) and
+ * its financial year is in the registry (FiscalYearLabelUnknownError otherwise).
+ */
+export async function checkImportVersion(companyId: string, versionId: string): Promise<void> {
+  const found = (await sql`SELECT fiscal_year FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+  if (!found[0]) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found');
+  await requireFiscalYear(companyId, Number(found[0].fiscal_year));
+}
+
+/**
+ * Preview the upload against the company's version: the upload is read (bounded), then the read
+ * model. Run checkImportVersion first (the route does, before it decodes the file), so a wrong
+ * version or year never pays the parse.
  */
 export async function buildImportPreview(companyId: string, versionId: string, file: Buffer): Promise<ImportPreview> {
-  const found = (await sql`SELECT 1 FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-  if (!found[0]) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found');
   const wb = await readBudgetWorkbook(file);
   const preview = previewImport(await loadGridReadModel(companyId, { versionId }), versionId, wb);
   const at = await changedAt(companyId, versionId, preview.changes);

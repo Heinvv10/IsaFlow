@@ -3,8 +3,9 @@
  * redacted; uploaded files and ID numbers are replaced by a size marker at any
  * depth, so a logged body never carries a certificate, an ID scan or an ID
  * number (onboarding complete-setup, company-directors, company-documents). An
- * array of more than MAX_LOGGED_ITEMS is logged as its count: a bulk body (a
- * 20 000-cell budget save, ~3.4 MB) is never written to the request log whole.
+ * array of more than MAX_LOGGED_ITEMS is logged as its count and any string over
+ * LONG_STRING as its length: a bulk body (a 20 000-cell budget save, ~3.4 MB, or
+ * a 14 MB base64 upload) is never written to the request log whole.
  */
 
 const SENSITIVE_KEYS = new Set([
@@ -46,6 +47,8 @@ const present = (value: unknown) => value !== null && value !== undefined && val
 const MAX_LOGGED_ITEMS = 50;
 
 export function sanitizeRequestBody(body: unknown, depth = 0): unknown {
+  // Any long string, under any key: a 14 MB value would otherwise be logged and kept in the logger's buffer.
+  if (typeof body === 'string') return body.length > LONG_STRING ? omitted(body) : body;
   if (!body || typeof body !== 'object') return body;
   if (depth > 8) return '[omitted: nested too deep]';
   if (Array.isArray(body)) return body.length > MAX_LOGGED_ITEMS ? omitted(body) : body.map((v) => sanitizeRequestBody(v, depth + 1));
