@@ -6,7 +6,7 @@
  * inline with a confidence bar + "Confirm" action.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Banknote, CheckCircle, ArrowRight, Info } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/formatters';
@@ -74,6 +74,10 @@ export default function ReceiptMatchQueuePage() {
     }
   }, []);
 
+  // Ids already asked for. `shortlists` only fills when a response lands, so keying the effect below on it alone
+  // re-requested every still-pending row each time ANY response arrived (O(rows^2) requests on a slow API).
+  const requested = useRef<Set<string>>(new Set());
+
   const loadShortlist = useCallback(async (bankTxId: string) => {
     try {
       const res = await apiFetch(`/api/accounting/ar/receipt-match/${bankTxId}`);
@@ -92,7 +96,9 @@ export default function ReceiptMatchQueuePage() {
 
   useEffect(() => {
     for (const tx of receipts) {
-      if (!(tx.id in shortlists)) void loadShortlist(tx.id);
+      if (requested.current.has(tx.id) || tx.id in shortlists) continue;
+      requested.current.add(tx.id);
+      void loadShortlist(tx.id);
     }
   }, [receipts, shortlists, loadShortlist]);
 
