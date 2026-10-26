@@ -10,7 +10,7 @@
  * Disposable fixture DB only.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { planSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { getSupplierOnAccountCredit } from '@/modules/accounting/services/ap/supplierOnAccountCredit';
@@ -79,7 +79,7 @@ async function posted(supplier: string, amount: number): Promise<string> {
 }
 
 /** The refund as the bank paths take it: the plan (ceiling + credit key), then the row. */
-const refund = (supplier: string, amount: number) => inTx(async () => {
+const refundBody = (supplier: string, amount: number) => async () => {
   await planSupplierRefund(fx.company, supplier, amount, DAY);
   const { client } = als.getStore() as unknown as { client: { query: (q: string, p: unknown[]) => Promise<unknown> } };
   await client.query(
@@ -87,7 +87,27 @@ const refund = (supplier: string, amount: number) => inTx(async () => {
        reference,status,created_by,approved_by,approved_at,processed_at)
      VALUES($1,$2,$3::DATE,$4,'refund',$5,'VAR refund','processed',$6,$6,NOW(),NOW())`,
     [fx.company, supplier, DAY, -amount, fx.bankAccount, fx.user]);
-});
+};
+const refund = (supplier: string, amount: number) => inTx(refundBody(supplier, amount));
+
+/** `fn` in a transaction held OPEN after it ran (its locks and the credit key held) until `release()`. */
+function heldTx(fn: () => Promise<unknown>) {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let ran!: (v: { ok: boolean }) => void;
+  const done = new Promise<{ ok: boolean }>((r) => { ran = r; });
+  const finished = (async () => {
+    const client: PoolClient = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const o = await outcomeOf(als.run({ client, userId: fx.user, companyId: fx.company, claims: {} } as never, fn));
+      ran(o);
+      await gate;
+      await client.query(o.ok ? 'COMMIT' : 'ROLLBACK');
+    } finally { client.release(); }
+  })();
+  return { done, release, finished };
+}
 
 const credit = async (supplier: string) =>
   (await inTx(() => getSupplierOnAccountCredit(fx.company, supplier, null))).credit;
@@ -153,6 +173,31 @@ describe('void of a supplier payment whose cash a refund returned', () => {
       return { v, seen };
     });
     expect(inside).toEqual({ v: 'SUPPLIER_PAYMENT_REFUSED', seen: 'processed' });
+  }, 60_000);
+
+  it('a void while a refund of the same cash is in flight is refused as retryable; once the refund commits, on the books', async () => {
+    const supplier = await newSupplier();
+    const pay = await posted(supplier, 1000);
+    const r = heldTx(refundBody(supplier, 1000));
+    const refunded = await r.done;
+    const during = await verdict(inTx(() => voidSupplierPayment(fx.company, pay, fx.user)));
+    r.release();
+    await r.finished;
+    const after = await verdict(inTx(() => voidSupplierPayment(fx.company, pay, fx.user)));
+    expect({ refunded: refunded.ok, during, after, status: await statusOf(pay), credit: await credit(supplier) })
+      .toEqual({ refunded: true, during: 'PAYMENT_LOCK_TIMEOUT', after: 'SUPPLIER_PAYMENT_REFUSED', status: 'processed', credit: 0 });
+  }, 60_000);
+
+  it('a refund while a void of the same cash is in flight is refused as retryable (credit never below zero)', async () => {
+    const supplier = await newSupplier();
+    const pay = await posted(supplier, 1000);
+    const v = heldTx(() => voidSupplierPayment(fx.company, pay, fx.user));
+    const voided = await v.done;
+    const during = await verdict(refund(supplier, 1000));
+    v.release();
+    await v.finished;
+    expect({ voided: voided.ok, during, credit: await credit(supplier) })
+      .toEqual({ voided: true, during: 'PAYMENT_LOCK_TIMEOUT', credit: 0 });
   }, 60_000);
 
   it('the unwind of an already-cancelled payment (a hand-reversed run row) lowers nothing and passes', async () => {
