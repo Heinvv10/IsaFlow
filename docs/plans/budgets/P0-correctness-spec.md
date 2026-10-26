@@ -44,7 +44,7 @@ separate UI ticket. The comment `budgetWindowService.ts:64-65` ("an account with
 none inside the window is present at 0") is false: the query filters months to the window. Correct
 the comment when touching the function.
 
-**Also fixed (small, prod-visible):** BudgetForm month and annual inputs use the undefined `ff-input`
+**Superseded by PR #871 (kit MoneyField), do not build in P0:** BudgetForm month and annual inputs use the undefined `ff-input`
 class (`src/components/accounting/budgets/BudgetForm.tsx:84,85,93`) and are borderless in dark mode.
 
 ---

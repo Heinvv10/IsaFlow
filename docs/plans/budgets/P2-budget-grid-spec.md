@@ -173,7 +173,16 @@ Typing in the **FY total** cell and committing spreads evenly with the toolbar r
 - Otherwise: paste the block with its top-left at the selection's top-left, clipped to the grid. Read-only targets are skipped and counted.
 - The whole paste is one undo entry. A live region announces "Pasted 12 cells; 2 skipped (read-only); 1 not a number (left unchanged)". The invalid cells are listed in a dismissible notice with row/month.
 
-### 5.4 `parseAmount` rules (table-driven tests)
+### 5.4 Amount parsing: reuse the kit parser (supersedes the rules below)
+
+**Do not write a third money parser.** The repo has two on purpose (see the header of `src/lib/money/saAmountParser.ts`):
+- **Typed into a cell, and pasted text:** `parseSaAmount` from `src/lib/money/saAmountParser.ts` (what `MoneyField` / `useParsedField` use). It returns integer cents and **refuses** ambiguous input such as "1,234", with a reason. A refused pasted cell is not written. It is highlighted with the reason, and the paste summary says "N cells refused". It never guesses. This follows the kit's SimplePay R25 rule.
+- **Excel upload:** numeric cells are read as numbers (exceljs `value` / cached formula `result`), with no text parsing. Text cells go through `parseSaAmount` and are refused the same way.
+- `@/lib/parseAmount` (ledger-export parser) is NOT used here.
+- `pasteParse.ts` keeps only the TSV splitting (rows and columns) and calls `parseSaAmount` per cell. Delete its own `parseAmount`. Its tests cover the TSV shape plus "refused cell is reported, not written".
+- Display uses `formatCents` from `@/lib/money/formatMoney`.
+
+#### Previous draft rules (superseded, kept for the record)
 - Trim spaces and NBSP. Strip a leading `R`/`ZAR`. `(x)` or a leading `-`/`−` (U+2212) means negative. A trailing `-` is accepted (Excel export of some locales).
 - Both `,` and `.` present: the **last** one is the decimal separator, and the other is thousands.
 - Only `,` present: if every comma is followed by exactly 3 digits **and** there is more than one group, or the number has a leading group of 1–3 digits, it is thousands (`1,234` → 1234, `12,345,678`). Otherwise it is a decimal (`1,5` → 1.5, `1234,50` → 1234.50).
