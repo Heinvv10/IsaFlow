@@ -1,6 +1,7 @@
 // On the four pages that read the changed ledger endpoints: only the LATEST request may set state (for
 // success and for error), and on an error nothing stale stays rendered. The REAL apiFetch/apiJson run over a
 // stubbed fetch whose ledger responses are resolved by the test, out of order.
+import { typeDate } from '../helpers/dateFields';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -40,14 +41,14 @@ describe('Account Transactions page', () => {
     await calls(pending, 1);
     await settle(pending[0]!, ok(txReport('Name-A')));
     await screen.findByText(/Name-A/);
-    const to = view.container.querySelectorAll('input[type=date]')[1]!;
+    const to = view.container.querySelectorAll('input[placeholder="dd MMM yyyy"]')[1]!;
     return { pending, to };
   }
 
   it('a slower earlier success cannot overwrite the latest', async () => {
     const { pending, to } = await setup();
-    fireEvent.change(to, { target: { value: '2026-05-01' } }); await calls(pending, 2);
-    fireEvent.change(to, { target: { value: '2026-06-01' } }); await calls(pending, 3);
+    typeDate(to, '2026-05-01'); await calls(pending, 2);
+    typeDate(to, '2026-06-01'); await calls(pending, 3);
     await settle(pending[2]!, ok(txReport('Name-LATEST')));
     await screen.findByText(/Name-LATEST/);
     await settle(pending[1]!, ok(txReport('Name-STALE')));
@@ -57,8 +58,8 @@ describe('Account Transactions page', () => {
 
   it('a slower earlier ERROR cannot replace the latest result with an error', async () => {
     const { pending, to } = await setup();
-    fireEvent.change(to, { target: { value: '2026-05-01' } }); await calls(pending, 2);
-    fireEvent.change(to, { target: { value: '2026-06-01' } }); await calls(pending, 3);
+    typeDate(to, '2026-05-01'); await calls(pending, 2);
+    typeDate(to, '2026-06-01'); await calls(pending, 3);
     await settle(pending[2]!, ok(txReport('Name-LATEST')));
     await screen.findByText(/Name-LATEST/);
     await settle(pending[1]!, bad('stale failure'));
@@ -68,7 +69,7 @@ describe('Account Transactions page', () => {
 
   it('after an error the previous report is gone and the message shows', async () => {
     const { pending, to } = await setup();
-    fireEvent.change(to, { target: { value: '2026-05-01' } }); await calls(pending, 2);
+    typeDate(to, '2026-05-01'); await calls(pending, 2);
     await settle(pending[1]!, bad('period_start must not be after period_end'));
     await screen.findByText('period_start must not be after period_end');
     expect(screen.queryByText(/Name-A/)).toBeNull();
@@ -85,13 +86,13 @@ describe('General Ledger page', () => {
     await calls(pending, 1);
     await settle(pending[0]!, ok(glData('Acc-A')));
     await screen.findByText('Acc-A');
-    return { pending, to: view.container.querySelectorAll('input[type=date]')[1]! };
+    return { pending, to: view.container.querySelectorAll('input[placeholder="dd MMM yyyy"]')[1]! };
   }
 
   it('a slower earlier success cannot overwrite the latest', async () => {
     const { pending, to } = await setup();
-    fireEvent.change(to, { target: { value: '2026-05-01' } }); await calls(pending, 2);
-    fireEvent.change(to, { target: { value: '2026-06-01' } }); await calls(pending, 3);
+    typeDate(to, '2026-05-01'); await calls(pending, 2);
+    typeDate(to, '2026-06-01'); await calls(pending, 3);
     await settle(pending[2]!, ok(glData('Acc-LATEST')));
     await screen.findByText('Acc-LATEST');
     await settle(pending[1]!, ok(glData('Acc-STALE')));
@@ -101,8 +102,8 @@ describe('General Ledger page', () => {
 
   it('a slower earlier ERROR cannot replace the latest result with an error', async () => {
     const { pending, to } = await setup();
-    fireEvent.change(to, { target: { value: '2026-05-01' } }); await calls(pending, 2);
-    fireEvent.change(to, { target: { value: '2026-06-01' } }); await calls(pending, 3);
+    typeDate(to, '2026-05-01'); await calls(pending, 2);
+    typeDate(to, '2026-06-01'); await calls(pending, 3);
     await settle(pending[2]!, ok(glData('Acc-LATEST')));
     await screen.findByText('Acc-LATEST');
     await settle(pending[1]!, bad('stale failure'));
@@ -112,7 +113,7 @@ describe('General Ledger page', () => {
 
   it('after an error the previous accounts are gone and the message shows', async () => {
     const { pending, to } = await setup();
-    fireEvent.change(to, { target: { value: '2026-05-01' } }); await calls(pending, 2);
+    typeDate(to, '2026-05-01'); await calls(pending, 2);
     await settle(pending[1]!, bad('period_start must not be after period_end'));
     await screen.findByText(/period_start must not be after period_end/);
     expect(screen.queryByText('Acc-A')).toBeNull();
@@ -178,7 +179,7 @@ describe('Account Detail page', () => {
 });
 
 // ── loading flag, cleared inputs, empty state ───────────────────────────────
-const dateInputs = (c: HTMLElement) => c.querySelectorAll('input[type=date]');
+const dateInputs = (c: HTMLElement) => c.querySelectorAll('input[placeholder="dd MMM yyyy"]');
 const spinner = (c: HTMLElement) => c.querySelector('.animate-spin');
 
 describe('loading flag belongs to the newest request', () => {
@@ -189,7 +190,7 @@ describe('loading flag belongs to the newest request', () => {
     const pending = stubFetch();
     const view = render(Page());
     await calls(pending, 1);
-    fireEvent.change(dateInputs(view.container)[1]!, { target: { value: '2026-05-01' } }); await calls(pending, 2);
+    typeDate(dateInputs(view.container)[1]!, '2026-05-01'); await calls(pending, 2);
     await settle(pending[0]!, ok(data));
     expect(spinner(view.container)).not.toBeNull();
     await settle(pending[1]!, ok(data));
@@ -217,7 +218,7 @@ describe('clearing an input invalidates in-flight requests and clears data and l
     const pending = stubFetch();
     const view = render(Page());
     await calls(pending, 1);
-    fireEvent.change(dateInputs(view.container)[1]!, { target: { value: '' } });
+    typeDate(dateInputs(view.container)[1]!, '');
     await waitFor(() => expect(spinner(view.container)).toBeNull());
     await settle(pending[0]!, ok(data));
     expect(screen.queryByText(new RegExp(text))).toBeNull();
@@ -229,7 +230,7 @@ describe('clearing an input invalidates in-flight requests and clears data and l
     await calls(pending, 1);
     await settle(pending[0]!, ok({ accounts: [] }));
     await screen.findByText('No account activity for the selected period');
-    fireEvent.change(dateInputs(view.container)[1]!, { target: { value: '' } });
+    typeDate(dateInputs(view.container)[1]!, '');
     await waitFor(() => expect(screen.queryByText('No account activity for the selected period')).toBeNull());
   }, 15000);
 
@@ -252,7 +253,7 @@ describe('General Ledger empty state', () => {
     await calls(pending, 1);
     await settle(pending[0]!, ok({ accounts: [] }));
     await screen.findByText('No account activity for the selected period');
-    fireEvent.change(dateInputs(view.container)[1]!, { target: { value: '2026-05-01' } }); await calls(pending, 2);
+    typeDate(dateInputs(view.container)[1]!, '2026-05-01'); await calls(pending, 2);
     await settle(pending[1]!, bad('period_start must not be after period_end'));
     await screen.findByText(/period_start must not be after period_end/);
     expect(screen.queryByText('No account activity for the selected period')).toBeNull();

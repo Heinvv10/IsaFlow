@@ -3,6 +3,7 @@
  * message instead of a silent empty card, and the bank-account create flow reports a half-done create truthfully.
  * REAL assertOk / apiErrorMessage over a scripted apiFetch.
  */
+import { typeDate, dateFieldInputs } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -41,7 +42,7 @@ describe('AP aging', () => {
     route(() => { gets += 1; return gets === 1 ? ok(DATA) : empty500(); });
     const { container } = render(<APAgingPage />);
     expect(await screen.findByText('D2 Supplier')).toBeTruthy();
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-01-15' } });
+    typeDate(dateFieldInputs(container)[0]!, '2026-01-15');
     expect(await screen.findByText(/Could not load the AP aging - try again/)).toBeTruthy();
     expect(screen.queryByText('D2 Supplier')).toBeNull();
     expect((screen.getByRole('button', { name: /export csv/i }) as HTMLButtonElement).disabled).toBe(true);

@@ -1,5 +1,6 @@
 /** Supplier POs by Supplier Report — Sage Parity */
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -230,19 +231,8 @@ export default function SupplierPosReport() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={e => setDateFrom(e.target.value)}
-                className="ff-input text-sm"
-              />
-              <span className="text-[var(--ff-text-tertiary)] text-sm">to</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={e => setDateTo(e.target.value)}
-                className="ff-input text-sm"
-              />
+              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
+              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
               <button
                 onClick={() => data && downloadCsv(data.suppliers)}
                 disabled={!data || data.suppliers.length === 0}
