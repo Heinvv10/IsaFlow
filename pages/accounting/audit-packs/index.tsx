@@ -15,6 +15,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { AuditSnapshotsPanel } from '@/components/accounting/audit/AuditSnapshotsPanel';
 import { AuditInviteDrawer } from '@/components/accounting/audit/AuditInviteDrawer';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 interface AuditExport {
   id: string;
@@ -205,14 +206,12 @@ export default function AuditTrailPage() {
               <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-4">New audit pack</h3>
               <div className="space-y-3 text-sm">
                 <div>
-                  <label htmlFor="audit-pack-period-start" className="text-xs text-slate-400 mb-1 block">Period start</label>
-                  <input id="audit-pack-period-start" type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)}
-                    className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200" />
+                  <DateField id="audit-pack-period-start" label="Period start" required value={periodStart || null}
+                    onChange={(iso, v) => { if (v.valid && iso) setPeriodStart(iso); }} />
                 </div>
                 <div>
-                  <label htmlFor="audit-pack-period-end" className="text-xs text-slate-400 mb-1 block">Period end</label>
-                  <input id="audit-pack-period-end" type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)}
-                    className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200" />
+                  <DateField id="audit-pack-period-end" label="Period end" required value={periodEnd || null}
+                    onChange={(iso, v) => { if (v.valid && iso) setPeriodEnd(iso); }} />
                 </div>
                 <p className="text-xs text-slate-500">Takes a sealed audit snapshot at the period end and builds the pack from it: a ZIP whose manifest cites the snapshot&rsquo;s hash, with the PDF inside.</p>
               </div>
