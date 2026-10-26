@@ -23,7 +23,7 @@ interface AppHeaderProps {
   onOpenCommandPalette: () => void;
 }
 
-const ICON_BUTTON = 'p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors';
+const ICON_BUTTON = 'p-2 rounded-lg text-ink-muted hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors';
 
 export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNavMode, onOpenCommandPalette }: AppHeaderProps) {
   const { user, logout } = useAuth();
@@ -105,7 +105,7 @@ export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNav
 
       {/* User info */}
       {user && (
-        <div className="hidden sm:flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+        <div className="hidden sm:flex items-center gap-2 text-sm text-ink-muted">
           <User className="w-4 h-4" />
           <span className="hidden sm:inline truncate max-w-[160px]">
             {user.firstName} {user.lastName}
@@ -117,7 +117,7 @@ export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNav
       {!showSidebar && (
         <button
           onClick={() => void logout()}
-          className="hidden sm:block p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+          className="hidden sm:block p-2 rounded-lg text-ink-muted hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
           title="Log out"
         >
           <LogOut className="w-4 h-4" />
