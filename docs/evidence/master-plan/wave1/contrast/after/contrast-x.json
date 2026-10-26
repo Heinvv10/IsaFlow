@@ -1,7 +1,7 @@
 {
   "ap-aging.light": {
     "walker": {
-      "total": 9043,
+      "total": 9048,
       "failing": [],
       "worst": 4.99
     },
@@ -9,7 +9,7 @@
   },
   "ap-aging.dark": {
     "walker": {
-      "total": 9043,
+      "total": 9048,
       "failing": [],
       "worst": 4.86
     },
@@ -17,7 +17,7 @@
   },
   "dunning-runs.light": {
     "walker": {
-      "total": 43,
+      "total": 48,
       "failing": [],
       "worst": 5.47
     },
@@ -25,7 +25,7 @@
   },
   "dunning-runs.dark": {
     "walker": {
-      "total": 43,
+      "total": 48,
       "failing": [],
       "worst": 5.47
     },
@@ -33,7 +33,7 @@
   },
   "supplier-invoices.light": {
     "walker": {
-      "total": 458,
+      "total": 463,
       "failing": [],
       "worst": 4.57
     },
@@ -41,7 +41,7 @@
   },
   "supplier-invoices.dark": {
     "walker": {
-      "total": 458,
+      "total": 463,
       "failing": [],
       "worst": 5.47
     },
@@ -49,7 +49,7 @@
   },
   "recurring-invoices.light": {
     "walker": {
-      "total": 25,
+      "total": 30,
       "failing": [],
       "worst": 5.47
     },
@@ -57,7 +57,7 @@
   },
   "recurring-invoices.dark": {
     "walker": {
-      "total": 25,
+      "total": 30,
       "failing": [],
       "worst": 5.47
     },
@@ -65,7 +65,7 @@
   },
   "delivery-notes.light": {
     "walker": {
-      "total": 19,
+      "total": 24,
       "failing": [],
       "worst": 5.47
     },
@@ -73,7 +73,7 @@
   },
   "delivery-notes.dark": {
     "walker": {
-      "total": 19,
+      "total": 24,
       "failing": [],
       "worst": 5.47
     },
@@ -81,7 +81,7 @@
   },
   "journal-entries-new.light": {
     "walker": {
-      "total": 42,
+      "total": 47,
       "failing": [],
       "worst": 5.47
     },
@@ -89,7 +89,7 @@
   },
   "journal-entries-new.dark": {
     "walker": {
-      "total": 42,
+      "total": 47,
       "failing": [],
       "worst": 5.47
     },
@@ -97,7 +97,7 @@
   },
   "assets-new.light": {
     "walker": {
-      "total": 44,
+      "total": 49,
       "failing": [],
       "worst": 5.47
     },
@@ -105,7 +105,7 @@
   },
   "assets-new.dark": {
     "walker": {
-      "total": 44,
+      "total": 49,
       "failing": [],
       "worst": 5.47
     },
@@ -113,7 +113,7 @@
   },
   "disputes.light": {
     "walker": {
-      "total": 28,
+      "total": 33,
       "failing": [],
       "worst": 5.47
     },
@@ -121,7 +121,7 @@
   },
   "disputes.dark": {
     "walker": {
-      "total": 28,
+      "total": 33,
       "failing": [],
       "worst": 5.47
     },

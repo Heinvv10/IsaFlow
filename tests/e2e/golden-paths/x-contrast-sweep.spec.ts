@@ -13,15 +13,21 @@ import { auditContrast } from '../helpers/themeContrast';
 
 const THEMES = ['light', 'dark'] as const;
 
+/**
+ * minTexts is a render check, not a data count: the floor is roughly half of what auditContrast measured on dev
+ * (Demo company) on 2026-10-26 (ap-aging 9042, supplier-invoices 460, journal-entries-new 43, assets-new 45,
+ * dunning-runs 43, disputes 28, recurring-invoices 26, delivery-notes 20), so ordinary data churn cannot fail it
+ * but a page that rendered only its shell does.
+ */
 const PAGES = [
-  { slug: 'ap-aging', path: '/accounting/reports/ap-aging', minTexts: 1000 },
-  { slug: 'dunning-runs', path: '/accounting/ar/dunning/runs', minTexts: 30 },
-  { slug: 'supplier-invoices', path: '/accounting/supplier-invoices', minTexts: 300 },
-  { slug: 'recurring-invoices', path: '/accounting/recurring-invoices', minTexts: 15 },
-  { slug: 'delivery-notes', path: '/accounting/delivery-notes', minTexts: 12 },
-  { slug: 'journal-entries-new', path: '/accounting/journal-entries/new', minTexts: 30 },
-  { slug: 'assets-new', path: '/accounting/assets/new', minTexts: 30 },
-  { slug: 'disputes', path: '/accounting/disputes', minTexts: 20 },
+  { slug: 'ap-aging', path: '/accounting/reports/ap-aging', minTexts: 500 },
+  { slug: 'dunning-runs', path: '/accounting/ar/dunning/runs', minTexts: 20 },
+  { slug: 'supplier-invoices', path: '/accounting/supplier-invoices', minTexts: 150 },
+  { slug: 'recurring-invoices', path: '/accounting/recurring-invoices', minTexts: 12 },
+  { slug: 'delivery-notes', path: '/accounting/delivery-notes', minTexts: 10 },
+  { slug: 'journal-entries-new', path: '/accounting/journal-entries/new', minTexts: 20 },
+  { slug: 'assets-new', path: '/accounting/assets/new', minTexts: 20 },
+  { slug: 'disputes', path: '/accounting/disputes', minTexts: 12 },
 ] as const;
 
 /** Wait for the shell and for spinners/skeletons to clear. */
@@ -34,7 +40,7 @@ async function settle(page: Page): Promise<void> {
 /** A list page is measured with its rows (or its empty-state text) on screen, not while the table is still empty. */
 async function rowsReady(page: Page, path: string): Promise<void> {
   if (/\/new$/.test(path)) return;
-  await page.waitForSelector('tbody tr, :text-matches("^No [a-z ]+", "i")', { timeout: 30_000 });
+  await page.waitForSelector('tbody tr, main :text-matches("^No [a-z ]+", "i")', { timeout: 30_000 });
 }
 
 const evidenceDir = process.env.THEME_EVIDENCE_DIR;
