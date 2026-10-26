@@ -11,7 +11,7 @@ import { render, cleanup } from '@testing-library/react';
 import { PresentSlide } from '@/components/accounting/present/PresentSlide';
 import type { Slide } from '@/components/accounting/present/presentSlides';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
-import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import { buildBudgetVsActualLines, type BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
 
 afterEach(cleanup);
 
@@ -26,10 +26,10 @@ const INCOME: IncomeStatementReport = {
   grossProfit: 900_000, operatingProfit: 900_000, netProfit: 900_000,
 };
 
-const BUDGET: BudgetVsActualLine[] = [{
-  account_code: '4000', account_name: 'Sales', account_type: 'revenue',
-  budget_amount: 1_000_000, actual_amount: 900_000, variance: -100_000, variance_pct: -10,
-}];
+const BUDGET: BudgetVsActualLine[] = buildBudgetVsActualLines(
+  [{ id: 'g-4000', account_code: '4000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900_000 }],
+  { 'g-4000': 1_000_000 },
+);
 
 describe('PresentSlide income statement budget guard', () => {
   it('leaves the budget cell empty when budgetedCount is 0, even with budget lines present', () => {

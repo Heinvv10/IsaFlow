@@ -80,7 +80,8 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
   it('budgets: save refusal is shown', async () => {
     const MSG = 'D2 server says no: budget already exists for this account';
     script((u, m) => (u.endsWith('/api/accounting/budgets') && m === 'POST' ? refuse(MSG, 409) : undefined), {
-      '/chart-of-accounts': { accounts: [{ id: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense' }] },
+      // The route's real shape: a plain GLAccount[] (chartAccountOptions).
+      '/chart-of-accounts': [{ id: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense', isActive: true }],
       '/api/accounting/budgets': budgetsPayload([]),
     });
     render(<BudgetsPage />);
