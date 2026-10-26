@@ -5,19 +5,28 @@
  */
 
 import Link from 'next/link';
-import { mostSpecificActiveHref, type DropdownItem } from '../accounting/accountingNavConfig';
+import { isFlyout, mostSpecificActiveHref, type DropdownItem, type NavItem } from '../accounting/accountingNavConfig';
 
 interface NavLinksBlockProps {
   links: DropdownItem[] | undefined;
+  /**
+   * The rest of the tab (sections included). A link only lights when it beats every one of these too, so the
+   * Compliance Calendar link does not stay lit on /accounting/sars/submissions, which a section row owns.
+   */
+  tabItems?: NavItem[];
   asPath: string;
   onNav: () => void;
   linkClassName: (active: boolean) => string;
   separatorClassName: string;
 }
 
-export function NavLinksBlock({ links, asPath, onNav, linkClassName, separatorClassName }: NavLinksBlockProps) {
+function hrefsOf(items: NavItem[]): string[] {
+  return items.flatMap(i => (isFlyout(i) ? hrefsOf(i.items) : [i.href]));
+}
+
+export function NavLinksBlock({ links, tabItems, asPath, onNav, linkClassName, separatorClassName }: NavLinksBlockProps) {
   if (!links || links.length === 0) return null;
-  const activeHref = mostSpecificActiveHref(links.map(l => l.href), asPath);
+  const activeHref = mostSpecificActiveHref([...links.map(l => l.href), ...hrefsOf(tabItems ?? [])], asPath);
   return (
     <>
       {links.map(item => (

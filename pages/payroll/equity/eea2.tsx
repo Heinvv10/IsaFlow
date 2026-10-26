@@ -9,6 +9,7 @@ import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/api
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { DateField } from '@/components/ui/DateField';
 
 interface Cell { race: string; gender: string; count: number }
 interface Level {
@@ -71,9 +72,7 @@ export default function EEA2Page() {
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="text-sm text-[var(--ff-text-secondary)]">As of</label>
-          <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)}
-            className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)]" />
+          <DateField label="As of" required value={asOf || null} onChange={(iso, v) => { if (v.valid && iso) setAsOf(iso); }} />
           <button onClick={load} disabled={loading}
             className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
