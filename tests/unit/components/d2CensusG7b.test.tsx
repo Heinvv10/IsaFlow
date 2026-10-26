@@ -17,6 +17,7 @@ vi.mock('@/components/admin/StatsCard', () => ({ StatsCard: () => null }));
 vi.mock('@/components/admin/charts/TrafficTimeseriesChart', () => ({ TrafficTimeseriesChart: () => null }));
 vi.mock('@/components/accounting/dashboard/OverviewTables', () => ({ OverviewTables: () => null }));
 vi.mock('@/components/accounting/dashboard/TodoWidget', () => ({ TodoWidget: () => null }));
+vi.mock('@/components/accounting/dashboard/ModuleSetupChecklist', () => ({ ModuleSetupChecklist: () => null }));
 vi.mock('@/components/accounting/dashboard/WorkbenchSection', () => ({ WorkbenchSection: () => null }));
 vi.mock('@/components/accounting/banking/NoBankAccountWarning', () => ({ NoBankAccountWarning: () => null }));
 const company = vi.hoisted(() => ({ activeCompany: { id: 'co-1' } })); // stable: a fresh object per render refetches forever
