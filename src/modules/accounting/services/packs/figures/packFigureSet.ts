@@ -43,7 +43,8 @@ export interface PackBudgetRow {
   budget: number;
   actual: number;
   variance: number;
-  variancePct: number;
+  /** null when the budget is zero (budgets P0): there is nothing to be a percentage of. */
+  variancePct: number | null;
 }
 
 /**
@@ -54,6 +55,7 @@ export interface PackBudgetRow {
  */
 export interface PackBudgetFigures {
   fiscalYear: number;
+  /** Net profit (revenue − expenses), not revenue + expense (budgets P0, D11). */
   totals: { budget: number; actual: number; variance: number };
   rows: PackBudgetRow[];
   /** Latest posted entry date inside the window, or null when nothing posted. */

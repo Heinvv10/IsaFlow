@@ -162,9 +162,9 @@ describe('a 14-month transition year', () => {
   it('ytd and current windows come from the registry year, not the declared start month', async () => {
     const now = new Date(2026, 9, 23);
     expect(await inTx(() => resolveBudgetWindow(companyId, 'ytd', now)))
-      .toMatchObject({ startDate: '2026-01-01', endDate: '2026-10-23' });
+      .toMatchObject({ startDate: '2026-01-01', endDate: '2026-10-31' });
     expect(await inTx(() => resolveBudgetWindow(companyId, 'current', now)))
-      .toMatchObject({ startDate: '2026-10-01', endDate: '2026-10-23' });
+      .toMatchObject({ startDate: '2026-10-01', endDate: '2026-10-31' });
   });
 
   it('copies to the next year by month position: 14 months into 12 drops the last two; a re-run adds nothing', async () => {

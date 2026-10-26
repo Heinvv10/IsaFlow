@@ -1,5 +1,6 @@
 /** Shapes and labels the budgets page reads from /api/accounting/budgets. */
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatPct } from '@/lib/format/money';
 
 export interface BudgetMonth { month: string; amount: number }
 
@@ -48,4 +49,9 @@ export function parseReportPeriod(period: string | undefined): { start: string; 
 /** '1 March 2026' for '2026-03-01'. */
 export function longDate(iso: string): string {
   return `${Number(iso.slice(8, 10))} ${LONG_MONTHS[Number(iso.slice(5, 7)) - 1] ?? iso.slice(5, 7)} ${iso.slice(0, 4)}`;
+}
+
+/** A budget percentage, or "—" when there is no budget to be a percentage of (never "−100%" or "0.0%"). */
+export function variancePctLabel(pct: number | null): string {
+  return pct === null ? '—' : formatPct(pct);
 }
