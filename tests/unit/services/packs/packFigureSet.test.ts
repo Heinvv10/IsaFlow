@@ -190,6 +190,13 @@ describe('buildPackFigureSet', () => {
     expect(set.budget).toBeNull();
   });
 
+  it('passes a null budget percentage through as null, never 0 or -100 (zero budget)', async () => {
+    getFinancialFigures.mockResolvedValue(figures(100));
+    getBudgetVariance.mockResolvedValue(variance([{ ...row(), budget_amount: 0, variance: -100, variance_pct: null }]));
+    const set = await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
+    expect(set.budget?.rows[0]?.variancePct).toBeNull();
+  });
+
   it('carries the budget totals and rows where the company has one', async () => {
     getFinancialFigures.mockResolvedValue(figures(100));
     getBudgetVariance.mockResolvedValue(variance([row()]));
