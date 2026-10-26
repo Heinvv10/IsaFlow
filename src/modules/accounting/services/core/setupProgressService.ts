@@ -7,29 +7,32 @@
  */
 
 import { sql } from '@/lib/neon';
-import { log } from '@/lib/logger';
-import { countBankAccounts } from '../bank/hasBankAccountService';
+import { hasBankAccount } from '../bank/hasBankAccountService';
 
 export interface SetupFacts {
   logo: boolean;
   registrationNumber: boolean;
   vatNumber: boolean;
-  /** A VAT period is configured; 'none' means the company is not a VAT vendor. */
-  vatPeriodSet: boolean;
+  /** Trimmed paye_reference_number is non-empty. */
   payeReference: boolean;
   /** False when vat_period = 'none': the Tax checklist does not apply. */
   vatVendor: boolean;
-  bankAccounts: number;
-  bankTransactions: number;
-  customers: number;
-  customerInvoices: number;
-  receipts: number;
-  suppliers: number;
-  supplierInvoices: number;
-  fiscalPeriods: number;
-  openingBalances: number;
-  employees: number;
-  payrollRuns: number;
+  hasBankAccount: boolean;
+  hasBankTransactions: boolean;
+  hasCustomers: boolean;
+  /** A customer invoice that is not a draft and not cancelled. */
+  hasCustomerInvoices: boolean;
+  /** A customer receipt that is confirmed or reconciled. */
+  hasReceipts: boolean;
+  hasSuppliers: boolean;
+  /** A supplier invoice that is not a draft and not cancelled. */
+  hasSupplierInvoices: boolean;
+  hasFiscalPeriods: boolean;
+  hasOpeningBalances: boolean;
+  /** An active payroll employee exists. */
+  hasEmployees: boolean;
+  /** A pay run that is calculated, approved or paid. */
+  hasPayrollRuns: boolean;
 }
 
 export interface SetupTaskStatus {
@@ -55,100 +58,78 @@ export interface SetupProgress {
   allComplete: boolean;
 }
 
-interface CompanyRow {
-  logo_data: string | null;
-  registration_number: string | null;
-  vat_number: string | null;
-  vat_period: string | null;
-  paye_reference_number: string | null;
+interface FactsRow {
+  has_logo: boolean | null;
+  has_registration: boolean | null;
+  has_vat_number: boolean | null;
+  has_paye: boolean | null;
+  vat_vendor: boolean | null;
+  has_bank_transactions: boolean;
+  has_customers: boolean;
+  has_customer_invoices: boolean;
+  has_receipts: boolean;
+  has_suppliers: boolean;
+  has_supplier_invoices: boolean;
+  has_fiscal_periods: boolean;
+  has_opening_balances: boolean;
+  has_employees: boolean;
+  has_payroll_runs: boolean;
 }
 
-interface CountRow {
-  count: string;
-}
-
-const EMPTY_FACTS: SetupFacts = {
-  logo: false, registrationNumber: false, vatNumber: false, vatPeriodSet: false, payeReference: false, vatVendor: true,
-  bankAccounts: 0, bankTransactions: 0, customers: 0, customerInvoices: 0, receipts: 0,
-  suppliers: 0, supplierInvoices: 0, fiscalPeriods: 0, openingBalances: 0, employees: 0, payrollRuns: 0,
-};
-
-// Each probe is isolated: a missing table, schema drift or one query error must
-// not fail the whole endpoint. A brand-new company has empty tables everywhere,
-// so the safe fallback is "nothing done".
-async function safeCount(q: Promise<unknown>): Promise<number> {
-  try {
-    const rows = (await q) as CountRow[];
-    return Number(rows[0]?.count ?? 0);
-  } catch (err) {
-    log.warn('Setup probe failed', { error: err }, 'setup-progress');
-    return 0;
-  }
-}
-
-async function safeNumber(q: Promise<number>): Promise<number> {
-  try {
-    return await q;
-  } catch (err) {
-    log.warn('Setup probe failed', { error: err }, 'setup-progress');
-    return 0;
-  }
-}
-
-async function safeCompany(companyId: string): Promise<CompanyRow | null> {
-  try {
-    const rows = (await sql`
-      SELECT logo_data, registration_number, vat_number, vat_period, paye_reference_number
-      FROM companies
-      WHERE id = ${companyId}
-      LIMIT 1
-    `) as CompanyRow[];
-    return rows[0] ?? null;
-  } catch (err) {
-    log.warn('Setup company probe failed', { error: err }, 'setup-progress');
-    return null;
-  }
-}
-
+/**
+ * One statement, every probe an EXISTS scoped by company_id. A real SQL error
+ * is not swallowed: inside withAuth's transaction a caught error would leave
+ * the transaction aborted, so it surfaces as a 500 instead.
+ */
 export async function probeSetupFacts(companyId: string): Promise<SetupFacts> {
-  const [
-    company, bankAccounts, bankTransactions, customers, customerInvoices, receipts,
-    suppliers, supplierInvoices, fiscalPeriods, openingBalances, employees, payrollRuns,
-  ] = await Promise.all([
-    safeCompany(companyId),
-    // A bank account is a gl_accounts row with account_subtype='bank'; the
-    // vestigial bank_accounts table is never the source of truth.
-    safeNumber(countBankAccounts(companyId)),
-    safeCount(sql`SELECT COUNT(*) AS count FROM bank_transactions WHERE company_id = ${companyId}`),
-    safeCount(sql`SELECT COUNT(*) AS count FROM customers WHERE company_id = ${companyId}`),
-    safeCount(sql`SELECT COUNT(*) AS count FROM customer_invoices WHERE company_id = ${companyId}`),
-    safeCount(sql`SELECT COUNT(*) AS count FROM customer_payments WHERE company_id = ${companyId}`),
-    safeCount(sql`SELECT COUNT(*) AS count FROM suppliers WHERE company_id = ${companyId}`),
-    safeCount(sql`SELECT COUNT(*) AS count FROM supplier_invoices WHERE company_id = ${companyId}`),
-    safeCount(sql`SELECT COUNT(*) AS count FROM fiscal_periods WHERE company_id = ${companyId}`),
-    safeCount(sql`
-      SELECT COUNT(*) AS count
-      FROM gl_journal_entries
-      WHERE company_id = ${companyId}
-        AND (source = 'opening_balance' OR (source = 'manual' AND reference = 'opening_balance'))
-        AND status = 'posted'
-    `),
-    safeCount(sql`
-      SELECT COUNT(*) AS count FROM payroll_employees
-      WHERE company_id = ${companyId} AND status = 'active'
-    `),
-    safeCount(sql`SELECT COUNT(*) AS count FROM payroll_run_headers WHERE company_id = ${companyId}`),
+  const [rows, bankAccountExists] = await Promise.all([
+    sql<FactsRow>`
+      SELECT
+        c.logo_data IS NOT NULL AND c.logo_data <> '' AS has_logo,
+        btrim(COALESCE(c.registration_number, '')) <> '' AS has_registration,
+        btrim(COALESCE(c.vat_number, '')) <> '' AS has_vat_number,
+        btrim(COALESCE(c.paye_reference_number, '')) <> '' AS has_paye,
+        c.vat_period IS DISTINCT FROM 'none' AS vat_vendor,
+        EXISTS (SELECT 1 FROM bank_transactions WHERE company_id = ${companyId}) AS has_bank_transactions,
+        EXISTS (SELECT 1 FROM customers WHERE company_id = ${companyId}) AS has_customers,
+        EXISTS (SELECT 1 FROM customer_invoices
+                WHERE company_id = ${companyId} AND status NOT IN ('draft', 'cancelled')) AS has_customer_invoices,
+        EXISTS (SELECT 1 FROM customer_payments
+                WHERE company_id = ${companyId} AND status IN ('confirmed', 'reconciled')) AS has_receipts,
+        EXISTS (SELECT 1 FROM suppliers WHERE company_id = ${companyId}) AS has_suppliers,
+        EXISTS (SELECT 1 FROM supplier_invoices
+                WHERE company_id = ${companyId} AND status NOT IN ('draft', 'cancelled')) AS has_supplier_invoices,
+        EXISTS (SELECT 1 FROM fiscal_periods WHERE company_id = ${companyId}) AS has_fiscal_periods,
+        EXISTS (SELECT 1 FROM gl_journal_entries
+                WHERE company_id = ${companyId} AND status = 'posted'
+                  AND (source = 'opening_balance' OR (source = 'manual' AND reference = 'opening_balance'))) AS has_opening_balances,
+        EXISTS (SELECT 1 FROM payroll_employees
+                WHERE company_id = ${companyId} AND status = 'active') AS has_employees,
+        EXISTS (SELECT 1 FROM payroll_run_headers
+                WHERE company_id = ${companyId} AND status IN ('calculated', 'approved', 'paid')) AS has_payroll_runs
+      FROM (SELECT 1) AS one
+      LEFT JOIN companies c ON c.id = ${companyId}
+    `,
+    hasBankAccount(companyId),
   ]);
-  if (!company) return { ...EMPTY_FACTS, bankAccounts, bankTransactions };
+  const r = rows[0];
   return {
-    logo: Boolean(company.logo_data),
-    registrationNumber: Boolean(company.registration_number),
-    vatNumber: Boolean(company.vat_number),
-    vatPeriodSet: Boolean(company.vat_period) && company.vat_period !== 'none',
-    vatVendor: company.vat_period !== 'none',
-    payeReference: Boolean(company.paye_reference_number),
-    bankAccounts, bankTransactions, customers, customerInvoices, receipts,
-    suppliers, supplierInvoices, fiscalPeriods, openingBalances, employees, payrollRuns,
+    logo: Boolean(r?.has_logo),
+    registrationNumber: Boolean(r?.has_registration),
+    vatNumber: Boolean(r?.has_vat_number),
+    payeReference: Boolean(r?.has_paye),
+    vatVendor: r?.vat_vendor ?? true,
+    hasBankAccount: bankAccountExists,
+    hasBankTransactions: Boolean(r?.has_bank_transactions),
+    hasCustomers: Boolean(r?.has_customers),
+    hasCustomerInvoices: Boolean(r?.has_customer_invoices),
+    hasReceipts: Boolean(r?.has_receipts),
+    hasSuppliers: Boolean(r?.has_suppliers),
+    hasSupplierInvoices: Boolean(r?.has_supplier_invoices),
+    hasFiscalPeriods: Boolean(r?.has_fiscal_periods),
+    hasOpeningBalances: Boolean(r?.has_opening_balances),
+    hasEmployees: Boolean(r?.has_employees),
+    hasPayrollRuns: Boolean(r?.has_payroll_runs),
   };
 }
 
@@ -158,13 +139,13 @@ export function completedGuideTasks(f: SetupFacts): string[] {
   if (f.logo) done.push('company-logo');
   if (f.registrationNumber) done.push('company-legal');
   if (f.vatNumber) done.push('vat-number');
-  if (f.fiscalPeriods > 0) done.push('fiscal-year');
-  if (f.openingBalances > 0) done.push('opening-balances');
-  if (f.bankAccounts > 0) done.push('bank-account');
-  if (f.bankTransactions > 0) done.push('bank-transactions');
-  if (f.customerInvoices > 0) done.push('customer-invoices');
-  if (f.customers > 0) done.push('customers');
-  if (f.suppliers > 0) done.push('suppliers');
+  if (f.hasFiscalPeriods) done.push('fiscal-year');
+  if (f.hasOpeningBalances) done.push('opening-balances');
+  if (f.hasBankAccount) done.push('bank-account');
+  if (f.hasBankTransactions) done.push('bank-transactions');
+  if (f.hasCustomerInvoices) done.push('customer-invoices');
+  if (f.hasCustomers) done.push('customers');
+  if (f.hasSuppliers) done.push('suppliers');
   return done;
 }
 
@@ -175,32 +156,41 @@ function module(
   return { id, label, tasks, doneCount, totalCount: tasks.length, complete: doneCount === tasks.length };
 }
 
-/** Pure: facts in, per-module checklist out. Tax is omitted for non-VAT-vendors. */
+/**
+ * Pure: facts in, per-module checklist out. Payroll applies only to a company
+ * that runs payroll (an active employee or a calculated/approved/paid run), and
+ * its PAYE reference task only once there are employees; Tax is omitted for
+ * non-VAT-vendors. A company never reaches "all done" on tasks that cannot apply.
+ */
 export function buildSetupProgress(f: SetupFacts): SetupProgress {
   const modules: SetupModuleProgress[] = [
     module('sales', 'Sales', [
-      { id: 'customers', label: 'Add a customer', href: '/accounting/customers/new', done: f.customers > 0 },
-      { id: 'customer-invoices', label: 'Create an invoice', href: '/accounting/customer-invoices/new', done: f.customerInvoices > 0 },
-      { id: 'receipts', label: 'Record a receipt', href: '/accounting/customer-payments/new', done: f.receipts > 0 },
+      { id: 'customers', label: 'Add a customer', href: '/accounting/customers/new', done: f.hasCustomers },
+      { id: 'customer-invoices', label: 'Create an invoice', href: '/accounting/customer-invoices/new', done: f.hasCustomerInvoices },
+      { id: 'receipts', label: 'Record a receipt', href: '/accounting/customer-payments/new', done: f.hasReceipts },
     ]),
     module('purchases', 'Purchases', [
-      { id: 'suppliers', label: 'Add a supplier', href: '/accounting/suppliers/new', done: f.suppliers > 0 },
-      { id: 'supplier-invoices', label: 'Capture a supplier invoice', href: '/accounting/supplier-invoices/new', done: f.supplierInvoices > 0 },
+      { id: 'suppliers', label: 'Add a supplier', href: '/accounting/suppliers/new', done: f.hasSuppliers },
+      { id: 'supplier-invoices', label: 'Capture a supplier invoice', href: '/accounting/supplier-invoices/new', done: f.hasSupplierInvoices },
     ]),
     module('banking', 'Banking', [
-      { id: 'bank-account', label: 'Add a bank account', href: '/accounting/bank-accounts', done: f.bankAccounts > 0 },
-      { id: 'bank-transactions', label: 'Import bank transactions', href: '/accounting/bank-reconciliation/import', done: f.bankTransactions > 0 },
-    ]),
-    module('payroll', 'Payroll', [
-      { id: 'employees', label: 'Add an employee', href: '/payroll/employees/new', done: f.employees > 0 },
-      { id: 'payroll-run', label: 'Run payroll', href: '/payroll/runs', done: f.payrollRuns > 0 },
-      { id: 'paye-reference', label: 'Enter your PAYE reference', href: '/accounting/company-settings', done: f.payeReference },
+      { id: 'bank-account', label: 'Add a bank account', href: '/accounting/bank-accounts', done: f.hasBankAccount },
+      { id: 'bank-transactions', label: 'Import bank transactions', href: '/accounting/bank-reconciliation/import', done: f.hasBankTransactions },
     ]),
   ];
+  if (f.hasEmployees || f.hasPayrollRuns) {
+    const tasks: SetupTaskStatus[] = [
+      { id: 'employees', label: 'Add an employee', href: '/payroll/employees/new', done: f.hasEmployees },
+      { id: 'payroll-run', label: 'Run payroll', href: '/payroll/runs', done: f.hasPayrollRuns },
+    ];
+    if (f.hasEmployees) {
+      tasks.push({ id: 'paye-reference', label: 'Enter your PAYE reference', href: '/accounting/company-settings', done: f.payeReference });
+    }
+    modules.push(module('payroll', 'Payroll', tasks));
+  }
   if (f.vatVendor) {
     modules.push(module('tax', 'Tax', [
       { id: 'vat-number', label: 'Enter your VAT number', href: '/accounting/company-settings', done: f.vatNumber },
-      { id: 'vat-period', label: 'Choose your VAT period', href: '/accounting/company-settings', done: f.vatPeriodSet },
     ]));
   }
   const doneCount = modules.reduce((n, m) => n + m.doneCount, 0);

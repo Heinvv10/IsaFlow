@@ -21,7 +21,8 @@ export default defineConfig({
   // a missing @axe-core/playwright cannot break a deploy check either. A --grep-invert would still import it.
   // The two theme specs (o-theme-contrast, o2-theme-behaviour) are the same kind of gate: axe on dev data, and a red
   // contrast run against production must not roll a deploy back.
-  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? /(^|\/)(n-a11y-main-screens|o-theme-contrast|o2-theme-behaviour|t-report-filter-dates)\.spec\.ts$/ : undefined,
+  // w-setup-checklist creates a sandbox company and a permanent customer, so it is a dev/CI gate too.
+  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? /(^|\/)(n-a11y-main-screens|o-theme-contrast|o2-theme-behaviour|t-report-filter-dates|w-setup-checklist)\.spec\.ts$/ : undefined,
   globalSetup: './tests/e2e/golden-paths/_global-setup.ts',
   timeout: 90_000,
   retries: 0,
