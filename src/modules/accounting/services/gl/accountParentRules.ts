@@ -17,6 +17,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import {
   BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, hasChildAccounts, isSubjectToLeafRule,
 } from './isReportVisibleLeaf';
@@ -129,10 +130,12 @@ export async function assertParentUsable(
     // another child hides nothing new (VF's paycard umbrella, 2026-10-26: 40
     // children, and every further paycard was refused). The read is settled:
     // every writer that can take a child AWAY (reclassifyAccount, the bank
-    // grouping PUT, an account merge) takes the role-write lock first, as this
-    // function did above, so "the last child leaves" and "a new child arrives"
-    // serialise — header-account-already-header.int.test.ts (c).
-    if (!(await hasChildAccounts(companyId, parentId))) await assertNoPostedLines(companyId, parent);
+    // grouping PUT, an account merge, an import rollback's DELETE) takes the
+    // role-write lock first, as this function did above, so "the last child
+    // leaves" and "a new child arrives" serialise —
+    // header-account-already-header.int.test.ts (c).
+    if (await hasChildAccounts(companyId, parentId)) await warnIfHeaderHoldsMoney(companyId, parent);
+    else await assertNoPostedLines(companyId, parent);
   }
 
   const childLevel = Number(parent.level) + 1;
@@ -143,6 +146,25 @@ export async function assertParentUsable(
     );
   }
   return { childLevel };
+}
+
+/**
+ * The exemption admits a child to a header whose OWN lines are already off the balance sheet. When they do
+ * not net to zero that is money the statements are missing today; this does not refuse (it hides nothing
+ * new) but says so, so the header's balance gets moved to a leaf.
+ */
+export async function warnIfHeaderHoldsMoney(
+  companyId: string, parent: { id: string; account_code: string },
+): Promise<void> {
+  const [row] = (await sql`
+    SELECT COALESCE(SUM(debit - credit), 0)::TEXT AS net FROM gl_journal_lines
+     WHERE gl_account_id = ${parent.id}::UUID AND company_id = ${companyId}::UUID
+  `) as { net: string }[];
+  if (row && Number(row.net) !== 0) {
+    log.warn('Child added to a header that carries its own unreported balance', {
+      companyId, parentId: parent.id, accountCode: parent.account_code, net: row.net,
+    }, 'gl-accounts');
+  }
 }
 
 /** Refuses a childless level 1-2 parent with lines: a child would make it a header the reports drop. */
