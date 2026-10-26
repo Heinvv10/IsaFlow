@@ -1,7 +1,7 @@
 import { DateField } from '@/components/ui';
 /** Section 3 of the new-asset form: purchase date, cost, salvage value and useful life. */
 export const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-export const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+export const lbl = 'block text-xs font-semibold text-ink-muted uppercase tracking-wider mb-1.5';
 export const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export interface AssetFinancialForm {
@@ -11,7 +11,7 @@ export interface AssetFinancialForm {
   usefulLifeYears: string;
 }
 
-export function AssetFinancialFields({ form, update }: { form: AssetFinancialForm; update: (field: string, value: string) => void }) {
+export function AssetFinancialFields({ form, update, dateError }: { form: AssetFinancialForm; update: (field: string, value: string) => void; dateError?: string }) {
   return (
     <div className={`${card} p-5`}>
       <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
@@ -24,6 +24,7 @@ export function AssetFinancialFields({ form, update }: { form: AssetFinancialFor
             label="Purchase Date"
             name="purchaseDate"
             required
+            error={dateError || undefined}
             value={form.purchaseDate || null}
             onChange={iso => update('purchaseDate', iso ?? '')}
           />

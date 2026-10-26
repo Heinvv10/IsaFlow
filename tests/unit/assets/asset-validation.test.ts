@@ -5,6 +5,13 @@ describe('Asset Input Validation', () => {
   const validAsset: AssetInput = { name: 'Dell Laptop XPS 15', category: 'computers', purchaseDate: '2026-01-15', cost: 25000, salvageValue: 2500, usefulLifeYears: 3, depreciationMethod: 'straight_line', location: 'Head Office', status: 'available' };
   it('accepts a valid asset', () => { expect(validateAsset(validAsset).success).toBe(true); });
   it('rejects missing name', () => { const r = validateAsset({ ...validAsset, name: '' }); expect(r.success).toBe(false); expect(r.errors).toContainEqual(expect.objectContaining({ field: 'name' })); });
+  it('rejects a missing or blank purchase date', () => {
+    for (const purchaseDate of ['', '   ', undefined as unknown as string]) {
+      const r = validateAsset({ ...validAsset, purchaseDate });
+      expect(r.success).toBe(false);
+      expect(r.errors).toContainEqual({ field: 'purchaseDate', message: 'Enter the purchase date' });
+    }
+  });
   it('rejects negative cost', () => { expect(validateAsset({ ...validAsset, cost: -1000 }).success).toBe(false); });
   it('rejects zero cost', () => { expect(validateAsset({ ...validAsset, cost: 0 }).success).toBe(false); });
   it('rejects salvage > cost', () => { const r = validateAsset({ ...validAsset, salvageValue: 30000 }); expect(r.success).toBe(false); expect(r.errors).toContainEqual(expect.objectContaining({ field: 'salvageValue' })); });
