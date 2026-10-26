@@ -2,6 +2,13 @@ import type { Tab } from './types';
 
 export const reportsTab: Tab = {
   id: 'reports', label: 'Reports',
+  href: '/accounting/reports/income-statement',
+  links: [
+    { label: 'Profit & Loss', href: '/accounting/reports/income-statement' },
+    { label: 'Balance Sheet', href: '/accounting/reports/balance-sheet' },
+    { label: 'Trial Balance', href: '/accounting/trial-balance' },
+    { label: 'Aged Debtors', href: '/accounting/reports/ar-aging' },
+  ],
   items: [
     {
       section: 'Financial',
