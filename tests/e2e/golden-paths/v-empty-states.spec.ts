@@ -12,9 +12,10 @@
  * Read-only apart from the sandbox's creation. Light and dark screenshots.
  */
 import { expect, test, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { mkdirSync } from 'fs';
 import { Api } from './_api';
-import { activeCompanyId, switchBrowserCompany } from './_migrationSandbox';
+import { activeCompanyId, findOrCreateSandbox, switchBrowserCompany } from './_migrationSandbox';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const SHOTS = 'docs/evidence/master-plan/wave1/empty-states';
@@ -33,25 +34,19 @@ const LISTS = [
 
 let sandboxId = '';
 let demoId = '';
+let startedOn = '';
 
 test.beforeAll(async ({ baseURL }) => {
+  // Creates a company and relies on a dev-only data flag: never against production.
+  expect(new URL(baseURL!).hostname, 'v-empty-states is a dev/CI spec, not a production check').not.toMatch(/(^|\.)isaflow\.co\.za$/);
   const api = await Api.login(baseURL!);
   try {
-    const list = async () => (await api.get<{ items: Array<{ companyId: string; companyName: string; isDemo?: boolean }> }>(
-      '/api/accounting/companies?action=user-companies')).items;
-    demoId = (await list()).find((c) => c.isDemo)?.companyId ?? '';
+    const uc = await api.get<{ items: Array<{ companyId: string; isDemo?: boolean }>; activeCompanyId: string }>(
+      '/api/accounting/companies?action=user-companies');
+    startedOn = uc.activeCompanyId;
+    demoId = uc.items.find((c) => c.isDemo)?.companyId ?? '';
     expect(demoId, 'the user needs a membership in the demo company (companies.is_demo = true)').toBeTruthy();
-    let found = (await list()).find((c) => c.companyName === SANDBOX_NAME);
-    if (!found) {
-      const setup = await api.postRaw('/api/onboarding/complete-setup', {
-        requestKey: SANDBOX_ONBOARDING_ID, entityType: 'other', coaTemplate: 'isaflow_standard',
-        company: { name: SANDBOX_NAME, vatPeriod: 'bi-monthly', vatNumber: '4000000000' }, people: [], documents: [],
-      });
-      expect(setup.status, JSON.stringify(setup.json)).toBe(200);
-      found = (await list()).find((c) => c.companyName === SANDBOX_NAME);
-    }
-    expect(found, 'onboarding must have created the empty sandbox').toBeTruthy();
-    sandboxId = found!.companyId;
+    sandboxId = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
   } finally {
     await api.dispose();
   }
@@ -76,6 +71,8 @@ for (const list of LISTS) {
       await expect(page.getByRole('heading', { name: list.title })).toBeVisible();
       await expect(page.getByRole('button', { name: OFFER })).toBeVisible();
       await page.waitForSelector(`html[data-theme-applied="${theme}"]`);
+      const contrast = await new AxeBuilder({ page }).include('[data-testid="empty-state"]').withRules(['color-contrast']).analyze();
+      expect(contrast.violations.flatMap((v) => v.nodes.map((n) => n.target.join(' '))), `${theme} empty-state contrast`).toEqual([]);
       await page.screenshot({ path: `${SHOTS}/${list.slug}-empty-${theme}.png` });
     }
   });
@@ -86,7 +83,10 @@ test('customers: a search with no match says No results and never offers the dem
   await page.getByPlaceholder(/search by name/i).fill('zz-no-such-customer');
   await expect(page.getByRole('heading', { name: 'No results' })).toBeVisible();
   await expect(page.getByRole('button', { name: OFFER })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Clear filters' }).click();
+  // Keyboard: the next Tab stop after the search box is "Clear filters", and Enter clears.
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Clear filters' })).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'No customers yet' })).toBeVisible();
 });
 
@@ -123,11 +123,11 @@ test('a slow list paints a skeleton, not a spinner', async ({ page }) => {
   }
 });
 
-test('the user is back where the suite found them', async () => {
-  // switchBrowserCompany only moves each test's own context: the shared session still points at its original company.
+test('the shared session is still on the company the suite started on', async () => {
+  // switchBrowserCompany only moves each test's own context: the shared session file still points where it did.
   const api = await Api.login(test.info().project.use.baseURL!);
   try {
-    expect(await activeCompanyId(api)).not.toBe(sandboxId);
+    expect(await activeCompanyId(api)).toBe(startedOn);
   } finally {
     await api.dispose();
   }
