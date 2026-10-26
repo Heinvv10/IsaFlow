@@ -58,6 +58,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
+import { assertVoidKeepsCredit } from '../ap/supplierVoidCredit';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
 export interface BankAllocationUnwindResult {
@@ -134,6 +136,10 @@ export async function unwindOnePayment(
       UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
       WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
   } else {
+    // A void must not take the supplier's on-account credit below zero (a refund already returned this cash) —
+    // refused before the first write, judged with the row held so a concurrent unapply cannot shrink what it reads.
+    await lockSupplierPaymentForUpdate(companyId, paymentId);
+    await assertVoidKeepsCredit(companyId, [paymentId]);
     await sql`
       UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
       WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
