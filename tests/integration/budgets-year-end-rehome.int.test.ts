@@ -121,6 +121,10 @@ describe('P1: budget months follow a change of year end', () => {
 
   it('a budget save in flight when the change starts is waited for, and its months are re-homed with the rest', async () => {
     const c = await company();
+    // FY2027 has no budget yet: the save creates its version, which the change cannot see or lock.
+    await pool.query(`DELETE FROM budget_month_amounts WHERE company_id = $1 AND version_id IN
+                        (SELECT id FROM budget_versions WHERE company_id = $1 AND fiscal_year = 2027)`, [c.id]);
+    await pool.query('DELETE FROM budget_versions WHERE company_id = $1 AND fiscal_year = 2027', [c.id]);
     const t2 = await pool.connect(), t1 = await pool.connect();
     try {
       await t2.query('BEGIN');
