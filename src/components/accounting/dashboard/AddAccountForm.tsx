@@ -80,7 +80,7 @@ export function AddAccountForm({
         <p className="text-xs text-[var(--ff-text-tertiary)]">Normal balance: <span className="font-medium">{addForm.accountType === 'asset' || addForm.accountType === 'expense' ? 'Debit' : 'Credit'}</span> (auto-set from type)</p>
         <div className="flex items-center gap-2">
           <button onClick={() => onCancel()} className="px-3 py-2 text-sm font-medium text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors">Cancel</button>
-          <button onClick={() => { void onSubmit(); }} disabled={isSaving || !addForm.accountCode || !addForm.accountName} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50">
+          <button onClick={() => { void onSubmit(); }} disabled={isSaving || !addForm.accountCode || !addForm.accountName} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium disabled:opacity-50">
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {isSaving ? 'Creating...' : 'Create Account'}
           </button>

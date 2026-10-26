@@ -107,7 +107,7 @@ function EmailModal({ onClose }: { onClose: () => void }) {
               <button
                 onClick={handleSend}
                 disabled={sending || !email}
-                className="px-4 py-2 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
               >
                 {sending ? 'Sending...' : 'Send'}
               </button>
@@ -187,7 +187,7 @@ export default function ManagementAccountsPage() {
                 </button>
                 <button
                   onClick={() => setShowEmail(true)}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700"
                 >
                   <Mail className="h-4 w-4" /> Email to Director
                 </button>
@@ -214,7 +214,7 @@ export default function ManagementAccountsPage() {
               <button
                 onClick={loadReport}
                 disabled={loading}
-                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
               >
                 {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 Run

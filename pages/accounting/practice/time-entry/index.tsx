@@ -223,7 +223,7 @@ export default function TimeEntryPage() {
 
           {/* Submit footer */}
           <div className="flex items-center gap-3 pt-2 border-t border-[var(--ff-border-primary)]">
-            <button onClick={() => void handleSubmitDay()} disabled={draftCount === 0 || submitting} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+            <button onClick={() => void handleSubmitDay()} disabled={draftCount === 0 || submitting} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               {submitting ? 'Submitting…' : `Submit Day${draftCount > 0 ? ` (${draftCount} draft${draftCount !== 1 ? 's' : ''})` : ''}`}
             </button>

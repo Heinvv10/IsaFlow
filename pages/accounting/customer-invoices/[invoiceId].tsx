@@ -163,7 +163,7 @@ export default function CustomerInvoiceDetailPage() {
     } : null,
   );
 
-  if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div></AppLayout>;
+  if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" /></div></AppLayout>;
   if (!invoice) return <AppLayout><div className="flex items-center justify-center min-h-[60vh] flex-col"><AlertCircle className="h-8 w-8 text-red-400 mb-2" /><p className="text-[var(--ff-text-secondary)]">{error || 'Invoice not found'}</p></div></AppLayout>;
 
   const balance = Number(invoice.total_amount) - Number(invoice.amount_paid);
@@ -183,7 +183,7 @@ export default function CustomerInvoiceDetailPage() {
           </div>
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10"><FileText className="h-6 w-6 text-blue-500" /></div>
+              <div className="p-2 rounded-lg bg-blue-500/10"><FileText className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{invoice.invoice_number}</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">{invoice.client_name} — {invoice.project_name}</p>

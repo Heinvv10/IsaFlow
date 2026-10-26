@@ -140,7 +140,7 @@ export default function PracticeJobsPage() {
             </div>
             <Link
               href="/accounting/practice/jobs/new"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
             >
               <Plus className="h-4 w-4" />
               New Job
@@ -196,14 +196,14 @@ export default function PracticeJobsPage() {
             <div className="ml-auto flex items-center gap-1 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] p-1">
               <button
                 onClick={() => setView('list')}
-                className={`p-1.5 rounded transition-colors ${view === 'list' ? 'bg-teal-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}
+                className={`p-1.5 rounded transition-colors ${view === 'list' ? 'bg-brand-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}
                 title="List view"
               >
                 <List className="h-4 w-4" />
               </button>
               <button
                 onClick={() => setView('kanban')}
-                className={`p-1.5 rounded transition-colors ${view === 'kanban' ? 'bg-teal-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}
+                className={`p-1.5 rounded transition-colors ${view === 'kanban' ? 'bg-brand-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}
                 title="Kanban view"
               >
                 <Columns className="h-4 w-4" />

@@ -125,7 +125,7 @@ export default function InvitePage() {
             </p>
             <Link
               href="/login"
-              className="inline-block rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-teal-500 transition-colors"
+              className="inline-block rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
             >
               Go to Sign In
             </Link>
@@ -194,7 +194,7 @@ export default function InvitePage() {
                   <button
                     onClick={() => void handleAccept()}
                     disabled={pageState === 'accepting'}
-                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-3 text-sm font-medium text-white hover:bg-teal-500 disabled:opacity-60 transition-colors"
+                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60 transition-colors"
                   >
                     {pageState === 'accepting' ? (
                       <>
@@ -220,7 +220,7 @@ export default function InvitePage() {
                 <>
                   <Link
                     href={`/login?invite=${token}`}
-                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-3 text-sm font-medium text-white hover:bg-teal-500 transition-colors"
+                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
                   >
                     <LogIn className="h-4 w-4" />
                     Sign In to Accept

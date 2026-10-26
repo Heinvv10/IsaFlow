@@ -128,7 +128,7 @@ export default function AdminFeaturesPage() {
           <button
             onClick={() => void bulkSetGlobal(true)}
             disabled={bulkWorking}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
           >
             {bulkWorking ? <Loader2 className="w-3 h-3 animate-spin" /> : <ToggleRight className="w-3.5 h-3.5" />}
             Enable Selected

@@ -304,7 +304,7 @@ export default function PurchaseOrderDetailPage() {
               {canEdit && !editing && (
                 <>
                   <button onClick={startEdit}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium">
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
                     <Edit2 className="h-4 w-4" /> Edit
                   </button>
                   {po.status === 'draft' && (
@@ -321,7 +321,7 @@ export default function PurchaseOrderDetailPage() {
                     <X className="h-4 w-4" /> Cancel
                   </button>
                   <button onClick={handleSave} disabled={saving}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
                     {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     {saving ? 'Saving...' : 'Save Changes'}
                   </button>

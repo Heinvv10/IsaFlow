@@ -253,7 +253,7 @@ export default function NewGRNPage() {
                   <button
                     onClick={handleSubmit}
                     disabled={saving || !selectedPO}
-                    className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                    className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
                   >
                     {saving ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><PackageCheck className="h-4 w-4" />Create GRN</>}
                   </button>

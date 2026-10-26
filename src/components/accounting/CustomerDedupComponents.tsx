@@ -155,7 +155,7 @@ function CustomerCard({ name, email, vat, invoiceCount, isKeep, onKeep }: Custom
       {!isKeep && (
         <button
           onClick={onKeep}
-          className="mt-3 w-full px-3 py-1.5 rounded-lg text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+          className="mt-3 w-full px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white transition-colors"
         >
           Keep this one
         </button>

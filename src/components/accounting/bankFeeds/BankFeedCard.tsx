@@ -189,7 +189,7 @@ export function BankFeedCard({
                 onClick={triggerSync}
                 disabled
                 title="This provider is not supported — syncing imports nothing"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Sync
@@ -199,7 +199,7 @@ export function BankFeedCard({
                 onClick={triggerSync}
                 disabled={isSyncing}
                 title="Shows the extension import instructions"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSyncing
                   ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

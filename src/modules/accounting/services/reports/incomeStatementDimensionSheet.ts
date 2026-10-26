@@ -7,7 +7,7 @@ import type ExcelJS from 'exceljs';
 import type { IncomeStatementByDimension } from './incomeStatementByDimension';
 import { isZeroResidual, type PnlBand } from './dimensionPnlColumns';
 
-const TEAL_ARGB = 'FF0D9488';
+const TEAL_ARGB = 'FF0F766E';
 const WHITE_ARGB = 'FFFFFFFF';
 const NUM_FMT = '#,##0.00';
 

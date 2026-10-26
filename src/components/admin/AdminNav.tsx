@@ -148,7 +148,7 @@ export function AdminNav() {
                   className={[
                     'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                     parentActive
-                      ? 'bg-teal-600 text-white font-medium'
+                      ? 'bg-brand-600 text-white font-medium'
                       : 'text-gray-300 hover:bg-gray-700/60 hover:text-white',
                   ].join(' ')}
                 >
@@ -193,7 +193,7 @@ export function AdminNav() {
               className={[
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                 active
-                  ? 'bg-teal-600 text-white font-medium'
+                  ? 'bg-brand-600 text-white font-medium'
                   : 'text-gray-300 hover:bg-gray-700/60 hover:text-white',
               ].join(' ')}
             >

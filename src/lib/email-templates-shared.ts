@@ -49,7 +49,7 @@ export function appendSignatureToHtml(html: string, signature: string | null | u
 export const BRAND = {
   logoUrl: 'cid:isaflow-logo@isaflow.co.za',
   appUrl: 'https://app.isaflow.co.za',
-  primaryTeal: '#14b8a6',
+  primaryTeal: '#0f766e',
   darkBg: '#0f172a',
   white: '#ffffff',
   cardBg: '#ffffff',

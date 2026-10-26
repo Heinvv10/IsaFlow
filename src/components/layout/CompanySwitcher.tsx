@@ -42,8 +42,8 @@ export function CompanySwitcher() {
             className="w-6 h-6 rounded object-contain"
           />
         ) : (
-          <div className="w-6 h-6 rounded bg-teal-600 flex items-center justify-center flex-shrink-0">
-            <Building2 className="w-3.5 h-3.5 text-slate-900 dark:text-white" />
+          <div className="w-6 h-6 rounded bg-brand-600 flex items-center justify-center flex-shrink-0">
+            <Building2 className="w-3.5 h-3.5 text-white" />
           </div>
         )}
 

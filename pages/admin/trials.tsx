@@ -218,7 +218,7 @@ export default function AdminTrialsPage() {
               <button
                 onClick={() => void bulkExtend()}
                 disabled={bulkWorking}
-                className="inline-flex items-center gap-2 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
               >
                 {bulkWorking && <Loader2 className="w-3 h-3 animate-spin" />}
                 Extend 7 days

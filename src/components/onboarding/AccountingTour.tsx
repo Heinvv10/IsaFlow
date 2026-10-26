@@ -151,7 +151,7 @@ export function AccountingTour() {
                 <ChevronLeft className="w-3 h-3" />Back
               </button>
             )}
-            <button onClick={goNext} className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md bg-teal-600 hover:bg-teal-700 text-white transition-colors font-medium">
+            <button onClick={goNext} className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md bg-brand-600 hover:bg-brand-700 text-white transition-colors font-medium">
               {step < TOUR_STEPS.length - 1 ? (<>Next <ChevronRight className="w-3 h-3" /></>) : 'Done'}
             </button>
           </div>

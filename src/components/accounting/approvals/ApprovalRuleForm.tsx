@@ -123,7 +123,7 @@ export function ApprovalRuleForm({ actorRole, rule, onSaved, onClose }: Props) {
           Cancel
         </button>
         <button type="button" onClick={() => void save()} disabled={busy}
-          className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+          className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
           Save rule
         </button>
       </Modal.Footer>

@@ -7,6 +7,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { STICKY_FIRST_HEAD, STICKY_HEAD } from '@/components/accounting/statement/stickyTable';
 import { Scale, Loader2, AlertCircle, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
 import type { TBRowData } from '@/components/reports/TrialBalanceRow';
@@ -112,16 +114,14 @@ export default function TrialBalancePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-indigo-500/10"><Scale className="h-6 w-6 text-indigo-500" /></div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Trial Balance</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Balances as at the end of the selected period — balance-sheet accounts cumulative, income-statement accounts year-to-date. Click any account to drill down</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
+        <PageHeader
+          icon={Scale}
+          title="Trial Balance"
+          subtitle="Balances as at the end of the selected period — balance-sheet accounts cumulative, income-statement accounts year-to-date. Click any account to drill down"
+          chipColor="bg-indigo-500/10 text-indigo-700 dark:text-indigo-400"
+          className="mb-0"
+          actions={
+            <>
               <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className={selectClass}>
                 {periods.map(p => (
                   <option key={p.id} value={p.id}>{p.periodName} ({p.status})</option>
@@ -161,9 +161,9 @@ export default function TrialBalancePage() {
                 className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <div className="p-6">
           {!loading && rows.length > 0 && (
@@ -202,30 +202,30 @@ export default function TrialBalancePage() {
               <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Select a fiscal period with posted journal entries</p>
             </div>
           ) : (
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
-                    <th className="px-4 py-3">Code</th>
-                    <th className="px-4 py-3">Account</th>
-                    <th className="px-4 py-3">Type</th>
+                    <th className={`px-4 py-3 w-28 min-w-[7rem] ${STICKY_FIRST_HEAD}`}>Code</th>
+                    <th className={`px-4 py-3 sticky left-28 top-0 z-30 bg-[var(--ff-bg-secondary)] shadow-[inset_0_-1px_0_var(--ff-border-secondary)] print:static`}>Account</th>
+                    <th className={`px-4 py-3 ${STICKY_HEAD}`}>Type</th>
                     {showMovement && (
                       <>
-                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Opening Dr</th>
-                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Opening Cr</th>
-                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Movement Dr</th>
-                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Movement Cr</th>
+                        <th className={`px-4 py-3 text-right text-[var(--ff-text-tertiary)] ${STICKY_HEAD}`}>Opening Dr</th>
+                        <th className={`px-4 py-3 text-right text-[var(--ff-text-tertiary)] ${STICKY_HEAD}`}>Opening Cr</th>
+                        <th className={`px-4 py-3 text-right text-[var(--ff-text-tertiary)] ${STICKY_HEAD}`}>Movement Dr</th>
+                        <th className={`px-4 py-3 text-right text-[var(--ff-text-tertiary)] ${STICKY_HEAD}`}>Movement Cr</th>
                       </>
                     )}
-                    <th className="px-4 py-3 text-right">Closing Dr</th>
-                    <th className="px-4 py-3 text-right">Closing Cr</th>
+                    <th className={`px-4 py-3 text-right ${STICKY_HEAD}`}>Closing Dr</th>
+                    <th className={`px-4 py-3 text-right ${STICKY_HEAD}`}>Closing Cr</th>
                     {comparePeriodId && (
                       <>
-                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Prior Dr</th>
-                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Prior Cr</th>
+                        <th className={`px-4 py-3 text-right text-[var(--ff-text-tertiary)] ${STICKY_HEAD}`}>Prior Dr</th>
+                        <th className={`px-4 py-3 text-right text-[var(--ff-text-tertiary)] ${STICKY_HEAD}`}>Prior Cr</th>
                       </>
                     )}
-                    <th className="px-4 py-3 text-center text-[var(--ff-text-tertiary)]">Evidence</th>
+                    <th className={`px-4 py-3 text-center text-[var(--ff-text-tertiary)] ${STICKY_HEAD}`}>Evidence</th>
                   </tr>
                 </thead>
                 <tbody>

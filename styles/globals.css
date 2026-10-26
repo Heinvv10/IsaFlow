@@ -3,7 +3,10 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  /* [data-surface="light"] re-declares the light tokens for a panel that is white in BOTH themes
+     (a document preview, a legacy modal with no dark styling); it also resets color-scheme. */
+  :root,
+  [data-surface="light"] {
     --background: 0 0% 100%;
     --foreground: 0 0% 3.9%;
     --card: 0 0% 100%;
@@ -36,8 +39,16 @@
     /* Brand — teal accent used across the entire app */
     --ff-brand:         #14b8a6;
     --ff-brand-light:   #2dd4bf;
-    --ff-brand-dark:    #0d9488;
+    /* Brand fills that carry white text. #0d9488 under white is 3.7:1, so the filled-button and
+       badge shades are the brand-600/700 tokens below (5.5:1 and 7.6:1), not teal-600/700. */
+    --ff-brand-dark:    #0f766e;
     --ff-brand-muted:   rgba(20, 184, 166, 0.15);
+    /* Small brand-coloured labels on the surface: teal-700 on light, teal-400 on dark. */
+    --ff-brand-eyebrow: #0f766e;
+    /* Channels, so Tailwind can apply an opacity (bg-brand-600/50). Same in both themes. */
+    --ff-brand-600-rgb: 15 118 110;
+    --ff-brand-700-rgb: 17 94 89;
+    --ff-brand-800-rgb: 19 78 74; /* hover under brand-700: 10.9:1 under white */
     --ff-brand-subtle:  rgba(20, 184, 166, 0.08);
 
     /* Canvas — light mode surfaces (overridden in .dark below) */
@@ -56,14 +67,18 @@
     --ff-surface-secondary: #f9fafb;
     --ff-surface-elevated: #ffffff;
 
+    /* Text tokens clear AA (4.5:1) on every light surface above, #f3f4f6 included. */
     --ff-text-primary: #111827;
-    --ff-text-secondary: #6b7280;
-    --ff-text-tertiary: #9ca3af;
+    --ff-text-secondary: #4b5563;
+    --ff-text-tertiary: #5b6573;
 
     --ff-border-primary: #e5e7eb;
     --ff-border-secondary: #d1d5db;
     --ff-border-subtle: #f3f4f6;
     --ff-border-light: #e5e7eb;
+
+    /* Page header band (PageHeader): the same surface in both themes, never a fixed dark panel. */
+    --ff-header-band: var(--ff-bg-secondary);
 
     --ff-success-500: #22c55e;
     --ff-warning-500: #f59e0b;
@@ -103,6 +118,10 @@
     /* Keyboard focus ring (kit inputs and buttons): teal-600, 3.7:1 on white, 3 px. */
     --ff-focus-ring: #0d9488;
     --ff-focus-ring-width: 3px;
+
+    /* Native controls (select and date pop-ups, scrollbars) follow the theme. ThemeContext
+       and public/theme-init.js also set it inline; this covers a page before either runs. */
+    color-scheme: light;
   }
 
   .dark {
@@ -134,8 +153,9 @@
     /* Brand unchanged in dark mode */
     --ff-brand:         #14b8a6;
     --ff-brand-light:   #2dd4bf;
-    --ff-brand-dark:    #0d9488;
+    --ff-brand-dark:    #0f766e;
     --ff-brand-muted:   rgba(20, 184, 166, 0.20);
+    --ff-brand-eyebrow: #2dd4bf;
     --ff-brand-subtle:  rgba(20, 184, 166, 0.10);
 
     /* Canvas — dark scope */
@@ -155,8 +175,10 @@
     --ff-surface-elevated: #1e293b;
 
     --ff-text-primary: #f1f5f9;
-    --ff-text-secondary: #e2e8f0;
-    --ff-text-tertiary: #94a3b8;
+    /* Distinct from primary (#f1f5f9) so labels keep their hierarchy: 12.0 / 9.9 / 7.0:1 on #0f172a / #1e293b / #334155. */
+    --ff-text-secondary: #cbd5e1;
+    /* 5:1 on the lightest dark surface used behind text (#334155); #94a3b8 was 4.04:1. */
+    --ff-text-tertiary: #a9b6c9;
 
     --ff-border-primary: rgba(51, 65, 85, 0.55);
     --ff-border-secondary: rgba(71, 85, 105, 0.6);
@@ -170,6 +192,8 @@
 
     /* teal-400: 10:1 on the dark canvas (#0f172a), 7:1 on the dark input fill (#1e293b). */
     --ff-focus-ring: #2dd4bf;
+
+    color-scheme: dark;
   }
 
   /* ── Theme axis: client (Warm) overrides ──────────────────────────── */
@@ -190,31 +214,24 @@
   }
 
   /* Dark theme form controls */
-  .dark input,
-  .dark select,
-  .dark textarea {
+  .dark :is(input, select, textarea):not(:where([data-surface="light"] *)) {
     background-color: #1e293b;
     color: #f1f5f9;
     border-color: #475569;
   }
 
-  .dark input::placeholder,
-  .dark textarea::placeholder {
+  .dark :is(input, textarea):not(:where([data-surface="light"] *))::placeholder {
     color: #94a3b8;
   }
 
-  .dark input:focus,
-  .dark select:focus,
-  .dark textarea:focus {
+  .dark :is(input, select, textarea):not(:where([data-surface="light"] *)):focus {
     border-color: #14b8a6;
     outline: none;
     box-shadow: 0 0 0 1px #14b8a6;
   }
 
   /* Date/time input icon colors in dark mode */
-  .dark input[type="date"]::-webkit-calendar-picker-indicator,
-  .dark input[type="time"]::-webkit-calendar-picker-indicator,
-  .dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  .dark input:is([type="date"], [type="time"], [type="datetime-local"]):not(:where([data-surface="light"] *))::-webkit-calendar-picker-indicator {
     filter: invert(1);
   }
 }

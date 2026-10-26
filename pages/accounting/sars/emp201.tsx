@@ -183,7 +183,7 @@ export default function EMP201Page() {
                 <ChevronLeft className="h-5 w-5" />
               </Link>
               <div className="p-2 rounded-lg bg-blue-500/10">
-                <Users className="h-6 w-6 text-blue-500" />
+                <Users className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">EMP201 Return</h1>
@@ -268,13 +268,13 @@ export default function EMP201Page() {
                 <div className="divide-y divide-[var(--ff-border-light)]">
                   {/* Summary */}
                   <div className="px-4 py-2 bg-blue-500/5">
-                    <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Employee Summary</p>
+                    <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Employee Summary</p>
                   </div>
                   <SummaryRow label="Number of employees" value={String(data.employeeCount)} />
                   <SummaryRow label="Total taxable remuneration" value={fmt(data.totalTaxableRemuneration)} />
 
                   <div className="px-4 py-2 bg-blue-500/5">
-                    <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Deductions</p>
+                    <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Deductions</p>
                   </div>
                   <SummaryRow label="PAYE (Pay As You Earn)" value={fmt(data.totalPAYE)} />
                   <SummaryRow label="Less: ETI (Employment Tax Incentive)" value={fmt(-data.totalETI)} />
@@ -360,7 +360,7 @@ export default function EMP201Page() {
                 {savedId && (
                   <button
                     onClick={() => setShowSubmitModal(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-success-700 text-white text-sm font-medium hover:bg-success-800"
                   >
                     <Send className="h-4 w-4" /> Mark as Submitted
                   </button>
@@ -396,7 +396,7 @@ export default function EMP201Page() {
                   <button
                     onClick={markSubmitted}
                     disabled={submitting || !sarsRef.trim()}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-success-700 text-white text-sm font-medium hover:bg-success-800 disabled:opacity-50"
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     Confirm

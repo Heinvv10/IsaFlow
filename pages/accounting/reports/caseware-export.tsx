@@ -180,7 +180,7 @@ export default function CaseWareExportPage() {
                   className="ff-input text-sm" />
               </div>
               <button onClick={handleExport}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>
@@ -208,7 +208,7 @@ export default function CaseWareExportPage() {
                   Auto-Suggest
                 </button>
                 <button onClick={() => void handleSaveAll()} disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded hover:bg-teal-700 text-xs disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded hover:bg-brand-700 text-xs disabled:opacity-50">
                   {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                   Save All
                 </button>

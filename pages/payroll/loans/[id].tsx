@@ -133,7 +133,7 @@ export default function LoanDetailPage() {
           {loan.status === 'active' && (
             <div className="flex gap-2">
               <button onClick={() => close('settled')} disabled={busy}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50">
                 <CheckCircle2 className="h-4 w-4" /> Settle
               </button>
               <button onClick={() => close('written_off')} disabled={busy}

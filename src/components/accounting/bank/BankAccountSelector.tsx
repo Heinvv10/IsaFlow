@@ -118,7 +118,7 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
           <Loader2 className="pointer-events-none absolute right-9 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[var(--ff-text-muted)]" />
         )}
       </div>
-      {error && <p className="text-xs text-rose-500">{error}</p>}
+      {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
       {helpText && !error && <p className="text-xs text-[var(--ff-text-muted)]">{helpText}</p>}
       {!loading && options.length === 0 && !error && (
         <p className="text-xs text-amber-500">

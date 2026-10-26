@@ -107,7 +107,7 @@ export function BrandingTab({ company, onChange, onCompanyChange, onError }: Pro
             </div>
           )}
           <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer">
+            <label className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer">
               <Upload className="h-4 w-4" /> Upload Logo
               <input
                 type="file"

@@ -165,7 +165,7 @@ export default function SubmissionsPage() {
                 onClick={() => setFilter(f)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   filter === f
-                    ? 'bg-teal-600 text-white'
+                    ? 'bg-brand-600 text-white'
                     : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
                 }`}
               >

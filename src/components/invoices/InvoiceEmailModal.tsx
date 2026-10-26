@@ -96,7 +96,7 @@ export function InvoiceEmailModal({
             type="button"
             onClick={onSend}
             disabled={emailSending || !emailTo.trim()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50"
           >
             {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {emailSending ? 'Sending...' : 'Send Email'}

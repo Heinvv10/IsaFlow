@@ -19,7 +19,7 @@ import { isUuidParam } from '@/lib/validation';
 
 type Row = Record<string, unknown>;
 
-const TEAL_ARGB = 'FF0D9488';
+const TEAL_ARGB = 'FF0F766E';
 const WHITE_ARGB = 'FFFFFFFF';
 const GREY_ARGB = 'FFF1F5F9';
 const NUM_FMT = '#,##0.00';
@@ -193,7 +193,7 @@ export async function buildIncomeStatementWorkbook(
   // Other Income — below gross profit, not inside turnover (B75)
   if (report.otherIncome.length > 0) {
     ws.addRow([]);
-    addSectionHeader(ws, 'Other Income', 'FF0D9488');
+    addSectionHeader(ws, 'Other Income', 'FF0F766E');
     for (const item of report.otherIncome) {
       addLineItem(ws, 'Other Income', item.accountCode, item.accountName, item.amount);
     }

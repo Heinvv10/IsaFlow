@@ -149,7 +149,7 @@ export default function NewBatchPaymentPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Invoices to Pay
                   </h3>
-                  <button type="button" onClick={addLine} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors">
+                  <button type="button" onClick={addLine} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
                     <Plus className="h-3 w-3" /> Add Line
                   </button>
                 </div>
@@ -232,7 +232,7 @@ export default function NewBatchPaymentPage() {
                   <button
                     type="submit"
                     disabled={busy || total <= 0}
-                    className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                    className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
                   >
                     {busy ? <><Loader2 className="h-4 w-4 animate-spin" />Processing…</> : <><Layers className="h-4 w-4" />Create Batch</>}
                   </button>

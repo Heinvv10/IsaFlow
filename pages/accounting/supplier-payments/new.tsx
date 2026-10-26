@@ -167,7 +167,7 @@ export default function NewSupplierPaymentPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Invoice Allocations
                   </h3>
-                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors">
+                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
                     <Plus className="h-3 w-3" /> Add Allocation
                   </button>
                 </div>
@@ -231,7 +231,7 @@ export default function NewSupplierPaymentPage() {
                       <span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrency(totalAmount)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={isSubmitting || totalAmount <= 0} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button type="submit" disabled={isSubmitting || totalAmount <= 0} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><Wallet className="h-4 w-4" />Create Payment</>}
                   </button>
                 </div>

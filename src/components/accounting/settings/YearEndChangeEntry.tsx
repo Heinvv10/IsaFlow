@@ -42,7 +42,7 @@ export function YearEndChangeEntry() {
         </p>
       )}
       <Link href="/accounting/financial-year-end-change" data-testid="change-year-end-link"
-        className="inline-block mt-3 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+        className="inline-block mt-3 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
         Change financial year end
       </Link>
     </div>

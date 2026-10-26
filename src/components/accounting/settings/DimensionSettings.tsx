@@ -48,7 +48,7 @@ export function DimensionSettings() {
       <h3 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Reporting Dimensions</h3>
       <p role="alert" className="text-sm text-red-500 mb-4">Could not load dimension settings. Please try again.</p>
       <button type="button" onClick={() => { setError(false); setAttempt(value => value + 1); }}
-        className="px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm">Retry</button>
+        className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm">Retry</button>
     </div>
   );
 

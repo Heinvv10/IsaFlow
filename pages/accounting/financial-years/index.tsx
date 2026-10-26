@@ -172,7 +172,7 @@ export default function FinancialYearsPage() {
               Change year end
             </Link>
             <button onClick={() => setShowAddYear(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors">
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
               <Plus className="h-4 w-4" /> Add New Year
             </button>
           </div>
@@ -203,7 +203,7 @@ export default function FinancialYearsPage() {
             <p className="text-[var(--ff-text-primary)] font-medium">No fiscal years configured</p>
             <p className="text-sm text-[var(--ff-text-secondary)]">Create your first fiscal year to start tracking periods</p>
             <button onClick={() => setShowAddYear(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors">
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
               <Plus className="h-4 w-4" /> Add First Year
             </button>
           </div>

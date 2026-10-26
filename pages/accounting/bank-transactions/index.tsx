@@ -354,7 +354,7 @@ export default function BankTransactionsPage() {
                 const p = totalPages <= 10 ? i + 1 : page <= 5 ? i + 1 : page >= totalPages - 4 ? totalPages - 9 + i : page - 5 + i;
                 return (
                   <button key={p} onClick={() => setPage(p)}
-                    className={`w-7 h-7 rounded text-xs ${p === page ? 'bg-teal-600 text-white font-bold' : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-secondary)]'}`}>
+                    className={`w-7 h-7 rounded text-xs ${p === page ? 'bg-brand-600 text-white font-bold' : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-secondary)]'}`}>
                     {p}
                   </button>
                 );
@@ -369,7 +369,7 @@ export default function BankTransactionsPage() {
         {tab === 'new' && transactions.length > 0 && (
           <div className="sticky bottom-0 bg-[var(--ff-bg-secondary)] border-t border-[var(--ff-border-light)] px-6 py-3 flex items-center justify-center">
             <button onClick={actions.handleBulkAccept} disabled={selectedIds.size === 0}
-              className="px-5 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
+              className="px-5 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
               Mark Selected as Reviewed ({selectedIds.size})
             </button>
           </div>

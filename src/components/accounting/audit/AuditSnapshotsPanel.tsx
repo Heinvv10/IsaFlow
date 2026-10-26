@@ -116,7 +116,7 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
             {busy === 'chain' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verify chain'}
           </button>
           <button onClick={() => void take()} disabled={busy !== null || !cutoff}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-60">
+            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-60">
             {busy === 'take' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />} Take snapshot
           </button>
         </div>

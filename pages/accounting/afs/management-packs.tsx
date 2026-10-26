@@ -115,7 +115,7 @@ export default function ManagementPacksPage() {
             <input value={genPeriod} onChange={e => setGenPeriod(e.target.value)}
               placeholder="YYYY-MM" className="border border-zinc-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-lg px-3 py-2 text-sm w-28" />
             <button onClick={handleGenerate} disabled={generating || !genPeriod}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50">
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50">
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
               Generate
             </button>
@@ -174,7 +174,7 @@ export default function ManagementPacksPage() {
                   </a>
                   {(pack.status === 'draft' || pack.status === 'signed_off') && (
                     <button onClick={() => handleDeliver(pack.id)} disabled={deliveringId === pack.id}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50">
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-lg disabled:opacity-50">
                       {deliveringId === pack.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                       Deliver
                     </button>

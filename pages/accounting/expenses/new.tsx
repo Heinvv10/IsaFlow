@@ -91,7 +91,7 @@ export default function NewExpenseClaim() {
             <div className="flex justify-end gap-2">
               <Link href="/accounting/expenses" className="px-4 py-2 text-sm text-slate-300 hover:bg-white/5 rounded">Cancel</Link>
               <button onClick={() => void handleCreate()} disabled={saving}
-                className="px-4 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-60">
+                className="px-4 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-60">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create draft'}
               </button>
             </div>

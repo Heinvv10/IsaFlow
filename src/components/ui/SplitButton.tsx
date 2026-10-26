@@ -32,13 +32,13 @@ type Variant = NonNullable<SplitButtonProps['variant']>;
 type Size = NonNullable<SplitButtonProps['size']>;
 
 const MAIN_CLS: Record<Variant, string> = {
-  primary: 'bg-teal-600 text-white hover:bg-teal-700 focus-visible:ring-teal-500 dark:bg-teal-500 dark:hover:bg-teal-600',
+  primary: 'bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-teal-500 dark:hover:bg-brand-700',
   secondary: 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus-visible:ring-teal-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
   danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500 dark:bg-red-700 dark:hover:bg-red-800',
 };
 
 const CHEVRON_CLS: Record<Variant, string> = {
-  primary: 'bg-teal-700 text-white hover:bg-teal-800 border-l border-teal-500 focus-visible:ring-teal-500 dark:bg-teal-600 dark:hover:bg-teal-700 dark:border-teal-400',
+  primary: 'bg-brand-700 text-white hover:bg-brand-800 border-l border-teal-500 focus-visible:ring-teal-500 dark:bg-brand-600 dark:hover:bg-brand-700 dark:border-teal-400',
   secondary: 'border border-l-0 border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus-visible:ring-teal-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
   danger: 'bg-red-700 text-white hover:bg-red-800 border-l border-red-500 focus-visible:ring-red-500 dark:bg-red-800 dark:hover:bg-red-900 dark:border-red-600',
 };

@@ -105,7 +105,7 @@ function Pill({ icon, text, tone }: {
     info: 'bg-sky-500/10 text-sky-500',
     success: 'bg-emerald-500/10 text-emerald-500',
     warn: 'bg-amber-500/10 text-amber-500',
-    danger: 'bg-rose-500/10 text-rose-500',
+    danger: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
   }[tone];
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${toneClass}`}>
@@ -188,12 +188,12 @@ export function BulkImportFileRow({ row, onRemove, onRetry }: BulkImportFileRowP
       {row.droppedPicks && <DroppedPicksList lines={row.droppedPicks} />}
 
       {row.mismatchReason && (
-        <p className="rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-500">
+        <p className="rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-600 dark:text-rose-400">
           {row.mismatchReason}
         </p>
       )}
       {row.errorMessage && (
-        <p className="rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-500">
+        <p className="rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-600 dark:text-rose-400">
           {row.errorMessage}
         </p>
       )}

@@ -265,7 +265,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
             <button
               onClick={handleConfirm}
               disabled={!selected || confirming}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white transition-colors"
             >
               {confirming
                 ? <><Loader2 className="h-3 w-3 animate-spin" /> Confirming…</>

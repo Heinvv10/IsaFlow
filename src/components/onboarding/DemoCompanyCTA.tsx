@@ -59,7 +59,7 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
       </p>
       <button
         onClick={() => void handleTryDemo()}
-        className="flex-shrink-0 px-3 py-1 rounded-md bg-teal-600 hover:bg-teal-500 text-white text-xs font-medium transition-colors"
+        className="flex-shrink-0 px-3 py-1 rounded-md bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium transition-colors"
       >
         Try Demo
       </button>

@@ -182,7 +182,7 @@ export default function SupplierCreditNoteDetailPage() {
                     <button
                       onClick={() => { void doAction('post'); }}
                       disabled={!!actionLoading}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50"
                     >
                       <CheckCircle2 className="h-4 w-4" />
                       {actionLoading === 'post' ? 'Posting...' : 'Post'}

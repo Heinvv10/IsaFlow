@@ -265,7 +265,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
                   type="button"
                   onClick={() => void handleSave()}
                   disabled={saving}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                   Save {label} Fields

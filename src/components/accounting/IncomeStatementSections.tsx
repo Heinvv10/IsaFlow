@@ -52,6 +52,7 @@ export function IncomeStatementSections({
         rows={rows}
         columns={cols}
         title="Statement of Comprehensive Income"
+        sticky
         expandedAccount={expandedAccount}
         onToggleAccount={onToggleAccount}
         onEvidence={code => onEvidence(code, nameOf(code))}
@@ -87,7 +88,7 @@ export function IncomeStatementSections({
               : ''}
           </p>
           {report.priorSubtypeDisclosure && (
-            <p className="mt-1 text-xs text-amber-400/80">
+            <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
               The comparative period has its own unclassified accounts, so every
               variance above is a difference between two differently-banded numbers.
             </p>

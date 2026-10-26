@@ -106,7 +106,7 @@ function TabButton({ tab, active, variant, onClick }: TabButtonProps) {
   const pillClasses = cn(
     'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ff-focus-ring',
     active
-      ? 'bg-teal-600 text-white dark:bg-teal-500'
+      ? 'bg-brand-600 text-white'
       : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100',
     tab.disabled && 'cursor-not-allowed opacity-50 pointer-events-none'
   );

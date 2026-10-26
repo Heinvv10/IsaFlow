@@ -204,7 +204,7 @@ export default function DunningTemplatesPage() {
               className={`px-3 py-2 text-sm rounded-md text-white ${
                 settings.auto_send_enabled
                   ? 'bg-gray-600 hover:bg-gray-700'
-                  : 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-success-700 hover:bg-success-800'
               } disabled:opacity-50`}
             >
               {updatingSettings ? 'Saving…' : settings.auto_send_enabled ? 'Disable' : 'Enable'}

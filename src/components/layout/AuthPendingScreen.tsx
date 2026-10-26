@@ -27,7 +27,7 @@ export function AuthPendingScreen() {
               type="button"
               onClick={() => { void refreshUser(); }}
               disabled={authChecking}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white disabled:opacity-50"
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50"
             >
               {authChecking ? 'Checking…' : 'Retry'}
             </button>

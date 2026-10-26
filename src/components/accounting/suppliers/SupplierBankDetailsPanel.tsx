@@ -164,7 +164,7 @@ export function SupplierBankDetailsPanel({ supplierId }: { supplierId: string })
               className="mt-1 block w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)]" />
           </label>
           <button type="button" onClick={() => { void verify(); }} disabled={saving || !noteOk}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
             <ShieldCheck className="h-4 w-4" />{saving ? 'Verifying…' : 'Verify bank details'}
           </button>
         </div>

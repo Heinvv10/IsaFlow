@@ -86,7 +86,7 @@ function ProposalRow({ p, busy, onDecide }: {
             {p.actionType === 'auto_post' ? (
               <>
                 <button disabled={busy} onClick={() => onDecide(p.id, 'approve')}
-                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50">
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-success-700 hover:bg-success-800 text-white disabled:opacity-50">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Approve &amp; post
                 </button>
                 <button disabled={busy} onClick={() => onDecide(p.id, 'reject')}
@@ -253,7 +253,7 @@ export function CloseAgentPanel({ period }: { period: string }) {
 
       {!loading && periodInfo && !run && (
         <button data-testid="start-close-run" disabled={locked} onClick={start}
-          className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white disabled:opacity-50">
+          className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Start close run
         </button>
       )}

@@ -202,7 +202,7 @@ export function MissingInvoiceModals({ chaseAlert, resolveAlert, dismissAlert, o
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">Cancel</button>
             <button onClick={doResolve} disabled={submitting}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white transition-colors">
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white transition-colors">
               {submitting ? 'Resolving...' : 'Mark resolved'}
             </button>
           </div>

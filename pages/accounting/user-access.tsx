@@ -246,7 +246,7 @@ export default function UserAccessPage() {
                     </select>
                   </div>
                   <button type="submit" disabled={inviting}
-                    className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:opacity-50">
+                    className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
                     {inviting ? 'Sending...' : 'Invite'}
                   </button>
                 </form>

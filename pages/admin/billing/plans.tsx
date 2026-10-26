@@ -164,7 +164,7 @@ export default function PlansPage() {
         <span className="text-sm text-gray-500 dark:text-gray-400">{plans.length} plan{plans.length !== 1 ? 's' : ''}</span>
         <button
           onClick={openAdd}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
         >
           <Plus className="w-4 h-4" /> Add Plan
         </button>
@@ -208,7 +208,7 @@ export default function PlansPage() {
               <button
                 onClick={() => void handleSave()}
                 disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 {editId ? 'Save Changes' : 'Create Plan'}

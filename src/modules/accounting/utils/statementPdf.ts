@@ -33,7 +33,7 @@ export interface StatementData {
   companyEmail?: string;
   companyPhone?: string;
   companyAddress?: string;
-  accentColor?: string; // hex, e.g. "#0d9488"
+  accentColor?: string; // hex, e.g. "#0f766e"
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ export async function generateStatementPdf(data: StatementData): Promise<Blob> {
     import('jspdf-autotable'),
   ]);
 
-  const accent = hexToTriple(data.accentColor || '#0d9488');
+  const accent = hexToTriple(data.accentColor || '#0f766e');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();

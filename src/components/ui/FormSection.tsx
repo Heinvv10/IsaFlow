@@ -35,7 +35,7 @@ export function FormSection({
           {number !== undefined && (
             <span
               aria-hidden="true"
-              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white dark:bg-teal-400 dark:text-gray-900"
+              className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-700 text-xs font-semibold text-white dark:bg-teal-400 dark:text-gray-900"
             >
               {number}
             </span>

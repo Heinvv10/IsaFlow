@@ -120,14 +120,14 @@ const reportById = new Map(reports.map(r => [r.id, r]));
 // Full class strings so Tailwind purge retains them — never use template literals.
 const COLOR_CLASSES: Record<string, { bg: string; bgHover: string; text: string }> = {
   teal:   { bg: 'bg-teal-500/10',   bgHover: 'group-hover:bg-teal-500/20',   text: 'text-teal-500' },
-  blue:   { bg: 'bg-blue-500/10',   bgHover: 'group-hover:bg-blue-500/20',   text: 'text-blue-500' },
+  blue:   { bg: 'bg-blue-500/10',   bgHover: 'group-hover:bg-blue-500/20',   text: 'text-blue-600 dark:text-blue-400' },
   cyan:   { bg: 'bg-cyan-500/10',   bgHover: 'group-hover:bg-cyan-500/20',   text: 'text-cyan-500' },
   purple: { bg: 'bg-purple-500/10', bgHover: 'group-hover:bg-purple-500/20', text: 'text-purple-500' },
   red:    { bg: 'bg-red-500/10',    bgHover: 'group-hover:bg-red-500/20',    text: 'text-red-500' },
   amber:  { bg: 'bg-amber-500/10',  bgHover: 'group-hover:bg-amber-500/20',  text: 'text-amber-500' },
   orange: { bg: 'bg-orange-500/10', bgHover: 'group-hover:bg-orange-500/20', text: 'text-orange-500' },
   violet: { bg: 'bg-violet-500/10', bgHover: 'group-hover:bg-violet-500/20', text: 'text-violet-500' },
-  rose:   { bg: 'bg-rose-500/10',   bgHover: 'group-hover:bg-rose-500/20',   text: 'text-rose-500' },
+  rose:   { bg: 'bg-rose-500/10',   bgHover: 'group-hover:bg-rose-500/20',   text: 'text-rose-600 dark:text-rose-400' },
   pink:   { bg: 'bg-pink-500/10',   bgHover: 'group-hover:bg-pink-500/20',   text: 'text-pink-500' },
   indigo: { bg: 'bg-indigo-500/10', bgHover: 'group-hover:bg-indigo-500/20', text: 'text-indigo-500' },
 };

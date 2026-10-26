@@ -231,7 +231,7 @@ export default function SageMigrationPage() {
                   <button
                     onClick={() => runAction('compare')}
                     disabled={actionLoading === 'compare'}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-50"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
                   >
                     {actionLoading === 'compare' ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
                     Run Comparison

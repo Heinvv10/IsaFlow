@@ -8,6 +8,7 @@ import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { MedicalAidReviewBanner } from '@/components/payroll/MedicalAidReviewBanner';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
@@ -77,27 +78,22 @@ export default function EmployeesListPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-teal-500/10">
-                <Users className="h-6 w-6 text-teal-500" />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Payroll Employees</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">SA-compliant payroll roster</p>
-              </div>
-            </div>
+        <PageHeader
+          icon={Users}
+          title="Payroll Employees"
+          subtitle="SA-compliant payroll roster"
+          className="mb-0"
+          actions={
             <WriteOnly>
               <Link
                 href="/payroll/employees/new"
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
               >
                 <Plus className="h-4 w-4" /> New Employee
               </Link>
             </WriteOnly>
-          </div>
-        </div>
+          }
+        />
 
         <div className="p-6">
           <MedicalAidReviewBanner />
@@ -135,7 +131,7 @@ export default function EmployeesListPage() {
               <WriteOnly>
                 <Link
                   href="/payroll/employees/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
                 >
                   <Plus className="h-4 w-4" /> New Employee
                 </Link>

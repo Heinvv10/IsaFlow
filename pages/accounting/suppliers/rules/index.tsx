@@ -91,7 +91,7 @@ export default function SupplierRulesIndexPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-5">
           <div className="flex items-center gap-3 mb-1">
             <div className="p-2 rounded-lg bg-blue-500/10">
-              <Settings2 className="h-5 w-5 text-blue-500" />
+              <Settings2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             </div>
             <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supplier Coding Rules</h1>
           </div>
@@ -127,7 +127,7 @@ export default function SupplierRulesIndexPage() {
           {/* Table */}
           {loading ? (
             <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" />
             </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-20 text-[var(--ff-text-tertiary)]">

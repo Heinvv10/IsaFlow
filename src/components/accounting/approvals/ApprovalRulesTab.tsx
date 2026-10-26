@@ -70,7 +70,7 @@ export function ApprovalRulesTab({ rules, loaded, actorRole, onChanged }: Props)
     <div className="space-y-4">
       {actorRole && (
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setForm({})} className={`${BUTTON} bg-teal-600 hover:bg-teal-700 text-white`}>
+          <button type="button" onClick={() => setForm({})} className={`${BUTTON} bg-brand-600 hover:bg-brand-700 text-white`}>
             <Plus className="h-4 w-4" /> New rule
           </button>
           {lacksStarterType && !starterOpen && (

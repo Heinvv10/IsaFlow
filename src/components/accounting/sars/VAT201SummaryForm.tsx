@@ -17,8 +17,8 @@ const GROUP_HEADINGS: Partial<Record<Vat201SarsGroup, { title: string; bg: strin
   'output-supplies': { title: 'A. Output tax — supply of goods and/or services by you', bg: 'bg-teal-500/5', text: 'text-teal-500' },
   'output-accommodation': { title: 'Supply of accommodation', bg: 'bg-teal-500/5', text: 'text-teal-500' },
   'output-adjustments': { title: 'Adjustments', bg: 'bg-teal-500/5', text: 'text-teal-500' },
-  'input-supplies': { title: 'B. Input tax', bg: 'bg-blue-500/5', text: 'text-blue-500' },
-  'input-adjustments': { title: 'Adjustments', bg: 'bg-blue-500/5', text: 'text-blue-500' },
+  'input-supplies': { title: 'B. Input tax', bg: 'bg-blue-500/5', text: 'text-blue-600 dark:text-blue-400' },
+  'input-adjustments': { title: 'Adjustments', bg: 'bg-blue-500/5', text: 'text-blue-600 dark:text-blue-400' },
 };
 
 const TOTAL_GROUPS: readonly Vat201SarsGroup[] = ['output-total', 'input-total', 'result'];

@@ -147,7 +147,7 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
               type="button"
               disabled={busy === r.id}
               onClick={() => { void undo(r.id); }}
-              className="text-xs text-blue-500 hover:underline disabled:opacity-50"
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
             >
               {busy === r.id ? 'Undoing…' : 'Undo'}
             </button>

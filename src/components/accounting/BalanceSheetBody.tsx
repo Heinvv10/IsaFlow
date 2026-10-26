@@ -69,9 +69,9 @@ export function BalanceSheetBody({
           or the trend column on, seven columns do not fit in half a screen and
           both halves clip their right-hand columns, so the grids stack. */}
       <div className={comparatorColumns ? 'space-y-4' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
-        <StatementGrid rows={assets} columns={columns} title="Assets" cents
+        <StatementGrid rows={assets} columns={columns} title="Assets" cents sticky
           expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
-        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Equity and Liabilities" cents
+        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Equity and Liabilities" cents sticky
           expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
       </div>
     </div>

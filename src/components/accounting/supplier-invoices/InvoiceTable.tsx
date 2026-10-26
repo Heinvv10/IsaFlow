@@ -51,7 +51,7 @@ export function InvoiceTable({
           {filtersActive ? 'Try clearing some filters' : 'Record your first supplier invoice'}
         </p>
         {!filtersActive && (
-          <Link href="/accounting/supplier-invoices/new" className="inline-block mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors">
+          <Link href="/accounting/supplier-invoices/new" className="inline-block mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">
             New Invoice
           </Link>
         )}

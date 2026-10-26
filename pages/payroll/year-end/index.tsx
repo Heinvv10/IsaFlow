@@ -191,7 +191,7 @@ export default function YearEndPage() {
                         ) : (
                           <button
                             onClick={step.action.onClick}
-                            className="shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-xs text-white font-medium"
+                            className="shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-xs text-white font-medium"
                           >
                             <Download className="h-3 w-3" /> {step.action.label}
                           </button>

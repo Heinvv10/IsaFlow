@@ -168,7 +168,7 @@ export function ActivityTab({ customerId }: { customerId: string }) {
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
       </div>
     );
   }
@@ -183,7 +183,7 @@ export function ActivityTab({ customerId }: { customerId: string }) {
         </h3>
         <button
           onClick={() => setShowForm(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
         >
           <Plus className="h-4 w-4" /> Add Activity
         </button>
@@ -221,7 +221,7 @@ export function ActivityTab({ customerId }: { customerId: string }) {
             <button
               onClick={handleAdd}
               disabled={saving || !form.description.trim()}
-              className="px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
               {saving ? 'Saving...' : 'Save Activity'}
             </button>

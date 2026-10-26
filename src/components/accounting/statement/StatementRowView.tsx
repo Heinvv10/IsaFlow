@@ -8,6 +8,7 @@ import { COMPARATORS, NON_FIGURE_KINDS } from '@/modules/accounting/services/rep
 import { NoteMarker } from '@/components/accounting/annotations/NoteMarker';
 import { VarianceBar } from './VarianceBar';
 import { Sparkline } from './Sparkline';
+import { STICKY_FIRST_CELL } from './stickyTable';
 
 const KIND_CLASS: Record<StatementRow['kind'], string> = {
   section: 'text-xs uppercase tracking-wide text-[var(--ff-text-tertiary)]',
@@ -110,8 +111,10 @@ function RowLabel({ row, expanded, onToggle }: {
   return <>{row.label}</>;
 }
 
-export function StatementRowView({ row, columns, maxVariance, cents, expanded, onToggle, onEvidence, onOpenNote, drill }: {
+export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst = false, expanded, onToggle, onEvidence, onOpenNote, drill }: {
   row: StatementRow; columns: StatementColumns; maxVariance: Record<ComparatorKey, number>; cents: boolean;
+  /** Pin the label column on horizontal scroll (see StatementGrid `sticky`). */
+  stickyFirst?: boolean;
   expanded: boolean; onToggle?: (code: string) => void; onEvidence?: (code: string) => void;
   onOpenNote?: (rowId: string) => void; drill?: ReactNode;
 }) {
@@ -125,7 +128,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, expanded, o
   return (
     <>
       <tr data-kind={row.kind} className={`${KIND_CLASS[row.kind]} text-sm`}>
-        <td className={`${pad} py-1.5`}>
+        <td className={`${pad} py-1.5 ${stickyFirst ? STICKY_FIRST_CELL : ''}`}>
           <span className="flex items-center gap-1">
             <RowLabel row={row} expanded={expanded} onToggle={onToggle} />
             {row.note && onOpenNote && (

@@ -260,7 +260,7 @@ export default function AdminSageImportPage() {
               <button
                 onClick={() => void pullViaExtension()}
                 disabled={!selectedCompanyId || pulling}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-semibold transition-colors"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-semibold transition-colors"
               >
                 {pulling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 {pulling ? 'Pulling from Sage…' : 'Pull from Sage'}
@@ -377,7 +377,7 @@ export default function AdminSageImportPage() {
               <button
                 onClick={() => void commit('all')}
                 disabled={committing || !anyPulled}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 {committing ? <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</> : commitSummary ? 'Commit again' : 'Commit everything'}
               </button>

@@ -98,7 +98,7 @@ export function FleetRecordsTab({ assetId, kind, onChanged }: Props) {
         </button>
       </div>
 
-      {loading ? <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-blue-500" /></div>
+      {loading ? <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-blue-600 dark:text-blue-400" /></div>
         : rows.length === 0 ? <p className="text-xs text-[var(--ff-text-tertiary)] py-4 text-center">No {NOUN[kind]}s yet</p>
           : (
             <table className="w-full text-xs">

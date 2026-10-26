@@ -21,7 +21,7 @@ export async function fetchCompanyMeta(): Promise<Partial<StatementData>> {
       companyEmail: c.email || c.company_email || '',
       companyPhone: c.phone || c.company_phone || '',
       companyAddress: c.address || parts.join(', '),
-      accentColor: c.primary_color || '#0d9488',
+      accentColor: c.primary_color || '#0f766e',
     };
   } catch (err) {
     log.warn(
@@ -29,7 +29,7 @@ export async function fetchCompanyMeta(): Promise<Partial<StatementData>> {
       { error: err instanceof Error ? err.message : String(err) },
       'statements',
     );
-    return { accentColor: '#0d9488' };
+    return { accentColor: '#0f766e' };
   }
 }
 

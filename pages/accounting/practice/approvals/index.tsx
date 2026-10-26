@@ -178,7 +178,7 @@ export default function ApprovalsPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button disabled={selected.size === 0 || approving || filters.status === 'approved'} onClick={() => void handleApprove()} className={`${BTN_BASE} bg-teal-600 hover:bg-teal-700`}>
+              <button disabled={selected.size === 0 || approving || filters.status === 'approved'} onClick={() => void handleApprove()} className={`${BTN_BASE} bg-brand-600 hover:bg-brand-700`}>
                 {approving && <Loader2 className="h-4 w-4 animate-spin" />}
                 Approve selected{selected.size > 0 ? ` (${selected.size})` : ''}
               </button>

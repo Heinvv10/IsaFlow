@@ -213,7 +213,7 @@ export function CompanyPicker({ value, onChange }: Props) {
           </ul>
         )}
 
-        {error && <p className="mt-1 text-xs text-rose-500">{error}</p>}
+        {error && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
 
         {open && !loading && results.length === 0 && query.trim() && (
           <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg px-3 py-2 text-sm text-gray-500 dark:text-gray-400">

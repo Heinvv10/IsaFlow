@@ -225,7 +225,7 @@ export default function OnboardingWizard() {
                 <button
                   onClick={() => void handleSubmit()}
                   disabled={submitting || submitIssues.length > 0}
-                  className="flex items-center gap-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white font-medium text-sm px-6 py-2.5 rounded-lg transition-colors"
+                  className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 text-white font-medium text-sm px-6 py-2.5 rounded-lg transition-colors"
                 >
                   {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Complete Setup'}
                 </button>
@@ -234,7 +234,7 @@ export default function OnboardingWizard() {
                   onClick={next}
                   disabled={!canContinue}
                   aria-describedby={blockedReason ? 'continue-blocked' : undefined}
-                  className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-5 py-2.5 rounded-lg transition-colors"
+                  className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-5 py-2.5 rounded-lg transition-colors"
                 >
                   Continue <ChevronRight className="w-4 h-4" />
                 </button>

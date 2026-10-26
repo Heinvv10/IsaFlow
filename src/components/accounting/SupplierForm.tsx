@@ -277,7 +277,7 @@ export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
             aria-checked={autoAllocateOn}
             onClick={() => set('auto_allocate_strategy', autoAllocateOn ? 'off' : lastOrder)}
             className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-              autoAllocateOn ? 'bg-teal-600' : 'bg-[var(--ff-bg-tertiary)]'
+              autoAllocateOn ? 'bg-brand-600' : 'bg-[var(--ff-bg-tertiary)]'
             }`}
           >
             <span

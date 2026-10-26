@@ -190,14 +190,14 @@ export default function MirrorSettingsPage() {
             <button onClick={() => void load()} className="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-sm">
               <RefreshCw className="h-4 w-4" /> Refresh
             </button>
-            <button onClick={() => setAddMode(true)} className="inline-flex items-center gap-2 px-3 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium">
+            <button onClick={() => setAddMode(true)} className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
               <Plus className="h-4 w-4" /> Add IMAP mailbox
             </button>
           </div>
         </div>
 
         {toast && (
-          <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${toast.ok ? 'bg-teal-600 text-white' : 'bg-red-700 text-white'}`}>
+          <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${toast.ok ? 'bg-brand-600 text-white' : 'bg-red-700 text-white'}`}>
             {toast.msg}
           </div>
         )}
@@ -332,7 +332,7 @@ export default function MirrorSettingsPage() {
                 <button onClick={() => setAddMode(false)} disabled={saving}
                   className="px-4 py-2 rounded text-sm text-slate-300 hover:bg-white/5">Cancel</button>
                 <button onClick={() => void handleCreate()} disabled={saving}
-                  className="px-4 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-60">
+                  className="px-4 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-60">
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Connect'}
                 </button>
               </div>

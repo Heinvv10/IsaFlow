@@ -41,7 +41,7 @@ export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Prop
         <button
           onClick={onSave}
           disabled={saving}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-medium"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-medium"
         >
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           Save

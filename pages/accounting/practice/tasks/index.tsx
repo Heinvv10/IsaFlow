@@ -161,7 +161,7 @@ export default function PracticeTasksPage() {
           <div className="flex items-center gap-2 mb-6 flex-wrap">
             {TABS.map(t => (
               <button key={t.key} onClick={() => goTab(t.key)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${tab === t.key ? 'bg-teal-600 text-white' : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-primary)]'}`}>
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${tab === t.key ? 'bg-brand-600 text-white' : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-primary)]'}`}>
                 {t.label}
               </button>
             ))}
@@ -250,7 +250,7 @@ export default function PracticeTasksPage() {
               {jobs.map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
             </select>
             <button type="submit" disabled={qaAdding || !qaTitle.trim()}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
               {qaAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
             </button>
           </form>

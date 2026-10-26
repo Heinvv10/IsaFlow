@@ -168,7 +168,7 @@ export function SetupGuideButton() {
             className={cn(
               'absolute -top-0.5 -right-0.5',
               'min-w-[16px] h-4 px-1',
-              'bg-teal-700 text-white text-xs font-bold rounded-full',
+              'bg-brand-700 text-white text-xs font-bold rounded-full',
               'flex items-center justify-center leading-none',
             )}
           >

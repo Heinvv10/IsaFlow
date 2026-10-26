@@ -9,7 +9,7 @@ export function statusIcon(status: string): ReactNode {
   switch (status) {
     case 'open':    return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
     case 'closing': return <Clock className="h-3.5 w-3.5 text-amber-500" />;
-    case 'closed':  return <Lock className="h-3.5 w-3.5 text-blue-500" />;
+    case 'closed':  return <Lock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />;
     case 'locked':  return <Lock className="h-3.5 w-3.5 text-red-500" />;
     default:        return null;
   }
