@@ -50,6 +50,28 @@ export async function waitForRoute(page: Page, target: string): Promise<void> {
 /** Open `path` and wait for the top nav to render (not for the page body). */
 export async function openWithNav(page: Page, path: string): Promise<void> {
   await waitForRoute(page, path);
-  await page.goto(path, { waitUntil: 'domcontentloaded' });
+  await gotoServed(page, path);
   await expect(page.locator('[data-tour="nav-dashboard"]')).toBeVisible({ timeout: NAV_READY_MS });
+}
+
+/** A dropped connection, as the loaded CI dev server gives while it recompiles: the server's state, not the page's. */
+const DROPPED = /net::ERR_(EMPTY_RESPONSE|CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED)/;
+
+/**
+ * page.goto that waits out a dropped connection. The probe above can see the route served and the dev server can
+ * still drop the next connection while it disposes and recompiles entries (master run on #877, q2 light theme:
+ * ERR_EMPTY_RESPONSE on /accounting right after it served). Only a dropped connection is waited out, and only
+ * until NAV_READY_MS; any other error, or any HTTP status, goes straight to the caller.
+ */
+async function gotoServed(page: Page, path: string): Promise<void> {
+  const deadline = Date.now() + NAV_READY_MS;
+  for (;;) {
+    try {
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      return;
+    } catch (err) {
+      if (!DROPPED.test(String(err)) || Date.now() > deadline) throw err;
+      await waitForRoute(page, path);
+    }
+  }
 }
