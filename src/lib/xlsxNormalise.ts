@@ -27,7 +27,7 @@ import JSZip from 'jszip';
 import { SpreadsheetMalformedError, SpreadsheetTooLargeError } from './spreadsheetErrors';
 import { checkXmlPart } from './xlsxXmlScan';
 
-export { readNormalised } from './xlsxXmlScan';
+export { readerInput, readNormalised } from './xlsxXmlScan';
 
 const EMPTY_SHARED_STRINGS = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
   + '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"/>';
@@ -190,17 +190,16 @@ function pack(wb: Workbook, styles: Buffer | null, shared: Buffer | null, sheets
 
 /**
  * The normalised zip of the workbook's first sheet, or null when it has none. Throws
- * SpreadsheetTooLargeError past `maxBytes` inflated, SpreadsheetMalformedError when it is not a
- * workbook at all.
+ * SpreadsheetTooLargeError past `maxBytes` inflated or past a styles / shared-strings cap in
+ * `caps`, SpreadsheetMalformedError when it is not a workbook at all.
  */
-export async function normaliseXlsx(buf: Buffer, maxBytes: number): Promise<Buffer | null> {
+export async function normaliseXlsx(buf: Buffer, maxBytes: number, caps: Omit<NormaliseOptions, 'maxBytes'> = {}): Promise<Buffer | null> {
   const wb = await openWorkbook(buf, maxBytes);
   const target = wb.sheets[0]?.target;
   const named = target ? (target.startsWith('/') ? target.slice(1) : `xl/${target.replace(/^\.\//, '')}`) : null;
   const path = named && wb.zip.file(named) ? named : lowestSheetPath(wb.zip);
   if (!path) return null;
-  const styles = await wb.read('xl/styles.xml');
-  const shared = await wb.read('xl/sharedStrings.xml');
+  const { styles, shared } = await stylesAndStrings(wb, caps);
   const sheet = await wb.read(path);
   return sheet ? pack(wb, styles, shared, [sheet]) : null;
 }
@@ -233,6 +232,24 @@ function countElements(xml: Buffer, name: string): number {
   return n;
 }
 
+/** styles.xml and sharedStrings.xml, each under its own cap when one is given (and the shared strings' entry count). */
+async function stylesAndStrings(wb: Workbook, caps: Omit<NormaliseOptions, 'maxBytes'>): Promise<{ styles: Buffer | null; shared: Buffer | null }> {
+  const stylesLimit = caps.maxStylesBytes;
+  const styles = await wb.read('xl/styles.xml', stylesLimit === undefined ? [] : [{
+    left: stylesLimit,
+    refuse: () => new SpreadsheetTooLargeError(`This workbook's cell formats take more than ${Math.max(1, mb(stylesLimit))} MB, far more than any sheet needs. Copy the cells into a new workbook and upload that.`),
+  }]);
+  const sstLimit = caps.maxSharedStringsBytes;
+  const shared = await wb.read('xl/sharedStrings.xml', sstLimit === undefined ? [] : [{
+    left: sstLimit,
+    refuse: () => new SpreadsheetTooLargeError(`This workbook holds more than ${mb(sstLimit)} MB of text. Split the file and upload each part.`),
+  }]);
+  if (shared && caps.maxSharedStrings !== undefined && countElements(shared, 'si') + countElements(shared, 'r') > caps.maxSharedStrings) {
+    throw new SpreadsheetTooLargeError(`This workbook holds more than ${caps.maxSharedStrings} different texts. Split the file and upload each part.`);
+  }
+  return { styles, shared };
+}
+
 /**
  * The sheets called `names` (matched as written in workbook.xml, hidden sheets included, each
  * resolved through the rels by its `r:id`), read in ONE pass with one shared-strings part and one
@@ -248,19 +265,7 @@ export async function normaliseXlsxSheets(buf: Buffer, names: readonly string[],
     const path = target ? namedSheetPart(target) : null;
     if (path && wb.zip.file(path)) found.push({ name, path });
   }
-  const stylesLimit = opts.maxStylesBytes;
-  const styles = await wb.read('xl/styles.xml', stylesLimit === undefined ? [] : [{
-    left: stylesLimit,
-    refuse: () => new SpreadsheetTooLargeError(`This workbook's cell formats take more than ${Math.max(1, mb(stylesLimit))} MB, far more than the template has. Copy the cells into the downloaded template and upload that.`),
-  }]);
-  const sstLimit = opts.maxSharedStringsBytes;
-  const shared = await wb.read('xl/sharedStrings.xml', sstLimit === undefined ? [] : [{
-    left: sstLimit,
-    refuse: () => new SpreadsheetTooLargeError(`This workbook holds more than ${mb(sstLimit)} MB of text. Split the file and upload each part.`),
-  }]);
-  if (shared && opts.maxSharedStrings !== undefined && countElements(shared, 'si') + countElements(shared, 'r') > opts.maxSharedStrings) {
-    throw new SpreadsheetTooLargeError(`This workbook holds more than ${opts.maxSharedStrings} different texts. Split the file and upload each part.`);
-  }
+  const { styles, shared } = await stylesAndStrings(wb, opts);
   const sheets: Buffer[] = [];
   for (const f of found) sheets.push((await wb.read(f.path))!);
   return { zip: await pack(wb, styles, shared, sheets), sheets: found.map((f) => f.name) };

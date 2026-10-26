@@ -1,14 +1,21 @@
 /**
  * Linear checks on the XML parts of an uploaded workbook, run by xlsxNormalise on every part it
- * passes to ExcelJS, and the guard around ExcelJS's own read. Server-side only.
+ * passes to ExcelJS, and the guards around ExcelJS's own read. Server-side only.
  *
- * ExcelJS's SAX parser keeps a stack per open element, so a sheet of three million unclosed `<x>`
- * tags (a 16 KB upload) cost 10-33 s and up to 3 GB before it failed. `checkXmlPart` walks the
- * bytes once, with no regex and no parse, and refuses nesting deeper than MAX_XML_DEPTH and any
- * DOCTYPE (entity declarations: no workbook part has one). `readNormalised` turns anything the
- * parser throws into SpreadsheetMalformedError with a neutral message; the parser's own text,
- * which echoes the upload, is logged, never answered.
+ * ExcelJS's SAX parser (saxes) keeps a stack per open element, and on a fault it records an error
+ * and carries on: a sheet of three million unclosed `<x>` tags (a 16 KB upload) cost 10-33 s and
+ * up to 3 GB; `<x></>` x 3.2M cost 19.8 s and 1.5 GB; 3M duplicate attributes on one tag, 10 s.
+ * `checkXmlPart` walks the bytes once, with no regex and no parse, keeping the names of the open
+ * elements: it refuses nesting deeper than MAX_XML_DEPTH, a close tag that does not name the
+ * element it closes (empty included), a part that ends with elements open, a duplicate attribute
+ * name or more than MAX_XML_ATTRIBUTES attributes on one element, and any DOCTYPE (entity
+ * declarations: no workbook part has one). What the scan does not read (entities, characters) is
+ * left to the parser, which `readerInput` makes stop at its first error: the normalised zip is fed
+ * in READ_CHUNK_BYTES pieces, and ExcelJS throws a parser error after each piece it parsed.
+ * `readNormalised` turns anything the parser throws into SpreadsheetMalformedError with a neutral
+ * message; the parser's own text, which echoes the upload, is logged, never answered.
  */
+import { Readable } from 'node:stream';
 import { log } from './logger';
 import { SpreadsheetMalformedError, SpreadsheetRefusedError } from './spreadsheetErrors';
 
@@ -17,8 +24,13 @@ import { SpreadsheetMalformedError, SpreadsheetRefusedError } from './spreadshee
  * (`mc:AlternateContent` > ... > `xdr:col`, 11), and a sheet's cells sit at 4.
  */
 export const MAX_XML_DEPTH = 24;
+/** Far more than any element has: a worksheet root's namespace declarations are the most, ~15. */
+export const MAX_XML_ATTRIBUTES = 100;
+/** The pieces ExcelJS is fed: a parser error costs at most this much more parsing. */
+export const READ_CHUNK_BYTES = 64 * 1024;
 
-const LT = 0x3c, GT = 0x3e, SLASH = 0x2f, QUESTION = 0x3f, BANG = 0x21, DQUOTE = 0x22, SQUOTE = 0x27;
+const LT = 0x3c, GT = 0x3e, SLASH = 0x2f, QUESTION = 0x3f, BANG = 0x21, DQUOTE = 0x22, SQUOTE = 0x27, EQ = 0x3d;
+const isSpace = (b: number | undefined) => b === 0x20 || b === 0x09 || b === 0x0a || b === 0x0d;
 
 const malformed = () => new SpreadsheetMalformedError('This workbook\'s XML is not what a spreadsheet program writes. Open it in Excel, save it again, and upload it.');
 
@@ -29,16 +41,74 @@ function past(xml: Buffer, end: string, from: number): number {
   return at + end.length;
 }
 
-/** Refuse a part nested past MAX_XML_DEPTH, closing more than it opens, or holding a DOCTYPE. One pass. */
+/** Index of the first byte at or after `j` that is space, `/`, `>` or `=` (the end of a name). */
+function nameEnd(xml: Buffer, j: number): number {
+  while (j < xml.length) {
+    const b = xml[j];
+    if (isSpace(b) || b === SLASH || b === GT || b === EQ) break;
+    j++;
+  }
+  return j;
+}
+
+function skipSpace(xml: Buffer, j: number): number {
+  while (isSpace(xml[j])) j++;
+  return j;
+}
+
+/**
+ * The start tag at `i` (`<name attr="v" ...>` or `.../>`): its name, whether it closes itself and
+ * the index past its `>`. Refuses a tag that is cut off, an attribute without `="..."`, a
+ * duplicate attribute name, or more than MAX_XML_ATTRIBUTES attributes.
+ */
+function startTag(xml: Buffer, i: number): { name: string; selfClosing: boolean; end: number } {
+  let j = nameEnd(xml, i + 1);
+  const name = xml.toString('utf8', i + 1, j);
+  if (name === '') throw malformed();
+  const seen = new Set<string>();
+  for (;;) {
+    j = skipSpace(xml, j);
+    const b = xml[j];
+    if (b === GT) return { name, selfClosing: false, end: j + 1 };
+    if (b === SLASH) {
+      if (xml[j + 1] !== GT) throw malformed();
+      return { name, selfClosing: true, end: j + 2 };
+    }
+    if (b === undefined) throw malformed();
+    const at = j;
+    j = nameEnd(xml, j);
+    const attr = xml.toString('utf8', at, j);
+    if (attr === '' || seen.has(attr) || seen.size >= MAX_XML_ATTRIBUTES) throw malformed();
+    seen.add(attr);
+    j = skipSpace(xml, j);
+    if (xml[j] !== EQ) throw malformed();
+    j = skipSpace(xml, j + 1);
+    const quote = xml[j];
+    if (quote !== DQUOTE && quote !== SQUOTE) throw malformed();
+    const close = xml.indexOf(quote, j + 1);
+    if (close < 0) throw malformed();
+    j = close + 1;
+  }
+}
+
+/**
+ * Refuse a part that is not well-formed in the ways the parser would only report and carry on
+ * from (see the file comment), nested past MAX_XML_DEPTH, or holding a DOCTYPE. One pass.
+ */
 export function checkXmlPart(xml: Buffer): void {
-  let depth = 0;
+  const open: string[] = [];
   let i = xml.indexOf(LT);
   while (i >= 0) {
     const next = xml[i + 1];
     let end: number;
     if (next === SLASH) {
-      end = past(xml, '>', i);
-      if (--depth < 0) throw malformed();
+      const gt = xml.indexOf(GT, i);
+      if (gt < 0) throw malformed();
+      let k = gt;
+      while (k > i + 2 && isSpace(xml[k - 1])) k--;
+      const name = xml.toString('utf8', i + 2, k);
+      if (name === '' || open.pop() !== name) throw malformed();
+      end = gt + 1;
     } else if (next === QUESTION) {
       end = past(xml, '?>', i);
     } else if (next === BANG) {
@@ -46,18 +116,23 @@ export function checkXmlPart(xml: Buffer): void {
       else if (xml.subarray(i, i + 9).toString('latin1') === '<![CDATA[') end = past(xml, ']]>', i + 9);
       else throw malformed(); // <!DOCTYPE, <!ENTITY
     } else {
-      // A start tag: its end is the first '>' outside a quoted attribute value.
-      let j = i + 1, quote = 0;
-      for (; j < xml.length; j++) {
-        const b = xml[j];
-        if (quote) { if (b === quote) quote = 0; } else if (b === DQUOTE || b === SQUOTE) quote = b; else if (b === GT) break;
+      const tag = startTag(xml, i);
+      if (!tag.selfClosing) {
+        open.push(tag.name);
+        if (open.length > MAX_XML_DEPTH) throw malformed();
       }
-      if (j >= xml.length) throw malformed();
-      if (xml[j - 1] !== SLASH && ++depth > MAX_XML_DEPTH) throw malformed();
-      end = j + 1;
+      end = tag.end;
     }
     i = xml.indexOf(LT, end);
   }
+  if (open.length > 0) throw malformed();
+}
+
+/** The normalised zip as ExcelJS's input, in READ_CHUNK_BYTES pieces so a parser error stops the read within one piece. */
+export function readerInput(zip: Buffer): Readable {
+  return Readable.from((function* pieces() {
+    for (let at = 0; at < zip.length; at += READ_CHUNK_BYTES) yield zip.subarray(at, at + READ_CHUNK_BYTES);
+  })());
 }
 
 /** Run an ExcelJS read of a normalised zip; a parser failure is SpreadsheetMalformedError (a 400), its text logged only. */

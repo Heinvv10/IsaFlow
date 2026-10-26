@@ -32,7 +32,7 @@ afterAll(async () => {
 
 const token = async (id: string) => String((await pool.query(`SELECT ${TOKEN_SQL} t FROM budget_versions WHERE id = $1`, [id])).rows[0].t);
 const cell = (glAccountId: string, month: string, amount: number | null, dims: Record<string, string | null> = {}) =>
-  ({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, amount, ...dims });
+  ({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, amount, ...(amount === null ? { clear: true } : {}), ...dims });
 const save = (versionId: string, expectedUpdatedAt: string, cells: unknown[]) =>
   fx.call(saveRoute, '/api/accounting/budget-grid/save', A.owner, 'POST', {}, { versionId, expectedUpdatedAt, cells });
 const code = (r: { body: { error?: { details?: { code?: string } } } }) => r.body.error?.details?.code;
@@ -78,6 +78,32 @@ describe('save: amounts at the ceiling', () => {
       const r = await unchanged(v, async () => save(v, await token(v), [cell(A.acct.rent, FY27[3]!, over)]));
       expect([r.status, code(r)], `${over}: ${dump(r)}`).toEqual([400, 'BUDGET_VERSION_INPUT']);
     }
+  });
+});
+
+describe('save: delete is explicit (round-3 N3)', () => {
+  it('a null amount without clear: true is 400 naming the cell, and the cell is kept: a NaN in a client arrives as null', async () => {
+    const v = await fx.version(A);
+    await fx.amount(A, v, A.acct.rent, FY27[4]!, 70);
+    for (const amount of [null, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const bare = { glAccountId: A.acct.rent, cc1Id: null, cc2Id: null, buId: null, month: FY27[4]!, amount };
+      const r = await unchanged(v, async () => save(v, await token(v), [bare]));
+      expect([r.status, code(r)], dump(r)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+      expect(String(r.body.error?.message)).toContain(`account ${A.acct.rent} month ${FY27[4]}`);
+    }
+    const no = await unchanged(v, async () => save(v, await token(v), [{ ...cell(A.acct.rent, FY27[4]!, null), clear: false }]));
+    expect(no.status, dump(no)).toBe(400);
+  });
+
+  it('clear: true with an amount is 400; null with clear: true deletes', async () => {
+    const v = await fx.version(A);
+    await fx.amount(A, v, A.acct.rent, FY27[5]!, 80);
+    const both = await unchanged(v, async () => save(v, await token(v), [{ ...cell(A.acct.rent, FY27[5]!, 81), clear: true }]));
+    expect([both.status, code(both)], dump(both)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+    expect(String(both.body.error?.message)).toContain('clear: true');
+    const del = await save(v, await token(v), [cell(A.acct.rent, FY27[5]!, null)]);
+    expect(del.status, dump(del)).toBe(200);
+    expect(await stored(v)).toEqual([]);
   });
 });
 

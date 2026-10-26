@@ -82,15 +82,20 @@ describe('Q1: the members a dimension template offers', () => {
   });
 });
 
-describe('Q5: template downloads are rate limited per member', () => {
-  it('the 61st download in 15 minutes is a 429', async () => {
+describe('Q5 / N5: template downloads are rate limited per user, across companies', () => {
+  it('the 61st download in 15 minutes is a 429, however the 61 are split between the user\'s companies', async () => {
     const C = await fx.company();
+    const D = await fx.company();
     const vC = await fx.version(C, { name: 'Rate' });
+    const vD = await fx.version(D, { name: 'Rate' });
+    await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'viewer', false)`, [D.id, C.viewer.userId]);
+    const inD = { ...C.viewer, homeCompanyId: D.id };
     const statuses: number[] = [];
-    for (let i = 0; i < 61; i++) statuses.push((await downloadTemplate(templateRoute, C.viewer, { version_id: vC, grain: 'company' })).status);
+    for (let i = 0; i < 30; i++) statuses.push((await downloadTemplate(templateRoute, C.viewer, { version_id: vC, grain: 'company' })).status);
+    for (let i = 0; i < 31; i++) statuses.push((await downloadTemplate(templateRoute, inD, { version_id: vD, grain: 'company' })).status);
     expect(statuses.slice(0, 60).every((s) => s === 200)).toBe(true);
     expect(statuses[60]).toBe(429);
-    expect((await downloadTemplate(templateRoute, C.owner, { version_id: vC, grain: 'company' })).status).toBe(200); // another member's bucket
+    expect((await downloadTemplate(templateRoute, C.owner, { version_id: vC, grain: 'company' })).status).toBe(200); // another user's bucket
   }, 300000);
 });
 

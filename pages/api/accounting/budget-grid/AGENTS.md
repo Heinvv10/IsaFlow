@@ -11,7 +11,7 @@ The budget workspace's routes (budgets P2). Version lifecycle (create, status, c
 |---|---|---|
 | `GET /api/accounting/budget-grid?version_id=` or `?fiscal_year=` | `index.ts` | Read model (primary, else newest version of the year; `version: null` when the year has none). `&cells_only=1` → cells + token only. |
 | `GET /api/accounting/budget-grid/prior-actuals?fiscal_year=&grain=` | `prior-actuals.ts` | PY actuals at `company`/`cc1`/`cc2`/`bu`. |
-| `POST /api/accounting/budget-grid/save` | `save.ts` | `{ versionId, expectedUpdatedAt, cells[] }` batch save (`amount: null` deletes). Body read in the handler after auth (`readJsonBody`, 24 MB cap → 413), MAX_SAVE_CELLS 100 000. |
+| `POST /api/accounting/budget-grid/save` | `save.ts` | `{ versionId, expectedUpdatedAt, cells[] }` batch save; delete a cell with `amount: null, clear: true` (a null without `clear: true`, `clear: true` with an amount, or the nil UUID as any id is 400 naming the cell). The body is read by `withBodyFirst` (src/lib/readJsonBody.ts) OUTSIDE withAuth, before any connection or transaction, only for a caller who passes CSRF and holds a signed session; it is parsed after withAuth's checks. Limits: 24 MB (413), 15 s in all and 5 s between chunks (400 REQUEST_BODY_TIMEOUT). At most MAX_SAVE_CELLS (100 000) cells. |
 | `POST /api/accounting/budget-grid/seed` | `seed.ts` | Wizard: new draft version from PY actuals +x%, a version copy, or blank. |
 | `GET /api/accounting/budget-grid/template?version_id=&grain=` | `template.ts` | `.xlsx` template (viewers allowed). |
 | `POST /api/accounting/budget-grid/import-preview` | `import-preview.ts` | multipart `file` + `versionId` → diff preview. Writes nothing; commit goes through `save`. |
@@ -25,3 +25,5 @@ Errors go through `respondBudgetVersionError`: 400 input/grain (the message name
 ## Gotchas
 - The token is P1's UTC ISO text with microseconds; send back exactly what the read returned.
 - An import preview's token goes stale if anyone saves in between: commit then 409s and the user re-runs the preview.
+- `import-preview` order: `withPreviewRate` (per-user bucket, charged before any byte) → `withBodyFirst` (raw upload read OUTSIDE withAuth: 10 MB + 64 KB, 60 s total, 10 s idle; only for a CSRF-checked caller with a signed session) → withAuth → … → formidable on the buffered bytes. No pooled connection is held while a client uploads.
+- Rate limits are per USER (`budget-import:<userId>`, `budget-template:<userId>`, 60 / 15 min), never per company+user.

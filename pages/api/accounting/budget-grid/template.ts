@@ -8,7 +8,8 @@
  * downloaded, which the import diffs against, signed in `_meta`), and `Instructions`. Upload it
  * back through POST budget-grid/import-preview. A template of more rows than one save holds
  * (templateRowCap) is a 400 asking for fewer members. Another tenant's version id is a 404. Any
- * member may download; each member at most TEMPLATE_RATE downloads per 15 minutes (429).
+ * member may download; each user at most TEMPLATE_RATE downloads per 15 minutes across all their
+ * companies (429).
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -36,7 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     members = membersRaw.split(',').map((m) => m.trim()).filter((m) => m !== '');
     if (members.length === 0 || !members.every((m) => isUuidParam(m))) return apiResponse.badRequest(res, 'members must be a comma-separated list of member ids');
   }
-  if (!(await checkRateLimit(`budget-template:${companyId}:${userId}`, { max: TEMPLATE_RATE, windowSecs: 900 }))) {
+  if (!(await checkRateLimit(`budget-template:${userId}`, { max: TEMPLATE_RATE, windowSecs: 900 }))) {
     return apiResponse.tooManyRequests(res, 'Too many template downloads — wait a few minutes and try again.');
   }
 

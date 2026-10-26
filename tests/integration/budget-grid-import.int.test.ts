@@ -152,7 +152,7 @@ describe('budget-grid import-preview', () => {
     const a = A.acct;
     expect(p.cells).toEqual(expect.arrayContaining([
       { glAccountId: a.sales, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: 1500 },
-      { glAccountId: a.cos, cc1Id: null, cc2Id: null, buId: null, month: '2026-04', amount: null },
+      { glAccountId: a.cos, cc1Id: null, cc2Id: null, buId: null, month: '2026-04', amount: null, clear: true },
       { glAccountId: a.childB, cc1Id: null, cc2Id: null, buId: null, month: '2026-05', amount: 0 },
       { glAccountId: a.childB, cc1Id: null, cc2Id: null, buId: null, month: '2026-06', amount: 1234.5 },
     ]));

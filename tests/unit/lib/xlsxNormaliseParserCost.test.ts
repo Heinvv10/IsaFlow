@@ -8,6 +8,9 @@
  *   - BRK2-N6: styles.xml has its own cap, and rich-text runs count against the shared-string cap;
  *   - SEC2-L1 / VER-L1: only workbook.xml's <sheets> list is capped, so 1 MB of definedNames still
  *     converts.
+ *   - Round 3 M1: the migration importer (xlsxBufferToCsv) caps styles and shared strings too
+ *     (XLSX_LIMITS), sized so a generous real-shaped export (50 000 rows x 14 columns of mostly
+ *     unique text: 13.5 MB / 409 000 shared strings) still converts.
  */
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
@@ -122,4 +125,29 @@ describe('SEC2-L1 / VER-L1: only the <sheets> list of workbook.xml is capped', (
     expect((await xlsxBufferToCsv(buf)).split('\n')[0]).toBe('a,1');
     expect((await named(buf)).sheets).toEqual(['Budget', '_meta']);
   });
+});
+
+describe('round 3 M1: the migration importer caps styles and shared strings', () => {
+  it.each([
+    ['breaker I5: 76 MB of shared-string filler', 'xl/sharedStrings.xml', () => `<?xml version="1.0"?><sst ${NS}>${'<si><t>x</t></si>'.repeat(Math.floor((76 * MB) / 17))}</sst>`],
+    ['2M tiny shared strings under the byte cap', 'xl/sharedStrings.xml', () => `<?xml version="1.0"?><sst ${NS}>${'<si/>'.repeat(2_000_000)}</sst>`],
+    ['23 MB of <font> in styles.xml', 'xl/styles.xml', () => `<?xml version="1.0"?><styleSheet ${NS}><fonts>${'<font><b/><sz val="11"/></font>'.repeat(Math.floor((23 * MB) / 32))}</fonts></styleSheet>`],
+  ])('%s is refused fast', async (_label, part, xml) => {
+    const buf = await withParts({ [part]: xml() });
+    const { ms, err } = await refusal(() => xlsxBufferToCsv(buf));
+    expect(err).toBeInstanceOf(SpreadsheetTooLargeError);
+    expect(ms).toBeLessThan(FAST_MS);
+  }, 120000);
+
+  it('a generous real-shaped export (50 000 rows x 14 columns, mostly unique text) still converts', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Customers');
+    ws.addRow(['Code', 'Name', 'Contact', 'Email', 'Phone', 'Address 1', 'Address 2', 'City', 'Postal', 'VAT number', 'Terms', 'Balance', 'Limit', 'Notes']);
+    for (let i = 0; i < 49_999; i++) {
+      ws.addRow([`CUS${i}`, `Customer ${i} (Pty) Ltd`, `Contact Person ${i}`, `accounts${i}@customer${i}.co.za`, `+27 11 ${100000 + i}`, `${i} Main Road`, `Unit ${i % 300}`,
+        ['Johannesburg', 'Cape Town', 'Durban'][i % 3], String(1000 + (i % 9000)), `4${100000000 + i}`, '30 days', i * 13.37, 50000, `Imported from Sage, row ${i}`]);
+    }
+    const csv = await xlsxBufferToCsv(Buffer.from(await wb.xlsx.writeBuffer()));
+    expect(csv.split('\n')).toHaveLength(50_000);
+  }, 300000);
 });

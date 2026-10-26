@@ -46,7 +46,7 @@ afterAll(async () => { try { await fx.cleanup(); } finally { await pool.end(); }
 
 const token = async (id: string) => String((await pool.query(`SELECT ${TOKEN_SQL} t FROM budget_versions WHERE id = $1`, [id])).rows[0].t);
 const cell = (glAccountId: string, month: string, amount: number | null, cc1Id: string | null = null) =>
-  ({ glAccountId, cc1Id, cc2Id: null, buId: null, month, amount });
+  ({ glAccountId, cc1Id, cc2Id: null, buId: null, month, amount, ...(amount === null ? { clear: true } : {}) });
 const save = (body: unknown) => fx.call(saveRoute, URL, A.owner, 'POST', {}, body);
 const dump = (r: { status: number; body: unknown }) => `${r.status} ${JSON.stringify(r.body).slice(0, 300)}`;
 
@@ -123,6 +123,55 @@ describe('save: the body', () => {
     expect(lines.some((l) => l.includes('API Request: POST'))).toBe(true);
     expect(lines.filter((l) => l.includes(String(marker)) || l.includes(A.acct.rent))).toEqual([]);
   });
+
+  it('a slow body holds no pooled connection inside a transaction while it arrives', async () => {
+    const v = await fx.version(A);
+    const json = Buffer.from(JSON.stringify({ versionId: v, expectedUpdatedAt: await token(v), cells: [cell(A.acct.rent, FY27[0]!, 5)] }));
+    let release = () => {};
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const stream = Readable.from((async function* gen() { yield json.subarray(0, 10); await released; yield json.subarray(10); })());
+    const pending = postStream(stream);
+    // While the body is stalled: no backend of this database sits idle inside a transaction.
+    await new Promise((r) => setTimeout(r, 1500));
+    const held = (await pool.query(
+      `SELECT pid, left(query, 80) q FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'idle in transaction'`)).rows;
+    release();
+    const r = await pending;
+    expect(held, JSON.stringify(held)).toEqual([]);
+    expect(r.status, dump(r)).toBe(200);
+  });
+
+  it('a caller without a CSRF match or a signed session is refused at once, its body never waited for', async () => {
+    const cases = [['no CSRF match', { 'x-csrf-token': 'x'.repeat(44) }, A.owner.token, 403], ['forged token', {}, 'not.a.jwt', 401]] as const;
+    for (const [label, headers, cookieToken, status] of cases) {
+      // The body never arrives: a route that waited for it would answer only after the 5 s idle bound.
+      const { stream, release } = blocking(0);
+      const base = request({ 'sb-access-token': cookieToken, active_company_id: A.owner.homeCompanyId }, 'POST') as unknown as { headers: Record<string, string> };
+      const req = Object.assign(stream, base, { url: URL, query: {}, headers: { ...base.headers, 'content-type': 'application/json', ...headers } });
+      const out = response();
+      const t0 = Date.now();
+      await (saveRoute as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
+      const ms = Date.now() - t0;
+      release();
+      expect([out.state.statusCode, ms < 2000], `${label} ${ms}ms ${JSON.stringify(out.state.body)}`).toEqual([status, true]);
+    }
+  });
+
+  it('a body that stalls longer than 5 s between chunks is refused (REQUEST_BODY_TIMEOUT), nothing saved', async () => {
+    const v = await fx.version(A);
+    const before = await token(v);
+    let release = () => {};
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const stream = Readable.from((async function* gen() { yield Buffer.from('{"versionId":'); await released; yield Buffer.from('"x"}'); })());
+    const t0 = Date.now();
+    const r = await postStream(stream);
+    const ms = Date.now() - t0;
+    release();
+    expect([r.status, (r.body.error as { details?: { code?: string } } | undefined)?.details?.code], dump(r)).toEqual([400, 'REQUEST_BODY_TIMEOUT']);
+    expect(ms).toBeGreaterThanOrEqual(4900);
+    expect(ms).toBeLessThan(9000);
+    expect(await token(v)).toBe(before);
+  }, 20000);
 
   it(`a batch over MAX_SAVE_CELLS (${MAX_SAVE_CELLS}) is refused before anything is read`, async () => {
     const v = await fx.version(A);

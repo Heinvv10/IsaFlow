@@ -16,9 +16,8 @@
  * template's formula-neutralising apostrophe removed; budgetImportResolve matches them exactly
  * first and trimmed only when that is unambiguous (VER-L6).
  */
-import { Readable } from 'node:stream';
 import ExcelJS from 'exceljs';
-import { normaliseXlsxSheets, readNormalised, type NormaliseOptions } from '@/lib/xlsxNormalise';
+import { normaliseXlsxSheets, readerInput, readNormalised, type NormaliseOptions } from '@/lib/xlsxNormalise';
 import { looksLikeXlsx, SpreadsheetMalformedError, SpreadsheetTooLargeError, type XlsxLimits } from '@/lib/xlsxToCsv';
 import { MAX_MONEY } from '@/lib/money/wholeCents';
 import { toCents } from './grid/cents';
@@ -111,7 +110,7 @@ const textLength = (c: RawCell): number => (c === null ? 0 : typeof c === 'objec
 
 /** The normalised sheets' non-blank rows, by name, read by one streaming reader. */
 async function readSheets(zip: Buffer, names: readonly string[], limits: XlsxLimits): Promise<Map<string, SheetRow[]>> {
-  const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([zip]), {
+  const reader = new ExcelJS.stream.xlsx.WorkbookReader(readerInput(zip), {
     worksheets: 'emit', sharedStrings: 'cache', styles: 'cache', hyperlinks: 'ignore', entries: 'ignore',
   });
   const out = new Map<string, SheetRow[]>();

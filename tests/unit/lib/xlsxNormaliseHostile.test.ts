@@ -74,7 +74,8 @@ describe('SEC-H1: no regex backtracking on workbook.xml or its rels', () => {
       expect(first.ms).toBeLessThan(FAST_MS);
       const named = await timed(() => normaliseXlsxSheets(crafted, ['_meta'], { maxBytes: 8 * MB }));
       expect(named.ms).toBeLessThan(FAST_MS);
-      expect(named.err).toBeNull();
+      // These lists are not well-formed XML, so the part scan (round 3) refuses them; the point is the time.
+      if (named.err !== null) expect(named.err).toBeInstanceOf(SpreadsheetRefusedError);
     }
   }, 60000);
 });
