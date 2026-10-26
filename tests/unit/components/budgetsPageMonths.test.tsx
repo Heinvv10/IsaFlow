@@ -4,7 +4,8 @@
  * what it saves is exactly those months.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { formatCents } from '@/lib/money/formatMoney';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, script } from '../helpers/d2R3a5';
@@ -43,7 +44,15 @@ const posted = (urlPart: string) => {
   const call = vi.mocked(apiFetch).mock.calls.find(([u, init]) => String(u).includes(urlPart) && init?.method === 'POST');
   return call ? JSON.parse(String((call[1] as RequestInit).body)) : undefined;
 };
-const input = (key: string) => screen.getByTestId(`budget-month-${key}`) as HTMLInputElement;
+const input = (key: string) => within(screen.getByTestId(`budget-month-${key}`)).getByRole('textbox') as HTMLInputElement;
+const annual = () => screen.getByLabelText(/Annual amount/) as HTMLInputElement;
+/** What a MoneyField shows for `cents` once committed. */
+const shown = (cents: number) => formatCents(cents, { symbol: false });
+/** Type `text` and leave the field: MoneyField parses on blur. */
+function enter(el: HTMLInputElement, text: string) {
+  fireEvent.change(el, { target: { value: text } });
+  fireEvent.blur(el);
+}
 
 describe('budgets page, 14-month transition year', () => {
   it('shows the year with its range and 14 month columns, with the row total', async () => {
@@ -67,10 +76,10 @@ describe('budgets page, 14-month transition year', () => {
     await screen.findByRole('option', { name: /Rent/ });
     expect(KEYS.map(k => input(k).value)).toEqual(Array(14).fill(''));
     fireEvent.change(screen.getByText('Select GL Account *').closest('select')!, { target: { value: 'g1' } });
-    fireEvent.change(screen.getByPlaceholderText('Annual Amount *'), { target: { value: '14000' } });
-    expect(KEYS.map(k => input(k).value)).toEqual(Array(14).fill('1000'));
-    fireEvent.change(input('2027-02'), { target: { value: '1500' } });
-    expect((screen.getByPlaceholderText('Annual Amount *') as HTMLInputElement).value).toBe('14500');
+    enter(annual(), '14000');
+    expect(KEYS.map(k => input(k).value)).toEqual(Array(14).fill(shown(100000)));
+    enter(input('2027-02'), '1500');
+    expect(annual().value).toBe(shown(1450000));
 
     fireEvent.submit(screen.getByTestId('budget-save').closest('form')!);
     await waitFor(() => expect(posted('/api/accounting/budgets')).toBeDefined());
@@ -84,10 +93,10 @@ describe('budgets page, 14-month transition year', () => {
     render(<BudgetsPage />);
     await screen.findByText('Sales');
     fireEvent.click(screen.getByTitle('Edit'));
-    expect(KEYS.map(k => input(k).value)).toEqual(KEYS.map((_, i) => String((i + 1) * 100)));
+    expect(KEYS.map(k => input(k).value)).toEqual(KEYS.map((_, i) => shown((i + 1) * 10000)));
     expect((screen.getByText('4000 — Sales').closest('select') as HTMLSelectElement).disabled).toBe(true);
-    fireEvent.change(input('2026-01'), { target: { value: '0' } });
-    expect((screen.getByPlaceholderText('Annual Amount *') as HTMLInputElement).value).toBe('10400');
+    enter(input('2026-01'), '0');
+    expect(annual().value).toBe(shown(1040000));
   });
 
   it('delete names the account and the year, and copy targets the next listed year (label 2027 does not exist)', async () => {
