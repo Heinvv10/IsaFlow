@@ -71,6 +71,10 @@ describe('pasteInto', () => {
     expect(pasteInto(rect(1, 2, 1, 2), parseClipboard('1\t2\t3').rows, grid())).toMatchObject({ skipped: 1 });
   });
 
+  it('a selection with no line row pastes nothing', () => {
+    expect(pasteInto(rect(3, 0, 4, 1), parseClipboard('1\t2\n3\t4').rows, grid())).toEqual({ writes: [], skipped: 0, invalid: [] });
+  });
+
   it('a read-only target is never written', () => {
     const r = pasteInto(rect(6, 1, 6, 1), parseClipboard('9').rows, grid());
     expect(r.writes).toEqual([]);

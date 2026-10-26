@@ -83,7 +83,9 @@ export function rebaseDirty(original: CellMap, fresh: CellMap, dirty: CellMap): 
     const ref = parseKey(key);
     const g = grainOf(ref);
     const theirs = now.get(ref.glAccountId);
-    const regrained = theirs !== undefined && theirs !== before.get(ref.glAccountId) && theirs !== (g === 'multi' ? 'mixed' : g);
+    // A clear of mine that fresh already shows as empty is no conflict, whatever the grain did.
+    const settled = mine === null && current === null;
+    const regrained = !settled && theirs !== undefined && theirs !== before.get(ref.glAccountId) && theirs !== (g === 'multi' ? 'mixed' : g);
     if (regrained || (current !== valueIn(original, key) && current !== mine)) conflicts.push(key);
     values.set(key, mine);
     if (mine !== current) stillDirty.set(key, mine);
