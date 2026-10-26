@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { PeriodControl } from '@/components/accounting/PeriodControl';
 import { ActiveFilterChips, periodChipLabel } from '@/components/accounting/ActiveFilterChips';
+import { typeDate } from '../../helpers/typeDate';
 
 describe('PeriodControl', () => {
   it('a month deep link opens in month mode and a picked month emits the whole month', () => {
@@ -20,7 +21,7 @@ describe('PeriodControl', () => {
     const onChange = vi.fn();
     render(<PeriodControl from="2026-06-02" to="2026-06-30" onChange={onChange} inputClassName="" />);
     expect(screen.getByLabelText('Invoice date period')).toHaveProperty('value', 'custom');
-    fireEvent.change(screen.getByLabelText('Invoice date to'), { target: { value: '2026-07-15' } });
+    typeDate(screen.getByLabelText('Invoice date to'), '2026-07-15');
     expect(onChange).toHaveBeenLastCalledWith('2026-06-02', '2026-07-15');
   });
 

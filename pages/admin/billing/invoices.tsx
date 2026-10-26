@@ -5,6 +5,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Send, CreditCard } from 'lucide-react';
+import { DateField } from '@/components/ui/DateField';
 
 interface Invoice {
   id: string;
@@ -174,8 +175,8 @@ export default function InvoicesPage() {
           <option value="cancelled">Cancelled</option>
           <option value="credited">Credited</option>
         </select>
-        <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} className={inputCls} title="From date" />
-        <input type="date" value={dateTo}   onChange={e => { setDateTo(e.target.value);   setPage(1); }} className={inputCls} title="To date" />
+        <DateField label="From date" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) { setDateFrom(iso ?? ''); setPage(1); } }} />
+        <DateField label="To date" value={dateTo || null} onChange={(iso, v) => { if (v.valid) { setDateTo(iso ?? ''); setPage(1); } }} />
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center ml-auto">{total} total</span>
         <button onClick={() => { setShowForm(true); setFormError(''); setForm(EMPTY_FORM); }}
           className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors">

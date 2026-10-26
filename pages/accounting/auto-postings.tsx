@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { AlertCircle, FileSpreadsheet, Filter, Loader2, Shield } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 
 interface AutoEntry {
   id: string;
@@ -156,18 +157,15 @@ export default function AutoPostingsPage() {
                 <option key={src} value={src}>{sourceLabel(src)} ({n})</option>
               ))}
             </select>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => { setPage(0); setFromDate(e.target.value); }}
-              className="px-3 py-1.5 text-sm rounded-md border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]"
+            <DateField
+              label="From"
+              value={fromDate || null}
+              onChange={(iso, v) => { if (v.valid) { setPage(0); setFromDate(iso ?? ''); } }}
             />
-            <span className="text-sm text-[var(--ff-text-secondary)]">to</span>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => { setPage(0); setToDate(e.target.value); }}
-              className="px-3 py-1.5 text-sm rounded-md border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]"
+            <DateField
+              label="To"
+              value={toDate || null}
+              onChange={(iso, v) => { if (v.valid) { setPage(0); setToDate(iso ?? ''); } }}
             />
             {(sourceFilter || fromDate || toDate) && (
               <button

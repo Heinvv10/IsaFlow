@@ -15,6 +15,7 @@ import {
   ACTION_LABELS,
 } from '@/components/accounting/audit-log/AuditLogTable';
 import type { AuditLogItem, AuditAction } from '@/modules/accounting/services/core/auditTrailService';
+import { DateField } from '@/components/ui/DateField';
 
 interface Filters {
   entityType: string;
@@ -177,20 +178,8 @@ export default function AuditLogPage() {
                   <option key={a} value={a}>{ACTION_LABELS[a]}</option>
                 ))}
               </select>
-              <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={e => handleFilterChange('dateFrom', e.target.value)}
-                title="From date"
-                className="px-3 py-2 text-sm bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-              />
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={e => handleFilterChange('dateTo', e.target.value)}
-                title="To date"
-                className="px-3 py-2 text-sm bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-              />
+              <DateField label="From date" value={filters.dateFrom || null} onChange={(iso, v) => { if (v.valid) handleFilterChange('dateFrom', iso ?? ''); }} />
+              <DateField label="To date" value={filters.dateTo || null} onChange={(iso, v) => { if (v.valid) handleFilterChange('dateTo', iso ?? ''); }} />
             </div>
           </div>
 

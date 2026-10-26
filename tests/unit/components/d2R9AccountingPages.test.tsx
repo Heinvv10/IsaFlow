@@ -43,6 +43,7 @@ import GroupDashboardPage from '../../../pages/accounting/group/index';
 import NewPracticeJobPage from '../../../pages/accounting/practice/jobs/new';
 import JobDetailPage from '../../../pages/accounting/practice/jobs/[id]';
 import ReportPacksPage from '../../../pages/accounting/reports/report-packs';
+import { typeDate } from '../../helpers/typeDate';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -131,7 +132,7 @@ describe('fixed asset register report', () => {
       : new Response(JSON.stringify({ success: false, error: 'raw boom' }), { status: 200 }))));
     render(<FarReportPage />);
     expect(await screen.findByText('D2 Excavator')).toBeTruthy();
-    fireEvent.change(document.querySelector('input[type="date"]') as HTMLInputElement, { target: { value: '2025-06-30' } });
+    typeDate(document.querySelector('input[placeholder="dd MMM yyyy"]') as HTMLInputElement, '2025-06-30');
     expect(await screen.findByText('Could not load the report - try again')).toBeTruthy();
     expect(screen.queryByText('D2 Excavator')).toBeNull();
     expect(document.body.textContent).not.toMatch(/raw boom|Failed to load report/);

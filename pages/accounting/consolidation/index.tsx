@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { AlertCircle, Loader2, ChevronRight, Calendar, BarChart3 } from 'lucide-react';
+import { AlertCircle, Loader2, ChevronRight, BarChart3 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AddSubsidiaryModal } from '@/components/accounting/consolidation/AddSubsidiaryModal';
 import { GroupCompaniesSection } from '@/components/accounting/consolidation/GroupCompaniesSection';
@@ -15,6 +15,7 @@ import type {
   ConsolidatedTrialBalance,
 } from '@/modules/accounting/services/reports/consolidationTypes';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -117,28 +118,20 @@ export default function ConsolidationPage() {
 
           {/* Date controls */}
           <div className="flex flex-wrap items-end gap-4 px-6 py-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Period Start</label>
-              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                <Calendar className="h-4 w-4 text-gray-500" />
-                <input
-                  type="date" name="periodStart" value={periodStart}
-                  onChange={(e) => setPeriodStart(e.target.value)}
-                  className="bg-transparent text-sm text-slate-900 dark:text-white focus:outline-none"
-                />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Period End</label>
-              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                <Calendar className="h-4 w-4 text-gray-500" />
-                <input
-                  type="date" name="periodEnd" value={periodEnd}
-                  onChange={(e) => setPeriodEnd(e.target.value)}
-                  className="bg-transparent text-sm text-slate-900 dark:text-white focus:outline-none"
-                />
-              </div>
-            </div>
+            <DateField
+              label="Period Start"
+              name="periodStart"
+              required
+              value={periodStart || null}
+              onChange={(iso, v) => { if (v.valid && iso) setPeriodStart(iso); }}
+            />
+            <DateField
+              label="Period End"
+              name="periodEnd"
+              required
+              value={periodEnd || null}
+              onChange={(iso, v) => { if (v.valid && iso) setPeriodEnd(iso); }}
+            />
             <button
               onClick={runReport}
               disabled={loadingReport || groupCompanies.length === 0}

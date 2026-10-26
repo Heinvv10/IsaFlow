@@ -36,6 +36,7 @@ vi.mock('@/components/accounting/bank/BankAccountModals', () => ({
 import { notify } from '@/utils/toast';
 import ARAgingPage from '../../../pages/accounting/ar-aging/index';
 import BankAccountsPage from '../../../pages/accounting/bank-accounts/index';
+import { typeDate } from '../../helpers/typeDate';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); vi.mocked(notify.error).mockClear(); vi.mocked(notify.success).mockClear(); });
@@ -65,7 +66,7 @@ describe('ar-aging', () => {
     script(u => (u.includes('as_at_date=2025-03-01') ? empty500() : u.includes('ar-aging?') ? ok([BUCKET]) : undefined));
     const { container } = render(<ARAgingPage />);
     await screen.findByText('D2 Debtor Ltd');
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2025-03-01' } });
+    typeDate(container.querySelector('input[placeholder="dd MMM yyyy"]')!, '2025-03-01');
     expect(await screen.findByText('Could not load AR aging - try again')).toBeTruthy();
     await waitFor(() => expect(screen.queryByText('D2 Debtor Ltd')).toBeNull());
     expectNoRawError();

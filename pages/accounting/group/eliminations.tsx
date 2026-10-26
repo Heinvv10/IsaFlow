@@ -10,7 +10,6 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   fmt,
   selectClass,
-  inputClass,
   type EliminationType,
   type EliminationLine,
   type EliminationAdjustment,
@@ -19,6 +18,7 @@ import {
 import { EliminationsTable } from '@/components/accounting/group/EliminationsTable';
 import { EliminationsCreateModal } from '@/components/accounting/group/EliminationsCreateModal';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 interface EntityGroup { id: string; name: string; }
 
@@ -184,8 +184,8 @@ export default function EliminationsPage() {
                 {groups.length === 0 && <option value="">No groups</option>}
                 {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
-              <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className={inputClass} />
-              <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className={inputClass} />
+              <DateField label="Period start" required value={periodStart || null} onChange={(iso, v) => { if (v.valid && iso) setPeriodStart(iso); }} />
+              <DateField label="Period end" required value={periodEnd || null} onChange={(iso, v) => { if (v.valid && iso) setPeriodEnd(iso); }} />
               <button
                 onClick={handleAutoGenerate}
                 disabled={!selectedGroupId || actionLoading === 'auto-generate'}
