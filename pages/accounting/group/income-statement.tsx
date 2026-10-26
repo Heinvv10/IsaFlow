@@ -9,6 +9,7 @@ import { BarChart3, Loader2, AlertCircle, Download, Building2 } from 'lucide-rea
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -56,7 +57,6 @@ const fmt = (n: number) => formatMoney(n);
 
 const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
-const inputClass = selectClass;
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -261,19 +261,19 @@ export default function ConsolidatedIncomeStatementPage() {
                   <option key={g.id} value={g.id}>{g.name}</option>
                 ))}
               </select>
-              <input
-                type="date"
+              <DateField
+                label="Period start"
                 name="periodStart"
-                value={periodStart}
-                onChange={e => setPeriodStart(e.target.value)}
-                className={inputClass}
+                required
+                value={periodStart || null}
+                onChange={(iso, v) => { if (v.valid && iso) setPeriodStart(iso); }}
               />
-              <input
-                type="date"
+              <DateField
+                label="Period end"
                 name="periodEnd"
-                value={periodEnd}
-                onChange={e => setPeriodEnd(e.target.value)}
-                className={inputClass}
+                required
+                value={periodEnd || null}
+                onChange={(iso, v) => { if (v.valid && iso) setPeriodEnd(iso); }}
               />
               <button
                 onClick={handleExport}
