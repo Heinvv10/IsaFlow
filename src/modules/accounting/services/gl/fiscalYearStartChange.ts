@@ -209,6 +209,10 @@ export async function assertFinancialYearStartChange(companyId: string, requeste
   if (unlocked === null || unlocked === month) return false; // no row: the UPDATE finds nothing either
   if (als.getStore()?.companyId !== companyId) throw new FinancialYearStartScopeError();
 
+  // A start-month change rebuilds the year registry, as a change of year end does: take that change's
+  // lock (exclusive), so a budget save (budgets/budgetVersionScope.holdYearRegistry, shared) either
+  // commits first and its version counts below, or waits and re-reads the new years.
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`fy-end-change:${companyId}`}, 0))`;
   // Lock, then decide again on what the lock now protects.
   const locked = await readDeclaredStartMonth(companyId, true);
   if (locked === null || locked === month) return false;
