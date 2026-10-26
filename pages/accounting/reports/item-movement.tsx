@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -51,9 +52,8 @@ export default function ItemMovementReport() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="ff-input text-sm" />
-              <span className="text-[var(--ff-text-tertiary)]">to</span>
-              <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
+              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
+              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
               <button onClick={() => window.open(`/api/accounting/reports/item-movement?from=${from}&to=${to}&format=csv`, '_blank')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg">
                 <Download className="h-4 w-4" /> CSV

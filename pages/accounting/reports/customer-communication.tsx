@@ -1,6 +1,7 @@
 /** Customer Communication Report */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -165,19 +166,8 @@ export default function CustomerCommunicationReport() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={e => { setDateFrom(e.target.value); setPage(1); }}
-                className="ff-input text-sm"
-              />
-              <span className="text-[var(--ff-text-tertiary)] text-sm">to</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={e => { setDateTo(e.target.value); setPage(1); }}
-                className="ff-input text-sm"
-              />
+              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) { setDateFrom(iso ?? ''); setPage(1); } }} />
+              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) { setDateTo(iso ?? ''); setPage(1); } }} />
               <button
                 onClick={handleExportCsv}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors"
