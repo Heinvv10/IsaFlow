@@ -47,6 +47,7 @@ export function pasteInto(rect: Rect, matrix: readonly (readonly ParsedCell[])[]
   const months = monthCols(g.shape);
   const only = matrix.length === 1 && matrix[0]?.length === 1 ? matrix[0][0] : undefined;
   const selected = cellsIn(rect, g.shape);
+  if (selected.length === 0) return out.result; // no line row selected: nowhere to paste
   if (only !== undefined && selected.length > 1) {
     const targets = selected.filter(p => p.c < months);
     out.result.skipped += selected.length - targets.length;

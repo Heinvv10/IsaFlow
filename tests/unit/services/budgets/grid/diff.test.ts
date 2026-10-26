@@ -100,6 +100,13 @@ describe('rebaseDirty (409: reload and re-apply mine)', () => {
     expect(rebaseDirty(empty, theirs, new Map([[k('b', '2027-04'), 2]])).conflicts).toEqual([]);
   });
 
+  it('my clears at the old grain are not conflicts when they moved the account too', () => {
+    const cc = (m: string) => `a|cc-1|||${m}`;
+    const fresh = new Map<string, number | null>([[cc('2027-03'), 100]]);
+    const mine = new Map<string, number | null>([[k('a', '2027-03'), null], [k('a', '2027-04'), null], [cc('2027-03'), 100]]);
+    expect(rebaseDirty(original, fresh, mine).conflicts).toEqual([]);
+  });
+
   it('refuses a value that is not whole cents (a caller bug, never a diff)', () => {
     expect(() => diffCells(base, new Map([[k('a', '2027-03'), Number.NaN]]))).toThrow(RangeError);
     expect(() => diffCells(base, new Map([[k('a', '2027-03'), 1.5]]))).toThrow(RangeError);
