@@ -43,9 +43,9 @@ export const ACCENT_CLASSES: Record<AccentColor, AccentTokens> = {
   },
   slate: {
     activeBorder: 'border-slate-500',
-    activeText: 'text-slate-400',
-    activeLinkBg: 'text-slate-400 bg-slate-500/10',
-    activeSectionText: 'text-slate-400',
+    activeText: 'text-slate-700 dark:text-slate-400',
+    activeLinkBg: 'text-slate-700 dark:text-slate-400 bg-slate-500/10',
+    activeSectionText: 'text-slate-700 dark:text-slate-400',
   },
   rose: {
     activeBorder: 'border-rose-500',
