@@ -37,6 +37,8 @@ import type { VoidPaymentResult } from '../core/paymentVoidService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { UNAPPLY_REMEDY } from './provisionalSettlementGuards';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
+import { assertVoidKeepsCredit } from './supplierVoidCredit';
 
 export interface SettlementPaymentRef {
   id: string;
@@ -93,6 +95,10 @@ export async function voidProvisionalSettlement(
       if (tx) clearance = await assertMayReverse(companyId, tx, payment.settlesProvisionalJeId, userId);
     }
 
+    // Wholly unapplied by now (refused above otherwise), so voiding takes its whole total off the supplier's
+    // on-account credit: refused when a refund already returned it. The payment held first, after the bank line.
+    await lockSupplierPaymentForUpdate(companyId, payment.id);
+    await assertVoidKeepsCredit(companyId, [payment.id]);
     const cancelled = (await sql`
       UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
       WHERE id = ${payment.id}::UUID AND company_id = ${companyId}::UUID AND status IN ('processed', 'reconciled')
