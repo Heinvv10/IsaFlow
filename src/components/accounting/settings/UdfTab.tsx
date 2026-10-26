@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Save, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { INPUT_CLS, SECTION_CLS, Toggle } from './settingsTypes';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ function emptySection(entityType: UdfEntityType): SectionState {
 
 function EntitySection({ entityType, label }: { entityType: UdfEntityType; label: string }) {
   const [slots, setSlots] = useState<SectionState>(emptySection(entityType));
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -141,7 +143,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
         }),
       );
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      afterDelay(() => setSaved(false), 3000);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save the field definitions - try again'));
     } finally {

@@ -8,6 +8,7 @@ import {
   Button, Input, Money, MoneyField, DateField, FormSection, AutosaveStatus, ExplainDrawer,
   type AutosaveState, type Explanation,
 } from '@/components/ui';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 const EXPLANATION: Explanation = {
   title: 'How was PAYE calculated?',
@@ -25,11 +26,12 @@ export function FormKitShowcase() {
   const [state, setState] = useState<AutosaveState>('saved');
   const [savedAt, setSavedAt] = useState<number>(() => Date.now());
   const [explain, setExplain] = useState(false);
+  const afterSave = useTimeoutOnce();
 
   const touch = (): void => setState('dirty');
   const save = (): void => {
     setState('saving');
-    setTimeout(() => {
+    afterSave(() => {
       setSavedAt(Date.now());
       setState('saved');
     }, 800);

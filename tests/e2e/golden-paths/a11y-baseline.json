@@ -155,11 +155,6 @@
   ],
   "/accounting/customer-payments/new": [
    {
-    "rule": "color-contrast",
-    "selector": "form > div > div > div > p",
-    "max": 1
-   },
-   {
     "rule": "document-title",
     "selector": "html",
     "max": 1

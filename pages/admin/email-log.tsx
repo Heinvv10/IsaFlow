@@ -7,70 +7,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { Loader2, RefreshCw, Mail, AlertCircle, CheckCircle, Clock, Send } from 'lucide-react';
+import { Loader2, RefreshCw, Mail, AlertCircle } from 'lucide-react';
 import type { EmailLogItem, EmailLogStats } from '../api/admin/email-log';
-import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
+import { EMAIL_TYPES, TYPE_LABELS } from '@/components/admin/emailLog/emailLogLabels';
+import { StatsCards } from '@/components/admin/emailLog/StatsCards';
+import { EmailLogRows } from '@/components/admin/emailLog/EmailLogRows';
+import { useKeyedTimeoutOnce } from '@/hooks/useKeyedTimeoutOnce';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const fmtDate = (d: string) => {
-  if (!d) return '—';
-  return formatDisplayDateTime(d);
-};
-
-const EMAIL_TYPES = ['invoice', 'statement', 'quote', 'payment_receipt', 'invite', 'other'] as const;
-
-const STATUS_COLORS: Record<string, string> = {
-  sent:    'bg-teal-500/10 text-teal-400 border border-teal-500/30',
-  failed:  'bg-red-500/10 text-red-400 border border-red-500/30',
-  bounced: 'bg-amber-500/10 text-amber-400 border border-amber-500/30',
-};
-
-const TYPE_LABELS: Record<string, string> = {
-  invoice:         'Invoice',
-  statement:       'Statement',
-  quote:           'Quote',
-  payment_receipt: 'Payment Receipt',
-  invite:          'Invite',
-  other:           'Other',
-};
-
-// ─── Stats Cards ──────────────────────────────────────────────────────────────
-
-function StatsCards({ stats }: { stats: EmailLogStats }) {
-  return (
-    <div className="grid grid-cols-3 gap-4 mb-6">
-      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-4 flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-teal-500/10">
-          <CheckCircle className="h-5 w-5 text-teal-400" />
-        </div>
-        <div>
-          <p className="text-xs text-gray-600 dark:text-gray-400">Total Sent (30d)</p>
-          <p className="text-xl font-semibold text-slate-900 dark:text-white">{stats.total_sent.toLocaleString()}</p>
-        </div>
-      </div>
-      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-4 flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-red-500/10">
-          <AlertCircle className="h-5 w-5 text-red-400" />
-        </div>
-        <div>
-          <p className="text-xs text-gray-600 dark:text-gray-400">Failed (30d)</p>
-          <p className="text-xl font-semibold text-slate-900 dark:text-white">{stats.total_failed.toLocaleString()}</p>
-        </div>
-      </div>
-      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-4 flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-blue-500/10">
-          <Clock className="h-5 w-5 text-blue-400" />
-        </div>
-        <div>
-          <p className="text-xs text-gray-600 dark:text-gray-400">Success Rate</p>
-          <p className="text-xl font-semibold text-slate-900 dark:text-white">{stats.success_rate}%</p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -79,6 +24,7 @@ export default function EmailLogPage() {
   const [total, setTotal]   = useState(0);
   const [page, setPage]     = useState(1);
   const [loading, setLoading] = useState(true);
+  const afterResend = useKeyedTimeoutOnce();
   const [error, setError]   = useState<string | null>(null);
   const [stats, setStats]   = useState<EmailLogStats>({ total_sent: 0, total_failed: 0, success_rate: 100 });
 
@@ -127,10 +73,10 @@ export default function EmailLogPage() {
       const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ logId }), credentials: 'include' });
       await assertOk(res, 'Could not resend the email - try again');
       setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));
-      setTimeout(() => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
+      afterResend(logId, () => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
     } catch {
       setResendStatus(prev => ({ ...prev, [logId]: 'err' }));
-      setTimeout(() => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
+      afterResend(logId, () => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
     } finally {
       setResendingId(null);
     }
@@ -267,85 +213,14 @@ export default function EmailLogPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-300 dark:divide-gray-700">
-                    {items.map(item => {
-                      const isFailed  = item.status === 'failed';
-                      const isExpanded = expandedId === item.id;
-                      return (
-                        <>
-                          <tr
-                            key={item.id}
-                            className={`transition-colors cursor-pointer ${ isFailed ? 'bg-red-900/10 hover:bg-red-900/20' : 'hover:bg-gray-100 dark:hover:bg-gray-700/30' }`}
-                            onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                          >
-                            <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                              {fmtDate(item.sent_at)}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[140px] truncate">
-                              {item.company_name ?? <span className="italic text-gray-500">—</span>}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[180px] truncate">
-                              {item.recipient_email}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[220px] truncate">
-                              {item.subject}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
-                              {TYPE_LABELS[item.email_type] ?? item.email_type}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`inline-block px-2 py-0.5 text-xs rounded-full capitalize ${STATUS_COLORS[item.status] ?? ''}`}>
-                                {item.status}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                              {isFailed && (
-                                resendStatus[item.id] === 'ok' ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-teal-400 border border-teal-500/30 rounded-full">
-                                    <CheckCircle className="w-3 h-3" /> Sent
-                                  </span>
-                                ) : resendStatus[item.id] === 'err' ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-red-400 border border-red-500/30 rounded-full">
-                                    <AlertCircle className="w-3 h-3" /> Failed
-                                  </span>
-                                ) : (
-                                  <button
-                                    onClick={() => void handleResend(item.id)}
-                                    disabled={resendingId === item.id}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-400 border border-amber-500/40 rounded hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
-                                  >
-                                    {resendingId === item.id
-                                      ? <Loader2 className="w-3 h-3 animate-spin" />
-                                      : <Send className="w-3 h-3" />}
-                                    Resend
-                                  </button>
-                                )
-                              )}
-                            </td>
-                          </tr>
-                          {isExpanded && item.error_message && (
-                            <tr key={`${item.id}-err`} className="bg-red-900/10">
-                              <td colSpan={7} className="px-6 py-2">
-                                <p className="text-xs text-red-400 font-mono break-all">
-                                  Error: {item.error_message}
-                                </p>
-                              </td>
-                            </tr>
-                          )}
-                          {isExpanded && !item.error_message && (
-                            <tr key={`${item.id}-detail`} className="bg-gray-100 dark:bg-gray-700/20">
-                              <td colSpan={7} className="px-6 py-2">
-                                <p className="text-xs text-gray-600 dark:text-gray-400">
-                                  ID: <span className="font-mono text-gray-700 dark:text-gray-300">{item.id}</span>
-                                  {item.sent_by && (
-                                    <> · Sent by: <span className="font-mono text-gray-700 dark:text-gray-300">{item.sent_by}</span></>
-                                  )}
-                                </p>
-                              </td>
-                            </tr>
-                          )}
-                        </>
-                      );
-                    })}
+                    <EmailLogRows
+                      items={items}
+                      expandedId={expandedId}
+                      onToggle={id => setExpandedId(expandedId === id ? null : id)}
+                      resendStatus={resendStatus}
+                      resendingId={resendingId}
+                      onResend={id => void handleResend(id)}
+                    />
                   </tbody>
                 </table>
               </div>
