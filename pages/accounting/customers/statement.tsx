@@ -24,6 +24,7 @@ import { localISODate } from '@/lib/dateUtils';
 import {
   CustomerStatementPreview, type Customer, type StatementResult,
 } from '@/components/accounting/statements/CustomerStatementPreview';
+import { DateField } from '@/components/ui/DateField';
 
 export default function CustomerStatementPage() {
   // Form state
@@ -209,14 +210,12 @@ export default function CustomerStatementPage() {
 
               {/* Date Range */}
               <div>
-                <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">From Date</label>
-                <input type="date" name="dateFrom" value={fromDate} onChange={e => setFromDate(e.target.value)}
-                  className="ff-input w-full" />
+                <DateField label="From Date" name="dateFrom" required value={fromDate || null}
+                  onChange={(iso, v) => { if (v.valid && iso) setFromDate(iso); }} />
               </div>
               <div>
-                <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">To Date</label>
-                <input type="date" name="dateTo" value={toDate} onChange={e => setToDate(e.target.value)}
-                  className="ff-input w-full" />
+                <DateField label="To Date" name="dateTo" required value={toDate || null}
+                  onChange={(iso, v) => { if (v.valid && iso) setToDate(iso); }} />
               </div>
             </div>
 

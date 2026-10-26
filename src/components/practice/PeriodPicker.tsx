@@ -5,6 +5,7 @@
  */
 import { useState } from 'react';
 import { localISODate, monthEndISO, monthStartISO, prevMonthRange } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 export type PeriodPreset = 'this_month' | 'last_month' | 'this_quarter' | 'ytd' | 'last_year' | 'custom';
 export type AsofPreset = 'today' | 'month_end' | 'quarter_end' | 'custom';
@@ -54,7 +55,6 @@ export function resolveAsof(preset: AsofPreset): string | null {
 }
 
 // ---------- styles ----------
-const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40';
 const PILL = 'px-3 py-1 rounded-full text-xs border transition-colors cursor-pointer';
 const ACTIVE = 'bg-slate-900 text-white border-slate-700';
 const IDLE = 'bg-transparent text-[var(--ff-text-secondary)] border-[var(--ff-border-primary)] hover:border-slate-500';
@@ -87,14 +87,10 @@ export function PeriodPicker({ mode = 'range', value, onChange, labelRange, labe
           ))}
         </div>
         <div className="flex flex-wrap gap-4 items-end">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-[var(--ff-text-secondary)]">{labelRange?.from ?? 'From'}</label>
-            <input type="date" className={INPUT} value={rv.dateFrom} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-[var(--ff-text-secondary)]">{labelRange?.to ?? 'To'}</label>
-            <input type="date" className={INPUT} value={rv.dateTo} onChange={(e) => setTo(e.target.value)} />
-          </div>
+          <DateField label={labelRange?.from ?? 'From'} required value={rv.dateFrom || null}
+            onChange={(iso, v) => { if (v.valid && iso) setFrom(iso); }} />
+          <DateField label={labelRange?.to ?? 'To'} required value={rv.dateTo || null}
+            onChange={(iso, v) => { if (v.valid && iso) setTo(iso); }} />
         </div>
       </div>
     );
@@ -111,10 +107,8 @@ export function PeriodPicker({ mode = 'range', value, onChange, labelRange, labe
           <button key={key} type="button" onClick={() => pickAsof(key)} className={`${PILL} ${preset === key ? ACTIVE : IDLE}`}>{label}</button>
         ))}
       </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-xs font-medium text-[var(--ff-text-secondary)]">{labelAsOf ?? 'As of'}</label>
-        <input type="date" className={INPUT} value={av.asOfDate} onChange={(e) => setAsof(e.target.value)} />
-      </div>
+      <DateField label={labelAsOf ?? 'As of'} required value={av.asOfDate || null}
+        onChange={(iso, v) => { if (v.valid && iso) setAsof(iso); }} />
     </div>
   );
 }

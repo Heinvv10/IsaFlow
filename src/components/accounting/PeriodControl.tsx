@@ -4,7 +4,9 @@
  */
 
 import { useEffect, useState } from 'react';
+import { localDateFromISO } from '@/lib/dateUtils';
 import { currentMonth, monthRange, wholeMonthOf } from './invoicePeriod';
+import { DateField } from '@/components/ui/DateField';
 
 type Mode = 'all' | 'month' | 'custom';
 
@@ -13,6 +15,11 @@ interface Props {
   to: string;
   onChange: (from: string, to: string) => void;
   inputClassName: string;
+}
+
+/** A bound DateField can take: the URL can hold anything, and DateField throws on a non-ISO bound. */
+function boundOrUndefined(iso: string): string | undefined {
+  return iso && localDateFromISO(iso) !== null ? iso : undefined;
 }
 
 function modeOf(from: string, to: string): Mode {
@@ -68,11 +75,14 @@ export function PeriodControl({ from, to, onChange, inputClassName }: Props) {
       )}
       {mode === 'custom' && (
         <>
-          <input type="date" name="from" aria-label="Invoice date from" value={from} max={to || undefined}
-            onChange={e => onChange(e.target.value, to)} className={inputClassName} />
-          <span className="text-[var(--ff-text-tertiary)] text-sm">to</span>
-          <input type="date" name="to" aria-label="Invoice date to" value={to} min={from || undefined}
-            onChange={e => onChange(from, e.target.value)} className={inputClassName} />
+          <div className="w-40">
+            <DateField label="Invoice date from" name="from" value={from || null} maxDate={boundOrUndefined(to)}
+              onChange={(iso, v) => { if (v.valid) onChange(iso ?? '', to); }} />
+          </div>
+          <div className="w-40">
+            <DateField label="Invoice date to" name="to" value={to || null} minDate={boundOrUndefined(from)}
+              onChange={(iso, v) => { if (v.valid) onChange(from, iso ?? ''); }} />
+          </div>
         </>
       )}
     </div>

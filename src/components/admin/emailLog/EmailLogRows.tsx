@@ -28,7 +28,7 @@ export function EmailLogRows({ items, expandedId, onToggle, resendStatus, resend
               {fmtDate(item.sent_at)}
             </td>
             <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[140px] truncate">
-              {item.company_name ?? <span className="italic text-gray-500">—</span>}
+              {item.company_name ?? <span className="italic text-gray-500 dark:text-gray-400">—</span>}
             </td>
             <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[180px] truncate">
               {item.recipient_email}
@@ -52,7 +52,7 @@ export function EmailLogRows({ items, expandedId, onToggle, resendStatus, resend
                   </span>
                 ) : resendStatus[item.id] === 'err' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-red-400 border border-red-500/30 rounded-full">
-                    <AlertCircle className="w-3 h-3" /> Failed
+                    <AlertCircle className="w-3 h-3" /> Resend failed
                   </span>
                 ) : (
                   <button

@@ -20,19 +20,35 @@ describe('getActiveModuleId (unchanged route mapping)', () => {
 });
 
 describe('getActiveTabId (top-bar wrapper)', () => {
-  it('collapses demoted modules to "library"', () => {
-    expect(getActiveTabId('/accounting/customers', q)).toBe('library');
+  it('returns the module id for the promoted modules', () => {
+    expect(getActiveTabId('/accounting/customers', q)).toBe('sales');
+    expect(getActiveTabId('/accounting/customer-invoices/new', q)).toBe('sales');
+    expect(getActiveTabId('/accounting/suppliers', q)).toBe('purchases');
+    expect(getActiveTabId('/payroll', q)).toBe('payroll');
+    expect(getActiveTabId('/payroll/runs/123', q)).toBe('payroll');
+    expect(getActiveTabId('/accounting/sars/vat201', q)).toBe('tax');
+    expect(getActiveTabId('/accounting/reports/income-statement', q)).toBe('reports');
+  });
+  it('collapses the library-only modules to "library"', () => {
+    expect(getActiveTabId('/accounting/items', q)).toBe('library');
     expect(getActiveTabId('/accounting/chart-of-accounts', q)).toBe('library');
-    expect(getActiveTabId('/payroll', q)).toBe('library');
     expect(getActiveTabId('/accounting/practice/clients', q)).toBe('library');
     expect(getActiveTabId('/accounting/library', q)).toBe('library');
   });
-  it('passes through promoted + non-module ids unchanged', () => {
+  it('passes through non-module ids unchanged', () => {
     expect(getActiveTabId('/accounting', q)).toBe('dashboard');
     expect(getActiveTabId('/accounting/portfolio-workbench', q)).toBe('portfolio');
     expect(getActiveTabId('/accounting/month-end-workbench', q)).toBe('workbench');
     expect(getActiveTabId('/accounting/bank-transactions', q)).toBe('banking');
     expect(getActiveTabId('/accounting/company-settings', q)).toBe('settings');
+  });
+});
+
+describe('Trial Balance belongs to Reports', () => {
+  it('lights the Reports tab and module, not Library', () => {
+    expect(getActiveModuleId('/accounting/trial-balance', q)).toBe('reports');
+    expect(getActiveTabId('/accounting/trial-balance', q)).toBe('reports');
+    expect(getActiveTabId('/accounting/trial-balance/export', q)).toBe('reports');
   });
 });
 
@@ -61,6 +77,13 @@ describe('mostSpecificActiveHref', () => {
     expect(mostSpecificActiveHref(['/s?t=1', '/s'], '/s?t=1')).toBe('/s?t=1');
     // a one-char query must still beat no query
     expect(mostSpecificActiveHref(['/s', '/s?x'], '/s?x')).toBe('/s?x');
+  });
+
+  it('an exact-only link owns its own path but not its sub-pages', () => {
+    expect(mostSpecificActiveHref(['/accounting/sars'], '/accounting/sars')).toBe('/accounting/sars');
+    expect(mostSpecificActiveHref(['/accounting/sars'], '/accounting/sars/vat201')).toBeNull();
+    expect(mostSpecificActiveHref(['/accounting/sars'], '/accounting/sars?x=1#top')).toBe('/accounting/sars');
+    expect(mostSpecificActiveHref(['/accounting'], '/accounting/customers')).toBeNull();
   });
 
   it('is null when nothing matches', () => {

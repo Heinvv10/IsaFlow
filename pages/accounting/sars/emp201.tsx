@@ -15,6 +15,7 @@ import { formatDate } from '@/utils/formatters';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Emp201DirectivePayments, type Emp201DirectivePaymentRow } from '@/components/payroll/Emp201DirectivePayments';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 interface EMP201PayrollRun {
   id: string;
@@ -211,24 +212,8 @@ export default function EMP201Page() {
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
             <h2 className="text-sm font-medium text-[var(--ff-text-secondary)] mb-3">Payroll Period</h2>
             <div className="flex flex-wrap items-end gap-4">
-              <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">To</label>
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm"
-                />
-              </div>
+              <DateField label="From" required value={from || null} onChange={(iso, v) => { if (v.valid && iso) setFrom(iso); }} />
+              <DateField label="To" required value={to || null} onChange={(iso, v) => { if (v.valid && iso) setTo(iso); }} />
               <button
                 onClick={generate}
                 disabled={loading}
