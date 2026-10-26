@@ -6,8 +6,10 @@
  *     validated before the read model loads.
  *   - QA-6: a corrupt zip that starts with PK is a 400, not a 500. SEC-L2: an impossible date cell
  *     is a cell error, not a 500. SEC-M1: errors are capped and echoed text is clipped.
- *   - SEC-L1: every uploaded temp file is removed, whatever field it came in on, and on refusal.
- *     SEC-L3: few, small fields. SEC-L5: refusal logs carry company and user.
+ *   - Round 9 (R2): the upload is JSON `{ versionId, fileName?, fileData }` with the file as base64:
+ *     other keys, a body that is not base64, a decoded file over MAX_FILE_BYTES are 400; the file
+ *     never touches the disk (SEC-L1's temp files are gone with formidable). SEC-L5: refusal logs
+ *     carry company and user. The version is confirmed before the file is parsed.
  *   - Round 2: hostile XML through the route (BRK2-N1/N4, SEC2-L3: deep nesting, a `<c>` with no
  *     `r`, a DOCTYPE) and a 23 MB styles part (BRK2-N6) are fast 400s with neutral messages;
  *     15 000 copies of one row (SEC2-M1) are grouped in linear time; Q5: previews are rate limited.
@@ -15,17 +17,13 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
-import { Readable } from 'node:stream';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import templateRoute from '../../pages/api/accounting/budget-grid/template';
-import previewRoute from '../../pages/api/accounting/budget-grid/import-preview';
+import previewRoute, { MAX_FILE_BYTES } from '../../pages/api/accounting/budget-grid/import-preview';
 import { log } from '@/lib/logger';
-import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
+import { MAX_IMPORT_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
-import { budgetSheet, col, downloadTemplate, editWorkbook, rowOf, setCell, uploadParts, uploadPreview, uploadStream, withParts } from './helpers/budgetImportFixture';
+import { budgetSheet, col, downloadTemplate, editWorkbook, postPreview, rowOf, setCell, uploadPreview, withParts } from './helpers/budgetImportFixture';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -73,9 +71,23 @@ describe('BRK-H2: one bounded pass', () => {
     expect(r.body.error?.message).toMatch(/different texts/i);
   }, 60000);
 
-  it('the file is checked before the version is: a corrupt file for another company\'s version is 400', async () => {
+  it('round 9: the version is checked before the file is: a corrupt file for another company\'s (or no) version is 404, unparsed', async () => {
     const corrupt = file.subarray(0, Math.floor(file.length / 2));
-    expect((await preview(corrupt, vB)).status).toBe(400);
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      expect((await preview(corrupt, vB)).status).toBe(404);
+      expect((await preview(corrupt, crypto.randomUUID())).status).toBe(404);
+      expect(warn.mock.calls.filter(([m]) => /workbook refused|parser failed/i.test(String(m)))).toEqual([]); // never parsed
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('round 9: a version on a financial-year label the registry does not have is 404, not 500', async () => {
+    // Label 1 belongs to no year (the read route answers it 404 too); the version row itself exists.
+    const vC = await fx.version(A, { fy: 1, name: 'No year' });
+    const r = await uploadPreview(previewRoute, A.owner, vC, file);
+    expect([r.status, r.body.error?.message], JSON.stringify(r.body).slice(0, 300)).toEqual([404, expect.stringMatching(/financial year/i)]);
   });
 
   it('QA-6: a corrupt zip that starts with PK is a 400', async () => {
@@ -104,7 +116,7 @@ describe('round 2: hostile XML and styles through the route', () => {
 
 describe('cell and row refusals stay cell and row errors', () => {
   it('SEC2-M1: 15 000 copies of one row are grouped in linear time; each error names a few other rows', async () => {
-    const n = Math.min(15000, Math.floor(MAX_SAVE_CELLS / 12) - 20); // under the import's row limit
+    const n = Math.min(15000, Math.floor(MAX_IMPORT_CELLS / 12) - 20); // under the import's row limit
     const copies = await editWorkbook(file, (wb) => {
       const ws = budgetSheet(wb);
       for (let i = 0; i < n; i++) ws.addRow(['Revenue', '4000', 'Sales', i]);
@@ -134,14 +146,14 @@ describe('cell and row refusals stay cell and row errors', () => {
     const vT = await fx.version(T, { name: 'Long year' });
     const t = await template(T, vT);
     expect(t.status).toBe(200);
-    const n = Math.floor(MAX_SAVE_CELLS / 14) + 1; // over the save's cap at 14 months, under the reader's row limit
+    const n = Math.floor(MAX_IMPORT_CELLS / 14) + 1; // over the import's cap at 14 months, under the reader's row limit
     const long = await editWorkbook(t.file!, (wb) => {
       const ws = budgetSheet(wb);
       for (let i = 0; i < n; i++) ws.addRow(['Expenses', `Z${i}`, 'x', 1]);
     });
     const r = await uploadPreview(previewRoute, T.owner, vT, long);
     expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(400);
-    expect(r.body.error?.message).toMatch(new RegExp(`14 months.*${MAX_SAVE_CELLS}|${MAX_SAVE_CELLS}.*14 months`));
+    expect(r.body.error?.message).toMatch(new RegExp(`14 months.*${MAX_IMPORT_CELLS}|${MAX_IMPORT_CELLS}.*14 months`));
     expect((await uploadPreview(previewRoute, T.owner, vT, t.file!)).status).toBe(200);
   }, 300000);
 
@@ -161,46 +173,57 @@ describe('cell and row refusals stay cell and row errors', () => {
   }, 60000);
 });
 
-describe('the upload itself', () => {
-  /** Uploaded temp files still holding `marker`, made since `since`: in the temp dir, or one directory down. */
-  function leftovers(marker: Buffer, since: number): string[] {
-    const dir = os.tmpdir();
-    const recent = (p: string) => { try { return fs.statSync(p).mtimeMs >= since - 1000; } catch { return false; } };
-    const below = fs.readdirSync(dir).map((n) => path.join(dir, n)).filter(recent);
-    const all = below.flatMap((p) => { try { return fs.statSync(p).isDirectory() ? fs.readdirSync(p).map((n) => path.join(p, n)) : [p]; } catch { return []; } });
-    return all.filter((p) => {
-      try {
-        const st = fs.statSync(p);
-        return st.isFile() && st.size >= marker.length && st.size < 12 * MB && fs.readFileSync(p).includes(marker);
-      } catch {
-        return false; // removed while we looked
-      }
-    });
-  }
-  const marked = (size = 64) => {
-    const marker = Buffer.from(`budget-import-leak-${crypto.randomUUID()}`);
-    return { marker, content: Buffer.concat([Buffer.from('PK\x03\x04'), marker, Buffer.alloc(Math.max(0, size - marker.length - 4), 0x20)]) };
-  };
+describe('the upload itself (round 9: JSON, the file as base64)', () => {
+  const body = (extra: Record<string, unknown> = {}) => ({ versionId: v, fileName: 'budget.xlsx', fileData: file.toString('base64'), ...extra });
 
-  it.each([
-    ['a file under another field name', 'other', 1, 64],
-    ['two files', 'file', 2, 64],
-    ['a file over 10 MB', 'file', 1, 10 * MB + 1024],
-  ])('SEC-L1: %s leaves no temp file', async (_label, field, count, size) => {
-    const since = Date.now();
-    const { marker, content } = marked(size);
-    const files = Array.from({ length: count }, () => ({ file: field, content }));
-    const r = await uploadParts(previewRoute, A.owner, [{ field: 'versionId', value: v }, ...files]);
-    expect(r.status).toBe(400);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(leftovers(marker, since)).toEqual([]);
+  it('the shape is enforced: an extra key, a missing file, a bad versionId are 400; the plain body is 200', async () => {
+    expect((await postPreview(previewRoute, A.owner, body({ note: 'x' }))).status).toBe(400);
+    expect((await postPreview(previewRoute, A.owner, { versionId: v })).status).toBe(400);
+    expect((await postPreview(previewRoute, A.owner, body({ versionId: 'nope' }))).status).toBe(400);
+    expect((await postPreview(previewRoute, A.owner, 'not an object')).status).toBe(400);
+    expect((await postPreview(previewRoute, A.owner, body())).status).toBe(200);
+  });
+
+  it('fileData that is not standard base64 is 400; a decoded file over MAX_FILE_BYTES is 400', async () => {
+    for (const fileData of ['not base64!', 'abc', `${file.toString('base64')}\n`, file.toString('base64url')]) {
+      const r = await postPreview(previewRoute, A.owner, body({ fileData }));
+      expect(r.status, fileData.slice(0, 20)).toBe(400);
+    }
+    const over = Buffer.alloc(MAX_FILE_BYTES + 1, 0x50).toString('base64');
+    const r = await postPreview(previewRoute, A.owner, body({ fileData: over }));
+    expect([r.status, r.body.error?.message]).toEqual([400, expect.stringMatching(/larger than 10 MB/)]);
   }, 60000);
 
-  it('SEC-L3: extra fields, or a large one, are refused', async () => {
-    const extra = Array.from({ length: 5 }, (_, i) => ({ field: `f${i}`, value: 'x' }));
-    expect((await uploadParts(previewRoute, A.owner, [{ field: 'versionId', value: v }, ...extra, { file: 'file', content: file }])).status).toBe(400);
-    expect((await uploadParts(previewRoute, A.owner, [{ field: 'versionId', value: v }, { field: 'note', value: 'x'.repeat(5000) }, { file: 'file', content: file }])).status).toBe(400);
-    expect((await uploadParts(previewRoute, A.owner, [{ field: 'versionId', value: v }, { file: 'file', content: file }])).status).toBe(200);
+  it('the request log never holds the file: fileData is logged as its size only', async () => {
+    const lines: string[] = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      lines.push(String(chunk));
+      return (write as (c: string | Uint8Array, ...r: unknown[]) => boolean)(chunk, ...rest);
+    }) as typeof process.stdout.write;
+    let r;
+    try {
+      r = await postPreview(previewRoute, A.owner, body());
+    } finally {
+      process.stdout.write = write;
+    }
+    expect(r.status).toBe(200);
+    const request = lines.filter((l) => l.includes('API Request: POST'));
+    expect(request.length).toBeGreaterThan(0);
+    expect(request.join('')).toMatch(/omitted: \d+ chars/);
+    const sample = file.toString('base64').slice(200, 264);
+    expect(lines.filter((l) => l.includes(sample))).toEqual([]);
+  });
+
+  it('an old .xls (by name or by its OLE signature) is 400', async () => {
+    expect((await postPreview(previewRoute, A.owner, body({ fileName: 'budget.xls' }))).status).toBe(400);
+    expect((await uploadPreview(previewRoute, A.owner, v, Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0, 0])))).toMatchObject({ status: 400 });
+  });
+
+  it('the body limit is Next\'s parser at 14 MB, enough for a 10 MB file as base64', async () => {
+    const { config } = await import('../../pages/api/accounting/budget-grid/import-preview');
+    expect(config).toEqual({ api: { bodyParser: { sizeLimit: '14mb' } } });
+    expect(Math.ceil(MAX_FILE_BYTES / 3) * 4).toBeLessThan(14 * MB);
   });
 
   it('Q5 / N5: previews are rate limited per user, across the user\'s companies (429)', async () => {
@@ -214,24 +237,23 @@ describe('the upload itself', () => {
     for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, C.owner, vC, junk)).status);
     for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, { ...C.owner, homeCompanyId: D.id }, vD, junk)).status);
     expect(statuses.every((s) => s === 400)).toBe(true);
-    // The 61st is refused before any of its body is read: its bytes are held back until after the
-    // answer, and none was pulled. (Every member's bucket is removed by the fixture's cleanup.)
-    const held = Buffer.from('--x');
-    const seen = { pulled: 0 };
-    let release = () => {};
-    const released = new Promise<void>((resolve) => { release = resolve; });
-    const never = Readable.from((async function* gen() { await released; seen.pulled += held.length; yield held; })());
-    const last = await uploadStream(previewRoute, { ...C.owner, homeCompanyId: D.id }, never, held.length);
-    const pulledBeforeRelease = seen.pulled;
-    release();
-    expect([last.status, pulledBeforeRelease]).toEqual([429, 0]);
+    // The 61st is refused before its file is decoded or parsed (no refusal log for it), 429 with
+    // Retry-After. (Every member's bucket is removed by the fixture's cleanup.)
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      const last = await postPreview(previewRoute, { ...C.owner, homeCompanyId: D.id }, { versionId: vD, fileData: junk.toString('base64') });
+      expect([last.status, last.headers.get('retry-after')]).toEqual([429, '900']);
+      expect(warn.mock.calls.filter(([m]) => /budget import (upload|workbook) refused/i.test(String(m)))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
   }, 120000);
 
   it('SEC-L5: refusal logs name the company and the user', async () => {
     const warn = vi.spyOn(log, 'warn');
     try {
       await preview(file.subarray(0, 100));
-      await uploadParts(previewRoute, A.owner, [{ field: 'versionId', value: v }, ...Array.from({ length: 5 }, (_, i) => ({ field: `f${i}`, value: 'x' }))]);
+      await postPreview(previewRoute, A.owner, { versionId: v, fileData: 'not base64!' });
       const refusals = warn.mock.calls.filter(([message]) => /budget import/i.test(String(message)));
       expect(refusals.length).toBeGreaterThanOrEqual(2);
       for (const [, data] of refusals) expect(data).toMatchObject({ companyId: A.id, userId: A.owner.userId });

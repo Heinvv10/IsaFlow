@@ -12,6 +12,7 @@ import { Pool } from 'pg';
 import seedRoute from '../../pages/api/accounting/budget-grid/seed';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, type GridCo, type RouteOut } from './helpers/budgetGridFixture';
+import { MAX_IMPORT_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -68,6 +69,23 @@ describe('seed: PY at CC1 grain, members the budget cannot take', () => {
     expect(await nonZero(v)).toEqual([[C.acct.sales, '2026-03', '1000.00', C.cc1]]);
     expect(await cc1Used(v)).toEqual([C.cc1]);
   });
+});
+
+describe('seed: size', () => {
+  it(`a plan of more than MAX_IMPORT_CELLS (${MAX_IMPORT_CELLS}) cells is 400 before anything is written`, async () => {
+    // 8 334 extra leaf expense accounts with no activity, seeded as zero rows: 8 334 x 12 > 100 000.
+    await pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+       SELECT $1, 'GZ' || lpad(g::text, 5, '0'), 'Zero ' || g, 'expense', 'debit', 3, true FROM generate_series(1, 8334) g`, [C.id]);
+    try {
+      const r = await seed(C, { ...body(2027, 'S-too-big', { type: 'py_actuals', upliftPct: 0, grain: 'company' }), includeNoActivity: true });
+      expect([r.status, r.body.error?.details?.code], dump(r)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+      expect(String(r.body.error?.message)).toContain(String(MAX_IMPORT_CELLS));
+      expect(Number((await pool.query('SELECT COUNT(*)::int n FROM budget_versions WHERE company_id = $1 AND name = $2', [C.id, 'S-too-big'])).rows[0].n)).toBe(0);
+    } finally {
+      await pool.query(`DELETE FROM gl_accounts WHERE company_id = $1 AND account_code LIKE 'GZ%'`, [C.id]);
+    }
+  }, 120000);
 });
 
 describe('seed: years', () => {

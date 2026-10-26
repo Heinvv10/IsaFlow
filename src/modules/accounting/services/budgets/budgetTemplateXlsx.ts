@@ -15,7 +15,8 @@
  * states the blank-vs-0 and absent-row rules. The import (budgetImportParse / budgetImportDiff)
  * reads exactly this layout back, so template -> import is no change (invariant 3).
  *
- * At most templateRowCap(months) rows: a commit of every cell fits one save (MAX_SAVE_CELLS), and
+ * At most templateRowCap(months) rows: every cell of them fits one import (MAX_IMPORT_CELLS; the
+ * commit is sent in MAX_SAVE_CELLS chunks), and
  * the import reads that many (MAX_IMPORT_ROWS), so a template always imports (R3, Q1).
  * Text that a spreadsheet could take for a formula (= + - @ tab CR, and a leading apostrophe) is
  * written behind an apostrophe (`neutralise`); the import strips it from codes (`unneutralise`).
@@ -27,7 +28,7 @@ import { fromCents, toCents } from './grid/cents';
 import { BAND_LABEL, BAND_ORDER } from './grid/subtotals';
 import { inputError } from './gridErrors';
 import { loadGridReadModel } from './gridReadModel';
-import { MAX_SAVE_CELLS } from './gridSaveValidate';
+import { MAX_IMPORT_CELLS } from './gridSaveValidate';
 import { isBudgetLine } from './gridTotals';
 import { baseDigest, templateSignature, type SignedCell } from './budgetTemplateSignature';
 import { loadPriorActuals, PRIOR_GRAINS, type PriorActuals, type PriorGrain } from './priorActuals';
@@ -40,9 +41,9 @@ export const BUDGET_SHEET = 'Budget';
 export const META_SHEET = '_meta';
 export const BASE_SHEET = '_base';
 /** Data rows one import reads: a 12-month year's worth of one save (Q1). */
-export const MAX_IMPORT_ROWS = Math.floor(MAX_SAVE_CELLS / 12);
+export const MAX_IMPORT_ROWS = Math.floor(MAX_IMPORT_CELLS / 12);
 /** Data rows in one template of a `monthCount`-month year: every cell of them fits one save, and the import reads them all. */
-export const templateRowCap = (monthCount: number): number => Math.floor(MAX_SAVE_CELLS / Math.max(12, monthCount));
+export const templateRowCap = (monthCount: number): number => Math.floor(MAX_IMPORT_CELLS / Math.max(12, monthCount));
 export const INSTRUCTIONS_SHEET = 'Instructions';
 export const MONEY_FORMAT = '#,##0.00';
 
@@ -158,7 +159,7 @@ export async function buildBudgetTemplate(model: GridReadModel, grain: TemplateG
   const rows = templateRows(model, grain, cents, grain === 'company' ? undefined : templateMembers(model, grain, prior, members));
   const cap = templateRowCap(months.length);
   if (rows.length > cap) {
-    throw inputError(`This ${GRAIN_LABEL[grain]} template would have ${rows.length} rows (accounts x members); one import saves at most ${cap} rows of ${months.length} months. Pick fewer members (download the template in parts, naming the members of each).`);
+    throw inputError(`This ${GRAIN_LABEL[grain]} template would have ${rows.length} rows (accounts x members); one import holds at most ${cap} rows of ${months.length} months. Pick fewer members (download the template in parts, naming the members of each).`);
   }
   const values = gridOf(rows.map((r) => r.rowKey), months, cents);
   const py = priorByRow(prior, grain);

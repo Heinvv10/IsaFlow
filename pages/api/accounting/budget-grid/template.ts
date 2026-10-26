@@ -18,6 +18,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest }
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isUuidParam } from '@/lib/validation';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
+import { BUDGET_SPREADSHEET_SLOT, withCpuSlot } from '@/lib/withCpuSlot';
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { loadBudgetTemplate, TEMPLATE_GRAINS, type TemplateGrain } from '@/modules/accounting/services/budgets/budgetTemplateXlsx';
 
@@ -55,4 +56,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(handler));
+// The build takes a BUDGET_SPREADSHEET_SLOT slot OUTSIDE withAuth (round 9, R5): a download
+// waiting for one, or refused one (503 + Retry-After), holds no pool connection.
+export default withCpuSlot(BUDGET_SPREADSHEET_SLOT, withAuth(withErrorHandler(handler)));

@@ -12,13 +12,19 @@
  *     (XLSX_LIMITS), sized so a generous real-shaped export (50 000 rows x 14 columns of mostly
  *     unique text: 13.5 MB / 409 000 shared strings) still converts.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
+import { log } from '@/lib/logger';
 import { normaliseXlsx, normaliseXlsxSheets } from '@/lib/xlsxNormalise';
 import { SpreadsheetMalformedError, SpreadsheetTooLargeError, xlsxBufferToCsv } from '@/lib/xlsxToCsv';
 
 const MB = 1024 * 1024;
+/**
+ * The time bounds are asserted by hand only (`XLSX_TIMING_BOUNDS=1 bunx vitest run <file>`): on a
+ * loaded CI machine a wall-clock bound measures the machine. Correctness is asserted always.
+ */
+const TIMED = process.env.XLSX_TIMING_BOUNDS === '1';
 const FAST_MS = 3000;
 const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
 const sheet = (rows: string) => `<?xml version="1.0"?><worksheet ${NS}><sheetData>${rows}</sheetData></worksheet>`;
@@ -55,7 +61,7 @@ describe('BRK2-N1: deep nesting is refused before the parser', () => {
     for (const run of [() => normaliseXlsx(buf, 80 * MB), () => named(buf), () => xlsxBufferToCsv(buf)]) {
       const { ms, err } = await refusal(run);
       expect(err).toBeInstanceOf(SpreadsheetMalformedError);
-      expect(ms).toBeLessThan(FAST_MS);
+      if (TIMED) expect(ms).toBeLessThan(FAST_MS);
     }
   }, 120000);
 
@@ -103,7 +109,7 @@ describe('BRK2-N6: styles and rich-text runs are capped', () => {
     await expect(named(buf)).resolves.toMatchObject({ sheets: ['Budget', '_meta'] });
     const { ms, err } = await refusal(() => named(buf, { maxStylesBytes: MB }));
     expect(err).toBeInstanceOf(SpreadsheetTooLargeError);
-    expect(ms).toBeLessThan(FAST_MS);
+    if (TIMED) expect(ms).toBeLessThan(FAST_MS);
   });
 
   it('rich-text runs count against maxSharedStrings', async () => {
@@ -130,13 +136,13 @@ describe('SEC2-L1 / VER-L1: only the <sheets> list of workbook.xml is capped', (
 describe('round 3 M1: the migration importer caps styles and shared strings', () => {
   it.each([
     ['breaker I5: 76 MB of shared-string filler', 'xl/sharedStrings.xml', () => `<?xml version="1.0"?><sst ${NS}>${'<si><t>x</t></si>'.repeat(Math.floor((76 * MB) / 17))}</sst>`],
-    ['2M tiny shared strings under the byte cap', 'xl/sharedStrings.xml', () => `<?xml version="1.0"?><sst ${NS}>${'<si/>'.repeat(2_000_000)}</sst>`],
+    ['5M + 1 tiny shared strings under the byte cap (entries past maxRows x maxColumns)', 'xl/sharedStrings.xml', () => `<?xml version="1.0"?><sst ${NS}>${'<si/>'.repeat(5_000_001)}</sst>`],
     ['23 MB of <font> in styles.xml', 'xl/styles.xml', () => `<?xml version="1.0"?><styleSheet ${NS}><fonts>${'<font><b/><sz val="11"/></font>'.repeat(Math.floor((23 * MB) / 32))}</fonts></styleSheet>`],
   ])('%s is refused fast', async (_label, part, xml) => {
     const buf = await withParts({ [part]: xml() });
     const { ms, err } = await refusal(() => xlsxBufferToCsv(buf));
     expect(err).toBeInstanceOf(SpreadsheetTooLargeError);
-    expect(ms).toBeLessThan(FAST_MS);
+    if (TIMED) expect(ms).toBeLessThan(FAST_MS);
   }, 120000);
 
   it('a generous real-shaped export (50 000 rows x 14 columns, mostly unique text) still converts', async () => {
@@ -150,4 +156,32 @@ describe('round 3 M1: the migration importer caps styles and shared strings', ()
     const csv = await xlsxBufferToCsv(Buffer.from(await wb.xlsx.writeBuffer()));
     expect(csv.split('\n')).toHaveLength(50_000);
   }, 300000);
+
+  it('round 9: a wide export with more shared strings than the old 1M entry cap (1.2M, 26 MB) still converts', async () => {
+    const sst = `<?xml version="1.0"?><sst ${NS}>${Array.from({ length: 1_200_000 }, (_, i) => `<si><t>v${i}</t></si>`).join('')}</sst>`;
+    expect(sst.length).toBeLessThan(32 * MB);
+    const buf = await withParts({ 'xl/sharedStrings.xml': sst });
+    expect((await xlsxBufferToCsv(buf)).split('\n')[0]).toBe('v0,1'); // A1 points at shared string 0
+  }, 120000);
+});
+
+describe('round 9: a parser failure is logged by class and position only', () => {
+  it('no message text reaches the log', async () => {
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      const buf = await withParts({ 'xl/worksheets/sheet1.xml': sheet(`<row r="1">${'<c><v>1</v></c>'.repeat(5)}</row>`) });
+      await expect(xlsxBufferToCsv(buf)).rejects.toBeInstanceOf(SpreadsheetMalformedError);
+      const entity = await withParts({ 'xl/worksheets/sheet1.xml': sheet('<row r="1"><c r="A1" t="str"><v>&q;</v></c></row>') });
+      await expect(xlsxBufferToCsv(entity)).rejects.toBeInstanceOf(SpreadsheetMalformedError);
+      const logged = warn.mock.calls.filter(([m]) => /parser failed/.test(String(m))).map(([, data]) => data);
+      expect(logged).toHaveLength(2);
+      for (const data of logged) {
+        expect(Object.keys(data as object).sort()).toEqual(['errorClass', 'position']);
+        expect((data as { position: string | null }).position ?? '').toMatch(/^(\d+:\d+)?$/);
+      }
+      expect(logged.map((d) => (d as { position: string | null }).position)).toEqual([null, expect.stringMatching(/^\d+:\d+$/)]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

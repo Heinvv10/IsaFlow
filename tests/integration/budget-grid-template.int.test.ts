@@ -3,7 +3,7 @@
  * how many. By default a member is offered when it holds amounts in this version at that grain or
  * had activity there in the prior year; `members` (a comma list of ids, each the company's member
  * of that kind) names them instead. The rows are capped so a full commit fits one save
- * (floor(MAX_SAVE_CELLS / months), the import's row limit too), refused 400 above it. VER-L3: a
+ * (floor(MAX_IMPORT_CELLS / months), the import's row limit too), refused 400 above it. VER-L3: a
  * template at the cap, filled with 12-digit amounts and 60-character names and re-saved, imports.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import { Pool } from 'pg';
 import ExcelJS from 'exceljs';
 import templateRoute from '../../pages/api/accounting/budget-grid/template';
 import previewRoute from '../../pages/api/accounting/budget-grid/import-preview';
-import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
+import { MAX_IMPORT_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
 import { budgetSheet, col, downloadTemplate, editWorkbook, uploadPreview } from './helpers/budgetImportFixture';
@@ -19,7 +19,7 @@ import { budgetSheet, col, downloadTemplate, editWorkbook, uploadPreview } from 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const fx = budgetGridFixture(pool);
-const CAP = Math.floor(MAX_SAVE_CELLS / 12);
+const CAP = Math.floor(MAX_IMPORT_CELLS / 12);
 
 let A: GridCo, B: GridCo, v: string;
 const template = (c: GridCo, versionId: string, query: Record<string, string> = {}) =>

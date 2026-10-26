@@ -10,14 +10,16 @@
  * and the cells come from ONE statement (one snapshot): they always describe the same state, so a
  * save landing during the read can neither let a stale edit through (a newer token over older
  * cells) nor make the import call a legitimate file tampered (an older token over newer cells,
- * VER-L2). The full model's `version.updatedAt` is that token.
+ * VER-L2). The full model's `version.updatedAt` and `version.status` come from that statement too
+ * (round 9), so a status move landing during the read never pairs one state's status with
+ * another's token.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { requireFiscalYear } from '../gl/fiscalYearRegistry';
 import { toBudgetYearInfo, type BudgetYearInfo } from '../core/budgetYears';
 import { monthKeyToDate } from '../reports/budgetPeriodWindow';
-import { BudgetVersionError } from './budgetVersionTypes';
+import { BudgetVersionError, type BudgetVersion } from './budgetVersionTypes';
 import { getVersion } from './budgetVersions';
 import { toCents } from './grid/cents';
 import { cellKey, type CellKey } from './grid/cellKey';
@@ -59,12 +61,12 @@ async function yearOf(companyId: string, label: number): Promise<BudgetYearInfo>
  * The version's token and its cells inside the year's months, on revenue/expense accounts, in a
  * stable order, from one statement. A version gone since it was resolved is BUDGET_VERSION_NOT_FOUND.
  */
-async function readCells(companyId: string, versionId: string, year: BudgetYearInfo): Promise<{ token: string; cells: GridCell[] }> {
+async function readCells(companyId: string, versionId: string, year: BudgetYearInfo): Promise<{ token: string; status: string; cells: GridCell[] }> {
   const first = monthKeyToDate(year.monthKeys[0]!);
   const last = monthKeyToDate(year.monthKeys[year.monthKeys.length - 1]!);
   const rows = (await sql`
-    WITH v AS (SELECT ${tokenSql()} AS token FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID)
-    SELECT v.token, c.gl_account_id, c.cc1_id, c.cc2_id, c.bu_id, c.month, c.amount
+    WITH v AS (SELECT ${tokenSql()} AS token, status FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID)
+    SELECT v.token, v.status, c.gl_account_id, c.cc1_id, c.cc2_id, c.bu_id, c.month, c.amount
       FROM v
       LEFT JOIN LATERAL (
         SELECT bm.gl_account_id, bm.cc1_id, bm.cc2_id, bm.bu_id, to_char(bm.month, 'YYYY-MM') AS month, bm.amount::text AS amount,
@@ -83,7 +85,7 @@ async function readCells(companyId: string, versionId: string, year: BudgetYearI
     glAccountId: String(r.gl_account_id), cc1Id: id(r.cc1_id), cc2Id: id(r.cc2_id), buId: id(r.bu_id),
     month: String(r.month), amount: Number(r.amount),
   }));
-  return { token: String(rows[0].token), cells };
+  return { token: String(rows[0].token), status: String(rows[0].status), cells };
 }
 
 /** The compare-version fetch (`cells_only=1`): the cells and the token, nothing else. */
@@ -110,7 +112,7 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector): P
   }
 
   const version = await getVersion(companyId, found.id);
-  const { token, cells } = await readCells(companyId, found.id, year);
+  const { token, status, cells } = await readCells(companyId, found.id, year);
 
   const cents = new Map<CellKey, number | null>();
   const used = { cc1: new Set<string>(), cc2: new Set<string>(), bu: new Set<string>() };
@@ -126,7 +128,7 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector): P
   const dimensions = await loadGridDimensions(companyId, { cc1: [...used.cc1], cc2: [...used.cc2], bu: [...used.bu] });
 
   return {
-    version: { ...version, updatedAt: token }, updatedAt: token, year, accounts, dimensions, cells, grains: Object.fromEntries(grains),
+    version: { ...version, updatedAt: token, status: status as BudgetVersion['status'] }, updatedAt: token, year, accounts, dimensions, cells, grains: Object.fromEntries(grains),
     totals: bandTotals(accounts, own, monthCount),
   };
 }

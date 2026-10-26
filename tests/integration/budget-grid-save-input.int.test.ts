@@ -125,6 +125,22 @@ describe('save: ids are compared lower-cased (round-5 M1)', () => {
   });
 });
 
+describe('save: clearing a cell of an account retyped since (round 9)', () => {
+  it('a clear skips the revenue/expense check, so a stale budget on a now-asset account can be removed; an amount on it is still 400', async () => {
+    const v = await fx.version(A);
+    const retyped = String((await pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+       VALUES ($1, 'G-RETYPE', 'Retyped', 'expense', 'debit', 3, true) RETURNING id`, [A.id])).rows[0].id);
+    await fx.amount(A, v, retyped, FY27[8]!, 40);
+    await pool.query(`UPDATE gl_accounts SET account_type = 'asset' WHERE id = $1`, [retyped]);
+    const amount = await unchanged(v, async () => save(v, await token(v), [cell(retyped, FY27[8]!, 41)]));
+    expect([amount.status, code(amount)], dump(amount)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+    const cleared = await save(v, await token(v), [cell(retyped, FY27[8]!, null)]);
+    expect([cleared.status, (cleared.body.data as { deleted?: number } | undefined)?.deleted], dump(cleared)).toEqual([200, 1]);
+    expect(await stored(v)).toEqual([]);
+  });
+});
+
 describe('a cost centre with NULL cc_type (R7)', () => {
   it('is not offered as a CC1 member by the read model', async () => {
     const v = await fx.version(A);

@@ -37,6 +37,7 @@ vi.mock('@/lib/neon', async (orig) => {
 
 import saveRoute from '../../pages/api/accounting/budget-grid/save';
 import budgetsRoute from '../../pages/api/accounting/budgets';
+import budgetsActionRoute from '../../pages/api/accounting/budgets-action';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import { budgetGridSaveFixture, errCode, errMessage, type GridWorld } from './helpers/budgetGridSaveFixture';
@@ -45,6 +46,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 const fx = budgetGridSaveFixture(pool, saveRoute, '/api/accounting/budget-grid/save');
 const legacy = budgetsRouteFixture(pool, budgetsRoute, '/api/accounting/budgets');
+const action = budgetsRouteFixture(pool, budgetsActionRoute, '/api/accounting/budgets-action');
 
 let w: GridWorld;
 beforeAll(async () => { w = await fx.world(); }, 120000);
@@ -180,5 +182,20 @@ describe('decision 18 through the legacy writer (upsertBudget, POST /api/account
       expect(String(r.body.error?.message)).toContain(code);
       expect({ cells: await fx.cells(v), token: await fx.token(v), audits: (await fx.audits(v)).length }).toEqual(before);
     }
+  });
+});
+
+describe('decision 18 through the legacy year copy (copyBudgets, budgets-action copy)', () => {
+  it('a header or inactive account holding no amounts in the target year is not copied there, and is counted as skipped', async () => {
+    const c = await fx.world();
+    const prim = await fx.version(c, { primary: true, name: 'Original' });
+    for (const acct of [c.header, c.inactive, c.child1]) await fx.amount(c, prim, acct, c.months[0]!, 100);
+    const r = await action.call(c.u, 'POST', { action: 'copy', fromYear: c.label, toYear: c.label + 1 });
+    expect(r.status, dump(r)).toBe(200);
+    expect(r.body.data).toEqual({ copied: 1, skipped: 2 });
+    const copied = (await pool.query(
+      `SELECT DISTINCT bm.gl_account_id::text a FROM budget_month_amounts bm JOIN budget_versions v ON v.id = bm.version_id
+        WHERE bm.company_id = $1 AND v.fiscal_year = $2`, [c.u.homeCompanyId, c.label + 1])).rows.map((x) => x.a);
+    expect(copied).toEqual([c.child1]);
   });
 });

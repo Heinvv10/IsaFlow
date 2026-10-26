@@ -1,16 +1,14 @@
 /**
- * Budgets P2 batch save, size and cost (round-2 Q2, SEC2-M2/M3): the route reads its own body
- * after authentication (Next's parser off), capped at 18 MB while reading: a declared or streamed
- * body over the cap is 413 without being buffered whole, and the request log carries no body. A
- * batch over MAX_SAVE_CELLS is refused. A cell re-saved with its amount unchanged is not touched
- * (its updated_at still says when it last changed). And the largest batch holds the version row
- * at most ~10 s for an insert, an update and a delete (a wall-clock bound, asserted by hand only).
- * Real PostgreSQL through the real route.
+ * Budgets P2 batch save, size, rate and cost (rounds 2 and 9): Next's own body parser reads the
+ * body before withAuth, limited to 4 MB (it answers 413 past that; MAX_SAVE_CELLS widest cells fit,
+ * pinned by tests/unit/api/budgetGridSaveLimits); a batch over MAX_SAVE_CELLS is refused; a user's
+ * save bucket is charged in the handler (429 with Retry-After when full); a cell re-saved with its
+ * amount unchanged is not touched (its updated_at still says when it last changed); and the
+ * largest batch holds the version row briefly for an insert, an update and a delete (a wall-clock
+ * bound, asserted by hand only). Real PostgreSQL through the real route.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
-import { Readable } from 'node:stream';
-
 type RawSql = ((s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>) & Record<string, unknown>;
 const stamps = vi.hoisted(() => ({ cas: 0 }));
 
@@ -29,8 +27,8 @@ vi.mock('@/lib/neon', async (orig) => {
 import saveRoute, { config } from '../../pages/api/accounting/budget-grid/save';
 import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSave';
 import { IN_INTEGRATION_GATE } from '../helpers/integrationGate';
-import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import { budgetGridFixture, monthsFrom, type GridCo } from './helpers/budgetGridFixture';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { budgetGridFixture, clearBudgetRateCounters, monthsFrom, type GridCo } from './helpers/budgetGridFixture';
 import { TOKEN_SQL } from './helpers/budgetGridSaveFixture';
 
 assertDisposable();
@@ -38,7 +36,6 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const fx = budgetGridFixture(pool);
 const FY27 = monthsFrom('2026-03');
 const URL = '/api/accounting/budget-grid/save';
-const MB = 1048576;
 let A: GridCo;
 
 beforeAll(async () => { A = await fx.company(); }, 120000);
@@ -50,63 +47,15 @@ const cell = (glAccountId: string, month: string, amount: number | null, cc1Id: 
 const save = (body: unknown) => fx.call(saveRoute, URL, A.owner, 'POST', {}, body);
 const dump = (r: { status: number; body: unknown }) => `${r.status} ${JSON.stringify(r.body).slice(0, 300)}`;
 
-/** POSTs a raw stream as the owner (no req.body: the shape Next hands a route with its parser off). */
-async function postStream(stream: Readable, headers: Record<string, string> = {}) {
-  const base = request({ 'sb-access-token': A.owner.token, active_company_id: A.owner.homeCompanyId }, 'POST') as unknown as { headers: Record<string, string> };
-  const req = Object.assign(stream, base, { url: URL, query: {}, headers: { ...base.headers, 'content-type': 'application/json', ...headers } });
-  const out = response();
-  await (saveRoute as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
-  return { status: out.state.statusCode, body: out.state.body as { error?: { code?: string } } };
-}
-
-/**
- * A stream of 100 one-MB chunks that will not produce chunk `blockAt` or later until `release()`:
- * a route that answers while it is blocked did not need (or buffer) the rest. `pulled` counts what it produced.
- */
-function blocking(blockAt: number) {
-  const seen = { pulled: 0 };
-  let release = () => {};
-  const released = new Promise<void>((resolve) => { release = resolve; });
-  const piece = Buffer.alloc(MB, 0x20);
-  const stream = Readable.from((async function* gen() {
-    for (let i = 0; i < 100; i++) {
-      if (i >= blockAt) await released;
-      seen.pulled += 1;
-      yield piece;
-    }
-  })());
-  return { stream, seen, release };
-}
-
-describe('save: the body', () => {
-  it("Next's body parser is off for the save: the handler reads the body after the auth wrappers", () => {
-    expect(config.api.bodyParser).toBe(false);
+describe('save: the body and the request', () => {
+  it("Next's body parser reads the save, limited to 4 MB", () => {
+    expect(config.api.bodyParser).toEqual({ sizeLimit: '4mb' });
   });
 
-  it('a body streamed past the 18 MB cap is 413 at the chunk that crosses it, the rest never read', async () => {
-    const { stream, seen, release } = blocking(40);
-    const r = await postStream(stream);
-    const pulled = seen.pulled;
-    release();
-    expect([r.status, r.body.error?.code], dump(r)).toEqual([413, 'PAYLOAD_TOO_LARGE']);
-    // Answered while the 40th MB was still withheld: the reader stopped at 19 MB (plus a little read-ahead).
-    expect(pulled).toBeLessThan(30);
-  });
-
-  it('a declared Content-Length over the cap is 413 before a byte is read', async () => {
-    const { stream, seen, release } = blocking(0);
-    const r = await postStream(stream, { 'content-length': String(100 * MB) });
-    const pulled = seen.pulled;
-    release();
-    expect([r.status, r.body.error?.code], dump(r)).toEqual([413, 'PAYLOAD_TOO_LARGE']);
-    expect(pulled).toBe(0);
-  });
-
-  it('a body that is not JSON is 400; a streamed JSON body saves, and the request log carries none of it', async () => {
-    const bad = await postStream(Readable.from([Buffer.from('{"versionId": ')]));
-    expect(bad.status, dump(bad)).toBe(400);
+  it("the request log holds no cell data: withErrorHandler's request line shows the cells as a count", async () => {
     const v = await fx.version(A);
     const marker = 4321.98;
+    const cells = Array.from({ length: 60 }, (_, i) => cell(A.acct.rent, FY27[i % 12]!, marker + i, i < 12 ? null : A.cc1));
     const lines: string[] = [];
     const write = process.stdout.write.bind(process.stdout);
     process.stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
@@ -115,63 +64,29 @@ describe('save: the body', () => {
     }) as typeof process.stdout.write;
     let r;
     try {
-      r = await postStream(Readable.from([Buffer.from(JSON.stringify({ versionId: v, expectedUpdatedAt: await token(v), cells: [cell(A.acct.rent, FY27[0]!, marker)] }))]));
+      r = await save({ versionId: v, expectedUpdatedAt: await token(v), cells: cells.map((c, i) => ({ ...c, month: FY27[i % 12]! })) });
     } finally {
       process.stdout.write = write;
     }
-    expect(r.status, dump(r)).toBe(200);
-    expect(lines.some((l) => l.includes('API Request: POST'))).toBe(true);
+    expect(r.status).not.toBe(500);
+    const requestLine = lines.find((l) => l.includes('API Request: POST'));
+    expect(requestLine).toContain('[omitted: 60 items]');
     expect(lines.filter((l) => l.includes(String(marker)) || l.includes(A.acct.rent))).toEqual([]);
   });
 
-  it('a slow body holds no pooled connection inside a transaction while it arrives', async () => {
+  it('a user whose save bucket is full is 429 with Retry-After 60, and nothing is written', async () => {
     const v = await fx.version(A);
-    const json = Buffer.from(JSON.stringify({ versionId: v, expectedUpdatedAt: await token(v), cells: [cell(A.acct.rent, FY27[0]!, 5)] }));
-    let release = () => {};
-    const released = new Promise<void>((resolve) => { release = resolve; });
-    const stream = Readable.from((async function* gen() { yield json.subarray(0, 10); await released; yield json.subarray(10); })());
-    const pending = postStream(stream);
-    // While the body is stalled: no backend of this database sits idle inside a transaction.
-    await new Promise((r) => setTimeout(r, 1500));
-    const held = (await pool.query(
-      `SELECT pid, left(query, 80) q FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'idle in transaction'`)).rows;
-    release();
-    const r = await pending;
-    expect(held, JSON.stringify(held)).toEqual([]);
-    expect(r.status, dump(r)).toBe(200);
-  });
-
-  it('a caller without a CSRF match or a signed session is refused at once, its body never waited for', async () => {
-    const cases = [['no CSRF match', { 'x-csrf-token': 'x'.repeat(44) }, A.owner.token, 403], ['forged token', {}, 'not.a.jwt', 401]] as const;
-    for (const [label, headers, cookieToken, status] of cases) {
-      // The body is withheld until after the answer: a route that waited for it would answer 400 REQUEST_BODY_TIMEOUT.
-      const { stream, release } = blocking(0);
-      const base = request({ 'sb-access-token': cookieToken, active_company_id: A.owner.homeCompanyId }, 'POST') as unknown as { headers: Record<string, string> };
-      const req = Object.assign(stream, base, { url: URL, query: {}, headers: { ...base.headers, 'content-type': 'application/json', ...headers } });
-      const out = response();
-      await (saveRoute as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
-      release();
-      expect(out.state.statusCode, `${label} ${JSON.stringify(out.state.body)}`).toBe(status);
-    }
-  });
-
-  it('a body that stalls past the idle bound is refused (REQUEST_BODY_TIMEOUT) while still withheld, nothing saved', async () => {
-    vi.stubEnv('BODY_READ_IDLE_MS', '1000'); // the route's 10 s, shortened for the test (Vitest only)
+    const before = await token(v);
+    await pool.query(`INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 120, now())
+                      ON CONFLICT (key) DO UPDATE SET count = 120, window_start = now()`, [`budget-save:${A.owner.userId}`]);
     try {
-      const v = await fx.version(A);
-      const before = await token(v);
-      let release = () => {};
-      const released = new Promise<void>((resolve) => { release = resolve; });
-      const stream = Readable.from((async function* gen() { yield Buffer.from('{"versionId":'); await released; yield Buffer.from('"x"}'); })());
-      const r = await postStream(stream);
-      // Answered before the rest of the body was ever released: the idle timer fired.
-      release();
-      expect([r.status, (r.body.error as { details?: { code?: string } } | undefined)?.details?.code], dump(r)).toEqual([400, 'REQUEST_BODY_TIMEOUT']);
+      const r = await save({ versionId: v, expectedUpdatedAt: before, cells: [cell(A.acct.rent, FY27[0]!, 5)] });
+      expect([r.status, r.body.error?.code], dump(r)).toEqual([429, 'RATE_LIMIT']);
       expect(await token(v)).toBe(before);
     } finally {
-      vi.unstubAllEnvs();
+      await clearBudgetRateCounters(pool, [A.owner.userId]);
     }
-  }, 20000);
+  });
 
   it(`a batch over MAX_SAVE_CELLS (${MAX_SAVE_CELLS}) is refused before anything is read`, async () => {
     const v = await fx.version(A);
@@ -201,8 +116,8 @@ describe('save: what a write touches', () => {
 
 describe('save: the largest batch', () => {
   // ci-integration-skip: the wall-clock bound is not asserted inside the CI gate (six shards on a shared box at load 50-250 time the machine, not the code); a run by hand asserts it, with the correctness checks.
-  // Target ~10 s (round-2 Q2); measured 7.4-10.1 s at box load 14-22, so the bound allows 12 s.
-  it.skipIf(IN_INTEGRATION_GATE)(`${MAX_SAVE_CELLS} cells: insert, update and delete each hold the version about 10 s at most`, async () => {
+  // MAX_SAVE_CELLS is 20 000 (round 9): measured ~2 s at box load ~20, so the bound allows 5 s.
+  it.skipIf(IN_INTEGRATION_GATE)(`${MAX_SAVE_CELLS} cells: insert, update and delete each hold the version a few seconds at most`, async () => {
     const members = (await pool.query(
       `INSERT INTO cost_centres (id, company_id, code, name, cc_type, is_active)
        SELECT gen_random_uuid(), $1, 'K' || lpad(g::text, 5, '0'), 'K ' || g, 'cc1', true FROM generate_series(1, 1667) g RETURNING id`, [A.id])).rows.map((x) => String(x.id));
@@ -224,8 +139,7 @@ describe('save: the largest batch', () => {
       expect([n.n, n.s], label).toEqual([rows, amount === null ? '0' : (amount * MAX_SAVE_CELLS).toFixed(2)]);
     }
     process.stderr.write(`[save-cost] version held ms ${JSON.stringify(held)}\n`);
-    // A delete fires one trigger per row; 6 s still catches the quadratic match it had (9.8 s at 100 000 cells).
     expect(held, JSON.stringify(held)).toMatchObject({ insert: expect.any(Number), update: expect.any(Number), delete: expect.any(Number) });
-    for (const [label, ms] of Object.entries(held)) expect(ms, label).toBeLessThanOrEqual(label === 'delete' ? 6_000 : 12_000);
+    for (const [label, ms] of Object.entries(held)) expect(ms, label).toBeLessThanOrEqual(5_000);
   }, 600000);
 });

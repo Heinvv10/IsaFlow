@@ -9,7 +9,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { isHeaderSql } from '../core/budgetAccount';
+import { isHeaderSql } from './headerSql';
 import { fromCents } from './grid/cents';
 import { bandOf } from './grid/subtotals';
 import type { AccountGrain } from './grid/pivot';

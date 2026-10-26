@@ -42,10 +42,12 @@ export interface XlsxLimits {
  * 2026-10-26: 50 000 rows x 14 columns of mostly unique text (customer codes, names, emails,
  * addresses) is 13.5 MB / 409 000 shared strings and a 2 kB styles part, and converts in ~3 s.
  * Without them 76 MB of shared-string filler (breaker I5) or 23 MB of <font> reached the parser.
+ * The byte cap is the memory bound; the entry cap is maxRows x maxColumns (round 9), one per cell
+ * the sheet may hold, so a wide file with many distinct texts that imported before still does.
  */
 export const XLSX_LIMITS: XlsxLimits = {
   maxUncompressedBytes: 80 * 1024 * 1024, maxRows: 50_000, maxColumns: 100, maxOutputBytes: 40 * 1024 * 1024,
-  maxStylesBytes: 8 * 1024 * 1024, maxSharedStringsBytes: 32 * 1024 * 1024, maxSharedStrings: 1_000_000,
+  maxStylesBytes: 8 * 1024 * 1024, maxSharedStringsBytes: 32 * 1024 * 1024, maxSharedStrings: 50_000 * 100,
 };
 
 /** An .xlsx is a zip: it starts with the local-file-header signature "PK\x03\x04". */

@@ -26,6 +26,7 @@ import { parseKey, type CellKey } from './grid/cellKey';
 import type { DiffCounts } from './grid/diff';
 import type { BandTotals } from './grid/subtotals';
 import { inputError } from './gridErrors';
+import { BudgetVersionError } from './budgetVersionTypes';
 import { loadGridReadModel } from './gridReadModel';
 import { bandTotals, ownMonths } from './gridTotals';
 import { cellsInCents } from './budgetTemplateXlsx';
@@ -34,7 +35,7 @@ import { parseLayout, parseLines, parseMeta, readBudgetWorkbook, type BudgetWork
 import { parseBase, tampered, threeWay } from './budgetImportBase';
 import { baseByRowKey, resolveLines, type ImportIssue } from './budgetImportResolve';
 import type { GridReadModel } from './gridReadTypes';
-import { MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
+import { MAX_IMPORT_CELLS, type SaveCell } from './gridSaveValidate';
 
 export type { ImportIssue } from './budgetImportResolve';
 
@@ -97,9 +98,9 @@ export function previewImport(model: GridReadModel, versionId: string, wb: Budge
     base = baseByRowKey(model, meta.grain, lines);
   }
   const lines = parseLines(data, layout);
-  if (lines.length * months.length > MAX_SAVE_CELLS) {
+  if (lines.length * months.length > MAX_IMPORT_CELLS) {
     // The reader's row limit is a 12-month year's; a longer year's file must still fit one save (L2).
-    return refuse(`This file has ${lines.length} rows of ${months.length} months, more than the ${MAX_SAVE_CELLS} cells one import can save. `
+    return refuse(`This file has ${lines.length} rows of ${months.length} months, more than the ${MAX_IMPORT_CELLS} cells one import can hold. `
       + `Split it: download templates for fewer members, or remove rows you are not changing, and import each part.`);
   }
   const { rows, errors, warnings } = resolveLines(model, meta.grain, lines, current);
@@ -151,8 +152,14 @@ async function changedAt(companyId: string, versionId: string, changes: readonly
   return new Map(rows.map((r) => [`${id(r.gl_account_id)}|${id(r.cc1_id)}|${id(r.cc2_id)}|${id(r.bu_id)}|${String(r.month)}`, String(r.changed_at)]));
 }
 
-/** Read the upload (bounded, before any database read), then preview it against the company's version (another tenant's: BUDGET_VERSION_NOT_FOUND). */
+/**
+ * Preview the upload against the company's version. The version is confirmed first (one indexed
+ * row), so another tenant's or a deleted one is BUDGET_VERSION_NOT_FOUND without paying the parse;
+ * then the upload is read (bounded), then the read model.
+ */
 export async function buildImportPreview(companyId: string, versionId: string, file: Buffer): Promise<ImportPreview> {
+  const found = (await sql`SELECT 1 FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+  if (!found[0]) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found');
   const wb = await readBudgetWorkbook(file);
   const preview = previewImport(await loadGridReadModel(companyId, { versionId }), versionId, wb);
   const at = await changedAt(companyId, versionId, preview.changes);
