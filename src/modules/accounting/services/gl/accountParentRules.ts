@@ -17,8 +17,12 @@
  */
 
 import { sql } from '@/lib/neon';
-import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, isSubjectToLeafRule } from './isReportVisibleLeaf';
+import { log } from '@/lib/logger';
+import {
+  BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, hasChildAccounts, isSubjectToLeafRule,
+} from './isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from './glAccountLock';
+import { YEAR_END_JOURNAL_SOURCE } from './yearEndJournalSource';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
 import { holderAsParentRefusal, roleBarringChildren } from './roleTargetRules';
 
@@ -123,28 +127,16 @@ export async function assertParentUsable(
     // MCP bearer pipeline) — every production caller of `createAccount` and
     // `reclassifyAccount` runs inside one.
     await lockGlAccountsForUpdate(companyId, [parentId]);
-    // `company_id` is LOAD-BEARING, not habit. Until migration 664 a journal
-    // line could name this company's account while carrying another company's
-    // `company_id` — `POST /api/accounting/journal-entries` wrote exactly that
-    // — and rows from before it still can. `balanceSheetService` filters
-    // `jl.company_id`, `ga.company_id` AND `je.company_id`, so such a line is
-    // invisible to the report this guard protects; reading it here would refuse
-    // a chart edit that loses nothing. Guard and reader must agree, and
-    // `k051-cross-company-journal-line.int.test.ts` is what pins that.
-    const posted = (await sql`
-      SELECT 1 FROM gl_journal_lines
-       WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID
-       LIMIT 1
-    `) as unknown[];
-    if (posted.length > 0) {
-      throw new ParentAccountError(
-        `Parent ${parent.account_code} is a level-${parent.level} ${parent.account_type} ` +
-          'account with journal lines posted to it. Giving it a child would turn it into a ' +
-          'header, and the balance sheet and the trend report select an account only when its ' +
-          'level is 3 or higher or it has no children — its own balance would disappear from ' +
-          'both.',
-      );
-    }
+    // ALREADY A HEADER: a parent with a child is off both reports already, so
+    // another child hides nothing new (VF's paycard umbrella, 2026-10-26: 40
+    // children, and every further paycard was refused). The read is settled:
+    // every writer that can take a child AWAY (reclassifyAccount, the bank
+    // grouping PUT, an account merge, an import rollback's DELETE) takes the
+    // role-write lock first, as this function did above, so "the last child
+    // leaves" and "a new child arrives" serialise —
+    // header-account-already-header.int.test.ts (c).
+    if (await hasChildAccounts(companyId, parentId)) await warnIfHeaderHoldsMoney(companyId, parent);
+    else await assertNoPostedLines(companyId, parent);
   }
 
   const childLevel = Number(parent.level) + 1;
@@ -155,6 +147,57 @@ export async function assertParentUsable(
     );
   }
   return { childLevel };
+}
+
+/**
+ * The exemption admits a child to a header whose OWN lines are already off the balance sheet. When they do
+ * not net to zero that is money the statements are missing today; this does not refuse (it hides nothing
+ * new) but says so, so the header's balance gets moved to a leaf.
+ */
+export async function warnIfHeaderHoldsMoney(
+  companyId: string, parent: { id: string; account_code: string },
+): Promise<void> {
+  // The balance sheet's own filters (balanceSheetService): posted, this company on both rows, no year-end close.
+  const [row] = (await sql`
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::TEXT AS net FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+     WHERE jl.gl_account_id = ${parent.id}::UUID AND jl.company_id = ${companyId}::UUID
+       AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+       AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+  `) as { net: string }[];
+  if (row && Number(row.net) !== 0) {
+    log.warn('Child added to a header that carries its own unreported balance', {
+      companyId, parentId: parent.id, accountCode: parent.account_code, net: row.net,
+    }, 'gl-accounts');
+  }
+}
+
+/** Refuses a childless level 1-2 parent with lines: a child would make it a header the reports drop. */
+async function assertNoPostedLines(
+  companyId: string, parent: { id: string; account_code: string; account_type: string; level: number },
+): Promise<void> {
+  // `company_id` is LOAD-BEARING, not habit. Until migration 664 a journal
+  // line could name this company's account while carrying another company's
+  // `company_id` — `POST /api/accounting/journal-entries` wrote exactly that
+  // — and rows from before it still can. `balanceSheetService` filters
+  // `jl.company_id`, `ga.company_id` AND `je.company_id`, so such a line is
+  // invisible to the report this guard protects; reading it here would refuse
+  // a chart edit that loses nothing. Guard and reader must agree, and
+  // `k051-cross-company-journal-line.int.test.ts` is what pins that.
+  const posted = (await sql`
+    SELECT 1 FROM gl_journal_lines
+     WHERE gl_account_id = ${parent.id}::UUID AND company_id = ${companyId}::UUID
+     LIMIT 1
+  `) as unknown[];
+  if (posted.length > 0) {
+    throw new ParentAccountError(
+      `Parent ${parent.account_code} is a level-${parent.level} ${parent.account_type} ` +
+        'account with journal lines posted to it. Giving it a child would turn it into a ' +
+        'header, and the balance sheet and the trend report select an account only when its ' +
+        'level is 3 or higher or it has no children — its own balance would disappear from ' +
+        'both.',
+    );
+  }
 }
 
 /**

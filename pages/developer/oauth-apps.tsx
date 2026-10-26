@@ -52,6 +52,7 @@ function Toast({ msg, ok, onClose }: { msg: string; ok: boolean; onClose: () => 
 
 export default function OauthAppsPage() {
   const [apps, setApps] = useState<OauthApp[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
@@ -147,7 +148,7 @@ export default function OauthAppsPage() {
     try {
       await navigator.clipboard.writeText(newApp.clientSecret);
       setSecretCopied(true);
-      setTimeout(() => setSecretCopied(false), 2000);
+      afterDelay(() => setSecretCopied(false), 2000);
     } catch {
       showToast('Copy failed — please select and copy the secret manually', false);
     }
