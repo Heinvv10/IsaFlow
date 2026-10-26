@@ -37,8 +37,11 @@ let demoId = '';
 let startedOn = '';
 
 test.beforeAll(async ({ baseURL }) => {
-  // Creates a company and relies on a dev-only data flag: never against production.
-  expect(new URL(baseURL!).hostname, 'v-empty-states is a dev/CI spec, not a production check').not.toMatch(/(^|\.)isaflow\.co\.za$/);
+  // Creates a company and relies on a dev-only data flag: only an explicit dev/CI host may run it.
+  // Never production: not app.isaflow.co.za and not this box's prod next-server on :3101.
+  const u = new URL(baseURL!);
+  const devPorts = new Set(['3200', ...Array.from({ length: 500 }, (_, i) => String(3300 + i)), ...Array.from({ length: 40 }, (_, i) => String(3200 + i))]);
+  expect(u.hostname === 'localhost' && devPorts.has(u.port), `v-empty-states runs only on a dev/CI localhost port (3200-3239, 3300-3799), not ${u.host}`).toBe(true);
   const api = await Api.login(baseURL!);
   try {
     const uc = await api.get<{ items: Array<{ companyId: string; isDemo?: boolean }>; activeCompanyId: string }>(
@@ -130,5 +133,19 @@ test('the shared session is still on the company the suite started on', async ()
     expect(await activeCompanyId(api)).toBe(startedOn);
   } finally {
     await api.dispose();
+  }
+});
+
+test('at 390px the count beside the search is not clipped and the page does not scroll sideways', async ({ page }) => {
+  mkdirSync(SHOTS, { recursive: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const path of ['/accounting/customers', '/accounting/suppliers', '/payroll/employees']) {
+    await open(page, path);
+    const count = page.getByText(/^\d+ (customer|supplier|employee)s?$/);
+    await expect(count).toBeVisible();
+    const box = await count.boundingBox();
+    expect(box && box.x >= 0 && box.x + box.width <= 390, `${path} count inside the viewport`).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await page.screenshot({ path: `${SHOTS}/${path.split('/').pop()}-390.png` });
   }
 });

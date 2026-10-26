@@ -99,15 +99,15 @@ export default function EmployeesListPage() {
 
         <div className="p-6">
           <MedicalAidReviewBanner />
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6">
+            <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name or employee number..."
-                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-80 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-full sm:w-80 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
             {!isLoading && (
