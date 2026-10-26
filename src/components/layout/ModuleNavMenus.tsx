@@ -117,7 +117,6 @@ function SectionGroup({ section, items, asPath, onClose, accent, state }: Sectio
         ref={rowRef}
         type="button"
         data-nav-row
-        aria-haspopup="true"
         aria-expanded={isOpen}
         aria-controls={isOpen ? panelId : undefined}
         className={sectionCls(isOpen)}
@@ -217,6 +216,7 @@ export function FlyoutDropdown({ tab, asPath, onClose, accent, id }: DropdownPro
         className="bg-surface-raised border border-line rounded-b-lg shadow-xl min-w-[200px] py-1">
         <NavLinksBlock
           links={tab.links}
+          tabItems={tab.items}
           asPath={asPath}
           onNav={onClose}
           linkClassName={active => makeLinkCls(active, accent)}

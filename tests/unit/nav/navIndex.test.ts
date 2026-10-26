@@ -32,6 +32,12 @@ describe('buildNavIndex', () => {
     expect(e?.trail.slice(0, 2)).toEqual(['Library', 'Accounting']);
   });
 
+  it('never repeats the label in its own trail (Transactions > Transactions)', () => {
+    expect(idx.filter((e) => e.trail.includes(e.label))).toEqual([]);
+    expect(find(idx, '/accounting/bank-transactions')?.trail).toEqual(['Banking']);
+    expect(find(idx, '/payroll/employees')?.trail).toEqual(['Payroll']);
+  });
+
   it('has no duplicate hrefs', () => {
     const hrefs = idx.map((e) => e.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
@@ -77,7 +83,28 @@ describe('trailForPath', () => {
   it('does not let the Dashboard claim every /accounting page', () => {
     expect(trailForPath('/accounting/not-a-real-page', idx)).toBeNull();
     expect(trailForPath('/accounting', idx)?.label).toBe('Dashboard');
-    expect(trailForPath('/accounting?tab=reports', idx)?.label).toBe('Dashboard');
+    expect(trailForPath('/accounting#top', idx)?.label).toBe('Dashboard');
+  });
+
+  it('the Compliance Calendar owns /accounting/sars only, not its sub-pages', () => {
+    expect(trailForPath('/accounting/sars', idx)?.label).toBe('Compliance Calendar');
+    expect(trailForPath('/accounting/sars/not-a-page', idx)).toBeNull();
+    expect(trailForPath('/accounting/sars/submissions', idx)?.label).toBe('Submission History');
+  });
+
+  it('a dashboard sub-view selected with ?tab= is not the Dashboard', () => {
+    expect(trailForPath('/accounting?tab=reports', idx)).toBeNull();
+    expect(trailForPath('/accounting?tab=journal-entries', idx)).toBeNull();
+  });
+
+  it('a settings tab is not "Banking Settings"', () => {
+    expect(trailForPath('/accounting/company-settings?tab=general', idx)).toBeNull();
+    expect(trailForPath('/accounting/company-settings?tab=profile', idx)).toBeNull();
+    expect(find(idx, '/accounting/company-settings?tab=general')?.isSetting).toBe(true);
+  });
+
+  it('a payroll setup page still owns its path', () => {
+    expect(trailForPath('/payroll/components', idx)?.label).toBe('Pay Components');
   });
 
   it('is null for a path nothing owns', () => {

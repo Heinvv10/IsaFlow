@@ -44,6 +44,14 @@ describe('getActiveTabId (top-bar wrapper)', () => {
   });
 });
 
+describe('Trial Balance belongs to Reports', () => {
+  it('lights the Reports tab and module, not Library', () => {
+    expect(getActiveModuleId('/accounting/trial-balance', q)).toBe('reports');
+    expect(getActiveTabId('/accounting/trial-balance', q)).toBe('reports');
+    expect(getActiveTabId('/accounting/trial-balance/export', q)).toBe('reports');
+  });
+});
+
 describe('mostSpecificActiveHref', () => {
   it('prefers the deeper path whatever the order', () => {
     const a = '/accounting/bank-reconciliation';

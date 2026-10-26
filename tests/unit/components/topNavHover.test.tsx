@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
+let asPath = '/accounting';
 vi.mock('next/router', () => ({
-  useRouter: () => ({ pathname: '/accounting', asPath: '/accounting', query: {} }),
+  useRouter: () => ({ pathname: asPath.split('?')[0], asPath, query: {} }),
 }));
 
 import { ModuleNav } from '@/components/layout/ModuleNav';
@@ -13,7 +14,7 @@ const renderNav = () => render(<ModuleNav tabs={TABS} getActiveTabId={getActiveT
 const hover = (id: string) => fireEvent.pointerEnter(tab(id), { pointerType: 'mouse' });
 const unhover = (id: string) => fireEvent.pointerLeave(tab(id), { pointerType: 'mouse' });
 
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => { vi.useRealTimers(); asPath = '/accounting'; });
 
 describe('top-nav hover', () => {
   it.each([
@@ -100,7 +101,8 @@ describe('top-nav keyboard', () => {
   it('the chevron trigger announces the popup and its state', () => {
     renderNav();
     const trigger = within(tab('sales')).getByRole('button', { name: 'Sales menu' });
-    expect(trigger.getAttribute('aria-haspopup')).toBe('true');
+    // The panel is a disclosure of plain links, not role=menu: haspopup would announce a menu that is not there.
+    expect(trigger.hasAttribute('aria-haspopup')).toBe(false);
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(trigger);
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
@@ -198,6 +200,103 @@ describe('top-nav keyboard, parent panel with a sub-panel open', () => {
   });
 });
 
+describe('top-nav disclosure semantics', () => {
+  it('section rows carry aria-expanded and no aria-haspopup', () => {
+    renderNav();
+    hover('sales');
+    const row = within(tab('sales')).getByRole('button', { name: 'Customers' });
+    expect(row.hasAttribute('aria-haspopup')).toBe(false);
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('top-nav focus leaving the menu', () => {
+  it('closes when focus moves outside the tab and its panel', () => {
+    renderNav();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    fireEvent.click(within(tab('sales')).getByRole('button', { name: 'Sales menu' }), { detail: 0 });
+    const entries = within(tab('sales')).getAllByRole('link');
+    const last = entries[entries.length - 1] as HTMLElement;
+    last.focus();
+    fireEvent.focusOut(last, { relatedTarget: outside });
+    expect(within(tab('sales')).queryByRole('link', { name: 'Quotes' })).toBeNull();
+    outside.remove();
+  });
+
+  it('stays open when focus moves between entries of the same menu', () => {
+    renderNav();
+    fireEvent.click(within(tab('sales')).getByRole('button', { name: 'Sales menu' }), { detail: 0 });
+    const first = document.activeElement as HTMLElement;
+    fireEvent.focusOut(first, { relatedTarget: within(tab('sales')).getByRole('link', { name: 'Quotes' }) });
+    expect(within(tab('sales')).queryByRole('link', { name: 'Quotes' })).not.toBeNull();
+  });
+});
+
+describe('top-nav click after hover', () => {
+  it('a mouse click on the chevron keeps a hover-opened menu open; the next click closes it', () => {
+    renderNav();
+    hover('sales');
+    const chevron = within(tab('sales')).getByRole('button', { name: 'Sales menu' });
+    fireEvent.click(chevron, { detail: 1 });
+    expect(within(tab('sales')).queryByRole('link', { name: 'Quotes' })).not.toBeNull();
+    fireEvent.click(chevron, { detail: 1 });
+    expect(within(tab('sales')).queryByRole('link', { name: 'Quotes' })).toBeNull();
+  });
+
+  it('re-entering during the close grace does not make the next click close the menu', () => {
+    vi.useFakeTimers();
+    renderNav();
+    hover('sales');
+    fireEvent.click(within(tab('sales')).getByRole('button', { name: 'Sales menu' }), { detail: 1 });
+    unhover('sales');
+    hover('sales');
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(within(tab('sales')).queryByRole('link', { name: 'Quotes' })).not.toBeNull();
+  });
+
+  it('a keyboard activation on an open menu closes it', () => {
+    renderNav();
+    hover('sales');
+    fireEvent.click(within(tab('sales')).getByRole('button', { name: 'Sales menu' }), { detail: 0 });
+    expect(within(tab('sales')).queryByRole('link', { name: 'Quotes' })).toBeNull();
+  });
+});
+
+describe('top-nav ArrowDown', () => {
+  it('on a hover-opened menu moves focus to the first entry', () => {
+    renderNav();
+    hover('sales');
+    const label = within(tab('sales')).getByRole('link', { name: 'Sales' });
+    label.focus();
+    fireEvent.keyDown(label, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(within(tab('sales')).getByRole('link', { name: 'Invoices' }));
+  });
+
+  it('on the chevron opens the menu and focuses the first entry', () => {
+    renderNav();
+    const chevron = within(tab('banking')).getByRole('button', { name: 'Banking menu' });
+    chevron.focus();
+    fireEvent.keyDown(chevron, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(within(tab('banking')).getByRole('link', { name: 'Transactions' }));
+  });
+});
+
+describe('top-nav link highlighting', () => {
+  it('Compliance Calendar is lit on /accounting/sars only, not on its sub-pages', () => {
+    asPath = '/accounting/sars';
+    const first = renderNav();
+    hover('tax');
+    const lit = (name: string) => within(tab('tax')).getAllByRole('link', { name })[0]!.className.includes('text-teal-400');
+    expect(lit('Compliance Calendar')).toBe(true);
+    first.unmount();
+    asPath = '/accounting/sars/submissions';
+    renderNav();
+    hover('tax');
+    expect(lit('Compliance Calendar')).toBe(false);
+  });
+});
+
 describe('top-nav tabs without a landing page', () => {
   it('stay a single button that toggles on click', () => {
     const tabs = [{ id: 'm', label: 'Menu', items: [{ label: 'One', href: '/one' }] }];
@@ -207,5 +306,21 @@ describe('top-nav tabs without a landing page', () => {
     expect(screen.getByRole('link', { name: 'One' })).toBeTruthy();
     fireEvent.click(button);
     expect(screen.queryByRole('link', { name: 'One' })).toBeNull();
+  });
+
+  it('a mouse click after hovering keeps the menu open (secondary bar section buttons)', () => {
+    const tabs = [{ id: 'm', label: 'Menu', items: [{ label: 'One', href: '/one' }] }];
+    render(<ModuleNav tabs={tabs} getActiveTabId={() => 'm'} accentColor="teal" />);
+    fireEvent.pointerEnter(document.querySelector('[data-tour="nav-m"]') as HTMLElement, { pointerType: 'mouse' });
+    fireEvent.click(screen.getByRole('button', { name: 'Menu' }), { detail: 1 });
+    expect(screen.getByRole('link', { name: 'One' })).toBeTruthy();
+  });
+
+  it('ArrowDown opens it and focuses the first entry', () => {
+    const tabs = [{ id: 'm', label: 'Menu', items: [{ label: 'One', href: '/one' }] }];
+    render(<ModuleNav tabs={tabs} getActiveTabId={() => 'm'} accentColor="teal" />);
+    const button = screen.getByRole('button', { name: 'Menu' });
+    fireEvent.keyDown(button, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: 'One' }));
   });
 });
