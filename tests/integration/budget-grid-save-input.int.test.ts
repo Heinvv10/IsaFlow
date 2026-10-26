@@ -107,6 +107,24 @@ describe('save: delete is explicit (round-3 N3)', () => {
   });
 });
 
+describe('save: ids are compared lower-cased (round-5 M1)', () => {
+  it('an UPPER-CASE header or inactive account id is still refused by decision 18', async () => {
+    const v = await fx.version(A);
+    for (const acct of [A.acct.header, A.acct.inactive]) {
+      const r = await unchanged(v, async () => save(v, await token(v), [cell(acct.toUpperCase(), FY27[6]!, 10)]));
+      expect([r.status, code(r)], dump(r)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+    }
+  });
+
+  it('two case variants of one cell are a 400 duplicate, not a 500', async () => {
+    const v = await fx.version(A);
+    const r = await unchanged(v, async () => save(v, await token(v),
+      [cell(A.acct.rent, FY27[7]!, 1), cell(A.acct.rent.toUpperCase(), FY27[7]!, 2)]));
+    expect([r.status, code(r)], dump(r)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+    expect(String(r.body.error?.message)).toContain('appears twice');
+  });
+});
+
 describe('a cost centre with NULL cc_type (R7)', () => {
   it('is not offered as a CC1 member by the read model', async () => {
     const v = await fx.version(A);

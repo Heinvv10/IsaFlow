@@ -3,7 +3,9 @@
  * revenue/expense chart (leaf and header accounts, an inactive one, an asset), CC1/CC2/BU members,
  * registry years (the optional 14-month transition year), versions and amounts written directly,
  * posted and draft journals with dimension tags, and a caller for the real GET/POST routes.
- * Real PostgreSQL; synthetic rows only. Every row made here is removed by `cleanup()`.
+ * Real PostgreSQL; synthetic rows only. Every row made here is removed by `cleanup()`, including
+ * the members' per-user rate buckets (`clearBudgetRateCounters`), so a re-run on the same
+ * database starts with empty buckets.
  *
  * Registry years (default): FY2026 = Mar 2025 - Feb 2026, FY2027 = Mar 2026 - Feb 2027,
  * FY2028 = Mar 2027 - Feb 2028. With `transition`: FY2025 = Jan-Dec 2025 and the 14-month
@@ -13,6 +15,7 @@ import type { Pool } from 'pg';
 import { Readable } from 'node:stream';
 import { request, response } from '../mfa-impersonation-postgres.helpers';
 import { signSession } from '../r-032-fake-gotrue.helpers';
+import { clearRateLimitCache } from '@/lib/rateLimit';
 import type { SetupUser } from './onboardingSetupFixture';
 
 export const ACCOUNT_KEYS = [
@@ -34,6 +37,20 @@ export interface GridCo {
 export interface Dims { cc1?: string | null; cc2?: string | null; bu?: string | null }
 export interface JournalLine extends Dims { acct: string; debit?: number; credit?: number }
 type Q = Pick<Pool, 'query'>;
+
+/** The per-user budget rate buckets the grid routes charge. */
+export const BUDGET_RATE_BUCKETS = ['budget-import', 'budget-template', 'budget-save'] as const;
+
+/**
+ * Removes `userIds`' budget rate buckets (preview, template download, save) from
+ * rate_limit_counters and clears the limiter's in-process refusal cache. `cleanup()` calls it for
+ * the fixture's members; a suite that makes users of its own calls it for those.
+ */
+export async function clearBudgetRateCounters(q: Q, userIds: readonly string[]): Promise<void> {
+  const keys = userIds.flatMap((u) => BUDGET_RATE_BUCKETS.map((b) => `${b}:${u}`));
+  if (keys.length > 0) await q.query('DELETE FROM rate_limit_counters WHERE key = ANY($1)', [keys]);
+  clearRateLimitCache();
+}
 
 export type RouteOut = { status: number; body: { data?: Record<string, unknown>; error?: { message?: string; details?: { code?: string } } } };
 
@@ -167,6 +184,7 @@ export function budgetGridFixture(pool: Pool) {
     }
     await pool.query('DELETE FROM company_users WHERE company_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1)', [ids]);
+    await clearBudgetRateCounters(pool, users);
     await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [users]);
   }
 

@@ -6,12 +6,15 @@
  * and 4-byte character is placed EXACTLY across a piece boundary of the normalised zip (a comment
  * in styles.xml, which precedes the shared strings, shifts it there), and each must come back
  * intact through xlsxBufferToCsv and through the budget reader.
+ * Round 5: the cutter looks for its `>` and its character start inside the current piece only;
+ * scanning back past it made a long stretch with no `>` quadratic. The bytes it inspects are
+ * counted (`readerInputInspected`) and must stay linear in the input, not wall-clock.
  */
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { normaliseXlsx, readerInput } from '@/lib/xlsxNormalise';
-import { READ_CHUNK_BYTES } from '@/lib/xlsxXmlScan';
+import { READ_CHUNK_BYTES, readerInputInspected } from '@/lib/xlsxXmlScan';
 import { xlsxBufferToCsv } from '@/lib/xlsxToCsv';
 import { readBudgetWorkbook, type SheetRow } from '@/modules/accounting/services/budgets/budgetImportParse';
 
@@ -91,4 +94,19 @@ describe('U8: no character is split across the reader\'s pieces', () => {
       expect(p.toString('utf8')).not.toContain('\uFFFD');
     }
   });
+
+  it.each([
+    ['20 MB of text with no >', Buffer.alloc(20 * MB, 0x61)],
+    ['20 MB of é with no > (character starts every 2 bytes)', Buffer.from('é'.repeat(10 * MB))],
+    ['20 MB of continuation bytes (no character start at all)', Buffer.alloc(20 * MB, 0x80)],
+  ])('cuts %s inspecting a linear number of bytes', async (_label, zip) => {
+    const before = readerInputInspected();
+    let total = 0;
+    for await (const piece of readerInput(zip)) {
+      expect((piece as Buffer).length).toBeLessThanOrEqual(READ_CHUNK_BYTES);
+      total += (piece as Buffer).length;
+    }
+    expect(total).toBe(zip.length);
+    expect(readerInputInspected() - before).toBeLessThanOrEqual(zip.length + 4 * Math.ceil(zip.length / READ_CHUNK_BYTES));
+  }, 120000);
 });

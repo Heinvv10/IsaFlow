@@ -18,7 +18,7 @@ import previewRoute from '../../pages/api/accounting/budget-grid/import-preview'
 import gridRoute from '../../pages/api/accounting/budget-grid/index';
 import { earlyReadStats } from '@/lib/readJsonBody';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
+import { budgetGridFixture, clearBudgetRateCounters, type GridCo } from './helpers/budgetGridFixture';
 import { signSession } from './r-032-fake-gotrue.helpers';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { downloadTemplate, multipartBody, uploadStream } from './helpers/budgetImportFixture';
@@ -63,6 +63,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await fx.cleanup();
+    await clearBudgetRateCounters(pool, writers.map((w) => w.userId));
     await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [writers.map((w) => w.userId)]);
   } finally {
     await pool.end();
