@@ -145,6 +145,19 @@ describeIfDb('a posted parent that is already a header may take another child', 
       expect(headerWarnings(warn)).toHaveLength(0);
     });
 
+    it('(b) a DRAFT line on the header is not money the balance sheet misses: no warning', async () => {
+      const warn = vi.spyOn(log, 'warn');
+      const { parent } = await postedParent('W2', 1, null, true);
+      const je = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, source, status, created_by)
+        VALUES (${h.fx.companyId}::UUID, ${`HAH-W2-${h.fx.tag}`.slice(0, 40)}, ${DATE}::DATE, 'draft on header', 'manual', 'draft', ${h.fx.userId})
+        RETURNING id`) as Row[])[0]!.id);
+      await sql`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id) VALUES
+        (${je}::UUID, ${parent}::UUID, 75, 0, ${h.fx.companyId}::UUID), (${je}::UUID, ${h.fx.bankAccountId}::UUID, 0, 75, ${h.fx.companyId}::UUID)`;
+      const loose = await addAccount(h.fx, { code: 'HAH-W2X', type: 'asset', level: 1 });
+      expect(await settle(inTx(h.fx, move(loose, parent)))).toBeNull();
+      expect(headerWarnings(warn)).toHaveLength(0);
+    });
+
     it('(b) createAccount under the same kind of header is accepted', async () => {
       const { parent } = await postedParent('B2', 1);
       const made = await inTx(h.fx, () => createAccount(h.fx.companyId, {

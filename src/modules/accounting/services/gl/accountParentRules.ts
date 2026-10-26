@@ -22,6 +22,7 @@ import {
   BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, hasChildAccounts, isSubjectToLeafRule,
 } from './isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from './glAccountLock';
+import { YEAR_END_JOURNAL_SOURCE } from './yearEndJournalSource';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
 import { holderAsParentRefusal, roleBarringChildren } from './roleTargetRules';
 
@@ -156,9 +157,13 @@ export async function assertParentUsable(
 export async function warnIfHeaderHoldsMoney(
   companyId: string, parent: { id: string; account_code: string },
 ): Promise<void> {
+  // The balance sheet's own filters (balanceSheetService): posted, this company on both rows, no year-end close.
   const [row] = (await sql`
-    SELECT COALESCE(SUM(debit - credit), 0)::TEXT AS net FROM gl_journal_lines
-     WHERE gl_account_id = ${parent.id}::UUID AND company_id = ${companyId}::UUID
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::TEXT AS net FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+     WHERE jl.gl_account_id = ${parent.id}::UUID AND jl.company_id = ${companyId}::UUID
+       AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+       AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
   `) as { net: string }[];
   if (row && Number(row.net) !== 0) {
     log.warn('Child added to a header that carries its own unreported balance', {
