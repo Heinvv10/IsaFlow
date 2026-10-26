@@ -32,6 +32,8 @@ afterAll(async () => {
 });
 /** Another day of DAY's month, outside a DAY..DAY range. */
 const OTHER_DAY = `${DAY.slice(0, 8)}${DAY.slice(8) === '16' ? '17' : '16'}`;
+/** A third day of the month, for the chain test's own range. */
+const CHAIN_DAY = `${DAY.slice(0, 8)}${DAY.slice(8) === '20' ? '21' : '20'}`;
 
 async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -118,7 +120,8 @@ describe('MCP bulk reversal of a supplier payment AND its refund together', () =
 
   it('the range dry run finds a payment through its chain root (a line matched to a later member of the chain)', async () => {
     const s4 = await newSupplier();
-    const out = await bankAllocated(s4, -500, lowId());
+    // Its own day: B10's refused payment line stays allocated on DAY and would answer for this one.
+    const out = await bankAllocated(s4, -500, lowId(), CHAIN_DAY);
     // A refund outside the range has returned that cash: credit 0.
     await pool.query(
       `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,payment_method,reference,status,created_by)
@@ -131,13 +134,13 @@ describe('MCP bulk reversal of a supplier payment AND its refund together', () =
     const { rows: [member] } = await pool.query(
       `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,status,created_by,fiscal_period_id,posted_at,reversal_of_id)
        VALUES($1,$2,$3::DATE,'VAR chain member','posted',$4,(SELECT id FROM fiscal_periods WHERE company_id = $1 LIMIT 1),NOW(),$5)
-       RETURNING id`, [fx.company, `JE-VAR-${crypto.randomUUID().slice(0, 8)}`, DAY, fx.user, root.id]);
+       RETURNING id`, [fx.company, `JE-VAR-${crypto.randomUUID().slice(0, 8)}`, CHAIN_DAY, fx.user, root.id]);
     const { rows: [bankLine] } = await pool.query(
       `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id)
        VALUES($1,$2,0,500,$3),($1,$4,500,0,$3) RETURNING id`, [member.id, fx.bankAccount, fx.company, fx.apAccount]);
     await pool.query('UPDATE bank_transactions SET matched_journal_line_id = $1 WHERE id = $2', [bankLine.id, out.line]);
     const ctx = { companyId: fx.company, userId: fx.user, scopes: ['write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
-    const args = { bank_account_id: fx.bankAccount, from_date: DAY, to_date: DAY, idempotency_key: crypto.randomUUID(), dry_run: true };
+    const args = { bank_account_id: fx.bankAccount, from_date: CHAIN_DAY, to_date: CHAIN_DAY, idempotency_key: crypto.randomUUID(), dry_run: true };
     expect(await verdict(inTx(() => reverseAllocationsTool.handler(args, ctx as never)))).toBe('SUPPLIER_PAYMENT_REFUSED');
   }, 60_000);
 });
