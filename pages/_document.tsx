@@ -19,6 +19,8 @@ export default function Document() {
         <link rel="manifest" href="/manifest.json" />
         {/* Applies the saved theme before first paint. Blocking on purpose: deferred, the page flashes the wrong theme. */}
         <script src="/theme-init.js" />
+        {/* Marks the saved nav mode before first paint, for the loading skeleton (ShellSkeleton). */}
+        <script src="/shell-init.js" />
         {/* The 400 digit face (styles/globals.css, 1 KB): preloaded so numbers do not reflow when it swaps in. */}
         <link rel="preload" href="/fonts/figures/IBMPlexSans-Digits-Regular.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
       </Head>

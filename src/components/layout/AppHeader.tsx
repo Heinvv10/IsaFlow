@@ -1,7 +1,10 @@
 /**
  * The app's header bar: hamburger, logo, company switcher, quick create, search, setup guide, settings, nav-mode
- * and density toggles, theme, the user and log out. Below `sm` the toggles live in MobileHeaderMenu.
+ * and density toggles, theme, the user and log out. Below `lg` (where the hamburger drawer carries the nav) the
+ * toggles, the user and Log out live in MobileHeaderMenu, so the bar fits at 768 and 1024; the user's name shows
+ * from `xl`.
  */
+import type { RefObject } from 'react';
 import Image from 'next/image';
 import { Menu, LogOut, User, PanelLeft, PanelTop, Search } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -18,14 +21,17 @@ interface AppHeaderProps {
   navMode: 'top' | 'side';
   /** On the admin subdomain the accounting-only controls are hidden. */
   isAdminHost: boolean;
+  mobileNavOpen: boolean;
   onToggleMobileNav: () => void;
+  /** The hamburger, so the drawer can hand focus back to it. */
+  menuButtonRef: RefObject<HTMLButtonElement>;
   onToggleNavMode: () => void;
   onOpenCommandPalette: () => void;
 }
 
 const ICON_BUTTON = 'p-2 rounded-lg text-ink-muted hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors';
 
-export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNavMode, onOpenCommandPalette }: AppHeaderProps) {
+export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileNav, menuButtonRef, onToggleNavMode, onOpenCommandPalette }: AppHeaderProps) {
   const { user, logout } = useAuth();
   const showSidebar = navMode === 'side';
 
@@ -33,9 +39,12 @@ export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNav
     <header className="flex items-center px-4 gap-3 flex-shrink-0" style={{ height: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
       {/* Mobile hamburger */}
       <button
-        className="lg:hidden text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+        ref={menuButtonRef}
+        className="lg:hidden text-ink-muted hover:text-ink transition-colors"
         onClick={onToggleMobileNav}
         aria-label="Open menu"
+        aria-expanded={mobileNavOpen}
+        aria-controls="mobile-drawer"
       >
         <Menu className="w-5 h-5" />
       </button>
@@ -75,7 +84,8 @@ export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNav
       </button>
 
       {/* Setup guide (hidden on admin subdomain). It renders once its progress loads; the slot keeps its 32px from the
-          start so the search box beside it does not jump left when it appears. */}
+          start so the search box beside it does not jump left when it appears. When the guide fails to load the slot
+          stays as a blank 32px gap: a gap is the lesser evil next to a header that moves on every page load. */}
       {!isAdminHost && <div className="w-8 flex-shrink-0"><SetupGuideButton /></div>}
 
       {/* Settings cog (hidden on admin subdomain) */}
@@ -84,17 +94,17 @@ export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNav
       {/* Nav mode toggle */}
       <button
         onClick={onToggleNavMode}
-        className={`hidden sm:block ${ICON_BUTTON}`}
+        className={`hidden lg:block ${ICON_BUTTON}`}
         title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
       >
         {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
       </button>
 
-      {/* Table density toggle (below sm these live in MobileHeaderMenu) */}
-      <div className="hidden sm:block"><TableDensityToggle /></div>
+      {/* Table density toggle (below lg these live in MobileHeaderMenu) */}
+      <div className="hidden lg:block"><TableDensityToggle /></div>
 
       {/* Theme: Light / Dark / System */}
-      <div className="hidden sm:block"><ThemeToggle /></div>
+      <div className="hidden lg:block"><ThemeToggle /></div>
 
       <MobileHeaderMenu
         name={user ? `${user.firstName} ${user.lastName}` : ''}
@@ -105,9 +115,9 @@ export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNav
 
       {/* User info */}
       {user && (
-        <div className="hidden sm:flex items-center gap-2 text-sm text-ink-muted">
+        <div className="hidden xl:flex items-center gap-2 text-sm text-ink-muted">
           <User className="w-4 h-4" />
-          <span className="hidden sm:inline truncate max-w-[160px]">
+          <span className="truncate max-w-[160px]">
             {user.firstName} {user.lastName}
           </span>
         </div>
@@ -117,7 +127,7 @@ export function AppHeader({ navMode, isAdminHost, onToggleMobileNav, onToggleNav
       {!showSidebar && (
         <button
           onClick={() => void logout()}
-          className="hidden sm:block p-2 rounded-lg text-ink-muted hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+          className="hidden lg:block p-2 rounded-lg text-ink-muted hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
           title="Log out"
         >
           <LogOut className="w-4 h-4" />
