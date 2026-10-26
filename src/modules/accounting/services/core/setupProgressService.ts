@@ -7,6 +7,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { isVatRegistered } from '@/modules/bureau/services/vatPeriodHelper';
 import { hasBankAccount } from '../bank/hasBankAccountService';
 
 export interface SetupFacts {
@@ -20,7 +21,11 @@ export interface SetupFacts {
   hasBankAccount: boolean;
   hasBankTransactions: boolean;
   hasCustomers: boolean;
-  /** A customer invoice that is not a draft and not cancelled. */
+  /**
+   * A customer invoice that is not a draft and not cancelled. pending_approval
+   * counts: it is a real invoice the user created and submitted; a draft is
+   * not yet an invoice, and a cancelled one is void.
+   */
   hasCustomerInvoices: boolean;
   /** A customer receipt that is confirmed or reconciled. */
   hasReceipts: boolean;
@@ -29,7 +34,7 @@ export interface SetupFacts {
   hasSupplierInvoices: boolean;
   hasFiscalPeriods: boolean;
   hasOpeningBalances: boolean;
-  /** An active payroll employee exists. */
+  /** A non-terminated payroll employee exists. */
   hasEmployees: boolean;
   /** A pay run that is calculated, approved or paid. */
   hasPayrollRuns: boolean;
@@ -63,7 +68,8 @@ interface FactsRow {
   has_registration: boolean | null;
   has_vat_number: boolean | null;
   has_paye: boolean | null;
-  vat_vendor: boolean | null;
+  vat_period: string | null;
+  vat_system_type: string | null;
   has_bank_transactions: boolean;
   has_customers: boolean;
   has_customer_invoices: boolean;
@@ -89,7 +95,8 @@ export async function probeSetupFacts(companyId: string): Promise<SetupFacts> {
         btrim(COALESCE(c.registration_number, '')) <> '' AS has_registration,
         btrim(COALESCE(c.vat_number, '')) <> '' AS has_vat_number,
         btrim(COALESCE(c.paye_reference_number, '')) <> '' AS has_paye,
-        c.vat_period IS DISTINCT FROM 'none' AS vat_vendor,
+        c.vat_period,
+        c.vat_system_type,
         EXISTS (SELECT 1 FROM bank_transactions WHERE company_id = ${companyId}) AS has_bank_transactions,
         EXISTS (SELECT 1 FROM customers WHERE company_id = ${companyId}) AS has_customers,
         EXISTS (SELECT 1 FROM customer_invoices
@@ -104,7 +111,7 @@ export async function probeSetupFacts(companyId: string): Promise<SetupFacts> {
                 WHERE company_id = ${companyId} AND status = 'posted'
                   AND (source = 'opening_balance' OR (source = 'manual' AND reference = 'opening_balance'))) AS has_opening_balances,
         EXISTS (SELECT 1 FROM payroll_employees
-                WHERE company_id = ${companyId} AND status = 'active') AS has_employees,
+                WHERE company_id = ${companyId} AND status <> 'terminated') AS has_employees,
         EXISTS (SELECT 1 FROM payroll_run_headers
                 WHERE company_id = ${companyId} AND status IN ('calculated', 'approved', 'paid')) AS has_payroll_runs
       FROM (SELECT 1) AS one
@@ -118,7 +125,8 @@ export async function probeSetupFacts(companyId: string): Promise<SetupFacts> {
     registrationNumber: Boolean(r?.has_registration),
     vatNumber: Boolean(r?.has_vat_number),
     payeReference: Boolean(r?.has_paye),
-    vatVendor: r?.vat_vendor ?? true,
+    // The app-wide rule: explicit opt-out by either vat_period or vat_system_type.
+    vatVendor: isVatRegistered(r?.vat_period, r?.vat_system_type),
     hasBankAccount: bankAccountExists,
     hasBankTransactions: Boolean(r?.has_bank_transactions),
     hasCustomers: Boolean(r?.has_customers),
@@ -179,10 +187,13 @@ export function buildSetupProgress(f: SetupFacts): SetupProgress {
     ]),
   ];
   if (f.hasEmployees || f.hasPayrollRuns) {
-    const tasks: SetupTaskStatus[] = [
-      { id: 'employees', label: 'Add an employee', href: '/payroll/employees/new', done: f.hasEmployees },
-      { id: 'payroll-run', label: 'Run payroll', href: '/payroll/runs', done: f.hasPayrollRuns },
-    ];
+    // 'Add an employee' only while an employee exists: with every employee terminated and
+    // a run on file it could never tick, and allComplete would be unreachable.
+    const tasks: SetupTaskStatus[] = [];
+    if (f.hasEmployees) {
+      tasks.push({ id: 'employees', label: 'Add an employee', href: '/payroll/employees/new', done: true });
+    }
+    tasks.push({ id: 'payroll-run', label: 'Run payroll', href: '/payroll/runs', done: f.hasPayrollRuns });
     if (f.hasEmployees) {
       tasks.push({ id: 'paye-reference', label: 'Enter your PAYE reference', href: '/accounting/company-settings', done: f.payeReference });
     }

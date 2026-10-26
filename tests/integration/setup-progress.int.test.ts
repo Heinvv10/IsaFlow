@@ -17,6 +17,7 @@ const A_CUSTOMER = '00000000-0000-0000-0000-0000000c0a02';
 const B_CUSTOMER = '00000000-0000-0000-0000-0000000c0b02';
 const A_SUPPLIER = '00000000-0000-0000-0000-0000000c0a03';
 const B_SUPPLIER = '00000000-0000-0000-0000-0000000c0b03';
+const A_BANK = '00000000-0000-0000-0000-0000000c0a04';
 const B_BANK = '00000000-0000-0000-0000-0000000c0b04';
 const USER = '00000000-0000-0000-0000-0000000c0f01';
 
@@ -99,6 +100,21 @@ describeIfDb('setup progress probes', () => {
     const cases: Array<[keyof SetupFacts, () => Promise<unknown>]> = [
       ['hasCustomers', () => admin.query(`INSERT INTO customers (id, company_id, name) VALUES ($1,$2,'A cust')`, [A_CUSTOMER, A])],
       ['hasSuppliers', () => admin.query(`INSERT INTO suppliers (id, company_id, name) VALUES ($1,$2,'A supp')`, [A_SUPPLIER, A])],
+      ['hasBankAccount', () => admin.query(
+        `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
+         VALUES ($1,$2,'SP1000','Bank','asset','bank','debit',true)`, [A_BANK, A])],
+      ['hasBankTransactions', () => admin.query(
+        `INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount) VALUES ($1,$2,'2026-01-01',5)`, [A, A_BANK])],
+      ['hasFiscalPeriods', async () => {
+        const { rows } = await admin.query(
+          `INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1,2026,'2026-01-01','2026-12-31') RETURNING id`, [A]);
+        await admin.query(
+          `INSERT INTO fiscal_periods (company_id, fiscal_year_id, period_name, period_number, fiscal_year, start_date, end_date)
+           VALUES ($1,$2,'P1',1,2026,'2026-01-01','2026-12-31')`, [A, rows[0].id]);
+      }],
+      ['hasOpeningBalances', () => admin.query(
+        `INSERT INTO gl_journal_entries (company_id, entry_date, created_by, status, source, reference)
+         VALUES ($1,'2026-01-01',$2,'posted','manual','opening_balance')`, [A, USER])],
       ['hasCustomerInvoices', () => customerInvoice(A, A_CUSTOMER, 'A-1', 'sent')],
       ['hasReceipts', () => receipt(A, A_CUSTOMER, 'confirmed')],
       ['hasSupplierInvoices', () => supplierInvoice(A, A_SUPPLIER, 'A-S1', 'approved')],
@@ -135,6 +151,19 @@ describeIfDb('setup progress probes', () => {
       .toEqual([false, false, false, false, false]);
     const p = await getSetupProgress(A);
     expect(p.modules.some((m) => m.id === 'payroll')).toBe(false);
+  });
+
+  it('a company whose only employees are terminated, with a pay run, has no employee task', async () => {
+    await employee(A, 'A8', 'terminated');
+    await payRun(A, 4, 'paid');
+    const p = await getSetupProgress(A);
+    expect(p.modules.find((m) => m.id === 'payroll')!.tasks.map((t) => t.id)).toEqual(['payroll-run']);
+  });
+
+  it("vat_system_type 'none' also removes Tax (shared isVatRegistered rule)", async () => {
+    await admin.query(`UPDATE companies SET vat_system_type='none' WHERE id=$1`, [A]);
+    expect((await getSetupProgress(A)).modules.some((m) => m.id === 'tax')).toBe(false);
+    await admin.query(`UPDATE companies SET vat_system_type='invoice' WHERE id=$1`, [A]);
   });
 
   it('PAYE reference is trimmed; a whitespace-only value is not set', async () => {
