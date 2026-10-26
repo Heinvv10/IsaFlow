@@ -83,7 +83,6 @@ export const SERVER_HITS: Record<string, number> = {
   "src/modules/accounting/services/reports/vatReconciliationService.ts": 3,
   "src/modules/accounting/services/shared/creditNoteDocumentApply.ts": 4,
   "src/modules/accounting/services/shared/creditNoteUnapply.ts": 1,
-  "src/modules/accounting/services/workbench/monthEndWorkbenchService.ts": 1,
   "src/modules/accounting/utils/customerStatementHtml.ts": 2,
   "src/modules/accounting/utils/doubleEntry.ts": 1,
   "src/modules/accounting/utils/paymentAllocation.ts": 2,
