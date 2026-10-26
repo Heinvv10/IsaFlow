@@ -10,6 +10,8 @@ import { Search, X } from 'lucide-react';
 import { TABS } from '@/components/accounting/accountingNavConfig';
 import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
 import { useFocusTrap } from '@/components/ui/useFocusTrap';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCompany } from '@/contexts/CompanyContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { PaletteOption } from '@/components/layout/CommandPaletteRows';
@@ -38,12 +40,15 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
   const router = useRouter();
   const { toggleTheme } = useTheme();
   const { isRegistered } = useVatRegistration();
+  const { user } = useAuth();
+  const { activeCompany } = useCompany();
+  const scope = user && activeCompany ? `${user.id}:${activeCompany.id}` : null;
   const dialogRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const uid = useId();
   const listId = `${uid}-list`;
   const [selected, setSelected] = useState(0);
-  const { query, setQuery, server, loading, error, recent } = usePaletteSearch(isOpen);
+  const { query, setQuery, server, loading, error, recent } = usePaletteSearch(isOpen, scope);
 
   useFocusTrap(dialogRef, isOpen, onClose);
 
@@ -51,10 +56,12 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
   const sections = useMemo(() => buildSections({ query, index, recent, server }), [query, index, recent, server]);
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
-  useEffect(() => { setSelected(0); }, [query, server]);
+  // Back to the top when the typing changes, not when a reply lands: the highlight must not jump under the arrow keys.
+  useEffect(() => { setSelected(0); }, [query]);
+  const current = Math.min(selected, Math.max(rows.length - 1, 0));
   useEffect(() => {
-    listRef.current?.querySelector(`[data-idx="${selected}"]`)?.scrollIntoView?.({ block: 'nearest' });
-  }, [selected]);
+    listRef.current?.querySelector(`[data-idx="${current}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [current]);
 
   const showShortcuts = useCallback(() => {
     onClose();
@@ -63,7 +70,7 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
 
   const choose = useCallback((row: PaletteRow) => {
     if (row.kind === 'item') {
-      saveRecentItem(row.item);
+      saveRecentItem(scope, row.item);
       onClose();
       void router.push(row.item.url);
       return;
@@ -73,12 +80,16 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
     onClose();
     if (action.kind === 'theme') toggleTheme();
     else if (action.url) void router.push(action.url);
-  }, [onClose, router, toggleTheme, showShortcuts]);
+  }, [onClose, router, toggleTheme, showShortcuts, scope]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((i) => Math.min(i + 1, rows.length - 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((i) => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter') { e.preventDefault(); const row = rows[selected]; if (row) choose(row); }
+    const last = rows.length - 1;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSelected(current >= last ? 0 : current + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected(current <= 0 ? last : current - 1); }
+    // Home/End belong to the caret once there is text; with an empty box they jump through the list.
+    else if (e.key === 'Home' && !query && last >= 0) { e.preventDefault(); setSelected(0); }
+    else if (e.key === 'End' && !query && last >= 0) { e.preventDefault(); setSelected(last); }
+    else if (e.key === 'Enter') { e.preventDefault(); const row = rows[current]; if (row) choose(row); }
   };
 
   if (!isOpen) return null;
@@ -105,7 +116,7 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
             aria-expanded="true"
             aria-controls={listId}
             aria-autocomplete="list"
-            aria-activedescendant={rows.length > 0 ? optionId(selected) : undefined}
+            aria-activedescendant={rows.length > 0 ? optionId(current) : undefined}
             aria-label="Search pages, actions and records"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -130,7 +141,7 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
               </p>
               {section.rows.map((row) => {
                 const i = positionOf.get(row.key) ?? 0;
-                const common = { id: optionId(i), dataIdx: i, isSelected: selected === i, onClick: () => choose(row) };
+                const common = { id: optionId(i), dataIdx: i, isSelected: current === i, onClick: () => choose(row) };
                 return row.kind === 'action'
                   ? <PaletteOption key={row.key} {...common} icon={row.action.icon} title={row.action.label} badge="Action" />
                   : <PaletteOption

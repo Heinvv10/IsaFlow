@@ -11,6 +11,8 @@ import { log } from '@/lib/logger';
 import { globalSearch } from '@/modules/accounting/services/core/globalSearchService';
 import { searchPages } from '@/modules/accounting/services/core/pageSearch';
 
+const MAX_QUERY_LENGTH = 100;
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
@@ -21,6 +23,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   try {
     const { q, limit } = req.query;
     const query = typeof q === 'string' ? q.trim() : '';
+    if (query.length > MAX_QUERY_LENGTH) {
+      return apiResponse.badRequest(res, `Search text must be ${MAX_QUERY_LENGTH} characters or fewer`);
+    }
     const parsedLimit = limit ? Math.min(Number(limit), 30) : 8;
 
     if (query.length < 2) {

@@ -82,10 +82,16 @@ test('"?" opens the shortcut overlay from the page, and from the palette', async
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
 });
 
-test('Escape closes the palette and puts focus back', async ({ page }) => {
-  await openPalette(page);
+test('Escape closes the palette and puts focus back on the control that opened it', async ({ page }) => {
+  await page.goto('/accounting');
+  await settle(page);
+  const trigger = page.locator('header button').filter({ hasText: 'Ctrl+K' }).first();
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator(DIALOG)).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator(DIALOG)).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });
 
 for (const theme of THEMES) {
