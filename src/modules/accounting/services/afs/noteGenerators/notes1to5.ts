@@ -8,6 +8,7 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum, getAccountingPolicies, type FrameworkType } from './noteHelpers';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { applyPolicyFacts, readPolicyFacts } from './note1PolicyFacts';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
@@ -23,14 +24,13 @@ export async function generateNote1AccountingPolicies(
   log.info('Generating AFS note 1', { companyId, framework }, 'noteGenerators');
 
   const rows = (await sql`
-    SELECT depreciation_method, inventory_valuation_method, default_currency,
-           vat_system_type, vat_period
+    SELECT default_currency, vat_system_type, vat_period
     FROM companies WHERE id = ${companyId}
   `) as DbRow[];
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
+  const facts = await readPolicyFacts(companyId, start, end);
 
   const c = rows[0] ?? {};
-  const depMethod = String(c.depreciation_method ?? 'straight-line');
-  const invMethod = String(c.inventory_valuation_method ?? 'weighted average cost');
   const currency = String(c.default_currency ?? 'ZAR');
   // vat_period/vat_system_type = 'none' means the company is not a VAT vendor;
   // both columns must go through the normalisers (see vatPeriodHelper).
@@ -42,8 +42,9 @@ export async function generateNote1AccountingPolicies(
   const fw: FrameworkType = framework ?? 'ifrs_smes';
 
   const dataSnapshot: Record<string, unknown> = {
-    depreciation_method: depMethod,
-    inventory_valuation_method: invMethod,
+    depreciation_methods: facts.depMethods,
+    inventory_cost_methods: facts.invMethods,
+    holds_inventory: facts.holdsInventory,
     default_currency: currency,
     vat_system_type: vatRegistered ? vatType : 'none',
     vat_registered: vatRegistered,
@@ -52,13 +53,11 @@ export async function generateNote1AccountingPolicies(
   };
 
   // Get framework-aware accounting policy paragraphs
-  const policyBlocks = getAccountingPolicies(fw, {
-    depMethod,
-    invMethod,
+  const policyBlocks = applyPolicyFacts(getAccountingPolicies(fw, {
     currency,
     vatBasis: vatType,
     vatRegistered,
-  });
+  }), facts);
 
   const blocks: NoteContent['blocks'] = [];
   for (const p of policyBlocks) {

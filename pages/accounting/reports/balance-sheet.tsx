@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import {
@@ -163,8 +164,7 @@ export default function BalanceSheetPage() {
         <div className="p-6 space-y-6">
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">As at</label>
-              <input type="date" value={asAtDate} onChange={e => setAsAtDate(e.target.value)} className="ff-input text-sm" />
+              <DateField label="As at" value={asAtDate || null} onChange={(iso, v) => { if (v.valid) setAsAtDate(iso ?? ''); }} />
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>

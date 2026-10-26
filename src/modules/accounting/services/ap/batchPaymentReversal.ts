@@ -36,6 +36,7 @@ import type { ReversalWithLateClaim } from '../gl/journalEntryPostingService';
 import { RowLockTimeoutError, underFlowLockBudget } from '../core/rowLockBudget';
 import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
 import { assertBatchNotSentToNetcash } from './netcashBatchGuard';
+import { assertVoidKeepsCredit } from './supplierVoidCredit';
 
 /** The batch is already reversed — a double-click's loser. Answered 409. */
 export class BatchAlreadyReversedError extends Error {
@@ -129,6 +130,8 @@ export async function reverseBatchWithLeg(
     throw new SupplierPaymentRefusal(`Payment ${String(unsettled.payment_number)} in batch ${number} is `
       + `${String(unsettled.status)} — the batch cannot be reversed.`);
   }
+  // A member's unapplied cash a refund already returned: refused, as the single void is (before any write).
+  await assertVoidKeepsCredit(companyId, members.map((m) => String(m.id)));
 
   // The bills, locked in the shared order, each by what THIS batch put on it.
   const perBill = (await sql`
