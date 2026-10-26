@@ -88,6 +88,29 @@ describe('seed: size', () => {
   }, 120000);
 });
 
+describe('seed: size of a same-year exact copy', () => {
+  it(`a 0% same-year copy of a source holding more than MAX_IMPORT_CELLS cells is 400 before anything is copied`, async () => {
+    await pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+       SELECT $1, 'GY' || lpad(g::text, 5, '0'), 'Copy ' || g, 'expense', 'debit', 3, true FROM generate_series(1, 8334) g`, [C.id]);
+    const src = await fx.version(C, { name: 'Y-big-src' });
+    try {
+      // 8 334 accounts x 12 months = 100 008 cells in the source.
+      await pool.query(
+        `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+         SELECT $1, $2, ga.id, (DATE '2026-03-01' + make_interval(months => m)), 1
+           FROM gl_accounts ga CROSS JOIN generate_series(0, 11) m WHERE ga.company_id = $1 AND ga.account_code LIKE 'GY%'`, [C.id, src]);
+      const r = await seed(C, body(2027, 'Y-big-copy', { type: 'version', versionId: src, upliftPct: 0 }));
+      expect([r.status, r.body.error?.details?.code], dump(r)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+      expect(String(r.body.error?.message)).toContain(String(MAX_IMPORT_CELLS));
+      expect(Number((await pool.query('SELECT COUNT(*)::int n FROM budget_versions WHERE company_id = $1 AND name = $2', [C.id, 'Y-big-copy'])).rows[0].n)).toBe(0);
+    } finally {
+      await pool.query('DELETE FROM budget_versions WHERE id = $1', [src]);
+      await pool.query(`DELETE FROM gl_accounts WHERE company_id = $1 AND account_code LIKE 'GY%'`, [C.id]);
+    }
+  }, 180000);
+});
+
 describe('seed: years', () => {
   // Label 1 is a year no registry walk reaches (the registry gives up 500 years from a stored year).
   it('PY actuals for a label the registry has no year for is 400 naming it', async () => {

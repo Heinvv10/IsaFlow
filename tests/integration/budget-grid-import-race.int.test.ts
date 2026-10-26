@@ -66,13 +66,15 @@ describe('VER-L2: a save during the preview\'s read', () => {
     expect(p.warnings.map((w) => w.message).join(' ')).toMatch(/1 cell .*changed since you downloaded/i);
   });
 
-  it('round 9: the read model\'s status and token come from one statement', async () => {
-    const v = await fx.version(A, { name: 'Race status' });
-    hooks.afterVersionRead = async () => {
-      await pool.query(`UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`, [v, A.user]);
-    };
+  it.each([
+    ['approved between the statements', 'draft' as const, `UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`],
+    ['locked between the statements', 'approved' as const, `UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = clock_timestamp() WHERE id = $1`],
+  ])('round 9: the read model\'s status and token come from one statement (%s)', async (_label, from, move) => {
+    const v = await fx.version(A, { name: `Race status ${from}`, status: from });
+    const firedBefore = hooks.fired;
+    hooks.afterVersionRead = async () => { await pool.query(move, [v, A.user]); };
     const r = await fx.call(gridRoute, '/api/accounting/budget-grid', A.owner, 'GET', { version_id: v });
-    expect(hooks.fired).toBe(2);
+    expect(hooks.fired).toBe(firedBefore + 1);
     expect(r.status).toBe(200);
     const m = r.body.data as unknown as { updatedAt: string; version: { status: string; updatedAt: string } };
     const now = (await pool.query(`SELECT status, to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') t FROM budget_versions WHERE id = $1`, [v])).rows[0];

@@ -137,3 +137,17 @@ describe('sanitizeBody — long arrays', () => {
     expect(sanitizeBody(Array.from({ length: 51 }, (_, i) => i))).toBe('[omitted: 51 items]');
   });
 });
+
+describe('sanitizeBody — long strings', () => {
+  it('logs any string longer than 1 024 characters as its length, under any key and at any depth', () => {
+    const huge = 'x'.repeat(14 * 1024 * 1024);
+    const out = sanitizeBody({
+      x: huge, note: 'short', nested: { deeper: [{ blob: 'y'.repeat(1025) }] }, edge: 'z'.repeat(1024),
+    }) as Record<string, any>;
+    expect(out.x).toBe(`[omitted: ${huge.length} chars]`);
+    expect(out.note).toBe('short');
+    expect(out.nested).toEqual({ deeper: [{ blob: '[omitted: 1025 chars]' }] });
+    expect(out.edge).toBe('z'.repeat(1024));
+  });
+});
+

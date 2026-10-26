@@ -89,6 +89,13 @@ interface Plan {
   months: string[];
 }
 
+/** One seed holds what one import may (the grid, the template and a chained commit are sized to it). */
+function assertSeedSize(cells: number): void {
+  if (cells > MAX_IMPORT_CELLS) {
+    throw inputError(`This seed would create ${cells} cells, more than the ${MAX_IMPORT_CELLS} one budget version is built for; seed a dimension grain with fewer members, or leave out accounts with no activity`);
+  }
+}
+
 /** Reads and computes everything; writes nothing. `sourceYear`: the locked source version's year label. */
 async function plan(companyId: string, input: SeedInput, sourceYear: number | null): Promise<Plan> {
   const year = await getFiscalYear(companyId, input.fiscalYear);
@@ -108,7 +115,14 @@ async function plan(companyId: string, input: SeedInput, sourceYear: number | nu
     return { cells: upliftAll(series, source.upliftPct, input.roundingUnit, labels), copyOf: null, skipped, months };
   }
   if (sourceYear === null) throw new Error('seedVersion: the source version was not locked');
-  if (sourceYear === input.fiscalYear && source.upliftPct === 0) return { cells: null, copyOf: source.versionId, skipped: 0, months };
+  if (sourceYear === input.fiscalYear && source.upliftPct === 0) {
+    // The exact copy computes no cells here; count the source's (it is locked) against the same cap.
+    const rows = (await sql`
+      SELECT COUNT(*)::int AS n FROM budget_month_amounts WHERE company_id = ${companyId}::UUID AND version_id = ${source.versionId}::UUID
+    `) as Array<{ n: number }>;
+    assertSeedSize(Number(rows[0]?.n ?? 0));
+    return { cells: null, copyOf: source.versionId, skipped: 0, months };
+  }
   const series = await versionSeries(companyId, source.versionId, sourceYear, months.length);
   return { cells: upliftAll(series, source.upliftPct, input.roundingUnit, labels), copyOf: null, skipped: 0, months };
 }
@@ -154,10 +168,7 @@ export async function seedVersion(companyId: string, actor: VersionActor, input:
   const wholeYear = input.makePrimary || (source.type === 'version' && source.upliftPct === 0);
   const sourceYear = await lockSeedVersions(companyId, source.type === 'version' ? source.versionId : null, wholeYear ? input.fiscalYear : null);
   const p = await plan(companyId, input, sourceYear);
-  // One seed holds what one import may (the grid, the template and a chained commit are sized to it).
-  if (p.cells && p.cells.length > MAX_IMPORT_CELLS) {
-    throw inputError(`This seed would create ${p.cells.length} cells, more than the ${MAX_IMPORT_CELLS} one budget version is built for; seed a dimension grain with fewer members, or leave out accounts with no activity`);
-  }
+  if (p.cells) assertSeedSize(p.cells.length);
   try {
     return await withSavepoint('budget_grid_seed', () => write(companyId, actor, input, p, name, kind));
   } catch (err) {

@@ -16,10 +16,11 @@
  *
  * Order (round 9, R2/R5): Next's body parser reads the JSON (at most 14 MB, `config`) before
  * withAuth, holding no pool connection. The spreadsheet work takes a slot of
- * BUDGET_SPREADSHEET_SLOT OUTSIDE withAuth (503 + Retry-After when none is free), so a queued
- * preview holds no connection either. Inside: CSRF, write access, then the user's preview bucket
- * (PREVIEW_RATE per 15 minutes across all their companies, 429), then the version is confirmed
- * before the file is decoded or parsed. The file is never written to disk. `fileData` is the key
+ * BUDGET_SPREADSHEET_SLOT OUTSIDE withAuth (two places a user, 429; none free, 503; both with
+ * Retry-After), so a queued preview holds no connection either. Inside, in order: CSRF, write
+ * access, the user's preview bucket (PREVIEW_RATE per 15 minutes across all their companies, 429),
+ * the body's shape (400), the version and its financial year (404), the file's base64, size and
+ * .xls checks (400), then the parse. The file is never written to disk. `fileData` is the key
  * the request log's body scrubber omits (sanitizeRequestBody), so a logged body never holds it.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -35,7 +36,7 @@ import { SpreadsheetRefusedError } from '@/lib/xlsxToCsv';
 import { BUDGET_SPREADSHEET_SLOT, withCpuSlot } from '@/lib/withCpuSlot';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { FiscalYearLabelUnknownError } from '@/modules/accounting/services/gl/fiscalYearRegistry';
-import { buildImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
+import { buildImportPreview, checkImportVersion } from '@/modules/accounting/services/budgets/budgetImportDiff';
 
 /** A 10 MB file is ~13.4 MB of base64; the rest of the body is two short strings. */
 export const config = { api: { bodyParser: { sizeLimit: '14mb' } } };
@@ -70,13 +71,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return refuse('body shape', `Send { versionId, fileName?, fileData } with the budget template (.xlsx, at most ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)} MB) as base64, and nothing else.`);
   }
   const { versionId, fileName, fileData } = parsed.data;
-  if (fileData.length % 4 !== 0 || !BASE64.test(fileData)) return refuse('not base64', 'fileData must be the file as standard base64.');
-  const bytes = Buffer.from(fileData, 'base64');
-  if (bytes.length > MAX_FILE_BYTES) return refuse('file too large', `The file is larger than ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)} MB. Split it and import each part.`);
-  if ((fileName ?? '').toLowerCase().endsWith('.xls') || (bytes[0] === 0xd0 && bytes[1] === 0xcf)) {
-    return apiResponse.badRequest(res, 'Old-style Excel .xls files are not supported. Save the template as .xlsx and upload again.');
-  }
   try {
+    await checkImportVersion(companyId, versionId); // version and year, before the file is decoded
+    if (fileData.length % 4 !== 0 || !BASE64.test(fileData)) return refuse('not base64', 'fileData must be the file as standard base64.');
+    const bytes = Buffer.from(fileData, 'base64');
+    if (bytes.length > MAX_FILE_BYTES) return refuse('file too large', `The file is larger than ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)} MB. Split it and import each part.`);
+    if ((fileName ?? '').toLowerCase().endsWith('.xls') || (bytes[0] === 0xd0 && bytes[1] === 0xcf)) {
+      return apiResponse.badRequest(res, 'Old-style Excel .xls files are not supported. Save the template as .xlsx and upload again.');
+    }
     return apiResponse.success(res, await buildImportPreview(companyId, versionId, bytes));
   } catch (err) {
     if (err instanceof SpreadsheetRefusedError) {

@@ -3,7 +3,9 @@
  * BUDGET_SPREADSHEET_SLOT OUTSIDE withAuth. With the slot full (two running, four waiting) both
  * answer 503 + Retry-After at once, work not begun; a request queued for a slot holds no pool
  * connection (nothing sits idle in a transaction) and runs when one frees; a request with no
- * session cookie never takes one (withAuth 401s it); the unslotted grid read is unaffected.
+ * session cookie never takes one (withAuth 401s it); the unslotted grid read is unaffected. Final
+ * batch: one user holds at most two places (a third is 429 + Retry-After), another user still
+ * queues.
  * Asserted by the slot's own counts and by order, not by wall-clock. (This suite replaces the
  * round-3 early-read one: the body is now read by Next's parser, R2.)
  */
@@ -70,7 +72,7 @@ describe('R5: the spreadsheet slot', () => {
     const h = hold(BUDGET_SPREADSHEET_SLOT.max);
     await until(() => BUDGET_SPREADSHEET_SLOT.stats().running === BUDGET_SPREADSHEET_SLOT.max, 'the slots to fill');
     let settled = 0;
-    const queued = Array.from({ length: 3 }, () => downloadTemplate(templateRoute, A.owner, { version_id: v, grain: 'company' }).finally(() => { settled++; }));
+    const queued = [A.owner, A.owner, A.viewer].map((u) => downloadTemplate(templateRoute, u, { version_id: v, grain: 'company' }).finally(() => { settled++; }));
     await until(() => BUDGET_SPREADSHEET_SLOT.stats().waiting === 3, 'three downloads to queue');
     const held = await idleInTransaction();
     expect(settled).toBe(0);
@@ -87,6 +89,23 @@ describe('R5: the spreadsheet slot', () => {
     try {
       const r = await downloadTemplate(templateRoute, { ...A.owner, token: '' }, { version_id: v, grain: 'company' });
       expect(r.status).toBe(401);
+    } finally {
+      await h.release();
+    }
+  });
+
+  it('L6: one user holds at most two places; a third is 429 + Retry-After while another user still queues', async () => {
+    const h = hold(BUDGET_SPREADSHEET_SLOT.max);
+    await until(() => BUDGET_SPREADSHEET_SLOT.stats().running === BUDGET_SPREADSHEET_SLOT.max, 'the slots to fill');
+    try {
+      const mine = [1, 2].map(() => downloadTemplate(templateRoute, A.owner, { version_id: v, grain: 'company' }));
+      await until(() => BUDGET_SPREADSHEET_SLOT.stats().waiting === 2, 'two of the owner\'s downloads to queue');
+      const third = await uploadPreview(previewRoute, A.owner, v, file);
+      expect([third.status, (third as { headers?: Map<string, unknown> }).headers?.get('retry-after')]).toEqual([429, '5']);
+      const theirs = downloadTemplate(templateRoute, A.viewer, { version_id: v, grain: 'company' });
+      await until(() => BUDGET_SPREADSHEET_SLOT.stats().waiting === 3, 'the viewer\'s download to queue');
+      await h.release();
+      expect((await Promise.all([...mine, theirs])).map((r) => r.status)).toEqual([200, 200, 200]);
     } finally {
       await h.release();
     }
