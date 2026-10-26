@@ -36,12 +36,12 @@ function holding(bytes: number) {
 }
 
 /** Calls `handler` as user `sub` with `stream` as the body; resolves with the status, code and Retry-After. */
-async function call(handler: NextApiHandler, sub: string, stream: Readable) {
+async function call(handler: NextApiHandler, sub: string, stream: Readable, declared?: number) {
   const token = await tokenFor(sub);
   const req = Object.assign(stream, {
     method: 'POST', url: '/api/test', query: {},
     cookies: { isaflow_csrf: CSRF, 'sb-access-token': token },
-    headers: { cookie: `isaflow_csrf=${CSRF}; sb-access-token=${token}`, 'x-csrf-token': CSRF },
+    headers: { cookie: `isaflow_csrf=${CSRF}; sb-access-token=${token}`, 'x-csrf-token': CSRF, ...(declared === undefined ? {} : { 'content-length': String(declared) }) },
   });
   const headers = new Map<string, string>();
   const state = { status: 200, body: undefined as unknown };
@@ -136,7 +136,7 @@ describe('withBodyFirst bounds', () => {
     expect(charged).toEqual(['u-slots', 'u-slots']);
   });
 
-  it('the small lane has its own 32 MB ceiling: filled, the next small body is 503; a large upload with large-budget room is still read', async () => {
+  it('the small lane has its own 32 MB ceiling: filled, the next body DECLARED small is 503, while a 2 KB save and a large upload are read', async () => {
     // 32 users each hold a 1 MB body (the largest small one): the small lane is full.
     const smalls = Array.from({ length: 32 }, () => holding(MB));
     const { inner, open } = gatedInner();
@@ -144,13 +144,103 @@ describe('withBodyFirst bounds', () => {
     for (let i = 0; i < 600 && earlySmallLaneBytes() < 32 * MB; i++) await sleep(5);
     expect(earlySmallLaneBytes()).toBe(32 * MB);
     const plain: NextApiHandler = async (req, res) => { await takeRawBody(req); res.status(200).json({ ok: true }); };
-    const next = await call(withBodyFirst(LIMITS, plain), 'u-lane-next', Readable.from([Buffer.from('{"cells":[]}')]));
+    const nextSmall = await call(withBodyFirst(LIMITS, plain), 'u-lane-next', Readable.from([Buffer.alloc(100 * 1024, 0x20)]), 100 * 1024);
+    const tiny = await call(withBodyFirst(LIMITS, plain), 'u-lane-tiny', Readable.from([Buffer.alloc(2 * 1024, 0x20)]));
     const large = await call(withBodyFirst(LIMITS, plain), 'u-lane-large', Readable.from([Buffer.alloc(2 * MB, 0x20)]));
     for (const b of smalls) b.release();
     open();
     await Promise.all(pending);
-    expect([next.status, next.code, next.retryAfter]).toEqual([503, 'EARLY_READ_PROCESS_BUDGET', '5']);
-    expect(large.status).toBe(200);
+    expect([nextSmall.status, nextSmall.code, nextSmall.retryAfter]).toEqual([503, 'EARLY_READ_PROCESS_BUDGET', '5']);
+    expect([tiny.status, large.status]).toEqual([200, 200]);
     expect([earlySmallLaneBytes(), earlyReadStats()]).toEqual([0, { reads: 0, bytes: 0 }]);
+  });
+
+  it('a body declared tiny counts against no lane until it passes 64 KB, then moves to the small lane', async () => {
+    let more = () => {};
+    const sendMore = new Promise<void>((resolve) => { more = resolve; });
+    let end = () => {};
+    const ended = new Promise<void>((resolve) => { end = resolve; });
+    const stream = Readable.from((async function* gen() {
+      yield Buffer.alloc(32 * 1024, 0x20);
+      await sendMore;
+      yield Buffer.alloc(200 * 1024, 0x20);
+      await ended;
+    })());
+    const { inner, open } = gatedInner();
+    const token = await tokenFor('u-moves');
+    const req = Object.assign(stream, {
+      method: 'POST', url: '/api/test', query: {}, cookies: { isaflow_csrf: CSRF, 'sb-access-token': token },
+      headers: { cookie: `isaflow_csrf=${CSRF}; sb-access-token=${token}`, 'x-csrf-token': CSRF, 'content-length': '1024' },
+    });
+    const res = { status() { return this; }, setHeader() { return this; }, json() { return this; }, end() { return this; } };
+    const pending = withBodyFirst(LIMITS, inner)(req as never, res as never);
+    for (let i = 0; i < 200 && earlyReadStats().reads === 0; i++) await sleep(5);
+    await sleep(50);
+    const asTiny = earlySmallLaneBytes();
+    more();
+    for (let i = 0; i < 200 && earlySmallLaneBytes() === 0; i++) await sleep(5);
+    const moved = earlySmallLaneBytes();
+    end();
+    open();
+    await pending;
+    expect([asTiny, moved]).toEqual([0, 232 * 1024]);
+  });
+
+  describe('lane migration of an undeclared body', () => {
+    /** An undeclared body sent in 256 KB chunks up to `bytes`, then held until release(). */
+    const chunked = (bytes: number) => {
+      let release = () => {};
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const stream = Readable.from((async function* gen() {
+        for (let sent = 0; sent < bytes; sent += 256 * 1024) yield Buffer.alloc(256 * 1024, 0x20);
+        await released;
+      })());
+      return { stream, release };
+    };
+
+    it('tiny -> small -> large: mid-read the 2 MB are all in the large lane and none in the small lane; afterwards both are 0', async () => {
+      const body = chunked(2 * MB);
+      const { inner, open } = gatedInner();
+      const pending = call(withBodyFirst(LIMITS, inner), 'u-mig', body.stream);
+      for (let i = 0; i < 400 && earlyReadStats().bytes < 2 * MB; i++) await sleep(5);
+      const mid = [earlySmallLaneBytes(), earlyReadStats().bytes];
+      body.release();
+      open();
+      expect((await pending).status).toBe(200);
+      expect(mid).toEqual([0, 2 * MB]);
+      expect([earlySmallLaneBytes(), earlyReadStats()]).toEqual([0, { reads: 0, bytes: 0 }]);
+    });
+
+    it('a refused migration (the large lane full) is 503 and gives its small-lane bytes back', async () => {
+      const big = [1, 2, 3, 4].map(() => holding(16 * MB));
+      const { inner, open } = gatedInner();
+      const holders = big.map((b, i) => call(withBodyFirst(LIMITS, inner), `u-mig-full-${i}`, b.stream));
+      for (let i = 0; i < 400 && earlyReadStats().bytes < 64 * MB; i++) await sleep(5);
+      const body = chunked(2 * MB);
+      const refused = await call(withBodyFirst(LIMITS, inner), 'u-mig-refused', body.stream);
+      body.release();
+      const smallAfterRefusal = earlySmallLaneBytes();
+      for (const b of big) b.release();
+      open();
+      await Promise.all(holders);
+      expect([refused.status, refused.code]).toEqual([503, 'EARLY_READ_PROCESS_BUDGET']);
+      expect(smallAfterRefusal).toBe(0);
+      expect(earlyReadStats()).toEqual({ reads: 0, bytes: 0 });
+    });
+
+    it('with the small lane full, an undeclared large body in 256 KB chunks goes to the large lane instead of 503', async () => {
+      const smalls = Array.from({ length: 32 }, () => holding(MB));
+      const { inner, open } = gatedInner();
+      const holders = smalls.map((b, i) => call(withBodyFirst(LIMITS, inner), `u-mig-small-${i}`, b.stream));
+      for (let i = 0; i < 600 && earlySmallLaneBytes() < 32 * MB; i++) await sleep(5);
+      const plain: NextApiHandler = async (req, res) => { await takeRawBody(req); res.status(200).json({ ok: true }); };
+      const body = Readable.from(Array.from({ length: 8 }, () => Buffer.alloc(256 * 1024, 0x20)));
+      const r = await call(withBodyFirst(LIMITS, plain), 'u-mig-overflow', body);
+      for (const b of smalls) b.release();
+      open();
+      await Promise.all(holders);
+      expect(r.status).toBe(200);
+      expect([earlySmallLaneBytes(), earlyReadStats()]).toEqual([0, { reads: 0, bytes: 0 }]);
+    });
   });
 });

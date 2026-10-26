@@ -156,7 +156,7 @@ describe('save: the body', () => {
   });
 
   it('a body that stalls past the idle bound is refused (REQUEST_BODY_TIMEOUT) while still withheld, nothing saved', async () => {
-    vi.stubEnv('BODY_READ_IDLE_MS', '1000'); // the route's 5 s, shortened for the test (Vitest only)
+    vi.stubEnv('BODY_READ_IDLE_MS', '1000'); // the route's 10 s, shortened for the test (Vitest only)
     try {
       const v = await fx.version(A);
       const before = await token(v);

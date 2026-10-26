@@ -4,13 +4,11 @@
  *
  * The bounds hold while reading: a declared Content-Length over the cap is refused before a byte
  * is read, a stream that passes the cap at the chunk that crosses it, a body that pauses longer
- * than `idleMs` or takes longer than `totalMs` when the bound runs out, and a request already
- * aborted at once. There is deliberately no minimum transfer rate: what a slow sender holds is
- * bounded by the bytes it has actually sent (the meter) and by these two timers, and a rate rule
- * refused real slow uplinks (ADSL / weak LTE, 64-128 KB/s; round-6 review). An optional `meter`
- * sees every chunk before it is kept and may refuse it (the early-read byte budgets). On a refusal
- * the reader's listeners come off and the request is resumed, so the rest drains unbuffered and the
- * connection is free again; only 'data' is ever listened to, never 'readable' (with a 'readable' listener on,
+ * than `idleMs` or outlasts its tier's total time, a large body under its rate floor, and a
+ * request already aborted at once. An optional `meter` sees every chunk (with the body's tier)
+ * before it is kept and may refuse it (the early-read byte budgets). On a refusal the reader's
+ * listeners come off and the request is resumed, so the rest drains unbuffered and the connection
+ * is free again; only 'data' is ever listened to, never 'readable' (with a 'readable' listener on,
  * or removed afterwards, resume() does nothing and an over-cap upload stalled the socket).
  */
 import type { IncomingMessage } from 'http';
@@ -25,6 +23,31 @@ export interface BodyLimits {
   /** No gap between two chunks may be longer than this. */
   idleMs: number;
 }
+
+/**
+ * Three tiers by size (the declared Content-Length, or the bytes received once they pass it; an
+ * undeclared body starts tiny). What an early read can HOLD is bounded by the bytes it has actually
+ * received (readJsonBody's per-user and per-lane budgets); HOW LONG it can hold them is bounded by
+ * the idle timer, the tier's total time and, for a large body, a low rate floor. Round-7 ruling:
+ *  - tiny (<= 64 KB, a real grid save is a few KB): in no process lane, only the user's slots, so
+ *    nobody's slow uploads can ever starve a normal save; 15 s in all.
+ *  - small (<= 1 MB): the 32 MB small lane; 30 s in all (1 MB at 64 KB/s takes ~16 s).
+ *  - large: the 64 MB large lane; the route's total (280 s for a save); and at least 16 KB/s on
+ *    average from its FIRST byte once 10 s have passed. 512 kbit/s ADSL sends ~64 KB/s, a 4x margin;
+ *    a pause before the first byte costs nothing here (the idle timer bounds it). An earlier
+ *    128 KB/s floor measured from the start refused real ADSL and weak-LTE users (round 6).
+ */
+export type BodyTier = 'tiny' | 'small' | 'large';
+export const TINY_BODY_BYTES = 64 * 1024;
+export const SMALL_BODY_BYTES = 1048576;
+export const TINY_TOTAL_MS = 15_000;
+export const SMALL_TOTAL_MS = 30_000;
+export const LARGE_MIN_BYTES_PER_SEC = 16 * 1024;
+export const LARGE_RATE_GRACE_MS = 10_000;
+const TIER_RANK: Record<BodyTier, number> = { tiny: 0, small: 1, large: 2 };
+
+/** The tier of a body of `bytes` (the one place the size boundaries are compared). */
+export const tierOf = (bytes: number): BodyTier => (bytes > SMALL_BODY_BYTES ? 'large' : bytes > TINY_BODY_BYTES ? 'small' : 'tiny');
 
 export type BodyErrorCode =
   | 'REQUEST_BODY_TOO_LARGE' | 'REQUEST_BODY_TIMEOUT' | 'REQUEST_BODY_INVALID' | 'REQUEST_BODY_NOT_READ'
@@ -51,8 +74,8 @@ export function discard(req: IncomingMessage): void {
   req.resume();
 }
 
-/** Sees each chunk's size before it is kept; a returned error refuses the body. */
-export type BodyMeter = (bytes: number) => JsonBodyError | null;
+/** Sees each chunk's size, and the body's tier with it counted, before it is kept; a returned error refuses the body. */
+export type BodyMeter = (bytes: number, tier: BodyTier) => JsonBodyError | null;
 
 /** The raw body, bounded by `limits` (and `meter`, when given). */
 export function readRawBody(req: IncomingMessage, limits: BodyLimits, meter?: BodyMeter): Promise<Buffer> {
@@ -73,7 +96,12 @@ export function readRawBody(req: IncomingMessage, limits: BodyLimits, meter?: Bo
     const chunks: Buffer[] = [];
     let size = 0;
     let idle: NodeJS.Timeout | undefined;
-    const slow = (timer: 'idle' | 'total') => {
+    let total: NodeJS.Timeout | undefined;
+    let firstByteAt = 0;
+    const started = Date.now();
+    let tier: BodyTier = Number.isFinite(declared) ? tierOf(declared) : 'tiny';
+    const tierTotal = (t: BodyTier) => (t === 'tiny' ? Math.min(TINY_TOTAL_MS, totalMs) : t === 'small' ? Math.min(SMALL_TOTAL_MS, totalMs) : totalMs);
+    const slow = (timer: 'idle' | 'total' | 'rate') => {
       log.debug('Request body timer fired', { url: req.url, timer, idleMs, totalMs, bytes: size }, 'API');
       return new JsonBodyError(400, 'REQUEST_BODY_TIMEOUT', 'The request body arrived too slowly; send it again');
     };
@@ -89,7 +117,12 @@ export function readRawBody(req: IncomingMessage, limits: BodyLimits, meter?: Bo
       discard(req);
       reject(err);
     };
-    const total = setTimeout(() => fail(slow('total')), totalMs);
+    /** The total timer for the current tier, measured from the start of the read. */
+    const armTotal = () => {
+      clearTimeout(total);
+      total = setTimeout(() => fail(slow('total')), Math.max(0, started + tierTotal(tier) - Date.now()));
+    };
+    armTotal();
     const armIdle = () => {
       clearTimeout(idle);
       idle = setTimeout(() => fail(slow('idle')), idleMs);
@@ -98,9 +131,18 @@ export function readRawBody(req: IncomingMessage, limits: BodyLimits, meter?: Bo
       const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
       size += buf.length;
       if (size > maxBytes) return fail(tooLarge(maxBytes));
-      const refused = meter?.(buf.length);
+      const now = Date.now();
+      if (!firstByteAt) firstByteAt = now;
+      const grown = tierOf(size);
+      if (TIER_RANK[grown] > TIER_RANK[tier]) {
+        tier = grown;
+        armTotal();
+      }
+      const refused = meter?.(buf.length, tier);
       if (refused) return fail(refused);
       chunks.push(buf);
+      const sending = now - firstByteAt;
+      if (tier === 'large' && sending > LARGE_RATE_GRACE_MS && size / (sending / 1000) < LARGE_MIN_BYTES_PER_SEC) return fail(slow('rate'));
       armIdle();
     }
     function onEnd() {

@@ -62,18 +62,43 @@ describe('effectiveLimits: the test override', () => {
   });
 });
 
-describe('readRawBody: slow links and aborted requests', () => {
-  const big = { maxBytes: 32 * 1048576, totalMs: 60_000, idleMs: 5_000 };
-
-  it('a 2 MB body sent at about 64 KB/s (ADSL / weak LTE uplink), after a 2.5 s pause before the first byte, is read whole', async () => {
-    const chunk = 64 * 1024;
+describe('readRawBody: the three tiers on slow links, and aborted requests', () => {
+  // The save route's limits: 18 MB, 280 s in all, 10 s idle.
+  const save = { maxBytes: 18 * 1048576, totalMs: 280_000, idleMs: 10_000 };
+  /** `chunks` pieces of `size` bytes, one every `gapMs`, after `pauseMs`; declared length = the total. */
+  function paced(size: number, chunks: number, gapMs: number, pauseMs = 0, declared = size * chunks): IncomingMessage {
     const stream = Readable.from((async function* gen() {
-      await sleep(2500);
-      for (let i = 0; i < 32; i++) { if (i) await sleep(1000); yield Buffer.alloc(chunk, 0x20); }
+      await sleep(pauseMs);
+      for (let i = 0; i < chunks; i++) { if (i) await sleep(gapMs); yield Buffer.alloc(size, 0x20); }
     })());
-    const req = Object.assign(stream, { headers: { 'content-length': String(32 * chunk) } }) as unknown as IncomingMessage;
-    expect((await readRawBody(req, big)).length).toBe(32 * chunk);
-  }, 60000);
+    return Object.assign(stream, { headers: { 'content-length': String(declared) } }) as unknown as IncomingMessage;
+  }
+
+  it('large: a body declared 2 MB, sent at about 64 KB/s (512 kbit/s ADSL) after a 5 s pause, passes the floor once the grace is over', async () => {
+    // Twelve 64 KB chunks a second apart: 11 s of sending, so the floor (after 10 s) is applied.
+    expect((await readRawBody(paced(64 * 1024, 12, 1000, 5000, 2 * 1048576), save)).length).toBe(12 * 64 * 1024);
+  }, 40000);
+
+  it('large: a body trickled at 8 KB/s (under the 16 KB/s floor) is refused once the 10 s grace from its first byte is over', async () => {
+    const t0 = Date.now();
+    // Declared 2 MB (large), sent at 8 KB a second.
+    expect(await refusal(readRawBody(paced(8 * 1024, 40, 1000, 0, 2 * 1048576), save))).toBe('400 REQUEST_BODY_TIMEOUT');
+    // After the grace (10 s), long before the 280 s total or the trickle's own end (40 s).
+    const ms = Date.now() - t0;
+    expect(ms).toBeGreaterThanOrEqual(10_000);
+    expect(ms).toBeLessThan(20_000);
+  }, 40000);
+
+  it('large: the floor is measured from the FIRST byte, so a long pause before it costs nothing', async () => {
+    // Declared 2 MB; 8 s of silence (under the 10 s idle bound), then 32 KB a second (twice the floor).
+    expect((await readRawBody(paced(32 * 1024, 12, 1000, 8000, 2 * 1048576), save)).length).toBe(12 * 32 * 1024);
+  }, 40000);
+
+  it('tiny: a 2 KB body is held to 15 s in all, not the route\'s 280 s', async () => {
+    const t0 = Date.now();
+    expect(await refusal(readRawBody(paced(100, 20, 1000), save))).toBe('400 REQUEST_BODY_TIMEOUT');
+    expect(Date.now() - t0).toBeLessThan(17_000);
+  }, 30000);
 
   it('a request already aborted or destroyed is refused at once, not when the idle timer fires', async () => {
     const patient = { maxBytes: 1024, totalMs: 60_000, idleMs: 60_000 };
