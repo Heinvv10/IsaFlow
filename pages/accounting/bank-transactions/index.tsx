@@ -245,7 +245,7 @@ export default function BankTransactionsPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} tab={tab} total={total} onSelectBank={setSelectedBank} />
+        <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} tab={tab} total={total} onSelectBank={setSelectedBank} onAccountsChanged={refreshBankAccounts} />
 
         {/* Tabs */}
         <div className="px-6 border-b border-[var(--ff-border-light)]">
