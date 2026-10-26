@@ -120,8 +120,11 @@ function auditInPage(): ContrastReport {
     if ((el as HTMLButtonElement).disabled || el.closest(':disabled')) return;
     // WCAG exempts inactive components: the label of a disabled checkbox / input (a comparator with no data behind it).
     const lblEl = el.closest("label");
-    const controlOf = lblEl ? (lblEl.control ?? lblEl.querySelector("input,select,textarea")) : null;
-    if (controlOf && (controlOf as HTMLInputElement).disabled) return;
+    // `for=` names the control (a missing id means there is none); only a label without `for` wraps its control.
+    const controlOf = lblEl ? (lblEl.hasAttribute('for') ? lblEl.control : lblEl.querySelector('input,select,textarea')) : null;
+    // A live link or button inside the label is its own target, not the disabled control's caption.
+    const liveInside = lblEl ? el.closest('a[href],button:not(:disabled)') : null;
+    if (controlOf && (controlOf as HTMLInputElement).disabled && !(liveInside && lblEl!.contains(liveInside))) return;
     if (!visible(el)) return;
     const r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return;

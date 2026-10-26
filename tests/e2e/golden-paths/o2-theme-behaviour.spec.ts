@@ -203,7 +203,11 @@ test.describe('reports pin the header row and the first column to the page scrol
       const mainBox = await main.boundingBox();
       const headBox = await table.locator('thead th').first().boundingBox();
       const lastHeadBox = await table.locator('thead th').last().boundingBox();
-      const cellBox = await table.locator('tbody tr td:first-child').nth(2).boundingBox();
+      // The third body row, not the first: the first rows are band headers whose cell is not a data row. A report
+      // with fewer than three rows cannot show a first column pinned under scroll, so say so instead of failing on a null box.
+      const bodyRows = table.locator('tbody tr td:first-child');
+      expect(await bodyRows.count(), 'the report needs at least 3 body rows for this check').toBeGreaterThanOrEqual(3);
+      const cellBox = await bodyRows.nth(2).boundingBox();
       expect(mainBox && headBox && cellBox).toBeTruthy();
       expect(Math.abs(headBox!.y - mainBox!.y), 'header row pinned to the top of the page scroll').toBeLessThan(3);
       expect(Math.abs(lastHeadBox!.y - mainBox!.y), 'every header cell is pinned, not just the first').toBeLessThan(3);
@@ -243,15 +247,22 @@ test('the contrast walker exempts the label of a disabled control and nothing el
   await settle(page);
   await page.evaluate(() => {
     const host = document.createElement('div');
-    host.id = 'walker-fixture';
     host.style.cssText = 'background:#fff;position:fixed;top:0;left:0;z-index:99999';
-    host.innerHTML =
-      '<label><input type="checkbox" disabled><span style="color:#aaa">disabled-label</span></label>' +
-      '<label><input type="checkbox"><span style="color:#aaa">enabled-label</span></label>';
+    const low = 'style="color:#aaa"';
+    host.innerHTML = [
+      // exempt: the label of a disabled control, wrapping it or pointing at it with for=
+      `<label><input type="checkbox" disabled><span ${low}>wrapped-disabled</span></label>`,
+      `<input type="checkbox" id="d1" disabled><label for="d1" ${low}>for-disabled</label>`,
+      // not exempt
+      `<label><input type="checkbox"><span ${low}>wrapped-enabled</span></label>`,
+      `<input type="checkbox" id="e1"><label for="e1" ${low}>for-enabled</label>`,
+      `<input type="checkbox" id="d2" disabled><label for="missing-id" ${low}>for-missing</label>`,
+      // a disabled input and an unrelated link in one label: the link is still a live, readable-or-not target
+      `<label><input type="checkbox" disabled><a href="#x" ${low}>link-in-label</a></label>`,
+    ].join('');
     document.body.appendChild(host);
   });
-  const report = await auditContrast(page);
-  const texts = report.failing.map((f) => f.text);
-  expect(texts).toContain('enabled-label');
-  expect(texts).not.toContain('disabled-label');
+  const texts = (await auditContrast(page)).failing.map((f) => f.text);
+  for (const exempt of ['wrapped-disabled', 'for-disabled']) expect(texts, exempt).not.toContain(exempt);
+  for (const flagged of ['wrapped-enabled', 'for-enabled', 'for-missing', 'link-in-label']) expect(texts, flagged).toContain(flagged);
 });
