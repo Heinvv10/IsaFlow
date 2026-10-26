@@ -2,6 +2,8 @@
  * Budget Management Page
  * Create and manage budgets per GL account for a financial year. Amounts are
  * per calendar month, so a 14-month transition year shows 14 month columns.
+ * The Add picker offers active leaf revenue/expense accounts only; delete asks
+ * first; totals are split into revenue, expenses and net budgeted profit (P0).
  */
 
 import { useState, useEffect } from 'react';
@@ -9,14 +11,18 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Wallet, Plus, Trash2, Loader2, Copy, Pencil } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { BudgetForm, type BudgetSubmit } from '@/components/accounting/budgets/BudgetForm';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useBudgetAccounts } from '@/components/accounting/budgets/useBudgetAccounts';
 import {
-  fmt, monthLabel, yearOptionLabel, yearRangeLabel,
-  type BudgetRow, type BudgetYear, type GLAccount,
+  budgetTotals, fmt, monthLabel, yearOptionLabel, yearRangeLabel,
+  type BudgetRow, type BudgetYear,
 } from '@/components/accounting/budgets/budgetClient';
 
 export default function BudgetManagementPage() {
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
-  const [accounts, setAccounts] = useState<GLAccount[]>([]);
+  const { accounts, error: accountsError } = useBudgetAccounts();
+  // The row whose delete is waiting for the user's confirmation.
+  const [pendingDelete, setPendingDelete] = useState<BudgetRow | null>(null);
   // The year the user picked; null until they pick one: the API then answers with the year holding today.
   const [chosenYear, setChosenYear] = useState<number | null>(null);
   // Bumped to reload the year after a save, delete or failed load.
@@ -58,27 +64,6 @@ export default function BudgetManagementPage() {
     })();
     return () => { stale = true; };
   }, [chosenYear, reloads]);
-
-  useEffect(() => {
-    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
-      .then(async r => { await assertOk(r, 'Could not load GL accounts - try again'); return r.json(); }).then(res => {
-      const d = res.data || res;
-      const list = Array.isArray(d) ? d : d.accounts || d.items || [];
-      setAccounts(list
-        .filter((a: Record<string, unknown>) => {
-          const type = String(a.accountType || a.account_type || '');
-          return type === 'expense' || type === 'revenue';
-        })
-        .map((a: Record<string, unknown>) => ({
-          id: String(a.id),
-          accountCode: String(a.accountCode || a.account_code || ''),
-          accountName: String(a.accountName || a.account_name || ''),
-        }))
-      );
-    }).catch((err) => {
-      setError(apiErrorMessage(err, 'Could not load GL accounts - try again'));
-    });
-  }, []);
 
   const handleSubmit = async (body: BudgetSubmit) => {
     setError(''); setSuccess(''); setBusy('save');
@@ -127,13 +112,21 @@ export default function BudgetManagementPage() {
     finally { setBusy(''); }
   };
 
-  const totalBudget = budgets.reduce((s, b) => s + b.annualAmount, 0);
+  const totals = budgetTotals(budgets);
+  const totalRows: Array<{ key: string; label: string; value: number }> = [
+    { key: 'revenue', label: 'Revenue budget', value: totals.revenue },
+    { key: 'expense', label: 'Expense budget', value: totals.expense },
+    { key: 'net', label: 'Net budgeted profit', value: totals.net },
+  ];
   const monthKeys = year?.monthKeys ?? [];
   // The year after this one in the list: after a change of year end the next label can skip one.
   const nextYear = years.find(y => year !== null && y.startDate > year.startDate) ?? null;
   const usedAccountIds = new Set(budgets.map(b => b.glAccountId));
   const availableAccounts = accounts.filter(a => !usedAccountIds.has(a.id));
-  const formAccounts = editing ? accounts.filter(a => a.id === editing.glAccountId) : availableAccounts;
+  // Editing takes its account from the row itself, so an account that has since gone inactive or become a header still shows.
+  const formAccounts = editing
+    ? [{ id: editing.glAccountId, accountCode: editing.accountCode, accountName: editing.accountName }]
+    : availableAccounts;
   const selectedYear = chosenYear ?? fiscalYear;
   const yearOptions = years.length > 0 ? years : selectedYear !== null
     ? [{ fiscalYear: selectedYear, startDate: '', endDate: '', kind: 'normal', monthKeys: [] }] : [];
@@ -182,16 +175,18 @@ export default function BudgetManagementPage() {
               <button onClick={() => setReloads(n => n + 1)} disabled={loading} className="px-3 py-1 rounded border border-red-400/50 hover:bg-red-500/10 disabled:opacity-50">Retry</button>
             </div>
           )}
-          {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
+          {(error || accountsError) && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error || accountsError}</div>}
           {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
           {/* Summary card */}
           {!loading && budgets.length > 0 && (
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 flex items-center justify-between">
-              <div>
-                <p className="text-xs text-[var(--ff-text-secondary)]">Total Budget for {fiscalYear}</p>
-                <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmt(totalBudget)}</p>
-              </div>
+            <div data-testid="budget-summary" className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 flex flex-wrap items-center justify-between gap-4">
+              {totalRows.map(({ key, label, value }) => (
+                <div key={key}>
+                  <p className="text-xs text-[var(--ff-text-secondary)]">{label} for {fiscalYear}</p>
+                  <p className="text-xl font-bold text-[var(--ff-text-primary)]">{fmt(value)}</p>
+                </div>
+              ))}
               <div className="text-sm text-[var(--ff-text-secondary)]">{budgets.length} accounts budgeted</div>
             </div>
           )}
@@ -231,7 +226,7 @@ export default function BudgetManagementPage() {
                       <button onClick={() => { setShowForm(false); setEditing(b); }} disabled={loading} className="p-1 text-[var(--ff-text-secondary)] disabled:opacity-50" title="Edit">
                         <Pencil className="h-4 w-4" />
                       </button>
-                      <button onClick={() => handleDelete(b.glAccountId)} disabled={loading || busy === b.glAccountId} className="p-1 text-red-400 hover:text-red-300 disabled:opacity-50" title="Delete">
+                      <button onClick={() => setPendingDelete(b)} disabled={loading || busy === b.glAccountId} className="p-1 text-red-400 hover:text-red-300 disabled:opacity-50" title="Delete">
                         {busy === b.glAccountId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                       </button>
                     </td>
@@ -239,12 +234,16 @@ export default function BudgetManagementPage() {
                 ))}
               </tbody>
               {budgets.length > 0 && (
-                <tfoot><tr className="border-t-2 border-[var(--ff-border-light)] font-bold">
-                  <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                  <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(totalBudget)}</td>
-                  <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt(totalBudget / (monthKeys.length || 12))}</td>
-                  <td colSpan={2}></td>
-                </tr></tfoot>
+                <tfoot>
+                  {totalRows.map(({ key, label, value }, i) => (
+                    <tr key={key} data-testid={`budget-tfoot-${key}`} className={`font-bold ${i === 0 ? 'border-t-2 border-[var(--ff-border-light)]' : ''}`}>
+                      <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-primary)]">{label}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(value)}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt(value / (monthKeys.length || 12))}</td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  ))}
+                </tfoot>
               )}
             </table>
           </div>
@@ -272,6 +271,10 @@ export default function BudgetManagementPage() {
           )}
         </div>
       </div>
+      <ConfirmDialog open={pendingDelete !== null} tone="destructive" title="Delete budget" acceptLabel="Delete"
+        message={pendingDelete ? `Delete the ${fiscalYear} budget for ${pendingDelete.accountCode} ${pendingDelete.accountName} (${fmt(pendingDelete.annualAmount)})? Every month is removed.` : ''}
+        onCancel={() => setPendingDelete(null)}
+        onAccept={() => { const row = pendingDelete; setPendingDelete(null); if (row) void handleDelete(row.glAccountId); }} />
     </AppLayout>
   );
 }
