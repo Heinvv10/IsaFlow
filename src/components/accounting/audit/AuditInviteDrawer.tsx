@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { Copy, Check, X } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface PortalSession {
   id: string;
@@ -32,6 +33,7 @@ interface Props { exportId: string; onClose: () => void; notify: (msg: string, o
 
 export function AuditInviteDrawer({ exportId, onClose, notify }: Props) {
   const [inviteEmail, setInviteEmail] = useState('');
+  const afterDelay = useTimeoutOnce();
   const [inviteTtl, setInviteTtl] = useState('168');
   const [inviteResult, setInviteResult] = useState<{ portalUrl: string; accessToken: string } | null>(null);
   const [sessions, setSessions] = useState<PortalSession[]>([]);
@@ -73,7 +75,7 @@ export function AuditInviteDrawer({ exportId, onClose, notify }: Props) {
   async function copyUrl(url: string) {
     await navigator.clipboard.writeText(url);
     setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 2000);
+    afterDelay(() => setCopiedUrl(false), 2000);
   }
 
   return (
