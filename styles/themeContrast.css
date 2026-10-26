@@ -420,3 +420,21 @@
 .recharts-legend-item-text {
   color: var(--ff-text-secondary) !important;
 }
+
+
+/*
+ * Titles and muted text on an always-dark gradient banner (light theme only; see scripts/generateThemeContrast.mjs).
+ * Put data-surface="light" on a light card nested inside a banner to opt it out.
+ */
+:where(html:not(.dark)) :where(.from-slate-800, .from-slate-900, .from-slate-950, .from-gray-800, .from-gray-900, .from-gray-950, .from-black) .text-slate-900:not(:where([data-surface="light"] *)),
+:where(html:not(.dark)) :where(.from-slate-800, .from-slate-900, .from-slate-950, .from-gray-800, .from-gray-900, .from-gray-950, .from-black) .text-gray-900:not(:where([data-surface="light"] *)) {
+  color: #ffffff;
+}
+:where(html:not(.dark)) :where(.from-slate-800, .from-slate-900, .from-slate-950, .from-gray-800, .from-gray-900, .from-gray-950, .from-black) .text-slate-500:not(:where([data-surface="light"] *)),
+:where(html:not(.dark)) :where(.from-slate-800, .from-slate-900, .from-slate-950, .from-gray-800, .from-gray-900, .from-gray-950, .from-black) .text-slate-600:not(:where([data-surface="light"] *)),
+:where(html:not(.dark)) :where(.from-slate-800, .from-slate-900, .from-slate-950, .from-gray-800, .from-gray-900, .from-gray-950, .from-black) .text-slate-700:not(:where([data-surface="light"] *)),
+:where(html:not(.dark)) :where(.from-slate-800, .from-slate-900, .from-slate-950, .from-gray-800, .from-gray-900, .from-gray-950, .from-black) .text-gray-500:not(:where([data-surface="light"] *)),
+:where(html:not(.dark)) :where(.from-slate-800, .from-slate-900, .from-slate-950, .from-gray-800, .from-gray-900, .from-gray-950, .from-black) .text-gray-600:not(:where([data-surface="light"] *)),
+:where(html:not(.dark)) :where(.from-slate-800, .from-slate-900, .from-slate-950, .from-gray-800, .from-gray-900, .from-gray-950, .from-black) .text-gray-700:not(:where([data-surface="light"] *)) {
+  color: #a9b6c9;
+}
