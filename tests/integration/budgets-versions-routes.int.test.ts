@@ -53,7 +53,7 @@ afterAll(async () => {
   try {
     for (const c of [o.u.homeCompanyId, other.u.homeCompanyId]) {
       await pool.query(
-        `UPDATE budget_versions SET status = 'approved', unlocked_by = locked_by, unlocked_at = now(), unlock_reason = 'cleanup'
+        `UPDATE budget_versions SET status = 'approved', unlocked_by = locked_by, unlocked_at = clock_timestamp(), unlock_reason = 'cleanup'
           WHERE company_id = $1 AND status = 'locked'`, [c]);
       await pool.query('DELETE FROM audit_log WHERE company_id = $1', [c]);
       await pool.query('DELETE FROM budget_month_amounts WHERE company_id = $1', [c]);

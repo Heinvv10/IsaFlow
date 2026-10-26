@@ -45,7 +45,7 @@ export function budgetVersionFixture(pool: Pool) {
     const ids = [A.id, B.id];
     // Locked versions refuse DELETE (and so the cascade): unlock first, as QA purges do.
     await pool.query(
-      `UPDATE budget_versions SET status = 'approved', unlocked_by = locked_by, unlocked_at = now(), unlock_reason = 'test cleanup'
+      `UPDATE budget_versions SET status = 'approved', unlocked_by = locked_by, unlocked_at = clock_timestamp(), unlock_reason = 'test cleanup'
         WHERE company_id = ANY($1) AND status = 'locked'`, [ids]);
     await pool.query('DELETE FROM audit_log WHERE company_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM budget_month_amounts WHERE company_id = ANY($1)', [ids]);
@@ -73,11 +73,11 @@ export function budgetVersionFixture(pool: Pool) {
     return id;
   }
   const approve = (c: Co, id: string, q: Q = pool) => q.query(
-    `UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1`, [id, c.user]);
+    `UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`, [id, c.user]);
   const lock = (c: Co, id: string, q: Q = pool) => q.query(
-    `UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = now() WHERE id = $1`, [id, c.user]);
+    `UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = clock_timestamp() WHERE id = $1`, [id, c.user]);
   const unlock = (c: Co, id: string, reason: string | null, q: Q = pool) => q.query(
-    `UPDATE budget_versions SET status = 'approved', unlocked_by = $2, unlocked_at = now(), unlock_reason = $3 WHERE id = $1`,
+    `UPDATE budget_versions SET status = 'approved', unlocked_by = $2, unlocked_at = clock_timestamp(), unlock_reason = $3 WHERE id = $1`,
     [id, c.user, reason]);
 
   /** One amount; `dims` names cc1/cc2/bu ids. */

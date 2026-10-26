@@ -18,9 +18,9 @@ afterAll(async () => {
   try { await cleanup(); } finally { await pool.end(); }
 });
 
-const APPROVE = `UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1`;
-const LOCK = `UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = now() WHERE id = $1`;
-const UNLOCK = `UPDATE budget_versions SET status = 'approved', unlocked_by = $2, unlocked_at = now(), unlock_reason = $3 WHERE id = $1`;
+const APPROVE = `UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`;
+const LOCK = `UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = clock_timestamp() WHERE id = $1`;
+const UNLOCK = `UPDATE budget_versions SET status = 'approved', unlocked_by = $2, unlocked_at = clock_timestamp(), unlock_reason = $3 WHERE id = $1`;
 
 describe('947: version status moves', () => {
   it('the legal moves pass: draft -> approved -> locked -> approved (unlock with a reason) -> locked', async () => {
@@ -127,5 +127,23 @@ describe('947: version status moves', () => {
         `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, status, created_by) VALUES ($1, 2027, 'Ap', 'scenario', 'approved', $2)`,
         [A.id, A.user])).toBe('BV002');
     } finally { await c.query('ROLLBACK'); c.release(); }
+  });
+
+  it('a second lock or unlock must carry a fresh stamp: a status-only UPDATE reusing the last one is refused', async () => {
+    await asAppUser(A, async (q) => {
+      const v = await version(A, { status: 'locked' }, q);
+      expect(await codeOf(q, UNLOCK, [v, A.user, 'first reason'])).toBe('ok');
+      expect(await codeOf(q, `UPDATE budget_versions SET status = 'locked' WHERE id = $1`, [v])).toBe('BV002');
+      expect(await codeOf(q, LOCK, [v, A.user])).toBe('ok');
+      expect(await codeOf(q, `UPDATE budget_versions SET status = 'approved' WHERE id = $1`, [v])).toBe('BV002');
+      expect(await codeOf(q, `UPDATE budget_versions SET status = 'approved', unlocked_at = locked_at - INTERVAL '1 day' WHERE id = $1`, [v])).toBe('BV002');
+    });
+  });
+
+  it('an unlock reason of only tabs or newlines is no reason: 23514', async () => {
+    await asAppUser(A, async (q) => {
+      const v = await version(A, { status: 'locked' }, q);
+      expect(await codeOf(q, UNLOCK, [v, A.user, '\t\n '])).toBe('23514');
+    });
   });
 });

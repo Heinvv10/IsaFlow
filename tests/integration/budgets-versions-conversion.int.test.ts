@@ -125,4 +125,18 @@ describe('947 conversion (the DO block as shipped)', () => {
       await expect(c.query(block!)).rejects.toThrow(new RegExp(`budget month 3000-01-01 of company ${Y} has no financial year`));
     });
   });
+
+  it('rerun on a converted table is a no-op, also once a non-primary version holds amounts', async () => {
+    await inTx(async (c) => {
+      await c.query(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'BV947 conv X', 3)`, [X]);
+      await c.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+                     VALUES ($1, $2, 'CV-5000', 'Rent', 'expense', 'debit', 3, true)`, [xa, X]);
+      await c.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, kind) VALUES ($1, 2027, '2026-03-01', '2027-02-28', 'normal')`, [X]);
+      const scen = (await c.query(
+        `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, created_by) VALUES ($1, 2027, 'S', 'scenario', 'test') RETURNING id`, [X])).rows[0].id;
+      await c.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount) VALUES ($1, $2, $3, '2026-05-01', 9)`, [X, scen, xa]);
+      await c.query(block!);
+      expect((await c.query('SELECT version_id, amount::text a FROM budget_month_amounts WHERE company_id = $1', [X])).rows).toEqual([{ version_id: scen, a: '9.00' }]);
+    });
+  });
 });
