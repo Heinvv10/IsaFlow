@@ -5,18 +5,16 @@
  *  - T1 targets from /accounting: Invoices, Bank reconciliation, Pay Runs, VAT201, P&L.
  *  - One target again with the keyboard only (focus the menu button, Enter, Enter).
  *  - The right tab lights up on a sub-page, a query tab and an #anchor.
- *  - axe: no serious violation in the nav bar with a menu and a sub-panel open ('shell:top-nav-menu').
- *  - EVIDENCE=1 saves screenshots of the open menu in both themes to docs/evidence.
+ *
+ * The axe scan and the screenshots are in q2-top-nav-axe.spec.ts: this file must not import
+ * @axe-core/playwright (directly or through the theme helpers), because verify-deploy runs it
+ * against production with the a11y specs ignored and unloaded.
  *
  * Read-only: no data is created.
  */
 import { test, expect, type Page } from '@playwright/test';
-import { mkdirSync } from 'fs';
-import { expectNoSeriousA11yViolations } from './helpers/axe';
-import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const NAV = 'nav:has([data-tour="nav-dashboard"])';
-const EVIDENCE_DIR = 'docs/evidence/master-plan/wave1/nav';
 
 const T1: Array<{ tab: string; link: string; path: RegExp }> = [
   { tab: 'sales', link: 'Invoices', path: /\/accounting\/customer-invoices$/ },
@@ -74,20 +72,3 @@ test('all ten tabs fit on one row at 1280 px', async ({ page }) => {
   expect(new Set(boxes.map((b) => b.top)).size).toBe(1);
   expect(Math.max(...boxes.map((b) => b.right))).toBeLessThanOrEqual(1280);
 });
-
-for (const theme of THEMES) {
-  test(`${theme} theme: menu and sub-panel are axe-clean`, async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await seedTheme(page, theme);
-    await page.goto('/accounting');
-    await settle(page);
-    await tabOf(page, 'sales').hover();
-    await tabOf(page, 'sales').getByRole('button', { name: 'Customers' }).hover();
-    await expect(tabOf(page, 'sales').getByRole('link', { name: 'Debtors Manager' })).toBeVisible();
-    if (process.env.EVIDENCE === '1') {
-      mkdirSync(EVIDENCE_DIR, { recursive: true });
-      await page.screenshot({ path: `${EVIDENCE_DIR}/top-nav-sales-${theme}.png`, clip: { x: 0, y: 0, width: 1280, height: 520 } });
-    }
-    await expectNoSeriousA11yViolations(page, { include: [NAV], key: `shell:top-nav-menu`, includeShell: true });
-  });
-}

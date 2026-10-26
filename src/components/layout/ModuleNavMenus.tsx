@@ -73,8 +73,9 @@ function useOpenSection() {
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   return {
     open,
-    viaKeyboard,
     cancel,
+    /** True once if the open was keyboard-initiated, so focus moves into the panel. */
+    takeKeyboardOpen: () => { const was = viaKeyboard.current; viaKeyboard.current = false; return was; },
     show: (section: string, keyboard = false) => { cancel(); viaKeyboard.current = keyboard; setOpen(section); },
     hide: () => { cancel(); setOpen(null); },
     later: () => { cancel(); timer.current = setTimeout(() => setOpen(null), 150); },
@@ -98,10 +99,9 @@ function SectionGroup({ section, items, asPath, onClose, accent, state }: Sectio
   const panelId = useId();
 
   useEffect(() => {
-    if (!isOpen || !state.viaKeyboard.current) return;
-    state.viaKeyboard.current = false;
+    if (!isOpen || !state.takeKeyboardOpen()) return;
     if (panelRef.current) panelItems(panelRef.current)[0]?.focus();
-  }, [isOpen, state.viaKeyboard]);
+  }, [isOpen, state]);
 
   const closeToRow = (e: ReactKeyboardEvent) => {
     if (!isOpen || (e.key !== 'Escape' && e.key !== 'ArrowLeft')) return;
