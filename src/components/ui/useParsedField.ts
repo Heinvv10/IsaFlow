@@ -10,11 +10,14 @@
  * cannot do it with `value` alone (it was null before and is null after), so it changes `resetKey`: the text,
  * the error and the reported validity are cleared and the field follows `value` again.
  *
- * THE CONTRACT: a parent that re-sets the `value` it already holds (a filter that ignored refused text and
+ * THE CONTRACT. A parent that re-sets the `value` it already holds (a filter that ignored refused text and
  * kept the old date, then a "Today" button or a form reset setting that same date again) cannot restore the
- * display, because a prop that did not change cannot be told from no change. It changes `resetKey`. This is
- * deliberate, not a gap: resyncing on every render would wipe refused text and its error the moment a
- * filtering parent re-renders, which is exactly when the user needs to see why the value did not take.
+ * display: a prop that did not change cannot be told from no change. Likewise `value` -> null right after
+ * refused text is the echo of the refusal (the field just reported null), so it keeps the text, and a parent
+ * that adopts null after an await looks the same. A "Clear" button, or either case above, changes `resetKey`.
+ * A different NON-null `value` restores the display by itself. This is deliberate: resyncing on every render
+ * would wipe refused text and its error the moment a parent adopts the refusal, which is exactly when the
+ * user needs to see why the value did not take.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 

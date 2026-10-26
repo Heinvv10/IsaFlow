@@ -29,9 +29,10 @@ export interface MoneyFieldProps {
   currency?: string;
   /**
    * Change it (any value) to put the display back to `value` and drop the refusal on screen. Needed whenever
-   * the parent re-asserts a `value` it ALREADY holds (refused text over a kept amount, or over null): a prop
-   * that did not change is not news, so only resetKey can say so. A different `value` restores the display
-   * by itself.
+   * the parent re-asserts a `value` it ALREADY holds, and for a "Clear" after a refusal: `value` -> null
+   * right after refused text is the echo of the refusal (the field just reported null), so it keeps the text
+   * and its error, even from a parent that adopts it after an await. A prop that did not change is not news.
+   * A different NON-null `value` restores the display by itself.
    */
   resetKey?: string | number;
   /** External error (e.g. from the server). Overrides the field's own. */
