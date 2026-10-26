@@ -155,6 +155,15 @@ describe('void of a supplier payment whose cash a refund returned', () => {
     expect(inside).toEqual({ v: 'SUPPLIER_PAYMENT_REFUSED', seen: 'processed' });
   }, 60_000);
 
+  it('the unwind of an already-cancelled payment (a hand-reversed run row) lowers nothing and passes', async () => {
+    const supplier = await newSupplier();
+    const pay = await posted(supplier, 1000);
+    await refund(supplier, 1000);
+    await pool.query(`UPDATE supplier_payments SET status = 'cancelled' WHERE id = $1`, [pay]);
+    expect({ v: await verdict(inTx(() => unwindOnePayment(fx.company, 'supplier', pay))), credit: await credit(supplier) })
+      .toEqual({ v: 'passed', credit: -1000 });
+  }, 60_000);
+
   it('a bank-line reverse of the payment is refused; reversing the refund first, then the payment, passes', async () => {
     const supplier = await newSupplier();
     const out = await bankAllocated(supplier, -1000);
