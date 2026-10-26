@@ -105,24 +105,14 @@ describe('withSavepoint on one request connection', () => {
     expect(at).toBeGreaterThan(pg.log.indexOf('ROLLBACK TO SAVEPOINT sp_bad'));
   });
 
-  it('a savepoint whose sibling awaits it fails loudly after the bound instead of hanging', async () => {
-    const pg = pgLikeClient();
-    const saved = savepointQueueWait.ms;
-    savepointQueueWait.ms = 100;
-    try {
-      const outcome = await inRequest(pg.client, async () => {
-        // Started outside `work`, so its savepoint queues behind `work`, which awaits it.
-        const lookup = (async () => { await sql`SELECT 1`; return withSavepoint('lookup', () => sql`SELECT 2`); })();
-        return withSavepoint('work', async () => { await lookup; return 'ok'; }).catch((e: unknown) => e);
-      });
-      expect(outcome).toBeInstanceOf(SavepointQueueTimeoutError);
-    } finally {
-      savepointQueueWait.ms = saved;
-    }
-  });
-
-  // The two progress tests run on fake timers (Date is faked too): with real timers a
-  // 60 ms setTimeout stretched past the 100 ms bound by event-loop jitter on a busy box.
+  // These run on fake timers (Date is faked too): with real timers a 60 ms setTimeout stretched past the
+  // 100 ms bound by event-loop jitter on a busy box, and a broken bound hung for the full test timeout.
+  // Known gap: removing `queue.progressAt = Date.now()` from `finish` in savepointQueue.ts is an
+  // EQUIVALENT mutant through every public path. A savepoint's RELEASE / ROLLBACK TO completes through the
+  // statement wrapper, which stamps `lastActivity` at the same instant `finish` stamps `progressAt`, and the idle
+  // check takes the later of the two. Only a direct `queuedSavepoint` call with no statements tells them apart, and
+  // the R-184 census (neonModuleShape.test.ts) forbids tests from naming src/lib/neon/*, so the barrel is not widened
+  // for it. The `lastActivity` half is pinned by the "ONE long savepoint" test below.
   describe('progress-based bound (fake clock)', () => {
     const bound = async (fn: () => Promise<void>) => {
       const saved = savepointQueueWait.ms;
@@ -132,6 +122,21 @@ describe('withSavepoint on one request connection', () => {
     };
     const sleeper = (name: string, ms: number) =>
       withSavepoint(name, async () => { await new Promise((r) => setTimeout(r, ms)); return name; });
+
+    it('a savepoint whose sibling awaits it fails loudly after the bound instead of hanging', () => bound(async () => {
+      const pg = pgLikeClient();
+      const run = inRequest(pg.client, async () => {
+        // Started outside `work`, so its savepoint queues behind `work`, which awaits it.
+        const lookup = (async () => { await sql`SELECT 1`; return withSavepoint('lookup', () => sql`SELECT 2`); })();
+        lookup.catch(() => undefined);
+        return withSavepoint('work', async () => { await lookup; return 'ok'; }).catch((e: unknown) => e);
+      });
+      let settled = false;
+      void run.then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(400);
+      expect(settled, 'the bound must have refused the waiter by now').toBe(true); // fails fast instead of hanging
+      expect(await run).toBeInstanceOf(SavepointQueueTimeoutError);
+    }));
 
     it('a waiter behind siblings that keep finishing is not refused, however long it waits in total', () => bound(async () => {
       const pg = pgLikeClient();
@@ -144,7 +149,10 @@ describe('withSavepoint on one request connection', () => {
     it('a waiter behind a sibling that makes no progress for the bound IS refused', () => bound(async () => {
       const pg = pgLikeClient();
       const run = inRequest(pg.client, () => Promise.all([sleeper('stuck', 150), withSavepoint('waiter', read(1))].map((p) => p.catch((e: unknown) => e))));
+      let settled = false;
+      void run.then(() => { settled = true; });
       await vi.advanceTimersByTimeAsync(400);
+      expect(settled, 'the bound must have refused the waiter by now').toBe(true);
       const [stuck, waiter] = await run;
       expect(stuck).toBe('stuck');
       expect(waiter).toBeInstanceOf(SavepointQueueTimeoutError);
