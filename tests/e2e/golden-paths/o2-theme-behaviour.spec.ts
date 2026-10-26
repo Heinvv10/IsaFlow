@@ -206,7 +206,7 @@ test.describe('reports pin the header row and the first column to the page scrol
       // The third body row, not the first: the first rows are band headers whose cell is not a data row. A report
       // with fewer than three rows cannot show a first column pinned under scroll, so say so instead of failing on a null box.
       const bodyRows = table.locator('tbody tr td:first-child');
-      expect(await bodyRows.count(), 'the report needs at least 3 body rows for this check').toBeGreaterThanOrEqual(3);
+      await expect.poll(() => bodyRows.count(), { message: 'the report needs at least 3 body rows for this check' }).toBeGreaterThanOrEqual(3);
       const cellBox = await bodyRows.nth(2).boundingBox();
       expect(mainBox && headBox && cellBox).toBeTruthy();
       expect(Math.abs(headBox!.y - mainBox!.y), 'header row pinned to the top of the page scroll').toBeLessThan(3);
