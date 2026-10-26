@@ -41,6 +41,8 @@ function StatusBadge({ active }: { active: boolean }) {
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // The search the rows on screen answer: until it matches the debounced one the rows are stale (no one-frame empty flash).
+  const [loadedQ, setLoadedQ] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -65,6 +67,7 @@ export default function CustomersPage() {
       setCustomers([]);
       setError(apiErrorMessage(err, 'Could not load customers - try again'));
     } finally {
+      setLoadedQ(debouncedSearch);
       setIsLoading(false);
     }
   }, [debouncedSearch]);
@@ -131,7 +134,7 @@ export default function CustomersPage() {
           </div>
 
           {/* Content */}
-          {isLoading ? (
+          {isLoading || loadedQ !== debouncedSearch ? (
             <ListSkeleton label="Loading customers" />
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
@@ -140,7 +143,7 @@ export default function CustomersPage() {
             </div>
           ) : customers.length === 0 ? (
             <ListEmpty
-              filtered={!!debouncedSearch}
+              filtered={!!loadedQ}
               onClearFilters={() => setSearch('')}
               firstRun={{
                 icon: Users,

@@ -38,7 +38,7 @@ export function TryDemoLink({ onSwitched }: TryDemoLinkProps) {
       type="button"
       onClick={() => void go()}
       disabled={busy}
-      className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline dark:text-brand-300 disabled:opacity-60"
+      className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline dark:text-teal-300 disabled:opacity-60"
     >
       <Sparkles className="h-4 w-4" aria-hidden="true" />
       Try the demo company

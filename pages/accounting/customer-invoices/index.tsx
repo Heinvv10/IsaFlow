@@ -123,6 +123,9 @@ export default function CustomerInvoicesPage() {
             <ListEmpty
               filtered={filtersActive}
               onClearFilters={state.clearAll}
+              page={filters.page}
+              total={total}
+              onFirstPage={() => state.setPage(1)}
               firstRun={{
                 icon: FileText,
                 title: 'No invoices yet',

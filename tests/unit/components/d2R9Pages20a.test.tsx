@@ -215,5 +215,7 @@ describe('supplier-invoices/index (routes: ?status_counts=1 -> { counts }, list 
     render(<SupplierInvoicesPage />);
     expect(await screen.findByText('Could not load the supplier invoices - try again')).toBeDefined();
     expect(screen.queryByText('D2-SI-001')).toBeNull(); expectNoJargon();
+    expect(screen.queryByText('No supplier invoices yet')).toBeNull(); // a failed load is not a first run
+    expect(screen.queryByText('Try the demo company')).toBeNull();
   });
 });

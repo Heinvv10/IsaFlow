@@ -9,7 +9,7 @@ export function BankTxLoading() {
   return <ListSkeleton rows={8} label="Loading transactions" rowClassName="h-10 items-center" />;
 }
 
-export function BankTxEmpty({ tab }: { tab: 'new' | 'excluded' | 'reviewed' | string }) {
+export function BankTxEmpty({ tab }: { tab: 'new' | 'excluded' | 'reviewed' }) {
   return (
     <div data-testid="bank-tx-empty" className="text-center py-12 text-[var(--ff-text-secondary)]">
       No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : 'reviewed'} transactions for this account
