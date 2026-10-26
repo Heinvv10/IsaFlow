@@ -85,6 +85,25 @@ export async function getAROutstandingSummary(companyId: string): Promise<AROuts
   };
 }
 
+/**
+ * Customers with a positive open balance, over the same population (and the
+ * same as-at-today ledger presence) the summary's `outstanding` is summed from,
+ * minus soft-deleted invoices, which nobody chases.
+ */
+export async function getARDebtorCount(companyId: string): Promise<number> {
+  const asAtStr = asAtTodayStr();
+  const rows = (await sql`
+    SELECT COUNT(DISTINCT COALESCE(ci.client_id, ci.customer_id)) AS n
+    FROM customer_invoices ci
+    WHERE ci.company_id = ${companyId}
+      AND ci.deleted_at IS NULL
+      AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
+      AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+      AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0
+  `) as { n: string }[];
+  return Number(rows[0]?.n ?? 0);
+}
+
 /** The `limit` oldest overdue invoices: the same population overdueCount counts. */
 export async function listOverdueInvoices(companyId: string, limit: number): Promise<OverdueInvoiceRow[]> {
   const asAtStr = asAtTodayStr();
