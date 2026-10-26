@@ -1,6 +1,6 @@
 /**
  * Budgets P2 batch save, size and cost (round-2 Q2, SEC2-M2/M3): the route reads its own body
- * after authentication (Next's parser off), capped at 24 MB while reading: a declared or streamed
+ * after authentication (Next's parser off), capped at 18 MB while reading: a declared or streamed
  * body over the cap is 413 without being buffered whole, and the request log carries no body. A
  * batch over MAX_SAVE_CELLS is refused. A cell re-saved with its amount unchanged is not touched
  * (its updated_at still says when it last changed). And the largest batch holds the version row
@@ -83,13 +83,13 @@ describe('save: the body', () => {
     expect(config.api.bodyParser).toBe(false);
   });
 
-  it('a body streamed past 24 MB is 413 at the chunk that crosses the cap, the rest never read', async () => {
+  it('a body streamed past the 18 MB cap is 413 at the chunk that crosses it, the rest never read', async () => {
     const { stream, seen, release } = blocking(40);
     const r = await postStream(stream);
     const pulled = seen.pulled;
     release();
     expect([r.status, r.body.error?.code], dump(r)).toEqual([413, 'PAYLOAD_TOO_LARGE']);
-    // Answered while the 40th MB was still withheld: the reader stopped at 25 MB (plus a little read-ahead).
+    // Answered while the 40th MB was still withheld: the reader stopped at 19 MB (plus a little read-ahead).
     expect(pulled).toBeLessThan(30);
   });
 

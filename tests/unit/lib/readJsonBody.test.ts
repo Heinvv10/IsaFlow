@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import type { IncomingMessage } from 'http';
-import { JsonBodyError, effectiveLimits, readJsonBody } from '@/lib/readJsonBody';
+import { JsonBodyError, effectiveLimits, readJsonBody, readRawBody } from '@/lib/readJsonBody';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A request whose body is `parts`, each sent `gapMs` after the last. */
@@ -62,3 +62,34 @@ describe('effectiveLimits: the test override', () => {
   });
 });
 
+
+describe('readRawBody: the minimum rate for a large body', () => {
+  /** `head` at once, then one byte every `gapMs` for `trickleMs`, then the end. */
+  function trickle(head: number, gapMs: number, trickleMs: number, declared: number): IncomingMessage {
+    const stream = Readable.from((async function* gen() {
+      yield Buffer.alloc(head, 0x20);
+      for (let t = 0; t < trickleMs; t += gapMs) { await sleep(gapMs); yield Buffer.from(' '); }
+    })());
+    return Object.assign(stream, { headers: { 'content-length': String(declared) } }) as unknown as IncomingMessage;
+  }
+  const big = { maxBytes: 32 * 1048576, totalMs: 60_000, idleMs: 5_000 };
+
+  it('a large declared body that trickles under MIN_BYTES_PER_SEC is refused soon after MIN_RATE_AFTER_MS, before it ends', async () => {
+    const t0 = Date.now();
+    const out = await refusal(readRawBody(trickle(64 * 1024, 300, 6000, 4 * 1048576), big));
+    expect(out).toBe('400 REQUEST_BODY_TIMEOUT');
+    // Refused by the rate rule (~2.1 s), not by the end of the 6 s trickle or the 5 s idle bound.
+    expect(Date.now() - t0).toBeLessThan(4500);
+  }, 15000);
+
+  it('a 4 MB body at about 250 KB/s (a slow 2 Mbit/s uplink) is read whole', async () => {
+    const chunk = 256 * 1024;
+    const stream = Readable.from((async function* gen() { for (let i = 0; i < 16; i++) { if (i) await sleep(1000); yield Buffer.alloc(chunk, 0x20); } })());
+    const req = Object.assign(stream, { headers: { 'content-length': String(16 * chunk) } }) as unknown as IncomingMessage;
+    expect((await readRawBody(req, big)).length).toBe(16 * chunk);
+  }, 30000);
+
+  it('a small body is never held to the rate', async () => {
+    expect((await readRawBody(trickle(10, 300, 3000, 20), big)).length).toBe(20);
+  }, 15000);
+});

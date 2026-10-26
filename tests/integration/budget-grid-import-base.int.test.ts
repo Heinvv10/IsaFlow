@@ -117,9 +117,9 @@ describe('R1: the import diffs against the downloaded values (_base)', () => {
     expect(await amountNow(v, A.acct.sales, FY27[0]!)).toBe('1500.00');
   });
 
-  it('template -> import at the same token has no warning and no conflict', async () => {
+  it('template -> import at the same token has no warning and no conflict (M1: an upper-case versionId is the same version)', async () => {
     const { v, file } = await downloaded('same');
-    const p = await ok(v, file);
+    const p = await ok(v.toUpperCase(), file);
     expect(p.changes).toEqual([]);
     expect(p.conflicts).toEqual([]);
     expect(p.warnings).toEqual([]);

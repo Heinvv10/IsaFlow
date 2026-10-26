@@ -22,7 +22,6 @@ import path from 'node:path';
 import templateRoute from '../../pages/api/accounting/budget-grid/template';
 import previewRoute from '../../pages/api/accounting/budget-grid/import-preview';
 import { log } from '@/lib/logger';
-import { clearRateLimitCache } from '@/lib/rateLimit';
 import { MAX_SAVE_CELLS } from '@/modules/accounting/services/budgets/gridSaveValidate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
@@ -211,23 +210,21 @@ describe('the upload itself', () => {
     const vD = await fx.version(D, { name: 'Rate' });
     await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'owner', false)`, [D.id, C.owner.userId]);
     const junk = Buffer.from('PK\x03\x04 not a zip');
-    try {
-      const statuses: number[] = [];
-      for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, C.owner, vC, junk)).status);
-      for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, { ...C.owner, homeCompanyId: D.id }, vD, junk)).status);
-      expect(statuses.every((s) => s === 400)).toBe(true);
-      // The 61st is refused before any of its body is read: its body is held back until after the
-      // answer, so a 429 that arrives at all was never waited for.
-      let release = () => {};
-      const released = new Promise<void>((resolve) => { release = resolve; });
-      const never = Readable.from((async function* gen() { yield Buffer.from('--x'); await released; })());
-      const last = await uploadStream(previewRoute, { ...C.owner, homeCompanyId: D.id }, never, 1000);
-      release();
-      expect(last.status).toBe(429);
-    } finally {
-      await pool.query(`DELETE FROM rate_limit_counters WHERE key = $1`, [`budget-import:${C.owner.userId}`]);
-      clearRateLimitCache();
-    }
+    const statuses: number[] = [];
+    for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, C.owner, vC, junk)).status);
+    for (let i = 0; i < 30; i++) statuses.push((await uploadPreview(previewRoute, { ...C.owner, homeCompanyId: D.id }, vD, junk)).status);
+    expect(statuses.every((s) => s === 400)).toBe(true);
+    // The 61st is refused before any of its body is read: its bytes are held back until after the
+    // answer, and none was pulled. (Every member's bucket is removed by the fixture's cleanup.)
+    const held = Buffer.from('--x');
+    const seen = { pulled: 0 };
+    let release = () => {};
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const never = Readable.from((async function* gen() { await released; seen.pulled += held.length; yield held; })());
+    const last = await uploadStream(previewRoute, { ...C.owner, homeCompanyId: D.id }, never, held.length);
+    const pulledBeforeRelease = seen.pulled;
+    release();
+    expect([last.status, pulledBeforeRelease]).toEqual([429, 0]);
   }, 120000);
 
   it('SEC-L5: refusal logs name the company and the user', async () => {

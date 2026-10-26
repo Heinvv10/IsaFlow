@@ -128,19 +128,27 @@ export function checkXmlPart(xml: Buffer): void {
   if (open.length > 0) throw malformed();
 }
 
+/** Bytes the cutter has looked at, ever (tests assert it stays linear in the input). */
+let inspected = 0;
+export const readerInputInspected = (): number => inspected;
+
 /**
  * Where the piece starting at `start` ends: just after the last `>` within READ_CHUNK_BYTES (ASCII,
- * so never inside a character), else at the last UTF-8 character start in reach (never before a
- * continuation byte 10xxxxxx), else at the full length (no character starts there: zip binary).
- * ExcelJS decodes each piece on its own, so a character cut in two would read as U+FFFD (U8).
+ * so never inside a character), else at the last UTF-8 character start in reach (stepping back
+ * over at most 3 continuation bytes 10xxxxxx), else at the full length (no character starts there:
+ * zip binary). ExcelJS decodes each piece on its own, so a character cut in two would read as
+ * U+FFFD (U8). Both searches stay inside the piece: one that ran back past `start` made a long
+ * stretch with no `>` quadratic (round 5).
  */
 function pieceEnd(zip: Buffer, start: number): number {
   const end = Math.min(start + READ_CHUNK_BYTES, zip.length);
   if (end === zip.length) return end;
-  const gt = zip.lastIndexOf(GT, end - 1);
-  if (gt >= start) return gt + 1;
+  for (let i = end - 1; i >= start; i--) {
+    inspected++;
+    if (zip[i] === GT) return i + 1;
+  }
   let cut = end;
-  while (cut > start && ((zip[cut] ?? 0) & 0xc0) === 0x80) cut--;
+  for (let k = 0; k < 3 && cut > start && ((zip[cut] ?? 0) & 0xc0) === 0x80; k++) { inspected++; cut--; }
   return cut > start ? cut : end;
 }
 

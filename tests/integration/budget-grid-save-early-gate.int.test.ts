@@ -3,8 +3,8 @@
  * caller who passes the same token checks withAuth's verifyToken makes (signature, expiry, and
  * aal2 unless GoTrue confirms no MFA factor is enrolled), and at most two early reads per user are
  * in flight; a third is 429 with Retry-After, its body not read; another user is unaffected. Before
- * the read, the user's save bucket is charged (429 when full) and the process's early-read bytes
- * are capped (503). A request withAuth admits that was not read early is refused, never read
+ * the read, the user's save bucket is charged (429 when full); the byte budgets are
+ * budget-grid-save-byte-budget's. A request withAuth admits that was not read early is refused, never read
  * inside the transaction. Every "not read" is shown by the body never being released: the answer
  * comes while the bytes are still withheld, and no wall-clock bound is asserted.
  * GoTrue's /user is stubbed per test (fetch); everything else is the real route on PostgreSQL.
@@ -14,7 +14,6 @@ import { Pool } from 'pg';
 import { Readable } from 'node:stream';
 import { SignJWT, decodeJwt } from 'jose';
 import saveRoute from '../../pages/api/accounting/budget-grid/save';
-import { earlyReadStats } from '@/lib/readJsonBody';
 import { clearRateLimitCache } from '@/lib/rateLimit';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { budgetGridFixture, monthsFrom, type GridCo } from './helpers/budgetGridFixture';
@@ -162,21 +161,5 @@ describe('withBodyFirst: what bounds the reads', () => {
       await pool.query('DELETE FROM rate_limit_counters WHERE key = $1', [key]);
       clearRateLimitCache(); // the limiter remembers a full bucket for a few seconds
     }
-  });
-
-  it('early reads past 64 MB in flight in the process are 503 with Retry-After, unread; the bytes are given back', async () => {
-    // Three users each declare a 24 MB body (the save's cap) and send nothing: 72 MB > 64 MB.
-    const big = String(24 * 1048576);
-    const [x, y, z] = [withheld(Buffer.from('{}')), withheld(Buffer.from('{}')), withheld(Buffer.from('{}'))];
-    const first = post(A, A.owner.token, x.stream, Number(big));
-    const second = post(B, B.owner.token, y.stream, Number(big));
-    for (let i = 0; i < 100 && earlyReadStats().reads < 2; i++) await new Promise((r) => setTimeout(r, 20));
-    expect(earlyReadStats()).toEqual({ reads: 2, bytes: 48 * 1048576 });
-    const third = await post(C, C.owner.token, z.stream, Number(big));
-    expect([third.status, third.body.error?.code, third.retryAfter, z.seen.pulled], JSON.stringify(third)).toEqual([503, 'SERVICE_UNAVAILABLE', '5', 0]);
-    // The two withheld bodies run into the 1 s idle bound, and their reservations are released.
-    expect([(await first).status, (await second).status]).toEqual([400, 400]);
-    x.release(); y.release(); z.release();
-    expect(earlyReadStats()).toEqual({ reads: 0, bytes: 0 });
   });
 });

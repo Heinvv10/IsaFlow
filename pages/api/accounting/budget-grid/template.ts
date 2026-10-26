@@ -34,7 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   let members: string[] | undefined;
   if (membersRaw !== undefined) {
     if (typeof membersRaw !== 'string') return apiResponse.badRequest(res, 'members must be one comma-separated list of member ids');
-    members = membersRaw.split(',').map((m) => m.trim()).filter((m) => m !== '');
+    // Ids compare lower-case everywhere (Postgres answers them so); an upper-case one is the same id.
+    members = membersRaw.split(',').map((m) => m.trim().toLowerCase()).filter((m) => m !== '');
     if (members.length === 0 || !members.every((m) => isUuidParam(m))) return apiResponse.badRequest(res, 'members must be a comma-separated list of member ids');
   }
   if (!(await checkRateLimit(`budget-template:${userId}`, { max: TEMPLATE_RATE, windowSecs: 900 }))) {

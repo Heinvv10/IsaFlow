@@ -8,8 +8,9 @@
  * version, a month outside its year, a grain clash), 404 for another company's version, 409
  * BUDGET_VERSION_LOCKED / BUDGET_VERSION_STALE (with `currentUpdatedAt` and `status`). Every
  * refusal leaves the version, its amounts and its token as they were. The Excel import commits here.
- * The body is read before the transaction opens, at most 24 MB (413), within 15 s and with no pause over
- * 5 s (400 REQUEST_BODY_TIMEOUT); at most MAX_SAVE_CELLS cells.
+ * The body is read before the transaction opens: at most 18 MB (413), within 120 s, with no pause over
+ * 5 s and (a large body) at 128 KB/s on average after 2 s (400 REQUEST_BODY_TIMEOUT); at most
+ * MAX_SAVE_CELLS cells.
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -29,8 +30,12 @@ import { JsonBodyError, respondBodyError, takeJsonBody, withBodyFirst, type Body
 // caller, and withErrorHandler would log it (round-2 SEC2-M2, M3; round-3 slow-body hold).
 export const config = { api: { bodyParser: false } };
 
-/** MAX_SAVE_CELLS (100 000) cells of compact JSON are at most ~17 MB (172 bytes for the widest cell). */
-const BODY_LIMITS: BodyLimits = { maxBytes: 24 * 1048576, totalMs: 15_000, idleMs: 5_000 };
+/**
+ * MAX_SAVE_CELLS (100 000) cells of compact JSON are at most ~17.2 MB (172 bytes for the widest
+ * cell), so 18 MB, the same as one user's early-read budget. 120 s in all: that body takes ~70 s on
+ * a slow 2 Mbit/s uplink; a body that slows below MIN_BYTES_PER_SEC is refused long before.
+ */
+const BODY_LIMITS: BodyLimits = { maxBytes: 18 * 1048576, totalMs: 120_000, idleMs: 5_000 };
 
 const SaveSchema = z.object({
   versionId: UUID,
@@ -76,7 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 /**
  * Charged per user before the body is read: 120 saves a minute is two a second, sustained, well above
  * a person editing the grid (the page saves on blur / every few seconds), and caps what a script can
- * make the server read at 120 x 24 MB a minute per user.
+ * make the server read at 120 x 18 MB a minute per user.
  */
 const SAVE_RATE = {
   charge: (userId: string) => checkRateLimit(`budget-save:${userId}`, { max: 120, windowSecs: 60 }),

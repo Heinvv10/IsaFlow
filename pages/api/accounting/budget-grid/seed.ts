@@ -35,7 +35,7 @@ const SeedSchema = z.object({
       type: z.literal('py_actuals'), upliftPct: Uplift, grain: z.enum(['company', 'cc1', 'cc2', 'bu']),
       unassigned: z.enum(['company', 'drop']).default('company'),
     }),
-    z.object({ type: z.literal('version'), versionId: UUID, upliftPct: Uplift }),
+    z.object({ type: z.literal('version'), versionId: UUID.transform((id) => id.toLowerCase()), upliftPct: Uplift }),
     z.object({ type: z.literal('blank') }),
   ]),
 });

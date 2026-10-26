@@ -88,7 +88,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'Upload one budget template (.xlsx) of at most 10 MB, with its versionId and nothing else.');
     }
     const uploaded = files.file?.[0];
-    const versionId = fields.versionId?.[0];
+    // Ids compare lower-case everywhere (Postgres answers them so); an upper-case one is the same id.
+    const versionId = fields.versionId?.[0]?.toLowerCase();
     if (!isUuidParam(versionId)) return apiResponse.badRequest(res, 'versionId must be a version id');
     if (!uploaded) return apiResponse.badRequest(res, 'No file uploaded: upload the budget template as .xlsx');
     const bytes = fs.readFileSync(uploaded.filepath);

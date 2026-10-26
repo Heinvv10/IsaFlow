@@ -51,7 +51,19 @@ const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
 /** Thrown inside the savepoint when the batch changed no row: its rollback takes back the token bump. */
 class NothingChanged extends Error {}
 
-export async function saveCells(companyId: string, userId: string, input: SaveCellsInput): Promise<SaveCellsResult> {
+/**
+ * Ids are compared as text further on (decision 18's "is this one upserted", the duplicate-key
+ * check), and Postgres reads them back lower-case, so every id is lower-cased once, here: an
+ * upper-case header id slipped past decision 18 and two case variants of a cell past the
+ * duplicate check (round-5 M1).
+ */
+const lowerIds = (c: SaveCell): SaveCell => ({
+  ...c, glAccountId: c.glAccountId.toLowerCase(), cc1Id: c.cc1Id?.toLowerCase() ?? null,
+  cc2Id: c.cc2Id?.toLowerCase() ?? null, buId: c.buId?.toLowerCase() ?? null,
+});
+
+export async function saveCells(companyId: string, userId: string, raw: SaveCellsInput): Promise<SaveCellsResult> {
+  const input: SaveCellsInput = { ...raw, versionId: raw.versionId.toLowerCase(), cells: raw.cells.map(lowerIds) };
   const batch = validateBatch(input.cells);
   await holdYearRegistry(companyId);
   try {
@@ -59,14 +71,17 @@ export async function saveCells(companyId: string, userId: string, input: SaveCe
   } catch (err) {
     // A batch that changes nothing (clears of absent cells, amounts equal to stored) leaves the
     // version as it was: no token bump that would make other users' tokens stale, no audit row.
-    if (err instanceof NothingChanged) return { updatedAt: await currentToken(companyId, input.versionId), saved: 0, deleted: 0 };
+    // The token answered is the one the compare-and-set verified, not one read after the
+    // rollback, which a concurrent writer may already have moved.
+    if (err instanceof NothingChanged) return { updatedAt: await isoToken(input.expectedUpdatedAt), saved: 0, deleted: 0 };
     return mapBudgetDbError(err);
   }
 }
 
-async function currentToken(companyId: string, versionId: string): Promise<string> {
+/** A verified token in P1's form (UTC ISO, microseconds), whichever accepted form the client sent. */
+async function isoToken(token: string): Promise<string> {
   const rows = (await sql`
-    SELECT ${tokenSql()} AS token FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
+    SELECT to_char(${token}::TIMESTAMPTZ AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS token
   `) as DbRow[];
   return String(rows[0]?.token);
 }

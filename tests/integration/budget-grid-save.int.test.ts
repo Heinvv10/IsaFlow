@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 
 type RawSql = ((s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>) & Record<string, unknown>;
-const hooks = vi.hoisted(() => ({ match: null as null | RegExp, fn: null as null | ((realSql: RawSql) => Promise<void>), fired: 0 }));
+const hooks = vi.hoisted(() => ({ match: null as null | RegExp, fn: null as null | ((realSql: RawSql) => Promise<void>), fired: 0, before: false }));
 
 // Every statement runs on the real database. Once armed, the hook runs right after the first
 // statement matching `match`, inside the same request transaction: after the compare-and-set on
@@ -22,11 +22,12 @@ vi.mock('@/lib/neon', async (orig) => {
     const { match, fn } = hooks;
     if (!match || !fn || !match.test(strings.join('?'))) return realSql(strings, ...values);
     return (async () => {
-      const rows = await realSql(strings, ...values);
       hooks.match = null;
       hooks.fn = null;
       hooks.fired += 1;
-      await fn(realSql);
+      if (hooks.before) await fn(realSql);
+      const rows = await realSql(strings, ...values);
+      if (!hooks.before) await fn(realSql);
       return rows;
     })();
   };
@@ -256,6 +257,21 @@ describe('POST /api/accounting/budget-grid/save', () => {
     // A batch with one real change still writes, moves the token and audits.
     const r = await save(v, [cell(w.rent, m0!, 10), cell(w.rent, m1!, 3)]);
     expect([r.status, data(r).saved, (await fx.audits(v)).length], dump(r)).toEqual([200, 2, 1]);
+  });
+
+  it('a no-op answers the token it verified, even if another writer moves the version right after its rollback', async () => {
+    const v = await fx.version(w);
+    const expected = await fx.token(v);
+    hooks.fired = 0;
+    hooks.before = true;
+    // Any read of the version's token after the savepoint rolled back: a concurrent rename lands first.
+    hooks.match = /^\s*SELECT \? AS token FROM budget_versions WHERE id = /;
+    hooks.fn = async () => { await pool.query(`UPDATE budget_versions SET name = name || ' renamed' WHERE id = $1`, [v]); };
+    const r = await save(v, [cell(w.sales, w.months[0]!, null)], w.u, expected.replace('T', ' ').replace('Z', '+00'));
+    hooks.match = null;
+    hooks.before = false;
+    expect(r.status, dump(r)).toBe(200);
+    expect(data(r)).toEqual({ updatedAt: expected, saved: 0, deleted: 0 });
   });
 
   it('refuses a bad batch before anything is written or the token moves', async () => {
