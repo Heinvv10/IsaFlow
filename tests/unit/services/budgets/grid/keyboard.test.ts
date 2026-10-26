@@ -61,7 +61,14 @@ describe('nav keys', () => {
     expect(focus(at(1, 5), key('End', { ctrl: true }))).toEqual({ r: 8, c: 11 });
   });
 
-  it('PageUp/PageDown move 20 line rows (clamped)', () => {
+  it('PageUp/PageDown move 20 line rows, clamped at the ends', () => {
+    // 30 line rows under one section head: rows 1..30
+    const tall: GridShape = { rowKinds: ['section', ...Array<'line'>(30).fill('line'), 'grand'], cols: 13 };
+    const ctx = { ...CTX, shape: tall, isEditable: () => true, readReason: () => null };
+    const s = { ...initialGridState(tall), focus: { r: 2, c: 1 }, anchor: { r: 2, c: 1 } };
+    expect(gridReducer(s, key('PageDown'), ctx).state.focus).toEqual({ r: 22, c: 1 });
+    const low = { ...s, focus: { r: 25, c: 1 }, anchor: { r: 25, c: 1 } };
+    expect(gridReducer(low, key('PageUp'), ctx).state.focus).toEqual({ r: 5, c: 1 });
     expect(focus(at(1, 2), key('PageDown'))).toEqual({ r: 8, c: 2 });
     expect(focus(at(8, 2), key('PageUp'))).toEqual({ r: 1, c: 2 });
   });
@@ -192,5 +199,58 @@ describe('mouse', () => {
 
   it('a click on a non-line row is ignored', () => {
     expect(run(at(1, 0), { type: 'click', pos: { r: 3, c: 0 } }).state.focus).toEqual({ r: 1, c: 0 });
+  });
+});
+
+describe('edges the table implies', () => {
+  const editing = (r: number, c: number) => at(r, c, { mode: 'edit', draft: '5', editOrigin: 'type' });
+
+  it('every Ctrl action but the clipboard ones is handled (preventDefault: Ctrl+D would bookmark)', () => {
+    for (const k of ['d', 'r', 'z', 'y', 's', 'a', 'Home', 'End', 'ArrowDown']) {
+      expect(run(at(1, 0), key(k, { ctrl: true })).handled).toBe(true);
+    }
+  });
+
+  it('Shift+Tab from the FY total moves left; it never exits', () => {
+    expect(run(at(1, 12), key('Tab', { shift: true }))).toMatchObject({ state: { focus: { r: 1, c: 11 } }, effects: [] });
+  });
+
+  it('Tab while editing the last column commits, leaves edit mode and exits', () => {
+    const r = run(editing(1, 12), key('Tab'));
+    expect(r.effects.map(e => e.type)).toEqual(['commit', 'exit']);
+    expect(r.state.mode).toBe('nav');
+  });
+
+  it('a click on the cell being edited is left to the input (caret placement)', () => {
+    const r = run(editing(1, 3), { type: 'click', pos: { r: 1, c: 3 } });
+    expect(r).toMatchObject({ handled: false, effects: [], state: { mode: 'edit', draft: '5' } });
+  });
+
+  it('a drag while editing does not move the selection', () => {
+    expect(run(editing(1, 3), { type: 'drag', pos: { r: 6, c: 5 } }).state).toMatchObject({ mode: 'edit', focus: { r: 1, c: 3 } });
+  });
+
+  it.each(['9', 'r'])('%j also starts an overwrite edit', ch => {
+    expect(run(at(1, 0), key(ch)).state).toMatchObject({ mode: 'edit', draft: ch });
+  });
+
+  it('Alt+digit and other keys do not start an edit', () => {
+    expect(run(at(1, 0), { type: 'key', key: '5', alt: true })).toMatchObject({ handled: false, state: { mode: 'nav' } });
+    expect(run(at(1, 0), key('x'))).toMatchObject({ handled: false, state: { mode: 'nav' } });
+  });
+
+  it('starting an edit collapses the selection to the edited cell', () => {
+    expect(run(at(2, 3, { anchor: { r: 1, c: 0 } }), key('7')).state.anchor).toEqual({ r: 2, c: 3 });
+  });
+
+  it('Delete on a read-only cell announces its reason', () => {
+    expect(run(at(READONLY_ROW, 2), key('Delete')).effects)
+      .toEqual([{ type: 'announce', message: 'Budgeted by CC1, switch view to edit' }]);
+  });
+
+  it('Delete never clears the FY total column (it is derived from the months)', () => {
+    const r = run(at(1, 12, { anchor: { r: 1, c: 11 } }), key('Delete'));
+    expect(r.effects).toEqual([{ type: 'clear', cells: [{ r: 1, c: 11 }] }]);
+    expect(run(at(1, 12), key('Delete')).effects[0]).toMatchObject({ type: 'announce' });
   });
 });

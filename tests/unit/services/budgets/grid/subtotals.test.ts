@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  BAND_ORDER, type Band, bandOf, deriveTotals, foldBands, bandSums,
+  BAND_ORDER, BAND_SIGN, type Band, bandOf, deriveTotals, foldBands, bandSums,
 } from '@/modules/accounting/services/budgets/grid/subtotals';
 import { aggregateFigures, type ClassificationRow } from '@/modules/accounting/services/gl/accountClassification';
 
@@ -92,5 +92,13 @@ describe('foldBands', () => {
 
   it('an empty grid is all zeros', () => {
     expect(foldBands([], valueOf, 2).months.netProfit).toEqual([0, 0]);
+  });
+});
+
+describe('BAND_SIGN', () => {
+  it('Σ sign × band total is net profit', () => {
+    const sums = bandSums(rows, valueOf, 3);
+    const np = BAND_ORDER.reduce((s, b) => s + BAND_SIGN[b] * sums[b].reduce((a, x) => a + x, 0), 0);
+    expect(np).toBe(foldBands(rows, valueOf, 3).fy.netProfit);
   });
 });

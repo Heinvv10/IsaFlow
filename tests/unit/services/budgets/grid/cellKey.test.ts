@@ -31,6 +31,15 @@ describe('cellKey / parseKey', () => {
     expect(() => parseKey('a|b|c')).toThrow();
   });
 
+  it('refuses an empty or oversized dimension id, and a key that does not re-encode', () => {
+    expect(() => cellKey({ glAccountId: A, cc1Id: '', cc2Id: null, buId: null, month: '2027-01' })).toThrow();
+    expect(() => cellKey({ glAccountId: 'x'.repeat(65), cc1Id: null, cc2Id: null, buId: null, month: '2027-01' })).toThrow();
+    expect(() => cellKey({ glAccountId: 'a b', cc1Id: null, cc2Id: null, buId: null, month: '2027-01' })).toThrow();
+    expect(() => parseKey(`${A}|||||2027-01`)).toThrow();
+    expect(() => parseKey(`${A}||||2027-01\n`)).toThrow();
+    expect(() => parseKey(`|||${B}|2027-01`)).toThrow();
+  });
+
   it('rowKeyOf drops the month', () => {
     const k = cellKey({ glAccountId: A, cc1Id: null, cc2Id: null, buId: B, month: '2027-03' });
     expect(rowKeyOf(k)).toBe(`${A}|||${B}`);

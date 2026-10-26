@@ -12,6 +12,7 @@ import {
 const MONTHS = ['2027-03', '2027-04', '2027-05'];
 const [NONE, CO, CC1, CC2, BU, MIXED] = ['acc-none', 'acc-co', 'acc-cc1', 'acc-cc2', 'acc-bu', 'acc-mixed'];
 const [M1, M2] = ['cc-m1', 'cc-m2'];
+const [TWO_GRAINS, MULTI_DIM] = ['acc-two-grains', 'acc-multi-dim'];
 
 const cell = (glAccountId: string, month: string, dims: Partial<Pick<CellRef, 'cc1Id' | 'cc2Id' | 'buId'>> = {}) =>
   cellKey({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, ...dims });
@@ -26,10 +27,19 @@ const cells = new Map<string, number | null>([
   [cell(BU, '2027-03', { buId: 'bu-1' }), 5],
   [cell(MIXED, '2027-03'), 1],
   [cell(MIXED, '2027-03', { cc1Id: M1, buId: 'bu-1' }), 2],
-  // A cleared (pending delete) cell does not give the account a grain.
+  // A cleared (pending delete) cell does not give the account a grain, and is not a 0 in a roll-up.
   [cell(NONE, '2027-03', { cc1Id: M1 }), null],
+  [cell(CC1, '2027-05', { cc1Id: M1 }), null],
+  // Two separate ways to be mixed: two grains on one account; one cell with two dimensions.
+  [cell(TWO_GRAINS, '2027-03'), 10],
+  [cell(TWO_GRAINS, '2027-04', { cc1Id: M1 }), 20],
+  [cell(MULTI_DIM, '2027-03', { cc2Id: M1, buId: 'bu-1' }), 30],
+  [cell(CC2, '2027-05', { cc2Id: M2 }), 7],
+  [cell(BU, '2027-04', { buId: 'bu-2' }), 9],
+  // A month outside the year is not in any view.
+  [cell(CO, '2030-01'), 999],
 ]);
-const input: PivotInput = { accountIds: [NONE, CO, CC1, CC2, BU, MIXED], months: MONTHS, cells };
+const input: PivotInput = { accountIds: [NONE, CO, CC1, CC2, BU, MIXED, TWO_GRAINS, MULTI_DIM], months: MONTHS, cells };
 const company: View = { kind: 'company' };
 const byCc1 = (memberId: string): View => ({ kind: 'cc1', memberId });
 
@@ -37,6 +47,7 @@ describe('accountGrains', () => {
   it('derives each account grain from its non-null cells', () => {
     expect(Object.fromEntries(accountGrains(cells))).toEqual({
       [CO]: 'company', [CC1]: 'cc1', [CC2]: 'cc2', [BU]: 'bu', [MIXED]: 'mixed',
+      [TWO_GRAINS]: 'mixed', [MULTI_DIM]: 'mixed',
     });
   });
 });
@@ -54,8 +65,10 @@ describe('resolveView: Company', () => {
   });
 
   it('cc2 / bu grain are read-only roll-ups; a mixed grain says edit via Excel', () => {
-    expect(v.get(CC2)).toMatchObject({ values: [null, null, 70], editable: false });
-    expect(v.get(BU)).toMatchObject({ values: [5, null, null], editable: false });
+    expect(v.get(CC2)).toMatchObject({ values: [null, null, 77], editable: false });
+    expect(v.get(BU)).toMatchObject({ values: [5, 9, null], editable: false });
+    expect(v.get(TWO_GRAINS)).toMatchObject({ values: [10, 20, null], editable: false, readReason: expect.stringMatching(/Excel/) });
+    expect(v.get(MULTI_DIM)).toMatchObject({ values: [30, null, null], editable: false });
     expect(v.get(MIXED)).toMatchObject({ values: [3, null, null], editable: false, readReason: expect.stringMatching(/Excel/) });
   });
 });
@@ -81,6 +94,10 @@ describe('resolveView: By CC1', () => {
 });
 
 describe('locked and read-only access', () => {
+  it('locked takes precedence over read-only access', () => {
+    expect(resolveView({ ...input, locked: true, canWrite: false }, company).get(CO)?.readReason).toBe('Locked version');
+  });
+
   it('a locked version is read-only everywhere, values unchanged', () => {
     const v = resolveView({ ...input, locked: true }, company);
     expect(v.get(CO)).toEqual({ values: [1000, 0, null], editable: false, readReason: 'Locked version' });
@@ -110,9 +127,15 @@ describe('viewCellKey / memberTotals', () => {
     expect(viewCellKey(BU, { kind: 'bu', memberId: 'b' }, '2027-05')).toBe(cell(BU, '2027-05', { buId: 'b' }));
   });
 
+  it('member totals per CC2 and per BU read their own dimension', () => {
+    const plus = () => 1;
+    expect(Object.fromEntries(memberTotals(cells, 'cc2', plus))).toEqual({ [M1]: 100, [M2]: 7 });
+    expect(Object.fromEntries(memberTotals(cells, 'bu', plus))).toEqual({ 'bu-1': 37, 'bu-2': 9 });
+  });
+
   it('member totals are signed by the account band (income +, expense −)', () => {
     const sign = (id: string) => (id === CC1 ? 1 : -1);
-    // M1: CC1's 100, less the mixed (expense) account's CC1×BU cell of 2.
-    expect(Object.fromEntries(memberTotals(cells, 'cc1', sign))).toEqual({ [M1]: 98, [M2]: 200 });
+    // M1: CC1's 100, less the expense accounts' CC1 cells (mixed 2, two-grains 20).
+    expect(Object.fromEntries(memberTotals(cells, 'cc1', sign))).toEqual({ [M1]: 78, [M2]: 200 });
   });
 });

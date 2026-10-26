@@ -53,16 +53,17 @@ export function bandSums<R extends { band: Band }>(
   for (const row of rows) {
     const target = sums[row.band];
     const values = valueOf(row);
-    for (let m = 0; m < monthCount; m++) target[m] += values[m] ?? 0;
+    for (let m = 0; m < monthCount; m++) target[m] = (target[m] ?? 0) + (values[m] ?? 0);
   }
   return sums;
 }
 
 export function deriveTotals(s: BandSums, monthCount: number): BandTotals {
   const at = (f: (m: number) => number) => Array.from({ length: monthCount }, (_, m) => f(m));
-  const grossProfit = at(m => s.turnover[m] - s.cost_of_sales[m]);
-  const operatingProfit = at(m => grossProfit[m] + s.other_income[m] - s.operating_expense[m]);
-  const netProfit = at(m => operatingProfit[m] - s.other_expense[m]);
+  const v = (xs: readonly number[], m: number): number => xs[m] ?? 0;
+  const grossProfit = at(m => v(s.turnover, m) - v(s.cost_of_sales, m));
+  const operatingProfit = at(m => v(grossProfit, m) + v(s.other_income, m) - v(s.operating_expense, m));
+  const netProfit = at(m => v(operatingProfit, m) - v(s.other_expense, m));
   const months: Record<Metric, number[]> = {
     turnover: [...s.turnover], costOfSales: [...s.cost_of_sales], grossProfit,
     otherIncome: [...s.other_income], operatingExpenses: [...s.operating_expense], operatingProfit,

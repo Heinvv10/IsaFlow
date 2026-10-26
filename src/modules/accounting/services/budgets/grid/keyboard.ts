@@ -95,6 +95,8 @@ function tab(s: GridState, ctx: GridContext, back: boolean, pre: GridEffect[]): 
 function ctrlKey(s: GridState, k: string, shift: boolean, ctx: GridContext): GridResult | null {
   const { shape } = ctx;
   const rows = lineRows(shape);
+  const first = rows[0];
+  const last = rows[rows.length - 1];
   switch (k.toLowerCase()) {
     case 'c': return done(s, [{ type: 'copy', rect: rectOf(s), cut: false }], false);
     case 'x': return done(s, [{ type: 'copy', rect: rectOf(s), cut: true }], false);
@@ -105,10 +107,10 @@ function ctrlKey(s: GridState, k: string, shift: boolean, ctx: GridContext): Gri
     case 'y': return done(s, [{ type: 'redo' }]);
     case 's': return done(s, [{ type: 'save' }]);
     case 'a':
-      if (rows.length === 0) return done(s);
-      return done({ ...s, anchor: { r: rows[0], c: 0 }, focus: { r: rows[rows.length - 1], c: lastMonth(shape) } });
-    case 'home': return rows.length ? done(moveTo(s, { r: rows[0], c: 0 })) : done(s);
-    case 'end': return rows.length ? done(moveTo(s, { r: rows[rows.length - 1], c: lastMonth(shape) })) : done(s);
+      if (first === undefined || last === undefined) return done(s);
+      return done({ ...s, anchor: { r: first, c: 0 }, focus: { r: last, c: lastMonth(shape) } });
+    case 'home': return first === undefined ? done(s) : done(moveTo(s, { r: first, c: 0 }));
+    case 'end': return last === undefined ? done(s) : done(moveTo(s, { r: last, c: lastMonth(shape) }));
     default: {
       const dir = ARROWS[k];
       return dir ? done(moveTo(s, edgeFocusable(s.focus, dir, shape))) : null;
@@ -136,8 +138,12 @@ function navKey(s: GridState, a: Extract<GridAction, { type: 'key' }>, ctx: Grid
     case 'Escape': return done({ ...s, anchor: s.focus });
     case 'Delete':
     case 'Backspace': {
-      const cells = clampToEditable(rectOf(s), shape, ctx.isEditable);
-      if (cells.length === 0) return done(s, [{ type: 'announce', message: ctx.readReason(s.focus) ?? 'Read-only' }]);
+      // Months only: the FY total is derived from them, so there is nothing of its own to clear.
+      const rect = rectOf(s);
+      const cells = clampToEditable({ ...rect, right: Math.min(rect.right, lastMonth(shape)) }, shape, ctx.isEditable);
+      if (cells.length === 0) {
+        return done(s, [{ type: 'announce', message: ctx.readReason(s.focus) ?? 'The FY total is the sum of the months: clear the months.' }]);
+      }
       return done(s, [{ type: 'clear', cells }]);
     }
     default:

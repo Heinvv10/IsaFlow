@@ -53,8 +53,24 @@ describe('UndoStack', () => {
     const u = new UndoStack();
     u.push(paste12);
     expect(u.canUndo).toBe(true);
+    u.undo();
+    expect(u.canRedo).toBe(true);
     u.clear();
     expect(u.canUndo).toBe(false);
+    expect(u.canRedo).toBe(false);
     expect(u.undo()).toBeNull();
+    expect(u.redo()).toBeNull();
+  });
+});
+
+describe('UndoStack entries are not shared with the caller', () => {
+  it('mutating the pushed array or a returned entry cannot change the stack', () => {
+    const u = new UndoStack();
+    const changes = [ch('k', null, 1)];
+    u.push(changes);
+    changes[0]!.after = 99;
+    const e = u.undo()!;
+    expect(e).toEqual([ch('k', null, 1)]);
+    expect(Object.isFrozen(e) && Object.isFrozen(e[0])).toBe(true);
   });
 });

@@ -29,11 +29,7 @@ export function normalise(a: Pos, b: Pos): Rect {
   return { top: Math.min(a.r, b.r), left: Math.min(a.c, b.c), bottom: Math.max(a.r, b.r), right: Math.max(a.c, b.c) };
 }
 
-export const selectionRect = (sel: Selection): Rect => normalise(sel.anchor, sel.focus);
-export const collapse = (pos: Pos): Selection => ({ anchor: pos, focus: pos });
 export const extend = (sel: Selection, to: Pos): Selection => ({ anchor: sel.anchor, focus: to });
-export const isSingleCell = (sel: Selection): boolean =>
-  sel.anchor.r === sel.focus.r && sel.anchor.c === sel.focus.c;
 
 /** Line-row cells of `rect`, clipped to the grid, row-major. */
 export function cellsIn(rect: Rect, shape: GridShape): Pos[] {
@@ -66,7 +62,7 @@ export function nextFocusable(pos: Pos, dir: Dir, shape: GridShape, steps = 1): 
     i = dir === 'down' ? before - 1 : before;
   }
   const to = Math.max(0, Math.min(rows.length - 1, i + (dir === 'down' ? steps : -steps)));
-  return { r: rows[to], c: pos.c };
+  return { r: rows[to] ?? pos.r, c: pos.c };
 }
 
 /** Ctrl+arrow: the first/last focusable cell in that direction. */
@@ -75,7 +71,7 @@ export function edgeFocusable(pos: Pos, dir: Dir, shape: GridShape): Pos {
   switch (dir) {
     case 'left': return { r: pos.r, c: 0 };
     case 'right': return { r: pos.r, c: shape.cols - 1 };
-    case 'up': return rows.length ? { r: rows[0], c: pos.c } : pos;
-    default: return rows.length ? { r: rows[rows.length - 1], c: pos.c } : pos;
+    case 'up': return { r: rows[0] ?? pos.r, c: pos.c };
+    default: return { r: rows[rows.length - 1] ?? pos.r, c: pos.c };
   }
 }

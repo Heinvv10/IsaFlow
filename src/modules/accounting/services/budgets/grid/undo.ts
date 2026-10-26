@@ -15,28 +15,30 @@ export interface Change {
 
 export const UNDO_LIMIT = 100;
 
+export type UndoEntry = readonly Readonly<Change>[];
+
 export class UndoStack {
-  private done: Change[][] = [];
-  private undone: Change[][] = [];
+  private done: UndoEntry[] = [];
+  private undone: UndoEntry[] = [];
 
   constructor(private readonly limit = UNDO_LIMIT) {}
 
   push(changes: readonly Change[]): void {
-    const entry = changes.filter(c => c.before !== c.after);
+    const entry = Object.freeze(changes.filter(c => c.before !== c.after).map(c => Object.freeze({ ...c })));
     if (entry.length === 0) return;
     this.done.push(entry);
     if (this.done.length > this.limit) this.done.shift();
     this.undone = [];
   }
 
-  undo(): Change[] | null {
+  undo(): UndoEntry | null {
     const entry = this.done.pop();
     if (!entry) return null;
     this.undone.push(entry);
     return entry;
   }
 
-  redo(): Change[] | null {
+  redo(): UndoEntry | null {
     const entry = this.undone.pop();
     if (!entry) return null;
     this.done.push(entry);

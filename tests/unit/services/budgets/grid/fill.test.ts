@@ -4,8 +4,9 @@
  * columns, read-only targets are skipped and counted, refused cells are listed.
  */
 import { describe, it, expect } from 'vitest';
-import { type FillGrid, fillDown, fillRight, pasteInto } from '@/modules/accounting/services/budgets/grid/fill';
+import { type FillGrid, copyMatrix, fillDown, fillRight, pasteInto } from '@/modules/accounting/services/budgets/grid/fill';
 import { parseClipboard } from '@/modules/accounting/services/budgets/grid/pasteParse';
+import { toTsv } from '@/modules/accounting/services/budgets/grid/tsv';
 import type { Pos } from '@/modules/accounting/services/budgets/grid/selection';
 
 // 0 section, 1-2 lines, 3 subtotal, 4 GP, 5 section, 6-8 lines, 9 subtotal, 10 NP; 3 months + FY total
@@ -52,6 +53,24 @@ describe('pasteInto', () => {
     expect(writes(pasteInto(rect(1, 0, 1, 0), parseClipboard('9').rows, grid()))).toEqual([[1, 0, 900]]);
   });
 
+  it('a refused cell aimed at a read-only target counts as skipped, not invalid', () => {
+    const r = pasteInto(rect(6, 1, 6, 1), parseClipboard('#N/A').rows, grid());
+    expect(r).toEqual({ writes: [], skipped: 1, invalid: [] });
+  });
+
+  it('one refused 1×1 cell over many targets is reported once', () => {
+    const r = pasteInto(rect(1, 0, 2, 2), parseClipboard('1,234').rows, grid());
+    expect(r.writes).toEqual([]);
+    expect(r.invalid).toHaveLength(1);
+    expect(r.invalid[0]?.pos).toEqual({ r: 1, c: 0 });
+  });
+
+  it('targets in the FY total column are counted as skipped', () => {
+    expect(pasteInto(rect(1, 3, 1, 3), parseClipboard('5').rows, grid()).skipped).toBe(1);
+    expect(pasteInto(rect(1, 2, 2, 3), parseClipboard('5').rows, grid())).toMatchObject({ skipped: 2 });
+    expect(pasteInto(rect(1, 2, 1, 2), parseClipboard('1\t2\t3').rows, grid())).toMatchObject({ skipped: 1 });
+  });
+
   it('a read-only target is never written', () => {
     const r = pasteInto(rect(6, 1, 6, 1), parseClipboard('9').rows, grid());
     expect(r.writes).toEqual([]);
@@ -79,5 +98,19 @@ describe('fillDown / fillRight', () => {
 
   it('a one-row range has nothing to fill down', () => {
     expect(fillDown(rect(1, 0, 1, 2), g).writes).toEqual([]);
+  });
+});
+
+describe('copyMatrix', () => {
+  const g = grid({ '1,0': 100, '1,1': null, '2,0': 7, '6,2': -5 });
+
+  it('copies line rows × month columns only (skips subtotal rows and the FY total)', () => {
+    expect(copyMatrix(rect(1, 0, 6, 3), g)).toEqual([[100, null, null], [7, null, null], [null, null, -5]]);
+  });
+
+  it('copy → paste elsewhere writes the same values on the same shape of line rows', () => {
+    const tsv = toTsv(copyMatrix(rect(1, 0, 2, 1), g));
+    const r = pasteInto(rect(7, 0, 7, 0), parseClipboard(tsv).rows, g);
+    expect(writes(r)).toEqual([[7, 0, 100], [7, 1, null], [8, 0, 7], [8, 1, null]]);
   });
 });
