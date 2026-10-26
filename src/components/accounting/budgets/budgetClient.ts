@@ -55,3 +55,11 @@ export function longDate(iso: string): string {
 export function variancePctLabel(pct: number | null): string {
   return pct === null ? '—' : formatPct(pct);
 }
+
+/** Revenue and expense budgets apart, and the net budgeted profit: never revenue + expense, which means nothing (D10). */
+export function budgetTotals(rows: Pick<BudgetRow, 'accountType' | 'annualAmount'>[]): { revenue: number; expense: number; net: number } {
+  const total = (type: string) => Math.round(rows.filter(r => r.accountType === type).reduce((s, r) => s + r.annualAmount, 0) * 100) / 100;
+  const revenue = total('revenue');
+  const expense = total('expense');
+  return { revenue, expense, net: Math.round((revenue - expense) * 100) / 100 };
+}
