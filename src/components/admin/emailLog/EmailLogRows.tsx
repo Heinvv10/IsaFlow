@@ -28,7 +28,7 @@ export function EmailLogRows({ items, expandedId, onToggle, resendStatus, resend
               {fmtDate(item.sent_at)}
             </td>
             <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[140px] truncate">
-              {item.company_name ?? <span className="italic text-gray-500 dark:text-gray-400">—</span>}
+              {item.company_name ?? <span className="italic text-ink-faint">—</span>}
             </td>
             <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[180px] truncate">
               {item.recipient_email}
