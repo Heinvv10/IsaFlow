@@ -17,6 +17,7 @@ import {
   budgetMonthBounds,
   budgetMonthKeysInWindow,
   currentMonthWindow,
+  monthEnd,
   monthKeyToDate,
 } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 
@@ -96,23 +97,39 @@ describe('currentMonthWindow', () => {
   it('opens on the first of the local month, not the last day of the previous one', () => {
     // 2026-09-01 00:30 SAST — 2026-08-31T22:30Z.
     const now = new Date('2026-08-31T22:30:00.000Z');
-    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-01' });
+    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-30' });
   });
 
-  it('ends on the local day, not the UTC one, just after local midnight', () => {
+  it('is the WHOLE local month: budgets are whole months, so the actuals are too', () => {
     // 2026-09-15 01:00 SAST — 2026-09-14T23:00Z.
     const now = new Date('2026-09-14T23:00:00.000Z');
-    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-15' });
+    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-30' });
   });
 
   it('crosses a year boundary on the local calendar', () => {
     // 2027-01-01 00:30 SAST — 2026-12-31T22:30Z.
     const now = new Date('2026-12-31T22:30:00.000Z');
-    expect(currentMonthWindow(now)).toEqual({ startDate: '2027-01-01', endDate: '2027-01-01' });
+    expect(currentMonthWindow(now)).toEqual({ startDate: '2027-01-01', endDate: '2027-01-31' });
   });
 
   it('is stable mid-day, where UTC and local agree on the date', () => {
     const now = new Date('2026-09-15T10:00:00.000Z');
-    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-15' });
+    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-30' });
+  });
+});
+
+describe('monthEnd', () => {
+  it('is the last day of the month holding the date, leap years included', () => {
+    expect(monthEnd('2026-10-26')).toBe('2026-10-31');
+    expect(monthEnd('2026-09-01')).toBe('2026-09-30');
+    expect(monthEnd('2027-02-10')).toBe('2027-02-28');
+    expect(monthEnd('2028-02-10')).toBe('2028-02-29');
+    expect(monthEnd('2100-02-01')).toBe('2100-02-28');
+    expect(monthEnd('2000-02-01')).toBe('2000-02-29');
+    expect(monthEnd('2026-12-31')).toBe('2026-12-31');
+  });
+
+  it('refuses a malformed date', () => {
+    expect(() => monthEnd('26-10')).toThrow(/monthEnd/);
   });
 });

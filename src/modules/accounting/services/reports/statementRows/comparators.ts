@@ -10,7 +10,8 @@
  *      cannot use the service's own `line.variance` for this field — it is
  *      signed FAVOURABLY (revenue: actual − budget; expense: budget −
  *      actual), so on an expense it has the opposite sign to the movement.
- *      `applyBudgetComparator` computes it itself as `actual − budget`, and
+ *      `applyBudgetComparator` computes it itself as `row.actual − budget`
+ *      (the figure PRINTED on the row, not the service's GL aggregate), and
  *      ROUNDS that subtraction to two decimals. Both operands are rands
  *      already rounded to the cent, so the only thing the rounding can
  *      remove is IEEE-754 noise: `130000.10 − 120000.20` evaluates to
@@ -94,11 +95,18 @@ export function applyBudgetComparator(
   return rows.map((row) => {
     if (!isAccountLine(row)) return row;
     const line = byCode.get(row.accountCode!);
-    if (line === undefined) return row;
+    // An unbudgeted account has no budget to compare with: the Budget vs Actual
+    // screen, its CSV and MCP all leave it unjudged, and so does this column.
+    if (line === undefined || !line.budgeted) return row;
+    // The row's PRINTED actual, never the service's GL aggregate (D7): the
+    // Budget column sits beside the figure on this row, and the two can differ.
+    // An expense row prints positive (debit − credit, incomeStatementRows), so
+    // actual − budget needs no sign flip. Polarity comes from the account type
+    // applied to THIS variance, not from the service's own `variance`.
     const budget = baseComparison(
       line.budget_amount,
-      round2(line.actual_amount - line.budget_amount),
-      () => line.variance >= 0,
+      round2(row.actual - line.budget_amount),
+      (v) => (line.account_type === 'revenue' ? v >= 0 : v <= 0),
     );
     return { ...row, budget };
   });
