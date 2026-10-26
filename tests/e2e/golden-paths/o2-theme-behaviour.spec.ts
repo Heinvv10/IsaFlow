@@ -256,7 +256,8 @@ test('the contrast walker exempts the label of a disabled control and nothing el
       // not exempt
       `<label><input type="checkbox"><span ${low}>wrapped-enabled</span></label>`,
       `<input type="checkbox" id="e1"><label for="e1" ${low}>for-enabled</label>`,
-      `<input type="checkbox" id="d2" disabled><label for="missing-id" ${low}>for-missing</label>`,
+      // for= names an id that does not exist, so this label has NO control, even with a disabled input inside it
+      `<label for="missing-id"><input type="checkbox" disabled><span ${low}>for-missing</span></label>`,
       // a disabled input and an unrelated link in one label: the link is still a live, readable-or-not target
       `<label><input type="checkbox" disabled><a href="#x" ${low}>link-in-label</a></label>`,
     ].join('');
