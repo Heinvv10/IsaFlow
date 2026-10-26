@@ -17,7 +17,7 @@ vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, pu
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 
 import BudgetsPage from '../../../pages/accounting/budgets/index';
-import { YEAR_2027 } from './budgetsApiFixture';
+import { clickAddBudget, YEAR_2027 } from './budgetsApiFixture';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -33,11 +33,27 @@ const SALES = {
   annualAmount: 10500, months: KEYS.map((month, i) => ({ month, amount: (i + 1) * 100 })), notes: 'n',
 };
 
+const budgetsBody = (items: unknown[]) => ({ items, fiscalYear: 2026, year: TRANSITION, monthKeys: KEYS, years: [TRANSITION, NEXT] });
 function serve(items: unknown[]) {
   script((u) => {
     if (u.includes('chart-of-accounts')) return ok(GL);
-    if (/\/budgets(\?|$)/.test(u)) return ok({ items, fiscalYear: 2026, year: TRANSITION, monthKeys: KEYS, years: [TRANSITION, NEXT] });
+    if (/\/budgets(\?|$)/.test(u)) return ok(budgetsBody(items));
     return undefined;
+  });
+}
+/**
+ * `serve`, with the budgets GET answered only after `ms`: the page's first load
+ * is still in flight when the test looks for Add Budget, as it is on a loaded box.
+ */
+function serveSlowly(items: unknown[], ms: number) {
+  vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+    const u = String(url);
+    if (u.includes('chart-of-accounts')) return ok(GL);
+    if (/\/budgets(\?|$)/.test(u)) {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return ok(budgetsBody(items));
+    }
+    return ok({});
   });
 }
 const posted = (urlPart: string) => {
@@ -70,9 +86,9 @@ describe('budgets page, 14-month transition year', () => {
   });
 
   it('add: 14 month inputs; the annual amount spreads over them and what is saved is exactly those 14 months', async () => {
-    serve([]);
+    serveSlowly([], 300);
     render(<BudgetsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /add budget/i }));
+    await clickAddBudget();
     await screen.findByRole('option', { name: /Rent/ });
     expect(KEYS.map(k => input(k).value)).toEqual(Array(14).fill(''));
     fireEvent.change(screen.getByText('Select GL Account *').closest('select')!, { target: { value: 'g1' } });
