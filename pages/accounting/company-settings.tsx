@@ -28,10 +28,12 @@ import { UdfTab } from '@/components/accounting/settings/UdfTab';
 import { RegionalTab } from '@/components/accounting/settings/RegionalTab';
 import { CustomerZoneTab } from '@/components/accounting/settings/CustomerZoneTab';
 import { NetcashTab } from '@/components/accounting/settings/NetcashTab';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 export default function CompanySettingsPage() {
   const { activeCompany, loading: companiesLoading } = useCompany();
   const [company, setCompany] = useState<Company | null>(null);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -141,7 +143,7 @@ export default function CompanySettingsPage() {
         !dispLoadFailed && put('/api/accounting/accounting-settings', { key: 'document_display_fields', value: JSON.stringify(docDisplayFields) }, after),
       ].filter(Boolean));
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      afterDelay(() => setSaved(false), 3000);
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save the changes - try again'));
     } finally {

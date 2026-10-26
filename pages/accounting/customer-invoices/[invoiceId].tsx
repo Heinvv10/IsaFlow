@@ -25,11 +25,14 @@ import type { CustomerInvoiceDetail } from '@/modules/accounting/types/customerI
 import { CUSTOMER_INVOICE_STATUS_COLORS } from '@/modules/accounting/types/customerInvoice.types';
 import { InvoiceAdjacentNav, useAdjacentInvoices } from '@/components/invoices/InvoiceAdjacentNav';
 import { DocumentApprovalPanel } from '@/components/accounting/approvals/DocumentApprovalPanel';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 export default function CustomerInvoiceDetailPage() {
   const router = useRouter();
   const { invoiceId } = router.query;
   const [invoice, setInvoice] = useState<CustomerInvoiceDetail | null>(null);
+  const afterLinkCopied = useTimeoutOnce();
+  const afterPortalLinkCopied = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState('');
@@ -123,7 +126,7 @@ export default function CustomerInvoiceDetailPage() {
     try {
       await navigator.clipboard.writeText(invoice.payment_url);
       setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
+      afterLinkCopied(() => setLinkCopied(false), 2000);
     } catch { setError('Could not copy the link - copy it manually'); }
   };
 
@@ -143,7 +146,7 @@ export default function CustomerInvoiceDetailPage() {
       setPortalUrl(json.data.portalUrl);
       await navigator.clipboard.writeText(json.data.portalUrl);
       setPortalLinkCopied(true);
-      setTimeout(() => setPortalLinkCopied(false), 3000);
+      afterPortalLinkCopied(() => setPortalLinkCopied(false), 3000);
     } catch (e) {
       setError(apiErrorMessage(e, 'Could not generate the portal link - try again'));
     } finally { setPortalLinkLoading(false); }
