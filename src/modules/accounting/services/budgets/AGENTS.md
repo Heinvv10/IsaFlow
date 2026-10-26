@@ -24,6 +24,14 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 - Budget writers take `holdYearRegistry` (the SHARED form of the change-of-year-end advisory lock) before reading the registry, so a save and a year-end change, or a Settings start-month change (`gl/fiscalYearStartChange.ts` takes it exclusively), serialise. Status moves (`budgetVersionStatus.ts`) write no amounts and do not take it: a P2 change that writes amounts there must.
 - A change of year end (and its undo) moves the PRIMARY budget's months into the year that now holds them (`budgetYearRehome.ts`, decision 12), including a stray month that sat outside its own year. Its preview refuses, conservatively, when a locked budget of the changed year or later, a non-primary version with months after the boundary, two primaries budgeting an account at different levels, or a non-primary 'Original' in a year with no primary is involved. Anything that still fails mid-change is a plain Error (500, full rollback): a 4xx would commit the half-applied change. Known over-refusal (to narrow in P2, when dimension budgets exist): the level clash compares any two primaries of the changed year or later, not only a moving month's source and target.
 
+## P2 grid services (PR-B)
+- `gridReadModel.ts` (+ `gridReadAccounts.ts`, `gridReadTypes.ts`): one version's grid. Accounts = active leaf revenue/expense + any account holding amounts (inactive flagged); a header (named as another account's `parent_account_id`) is a roll-up row, `ownAmounts` when it holds its own. Band totals count leaves + a header's own amounts once, never a roll-up. Token `updatedAt` = P1's UTC ISO text with microseconds (never a JS Date).
+- `priorActuals.ts`: PY actual per account × the SAME CALENDAR month a year earlier (14-month years map right), posted only, natural sign, optional dimension. Own SQL until P3's `tracking/trackingActualRead.ts` lands; then delegate. Parity-tested against `getMonthlyMovements`.
+- `gridSave.ts` `saveCells`: the ONLY grid batch writer (import commit reuses it). Pure checks, then `holdYearRegistry`, then ONE savepoint: CAS on `updated_at` + not locked (the pre-lock), ownership/kind checks, DELETE nulls then upsert, one audit row. The savepoint matters: withAuth COMMITs a 4xx, so a refusal must not keep the token bump.
+- Decision 18 (both `gridSave` and `core/budgetAccount.ts` for `upsertBudget`): a header or inactive account takes a NEW cell only if it already holds amounts in the version.
+- `seedVersion.ts` (+ `seedSeries.ts`): wizard create; version + amounts + audit in one savepoint, amounts via PR-A `uplift` (residue on the last month). PY seed is leaf-only; a version copy carries what the source holds. `unassigned: 'company'|'drop'` keeps decision 4 at a dimension grain.
+- `budgetTemplateXlsx.ts` / `budgetImportParse.ts` / `budgetImportDiff.ts`: Excel round-trip. Month headers matched by TEXT, blank = not budgeted, 0 = budgeted zero, absent rows untouched; `_meta` must match the version and year. Preview writes nothing and returns save-shaped `cells` + the token. Export → import = 0 changes (invariant 3).
+
 ## Business rules (decisions 1-4, 11-14)
 - Approve and lock: owner or admin. Unlock: owner only, reason 1-500 chars (DB requires a non-blank reason, 23514). Owner-only is app-enforced (decision 11).
 - Approved-but-unlocked stays editable; locked is immutable in the DB (`budget_month_amounts_refuse_locked`, ENABLE ALWAYS).
@@ -33,3 +41,4 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 
 ## Recent changes
 - 2026-10-26 (P1, migration 947): module created.
+- 2026-10-26 (P2 PR-B): grid read model, prior actuals, batch save, seed wizard, Excel template + import preview; decision 18 refusal in `upsertBudget`.

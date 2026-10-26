@@ -33,6 +33,10 @@ async function loadFixtureIds(): Promise<Fixture> {
     JOIN gl_accounts revenue
       ON revenue.company_id = expense.company_id AND revenue.account_type = 'revenue'
     WHERE expense.account_type = 'expense'
+      -- Budgets go on active leaf accounts only (decision 18): a header or inactive pick is refused.
+      AND expense.is_active AND revenue.is_active
+      AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = expense.id)
+      AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = revenue.id)
     ORDER BY expense.company_id, expense.account_code, revenue.account_code
     LIMIT 1
   `) as Array<{ company_id: string; expense_account_id: string; revenue_account_id: string }>;

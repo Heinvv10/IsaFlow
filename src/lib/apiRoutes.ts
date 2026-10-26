@@ -65,6 +65,11 @@ import type { FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYe
 import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
 import type { BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
+import type { GridCellsOnly, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
+import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
+import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
+import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
+import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -108,6 +113,12 @@ interface StaticRoutes {
   '/api/accounting/currencies': Currency[];
   // Budget versions (mig 947): GET the list, POST the new draft (the list and the item of one resource, a union).
   '/api/accounting/budget-versions': { items: BudgetVersion[] } | BudgetVersion;
+  // Budget grid (P2): GET read model, or `cells_only=1` the cells and token.
+  '/api/accounting/budget-grid': GridReadModel | GridCellsOnly;
+  '/api/accounting/budget-grid/prior-actuals': PriorActuals;
+  '/api/accounting/budget-grid/save': SaveCellsResult;
+  '/api/accounting/budget-grid/seed': SeedResult;
+  '/api/accounting/budget-grid/import-preview': ImportPreview;
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
   '/api/accounting/bank-accounts': Awaited<ReturnType<typeof getBankAccountsStatus>> | { updated: true };

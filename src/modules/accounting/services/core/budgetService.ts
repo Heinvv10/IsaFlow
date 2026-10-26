@@ -154,7 +154,8 @@ export async function upsertBudget(
   const year = await yearMonths(companyId, input.fiscalYear);
   const amounts = resolveMonthAmounts(year.monthKeys, { months: input.months, annualAmount: input.annualAmount });
 
-  const accountCode = await budgetAccountCode(companyId, input.glAccountId);
+  // Decision 18, before writeVersion: a refusal must not create a primary or bump a token.
+  const accountCode = await budgetAccountCode(companyId, input.glAccountId, input.versionId ?? await resolvePrimaryVersion(companyId, input.fiscalYear));
   const { id: versionId, isPrimary } = await writeVersion(companyId, input.fiscalYear, input.versionId, userId);
   // The version row is locked, so no other writer of it runs between this check and the write.
   const otherGrain = (await sql`
