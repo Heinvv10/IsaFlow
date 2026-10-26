@@ -125,7 +125,7 @@ export default function RecurringInvoicesPage() {
         <PageHeader
           icon={RefreshCw}
           title="Recurring Invoices"
-          subtitle={<>{items.length} {items.length === 1 ? 'template' : 'templates'}{dueCount > 0 && <span className="ml-2 px-2 py-0.5 bg-orange-500/15 text-orange-700 dark:text-orange-400 rounded-full text-xs font-medium">{dueCount} due</span>}</>}
+          subtitle={<>{items.length} {items.length === 1 ? 'template' : 'templates'}{dueCount > 0 && <span className="ml-2 px-2 py-0.5 bg-orange-500/15 text-orange-800 dark:text-orange-400 rounded-full text-xs font-medium">{dueCount} due</span>}</>}
           className="mb-0"
           actions={
             <>
