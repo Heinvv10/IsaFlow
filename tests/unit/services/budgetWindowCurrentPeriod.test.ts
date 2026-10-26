@@ -30,10 +30,11 @@ describe('resolveBudgetWindow: current', () => {
   it('current is the whole fiscal period holding today', async () => {
     vi.mocked(periodForDate).mockResolvedValue({
       id: 'p', fiscalYearId: 'y', fiscalYear: 2027, periodNumber: 8,
-      startDate: '2026-10-01', endDate: '2026-10-31', status: 'open',
+      startDate: '2026-09-27', endDate: '2026-10-31', status: 'open',
     } as Awaited<ReturnType<typeof periodForDate>>);
+    // A 4-4-5 style period that is not the calendar month: the period row wins.
     const w = await resolveBudgetWindow('c', 'current', at(2026, 10, 26));
-    expect(w).toMatchObject({ startDate: '2026-10-01', endDate: '2026-10-31', notStarted: false });
+    expect(w).toMatchObject({ startDate: '2026-09-27', endDate: '2026-10-31', notStarted: false });
     expect(vi.mocked(periodForDate)).toHaveBeenCalledWith('c', '2026-10-26');
   });
 
