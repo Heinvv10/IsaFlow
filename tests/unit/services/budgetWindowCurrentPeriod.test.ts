@@ -58,6 +58,8 @@ describe('resolveBudgetWindow: current', () => {
     } as Awaited<ReturnType<typeof periodForDate>>);
     const w = await resolveBudgetWindow('c', 'current', at(2026, 10, 26));
     expect(w).toMatchObject({ startDate: '2026-10-01', endDate: '2026-11-30' });
+    // The year is the one holding the period's own start, not the widened 1 Oct.
+    expect(vi.mocked(fiscalYearForDate)).toHaveBeenCalledWith('c', '2026-10-15');
     expect(vi.mocked(periodForDate)).toHaveBeenCalledWith('c', '2026-10-26');
   });
 
