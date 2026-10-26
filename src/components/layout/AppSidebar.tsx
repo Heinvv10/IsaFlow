@@ -1,12 +1,16 @@
 /**
- * The app's sidebar: the desktop sidebar in sidebar nav mode, and the slide-in drawer behind the hamburger, which
- * every mode has below `lg`. Both carry the logo, the same TABS as the top nav (SidebarNav) and the user area.
+ * The app's sidebar: the desktop sidebar in sidebar nav mode (SidebarNav, hover flyouts), and the slide-in drawer
+ * behind the hamburger, which every mode has below `lg` (DrawerNav, an accordion). Both carry the logo, the same TABS
+ * as the top nav and the user area. The closed drawer is `invisible`, so its links leave the tab order; Escape closes
+ * the open drawer and hands focus back to the hamburger.
  */
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import Image from 'next/image';
 import { BookOpen, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { SidebarNav } from '@/components/layout/SidebarNav';
+import { DrawerNav } from '@/components/layout/DrawerNav';
 
 interface AppSidebarProps {
   /** Sidebar nav mode: also draw the desktop sidebar. */
@@ -15,9 +19,11 @@ interface AppSidebarProps {
   onToggleCollapsed: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  /** The hamburger: focus returns to it when Escape closes the drawer. */
+  menuButtonRef: RefObject<HTMLButtonElement>;
 }
 
-function SidebarContent({ collapsed }: { collapsed: boolean }) {
+function SidebarContent({ collapsed, nav }: { collapsed: boolean; nav: ReactNode }) {
   const { user, logout } = useAuth();
   const { companyRole } = useCompany();
   const userInitials = user
@@ -38,7 +44,7 @@ function SidebarContent({ collapsed }: { collapsed: boolean }) {
       </div>
 
       {/* Nav — uses same TABS config as top nav */}
-      <SidebarNav collapsed={collapsed} />
+      {nav}
 
       {/* User area */}
       <div className={`border-t border-gray-200 dark:border-gray-700 p-3 ${collapsed ? 'flex flex-col items-center gap-2' : ''}`}>
@@ -74,7 +80,21 @@ function SidebarContent({ collapsed }: { collapsed: boolean }) {
 
 const ASIDE_STYLE = { background: 'var(--ff-canvas-base)', borderRight: '1px solid var(--ff-canvas-border)' };
 
-export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: AppSidebarProps) {
+export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, menuButtonRef }: AppSidebarProps) {
+  const drawer = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    drawer.current?.querySelector<HTMLElement>('nav a, nav button')?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      onCloseMobile();
+      menuButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileOpen, onCloseMobile, menuButtonRef]);
+
   return (
     <>
       {/* ── Desktop sidebar (only in side mode) ──────────────────────────── */}
@@ -83,7 +103,7 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
           className={`hidden lg:flex flex-col transition-all duration-300 flex-shrink-0 ${collapsed ? 'w-16' : 'w-64'}`}
           style={ASIDE_STYLE}
         >
-          <SidebarContent collapsed={collapsed} />
+          <SidebarContent collapsed={collapsed} nav={<SidebarNav collapsed={collapsed} />} />
 
           {/* Collapse toggle */}
           <button
@@ -108,10 +128,13 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 flex flex-col lg:hidden transition-transform duration-300 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        ref={drawer}
+        aria-label="Menu"
+        data-testid="mobile-drawer"
+        className={`fixed inset-y-0 left-0 z-50 w-64 flex flex-col lg:hidden transition-[transform,visibility] duration-300 ${mobileOpen ? 'translate-x-0 visible' : '-translate-x-full invisible'}`}
         style={ASIDE_STYLE}
       >
-        <SidebarContent collapsed={collapsed} />
+        <SidebarContent collapsed={false} nav={<DrawerNav />} />
       </aside>
     </>
   );

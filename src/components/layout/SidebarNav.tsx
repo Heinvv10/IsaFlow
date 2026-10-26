@@ -190,6 +190,13 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
 
   useEffect(() => { setFlyout(null); }, [router.pathname]);
   useEffect(() => () => cl(), [cl]);
+  // Escape closes an open flyout (and its sub-flyouts, which unmount with it).
+  useEffect(() => {
+    if (!flyout) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFlyout(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [flyout]);
 
   const openFlyout = useCallback((tabId: string, el: HTMLElement) => {
     cl();

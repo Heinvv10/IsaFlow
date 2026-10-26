@@ -12,6 +12,7 @@ import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
 import { isSharePath } from '@/lib/paths/isSharePath';
+import { ShellTitle } from '@/components/layout/ShellTitle';
 import { dmSans } from '@/lib/fonts';
 import '../styles/globals.css';
 import '../styles/themeContrast.css';
@@ -98,6 +99,8 @@ export default function App({ Component, pageProps }: AppProps) {
     <ThemeProvider lightOnly={isLightOnlyPath(router.pathname)}>
       <AuthProvider skipFetch={skipProviders}>
         <CompanyProvider skipFetch={skipProviders}>
+        {/* Before the page, so a page's own <title> always wins over it (see ShellTitle). */}
+        {!skipProviders && <ShellTitle />}
         <ThemeModeProvider>
         <TableDensityProvider>
         <ErrorBoundary>

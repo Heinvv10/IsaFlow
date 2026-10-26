@@ -2,14 +2,24 @@
  * "Install IsaFlow" banner, shown when the browser offers a PWA install (beforeinstallprompt). It hides itself after
  * 10s so it doesn't permanently eat vertical space (the browser's own Install button stays in the address bar), and
  * never comes back once dismissed.
+ *
+ * The listener lives in `usePwaInstallPrompt`, which AppLayout calls before it decides between the skeleton and the
+ * shell: the browser fires beforeinstallprompt once, often during the session check, and a listener that only
+ * attached with the banner would miss it.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, X as XIcon } from 'lucide-react';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 const PWA_INSTALL_DISMISSED_KEY = 'isaflow-pwa-install-dismissed';
 
-export function PwaInstallBanner() {
+export interface PwaInstallPrompt {
+  show: boolean;
+  install: () => Promise<void>;
+  dismiss: () => void;
+}
+
+export function usePwaInstallPrompt(): PwaInstallPrompt {
   const deferredPromptRef = useRef<Event | null>(null);
   const [show, setShow] = useState(false);
   const later = useTimeoutOnce();
@@ -26,19 +36,23 @@ export function PwaInstallBanner() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, [later]);
 
-  const handleInstall = async () => {
+  const install = useCallback(async () => {
     const prompt = deferredPromptRef.current as (Event & { prompt: () => Promise<void> }) | null;
     if (!prompt) return;
     await prompt.prompt();
     deferredPromptRef.current = null;
     setShow(false);
-  };
+  }, []);
 
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
     setShow(false);
     localStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1');
-  };
+  }, []);
 
+  return { show, install, dismiss };
+}
+
+export function PwaInstallBanner({ show, install, dismiss }: PwaInstallPrompt) {
   if (!show) return null;
   return (
     <div className="bg-brand-600 text-white px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
@@ -47,7 +61,7 @@ export function PwaInstallBanner() {
         <span>Install IsaFlow for a faster, app-like experience</span>
       </div>
       <div className="flex items-center gap-2">
-        <button onClick={handleInstall} className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-xs font-medium transition-colors">
+        <button onClick={() => void install()} className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-xs font-medium transition-colors">
           Install
         </button>
         <button onClick={dismiss} className="p-1 hover:bg-white/20 rounded transition-colors" aria-label="Dismiss">

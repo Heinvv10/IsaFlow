@@ -1,7 +1,7 @@
 /**
- * MobileHeaderMenu — below the sm breakpoint the header has no room for the theme, density and
- * navigation-mode controls, the user's name or Log out, so they live in this one menu. From sm up
- * AppLayout shows them inline and this menu is hidden.
+ * MobileHeaderMenu — below the lg breakpoint the header has no room for the theme, density and
+ * navigation-mode controls, the user's name or Log out, so they live in this one menu. From lg up
+ * AppHeader shows them inline and this menu is hidden.
  */
 import { useEffect, useRef, useState } from 'react';
 import { LogOut, PanelLeft, PanelTop, User } from 'lucide-react';
@@ -38,7 +38,7 @@ export function MobileHeaderMenu({ name, navMode, onToggleNavMode, onLogout }: M
 
   const row = 'flex items-center justify-between gap-3 px-3 py-2 text-sm text-ink';
   return (
-    <div ref={root} className="relative sm:hidden">
+    <div ref={root} className="relative lg:hidden">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
