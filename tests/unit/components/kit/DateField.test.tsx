@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterAll } from 'vitest';
+import * as React from 'react';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DateField, type DateFieldProps } from '@/components/ui/DateField';
@@ -257,5 +258,99 @@ describe('DateField', () => {
     rerender(<DateField label="Invoice date" value={null} onChange={() => undefined} resetKey={1} />);
     expect(input().value).toBe('');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  // The contract (see DateField's resetKey doc): a parent that sets `value` to what it ALREADY holds cannot
+  // restore the display, because a prop that did not change is not news. It bumps resetKey instead.
+  describe('refused text over a value the parent keeps', () => {
+    const FIELD = (props: { value: string | null; resetKey?: number; onChange?: DateFieldProps['onChange'] }) => (
+      <DateField label="Invoice date" getToday={TODAY} onChange={props.onChange ?? (() => undefined)} value={props.value} resetKey={props.resetKey} />
+    );
+
+    it('keeps garbage on screen when the parent re-sets the same value (a prop that did not change is not news)', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} />);
+      expect(input().value).toBe(shown(2026, 10, 21));
+      commit('garbage'); // a filtering parent ignores the refusal and keeps 2026-10-21
+      expect(input().value).toBe('garbage');
+      expect(screen.getByRole('alert')).toBeTruthy();
+      rerender(<FIELD value="2026-10-21" resetKey={0} />);
+      expect(input().value).toBe('garbage');
+    });
+
+    it('restores the display to the held value, and drops the refusal, when resetKey changes', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} />);
+      commit('garbage');
+      rerender(<FIELD value="2026-10-21" resetKey={1} />);
+      expect(input().value).toBe(shown(2026, 10, 21));
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(input().getAttribute('aria-invalid')).toBe('false');
+    });
+
+    it('a changed value restores the display by itself, no resetKey needed', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" />);
+      commit('garbage');
+      rerender(<FIELD value="2026-11-02" />);
+      expect(input().value).toBe(shown(2026, 11, 2));
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('after a reset the same junk is news again (the refusal is forgotten)', () => {
+      const spy = vi.fn();
+      const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} onChange={spy} />);
+      commit('garbage');
+      rerender(<FIELD value="2026-10-21" resetKey={1} onChange={spy} />);
+      spy.mockClear();
+      commit('garbage');
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Enter inside a form', () => {
+    /** What a browser does on Enter in a text input: keydown (our handler), then, unless prevented, the form's submit. */
+    const pressEnter = (): void => {
+      const proceed = fireEvent.keyDown(input(), { key: 'Enter' });
+      if (proceed) fireEvent.submit(input().form as HTMLFormElement);
+    };
+
+    function Form({ onSubmitted }: { onSubmitted: (value: string | null) => void }) {
+      const [value, setValue] = useState<string | null>(null);
+      const latest = React.useRef(value);
+      latest.current = value; // what a submit handler reads: the state as last rendered
+      return (
+        <form onSubmit={(e) => { e.preventDefault(); onSubmitted(latest.current); }}>
+          <DateField label="Invoice date" getToday={TODAY} value={value} onChange={(v) => setValue(v)} />
+          <button type="submit">Save</button>
+        </form>
+      );
+    }
+
+    it('commits the typed date before the submit handler reads state', () => {
+      const submitted = vi.fn();
+      render(<Form onSubmitted={submitted} />);
+      type('1 Oct 2026');
+      pressEnter();
+      expect(submitted).toHaveBeenCalledExactlyOnceWith('2026-10-01');
+      expect(input().value).toBe(shown(2026, 10, 1));
+    });
+
+    it('a shortcut typed and entered is committed too', () => {
+      const submitted = vi.fn();
+      render(<Form onSubmitted={submitted} />);
+      type('+30');
+      pressEnter();
+      expect(submitted).toHaveBeenCalledExactlyOnceWith('2026-11-14');
+    });
+
+    it('refused text submits null (the parent also gets validity to block on), never the stale date', () => {
+      const submitted = vi.fn();
+      render(<Form onSubmitted={submitted} />);
+      type('1 Oct 2026');
+      pressEnter();
+      submitted.mockClear();
+      type('garbage');
+      pressEnter();
+      expect(submitted).toHaveBeenCalledExactlyOnceWith(null);
+      expect(screen.getByRole('alert')).toBeTruthy();
+    });
   });
 });

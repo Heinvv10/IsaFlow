@@ -38,7 +38,13 @@ export interface DateFieldProps {
   minMessage?: string;
   /** Shown when the date is after `maxDate` (default names the date). */
   maxMessage?: string;
-  /** Change it to discard refused text on screen (a form reset); `value` alone cannot, null stays null. */
+  /**
+   * Change it (any value) to put the display back to `value` and drop the refusal on screen. Needed whenever
+   * the parent re-asserts a `value` it ALREADY holds: the user typed garbage over a date the parent kept
+   * (a filter that ignores refused text) or over null, then the form resets or a "Today" button sets the
+   * same date again. A prop that did not change is not news, so only resetKey can say so. A different
+   * `value` restores the display by itself. Pinned in DateField.test.tsx ("refused text over a value the parent keeps").
+   */
   resetKey?: string | number;
   /** External error (e.g. from the server). Overrides the field's own. */
   error?: string;

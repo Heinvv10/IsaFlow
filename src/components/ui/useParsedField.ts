@@ -9,6 +9,12 @@
  * text; the echo of our own commit does not. A parent that resets the form while refused text is on screen
  * cannot do it with `value` alone (it was null before and is null after), so it changes `resetKey`: the text,
  * the error and the reported validity are cleared and the field follows `value` again.
+ *
+ * THE CONTRACT: a parent that re-sets the `value` it already holds (a filter that ignored refused text and
+ * kept the old date, then a "Today" button or a form reset setting that same date again) cannot restore the
+ * display, because a prop that did not change cannot be told from no change. It changes `resetKey`. This is
+ * deliberate, not a gap: resyncing on every render would wipe refused text and its error the moment a
+ * filtering parent re-renders, which is exactly when the user needs to see why the value did not take.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
