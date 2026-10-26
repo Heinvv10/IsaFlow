@@ -9,6 +9,8 @@
 **Parent plan:** `docs/plans/2026-10-26-budgets-next-level.md` §5 P2.
 
 ## 0. Precondition: P1 merged (and P0 before PR-D). Check, and STOP if it is not.
+
+> **Early start (Hein, 2026-10-26):** PR-A (pure grid model, §3) is greenfield and may be built and queued **before** P1 merges. Take the census (T0) from `docs/plans/budgets/P1-schema-versions-spec.md` instead of master. Run the checks below before starting **PR-B**; if they fail at that point, stop and report (P1 still in flight).
 Run `cd /home/hein/Workspace/IsaFlow && git fetch origin`, then on `origin/master`:
 - `git ls-tree -r --name-only origin/master | grep -F -e src/modules/accounting/services/budgets/budgetVersionStatus.ts -e src/modules/accounting/services/budgets/budgetVersions.ts -e 'pages/api/accounting/budget-versions/[id]/status.ts' -e 'pages/api/accounting/budget-versions/[id]/index.ts' -e src/modules/accounting/services/budgets/.claude.md` lists all five;
 - `git grep -q budget_month_amounts_one_grain origin/master -- scripts/migrations/sql` and `git grep -q budget_month_amounts_refuse_locked origin/master -- scripts/migrations/sql` both succeed.
