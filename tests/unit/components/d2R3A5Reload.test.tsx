@@ -44,7 +44,7 @@ import SupplierCreditNotesPage from '../../../pages/accounting/supplier-credit-n
 import StatementRunPage from '../../../pages/accounting/statement-run/index';
 import { ChartOfAccountsTab } from '../../../src/components/accounting/dashboard/ChartOfAccountsTab';
 import { FiscalPeriodsTab } from '../../../src/components/accounting/dashboard/FiscalPeriodsTab';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); route.query = {}; });

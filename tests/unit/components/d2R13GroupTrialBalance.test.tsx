@@ -14,7 +14,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 
 import { apiFetch } from '@/lib/apiFetch';
 import GroupTrialBalancePage from '../../../pages/accounting/group/trial-balance';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();

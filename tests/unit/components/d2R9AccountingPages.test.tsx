@@ -43,7 +43,7 @@ import GroupDashboardPage from '../../../pages/accounting/group/index';
 import NewPracticeJobPage from '../../../pages/accounting/practice/jobs/new';
 import JobDetailPage from '../../../pages/accounting/practice/jobs/[id]';
 import ReportPacksPage from '../../../pages/accounting/reports/report-packs';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();

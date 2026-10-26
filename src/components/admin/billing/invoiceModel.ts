@@ -33,12 +33,3 @@ export interface InvForm {
 }
 
 export const EMPTY_FORM: InvForm = { company_id: '', subtotal: '', tax: '0', total: '', due_date: '', notes: '' };
-
-export const STATUS_BADGE: Record<string, string> = {
-  draft:      'bg-gray-500/10 text-gray-500',
-  sent:       'bg-blue-500/10 text-blue-400',
-  paid:       'bg-teal-500/10 text-teal-600 dark:text-teal-400',
-  overdue:    'bg-red-500/10 text-red-500',
-  cancelled:  'bg-gray-500/10 text-gray-500',
-  credited:   'bg-purple-500/10 text-purple-400',
-};

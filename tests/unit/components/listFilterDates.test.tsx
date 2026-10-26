@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PeriodControl } from '@/components/accounting/PeriodControl';
 import { BankTxFilters, type BankTxFiltersProps } from '@/components/accounting/bank-transactions/BankTxFilters';
 import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodSelector';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 describe('PeriodControl custom range', () => {
   it('"1 Oct 2026" + blur commits 2026-10-01; the other bound is untouched', () => {

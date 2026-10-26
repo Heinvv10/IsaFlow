@@ -36,7 +36,7 @@ vi.mock('@/components/accounting/bank/BankAccountModals', () => ({
 import { notify } from '@/utils/toast';
 import ARAgingPage from '../../../pages/accounting/ar-aging/index';
 import BankAccountsPage from '../../../pages/accounting/bank-accounts/index';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); vi.mocked(notify.error).mockClear(); vi.mocked(notify.success).mockClear(); });

@@ -21,7 +21,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import InvoiceDetailPage from '../../../pages/accounting/customer-invoices/[invoiceId]';
 import CashbookPage from '../../../pages/accounting/cashbook';
 import { ComplianceTab } from '../../../src/components/accounting/settings/ComplianceTab';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 useApiJsonOverMock();
 const MSG = 'D2 server says no: this request was refused';

@@ -24,7 +24,7 @@ import ComparePage from '../../../pages/accounting/settings/billing/compare';
 import FlowsReturnPage from '../../../pages/accounting/settings/billing/flows/return';
 import CurrenciesPage from '../../../pages/accounting/settings/currencies';
 import SupplierInvoicesPage from '../../../pages/accounting/supplier-invoices/index';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();

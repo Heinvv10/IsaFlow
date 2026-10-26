@@ -8,8 +8,17 @@ import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check
 import { DateField } from '@/components/ui/DateField';
 
 import {
-  EMPTY_FORM, STATUS_BADGE, type InvForm, type Invoice, type PagedResponse,
+  EMPTY_FORM, type InvForm, type Invoice, type PagedResponse,
 } from '@/components/admin/billing/invoiceModel';
+
+const STATUS_BADGE: Record<string, string> = {
+  draft:      'bg-gray-500/10 text-gray-500',
+  sent:       'bg-blue-500/10 text-blue-400',
+  paid:       'bg-teal-500/10 text-teal-600 dark:text-teal-400',
+  overdue:    'bg-red-500/10 text-red-500',
+  cancelled:  'bg-gray-500/10 text-gray-500',
+  credited:   'bg-purple-500/10 text-purple-400',
+};
 
 export default function InvoicesPage() {
   const [rows, setRows]           = useState<Invoice[]>([]);

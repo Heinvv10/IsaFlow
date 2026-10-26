@@ -9,7 +9,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
 import { apiFetch } from '@/lib/apiFetch';
 import AutoPostingsPage from '../../../pages/accounting/auto-postings';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 const calls = (): URL[] => vi.mocked(apiFetch).mock.calls.map(([u]) => new URL(String(u), 'http://x'));
 

@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { PeriodControl } from '@/components/accounting/PeriodControl';
 import { ActiveFilterChips, periodChipLabel } from '@/components/accounting/ActiveFilterChips';
-import { typeDate } from '../../helpers/typeDate';
+import { typeDate } from '../helpers/dateFields';
 
 describe('PeriodControl', () => {
   it('a month deep link opens in month mode and a picked month emits the whole month', () => {
