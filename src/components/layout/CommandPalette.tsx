@@ -1,294 +1,167 @@
 /**
- * Command Palette — WS-3.1
- * Ctrl+K / Cmd+K global search overlay with keyboard navigation.
- * Sub-components (rows, icons) live in CommandPaletteRows.tsx.
+ * Command Palette: Ctrl+K / Cmd+K. Pages (with the trail that leads to them), actions and records in one list.
+ * Matching and ordering live in paletteRank.ts, the server search in usePaletteSearch.ts, the action list in
+ * commandActions.ts. The input is a combobox over a listbox; the dialog traps focus.
  */
 
-import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-} from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { Search, X, Clock, Zap } from 'lucide-react';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
-import { ResultRow, ActionRow } from '@/components/layout/CommandPaletteRows';
+import { Search, X } from 'lucide-react';
+import { TABS } from '@/components/accounting/accountingNavConfig';
+import { buildNavIndex } from '@/components/accounting/navSections/navIndex';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { PaletteOption } from '@/components/layout/CommandPaletteRows';
+import { buildSections, type PaletteRow } from '@/components/layout/paletteRank';
+import { saveRecentItem, usePaletteSearch } from '@/components/layout/usePaletteSearch';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface SearchResult {
-  type: string;
-  id: string;
-  title: string;
-  subtitle: string;
-  url: string;
-  icon: string;
-}
-
-export interface QuickAction {
-  label: string;
-  url: string;
-  shortcut?: string;
-  icon: string;
-}
+export type { SearchResult } from '@/components/layout/paletteRank';
 
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Opens the shortcut overlay. Without it the palette sends the "?" key the overlay already listens for. */
+  onShowShortcuts?: () => void;
 }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const RECENT_KEY = 'isaflow_recent_items';
-const MAX_RECENT = 10;
 
 const TYPE_LABELS: Record<string, string> = {
-  gl_account: 'Account',
-  customer: 'Customer',
-  supplier: 'Supplier',
-  invoice: 'Invoice',
-  journal_entry: 'Journal',
-  bank_transaction: 'Bank',
-  item: 'Item',
-  page: 'Page',
+  gl_account: 'Account', customer: 'Customer', supplier: 'Supplier', invoice: 'Invoice',
+  journal_entry: 'Journal', bank_transaction: 'Bank', item: 'Item', employee: 'Employee', page: 'Page',
 };
 
-// ─── Recent items helpers ─────────────────────────────────────────────────────
-
-function loadRecentItems(): SearchResult[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    return raw ? (JSON.parse(raw) as SearchResult[]) : [];
-  } catch {
-    return [];
-  }
+function sendQuestionMark(): void {
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '?', shiftKey: true, bubbles: true }));
 }
 
-function saveRecentItem(item: SearchResult): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const existing = loadRecentItems().filter(r => r.url !== item.url);
-    const updated = [item, ...existing].slice(0, MAX_RECENT);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
-  } catch {
-    // Storage errors are non-fatal
-  }
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
-
-export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
+export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPaletteProps) {
   const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const { toggleTheme } = useTheme();
+  const { isRegistered } = useVatRegistration();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const uid = useId();
+  const listId = `${uid}-list`;
+  const [selected, setSelected] = useState(0);
+  const { query, setQuery, server, loading, error, recent } = usePaletteSearch(isOpen);
 
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [actions, setActions] = useState<QuickAction[]>([]);
-  const [recentItems, setRecentItems] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searchError, setSearchError] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useFocusTrap(dialogRef, isOpen, onClose);
 
-  const fetchActions = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/accounting/global-search?q=');
-      await assertOk(res, 'Could not load the quick actions');
-      const data = await res.json() as { success: boolean; data: { actions: QuickAction[] } };
-      if (data.success) setActions(data.data.actions);
-    } catch (err) {
-      log.warn('command palette: quick actions not loaded (cosmetic)', { err });
-    }
-  }, []);
+  const index = useMemo(() => buildNavIndex(TABS, isRegistered), [isRegistered]);
+  const sections = useMemo(() => buildSections({ query, index, recent, server }), [query, index, recent, server]);
+  const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
-  const runSearch = useCallback(async (q: string) => {
-    setSearchError('');
-    try {
-      const res = await apiFetch(`/api/accounting/global-search?q=${encodeURIComponent(q)}&limit=12`);
-      await assertOk(res, 'Could not search - try again');
-      const data = await res.json() as {
-        success: boolean;
-        data: { results: SearchResult[]; actions: QuickAction[] };
-      };
-      if (data.success) setResults(data.data.results);
-    } catch (err) {
-      setResults([]);
-      setSearchError(apiErrorMessage(err, 'Could not search - try again'));
-    } finally {
-      setLoading(false);
-      setSelectedIndex(0);
-    }
-  }, []);
-
-  // Reset + load on open
+  useEffect(() => { setSelected(0); }, [query, server]);
   useEffect(() => {
-    if (isOpen) {
-      setQuery('');
-      setResults([]);
-      setSelectedIndex(0);
-      setRecentItems(loadRecentItems());
-      void fetchActions();
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [isOpen, fetchActions]);
+    listRef.current?.querySelector(`[data-idx="${selected}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [selected]);
 
-  // Debounced search
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (query.length < 2) {
-      setResults([]);
-      setLoading(false);
+  const showShortcuts = useCallback(() => {
+    onClose();
+    (onShowShortcuts ?? sendQuestionMark)();
+  }, [onClose, onShowShortcuts]);
+
+  const choose = useCallback((row: PaletteRow) => {
+    if (row.kind === 'item') {
+      saveRecentItem(row.item);
+      onClose();
+      void router.push(row.item.url);
       return;
     }
-    setLoading(true);
-    debounceRef.current = setTimeout(() => { void runSearch(query); }, 300);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query, runSearch]);
-
-  const navigate = useCallback((url: string, result?: SearchResult) => {
-    if (result) saveRecentItem(result);
+    const { action } = row;
+    if (action.kind === 'shortcuts') { showShortcuts(); return; }
     onClose();
-    void router.push(url);
-  }, [onClose, router]);
+    if (action.kind === 'theme') toggleTheme();
+    else if (action.url) void router.push(action.url);
+  }, [onClose, router, toggleTheme, showShortcuts]);
 
-  const showSearch = query.length >= 2;
-  const visibleRecent = useMemo(() => recentItems.slice(0, 5), [recentItems]);
-
-  const flatItems: Array<{ url: string; asResult?: SearchResult; asAction?: QuickAction }> = useMemo(() => (
-    showSearch
-      ? results.map(r => ({ url: r.url, asResult: r }))
-      : [
-          ...visibleRecent.map(r => ({ url: r.url, asResult: r })),
-          ...actions.map(a => ({ url: a.url, asAction: a })),
-        ]
-  ), [showSearch, results, visibleRecent, actions]);
-
-  // Keyboard navigation
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex(i => Math.min(i + 1, flatItems.length - 1)); }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex(i => Math.max(i - 1, 0)); }
-      if (e.key === 'Enter') { e.preventDefault(); const item = flatItems[selectedIndex]; if (item) navigate(item.url, item.asResult); }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [isOpen, flatItems, selectedIndex, navigate, onClose]);
-
-  // Scroll selected item into view
-  useEffect(() => {
-    listRef.current?.querySelector(`[data-idx="${selectedIndex}"]`)?.scrollIntoView({ block: 'nearest' });
-  }, [selectedIndex]);
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((i) => Math.min(i + 1, rows.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((i) => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); const row = rows[selected]; if (row) choose(row); }
+  };
 
   if (!isOpen) return null;
+
+  const optionId = (i: number) => `${uid}-opt-${i}`;
+  const positionOf = new Map(rows.map((r, n) => [r.key, n]));
+  const showEmpty = query.trim().length > 0 && rows.length === 0 && !loading && !error;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center pt-[10vh]" onClick={onClose}>
       <div
-        className="w-full max-w-xl mx-4 bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[70vh]"
-        onClick={e => e.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        className="w-full max-w-xl mx-4 bg-surface border border-line rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[70vh]"
+        onClick={(e) => e.stopPropagation()}
       >
-        {/* Search input */}
-        <div className="flex items-center gap-3 px-4 border-b border-[var(--ff-border-primary)]">
-          <Search className="w-5 h-5 text-[var(--ff-text-tertiary)] flex-shrink-0" />
+        <div className="flex items-center gap-3 px-4 border-b border-line">
+          <Search className="w-5 h-5 text-ink-muted flex-shrink-0" aria-hidden="true" />
           <input
-            ref={inputRef}
             type="text"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={rows.length > 0 ? optionId(selected) : undefined}
+            aria-label="Search pages, actions and records"
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onKeyDown}
             placeholder="Search or jump to..."
-            className="flex-1 py-4 text-base bg-transparent outline-none text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)]"
+            className="flex-1 py-4 text-base bg-transparent outline-none text-ink placeholder:text-ink-muted"
           />
-          {loading && <div className="w-4 h-4 border-2 border-[var(--ff-border-primary)] border-t-teal-500 rounded-full animate-spin flex-shrink-0" />}
+          {loading && <div className="w-4 h-4 border-2 border-line border-t-teal-500 rounded-full animate-spin flex-shrink-0" aria-hidden="true" />}
           {query && !loading && (
-            <button onClick={() => setQuery('')} className="p-1 rounded text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] transition-colors" aria-label="Clear search">
+            <button type="button" onClick={() => setQuery('')} className="p-1 rounded text-ink-muted hover:text-ink transition-colors" aria-label="Clear search">
               <X className="w-4 h-4" />
             </button>
           )}
-          <kbd className="hidden sm:flex items-center px-2 py-0.5 text-xs text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] rounded">
-            Esc
-          </kbd>
+          <kbd className="hidden sm:flex items-center px-2 py-0.5 text-xs text-ink-muted bg-surface-sunken border border-line rounded">Esc</kbd>
         </div>
 
-        {/* Results */}
-        <div ref={listRef} className="overflow-y-auto flex-1">
-          {showSearch && results.length > 0 && (
-            <div className="py-2">
-              <p className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)]">Results</p>
-              {results.map((result, i) => (
-                <ResultRow
-                  key={`${result.type}-${result.id}`}
-                  dataIdx={i} icon={result.icon} title={result.title}
-                  subtitle={result.subtitle} badge={TYPE_LABELS[result.type] ?? result.type}
-                  isSelected={selectedIndex === i} onClick={() => navigate(result.url, result)}
-                />
-              ))}
+        <div ref={listRef} id={listId} role="listbox" aria-label="Results" className="overflow-y-auto flex-1">
+          {sections.map((section) => (
+            <div key={section.id} role="group" aria-labelledby={`${uid}-h-${section.id}`} className="py-2">
+              <p id={`${uid}-h-${section.id}`} className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                {section.heading}
+              </p>
+              {section.rows.map((row) => {
+                const i = positionOf.get(row.key) ?? 0;
+                const common = { id: optionId(i), dataIdx: i, isSelected: selected === i, onClick: () => choose(row) };
+                return row.kind === 'action'
+                  ? <PaletteOption key={row.key} {...common} icon={row.action.icon} title={row.action.label} badge="Action" />
+                  : <PaletteOption
+                      key={row.key} {...common} icon={row.item.icon} title={row.item.title}
+                      subtitle={row.item.subtitle} trail={row.item.trail}
+                      badge={TYPE_LABELS[row.item.type] ?? row.item.type}
+                    />;
+              })}
             </div>
-          )}
-
-          {showSearch && !loading && results.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm text-[var(--ff-text-tertiary)]">
-              {searchError || <>No results for &ldquo;{query}&rdquo;</>}
-            </div>
-          )}
-
-          {!showSearch && (
-            <>
-              {visibleRecent.length > 0 && (
-                <div className="py-2">
-                  <p className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)] flex items-center gap-1.5">
-                    <Clock className="w-3 h-3" /> Recent
-                  </p>
-                  {visibleRecent.map((item, i) => (
-                    <ResultRow
-                      key={`recent-${item.url}`} dataIdx={i} icon={item.icon}
-                      title={item.title} subtitle={item.subtitle}
-                      badge={TYPE_LABELS[item.type] ?? item.type}
-                      isSelected={selectedIndex === i} onClick={() => navigate(item.url, item)}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {actions.length > 0 && (
-                <div className="py-2 border-t border-[var(--ff-border-primary)]">
-                  <p className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)] flex items-center gap-1.5">
-                    <Zap className="w-3 h-3" /> Quick Actions
-                  </p>
-                  {actions.map((action, i) => {
-                    const idx = visibleRecent.length + i;
-                    return (
-                      <ActionRow
-                        key={action.url} dataIdx={idx} icon={action.icon} label={action.label}
-                        shortcut={action.shortcut} isSelected={selectedIndex === idx}
-                        onClick={() => navigate(action.url)}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-
-              {visibleRecent.length === 0 && actions.length === 0 && (
-                <div className="px-4 py-8 text-center text-sm text-[var(--ff-text-tertiary)]">Start typing to search...</div>
-              )}
-            </>
-          )}
+          ))}
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-[var(--ff-border-primary)] px-4 py-2 flex items-center gap-4 text-xs text-[var(--ff-text-tertiary)]">
+        {error && <p role="alert" className="px-4 py-3 text-sm text-ink border-t border-line">{error}</p>}
+        {showEmpty && <p className="px-4 py-8 text-center text-sm text-ink-muted">No results for &ldquo;{query}&rdquo;</p>}
+        <p className="sr-only" role="status" aria-live="polite">{query.trim() ? `${rows.length} results` : ''}</p>
+
+        <div className="border-t border-line px-4 py-2 flex items-center gap-4 text-xs text-ink-muted">
           {[['↑↓', 'navigate'], ['↵', 'open'], ['Esc', 'close']].map(([key, label]) => (
             <span key={key} className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] rounded text-xs">{key}</kbd>
+              <kbd className="px-1.5 py-0.5 bg-surface-sunken border border-line rounded text-xs">{key}</kbd>
               {label}
             </span>
           ))}
+          <button
+            type="button"
+            onClick={showShortcuts}
+            className="ml-auto flex items-center gap-1 hover:text-ink"
+          >
+            <kbd className="px-1.5 py-0.5 bg-surface-sunken border border-line rounded text-xs">?</kbd>
+            shortcuts
+          </button>
         </div>
       </div>
     </div>
