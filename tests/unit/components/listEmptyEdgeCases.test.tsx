@@ -178,3 +178,34 @@ describe('the demo banner never goes by name', () => {
     await waitFor(() => expect(document.body.textContent).toContain('Demo Plumbing'));
   });
 });
+
+describe('out-of-order responses', () => {
+  it.each([
+    ['customers', CustomersPage, /search by name/i, 'customers', (rows: unknown[]) => rows],
+    ['suppliers', SuppliersPage, /search/i, 'suppliers-list', (rows: unknown[]) => ({ suppliers: rows, total: rows.length })],
+  ])('%s: a late answer for the old search never overwrites the newest', async (_n, Page, ph, route, wrap) => {
+    const resolvers: Array<() => void> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const q = new URL(String(url), 'http://x').searchParams.get('q');
+      if (String(url).includes(route as string) && q) {
+        await new Promise<void>((r) => resolvers.push(r));
+        return json((wrap as (r: unknown[]) => unknown)([{ id: `r-${q}`, name: `Row ${q}`, is_active: true, payment_terms: 30 }]));
+      }
+      return json((wrap as (r: unknown[]) => unknown)([]));
+    }));
+    render(<Page />);
+    await screen.findByText(/yet/);
+    const box = screen.getByPlaceholderText(ph as RegExp);
+    fireEvent.change(box, { target: { value: 'a' } });
+    await waitFor(() => expect(resolvers.length).toBe(1), { timeout: 2000 });
+    fireEvent.change(box, { target: { value: 'b' } });
+    await waitFor(() => expect(resolvers.length).toBe(2), { timeout: 2000 });
+    resolvers[1]!(); // newest answers first
+    expect(await screen.findByText('Row b')).toBeTruthy();
+    resolvers[0]!(); // the older one lands late
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText('Row b')).toBeTruthy();
+    expect(screen.queryByText('Row a')).toBeNull();
+    expect(screen.queryByRole('status', { name: /Loading/ })).toBeNull();
+  });
+});

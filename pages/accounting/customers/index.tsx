@@ -4,7 +4,7 @@
  * Route: /accounting/customers
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
@@ -44,6 +44,7 @@ export default function CustomersPage() {
   // The search the rows on screen answer: until it matches the debounced one the rows are stale (no one-frame empty flash).
   const [loadedQ, setLoadedQ] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const seq = useRef(0); // only the newest request may write state: an older response landing late is dropped
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -54,6 +55,7 @@ export default function CustomersPage() {
   }, [search]);
 
   const loadCustomers = useCallback(async () => {
+    const mine = ++seq.current;
     setIsLoading(true);
     setError('');
     try {
@@ -62,13 +64,14 @@ export default function CustomersPage() {
       const res = await apiFetch(`/api/accounting/customers?${params}`);
       await assertOk(res, 'Could not load customers - try again');
       const json = await res.json();
+      if (mine !== seq.current) return;
       setCustomers((json.data ?? json) as Customer[]);
     } catch (err) {
+      if (mine !== seq.current) return;
       setCustomers([]);
       setError(apiErrorMessage(err, 'Could not load customers - try again'));
     } finally {
-      setLoadedQ(debouncedSearch);
-      setIsLoading(false);
+      if (mine === seq.current) { setLoadedQ(debouncedSearch); setIsLoading(false); }
     }
   }, [debouncedSearch]);
 
@@ -114,8 +117,8 @@ export default function CustomersPage() {
             );
           })()}
           {/* Search bar */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6">
+            <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
@@ -123,7 +126,7 @@ export default function CustomersPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, email or VAT..."
-                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-full sm:w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
             {!isLoading && (
