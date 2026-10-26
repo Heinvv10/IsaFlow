@@ -64,6 +64,7 @@ import type { YearEndChangeAssessment } from '@/modules/accounting/services/gl/f
 import type { FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
+import type { BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -105,6 +106,8 @@ interface StaticRoutes {
   };
   '/api/accounting/fiscal-years': Awaited<ReturnType<typeof listYearsWithPeriods>>;
   '/api/accounting/currencies': Currency[];
+  // Budget versions (mig 947): GET the list, POST the new draft (the list and the item of one resource, a union).
+  '/api/accounting/budget-versions': { items: BudgetVersion[] } | BudgetVersion;
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
   '/api/accounting/bank-accounts': Awaited<ReturnType<typeof getBankAccountsStatus>> | { updated: true };
@@ -192,6 +195,11 @@ interface DynamicRoutes {
   '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };
   '/api/accounting/assets/{}/service': ServiceRecord[] | ServiceRecord | { deleted: true; id: string };
   '/api/accounting/assets/{}/bank-links': NonNullable<Awaited<ReturnType<typeof listAssetBankLinks>>>;
+  // Budget versions (mig 947): GET the version or DELETE `{ deleted }` (a union); the three POST verbs return the version.
+  '/api/accounting/budget-versions/{}': BudgetVersion | { deleted: true };
+  '/api/accounting/budget-versions/{}/status': BudgetVersion;
+  '/api/accounting/budget-versions/{}/copy': BudgetVersion;
+  '/api/accounting/budget-versions/{}/primary': BudgetVersion;
 }
 
 /**
