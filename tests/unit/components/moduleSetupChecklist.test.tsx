@@ -65,4 +65,12 @@ describe('ModuleSetupChecklist', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(container.textContent).toBe('');
   });
+
+  it('a done task keeps full text colour (an opacity class dropped the light theme below AA)', async () => {
+    serve({ ...NONE, hasEmployees: true });
+    render(<ModuleSetupChecklist />);
+    const label = await screen.findByText('Add an employee');
+    expect(label.className).toContain('line-through');
+    expect(label.className).not.toMatch(/opacity/);
+  });
 });

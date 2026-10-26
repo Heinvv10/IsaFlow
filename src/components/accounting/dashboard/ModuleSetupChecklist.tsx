@@ -46,7 +46,7 @@ function ModuleSection({ module }: { module: SetupModuleProgress }) {
                 {task.done
                   ? <CheckCircle2 className="h-4 w-4 text-brand-500" aria-label="Done" />
                   : <Circle className="h-4 w-4 text-[var(--ff-text-tertiary)]" aria-label="To do" />}
-                <span className={task.done ? 'line-through opacity-70' : ''}>{task.label}</span>
+                <span className={task.done ? 'line-through' : ''}>{task.label}</span>
               </Link>
             </li>
           ))}
