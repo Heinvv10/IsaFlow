@@ -124,6 +124,7 @@ function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; on
       {/* Plain navigation links */}
       <NavLinksBlock
         links={tab.links}
+        tabItems={tab.items}
         asPath={asPath}
         onNav={onNav}
         linkClassName={linkCls}
@@ -180,6 +181,9 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
   const { isRegistered } = useVatRegistration();
   const [flyout, setFlyout] = useState<{ tabId: string; top: number; left: number } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Touch and pen have no hover: the first tap on a label that has a flyout opens it, the second follows the link.
+  // `wasOpen` is read at pointerdown, before the compatibility mouseenter that follows a tap opens the flyout itself.
+  const tap = useRef({ type: '', wasOpen: false });
 
   const cl = useCallback(() => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } }, []);
   const dl = useCallback(() => { timer.current = setTimeout(() => setFlyout(null), 180); }, []);
@@ -225,6 +229,15 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
                 data-testid={`sidebar-tab-${tab.id}`}
                 onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
                 onMouseLeave={dl}
+                onPointerDown={(e) => { tap.current = { type: e.pointerType, wasOpen: isOpen }; }}
+                onKeyDown={() => { tap.current = { type: '', wasOpen: false }; }}
+                onClick={(e) => {
+                  const { type, wasOpen } = tap.current;
+                  tap.current = { type: '', wasOpen: false };
+                  if (type === '' || type === 'mouse' || wasOpen) return;
+                  e.preventDefault();
+                  openFlyout(tab.id, e.currentTarget);
+                }}
                 className={`flex items-center justify-between px-4 py-2 text-sm font-medium transition-colors border-l-[3px] ${
                   active || isOpen
                     ? 'text-teal-700 dark:text-teal-300 bg-teal-500/[0.08] border-teal-500 dark:border-teal-400'

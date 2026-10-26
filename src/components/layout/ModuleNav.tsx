@@ -15,7 +15,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, FocusEvent as ReactFocusEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
@@ -51,6 +51,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   const navRef = useRef<HTMLElement>(null);
   const lastPointer = useRef<string>('');
   const focusOnOpen = useRef(false);
+  const openedByHover = useRef(false);
   const activeTab = typeof getActiveTabId === 'function'
     ? getActiveTabId(router.pathname, router.query)
     : 'dashboard';
@@ -72,17 +73,42 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   useEffect(() => { setOpenTab(null); }, [router.asPath]);
 
   // A menu opened from the keyboard moves focus to its first entry.
+  const focusFirst = (id: string) => {
+    const panel = navRef.current?.querySelector<HTMLElement>(`[data-tour="nav-${id}"] [data-nav-panel]`);
+    if (panel) panelItems(panel)[0]?.focus();
+  };
   useEffect(() => {
     if (!openTab || !focusOnOpen.current) return;
     focusOnOpen.current = false;
-    const panel = navRef.current?.querySelector<HTMLElement>(`[data-tour="nav-${openTab}"] [data-nav-panel]`);
-    if (panel) panelItems(panel)[0]?.focus();
+    focusFirst(openTab);
   }, [openTab]);
 
-  const open = (id: string, keyboard = false) => {
+  const open = (id: string, keyboard = false, byHover = false) => {
     clearHover();
     focusOnOpen.current = keyboard;
+    openedByHover.current = byHover;
     setOpenTab(id);
+  };
+
+  /** Chevron or button click. A click on a menu the pointer just opened keeps it open; any other click on an open menu closes it. */
+  const activate = (id: string, isOpen: boolean, keyboard: boolean) => {
+    if (!isOpen) return open(id, keyboard);
+    if (openedByHover.current && !keyboard) { openedByHover.current = false; return; }
+    setOpenTab(null);
+  };
+
+  /** ArrowDown: open and focus the first entry, or, when already open (hover), just move focus in. */
+  const arrowDown = (id: string, isOpen: boolean) => (e: ReactKeyboardEvent) => {
+    if (e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    if (isOpen) focusFirst(id);
+    else open(id, true);
+  };
+
+  // Focus leaving the tab and its panel closes the menu (Tab past the last entry).
+  const closeOnFocusOut = (e: ReactFocusEvent<HTMLElement>) => {
+    const next = e.relatedTarget as Node | null;
+    if (next && !e.currentTarget.contains(next)) setOpenTab(null);
   };
 
   const closeToTrigger = (e: ReactKeyboardEvent<HTMLElement>) => {
@@ -116,7 +142,6 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
           const panelId = `nav-menu-${t.id}`;
           const trigger = {
             'data-nav-trigger': '',
-            'aria-haspopup': 'true' as const,
             'aria-expanded': isOpen,
             'aria-controls': isOpen ? panelId : undefined,
           };
@@ -126,10 +151,11 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
               className="relative"
               data-tour={`nav-${t.id}`}
               onPointerDown={e => { lastPointer.current = e.pointerType; }}
-              onPointerEnter={menu ? e => { if (isHoverPointer(e)) open(t.id); } : undefined}
+              onPointerEnter={menu ? e => { if (!isHoverPointer(e)) return; clearHover(); if (openTab !== t.id) open(t.id, false, true); } : undefined}
               onPointerLeave={menu ? e => { if (isHoverPointer(e)) delayedClose(); } : undefined}
               onKeyDownCapture={() => { lastPointer.current = ''; }}
               onKeyDown={menu ? closeToTrigger : undefined}
+              onBlur={menu ? closeOnFocusOut : undefined}
             >
               {t.href && !menu && (
                 <Link href={t.href} aria-current={activeTab === t.id ? 'true' : undefined} className={`block px-4 py-2.5 ${borderCls(t)} ${textCls(t)}`}>{t.label}</Link>
@@ -147,7 +173,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                         open(t.id);
                       }
                     }}
-                    onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); open(t.id, true); } }}
+                    onKeyDown={arrowDown(t.id, isOpen)}
                   >
                     {t.label}
                   </Link>
@@ -156,7 +182,8 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                     {...trigger}
                     aria-label={`${t.label} menu`}
                     className={`py-2.5 pl-0.5 pr-3 ${textCls(t)}`}
-                    onClick={e => (isOpen ? setOpenTab(null) : open(t.id, e.detail === 0))}
+                    onClick={e => activate(t.id, isOpen, e.detail === 0)}
+                    onKeyDown={arrowDown(t.id, isOpen)}
                   >
                     <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
                   </button>
@@ -168,8 +195,8 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                   {...trigger}
                   aria-current={activeTab === t.id ? 'true' : undefined}
                   className={`px-4 py-2.5 inline-flex items-center gap-1 ${borderCls(t)} ${textCls(t)}`}
-                  onClick={e => (isOpen ? setOpenTab(null) : open(t.id, e.detail === 0))}
-                  onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); open(t.id, true); } }}
+                  onClick={e => activate(t.id, isOpen, e.detail === 0)}
+                  onKeyDown={arrowDown(t.id, isOpen)}
                 >
                   {t.label}
                   <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden="true" />

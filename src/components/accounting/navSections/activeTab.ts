@@ -134,7 +134,6 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/settings/exchange-rates') ||
     pathname.startsWith('/accounting/settings/account-reporting-groups') ||
     pathname.startsWith('/accounting/accounting-settings') ||
-    pathname.startsWith('/accounting/trial-balance') ||
     pathname.startsWith('/accounting/opening-balances') ||
     pathname.startsWith('/accounting/audit-log') ||
     pathname.startsWith('/accounting/change-history') ||
@@ -150,6 +149,7 @@ export function getActiveModuleId(
   // ── Reports (incl. AFS, Management Packs) ───────────────────────────────
   if (
     pathname.startsWith('/accounting/afs') ||
+    pathname.startsWith('/accounting/trial-balance') ||
     pathname.startsWith('/accounting/reports')
   ) {
     return 'reports';
