@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /**
  * styles/themeContrast.css, the dark-banner rule: ~20 pages draw their header on an always-dark gradient
  * (`from-slate-900 via-slate-800 to-slate-900`) with an h1 of `text-slate-900 dark:text-white`, which in the
@@ -71,7 +72,7 @@ describe('themeContrast.css banner rule', () => {
   it('lets a light card inside a banner opt out, and keeps the (0,1,0) specificity of the utilities it overrides', () => {
     for (const r of bannerRules()) {
       for (const s of r.selectors) {
-        expect(s).toContain(':not(:where([data-surface="light"] *))');
+        expect(s).toContain(':not(:where([data-surface="light"], [data-surface="light"] *))');
         // one class outside :where(): the target. A second one would outrank hover: and focus: variants.
         const outside = s.replace(/:where\((?:[^()]|\([^()]*\))*\)/g, '');
         expect((outside.match(/\./g) ?? []).length, s.slice(0, 60)).toBe(1);
@@ -85,3 +86,47 @@ describe('themeContrast.css banner rule', () => {
     }
   });
 });
+
+/**
+ * The rules applied to a real element tree. happy-dom matches the selectors the CSS actually contains (with
+ * html:not(.dark) and :where() resolved), so these are behaviour, not text. It cannot tell `:not(:where(X *))` from
+ * `:not(:where(X, X *))` (it drops an element carrying X in both), so the data-surface="light" opt-out - on the
+ * element itself and on a descendant - is checked in Chrome by o3-banner-titles.spec.ts.
+ */
+describe('themeContrast.css banner rule on a DOM', () => {
+  const ink = () => bannerRules().find((r) => r.color === '#ffffff')!.selectors;
+  const muted = () => bannerRules().find((r) => r.color !== '#ffffff')!.selectors;
+  const hits = (selectors: string[], el: Element) => selectors.some((s) => el.matches(s));
+
+  function mount(html: string, dark = false): void {
+    document.documentElement.className = dark ? 'dark' : '';
+    document.body.innerHTML = html;
+  }
+  const banner = (inner: string) => `<div class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">${inner}</div>`;
+
+  it('a title on the banner is remapped to white, and so is a gray-900 one', () => {
+    mount(banner('<h1 id="t" class="text-slate-900 dark:text-white">T</h1><p id="g" class="text-gray-900">g</p>'));
+    expect(hits(ink(), document.getElementById('t')!)).toBe(true);
+    expect(hits(ink(), document.getElementById('g')!)).toBe(true);
+  });
+
+  it('the muted text on the banner (back link, counts) is remapped to the light grey, not to white', () => {
+    mount(banner('<p id="p" class="text-slate-500 dark:text-slate-400">n</p><a id="a" class="text-gray-600">b</a>'));
+    expect(hits(muted(), document.getElementById('p')!)).toBe(true);
+    expect(hits(muted(), document.getElementById('a')!)).toBe(true);
+    expect(hits(ink(), document.getElementById('p')!)).toBe(false);
+    expect(bannerRules().find((r) => r.color !== '#ffffff')!.color).toBe('#a9b6c9');
+  });
+
+  it('nothing outside a dark banner is touched: a light gradient, a white card and the bare page', () => {
+    mount('<div class="from-slate-50 to-white"><h1 id="a" class="text-slate-900">a</h1></div><div class="bg-white"><h1 id="b" class="text-slate-900">b</h1></div><h1 id="c" class="text-slate-900">c</h1>');
+    for (const id of ['a', 'b', 'c']) expect(hits(ink(), document.getElementById(id)!), id).toBe(false);
+  });
+
+  it('nothing matches in the dark theme: it renders exactly as before', () => {
+    mount(banner('<h1 id="t" class="text-slate-900">T</h1><p id="p" class="text-slate-500">n</p>'), true);
+    expect(hits(ink(), document.getElementById('t')!)).toBe(false);
+    expect(hits(muted(), document.getElementById('p')!)).toBe(false);
+  });
+});
+

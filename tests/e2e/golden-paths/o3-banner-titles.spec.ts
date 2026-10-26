@@ -47,22 +47,32 @@ test.setTimeout(240_000);
 
 interface BannerRow { text: string; el: string; fg: string; ratio: number }
 
-/** Every visible text node inside the first dark-gradient banner, against the banner's own gradient stops. */
+/**
+ * Every visible text node inside the first dark-gradient banner, against what is really behind it: each of the
+ * banner's gradient stops, with every translucent painted ancestor between the text and the banner (bg-white/10
+ * buttons, amber chips, tinted pills) composited over it, outermost first. The worst stop decides.
+ */
 function measureBanner(): { found: boolean; rows: BannerRow[] } {
   const banner = document.querySelector<HTMLElement>('main [class*="bg-gradient-to-br"][class*="from-slate-900"]');
   if (!banner) return { found: false, rows: [] };
-  const parse = (c: string): [number, number, number, number] => {
+  type RGBA = [number, number, number, number];
+  const parse = (c: string): RGBA => {
     const m = c.match(/rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)(?:[ ,/]+([\d.]+%?))?\s*\)/);
     if (!m) return [0, 0, 0, 0];
     const a = m[4] === undefined ? 1 : m[4].endsWith('%') ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
     return [+m[1]!, +m[2]!, +m[3]!, a];
   };
-  const lum = (c: number[]) => {
-    const f = (v: number) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
-    return 0.2126 * f(c[0]!) + 0.7152 * f(c[1]!) + 0.0722 * f(c[2]!);
+  const over = (top: RGBA, base: RGBA): RGBA => {
+    const a = top[3] + base[3] * (1 - top[3]);
+    if (a === 0) return [0, 0, 0, 0];
+    const mix = (i: 0 | 1 | 2) => (top[i] * top[3] + base[i] * base[3] * (1 - top[3])) / a;
+    return [mix(0), mix(1), mix(2), a];
   };
-  const ratio = (a: number[], b: number[]) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi! + 0.05) / (lo! + 0.05); };
-  // the three gradient stops (slate-900 / 800 / 900): the worst of them is the background
+  const lum = (c: RGBA) => {
+    const f = (v: number) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+  };
+  const ratio = (a: RGBA, b: RGBA) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi! + 0.05) / (lo! + 0.05); };
   const stops = (getComputedStyle(banner).backgroundImage.match(/rgba?\([^)]*\)/g) ?? []).map(parse);
   const rows: BannerRow[] = [];
   const walker = document.createTreeWalker(banner, NodeFilter.SHOW_TEXT);
@@ -71,9 +81,18 @@ function measureBanner(): { found: boolean; rows: BannerRow[] } {
     if (!el || !(n.textContent ?? '').trim()) continue;
     const cs = getComputedStyle(el);
     if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-    const fg = parse(cs.color);
-    const worst = Math.min(...stops.map((s) => ratio(fg, s)));
-    rows.push({ text: (n.textContent ?? '').trim().slice(0, 40), el: `${el.tagName.toLowerCase()}`, fg: cs.color, ratio: Math.round(worst * 100) / 100 });
+    // painted layers from the banner's child down to the text's own element
+    const layers: RGBA[] = [];
+    for (let a: HTMLElement | null = el; a && a !== banner; a = a.parentElement) {
+      const bg = parse(getComputedStyle(a).backgroundColor);
+      if (bg[3] > 0) layers.unshift(bg);
+    }
+    let worst = Infinity;
+    for (const stop of stops) {
+      const behind = layers.reduce<RGBA>((under, layer) => over(layer, under), stop);
+      worst = Math.min(worst, ratio(over(parse(cs.color), behind), behind));
+    }
+    rows.push({ text: (n.textContent ?? '').trim().slice(0, 40), el: `${el.tagName.toLowerCase()}${layers.length > 0 ? '+bg' : ''}`, fg: cs.color, ratio: Math.round(worst * 100) / 100 });
   }
   return { found: true, rows };
 }
@@ -87,7 +106,7 @@ for (const page of PAGES) {
       await pw.waitForSelector(`html[data-theme-applied="${theme}"]`);
       const { found, rows } = await pw.evaluate(measureBanner);
       expect(found, `${page.slug} ${theme}: the dark banner is on the page`).toBe(true);
-      expect(rows.some((r) => r.el === 'h1'), `${page.slug} ${theme}: the banner holds the h1`).toBe(true);
+      expect(rows.some((r) => r.el.startsWith('h1')), `${page.slug} ${theme}: the banner holds the h1`).toBe(true);
       results[`${page.slug}.${theme}`] = rows;
       if (evidenceDir) {
         mkdirSync(evidenceDir, { recursive: true });
@@ -116,10 +135,17 @@ test('the rule is scoped: slate-900 text off a dark banner stays dark in light a
         '<div class="bg-white"><h1 id="onWhite" class="text-slate-900 dark:text-white">t</h1></div>',
         '<div class="bg-slate-50"><h1 id="onPage" class="text-slate-900">t</h1></div>',
         '<div class="bg-gradient-to-br from-slate-50 to-white"><h1 id="onLightGradient" class="text-slate-900">t</h1></div>',
+        // a light card inside a dark banner opts out: the element that carries data-surface="light" AND what is inside it
+        '<div class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"><h1 id="selfLight" data-surface="light" class="text-slate-900">t</h1>' +
+          '<div data-surface="light" class="bg-white"><h1 id="insideLight" class="text-slate-900">t</h1><p id="insideLightMuted" class="text-slate-500">t</p></div>' +
+          '<p id="bannerMuted" class="text-slate-500">t</p></div>',
       ].join('');
       document.body.appendChild(host);
       const c = (id: string) => getComputedStyle(document.getElementById(id)!).color;
-      return { onBanner: c('onBanner'), gray: c('gray'), onWhite: c('onWhite'), onPage: c('onPage'), onLightGradient: c('onLightGradient') };
+      return {
+        onBanner: c('onBanner'), gray: c('gray'), onWhite: c('onWhite'), onPage: c('onPage'), onLightGradient: c('onLightGradient'),
+        selfLight: c('selfLight'), insideLight: c('insideLight'), insideLightMuted: c('insideLightMuted'), bannerMuted: c('bannerMuted'),
+      };
     });
   }
   const WHITE = 'rgb(255, 255, 255)';
@@ -129,6 +155,11 @@ test('the rule is scoped: slate-900 text off a dark banner stays dark in light a
   expect(colours.light!.onWhite, 'light: title on white is untouched').toBe(SLATE_900);
   expect(colours.light!.onPage, 'light: title on the page is untouched').toBe(SLATE_900);
   expect(colours.light!.onLightGradient, 'light: a LIGHT gradient is not a banner').toBe(SLATE_900);
+  expect(colours.light!.selfLight, 'light: an element carrying data-surface="light" opts itself out').toBe(SLATE_900);
+  expect(colours.light!.insideLight, 'light: a light card inside the banner opts its title out').toBe(SLATE_900);
+  // The banner is a dark panel for the page-wide remap, so slate-500 keeps its palette value (4.76:1 on white: AA).
+  expect(colours.light!.insideLightMuted, 'light: and its muted text is left as the palette slate-500, not the banner grey').toBe('rgb(100, 116, 139)');
+  expect(colours.light!.bannerMuted, 'light: muted text directly on the banner is the light grey').toBe('rgb(169, 182, 201)');
   expect(colours.dark!.onBanner, 'dark: dark:text-white already wins on the banner').toBe(WHITE);
   expect(colours.dark!.onWhite, 'dark: dark:text-white wins').toBe(WHITE);
   expect((await rootTheme(page)).dark).toBe(true);
