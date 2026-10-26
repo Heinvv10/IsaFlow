@@ -5,9 +5,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { AlertCircle, CheckCircle2, Loader2, ChevronRight } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { formatMoney } from '@/lib/money/formatMoney';
 
 interface OverdueInvoice {
@@ -136,8 +137,8 @@ export function TodoWidget() {
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-6">
-          <Loader2 className="h-5 w-5 animate-spin text-teal-500" />
+        <div className="space-y-2 px-4 py-2" aria-busy="true">
+          <Skeleton variant="text" count={3} className="mb-2" />
         </div>
       )}
 
@@ -146,9 +147,12 @@ export function TodoWidget() {
       )}
 
       {!loading && !error && isAllClear && (
-        <div className="flex items-center gap-2 px-4 py-4 text-teal-500">
-          <CheckCircle2 className="h-5 w-5" />
-          <span className="text-sm font-medium">All caught up!</span>
+        <div role="status" className="flex items-center gap-3 px-4 py-4">
+          <CheckCircle2 className="h-5 w-5 text-brand-500" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-medium text-[var(--ff-text-primary)]">All caught up!</p>
+            <p className="text-xs text-[var(--ff-text-secondary)]">No overdue invoices, supplier payments, uncategorised bank lines or drafts.</p>
+          </div>
         </div>
       )}
 

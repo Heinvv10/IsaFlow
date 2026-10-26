@@ -9,6 +9,7 @@ import {
   Scale, Loader2, AlertCircle, Save, RefreshCw, AlertTriangle, CheckCircle, Info,
 } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,7 @@ interface PisBreakdown {
 
 export default function PisScorePage() {
   const [data, setData] = useState<PisBreakdown | null>(null);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -82,7 +84,7 @@ export default function PisScorePage() {
       setSuccessMsg('PIS inputs saved. Recalculating...');
       const ok = await fetchPis();
       setSuccessMsg(ok ? 'PIS score updated successfully.' : 'PIS inputs saved.');
-      if (ok) setTimeout(() => setSuccessMsg(''), 3000);
+      if (ok) afterDelay(() => setSuccessMsg(''), 3000);
     } catch (err: unknown) {
       setError(apiErrorMessage(err, 'Could not save the PIS inputs - try again'));
     } finally {

@@ -6,6 +6,7 @@
 import { useState, useCallback } from 'react';
 import { log } from '@/lib/logger';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 export interface EmailProgress {
   total: number;
@@ -37,11 +38,13 @@ interface Return {
 
 export function useStatementEmail({ customers, asAtDate }: Options): Return {
   const [emailProgress, setEmailProgress] = useState<EmailProgress | null>(null);
+  const afterToast = useTimeoutOnce();
+  const afterEmailProgress = useTimeoutOnce();
   const [toast, setToast] = useState<Toast | null>(null);
 
   const showToast = (type: Toast['type'], message: string) => {
     setToast({ type, message });
-    setTimeout(() => setToast(null), 5000);
+    afterToast(() => setToast(null), 5000);
   };
 
   const emailableCount = useCallback(
@@ -103,10 +106,10 @@ export function useStatementEmail({ customers, asAtDate }: Options): Return {
         log.error('Bulk email request failed', { data: err }, 'useStatementEmail');
         showToast('error', apiErrorMessage(err, 'Could not send the statements - try again'));
       } finally {
-        setTimeout(() => setEmailProgress(null), 3000);
+        afterEmailProgress(() => setEmailProgress(null), 3000);
       }
     },
-    [customers, asAtDate]
+    [customers, asAtDate, afterEmailProgress]
   );
 
   return {
