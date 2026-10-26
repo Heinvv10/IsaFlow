@@ -16,6 +16,7 @@ import {
   type BankFeedConnection, type SyncLog,
 } from './bankFeedTypes';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 const ABSA_MAX_DAYS = 180;
 
@@ -237,22 +238,21 @@ export function BankFeedCard({
       {isExtension && (
         <div className="px-5 pb-4 -mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--ff-text-secondary)]">
           <span>Sync from</span>
-          <input
-            type="date"
-            value={fromDate}
-            min={minFrom}
-            max={todayIso()}
-            onChange={e => setFromDate(e.target.value)}
-            className="ff-input py-1 px-2 text-xs"
+          <DateField
+            label="Sync from"
+            required
+            value={fromDate || null}
+            minDate={minFrom}
+            maxDate={todayIso()}
+            onChange={(iso, v) => { if (v.valid && iso) setFromDate(iso); }}
           />
-          <span>to</span>
-          <input
-            type="date"
-            value={toDate}
-            min={minFrom}
-            max={todayIso()}
-            onChange={e => setToDate(e.target.value)}
-            className="ff-input py-1 px-2 text-xs"
+          <DateField
+            label="Sync to"
+            required
+            value={toDate || null}
+            minDate={minFrom}
+            maxDate={todayIso()}
+            onChange={(iso, v) => { if (v.valid && iso) setToDate(iso); }}
           />
           {[7, 30, 90, 180].map(d => (
             <button

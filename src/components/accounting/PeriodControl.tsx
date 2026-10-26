@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { currentMonth, monthRange, wholeMonthOf } from './invoicePeriod';
+import { DateField } from '@/components/ui/DateField';
 
 type Mode = 'all' | 'month' | 'custom';
 
@@ -68,11 +69,10 @@ export function PeriodControl({ from, to, onChange, inputClassName }: Props) {
       )}
       {mode === 'custom' && (
         <>
-          <input type="date" name="from" aria-label="Invoice date from" value={from} max={to || undefined}
-            onChange={e => onChange(e.target.value, to)} className={inputClassName} />
-          <span className="text-[var(--ff-text-tertiary)] text-sm">to</span>
-          <input type="date" name="to" aria-label="Invoice date to" value={to} min={from || undefined}
-            onChange={e => onChange(from, e.target.value)} className={inputClassName} />
+          <DateField label="Invoice date from" name="from" value={from || null}
+            onChange={(iso, v) => { if (v.valid) onChange(iso ?? '', to); }} />
+          <DateField label="Invoice date to" name="to" value={to || null}
+            onChange={(iso, v) => { if (v.valid) onChange(from, iso ?? ''); }} />
         </>
       )}
     </div>
