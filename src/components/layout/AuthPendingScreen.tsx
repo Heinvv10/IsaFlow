@@ -1,8 +1,7 @@
 /**
- * AuthPendingScreen — what AppLayout shows until the first session check has
- * an answer. Normally a spinner. During an auth-service outage (D9) it says so
- * instead of signing anyone out: AuthContext keeps retrying every few seconds
- * in the background and the page appears by itself once /api/auth/me answers.
+ * AuthPendingScreen — what ShellSkeleton shows in the content area until the first session check has an answer.
+ * Normally a spinner. During an auth-service outage (D9) it says so instead of signing anyone out: AuthContext keeps
+ * retrying every few seconds in the background and the page appears by itself once /api/auth/me answers.
  */
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,7 +13,7 @@ export function AuthPendingScreen() {
   const { authUnavailable, authChecking, refreshUser } = useAuth();
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950 px-4">
+    <div className="h-full flex items-center justify-center px-4">
       <div className="text-center max-w-sm">
         <LoadingSpinner size="lg" className="mx-auto mb-4" />
         {authUnavailable ? (
