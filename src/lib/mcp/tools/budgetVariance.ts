@@ -90,7 +90,7 @@ export const budgetVarianceTool: McpTool = {
       period_end: end,
       fiscal_year: result.fiscalYear,
       months_covered: result.monthKeys,
-      // No `totals`: net profit is sections.net_profit (contract decision 19).
+      // No `totals`: net profit is sections.net_profit (docs/plans/budgets/00-shared-contract.md, decision 19).
       // A field whose meaning changed silently is worse than one that is gone.
       sections: result.sections,
       unbudgeted_accounts: result.unbudgeted.length,
