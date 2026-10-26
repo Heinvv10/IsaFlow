@@ -91,7 +91,8 @@ const BANNER_SURFACES = [
   ...['slate', 'gray'].flatMap((h) => [800, 900, 950].map((n) => `.from-${h}-${n}`)),
   '.from-black',
 ];
-const BANNER_LIGHT_PANEL_OPT_OUT = ':not(:where([data-surface="light"] *))';
+// the panel itself and everything inside it
+const BANNER_LIGHT_PANEL_OPT_OUT = ':not(:where([data-surface="light"], [data-surface="light"] *))';
 const BANNER_ON_DARK_INK = '#ffffff';
 const BANNER_ON_DARK_MUTED = '#a9b6c9'; // 8.7:1 on slate-900, 7.1:1 on slate-800 (the dark theme's tertiary text)
 const bannerSelector = (cls) => `:where(html:not(.dark)) :where(${BANNER_SURFACES.join(', ')}) ${cls}${BANNER_LIGHT_PANEL_OPT_OUT}`;
