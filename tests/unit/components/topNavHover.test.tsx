@@ -186,6 +186,18 @@ describe('top-nav keyboard', () => {
   });
 });
 
+describe('top-nav keyboard, parent panel with a sub-panel open', () => {
+  it('ArrowDown from a section row skips the open sub-panel and lands on the next row', () => {
+    renderNav();
+    fireEvent.click(within(tab('sales')).getByRole('button', { name: 'Sales menu' }), { detail: 0 });
+    const row = within(tab('sales')).getByRole('button', { name: 'Customers' });
+    fireEvent.keyDown(row, { key: 'ArrowRight' });
+    row.focus();
+    fireEvent.keyDown(row, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(within(tab('sales')).getByRole('button', { name: 'Transactions' }));
+  });
+});
+
 describe('top-nav tabs without a landing page', () => {
   it('stay a single button that toggles on click', () => {
     const tabs = [{ id: 'm', label: 'Menu', items: [{ label: 'One', href: '/one' }] }];
