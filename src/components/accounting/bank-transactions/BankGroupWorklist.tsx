@@ -83,7 +83,7 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
             <button key={c.id} type="button" onClick={() => setFilter(c.id)} aria-pressed={filter === c.id}
               data-testid={`worklist-chip-${c.id}`}
               className={`rounded-full border px-2.5 py-0.5 text-xs ${filter === c.id
-                ? 'border-teal-700 bg-teal-700 text-white'
+                ? 'border-brand-700 bg-brand-700 text-white'
                 : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:border-[var(--ff-text-tertiary)]'}`}>
               {c.label} <span className="tabular-nums">{view.counts[c.id]}</span>
             </button>

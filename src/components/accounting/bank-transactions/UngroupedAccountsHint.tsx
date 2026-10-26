@@ -73,7 +73,7 @@ function HintRow({ hint, mayMove, roleKnown, busy, onMove }: {
           </ul>
           <div className="flex gap-2">
             <button type="button" onClick={onMove} disabled={busy} data-testid="ungrouped-hint-move"
-              className="flex items-center gap-1.5 rounded-md bg-teal-700 px-3 py-1 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-60">
+              className="flex items-center gap-1.5 rounded-md bg-brand-700 px-3 py-1 text-xs font-medium text-white hover:bg-brand-800 disabled:opacity-60">
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Move {hint.accounts.length} to {hint.groupName}
             </button>
