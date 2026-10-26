@@ -10,6 +10,7 @@ import { SupplierTypeahead } from './SupplierTypeahead';
 import { ActiveFilterChips, periodChipLabel, type ActiveFilterChip } from '../ActiveFilterChips';
 import { wholeMonthOf } from '../invoicePeriod';
 import { SUPPLIER_INVOICE_TAB_LABEL, type DatePreset, type SupplierInvoiceListFilters } from './listTypes';
+import { DateField } from '@/components/ui/DateField';
 
 interface Props {
   filters: SupplierInvoiceListFilters;
@@ -101,20 +102,22 @@ export function FilterBar({
 
         {filters.datePreset === 'custom' && (
           <>
-            <input
-              type="date"
-              name="fromDate"
-              value={filters.fromDate}
-              onChange={(e) => setCustomDate('fromDate', e.target.value)}
-              className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100"
-            />
-            <input
-              type="date"
-              name="toDate"
-              value={filters.toDate}
-              onChange={(e) => setCustomDate('toDate', e.target.value)}
-              className="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100"
-            />
+            <div className="w-40">
+              <DateField
+                label="From date"
+                name="fromDate"
+                value={filters.fromDate || null}
+                onChange={(iso, v) => { if (v.valid) setCustomDate('fromDate', iso ?? ''); }}
+              />
+            </div>
+            <div className="w-40">
+              <DateField
+                label="To date"
+                name="toDate"
+                value={filters.toDate || null}
+                onChange={(iso, v) => { if (v.valid) setCustomDate('toDate', iso ?? ''); }}
+              />
+            </div>
           </>
         )}
 
