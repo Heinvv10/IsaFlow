@@ -22,6 +22,7 @@ import {
 } from '@/components/accounting/CustomerStatementTable';
 import { useStatementEmail } from '@/modules/accounting/hooks/useStatementEmail';
 import { generateStatementsBatch } from '@/modules/accounting/utils/generateStatementsBatch';
+import { DateField } from '@/components/ui/DateField';
 
 export default function StatementRunPage() {
   const [customers, setCustomers] = useState<CustomerBalance[]>([]);
@@ -196,13 +197,12 @@ export default function StatementRunPage() {
           {/* Filters */}
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2">
-              <label className="text-sm text-[var(--ff-text-secondary)]">As at:</label>
-              <input
-                type="date"
+              <DateField
+                label="As at"
                 name="asAtDate"
-                value={asAtDate}
-                onChange={e => setAsAtDate(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
+                required
+                value={asAtDate || null}
+                onChange={(iso, v) => { if (v.valid && iso) setAsAtDate(iso); }}
               />
             </div>
             <div className="flex items-center gap-2">

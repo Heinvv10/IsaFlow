@@ -44,11 +44,12 @@ import SupplierCreditNotesPage from '../../../pages/accounting/supplier-credit-n
 import StatementRunPage from '../../../pages/accounting/statement-run/index';
 import { ChartOfAccountsTab } from '../../../src/components/accounting/dashboard/ChartOfAccountsTab';
 import { FiscalPeriodsTab } from '../../../src/components/accounting/dashboard/FiscalPeriodsTab';
+import { typeDate } from '../helpers/dateFields';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); route.query = {}; });
 
-const dateInput = (c: HTMLElement) => c.querySelector('input[type="date"]')!;
+const dateInput = (c: HTMLElement) => c.querySelector('input[placeholder="dd MMM yyyy"]')!;
 
 describe('a failed reload clears the previous rows', () => {
   it('budgets: change the fiscal year', async () => {
@@ -129,7 +130,7 @@ describe('a failed reload clears the previous rows', () => {
     script(u => (u.includes('as_at_date=2025-03-01') ? empty500() : ok({ customers: [cust] })));
     const { container } = render(<StatementRunPage />);
     await screen.findByText('D2 Statement Client');
-    fireEvent.change(dateInput(container), { target: { value: '2025-03-01' } });
+    typeDate(dateInput(container), '2025-03-01');
     expect(await screen.findByText('Could not load customers - try again')).toBeTruthy();
     await waitFor(() => expect(screen.queryByText('D2 Statement Client')).toBeNull());
     expectNoRawError();

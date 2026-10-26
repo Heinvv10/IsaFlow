@@ -38,7 +38,13 @@ export interface DateFieldProps {
   minMessage?: string;
   /** Shown when the date is after `maxDate` (default names the date). */
   maxMessage?: string;
-  /** Change it to discard refused text on screen (a form reset); `value` alone cannot, null stays null. */
+  /**
+   * Change it (any value) to put the display back to `value` and drop the refusal on screen. Needed whenever
+   * the parent re-asserts a `value` it ALREADY holds, and for a "Clear" after a refusal: `value` -> null
+   * right after refused text is the echo of the refusal (the field just reported null), so it keeps the text
+   * and its error, even from a parent that adopts it after an await. A prop that did not change is not news.
+   * A different NON-null `value` restores the display by itself.
+   */
   resetKey?: string | number;
   /** External error (e.g. from the server). Overrides the field's own. */
   error?: string;

@@ -9,6 +9,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ChevronLeft, ChevronRight, ScrollText, Download } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 
 interface UnifiedAuditEntry {
   id: string;
@@ -194,12 +195,10 @@ export default function AdminAuditPage() {
       {/* Filters — row 1 */}
       <div className="flex gap-3 flex-wrap mb-3 items-end">
         <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">From</label>
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls} />
+          <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
         </div>
         <div>
-          <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">To</label>
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} />
+          <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
         </div>
         <div>
           <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Source</label>
