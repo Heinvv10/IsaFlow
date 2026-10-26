@@ -26,7 +26,8 @@ import { test, expect } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { Api, gpRef } from './_api';
 import {
-  activeCompanyId, findLedgerRow, findOrCreateMigrationSandbox, switchApiCompany, switchBrowserCompany,
+  activeCompanyId, cancelStaleTakeOns, findLedgerRow, findOrCreateMigrationSandbox, listTakeOnPage,
+  switchApiCompany, switchBrowserCompany,
 } from './_migrationSandbox';
 
 /** Pastel accounts export: upper-case / padded headers, SA amount formats, one unreadable balance. */
@@ -179,35 +180,9 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
     const isoDay = `${y}-${m}-${dd}`;
     // The sandbox's own fixture customer; the trial balance above has no AR control row (R-020).
     const customerId = await api.fixtureCustomer();
-    // The sandbox accumulates cancelled GP-MIG-AR invoices (148 vs a 100 page cap), so a single
-    // page of the prefix search can miss a row. The list API takes a repeated `status` filter but
-    // no negation, so name every live status to keep cancelled rows out of the walk.
-    const LIVE = ['draft', 'approved', 'sent', 'partially_paid', 'paid', 'overdue']
-      .map((s) => `&status=${s}`).join('');
-    const listPage = async (q: string, page: number) => (await api.get<{ invoices: any[] }>(
-      `/api/accounting/customer-invoices-list?q=${encodeURIComponent(q)}&limit=100&page=${page}${LIVE}`,
-    )).invoices;
-    const staleTakeOns = async () => {
-      const found: any[] = [];
-      for (let page = 1; page <= 50; page++) {
-        const invoices = await listPage('GP-MIG-AR', page);
-        if (invoices.length && page > 1 && invoices[0].id === found[found.length - 100]?.id) {
-          throw new Error('customer-invoices-list ignored ?page: a page repeated the previous one');
-        }
-        found.push(...invoices);
-        if (invoices.length < 100) return found.filter((i) => i.status !== 'cancelled');
-      }
-      throw new Error('more than 50 pages of live GP-MIG-AR invoices');
-    };
-    for (const stale of await staleTakeOns()) { // left by a run that died before its cancel
-      try {
-        await api.post('/api/accounting/customer-invoices-detail', { id: stale.id, action: 'cancel' });
-      } catch (err) { // a paid or posted row cannot be cancelled; it must not fail this run
-        test.info().annotations.push({
-          type: 'stale-takeon-skipped', description: `${stale.invoice_number}: ${String(err)}`,
-        });
-      }
-    }
+    // left by a run that died before its cancel; closed-period or paid rows stay (annotation only)
+    const skipped = await cancelStaleTakeOns(api);
+    for (const msg of skipped) test.info().annotations.push({ type: 'stale-takeon-skipped', description: msg });
     const arNumber = gpRef('MIG-AR');
     const ar = await api.post<any>('/api/accounting/migration/ar-invoices', {
       sessionId,
@@ -217,7 +192,7 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
       }],
     });
     expect(ar.imported, JSON.stringify(ar.errors)).toBe(1);
-    arInvoiceId = (await listPage(arNumber, 1)).find((i) => i.invoice_number === arNumber)?.id;
+    arInvoiceId = (await listTakeOnPage(api, arNumber, 1)).find((i) => i.invoice_number === arNumber)?.id;
     expect(arInvoiceId, 'the take-on invoice must be listed').toBeTruthy();
     const arLine = await findLedgerRow(api, '1120', effectiveDate, period.endDate,
       (r) => r.description === `Take-on AR invoice ${arNumber}`);
