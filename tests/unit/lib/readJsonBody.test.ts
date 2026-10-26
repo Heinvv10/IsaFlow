@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import type { IncomingMessage } from 'http';
 import { JsonBodyError, effectiveLimits, readJsonBody, readRawBody } from '@/lib/readJsonBody';
+import { SAVE_BODY_LIMITS } from '../../../pages/api/accounting/budget-grid/save';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A request whose body is `parts`, each sent `gapMs` after the last. */
@@ -63,8 +64,8 @@ describe('effectiveLimits: the test override', () => {
 });
 
 describe('readRawBody: the three tiers on slow links, and aborted requests', () => {
-  // The save route's limits: 18 MB, 280 s in all, 10 s idle.
-  const save = { maxBytes: 18 * 1048576, totalMs: 280_000, idleMs: 10_000 };
+  // The save route's own limits.
+  const save = SAVE_BODY_LIMITS;
   /** `chunks` pieces of `size` bytes, one every `gapMs`, after `pauseMs`; declared length = the total. */
   function paced(size: number, chunks: number, gapMs: number, pauseMs = 0, declared = size * chunks): IncomingMessage {
     const stream = Readable.from((async function* gen() {
@@ -83,7 +84,7 @@ describe('readRawBody: the three tiers on slow links, and aborted requests', () 
     const t0 = Date.now();
     // Declared 2 MB (large), sent at 8 KB a second.
     expect(await refusal(readRawBody(paced(8 * 1024, 40, 1000, 0, 2 * 1048576), save))).toBe('400 REQUEST_BODY_TIMEOUT');
-    // After the grace (10 s), long before the 280 s total or the trickle's own end (40 s).
+    // After the grace (10 s), long before the 290 s total or the trickle's own end (40 s).
     const ms = Date.now() - t0;
     expect(ms).toBeGreaterThanOrEqual(10_000);
     expect(ms).toBeLessThan(20_000);
@@ -94,7 +95,15 @@ describe('readRawBody: the three tiers on slow links, and aborted requests', () 
     expect((await readRawBody(paced(32 * 1024, 12, 1000, 8000, 2 * 1048576), save)).length).toBe(12 * 32 * 1024);
   }, 40000);
 
-  it('tiny: a 2 KB body is held to 15 s in all, not the route\'s 280 s', async () => {
+  it('small: a declared ~200 KB body at ~5 KB/s is refused at its 30 s total, not the route\'s 290 s', async () => {
+    const t0 = Date.now();
+    expect(await refusal(readRawBody(paced(5 * 1024, 40, 1000), save))).toBe('400 REQUEST_BODY_TIMEOUT');
+    const ms = Date.now() - t0;
+    expect(ms).toBeGreaterThanOrEqual(29_000);
+    expect(ms).toBeLessThan(36_000);
+  }, 50000);
+
+  it('tiny: a 2 KB body is held to 15 s in all, not the route\'s 290 s', async () => {
     const t0 = Date.now();
     expect(await refusal(readRawBody(paced(100, 20, 1000), save))).toBe('400 REQUEST_BODY_TIMEOUT');
     expect(Date.now() - t0).toBeLessThan(17_000);

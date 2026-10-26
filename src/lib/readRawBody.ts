@@ -29,11 +29,12 @@ export interface BodyLimits {
  * undeclared body starts tiny). What an early read can HOLD is bounded by the bytes it has actually
  * received (readJsonBody's per-user and per-lane budgets); HOW LONG it can hold them is bounded by
  * the idle timer, the tier's total time and, for a large body, a low rate floor. Round-7 ruling:
- *  - tiny (<= 64 KB, a real grid save is a few KB): in no process lane, only the user's slots, so
- *    nobody's slow uploads can ever starve a normal save; 15 s in all.
- *  - small (<= 1 MB): the 32 MB small lane; 30 s in all (1 MB at 64 KB/s takes ~16 s).
- *  - large: the 64 MB large lane; the route's total (280 s for a save); and at least 16 KB/s on
- *    average from its FIRST byte once 10 s have passed. 512 kbit/s ADSL sends ~64 KB/s, a 4x margin;
+ *  - tiny (<= 64 KB, a real grid save is a few KB): only its own 128 MB backstop lane (1 000
+ *    accounts' worth), so nobody's larger uploads can ever starve a normal save; 15 s in all.
+ *  - small (<= 1 MB): the 32 MB small lane; 30 s in all (1 MB at ADSL's ~54 KB/s takes ~19 s).
+ *  - large: the 64 MB large lane; the route's total (290 s for a save); and at least 16 KB/s on
+ *    average from its FIRST byte once 10 s have passed. 512 kbit/s ADSL really carries ~54 KB/s, a
+ *    3x margin;
  *    a pause before the first byte costs nothing here (the idle timer bounds it). An earlier
  *    128 KB/s floor measured from the start refused real ADSL and weak-LTE users (round 6).
  */
