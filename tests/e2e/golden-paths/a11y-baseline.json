@@ -128,11 +128,6 @@
   ],
   "/accounting/customer-payments/new": [
    {
-    "rule": "color-contrast",
-    "selector": "form > div > div > div > p",
-    "max": 1
-   },
-   {
     "rule": "label",
     "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
     "max": 1

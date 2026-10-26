@@ -182,7 +182,7 @@
   "pages/admin/components.tsx": 2,
   "pages/admin/users/[id].tsx": 6,
   "pages/admin/users/index.tsx": 9,
-  "pages/admin/email-log.tsx": 2,
+  "pages/admin/email-log.tsx": 1,
   "pages/admin/waitlist/index.tsx": 12,
   "pages/admin/companies/[id].tsx": 9,
   "pages/admin/companies/index.tsx": 8,
