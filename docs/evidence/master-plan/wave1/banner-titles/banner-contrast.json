@@ -1,0 +1,1647 @@
+{
+ "method": "o3-banner-titles.spec.ts: every text node in the dark-gradient banner vs each gradient stop with translucent painted ancestors (bg-white/10 buttons, chips) composited over it; reporting-qa on dev Demo, 1280x720",
+ "before_rule_light": {
+  "credit-notes-new.light": [
+   {
+    "text": "Back to Credit Notes",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Credit Note",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "purchase-orders.light": [
+   {
+    "text": "Purchasing",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Purchase Orders",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "61",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "orders",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "\u00b7 4 pending delivery",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "Export",
+    "el": "button",
+    "fg": "rgb(75, 85, 99)",
+    "ratio": 1.94
+   },
+   {
+    "text": "New PO",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "assets-new.light": [
+   {
+    "text": "Back to Assets",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Record",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Asset",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "bank-transactions-new.light": [
+   {
+    "text": "Back to Bank Transactions",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Spend Money",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "supplier-credit-notes-new.light": [
+   {
+    "text": "Back",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Credit Note",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "purchase-orders-new.light": [
+   {
+    "text": "Back to Purchase Orders",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Purchase Order",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "journal-entries-new.light": [
+   {
+    "text": "Back to Journal Entries",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Journal Entry",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "supplier-credit-notes.light": [
+   {
+    "text": "Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Credit Notes",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "37",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "credit note",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "s",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "CSV",
+    "el": "button+bg",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1.32
+   },
+   {
+    "text": "New Credit Note",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "credit-notes.light": [
+   {
+    "text": "Customers & Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Credit Notes",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "2992",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "credit notes",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "CSV",
+    "el": "button+bg",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1.32
+   },
+   {
+    "text": "New Credit Note",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "recurring-invoices-new.light": [
+   {
+    "text": "Back to Recurring Invoices",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Recurring Invoice",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "customer-payments-new.light": [
+   {
+    "text": "Back to Payments",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Record Customer Payment",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "Scan Document",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ],
+  "delivery-notes.light": [
+   {
+    "text": "Fulfilment",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Delivery Notes",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "0",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "delivery notes",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Delivery Note",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "supplier-invoices.light": [
+   {
+    "text": "Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Invoices",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "2413",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "invoices",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "Export CSV",
+    "el": "button+bg",
+    "fg": "rgb(226, 232, 240)",
+    "ratio": 11.87
+   },
+   {
+    "text": "New Invoice",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "items-new.light": [
+   {
+    "text": "Back to Items",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Record",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Item",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "\u2014 ISAFlow Demo (Pty) Ltd",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "delivery-notes-new.light": [
+   {
+    "text": "Back to Delivery Notes",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Delivery Note",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "supplier-invoices-new.light": [
+   {
+    "text": "Back to Supplier Invoices",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Invoice",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "Scan Invoice",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ],
+  "supplier-invoices-new.dark": [
+   {
+    "text": "Back to Supplier Invoices",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Invoice",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "Scan Invoice",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ],
+  "goods-received-new.light": [
+   {
+    "text": "Back to Goods Received",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Goods Received Note",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "recurring-invoices.light": [
+   {
+    "text": "Documents",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Recurring Invoices",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "0",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "templates",
+    "el": "p",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "Run Due",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   },
+   {
+    "text": "New Template",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "batch-payments-new.light": [
+   {
+    "text": "Back to Batches",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Batch Payment",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   }
+  ],
+  "supplier-payments-new.light": [
+   {
+    "text": "Back to Payments",
+    "el": "a",
+    "fg": "rgb(100, 116, 139)",
+    "ratio": 3.07
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Supplier Payment",
+    "el": "h1",
+    "fg": "rgb(15, 23, 42)",
+    "ratio": 1
+   },
+   {
+    "text": "Scan Document",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ]
+ },
+ "after_rule": {
+  "credit-notes-new.light": [
+   {
+    "text": "Back to Credit Notes",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Credit Note",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "credit-notes-new.dark": [
+   {
+    "text": "Back to Credit Notes",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Credit Note",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "purchase-orders.light": [
+   {
+    "text": "Purchasing",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Purchase Orders",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "61",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "orders",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "\u00b7 4 pending delivery",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "Export",
+    "el": "button",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New PO",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "purchase-orders.dark": [
+   {
+    "text": "Purchasing",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Purchase Orders",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "61",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "orders",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "\u00b7 4 pending delivery",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "Export",
+    "el": "button",
+    "fg": "rgb(156, 163, 175)",
+    "ratio": 5.76
+   },
+   {
+    "text": "New PO",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "assets-new.light": [
+   {
+    "text": "Back to Assets",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Record",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Asset",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "assets-new.dark": [
+   {
+    "text": "Back to Assets",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Record",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Asset",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "bank-transactions-new.light": [
+   {
+    "text": "Back to Bank Transactions",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Spend Money",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "bank-transactions-new.dark": [
+   {
+    "text": "Back to Bank Transactions",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Spend Money",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "supplier-credit-notes-new.light": [
+   {
+    "text": "Back",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Credit Note",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "supplier-credit-notes-new.dark": [
+   {
+    "text": "Back",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Credit Note",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "purchase-orders-new.light": [
+   {
+    "text": "Back to Purchase Orders",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Purchase Order",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "purchase-orders-new.dark": [
+   {
+    "text": "Back to Purchase Orders",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Purchase Order",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "journal-entries-new.light": [
+   {
+    "text": "Back to Journal Entries",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Journal Entry",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "journal-entries-new.dark": [
+   {
+    "text": "Back to Journal Entries",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Journal Entry",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "supplier-credit-notes.light": [
+   {
+    "text": "Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Credit Notes",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "37",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "credit note",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "s",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "CSV",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 10.72
+   },
+   {
+    "text": "New Credit Note",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "supplier-credit-notes.dark": [
+   {
+    "text": "Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Credit Notes",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "37",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "credit note",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "s",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "CSV",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 10.72
+   },
+   {
+    "text": "New Credit Note",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "credit-notes.light": [
+   {
+    "text": "Customers & Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Credit Notes",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "2992",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "credit notes",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "CSV",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 10.72
+   },
+   {
+    "text": "New Credit Note",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "credit-notes.dark": [
+   {
+    "text": "Customers & Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Credit Notes",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "2992",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "credit notes",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "CSV",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 10.72
+   },
+   {
+    "text": "New Credit Note",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "recurring-invoices-new.light": [
+   {
+    "text": "Back to Recurring Invoices",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Recurring Invoice",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "recurring-invoices-new.dark": [
+   {
+    "text": "Back to Recurring Invoices",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Recurring Invoice",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "customer-payments-new.light": [
+   {
+    "text": "Back to Payments",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Record Customer Payment",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "Scan Document",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ],
+  "customer-payments-new.dark": [
+   {
+    "text": "Back to Payments",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Record Customer Payment",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "Scan Document",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ],
+  "delivery-notes.light": [
+   {
+    "text": "Fulfilment",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Delivery Notes",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "0",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "delivery notes",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Delivery Note",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "delivery-notes.dark": [
+   {
+    "text": "Fulfilment",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Delivery Notes",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "0",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "delivery notes",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Delivery Note",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "supplier-invoices.light": [
+   {
+    "text": "Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Invoices",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "2413",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "invoices",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "Export CSV",
+    "el": "button+bg",
+    "fg": "rgb(226, 232, 240)",
+    "ratio": 11.87
+   },
+   {
+    "text": "New Invoice",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "supplier-invoices.dark": [
+   {
+    "text": "Suppliers",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Invoices",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "2413",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "invoices",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "Export CSV",
+    "el": "button+bg",
+    "fg": "rgb(226, 232, 240)",
+    "ratio": 11.87
+   },
+   {
+    "text": "New Invoice",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "items-new.light": [
+   {
+    "text": "Back to Items",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Record",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Item",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "\u2014 ISAFlow Demo (Pty) Ltd",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "items-new.dark": [
+   {
+    "text": "Back to Items",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Record",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Item",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "\u2014 ISAFlow Demo (Pty) Ltd",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "delivery-notes-new.light": [
+   {
+    "text": "Back to Delivery Notes",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Delivery Note",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "delivery-notes-new.dark": [
+   {
+    "text": "Back to Delivery Notes",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Delivery Note",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "supplier-invoices-new.light": [
+   {
+    "text": "Back to Supplier Invoices",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Invoice",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "Scan Invoice",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ],
+  "supplier-invoices-new.dark": [
+   {
+    "text": "Back to Supplier Invoices",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Supplier Invoice",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "Scan Invoice",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ],
+  "goods-received-new.light": [
+   {
+    "text": "Back to Goods Received",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Goods Received Note",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "goods-received-new.dark": [
+   {
+    "text": "Back to Goods Received",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Goods Received Note",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "recurring-invoices.light": [
+   {
+    "text": "Documents",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Recurring Invoices",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "0",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "templates",
+    "el": "p",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "Run Due",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   },
+   {
+    "text": "New Template",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "recurring-invoices.dark": [
+   {
+    "text": "Documents",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "Recurring Invoices",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "0",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "templates",
+    "el": "p",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "Run Due",
+    "el": "button+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   },
+   {
+    "text": "New Template",
+    "el": "a+bg",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 5.47
+   }
+  ],
+  "batch-payments-new.light": [
+   {
+    "text": "Back to Batches",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Batch Payment",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "batch-payments-new.dark": [
+   {
+    "text": "Back to Batches",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Batch Payment",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   }
+  ],
+  "supplier-payments-new.light": [
+   {
+    "text": "Back to Payments",
+    "el": "a",
+    "fg": "rgb(169, 182, 201)",
+    "ratio": 7.12
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Supplier Payment",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "Scan Document",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ],
+  "supplier-payments-new.dark": [
+   {
+    "text": "Back to Payments",
+    "el": "a",
+    "fg": "rgb(148, 163, 184)",
+    "ratio": 5.71
+   },
+   {
+    "text": "New Document",
+    "el": "p",
+    "fg": "rgb(251, 191, 36)",
+    "ratio": 8.76
+   },
+   {
+    "text": "New Supplier Payment",
+    "el": "h1",
+    "fg": "rgb(255, 255, 255)",
+    "ratio": 14.63
+   },
+   {
+    "text": "Scan Document",
+    "el": "button+bg",
+    "fg": "rgb(45, 212, 191)",
+    "ratio": 6.67
+   }
+  ]
+ }
+}

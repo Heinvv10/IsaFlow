@@ -47,7 +47,9 @@ describe('budgets', () => {
     fireEvent.click(screen.getByRole('button', { name: /add budget/i }));
     await screen.findByRole('option', { name: /D2 Rent/ });
     fireEvent.change(screen.getAllByRole('combobox')[1]!, { target: { value: 'g1' } });
-    fireEvent.change(screen.getByPlaceholderText('Annual Amount *'), { target: { value: '500' } });
+    // MoneyField parses on blur.
+    fireEvent.change(screen.getByLabelText(/Annual amount/), { target: { value: '500' } });
+    fireEvent.blur(screen.getByLabelText(/Annual amount/));
     submit(screen.getByRole('button', { name: /save budget/i }));
   };
 
