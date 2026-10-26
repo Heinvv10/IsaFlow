@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, Loader2, AlertCircle, Download } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
@@ -101,22 +102,10 @@ export default function CashFlowPage() {
           {/* Date filters */}
           <div className="flex items-center gap-4 mb-6">
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
-              />
+              <DateField label="From" value={startDate || null} onChange={(iso, v) => { if (v.valid) setStartDate(iso ?? ''); }} />
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">To</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
-              />
+              <DateField label="To" value={endDate || null} onChange={(iso, v) => { if (v.valid) setEndDate(iso ?? ''); }} />
             </div>
             {costCentres.length > 0 && (
               <div>

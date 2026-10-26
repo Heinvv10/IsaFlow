@@ -1,4 +1,5 @@
 // D2 round 11: a failed open-period lookup must not run the balance sheet "as at" a date nobody chose.
+import { dateFieldInputs, typeDate } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -29,10 +30,10 @@ describe('balance sheet: the open period did not load', () => {
     serve(on('GET', 'fiscal-periods', empty500), on('GET', 'reports-balance-sheet', () => ok({ assets: [], liabilities: [], equity: [] })));
     render(<BalanceSheetPage />);
     expect(await screen.findByText(/Could not load the open period - try again/)).toBeDefined();
-    const date = document.querySelector('input[type="date"]') as HTMLInputElement;
+    const date = dateFieldInputs()[0]!;
     expect(date.value).toBe('');
     expect(writeCalls('GET', 'reports-balance-sheet')).toBe(0);
-    fireEvent.change(date, { target: { value: '2024-02-29' } });
+    typeDate(date, '2024-02-29');
     await waitFor(() => expect(writeCalls('GET', 'reports-balance-sheet')).toBeGreaterThan(0));
     expect(screen.queryByText(/Could not load the open period/)).toBeNull();
   });
