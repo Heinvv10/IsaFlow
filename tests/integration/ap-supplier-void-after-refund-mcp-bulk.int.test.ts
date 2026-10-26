@@ -27,13 +27,16 @@ afterAll(async () => {
     await pool.query('UPDATE bank_transactions SET allocation_batch_id = NULL WHERE company_id = $1', [fx.company]);
     await pool.query('DELETE FROM bank_allocation_batch_lines WHERE company_id = $1', [fx.company]);
     await pool.query('DELETE FROM bank_allocation_batches WHERE company_id = $1', [fx.company]);
+    await pool.query('DELETE FROM supplier_payments WHERE batch_id IS NOT NULL AND company_id = $1', [fx.company]);
+    await pool.query('DELETE FROM supplier_payment_batches WHERE company_id = $1', [fx.company]);
     await cleanupK074(pool, fx);
   } finally { await pool.end(); }
 });
 /** Another day of DAY's month, outside a DAY..DAY range. */
 const OTHER_DAY = `${DAY.slice(0, 8)}${DAY.slice(8) === '16' ? '17' : '16'}`;
-/** A third day of the month, for the chain test's own range. */
+/** Days of their own for the chain and batch tests' ranges. */
 const CHAIN_DAY = `${DAY.slice(0, 8)}${DAY.slice(8) === '20' ? '21' : '20'}`;
+const BATCH_DAY = `${DAY.slice(0, 8)}${DAY.slice(8) === '22' ? '23' : '22'}`;
 
 async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -141,6 +144,33 @@ describe('MCP bulk reversal of a supplier payment AND its refund together', () =
     await pool.query('UPDATE bank_transactions SET matched_journal_line_id = $1 WHERE id = $2', [bankLine.id, out.line]);
     const ctx = { companyId: fx.company, userId: fx.user, scopes: ['write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     const args = { bank_account_id: fx.bankAccount, from_date: CHAIN_DAY, to_date: CHAIN_DAY, idempotency_key: crypto.randomUUID(), dry_run: true };
+    expect(await verdict(inTx(() => reverseAllocationsTool.handler(args, ctx as never)))).toBe('SUPPLIER_PAYMENT_REFUSED');
+  }, 60_000);
+
+  it('the range dry run finds a processed payment batch\'s members through the batch journal', async () => {
+    const s5 = await newSupplier();
+    // A line allocated to a batch journal: the members carry only batch_id (planted, with an unapplied R600).
+    const { rows: [je] } = await pool.query(
+      `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,status,created_by,fiscal_period_id,posted_at)
+       VALUES($1,$2,$3::DATE,'VAR batch','posted',$4,(SELECT id FROM fiscal_periods WHERE company_id = $1 LIMIT 1),NOW())
+       RETURNING id`, [fx.company, `JE-VAR-${crypto.randomUUID().slice(0, 8)}`, BATCH_DAY, fx.user]);
+    const { rows: [bankLine] } = await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id)
+       VALUES($1,$2,0,600,$3),($1,$4,600,0,$3) RETURNING id`, [je.id, fx.bankAccount, fx.company, fx.apAccount]);
+    await pool.query(
+      `INSERT INTO bank_transactions(company_id,bank_account_id,transaction_date,amount,description,status,matched_journal_line_id)
+       VALUES($1,$2,$3::DATE,-600,'VAR batch line','allocated',$4)`, [fx.company, fx.bankAccount, BATCH_DAY, bankLine.id]);
+    const { rows: [batch] } = await pool.query(
+      `INSERT INTO supplier_payment_batches(company_id,batch_number,created_by,status,gl_journal_entry_id)
+       VALUES($1,$2,$3,'processed',$4) RETURNING id`, [fx.company, `B-VAR-${crypto.randomUUID().slice(0, 6)}`, fx.user, je.id]);
+    await pool.query(
+      `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,payment_method,reference,status,created_by,batch_id)
+       VALUES($1,$2,$3::DATE,600,'eft','VAR member','processed',$4,$5)`, [fx.company, s5, BATCH_DAY, fx.user, batch.id]);
+    await pool.query(
+      `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,payment_method,reference,status,created_by)
+       VALUES($1,$2,$3::DATE,-600,'refund','VAR refund','processed',$4)`, [fx.company, s5, OTHER_DAY, fx.user]);
+    const ctx = { companyId: fx.company, userId: fx.user, scopes: ['write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
+    const args = { bank_account_id: fx.bankAccount, from_date: BATCH_DAY, to_date: BATCH_DAY, idempotency_key: crypto.randomUUID(), dry_run: true };
     expect(await verdict(inTx(() => reverseAllocationsTool.handler(args, ctx as never)))).toBe('SUPPLIER_PAYMENT_REFUSED');
   }, 60_000);
 });
