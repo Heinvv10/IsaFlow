@@ -13,6 +13,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 import { AgingInvoicesPanel } from '@/components/accounting/AgingInvoicesPanel';
 import { useAgingReturn } from '@/components/accounting/useAgingReturn';
+import { DateField } from '@/components/ui/DateField';
 
 export default function APAgingPage() {
   const [buckets, setBuckets] = useState<AgingBucket[]>([]);
@@ -75,13 +76,12 @@ export default function APAgingPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <label className="text-sm text-[var(--ff-text-secondary)]">As at:</label>
-              <input
-                type="date"
+              <DateField
+                label="As at"
                 name="asAtDate"
-                value={asAtDate}
-                onChange={e => setAsAtDate(e.target.value)}
-                className="ff-input text-sm"
+                required
+                value={asAtDate || null}
+                onChange={(iso, v) => { if (v.valid && iso) setAsAtDate(iso); }}
               />
               <button
                 onClick={() => {

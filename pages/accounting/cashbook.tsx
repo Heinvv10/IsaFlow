@@ -12,6 +12,7 @@ import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -144,9 +145,8 @@ export default function CashbookPage() {
                 </option>
               ))}
             </select>
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="ff-input text-sm" />
-            <span className="text-[var(--ff-text-tertiary)]">to</span>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
+            <DateField label="From" required value={from || null} onChange={(iso, v) => { if (v.valid && iso) setFrom(iso); }} />
+            <DateField label="To" required value={to || null} onChange={(iso, v) => { if (v.valid && iso) setTo(iso); }} />
           </div>
 
           {error && (

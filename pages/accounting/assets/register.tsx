@@ -12,6 +12,7 @@ import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 
 interface Asset {
   id: string;
@@ -85,8 +86,12 @@ export default function AssetRegisterPage() {
 
         <div className="p-6 space-y-4">
           <div className="flex items-center gap-3">
-            <label className="text-sm text-[var(--ff-text-secondary)]">As of:</label>
-            <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className="ff-input text-sm" />
+            <DateField
+              label="As of"
+              required
+              value={asOf || null}
+              onChange={(iso, v) => { if (v.valid && iso) setAsOf(iso); }}
+            />
           </div>
 
           {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>}

@@ -9,6 +9,7 @@ import { BarChart3, Loader2, AlertCircle, Download, Building2, CheckCircle2 } fr
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -55,7 +56,6 @@ const fmt = (n: number) => formatMoney(n);
 
 const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
-const inputClass = selectClass;
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -262,15 +262,12 @@ export default function ConsolidatedBalanceSheetPage() {
                   <option key={g.id} value={g.id}>{g.name}</option>
                 ))}
               </select>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-[var(--ff-text-tertiary)]">As at</span>
-                <input
-                  type="date"
-                  value={asAtDate}
-                  onChange={e => setAsAtDate(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
+              <DateField
+                label="As at"
+                required
+                value={asAtDate || null}
+                onChange={(iso, v) => { if (v.valid && iso) setAsAtDate(iso); }}
+              />
               <button
                 onClick={handleExport}
                 disabled={!data || data.rows.length === 0}
