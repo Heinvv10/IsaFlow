@@ -237,7 +237,7 @@ export function BankFeedCard({
 
       {isExtension && (
         <div className="px-5 pb-4 -mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--ff-text-secondary)]">
-          <div className="w-40">
+          <div className="w-52">
             <DateField
               label="Sync from"
               required
@@ -247,7 +247,7 @@ export function BankFeedCard({
               onChange={(iso, v) => { if (v.valid && iso) setFromDate(iso); }}
             />
           </div>
-          <div className="w-40">
+          <div className="w-52">
             <DateField
               label="Sync to"
               required
