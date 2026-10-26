@@ -152,7 +152,7 @@ describe('4. every reversal path passes the reversal gate', () => {
 
   it('the callers of undoRow, each judged at the run level first', () => {
     expect(filesMatching(/\bundoRow\(/)).toEqual([`${B}autoPostHandCorrection.ts`, `${B}autoPostUndoService.ts`]);
-    before(`${B}autoPostUndoService.ts`, 'await assertMayUndoRun(companyId, runId, userId)', '() => undoRow(companyId, runId, userId, txId)');
+    before(`${B}autoPostUndoService.ts`, 'await assertMayUndoRun(companyId, runId, userId)', '() => undoRow(companyId, runId, userId, String(tx.id))');
     before(`${B}autoPostHandCorrection.ts`, 'await assertMayUndoRun(companyId, runId, userId)', 'await undoRow(companyId, runId, userId, txId)');
   });
 });
