@@ -20,13 +20,13 @@ import {
 import type { AccentTokens } from './moduleNavAccent';
 
 const panelCls =
-  'absolute left-full top-0 bg-gray-800 border border-gray-700 rounded-r-lg shadow-xl min-w-[210px] py-1';
+  'absolute left-full top-0 bg-surface-raised border border-line rounded-r-lg shadow-xl min-w-[210px] py-1';
 
 const inactiveLinkCls =
-  'text-gray-300 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50';
+  'text-ink-muted hover:text-ink hover:bg-surface-sunken';
 
 const settingLinkCls = (active: boolean, accent: AccentTokens) =>
-  active ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50';
+  active ? accent.activeLinkBg : 'text-ink-muted hover:text-ink hover:bg-surface-sunken';
 
 export function makeLinkCls(active: boolean, accent: AccentTokens): string {
   return `block px-4 py-2 text-sm whitespace-nowrap transition-colors ${
@@ -36,7 +36,7 @@ export function makeLinkCls(active: boolean, accent: AccentTokens): string {
 
 const sectionCls = (hovered: boolean) =>
   `flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition-colors ${
-    hovered ? 'bg-gray-700 text-white' : 'text-gray-300 hover:bg-gray-700/60'
+    hovered ? 'bg-surface-sunken text-ink' : 'text-ink-muted hover:bg-surface-sunken'
   }`;
 
 // ─── Keyboard helpers ─────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ export function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsPro
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 pt-2 whitespace-nowrap transition-colors ${settingLinkCls(item.href === activeHref, accent)}`}
+              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-line mt-1 pt-2 whitespace-nowrap transition-colors ${settingLinkCls(item.href === activeHref, accent)}`}
             >
               <Settings className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
               {item.label}
@@ -193,7 +193,7 @@ export function FlatDropdown({ items, asPath, onClose, accent, id }: DropdownPro
   const activeHref = activeHrefAmong(items, asPath);
   return (
     <div id={id} data-nav-panel onKeyDown={panelArrowKeys}
-      className="absolute top-full left-0 bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[220px] py-1 z-40">
+      className="absolute top-full left-0 bg-surface-raised border border-line rounded-b-lg shadow-xl min-w-[220px] py-1 z-40">
       {items.map(item => (
         <Link key={item.href} href={item.href} onClick={onClose} className={makeLinkCls(item.href === activeHref, accent)}>
           {item.label}
@@ -214,26 +214,26 @@ export function FlyoutDropdown({ tab, asPath, onClose, accent, id }: DropdownPro
   return (
     <div id={id} className="absolute top-full left-0 z-40">
       <div data-nav-panel onKeyDown={panelArrowKeys}
-        className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[200px] py-1">
+        className="bg-surface-raised border border-line rounded-b-lg shadow-xl min-w-[200px] py-1">
         <NavLinksBlock
           links={tab.links}
           asPath={asPath}
           onNav={onClose}
           linkClassName={active => makeLinkCls(active, accent)}
-          separatorClassName="border-t border-gray-300 dark:border-gray-700 my-1"
+          separatorClassName="border-t border-line my-1"
         />
         {tab.topItems?.map(item => (
           <Link
             key={item.href}
             href={item.href}
             onClick={onClose}
-            className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+            className="block px-4 py-2 text-sm text-ink-muted hover:text-ink hover:bg-surface-sunken transition-colors"
           >
             {item.label}
           </Link>
         ))}
         {tab.topItems && tab.topItems.length > 0 && (
-          <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
+          <div className="border-t border-line my-1" />
         )}
 
         {regularSections.map(section => (
@@ -249,7 +249,7 @@ export function FlyoutDropdown({ tab, asPath, onClose, accent, id }: DropdownPro
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 whitespace-nowrap transition-colors ${settingLinkCls(item.href === settingsActiveHref, accent)}`}
+              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-line mt-1 whitespace-nowrap transition-colors ${settingLinkCls(item.href === settingsActiveHref, accent)}`}
             >
               <Settings className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
               {item.label}
