@@ -27,7 +27,12 @@ export interface MoneyFieldProps {
   name?: string;
   /** Shown as a badge; the echo is "R ..." for ZAR and "<code> ..." otherwise. */
   currency?: string;
-  /** Change it to discard refused text on screen (a form reset); `value` alone cannot, null stays null. */
+  /**
+   * Change it (any value) to put the display back to `value` and drop the refusal on screen. Needed whenever
+   * the parent re-asserts a `value` it ALREADY holds (refused text over a kept amount, or over null): a prop
+   * that did not change is not news, so only resetKey can say so. A different `value` restores the display
+   * by itself.
+   */
   resetKey?: string | number;
   /** External error (e.g. from the server). Overrides the field's own. */
   error?: string;
