@@ -6,8 +6,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, Loader2, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
+import { Users, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
+import { ListEmpty } from '@/components/ui/ListEmpty';
 import { KpiStrip } from '@/components/ui';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
@@ -130,31 +132,24 @@ export default function CustomersPage() {
 
           {/* Content */}
           {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
-            </div>
+            <ListSkeleton label="Loading customers" />
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
               <AlertCircle className="h-5 w-5" />
               <span>{error}</span>
             </div>
           ) : customers.length === 0 ? (
-            <div className="text-center py-16">
-              <Users className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)] font-medium">No customers found</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
-                {search ? 'Try a different search term' : 'Add your first customer to get started'}
-              </p>
-              {!search && (
-                <Link
-                  href="/accounting/customers/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Customer
-                </Link>
-              )}
-            </div>
+            <ListEmpty
+              filtered={!!debouncedSearch}
+              onClearFilters={() => setSearch('')}
+              firstRun={{
+                icon: Users,
+                title: 'No customers yet',
+                description: 'Customers are who you invoice. Add one to get started.',
+                checklist: ['Add the customer', 'Set their payment terms', 'Invoice them'],
+                primaryAction: { label: 'New Customer', href: '/accounting/customers/new' },
+              }}
+            />
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
               <table className="w-full text-sm">

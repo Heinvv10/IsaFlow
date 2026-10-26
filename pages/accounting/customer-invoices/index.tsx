@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle } from 'lucide-react';
+import { FileText, AlertCircle, Plus, AlertTriangle, CheckCircle } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { KpiStrip, PageHeader } from '@/components/ui';
 import Link from 'next/link';
@@ -23,6 +23,8 @@ import { ARFilterBar } from '@/components/accounting/customer-invoices/ARFilterB
 import { CustomerInvoiceTable, type CustomerInvoiceRow } from '@/components/accounting/customer-invoices/CustomerInvoiceTable';
 import { useCustomerInvoiceListState } from '@/components/accounting/customer-invoices/useCustomerInvoiceListState';
 import { arFiltersToApiParams } from '@/components/accounting/customer-invoices/listQuery';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
+import { ListEmpty } from '@/components/ui/ListEmpty';
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { AROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
 
@@ -37,6 +39,7 @@ export default function CustomerInvoicesPage() {
   const [total, setTotal] = useState(0);
   const [arSummary, setArSummary] = useState<AROutstandingSummary | null>(null);
   const haveSummary = useRef(false);
+  const filtersActive = filters.status !== 'all' || !!(filters.search || filters.customerId || filters.from || filters.to) || filters.aging.length > 0;
 
   useEffect(() => {
     if (!hydrated) return;
@@ -110,20 +113,24 @@ export default function CustomerInvoicesPage() {
 
           {/* Content */}
           {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" />
-            </div>
+            <ListSkeleton label="Loading invoices" />
           ) : error ? (
             <div className="flex items-center gap-2 text-red-400 py-8 justify-center">
               <AlertCircle className="h-5 w-5" />
               <span>{error}</span>
             </div>
           ) : invoices.length === 0 ? (
-            <div className="text-center py-12">
-              <FileText className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)]">No customer invoices found</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Customer invoices are created from project billing</p>
-            </div>
+            <ListEmpty
+              filtered={filtersActive}
+              onClearFilters={state.clearAll}
+              firstRun={{
+                icon: FileText,
+                title: 'No invoices yet',
+                description: 'Bill your first customer and track what they owe you.',
+                checklist: ['Add a customer', 'Create the invoice', 'Send it and record the payment'],
+                primaryAction: { label: 'New Invoice', href: '/accounting/customer-invoices/new' },
+              }}
+            />
           ) : (
             <CustomerInvoiceTable invoices={invoices} page={filters.page} limit={LIMIT} total={total} onPage={state.setPage} />
           )}

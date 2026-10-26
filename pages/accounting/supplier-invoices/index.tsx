@@ -10,7 +10,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Download, Loader2, Plus } from 'lucide-react';
+import { AlertCircle, Download, Plus } from 'lucide-react';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -142,8 +143,8 @@ export default function SupplierInvoicesPage() {
   if (!hydrated) {
     return (
       <AppLayout>
-        <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)] flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+        <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)] p-6">
+          <ListSkeleton label="Loading supplier invoices" />
         </div>
       </AppLayout>
     );
@@ -189,9 +190,7 @@ export default function SupplierInvoicesPage() {
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {isLoading ? (
-              <div className="p-16 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-500 dark:text-slate-400" />
-              </div>
+              <ListSkeleton label="Loading supplier invoices" />
             ) : (
               <InvoiceTable
                 invoices={invoices}
@@ -207,6 +206,7 @@ export default function SupplierInvoicesPage() {
                 onPage={state.setPage}
                 onPerPage={state.setPerPage}
                 filtersActive={filtersActive}
+                onClearFilters={state.resetFilters}
               />
             )}
           </div>
