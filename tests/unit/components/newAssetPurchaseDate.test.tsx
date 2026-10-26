@@ -36,7 +36,7 @@ it('blocks submit and shows an error when the purchase date is empty', async () 
   fireEvent.change(date, { target: { value: '' } });
   fireEvent.blur(date);
   fireEvent.submit(container.querySelector('form')!);
-  expect(await screen.findByText(/enter (the purchase )?date|enter a date/i)).toBeTruthy();
+  expect(await screen.findByText('Enter the purchase date.')).toBeTruthy();
   expect(postCalls()).toBe(0);
 });
 
@@ -50,4 +50,29 @@ it('submits once a purchase date such as "1 Oct 2026" is typed', async () => {
   await waitFor(() => expect(postCalls()).toBe(1));
   const body = JSON.parse(String(vi.mocked(apiFetch).mock.calls.find(([, i]) => i?.method === 'POST')![1]!.body));
   expect(body.purchaseDate).toBe('2026-10-01');
+});
+
+it('clears the submit error once a valid date is committed', async () => {
+  const { container } = render(<Page />);
+  fillRequired(container);
+  const date = screen.getByRole('textbox', { name: /purchase date/i });
+  fireEvent.change(date, { target: { value: '' } });
+  fireEvent.blur(date);
+  fireEvent.submit(container.querySelector('form')!);
+  expect(await screen.findByText('Enter the purchase date.')).toBeTruthy();
+  fireEvent.change(date, { target: { value: '1 Oct 2026' } });
+  fireEvent.blur(date);
+  await waitFor(() => expect(screen.queryByText('Enter the purchase date.')).toBeNull());
+});
+
+it("shows DateField's own reason, not the generic message, for text it refuses", async () => {
+  const { container } = render(<Page />);
+  fillRequired(container);
+  const date = screen.getByRole('textbox', { name: /purchase date/i });
+  fireEvent.change(date, { target: { value: 'abc' } });
+  fireEvent.blur(date);
+  fireEvent.submit(container.querySelector('form')!);
+  await waitFor(() => expect(postCalls()).toBe(0));
+  expect(screen.queryByText('Enter the purchase date.')).toBeNull();
+  expect(container.querySelector('[aria-invalid="true"]')).toBeTruthy();
 });

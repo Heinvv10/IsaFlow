@@ -36,6 +36,7 @@ export default function NewAssetPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [dateError, setDateError] = useState('');
+  const [dateReason, setDateReason] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
 
@@ -73,12 +74,19 @@ export default function NewAssetPage() {
   };
 
   const update = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
+  /** A committed purchase date (or a refusal of what was typed) replaces any submit-time error. */
+  const onDateChange = (iso: string | null, reason: string | null) => {
+    update('purchaseDate', iso ?? '');
+    // DateField's bare "Enter a date." (field emptied) gives way to the more specific message at submit.
+    setDateReason(reason === 'Enter a date.' ? null : reason);
+    setDateError('');
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     if (!form.purchaseDate) {
-      setDateError('Enter the purchase date.');
+      setDateError(dateReason ?? 'Enter the purchase date.');
       return;
     }
     setDateError('');
@@ -212,7 +220,7 @@ export default function NewAssetPage() {
                   </div>
                 </div>
 
-                <AssetFinancialFields form={form} update={update} dateError={dateError} />
+                <AssetFinancialFields form={form} update={update} onDateChange={onDateChange} dateError={dateError} />
               </div>
 
               {/* Right column — sticky summary */}
