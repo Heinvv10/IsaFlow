@@ -8,7 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { globalSearch, getQuickActions } from '@/modules/accounting/services/core/globalSearchService';
+import { globalSearch } from '@/modules/accounting/services/core/globalSearchService';
 import { searchPages } from '@/modules/accounting/services/core/pageSearch';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -23,10 +23,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const query = typeof q === 'string' ? q.trim() : '';
     const parsedLimit = limit ? Math.min(Number(limit), 30) : 8;
 
-    const actions = getQuickActions();
-
     if (query.length < 2) {
-      return apiResponse.success(res, { results: [], actions });
+      return apiResponse.success(res, { results: [] });
     }
 
     log.info('Global search', { companyId, query, limit: parsedLimit }, 'global-search-api');
@@ -36,7 +34,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const records = await globalSearch(companyId, query, parsedLimit);
     const results = [...pages, ...records].slice(0, parsedLimit);
 
-    return apiResponse.success(res, { results, actions });
+    return apiResponse.success(res, { results });
   } catch (err) {
     log.error('Global search API failed', { error: err }, 'global-search-api');
     return apiResponse.badRequest(res, 'Search failed');
