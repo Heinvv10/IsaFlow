@@ -69,10 +69,14 @@ export function PeriodControl({ from, to, onChange, inputClassName }: Props) {
       )}
       {mode === 'custom' && (
         <>
-          <DateField label="Invoice date from" name="from" value={from || null}
-            onChange={(iso, v) => { if (v.valid) onChange(iso ?? '', to); }} />
-          <DateField label="Invoice date to" name="to" value={to || null}
-            onChange={(iso, v) => { if (v.valid) onChange(from, iso ?? ''); }} />
+          <div className="w-40">
+            <DateField label="Invoice date from" name="from" value={from || null}
+              onChange={(iso, v) => { if (v.valid) onChange(iso ?? '', to); }} />
+          </div>
+          <div className="w-40">
+            <DateField label="Invoice date to" name="to" value={to || null}
+              onChange={(iso, v) => { if (v.valid) onChange(from, iso ?? ''); }} />
+          </div>
         </>
       )}
     </div>

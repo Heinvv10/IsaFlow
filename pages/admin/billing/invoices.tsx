@@ -175,8 +175,8 @@ export default function InvoicesPage() {
           <option value="cancelled">Cancelled</option>
           <option value="credited">Credited</option>
         </select>
-        <DateField label="From date" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) { setDateFrom(iso ?? ''); setPage(1); } }} />
-        <DateField label="To date" value={dateTo || null} onChange={(iso, v) => { if (v.valid) { setDateTo(iso ?? ''); setPage(1); } }} />
+        <div className="w-40"><DateField label="From date" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) { setDateFrom(iso ?? ''); setPage(1); } }} /></div>
+        <div className="w-40"><DateField label="To date" value={dateTo || null} onChange={(iso, v) => { if (v.valid) { setDateTo(iso ?? ''); setPage(1); } }} /></div>
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center ml-auto">{total} total</span>
         <button onClick={() => { setShowForm(true); setFormError(''); setForm(EMPTY_FORM); }}
           className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors">

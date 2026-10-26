@@ -60,8 +60,8 @@ export function TimeFilters({
             <option value="true">Billable</option>
             <option value="false">Non-Billable</option>
           </select>
-          <DateField label="From date" value={filterDateFrom || null} onChange={(iso, v) => { if (v.valid) onFilterDateFrom(iso ?? ''); }} />
-          <DateField label="To date" value={filterDateTo || null} onChange={(iso, v) => { if (v.valid) onFilterDateTo(iso ?? ''); }} />
+          <div className="w-40"><DateField label="From date" value={filterDateFrom || null} onChange={(iso, v) => { if (v.valid) onFilterDateFrom(iso ?? ''); }} /></div>
+          <div className="w-40"><DateField label="To date" value={filterDateTo || null} onChange={(iso, v) => { if (v.valid) onFilterDateTo(iso ?? ''); }} /></div>
         </div>
       )}
     </div>
@@ -79,8 +79,8 @@ export function SummaryDateFilter({ filterDateFrom, filterDateTo, onFilterDateFr
   return (
     <div className="flex gap-3 items-center">
       <Filter className="w-4 h-4 text-gray-500" />
-      <DateField label="From date" value={filterDateFrom || null} onChange={(iso, v) => { if (v.valid) onFilterDateFrom(iso ?? ''); }} />
-      <DateField label="To date" value={filterDateTo || null} onChange={(iso, v) => { if (v.valid) onFilterDateTo(iso ?? ''); }} />
+      <div className="w-40"><DateField label="From date" value={filterDateFrom || null} onChange={(iso, v) => { if (v.valid) onFilterDateFrom(iso ?? ''); }} /></div>
+      <div className="w-40"><DateField label="To date" value={filterDateTo || null} onChange={(iso, v) => { if (v.valid) onFilterDateTo(iso ?? ''); }} /></div>
     </div>
   );
 }

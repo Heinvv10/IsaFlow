@@ -238,22 +238,26 @@ export function BankFeedCard({
       {isExtension && (
         <div className="px-5 pb-4 -mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--ff-text-secondary)]">
           <span>Sync from</span>
-          <DateField
-            label="Sync from"
-            required
-            value={fromDate || null}
-            minDate={minFrom}
-            maxDate={todayIso()}
-            onChange={(iso, v) => { if (v.valid && iso) setFromDate(iso); }}
-          />
-          <DateField
-            label="Sync to"
-            required
-            value={toDate || null}
-            minDate={minFrom}
-            maxDate={todayIso()}
-            onChange={(iso, v) => { if (v.valid && iso) setToDate(iso); }}
-          />
+          <div className="w-40">
+            <DateField
+              label="Sync from"
+              required
+              value={fromDate || null}
+              minDate={minFrom}
+              maxDate={todayIso()}
+              onChange={(iso, v) => { if (v.valid && iso) setFromDate(iso); }}
+            />
+          </div>
+          <div className="w-40">
+            <DateField
+              label="Sync to"
+              required
+              value={toDate || null}
+              minDate={minFrom}
+              maxDate={todayIso()}
+              onChange={(iso, v) => { if (v.valid && iso) setToDate(iso); }}
+            />
+          </div>
           {[7, 30, 90, 180].map(d => (
             <button
               key={d}

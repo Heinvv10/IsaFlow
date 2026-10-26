@@ -102,18 +102,22 @@ export function FilterBar({
 
         {filters.datePreset === 'custom' && (
           <>
-            <DateField
-              label="From date"
-              name="fromDate"
-              value={filters.fromDate || null}
-              onChange={(iso, v) => { if (v.valid) setCustomDate('fromDate', iso ?? ''); }}
-            />
-            <DateField
-              label="To date"
-              name="toDate"
-              value={filters.toDate || null}
-              onChange={(iso, v) => { if (v.valid) setCustomDate('toDate', iso ?? ''); }}
-            />
+            <div className="w-40">
+              <DateField
+                label="From date"
+                name="fromDate"
+                value={filters.fromDate || null}
+                onChange={(iso, v) => { if (v.valid) setCustomDate('fromDate', iso ?? ''); }}
+              />
+            </div>
+            <div className="w-40">
+              <DateField
+                label="To date"
+                name="toDate"
+                value={filters.toDate || null}
+                onChange={(iso, v) => { if (v.valid) setCustomDate('toDate', iso ?? ''); }}
+              />
+            </div>
           </>
         )}
 
