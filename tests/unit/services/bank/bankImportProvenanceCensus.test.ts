@@ -143,8 +143,10 @@ describe('4. every reversal path passes the reversal gate', () => {
     const svc = `${B}bankAllocationService.ts`;
     before(svc, 'await assertMayReverse(companyId, tx,', 'reverseDocumentChainLine(companyId, tx,');
     before(svc, 'await assertMayReverse(companyId, tx,', "withSavepoint('bank_reverse_reconciled'");
-    for (const tool of ['writeBankAllocate.ts', 'writeBankReverseBatch.ts', 'writeBankReverseRange.ts']) {
-      before(`${MCP}${tool}`, 'await agentReversalRefusal(', 'await reverseReconciledTransaction(');
+    before(`${MCP}writeBankAllocate.ts`, 'await agentReversalRefusal(', 'await reverseReconciledTransaction(');
+    // The bulk reversals reverse through bank/reverseLinesCreditLast (a payment before its refund is retried last).
+    for (const tool of ['writeBankReverseBatch.ts', 'writeBankReverseRange.ts']) {
+      before(`${MCP}${tool}`, 'await agentReversalRefusal(', 'await reverseLinesCreditLast(');
     }
     before(`${MCP}writeBankReverseRange.ts`, 'await agentReversalRefusal(', 'if (dryRun)');
     before('pages/api/accounting/bank-transactions-action.ts', 'respondIfBankControlRefused(res, err)', "badRequest(res, message)");
@@ -152,7 +154,7 @@ describe('4. every reversal path passes the reversal gate', () => {
 
   it('the callers of undoRow, each judged at the run level first', () => {
     expect(filesMatching(/\bundoRow\(/)).toEqual([`${B}autoPostHandCorrection.ts`, `${B}autoPostUndoService.ts`]);
-    before(`${B}autoPostUndoService.ts`, 'await assertMayUndoRun(companyId, runId, userId)', '() => undoRow(companyId, runId, userId, txId)');
+    before(`${B}autoPostUndoService.ts`, 'await assertMayUndoRun(companyId, runId, userId)', '() => undoRow(companyId, runId, userId, String(tx.id))');
     before(`${B}autoPostHandCorrection.ts`, 'await assertMayUndoRun(companyId, runId, userId)', 'await undoRow(companyId, runId, userId, txId)');
   });
 });
