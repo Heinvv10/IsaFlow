@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterAll } from 'vitest';
-import * as React from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DateField, type DateFieldProps } from '@/components/ui/DateField';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -294,6 +293,42 @@ describe('DateField', () => {
       expect(screen.queryByRole('alert')).toBeNull();
     });
 
+    // value -> null after a refusal is NOT restored by itself, and cannot be: the field has just reported
+    // `null` (refused), so an adopting parent's echo of that report is the same D -> null transition as a
+    // "Clear" button, and the echo must keep the refused text and its error on screen. An ASYNC adopting
+    // parent (setState after an await) makes the two indistinguishable even by timing. "Clear" bumps resetKey.
+    it('a held date, then garbage, then the parent sets null: the text stays (it reads as the echo of the refusal)', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" />);
+      commit('garbage'); // a filtering parent ignores the refusal and keeps 2026-10-21
+      rerender(<FIELD value={null} />);
+      expect(input().value).toBe('garbage');
+      expect(screen.getByRole('alert')).toBeTruthy();
+    });
+
+    it('a Clear button bumps resetKey with null: the display clears and the refusal goes', () => {
+      const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} />);
+      commit('garbage');
+      rerender(<FIELD value={null} resetKey={1} />);
+      expect(input().value).toBe('');
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('the echo of a refusal keeps the text, whether the parent adopts null at once or after an await', async () => {
+      function Adopting({ delayMs }: { delayMs: number }) {
+        const [value, setValue] = useState<string | null>('2026-10-21');
+        return <DateField label="Invoice date" getToday={TODAY} value={value}
+          onChange={(v) => { if (delayMs === 0) setValue(v); else setTimeout(() => setValue(v), delayMs); }} />;
+      }
+      for (const delayMs of [0, 20]) {
+        const { unmount } = render(<Adopting delayMs={delayMs} />);
+        commit('garbage');
+        await new Promise((r) => setTimeout(r, 60));
+        expect(input().value, `delay ${delayMs}`).toBe('garbage');
+        expect(screen.getByRole('alert')).toBeTruthy();
+        unmount();
+      }
+    });
+
     it('after a reset the same junk is news again (the refusal is forgotten)', () => {
       const spy = vi.fn();
       const { rerender } = render(<FIELD value="2026-10-21" resetKey={0} onChange={spy} />);
@@ -312,13 +347,13 @@ describe('DateField', () => {
       if (proceed) fireEvent.submit(input().form as HTMLFormElement);
     };
 
-    function Form({ onSubmitted }: { onSubmitted: (value: string | null) => void }) {
+    function Form({ onSubmitted, onValidity }: { onSubmitted: (value: string | null) => void; onValidity?: DateFieldProps['onChange'] }) {
       const [value, setValue] = useState<string | null>(null);
-      const latest = React.useRef(value);
+      const latest = useRef(value);
       latest.current = value; // what a submit handler reads: the state as last rendered
       return (
         <form onSubmit={(e) => { e.preventDefault(); onSubmitted(latest.current); }}>
-          <DateField label="Invoice date" getToday={TODAY} value={value} onChange={(v) => setValue(v)} />
+          <DateField label="Invoice date" getToday={TODAY} value={value} onChange={(v, validity) => { onValidity?.(v, validity); setValue(v); }} />
           <button type="submit">Save</button>
         </form>
       );
@@ -341,15 +376,18 @@ describe('DateField', () => {
       expect(submitted).toHaveBeenCalledExactlyOnceWith('2026-11-14');
     });
 
-    it('refused text submits null (the parent also gets validity to block on), never the stale date', () => {
+    it('refused text submits null, never the stale date, and reports the refusal so the parent can block', () => {
       const submitted = vi.fn();
-      render(<Form onSubmitted={submitted} />);
+      const onValidity = vi.fn();
+      render(<Form onSubmitted={submitted} onValidity={onValidity} />);
       type('1 Oct 2026');
       pressEnter();
       submitted.mockClear();
+      onValidity.mockClear();
       type('garbage');
       pressEnter();
       expect(submitted).toHaveBeenCalledExactlyOnceWith(null);
+      expect(onValidity).toHaveBeenCalledExactlyOnceWith(null, { valid: false, reason: expect.stringContaining('garbage') });
       expect(screen.getByRole('alert')).toBeTruthy();
     });
   });

@@ -293,4 +293,67 @@ describe('MoneyField', () => {
     rerender(<MoneyField label="Amount" value={500} onChange={() => undefined} resetKey="b" />);
     expect(input().value).toBe('5.00');
   });
+
+  // The resetKey contract (see MoneyField's resetKey doc), same as DateField's: refused text over a value the
+  // parent keeps.
+  describe('refused text over a value the parent keeps', () => {
+    const FIELD = (props: { value: number | null; resetKey?: number; onChange?: MoneyFieldProps['onChange'] }) => (
+      <MoneyField label="Amount" onChange={props.onChange ?? (() => undefined)} value={props.value} resetKey={props.resetKey} />
+    );
+    const commitText = (text: string): void => { type(text); fireEvent.blur(input()); };
+
+    it('keeps the refused text when the parent re-sets the same value (a prop that did not change is not news)', () => {
+      const { rerender } = render(<FIELD value={500} resetKey={0} />);
+      expect(input().value).toBe('5.00');
+      commitText('abc'); // a filtering parent ignores the refusal and keeps 500
+      expect(input().value).toBe('abc');
+      expect(screen.getByRole('alert')).toBeTruthy();
+      rerender(<FIELD value={500} resetKey={0} />);
+      expect(input().value).toBe('abc');
+    });
+
+    it('restores the held value, and drops the refusal, when resetKey changes', () => {
+      const { rerender } = render(<FIELD value={500} resetKey={0} />);
+      commitText('abc');
+      rerender(<FIELD value={500} resetKey={1} />);
+      expect(input().value).toBe('5.00');
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(input().getAttribute('aria-invalid')).toBe('false');
+    });
+
+    it('a changed non-null value restores the display by itself', () => {
+      const { rerender } = render(<FIELD value={500} />);
+      commitText('abc');
+      rerender(<FIELD value={750} />);
+      expect(input().value).toBe('7.50');
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('value -> null after a refusal keeps the text: it reads as the echo of the refusal, so a Clear bumps resetKey', () => {
+      const { rerender } = render(<FIELD value={500} resetKey={0} />);
+      commitText('abc');
+      rerender(<FIELD value={null} resetKey={0} />);
+      expect(input().value).toBe('abc');
+      expect(screen.getByRole('alert')).toBeTruthy();
+      rerender(<FIELD value={null} resetKey={1} />);
+      expect(input().value).toBe('');
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('the echo of a refusal keeps the text, whether the parent adopts null at once or after an await', async () => {
+      function Adopting({ delayMs }: { delayMs: number }) {
+        const [value, setValue] = useState<number | null>(500);
+        return <MoneyField label="Amount" value={value}
+          onChange={(v) => { if (delayMs === 0) setValue(v); else setTimeout(() => setValue(v), delayMs); }} />;
+      }
+      for (const delayMs of [0, 20]) {
+        const { unmount } = render(<Adopting delayMs={delayMs} />);
+        commitText('abc');
+        await new Promise((r) => setTimeout(r, 60));
+        expect(input().value, `delay ${delayMs}`).toBe('abc');
+        expect(screen.getByRole('alert')).toBeTruthy();
+        unmount();
+      }
+    });
+  });
 });
