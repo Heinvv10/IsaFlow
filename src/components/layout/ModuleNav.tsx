@@ -96,7 +96,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
 
   const textCls = (t: Tab) =>
     `text-sm font-medium whitespace-nowrap transition-colors ${
-      activeTab === t.id ? accent.activeText : 'text-gray-400 hover:text-white'
+      activeTab === t.id ? accent.activeText : 'text-ink-muted hover:text-ink'
     }`;
   const borderCls = (t: Tab) => `border-b-2 ${activeTab === t.id ? accent.activeBorder : 'border-transparent'}`;
 
@@ -132,12 +132,13 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
               onKeyDown={menu ? closeToTrigger : undefined}
             >
               {t.href && !menu && (
-                <Link href={t.href} className={`block px-4 py-2.5 ${borderCls(t)} ${textCls(t)}`}>{t.label}</Link>
+                <Link href={t.href} aria-current={activeTab === t.id ? 'true' : undefined} className={`block px-4 py-2.5 ${borderCls(t)} ${textCls(t)}`}>{t.label}</Link>
               )}
               {t.href && menu && (
                 <div className={`flex items-center ${borderCls(t)}`}>
                   <Link
                     href={t.href}
+                    aria-current={activeTab === t.id ? 'true' : undefined}
                     className={`py-2.5 pl-4 pr-1 ${textCls(t)}`}
                     onClick={e => {
                       // Touch and pen: the first tap opens the menu, the second follows the link.
@@ -165,6 +166,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                 <button
                   type="button"
                   {...trigger}
+                  aria-current={activeTab === t.id ? 'true' : undefined}
                   className={`px-4 py-2.5 inline-flex items-center gap-1 ${borderCls(t)} ${textCls(t)}`}
                   onClick={e => (isOpen ? setOpenTab(null) : open(t.id, e.detail === 0))}
                   onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); open(t.id, true); } }}
