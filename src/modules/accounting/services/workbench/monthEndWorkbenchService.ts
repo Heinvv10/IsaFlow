@@ -11,14 +11,12 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getSalesFigures, sumAging } from './monthEndSalesFigures';
+import { getSalesFigures, getPurchasesFigures } from './monthEndSalesFigures';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { fmtDate } from '@/lib/fmtDate';
-import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { listPayrollRuns } from '@/modules/accounting/services/payroll/payrollRunService';
 import { listAfsDocuments } from '@/modules/accounting/services/afs/afsDocumentService';
-import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 
 export type CardStatus = 'ready' | 'attention' | 'blocked' | 'in_progress' | 'not_started';
 
@@ -106,15 +104,14 @@ async function buildSalesCard(companyId: string, periodEnd: string): Promise<Wor
 }
 
 async function buildPurchasesCard(companyId: string, periodEnd: string): Promise<WorkbenchCard> {
-  const buckets = await getAPAging(companyId, periodEnd);
-  const { total, overdue } = sumAging(buckets);
+  const { total, overdue, customers: suppliers } = await getPurchasesFigures(companyId, periodEnd);
   const status: CardStatus = overdue > 0 ? 'attention' : total > 0 ? 'in_progress' : 'ready';
   return {
     id: 'purchases',
     title: 'Supplier Bills & Payments',
     status,
     primary: `${fmtR(overdue)} overdue`,
-    secondary: `${fmtR(total)} outstanding · ${buckets.length} suppliers`,
+    secondary: `${fmtR(total)} outstanding · ${suppliers} suppliers`,
     href: '/accounting/ap-aging',
   };
 }

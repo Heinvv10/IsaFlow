@@ -11,6 +11,7 @@
  * cannot answer, so it is the aged debtors report rewound to the period end.
  */
 
+import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
 import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
@@ -41,4 +42,15 @@ export async function getSalesFigures(companyId: string, periodEnd: string): Pro
   if (!open) return { ...sumAging(buckets), customers: buckets.length };
   const summary = await getAROutstandingSummary(companyId);
   return { overdue: summary.overdueAmount, total: summary.outstanding, customers: buckets.length };
+}
+
+/**
+ * Supplier side. No shared AP aggregate exists, so an open period reads the
+ * aged creditors report as at TODAY (never the future period end); a closed
+ * period reads it rewound to its end.
+ */
+export async function getPurchasesFigures(companyId: string, periodEnd: string): Promise<SalesFigures> {
+  const today = asAtTodayStr();
+  const buckets = await getAPAging(companyId, periodEnd >= today ? today : periodEnd);
+  return { ...sumAging(buckets), customers: buckets.length };
 }
