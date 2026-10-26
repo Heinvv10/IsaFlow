@@ -251,6 +251,12 @@ describe('edges the table implies', () => {
   it('Delete never clears the FY total column (it is derived from the months)', () => {
     const r = run(at(1, 12, { anchor: { r: 1, c: 11 } }), key('Delete'));
     expect(r.effects).toEqual([{ type: 'clear', cells: [{ r: 1, c: 11 }] }]);
-    expect(run(at(1, 12), key('Delete')).effects[0]).toMatchObject({ type: 'announce' });
+    expect(run(at(1, 12), key('Delete')).effects)
+      .toEqual([{ type: 'announce', message: 'The FY total is the sum of the months: clear the months.' }]);
+  });
+
+  it('a read-only cell with no stated reason announces "Read-only"', () => {
+    const ctx = { ...CTX, isEditable: () => false, readReason: () => null };
+    expect(gridReducer(at(1, 0), key('5'), ctx).effects).toEqual([{ type: 'announce', message: 'Read-only' }]);
   });
 });

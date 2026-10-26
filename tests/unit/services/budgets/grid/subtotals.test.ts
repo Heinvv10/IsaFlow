@@ -90,6 +90,11 @@ describe('foldBands', () => {
     expect(deriveTotals(bandSums(rows, valueOf, 3), 3)).toEqual(t);
   });
 
+  it('a row with fewer values than months counts the missing months as zero', () => {
+    const short = [{ band: 'turnover' as Band, months: [100] }];
+    expect(foldBands(short, r => r.months, 3).months.turnover).toEqual([100, 0, 0]);
+  });
+
   it('an empty grid is all zeros', () => {
     expect(foldBands([], valueOf, 2).months.netProfit).toEqual([0, 0]);
   });

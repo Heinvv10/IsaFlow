@@ -93,14 +93,16 @@ export function resolveView(input: PivotInput, view: View, grains = accountGrain
   return out;
 }
 
-/** FY profit contribution per member of `dim` (for the member picker): Σ sign(account) × amount. */
+/** FY profit contribution per member of `dim` (for the member picker): Σ sign(account) × amount over `months`. */
 export function memberTotals(
-  cells: ReadonlyMap<CellKey, number | null>, dim: Dimension, signOf: (accountId: string) => number,
+  cells: ReadonlyMap<CellKey, number | null>, months: readonly string[], dim: Dimension, signOf: (accountId: string) => number,
 ): Map<string, number> {
+  const inYear = new Set(months);
   const out = new Map<string, number>();
   for (const [key, v] of cells) {
     if (v === null) continue;
     const ref = parseKey(key);
+    if (!inYear.has(ref.month)) continue;
     const member = dimId(ref, dim);
     if (member === null) continue;
     out.set(member, (out.get(member) ?? 0) + signOf(ref.glAccountId) * v);

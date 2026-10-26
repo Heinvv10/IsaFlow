@@ -36,8 +36,9 @@ const cells = new Map<string, number | null>([
   [cell(MULTI_DIM, '2027-03', { cc2Id: M1, buId: 'bu-1' }), 30],
   [cell(CC2, '2027-05', { cc2Id: M2 }), 7],
   [cell(BU, '2027-04', { buId: 'bu-2' }), 9],
-  // A month outside the year is not in any view.
+  // A month outside the year is not in any view, nor in a roll-up.
   [cell(CO, '2030-01'), 999],
+  [cell(CC1, '2030-01', { cc1Id: M1 }), 999],
 ]);
 const input: PivotInput = { accountIds: [NONE, CO, CC1, CC2, BU, MIXED, TWO_GRAINS, MULTI_DIM], months: MONTHS, cells };
 const company: View = { kind: 'company' };
@@ -62,6 +63,7 @@ describe('resolveView: Company', () => {
 
   it('a CC1-grain account is a read-only roll-up of its members', () => {
     expect(v.get(CC1)).toEqual({ values: [350, -50, null], editable: false, readReason: 'Roll-up of CC1, switch view to edit' });
+    expect(v.get(CC1)?.values).toHaveLength(MONTHS.length);
   });
 
   it('cc2 / bu grain are read-only roll-ups; a mixed grain says edit via Excel', () => {
@@ -129,13 +131,13 @@ describe('viewCellKey / memberTotals', () => {
 
   it('member totals per CC2 and per BU read their own dimension', () => {
     const plus = () => 1;
-    expect(Object.fromEntries(memberTotals(cells, 'cc2', plus))).toEqual({ [M1]: 100, [M2]: 7 });
-    expect(Object.fromEntries(memberTotals(cells, 'bu', plus))).toEqual({ 'bu-1': 37, 'bu-2': 9 });
+    expect(Object.fromEntries(memberTotals(cells, MONTHS, 'cc2', plus))).toEqual({ [M1]: 100, [M2]: 7 });
+    expect(Object.fromEntries(memberTotals(cells, MONTHS, 'bu', plus))).toEqual({ 'bu-1': 37, 'bu-2': 9 });
   });
 
   it('member totals are signed by the account band (income +, expense −)', () => {
     const sign = (id: string) => (id === CC1 ? 1 : -1);
     // M1: CC1's 100, less the expense accounts' CC1 cells (mixed 2, two-grains 20).
-    expect(Object.fromEntries(memberTotals(cells, 'cc1', sign))).toEqual({ [M1]: 78, [M2]: 200 });
+    expect(Object.fromEntries(memberTotals(cells, MONTHS, 'cc1', sign))).toEqual({ [M1]: 78, [M2]: 200 });
   });
 });
