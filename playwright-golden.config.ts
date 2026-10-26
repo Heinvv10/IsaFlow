@@ -22,7 +22,7 @@ export default defineConfig({
   // The theme specs (o-theme-contrast, o2-theme-behaviour) and q2-top-nav-axe are the same kind of gate: axe on dev data, and a red
   // contrast run against production must not roll a deploy back. s-shell-cls-mobile measures layout shift, which depends on the
   // machine and the data, and loads the theme helpers (axe) for its screenshots.
-  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? /(^|\/)(n-a11y-main-screens|o-theme-contrast|o2-theme-behaviour|t-report-filter-dates|q2-top-nav-axe|s-shell-cls-mobile)\.spec\.ts$/ : undefined,
+  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? /(^|\/)(n-a11y-main-screens|o-theme-contrast|o2-theme-behaviour|t-report-filter-dates|q2-top-nav-axe|o3-banner-titles|s-shell-cls-mobile)\.spec\.ts$/ : undefined,
   globalSetup: './tests/e2e/golden-paths/_global-setup.ts',
   timeout: 90_000,
   retries: 0,

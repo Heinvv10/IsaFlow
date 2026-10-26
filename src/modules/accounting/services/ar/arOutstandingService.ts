@@ -60,7 +60,8 @@ export function arOverdueFragment(asAtStr: string, companyId: string) {
   )`;
 }
 
-export async function getAROutstandingSummary(companyId: string): Promise<AROutstandingSummary> {
+/** The summary plus the customers behind it, from the one pass over the ledger-as-at walk. */
+export async function getAROutstandingWithDebtors(companyId: string): Promise<AROutstandingSummary & { debtorCount: number }> {
   const asAtStr = asAtTodayStr();
   const overdue = arOverdueFragment(asAtStr, companyId);
   const rows = (await sql`
@@ -70,19 +71,28 @@ export async function getAROutstandingSummary(companyId: string): Promise<AROuts
       COALESCE(SUM(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))
         FILTER (WHERE ${overdue}), 0) AS overdue_amount,
       COALESCE(SUM(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))
-        FILTER (WHERE ci.deleted_at IS NOT NULL), 0) AS on_deleted_amount
+        FILTER (WHERE ci.deleted_at IS NOT NULL), 0) AS on_deleted_amount,
+      -- Customers with a positive balance a collector can chase: soft-deleted invoices are not chased.
+      COUNT(DISTINCT COALESCE(ci.client_id, ci.customer_id))
+        FILTER (WHERE ci.deleted_at IS NULL AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0) AS debtor_count
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}
       AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
       AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-  `) as { outstanding: string; overdue_count: string; overdue_amount: string; on_deleted_amount: string }[];
+  `) as { outstanding: string; overdue_count: string; overdue_amount: string; on_deleted_amount: string; debtor_count: string }[];
   const r = rows[0];
   return {
     outstanding: Number(r?.outstanding ?? 0),
     overdueCount: Number(r?.overdue_count ?? 0),
     overdueAmount: Number(r?.overdue_amount ?? 0),
     onDeletedAmount: Number(r?.on_deleted_amount ?? 0),
+    debtorCount: Number(r?.debtor_count ?? 0),
   };
+}
+
+export async function getAROutstandingSummary(companyId: string): Promise<AROutstandingSummary> {
+  const { debtorCount: _debtors, ...summary } = await getAROutstandingWithDebtors(companyId);
+  return summary;
 }
 
 /** The `limit` oldest overdue invoices: the same population overdueCount counts. */

@@ -24,8 +24,10 @@ describe('resolveBudgetWindow with a chosen year', () => {
     }
   });
 
-  it('year to date runs from the year\'s start to today inside the year', async () => {
-    expect((await resolveBudgetWindow('c', 'ytd', at(2026, 10, 23), YEAR)).endDate).toBe('2026-10-23');
+  it('year to date runs from the year\'s start to the end of today\'s month inside the year', async () => {
+    // Budgets are whole months, so the actuals run to the same month end (decision 17).
+    expect((await resolveBudgetWindow('c', 'ytd', at(2026, 10, 23), YEAR)).endDate).toBe('2026-10-31');
+    expect((await resolveBudgetWindow('c', 'ytd', at(2027, 2, 3), YEAR)).endDate).toBe('2027-02-28');
   });
 
   it('year to date of a finished year ends with the year', async () => {
