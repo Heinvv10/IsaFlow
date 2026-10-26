@@ -106,9 +106,10 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   };
 
   // Focus leaving the tab and its panel closes the menu (Tab past the last entry).
-  const closeOnFocusOut = (e: ReactFocusEvent<HTMLElement>) => {
+  // Closes only this tab's own menu: another tab may have been opened since (hover) while focus sat here.
+  const closeOnFocusOut = (id: string) => (e: ReactFocusEvent<HTMLElement>) => {
     const next = e.relatedTarget as Node | null;
-    if (next && !e.currentTarget.contains(next)) setOpenTab(null);
+    if (next && !e.currentTarget.contains(next)) setOpenTab(cur => (cur === id ? null : cur));
   };
 
   const closeToTrigger = (e: ReactKeyboardEvent<HTMLElement>) => {
@@ -155,7 +156,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
               onPointerLeave={menu ? e => { if (isHoverPointer(e)) delayedClose(); } : undefined}
               onKeyDownCapture={() => { lastPointer.current = ''; }}
               onKeyDown={menu ? closeToTrigger : undefined}
-              onBlur={menu ? closeOnFocusOut : undefined}
+              onBlur={menu ? closeOnFocusOut(t.id) : undefined}
             >
               {t.href && !menu && (
                 <Link href={t.href} aria-current={activeTab === t.id ? 'true' : undefined} className={`block px-4 py-2.5 ${borderCls(t)} ${textCls(t)}`}>{t.label}</Link>

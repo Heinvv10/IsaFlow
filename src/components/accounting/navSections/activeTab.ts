@@ -216,6 +216,13 @@ function splitHref(url: string): [string, string] {
 }
 
 /**
+ * Links that own only their exact path: matching every sub-path would claim unrelated pages (/accounting is the
+ * Dashboard; /accounting/sars is the calendar, and its sub-pages are other links or, for a non-vendor, hidden ones).
+ * Shared by the menu highlight and navIndex so the two cannot disagree.
+ */
+export const EXACT_ONLY_PATHS: ReadonlySet<string> = new Set(['/accounting', '/accounting/sars']);
+
+/**
  * Of a set of sibling links, the one that is active for `asPath`: the longest
  * matching path wins, so /bank-reconciliation/import lights only "Import
  * Statement", not "Reconcile" as well. Null when none match.
@@ -223,9 +230,11 @@ function splitHref(url: string): [string, string] {
 export function mostSpecificActiveHref(hrefs: string[], asPath: string): string | null {
   let best: string | null = null;
   let bestScore: [number, number] = [-1, -1];
+  const [pagePath] = splitHref(asPath);
   for (const href of hrefs) {
     if (!pathMatchesHref(href, asPath)) continue;
     const [itemPath, qs] = splitHref(href);
+    if (EXACT_ONLY_PATHS.has(itemPath) && pagePath !== itemPath) continue;
     // More path segments win; among equals the longer query wins. A link with
     // no query scores 0, so any `?tab=` link on the same path beats it.
     const score: [number, number] = [itemPath.split('/').length, qs.length];

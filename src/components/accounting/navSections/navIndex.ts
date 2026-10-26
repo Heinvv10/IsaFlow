@@ -12,7 +12,7 @@
  */
 import { isFlyout, type NavItem, type Tab } from './types';
 import { stripVatNav } from './vatNav';
-import { mostSpecificActiveHref } from './activeTab';
+import { mostSpecificActiveHref, EXACT_ONLY_PATHS } from './activeTab';
 
 export interface NavIndexEntry {
   href: string;
@@ -65,12 +65,6 @@ export function buildNavIndex(tabs: Tab[], isVatRegistered: boolean): NavIndexEn
 }
 
 /**
- * Hrefs that own only their exact path: matching every sub-path would claim unrelated pages
- * (/accounting is the Dashboard, /accounting/sars the calendar; its sub-pages have their own entries).
- */
-const EXACT_ONLY = new Set(['/accounting', '/accounting/sars']);
-
-/**
  * The entry whose href is the most specific owner of `asPath`, or null. An exact-only entry does not own a page
  * that selects its own sub-view with `?tab=` (the dashboard's Reports tab is not the Dashboard), and a settings
  * link into a `?tab=` view never owns a page: `company-settings?tab=general` is not "Banking".
@@ -81,7 +75,7 @@ export function trailForPath(asPath: string, index: NavIndexEntry[]): NavIndexEn
   const hasTab = new URLSearchParams(query).has('tab');
   const candidates = index.filter((e) => {
     if (e.isSetting && e.href.includes('?')) return false;
-    return !EXACT_ONLY.has(e.href) || (pagePath === e.href && !hasTab);
+    return !EXACT_ONLY_PATHS.has(e.href) || (pagePath === e.href && !hasTab);
   });
   const best = mostSpecificActiveHref(candidates.map((e) => e.href), asPath);
   return best === null ? null : (candidates.find((e) => e.href === best) ?? null);
