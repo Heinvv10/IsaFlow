@@ -147,7 +147,7 @@ describe('every chart this repo draws still renders', () => {
       { id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900_000 },
       { id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 130_000 },
     ],
-    { '1000': 1_000_000, '6000': 120_000 },
+    { a: 1_000_000, b: 120_000 },
   );
   const REPORT: CashFlowReport = {
     period_start: '2026-01-01', period_end: '2026-08-31', opening_cash: 200_000,
