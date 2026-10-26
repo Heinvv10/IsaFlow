@@ -38,9 +38,8 @@ afterAll(async () => {
         await pool.query(`DELETE FROM ${t} WHERE company_id = $1`, [id]);
       }
       await pool.query('UPDATE fiscal_years SET change_id = NULL WHERE company_id = $1', [id]);
-      await pool.query('DELETE FROM fiscal_year_end_changes WHERE company_id = $1', [id]);
+      // A change of year end refuses DELETE while its company exists (943): the company delete cascades it.
       await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [id]);
-      await pool.query('DELETE FROM fiscal_years WHERE company_id = $1', [id]);
       await pool.query('DELETE FROM companies WHERE id = $1', [id]);
     }
     await pool.query('DELETE FROM users WHERE id = $1', [user]);

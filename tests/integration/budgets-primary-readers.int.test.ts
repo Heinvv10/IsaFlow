@@ -83,7 +83,8 @@ async function converted(fn: (c: PoolClient, golden: Figures) => Promise<void>):
       page2027: [['PR-4000', await sum(sales, '2026-03-01', '2027-02-01')], ['PR-5000', await sum(rent, '2026-03-01', '2027-02-01')]],
       window2027: { rent: await sum(rent, '2026-03-01', '2027-02-01'), sales: await sum(sales, '2026-03-01', '2027-02-01') },
       across: { rent: await sum(rent, '2026-09-01', '2027-08-01'), sales: await sum(sales, '2026-09-01', '2027-08-01') },
-      variance: [await sum(rent, '2026-03-01', '2027-02-01') + await sum(sales, '2026-03-01', '2027-02-01'), 2],
+      // The report's total is net profit (P0 #875): revenue less expense.
+      variance: [await sum(sales, '2026-03-01', '2027-02-01') - await sum(rent, '2026-03-01', '2027-02-01'), 2],
     };
     await c.query('SELECT public.budget_versions_from_months($1)', [co]);
     await c.query('ALTER TABLE budget_month_amounts ALTER COLUMN version_id SET NOT NULL');
