@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { CaptureApiKeysSection } from '@/components/accounting/capture/CaptureApiKeysSection';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface InboxAddress { id: string; address: string }
 interface ChaseSettings { chaseAutoSendEnabled: boolean; chaseGraceDays: number; whatsappChaseEnabled: boolean }
@@ -30,6 +31,7 @@ function SectionCard({ children, title }: { children: React.ReactNode; title: st
 
 export default function CaptureSettingsPage() {
   const [inboxAddr, setInboxAddr] = useState<InboxAddress | null>(null);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
   const [confirmRegen, setConfirmRegen] = useState(false);
@@ -82,7 +84,7 @@ export default function CaptureSettingsPage() {
     try {
       await navigator.clipboard.writeText(inboxAddr.address);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      afterDelay(() => setCopied(false), 2000);
     } catch (err) {
       log.warn('Copying the inbox address failed', { error: err }, 'capture-settings');
       showToast('Could not copy the address - select it and copy it by hand', false);
