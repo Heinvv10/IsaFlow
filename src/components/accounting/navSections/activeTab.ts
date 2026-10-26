@@ -1,11 +1,17 @@
 /**
- * Route → tab id resolver for the Option B 9-menu spine.
+ * Route → tab id resolver for the top nav.
  *
- * Tabs: dashboard · sales · purchases · inventory · banking ·
- *       accounting · reports · tax · payroll · (settings — cog only)
+ * Tabs: dashboard · sales · purchases · banking · payroll · tax · reports ·
+ *       month-end · portfolio · library (settings — cog only)
  *
- * getActiveModuleId returns the raw module id; getActiveTabId collapses
- * demoted modules → 'library'.
+ * getActiveModuleId returns the raw module id; getActiveTabId collapses the
+ * library-only modules (inventory, accounting, practice) → 'library'.
+ *
+ * NOTE on getActiveModuleId: the `startsWith('/accounting/customer-')` style
+ * prefixes below are deliberate. They claim a FAMILY of sibling routes
+ * (customer-invoices, customer-quotes, ...) that no single path segment names,
+ * so they must stay raw prefixes. Nav LINK matching is different: use
+ * pathMatchesHref, which respects segment boundaries.
  */
 
 /** Raw module-id resolver — the active module without Library collapsing. */
@@ -158,11 +164,17 @@ export function getActiveModuleId(
   return 'dashboard';
 }
 
-export const DEMOTED_MODULE_IDS = new Set([
-  'sales', 'purchases', 'inventory', 'accounting', 'reports', 'tax', 'payroll', 'practice',
+/** Modules with their own top tab and hover menu. */
+export const PROMOTED_MODULE_IDS: ReadonlySet<string> = new Set([
+  'sales', 'purchases', 'payroll', 'tax', 'reports',
 ]);
 
-/** Top-bar resolver: demoted modules collapse onto the Library tab. */
+/** Modules reachable only through the Library tab. */
+export const LIBRARY_ONLY_IDS: ReadonlySet<string> = new Set([
+  'inventory', 'accounting', 'practice',
+]);
+
+/** Top-bar resolver: promoted modules keep their id; library-only modules collapse onto Library. */
 export function getActiveTabId(
   pathname: string,
   query: Record<string, string | string[] | undefined>,
@@ -171,7 +183,36 @@ export function getActiveTabId(
   if (pathname.startsWith('/accounting/portfolio-workbench')) return 'portfolio';
   if (pathname.startsWith('/accounting/month-end-workbench')) return 'workbench';
   const id = getActiveModuleId(pathname, query);
-  return DEMOTED_MODULE_IDS.has(id) ? 'library' : id;
+  return LIBRARY_ONLY_IDS.has(id) ? 'library' : id;
+}
+
+/**
+ * Does a nav link `href` own the page at `asPath`?
+ *
+ * - `#fragment` is ignored on both sides, then the query is split off.
+ * - The path matches itself or a child on a segment boundary, so `/a/b`
+ *   claims `/a/b/c` but not `/a/bc`.
+ * - The href's query must be a SUBSET of the page's, compared as parsed
+ *   params (`tab=general` does not match `tab=generalx`).
+ */
+export function pathMatchesHref(href: string, asPath: string): boolean {
+  const [hrefPath, hrefQuery] = splitHref(href);
+  const [pagePath, pageQuery] = splitHref(asPath);
+  const itemPath = hrefPath.length > 1 ? hrefPath.replace(/\/+$/, '') : hrefPath;
+  if (pagePath !== itemPath && !pagePath.startsWith(`${itemPath}/`)) return false;
+  if (!hrefQuery) return true;
+  const want = new URLSearchParams(hrefQuery);
+  const have = new URLSearchParams(pageQuery);
+  for (const [key, value] of want) {
+    if (!have.getAll(key).includes(value)) return false;
+  }
+  return true;
+}
+
+function splitHref(url: string): [string, string] {
+  const noFragment = url.split('#')[0] as string;
+  const q = noFragment.indexOf('?');
+  return q === -1 ? [noFragment, ''] : [noFragment.slice(0, q), noFragment.slice(q + 1)];
 }
 
 /**
@@ -180,17 +221,14 @@ export function getActiveTabId(
  * Statement", not "Reconcile" as well. Null when none match.
  */
 export function mostSpecificActiveHref(hrefs: string[], asPath: string): string | null {
-  const asPathOnly = asPath.split('?')[0]!;
   let best: string | null = null;
   let bestScore: [number, number] = [-1, -1];
   for (const href of hrefs) {
-    if (!isLinkActive(href, asPath)) continue;
-    const [itemPath, qs] = href.split('?') as [string, string | undefined];
-    // A link is a sibling candidate only on a segment boundary: /a/b must not claim /a/bc.
-    if (asPathOnly !== itemPath && !asPathOnly.startsWith(`${itemPath}/`)) continue;
+    if (!pathMatchesHref(href, asPath)) continue;
+    const [itemPath, qs] = splitHref(href);
     // More path segments win; among equals the longer query wins. A link with
-    // no query scores 0 (an empty `?` is falsy), so any `?tab=` link on the same path beats it.
-    const score: [number, number] = [itemPath.split('/').length, qs ? qs.length : 0];
+    // no query scores 0, so any `?tab=` link on the same path beats it.
+    const score: [number, number] = [itemPath.split('/').length, qs.length];
     if (score[0] > bestScore[0] || (score[0] === bestScore[0] && score[1] > bestScore[1])) {
       best = href;
       bestScore = score;
@@ -206,8 +244,5 @@ export function activeHrefAmong(items: Array<{ href: string } | { section: strin
 }
 
 export function isLinkActive(href: string, asPath: string): boolean {
-  const parts = href.split('?');
-  const itemPath = parts[0] as string;
-  const qs = parts[1];
-  return asPath.startsWith(itemPath) && (!qs || asPath.includes(qs));
+  return pathMatchesHref(href, asPath);
 }

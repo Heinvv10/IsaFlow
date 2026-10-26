@@ -6,7 +6,7 @@
  * is "active" when any of its (possibly nested) links matches the current path.
  */
 import { isFlyout, type Tab, type NavItem } from './types';
-import { isLinkActive } from './activeTab';
+import { pathMatchesHref } from './activeTab';
 
 import { salesTab } from './sales';
 import { purchasesTab } from './purchases';
@@ -35,13 +35,13 @@ export function moduleSectionsToTabs(moduleTab: Tab): Tab[] {
 
 function anyLinkActive(items: NavItem[], asPath: string): boolean {
   return items.some((item) =>
-    isFlyout(item) ? anyLinkActive(item.items, asPath) : isLinkActive(item.href, asPath),
+    isFlyout(item) ? anyLinkActive(item.items, asPath) : pathMatchesHref(item.href, asPath),
   );
 }
 
 /** A section tab is active when one of its nested links matches the path. */
 export function isSectionActive(sectionTab: Tab, asPath: string): boolean {
-  if (sectionTab.href) return isLinkActive(sectionTab.href, asPath);
+  if (sectionTab.href) return pathMatchesHref(sectionTab.href, asPath);
   return anyLinkActive(sectionTab.items ?? [], asPath);
 }
 

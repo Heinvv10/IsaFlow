@@ -20,14 +20,22 @@ describe('getActiveModuleId (unchanged route mapping)', () => {
 });
 
 describe('getActiveTabId (top-bar wrapper)', () => {
-  it('collapses demoted modules to "library"', () => {
-    expect(getActiveTabId('/accounting/customers', q)).toBe('library');
+  it('returns the module id for the promoted modules', () => {
+    expect(getActiveTabId('/accounting/customers', q)).toBe('sales');
+    expect(getActiveTabId('/accounting/customer-invoices/new', q)).toBe('sales');
+    expect(getActiveTabId('/accounting/suppliers', q)).toBe('purchases');
+    expect(getActiveTabId('/payroll', q)).toBe('payroll');
+    expect(getActiveTabId('/payroll/runs/123', q)).toBe('payroll');
+    expect(getActiveTabId('/accounting/sars/vat201', q)).toBe('tax');
+    expect(getActiveTabId('/accounting/reports/income-statement', q)).toBe('reports');
+  });
+  it('collapses the library-only modules to "library"', () => {
+    expect(getActiveTabId('/accounting/items', q)).toBe('library');
     expect(getActiveTabId('/accounting/chart-of-accounts', q)).toBe('library');
-    expect(getActiveTabId('/payroll', q)).toBe('library');
     expect(getActiveTabId('/accounting/practice/clients', q)).toBe('library');
     expect(getActiveTabId('/accounting/library', q)).toBe('library');
   });
-  it('passes through promoted + non-module ids unchanged', () => {
+  it('passes through non-module ids unchanged', () => {
     expect(getActiveTabId('/accounting', q)).toBe('dashboard');
     expect(getActiveTabId('/accounting/portfolio-workbench', q)).toBe('portfolio');
     expect(getActiveTabId('/accounting/month-end-workbench', q)).toBe('workbench');
