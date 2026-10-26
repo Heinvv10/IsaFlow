@@ -17,7 +17,9 @@
  */
 
 import { sql } from '@/lib/neon';
-import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, isSubjectToLeafRule } from './isReportVisibleLeaf';
+import {
+  BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, hasChildAccounts, isSubjectToLeafRule,
+} from './isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from './glAccountLock';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
 import { holderAsParentRefusal, roleBarringChildren } from './roleTargetRules';
@@ -123,28 +125,14 @@ export async function assertParentUsable(
     // MCP bearer pipeline) — every production caller of `createAccount` and
     // `reclassifyAccount` runs inside one.
     await lockGlAccountsForUpdate(companyId, [parentId]);
-    // `company_id` is LOAD-BEARING, not habit. Until migration 664 a journal
-    // line could name this company's account while carrying another company's
-    // `company_id` — `POST /api/accounting/journal-entries` wrote exactly that
-    // — and rows from before it still can. `balanceSheetService` filters
-    // `jl.company_id`, `ga.company_id` AND `je.company_id`, so such a line is
-    // invisible to the report this guard protects; reading it here would refuse
-    // a chart edit that loses nothing. Guard and reader must agree, and
-    // `k051-cross-company-journal-line.int.test.ts` is what pins that.
-    const posted = (await sql`
-      SELECT 1 FROM gl_journal_lines
-       WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID
-       LIMIT 1
-    `) as unknown[];
-    if (posted.length > 0) {
-      throw new ParentAccountError(
-        `Parent ${parent.account_code} is a level-${parent.level} ${parent.account_type} ` +
-          'account with journal lines posted to it. Giving it a child would turn it into a ' +
-          'header, and the balance sheet and the trend report select an account only when its ' +
-          'level is 3 or higher or it has no children — its own balance would disappear from ' +
-          'both.',
-      );
-    }
+    // ALREADY A HEADER: a parent with a child is off both reports already, so
+    // another child hides nothing new (VF's paycard umbrella, 2026-10-26: 40
+    // children, and every further paycard was refused). The read is settled:
+    // every writer that can take a child AWAY (reclassifyAccount, the bank
+    // grouping PUT, an account merge) takes the role-write lock first, as this
+    // function did above, so "the last child leaves" and "a new child arrives"
+    // serialise — header-account-already-header.int.test.ts (c).
+    if (!(await hasChildAccounts(companyId, parentId))) await assertNoPostedLines(companyId, parent);
   }
 
   const childLevel = Number(parent.level) + 1;
@@ -155,6 +143,34 @@ export async function assertParentUsable(
     );
   }
   return { childLevel };
+}
+
+/** Refuses a childless level 1-2 parent with lines: a child would make it a header the reports drop. */
+async function assertNoPostedLines(
+  companyId: string, parent: { id: string; account_code: string; account_type: string; level: number },
+): Promise<void> {
+  // `company_id` is LOAD-BEARING, not habit. Until migration 664 a journal
+  // line could name this company's account while carrying another company's
+  // `company_id` — `POST /api/accounting/journal-entries` wrote exactly that
+  // — and rows from before it still can. `balanceSheetService` filters
+  // `jl.company_id`, `ga.company_id` AND `je.company_id`, so such a line is
+  // invisible to the report this guard protects; reading it here would refuse
+  // a chart edit that loses nothing. Guard and reader must agree, and
+  // `k051-cross-company-journal-line.int.test.ts` is what pins that.
+  const posted = (await sql`
+    SELECT 1 FROM gl_journal_lines
+     WHERE gl_account_id = ${parent.id}::UUID AND company_id = ${companyId}::UUID
+     LIMIT 1
+  `) as unknown[];
+  if (posted.length > 0) {
+    throw new ParentAccountError(
+      `Parent ${parent.account_code} is a level-${parent.level} ${parent.account_type} ` +
+        'account with journal lines posted to it. Giving it a child would turn it into a ' +
+        'header, and the balance sheet and the trend report select an account only when its ' +
+        'level is 3 or higher or it has no children — its own balance would disappear from ' +
+        'both.',
+    );
+  }
 }
 
 /**
