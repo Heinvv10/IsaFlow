@@ -5,10 +5,11 @@
  * residue, negative months kept). Sources: prior-year actuals, another version (same year, or
  * another by month position), or blank. Series building is seedSeries.ts.
  *
- * Writer rules (module notes): the year registry is held first; nothing is written until every
- * input is checked and every amount computed (a 4xx is committed by withAuth); the writes then
- * run in one savepoint, so a refusal after the version insert (a name clash, a grain clash, the
- * lock trigger) rolls the version back with it. A same-year copy at 0% is P1's `copyVersion`
+ * Writer rules (module notes): the year registry is held first, then every version row lock the
+ * seed needs, in one ordered statement (`lockSeedVersions`), before the source is read; nothing
+ * is written until every input is checked and every amount computed (a 4xx is committed by
+ * withAuth); the writes then run in one savepoint, so a refusal after the version insert (a name
+ * clash, a grain clash, the lock trigger) rolls the version back with it. A same-year copy at 0% is P1's `copyVersion`
  * (exact: cents and dimensions kept, no rounding). Audit: createVersion/copyVersion write the
  * version's row; a seed that inserts amounts adds one more with the source and the totals.
  * `makePrimary` is owner/admin, checked before any write (P1's `setPrimary` checks it again).
@@ -20,10 +21,11 @@ import { monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { copyVersion, createVersion, getVersion, parseVersionInput, setPrimary, type VersionActor } from './budgetVersions';
 import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
+import { inputError } from './gridErrors';
 import { ROUNDING_UNITS, type RoundingUnit } from './grid/cents';
 import { uplift } from './grid/spread';
 import type { PriorGrain } from './priorActuals';
-import { holdSourceVersion, loadSeedAccounts, pySeries, versionSeries, type SeedSeries, type UnassignedRule } from './seedSeries';
+import { loadSeedAccounts, lockSeedVersions, pySeries, versionSeries, type SeedSeries, type UnassignedRule } from './seedSeries';
 
 export type SeedSource =
   | { type: 'py_actuals'; upliftPct: number; grain: PriorGrain; unassigned?: UnassignedRule }
@@ -51,7 +53,6 @@ export interface SeedResult {
 }
 
 const APPROVERS = new Set(['owner', 'admin']);
-const input400 = (message: string) => new BudgetVersionError('BUDGET_VERSION_INPUT', message);
 
 interface SeedCell { series: SeedSeries; position: number; cents: number }
 
@@ -60,7 +61,7 @@ function upliftAll(series: readonly SeedSeries[], pct: number, unit: RoundingUni
   const cells: SeedCell[] = [];
   for (const s of series) {
     const result = uplift(s.cents, pct, unit);
-    if (!result.ok) throw input400(`Account ${labels.get(s.glAccountId) ?? s.glAccountId}: ${result.reason}`);
+    if (!result.ok) throw inputError(`Account ${labels.get(s.glAccountId) ?? s.glAccountId}: ${result.reason}`);
     result.months.forEach((cents, i) => cells.push({ series: s, position: s.positions[i]!, cents }));
   }
   return cells;
@@ -87,15 +88,15 @@ interface Plan {
   months: string[];
 }
 
-/** Reads and computes everything; writes nothing. */
-async function plan(companyId: string, input: SeedInput): Promise<Plan> {
+/** Reads and computes everything; writes nothing. `sourceYear`: the locked source version's year label. */
+async function plan(companyId: string, input: SeedInput, sourceYear: number | null): Promise<Plan> {
   const year = await getFiscalYear(companyId, input.fiscalYear);
-  if (!year) throw input400(`No financial year is labelled ${input.fiscalYear}`);
+  if (!year) throw inputError(`No financial year is labelled ${input.fiscalYear}`);
   const months = toBudgetYearInfo(year).monthKeys;
   const { source } = input;
   if (source.type === 'blank') return { cells: [], copyOf: null, skipped: 0, months };
   if (!Number.isFinite(source.upliftPct) || source.upliftPct < -100 || source.upliftPct > 1000) {
-    throw input400('The uplift must be between -100% and 1000%');
+    throw inputError('The uplift must be between -100% and 1000%');
   }
   const accounts = await loadSeedAccounts(companyId);
   const labels = new Map([...accounts].map(([id, a]) => [id, a.label]));
@@ -105,10 +106,9 @@ async function plan(companyId: string, input: SeedInput): Promise<Plan> {
     });
     return { cells: upliftAll(series, source.upliftPct, input.roundingUnit, labels), copyOf: null, skipped, months };
   }
-  const from = await getVersion(companyId, source.versionId);
-  if (from.fiscalYear === input.fiscalYear && source.upliftPct === 0) return { cells: null, copyOf: from.id, skipped: 0, months };
-  await holdSourceVersion(companyId, from.id);
-  const series = await versionSeries(companyId, from.id, from.fiscalYear, months.length);
+  if (sourceYear === null) throw new Error('seedVersion: the source version was not locked');
+  if (sourceYear === input.fiscalYear && source.upliftPct === 0) return { cells: null, copyOf: source.versionId, skipped: 0, months };
+  const series = await versionSeries(companyId, source.versionId, sourceYear, months.length);
   return { cells: upliftAll(series, source.upliftPct, input.roundingUnit, labels), copyOf: null, skipped: 0, months };
 }
 
@@ -144,14 +144,26 @@ async function write(companyId: string, actor: VersionActor, input: SeedInput, p
 export async function seedVersion(companyId: string, actor: VersionActor, input: SeedInput): Promise<SeedResult> {
   await holdYearRegistry(companyId);
   const { name, kind } = parseVersionInput(input.name, input.kind);
-  if (!(ROUNDING_UNITS as readonly number[]).includes(input.roundingUnit)) throw input400('roundingUnit must be 1, 100 or 1000');
+  if (!(ROUNDING_UNITS as readonly number[]).includes(input.roundingUnit)) throw inputError('roundingUnit must be 1, 100 or 1000');
   if (input.makePrimary && !APPROVERS.has(actor.role)) {
     throw new BudgetVersionError('BUDGET_VERSION_FORBIDDEN', 'Only an owner or admin can make a budget version primary');
   }
-  const p = await plan(companyId, input);
+  const { source } = input;
+  // copyVersion (a same-year 0% copy) and setPrimary lock every version of the year: take those now, with the source's.
+  const wholeYear = input.makePrimary || (source.type === 'version' && source.upliftPct === 0);
+  const sourceYear = await lockSeedVersions(companyId, source.type === 'version' ? source.versionId : null, wholeYear ? input.fiscalYear : null);
+  const p = await plan(companyId, input, sourceYear);
   try {
     return await withSavepoint('budget_grid_seed', () => write(companyId, actor, input, p, name, kind));
   } catch (err) {
+    // Two make-primary seeds in a year with no version yet share no row to queue on: the later one
+    // waits on the other's new primary and then breaks the one-primary index. The savepoint has
+    // already taken its version back and left the transaction usable, so this is a clean 409.
+    const e = err as { code?: string; constraint?: string } | null;
+    if (e?.code === '23505' && e.constraint === 'uq_budget_versions_one_primary') {
+      throw new BudgetVersionError('BUDGET_VERSION_STATE',
+        `Another version became primary for FY${input.fiscalYear} at the same time; reload and try again`);
+    }
     return mapBudgetDbError(err);
   }
 }

@@ -3,7 +3,8 @@
  * through withAuth's request transaction. PY actuals +x% and copy-version +x% use the one `uplift`
  * (target = roundToUnit(sum x (1+x)), residue on the last month, negative PY months kept), at
  * company or dimension grain (never two grains for one account), as a draft, in ONE transaction
- * (a fault after the version insert leaves no version), and make-primary only for owner/admin.
+ * (a refusal after the version insert, which withAuth commits as a 4xx, leaves no version: the
+ * savepoint), and make-primary only for owner/admin.
  * Expected figures are worked by hand in the comments, not recomputed with the code under test.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -82,12 +83,14 @@ beforeAll(async () => {
   await fx.journal(B, '2025-04-10', [{ acct: B.acct.sales, credit: 2000, cc1: B.cc1 }]);
   await fx.journal(B, '2025-05-10', [{ acct: B.acct.rent, debit: 300, cc1: B.cc1 }]);
 
-  // The fault: a trigger that raises on the amounts insert of the version named MARKER.
+  // The fault: a trigger that refuses (BV002, answered 409 and so COMMITTED by withAuth) the amounts
+  // insert of the version named MARKER. Dropped first, so a run that died before afterAll does not break this one.
+  await pool.query('DROP TRIGGER IF EXISTS zz_seed_fault ON budget_month_amounts');
   await pool.query(`
     CREATE OR REPLACE FUNCTION budget_seed_fault_fn() RETURNS trigger LANGUAGE plpgsql AS $f$
     BEGIN
       IF EXISTS (SELECT 1 FROM budget_versions v WHERE v.id = NEW.version_id AND v.name = '${MARKER}') THEN
-        RAISE EXCEPTION 'seed fault injected' USING ERRCODE = 'P0001';
+        RAISE EXCEPTION 'seed fault injected' USING ERRCODE = 'BV002';
       END IF;
       RETURN NEW;
     END $f$`);
@@ -158,16 +161,31 @@ describe('POST /api/accounting/budget-grid/seed', () => {
 
   it('copy version +5% in the same FY keeps the months the source has, uplifted with the residue on its last month', async () => {
     const src = await fx.version(A, { name: 'COPY-SRC' });
-    await fx.amount(A, src, A.acct.sales, '2026-03', 1000.5);
-    await fx.amount(A, src, A.acct.sales, '2026-04', 2000);
-    await fx.amount(A, src, A.acct.sales, '2027-02', 500);
+    for (const m of ['2026-03', '2026-04', '2027-02']) await fx.amount(A, src, A.acct.sales, m, 100.5);
     await fx.amount(A, src, A.acct.bank, '2026-03', 77); // a balance-sheet leftover is not carried
     const r = await seed(A, body('COPY5', { type: 'version', versionId: src, upliftPct: 5 }));
     expect(r.status, dump(r)).toBe(200);
-    // 3 months, sum 3500.50 x 1.05 = 3675.525 -> 3676. Mar 1050.525 -> 1051, Apr 2100, last = 3676 - 3151 = 525.
-    expect(await byMonth(out(r).versionId, A.acct.sales)).toEqual({ '2026-03': 1051, '2026-04': 2100, '2027-02': 525 });
+    // 3 months, sum 301.50 x 1.05 = 316.575 -> 317. Each month alone 105.525 -> 106, so rounding each
+    // independently would give 318: Mar 106, Apr 106, last (Feb) = 317 - 212 = 105.
+    expect(await byMonth(out(r).versionId, A.acct.sales)).toEqual({ '2026-03': 106, '2026-04': 106, '2027-02': 105 });
     expect(out(r).cells).toBe(3);
     expect(await versionRow(out(r).versionId)).toMatchObject({ status: 'draft', is_primary: false });
+  });
+
+  it('copy version +10% keeps each dimension series apart, each uplifted on its own', async () => {
+    const src = await fx.version(A, { name: 'COPY-DIM' });
+    await fx.amount(A, src, A.acct.sales, '2026-03', 100.5, { cc1: A.cc1 });
+    await fx.amount(A, src, A.acct.sales, '2026-04', 100.5, { cc1: A.cc1 });
+    await fx.amount(A, src, A.acct.sales, '2026-03', 33.33, { cc1: A.cc1b });
+    await fx.amount(A, src, A.acct.rent, '2026-05', 10, { bu: A.bu });
+    const r = await seed(A, body('COPY-DIM10', { type: 'version', versionId: src, upliftPct: 10 }));
+    expect(r.status, dump(r)).toBe(200);
+    // cc1: 201 x 1.1 = 221.1 -> 221; Mar 110.55 -> 111, last (Apr) = 110. cc1b: 36.663 -> 37. Rent BU: 11.
+    expect((await rows(out(r).versionId)).map((x) => [x.acct, x.m, x.amt, x.cc1_id, x.bu_id])).toEqual(expect.arrayContaining([
+      [A.acct.sales, '2026-03', '111.00', A.cc1, null], [A.acct.sales, '2026-04', '110.00', A.cc1, null],
+      [A.acct.sales, '2026-03', '37.00', A.cc1b, null], [A.acct.rent, '2026-05', '11.00', null, A.bu],
+    ]));
+    expect(out(r).cells).toBe(4);
   });
 
   it('copy version at 0% in the same FY is the exact P1 copy, dimensions and cents included', async () => {
@@ -245,9 +263,9 @@ describe('POST /api/accounting/budget-grid/seed', () => {
     expect(mgr.status, dump(mgr)).toBe(200);
   });
 
-  it('is one transaction: a fault after the version insert leaves no version, no amounts and no audit row', async () => {
+  it('is one savepoint: a 4xx refusal after the version insert leaves no version, no amounts and no audit row', async () => {
     const r = await seed(A, body(MARKER, py(10)));
-    expect(r.status).toBe(500);
+    expect([r.status, code(r)], dump(r)).toEqual([409, 'BUDGET_VERSION_STATE']);
     expect(await countNamed(A, MARKER)).toBe(0);
     const stray = await pool.query(`SELECT COUNT(*) n FROM audit_log WHERE company_id = $1 AND entity_ref LIKE $2`, [A.id, `%${MARKER}%`]);
     expect(Number(stray.rows[0].n)).toBe(0);

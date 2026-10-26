@@ -22,17 +22,16 @@
  * an account budgeted by dimension in the version is a typed grain refusal.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getFiscalYear, type FiscalYearRecord } from '../gl/fiscalYearRegistry';
 import {
   auditBudgetWrite as auditWrite, holdYearRegistry, lockVersionForWrite, readVersion, resolvePrimaryVersion, writeVersion,
 } from '../budgets/budgetVersionScope';
-import { BudgetVersionError } from '../budgets/budgetVersionTypes';
 import { budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { BudgetInputError, resolveMonthAmounts, round2, type BudgetMonthAmount } from './budgetMonths';
-import { budgetAccountCode } from './budgetAccount';
+import { lockBudgetTarget } from './budgetAccount';
 
 export { BudgetInputError, type BudgetMonthAmount } from './budgetMonths';
 
@@ -153,21 +152,15 @@ export async function upsertBudget(
   await holdYearRegistry(companyId);
   const year = await yearMonths(companyId, input.fiscalYear);
   const amounts = resolveMonthAmounts(year.monthKeys, { months: input.months, annualAmount: input.annualAmount });
+  // The account is checked after the version lock, in a savepoint: a refusal (a 4xx withAuth
+  // commits) keeps neither the token bump nor a primary created for this write.
+  return withSavepoint('budget_upsert', () => writeBudget(companyId, input, userId, year, amounts));
+}
 
-  // Decision 18, before writeVersion: a refusal must not create a primary or bump a token.
-  const accountCode = await budgetAccountCode(companyId, input.glAccountId, input.versionId ?? await resolvePrimaryVersion(companyId, input.fiscalYear));
-  const { id: versionId, isPrimary } = await writeVersion(companyId, input.fiscalYear, input.versionId, userId);
-  // The version row is locked, so no other writer of it runs between this check and the write.
-  const otherGrain = (await sql`
-    SELECT 1 FROM budget_month_amounts
-     WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
-       AND gl_account_id = ${input.glAccountId}::UUID AND dim_grain <> 0
-     LIMIT 1
-  `) as Row[];
-  if (otherGrain.length > 0) {
-    throw new BudgetVersionError('BUDGET_GRAIN_CONFLICT',
-      `Account ${accountCode} is budgeted by dimension in this version; it cannot also have a company-level budget`);
-  }
+async function writeBudget(
+  companyId: string, input: BudgetInput, userId: string, year: YearMonths, amounts: BudgetMonthAmount[],
+): Promise<BudgetEntry> {
+  const { id: versionId, isPrimary } = await lockBudgetTarget(companyId, input.fiscalYear, input.glAccountId, input.versionId, userId);
 
   // The notes header is per account and year, shared by every version: only a write of the
   // PRIMARY version (the budget every report shows) sets it. The arbiter index is partial

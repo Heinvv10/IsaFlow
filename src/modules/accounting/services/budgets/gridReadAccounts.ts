@@ -9,6 +9,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { isHeaderSql } from '../core/budgetAccount';
 import { fromCents } from './grid/cents';
 import { bandOf } from './grid/subtotals';
 import type { AccountGrain } from './grid/pivot';
@@ -30,7 +31,7 @@ const byCode = (a: AccountRow, b: AccountRow): number => (a.code < b.code ? -1 :
 async function readAccountRows(companyId: string): Promise<AccountRow[]> {
   const rows = (await sql`
     SELECT ga.id, ga.account_code, ga.account_name, ga.account_type, ga.account_subtype, ga.is_active, ga.parent_account_id,
-           EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = ${companyId}::UUID AND ch.parent_account_id = ga.id) AS is_header
+           ${isHeaderSql()} AS is_header
       FROM gl_accounts ga
      WHERE ga.company_id = ${companyId}::UUID AND ga.account_type IN ('revenue', 'expense')
      ORDER BY ga.account_code, ga.id
@@ -122,13 +123,16 @@ async function members(companyId: string, kind: 'cc1' | 'cc2' | 'bu', used: read
          ORDER BY code, id`
     : await sql`
         SELECT id, code, name, is_active FROM cost_centres
-         WHERE company_id = ${companyId}::UUID AND COALESCE(cc_type, 'cc1') = ${kind}
+         WHERE company_id = ${companyId}::UUID AND cc_type = ${kind}
            AND (is_active OR id IN (SELECT unnest(${used}::UUID[])))
          ORDER BY code, id`) as DbRow[];
   return rows.map((r) => ({ id: String(r.id), code: String(r.code), name: String(r.name), isActive: r.is_active !== false }));
 }
 
-/** The members to pick from: every active one, plus an inactive one the version still budgets. */
+/**
+ * The members to pick from: every active one, plus an inactive one the version still budgets. A
+ * cost centre with no cc_type is neither CC1 nor CC2 (the save and the amounts trigger refuse it).
+ */
 export async function loadGridDimensions(
   companyId: string, used: { cc1: readonly string[]; cc2: readonly string[]; bu: readonly string[] },
 ): Promise<GridDimensions> {

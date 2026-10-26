@@ -9,22 +9,24 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 
 type RawSql = ((s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>) & Record<string, unknown>;
-const hooks = vi.hoisted(() => ({ afterCas: null as null | ((realSql: RawSql) => Promise<void>), fired: 0 }));
+const hooks = vi.hoisted(() => ({ match: null as null | RegExp, fn: null as null | ((realSql: RawSql) => Promise<void>), fired: 0 }));
 
-// Every statement runs on the real database. Once armed, the hook runs right after the save's
-// compare-and-set on budget_versions, inside the same request transaction (the only way to reach
-// the lock trigger: the compare-and-set itself refuses a version that is already locked).
+// Every statement runs on the real database. Once armed, the hook runs right after the first
+// statement matching `match`, inside the same request transaction: after the compare-and-set on
+// budget_versions (the only way to reach the lock trigger: the compare-and-set itself refuses a
+// version that is already locked), or after the grain check (the way to reach the 23P01 backstop).
 vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
   const realSql = real.sql as RawSql;
   const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const hook = hooks.afterCas;
-    if (!hook || !/UPDATE budget_versions SET updated_at/.test(strings.join('?'))) return realSql(strings, ...values);
+    const { match, fn } = hooks;
+    if (!match || !fn || !match.test(strings.join('?'))) return realSql(strings, ...values);
     return (async () => {
       const rows = await realSql(strings, ...values);
-      hooks.afterCas = null;
+      hooks.match = null;
+      hooks.fn = null;
       hooks.fired += 1;
-      await hook(realSql);
+      await fn(realSql);
       return rows;
     })();
   };
@@ -173,11 +175,12 @@ describe('POST /api/accounting/budget-grid/save', () => {
     await fx.amount(w, v, w.rent, w.months[0]!, 3);
     const userId = w.u.userId;
     hooks.fired = 0;
-    hooks.afterCas = async (realSql) => {
+    hooks.match = /UPDATE budget_versions SET updated_at/;
+    hooks.fn = async (realSql) => {
       await realSql`UPDATE budget_versions SET status = 'locked', locked_by = ${userId}, locked_at = clock_timestamp() WHERE id = ${v}::UUID`;
     };
     const r = await unchanged(v, () => save(v, [cell(w.rent, w.months[0]!, null), cell(w.rent, w.months[1]!, 9)]));
-    hooks.afterCas = null;
+    hooks.match = null;
     expect(hooks.fired).toBe(1);
     expect([r.status, errCode(r as never)], dump(r)).toEqual([409, 'BUDGET_VERSION_LOCKED']);
     // The lock was inside the save's savepoint, so it rolled back with the save.
@@ -213,6 +216,26 @@ describe('POST /api/accounting/budget-grid/save', () => {
     const r2 = await unchanged(v, () => save(v, [cell(w.sales, m0!, 1, { cc1Id: w.cc1 }), cell(w.sales, m1!, 1, { cc2Id: w.cc2 })]));
     expect([r2.status, errCode(r2 as never)]).toEqual([400, 'BUDGET_GRAIN_CONFLICT']);
     expect(errMessage(r2 as never)).toContain('GS-4000');
+  });
+
+  it('a grain clash that lands after the grain check hits the exclusion backstop (23P01): 400 BUDGET_GRAIN_CONFLICT, nothing written', async () => {
+    const v = await fx.version(w);
+    const [m0, m1] = w.months;
+    await fx.amount(w, v, w.sales, m0!, 10);
+    const companyId = w.u.homeCompanyId;
+    hooks.fired = 0;
+    // A CC1 row for Sales arrives between the save's grain check and its company-grain upsert. It is
+    // written in the save's own transaction: a separate one would wait on the version row the save holds.
+    hooks.match = /dim_grain <> t\.g/;
+    hooks.fn = async (realSql) => {
+      await realSql`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id)
+                    VALUES (${companyId}::UUID, ${v}::UUID, ${w.sales}::UUID, ${`${m1}-01`}::DATE, 5, ${w.cc1}::UUID)`;
+    };
+    // The savepoint takes the hook's row back with the save: amounts, token and audit rows as they were.
+    const r = await unchanged(v, () => save(v, [cell(w.sales, m0!, 11)]));
+    hooks.match = null;
+    expect(hooks.fired).toBe(1);
+    expect([r.status, errCode(r as never)], dump(r)).toEqual([400, 'BUDGET_GRAIN_CONFLICT']);
   });
 
   it('refuses a bad batch before anything is written or the token moves', async () => {

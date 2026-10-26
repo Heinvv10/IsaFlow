@@ -2,8 +2,11 @@
  * Budget grid Excel template (budgets P2, spec §9.1)
  * GET ?version_id=<uuid>&grain=company|cc1|cc2|bu → .xlsx download
  * Sheet `Budget` (text YYYY-MM month headers; blank = not budgeted, 0 = budgeted zero), hidden
- * `_meta` tying the file to the version, year and grain, and `Instructions`. Upload it back through
- * POST budget-grid/import-preview. Another tenant's version id is a 404. Any member may download.
+ * `_meta` tying the file to the version, year and grain, hidden `_base` (the amounts as
+ * downloaded, which the import diffs against), and `Instructions`. Upload it back through
+ * POST budget-grid/import-preview. A template of more rows than the import reads (accounts x
+ * members past MAX_TEMPLATE_ROWS) is a 400. Another tenant's version id is a 404. Any member may
+ * download.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';

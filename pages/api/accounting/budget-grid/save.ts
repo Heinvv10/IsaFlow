@@ -17,15 +17,15 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 import { BudgetVersionStaleError, MAX_SAVE_CELLS, saveCells } from '@/modules/accounting/services/budgets/gridSave';
+import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
 
-export const config = { api: { bodyParser: { sizeLimit: '10mb' } } };
-
-/** The token as P1 answers it (ISO, microseconds, Z) or as Postgres prints timestamptz. */
-const TOKEN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])[T ]([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$/;
+// MAX_SAVE_CELLS cells at ~150 bytes of JSON each: 200 000 cells is about 30 MB.
+export const config = { api: { bodyParser: { sizeLimit: '32mb' } } };
 
 const SaveSchema = z.object({
   versionId: UUID,
-  expectedUpdatedAt: z.string().regex(TOKEN, 'expectedUpdatedAt must be the updatedAt the version was read with'),
+  // A real timestamp, checked here: one Postgres cannot read (30 February, offset +99) would be a 500 at the compare.
+  expectedUpdatedAt: z.string().max(40).refine(isVersionToken, 'expectedUpdatedAt must be the updatedAt the version was read with'),
   cells: z.array(z.object({
     glAccountId: UUID,
     cc1Id: UUID.nullable().default(null),

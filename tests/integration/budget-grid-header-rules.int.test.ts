@@ -4,10 +4,37 @@
  * 400 naming the account, nothing written, by the grid save AND by the legacy writer
  * (core/budgetService.upsertBudget, behind POST /api/accounting/budgets and the MCP tools). An
  * account that already holds amounts in the version is exempt: a legacy header budget can be
- * edited, moved to a sub-account or spread across them, each in one batch.
+ * edited, moved to a sub-account or spread across them, each in one batch. The legacy writer
+ * checks AFTER it locks the version, in a savepoint (round-1 BRK-L1): a header's amounts deleted
+ * by a save that commits while the legacy write waits do not exempt it, and a refusal keeps
+ * neither the token bump nor a primary created for the write.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+
+type RawSql = ((s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>) & Record<string, unknown>;
+const hooks = vi.hoisted(() => ({ match: null as null | RegExp, fn: null as null | (() => Promise<void>), fired: 0 }));
+
+// Every statement runs on the real database; once armed, `fn` runs right after the first statement matching `match`.
+vi.mock('@/lib/neon', async (orig) => {
+  const real = await orig<Record<string, unknown>>();
+  const realSql = real.sql as RawSql;
+  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const { match, fn } = hooks;
+    if (!match || !fn || !match.test(strings.join('?'))) return realSql(strings, ...values);
+    return (async () => {
+      hooks.match = null;
+      hooks.fn = null;
+      hooks.fired += 1;
+      const rows = await realSql(strings, ...values);
+      await fn();
+      return rows;
+    })();
+  };
+  Object.assign(sql, realSql);
+  return { ...real, sql };
+});
+
 import saveRoute from '../../pages/api/accounting/budget-grid/save';
 import budgetsRoute from '../../pages/api/accounting/budgets';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -126,5 +153,32 @@ describe('decision 18 through the legacy writer (upsertBudget, POST /api/account
     expect(sum).toBe('1200.00');
     // A leaf still saves as before.
     expect((await legacy.call(w.u, 'POST', { glAccountId: w.child1, fiscalYear: w.label, annualAmount: 600 })).status).toBe(200);
+  });
+
+  it('a header whose amounts a concurrent save deletes, before the legacy write takes the version, is refused (checked after the lock)', async () => {
+    const v = await fx.version(w);
+    await fx.amount(w, v, w.header, w.months[0]!, 7);
+    let concurrent = 0;
+    hooks.fired = 0;
+    // writeVersion's first read of the named version: the legacy write has not locked it yet.
+    hooks.match = /SELECT fiscal_year FROM budget_versions WHERE id = \?::UUID AND company_id = \?::UUID/;
+    hooks.fn = async () => { concurrent = (await save(v, [cell(w.header, w.months[0]!, null)])).status; };
+    const r = await legacy.call(w.u, 'POST', { glAccountId: w.header, fiscalYear: w.label, annualAmount: 1200, versionId: v });
+    expect([hooks.fired, concurrent]).toEqual([1, 200]);
+    expect(r.status, dump(r)).toBe(400);
+    expect(String(r.body.error?.message)).toContain('GS-6000');
+    expect(await fx.cells(v)).toEqual([]);
+  });
+
+  it('a refusal after the version lock keeps neither the token bump nor the write (named version, grain clash too)', async () => {
+    const v = await fx.version(w);
+    await fx.amount(w, v, w.sales, w.months[0]!, 9, { cc1: w.cc1 });
+    for (const [acct, code] of [[w.header, 'GS-6000'], [w.inactive, 'GS-6900'], [w.sales, 'GS-4000']] as const) {
+      const before = { cells: await fx.cells(v), token: await fx.token(v), audits: (await fx.audits(v)).length };
+      const r = await legacy.call(w.u, 'POST', { glAccountId: acct, fiscalYear: w.label, annualAmount: 1200, versionId: v });
+      expect(r.status, dump(r)).toBe(400);
+      expect(String(r.body.error?.message)).toContain(code);
+      expect({ cells: await fx.cells(v), token: await fx.token(v), audits: (await fx.audits(v)).length }).toEqual(before);
+    }
   });
 });

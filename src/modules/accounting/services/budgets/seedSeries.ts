@@ -5,7 +5,9 @@
  *
  * PY actuals (leaf accounts only, decision 18): dense series, every month of the year, so a month
  * with no activity is an explicit 0. At a dimension grain a PY row with NO member ("unassigned")
- * would mix grains for its account (decision 4), so per account: `unassigned: 'company'` (the
+ * would mix grains for its account (decision 4); a row on a member the budget cannot take (an
+ * inactive one, or a cost centre whose cc_type is not the grain's, NULL included) counts as
+ * unassigned too, never written to that member. Per account: `unassigned: 'company'` (the
  * default; PY totals are kept) makes an account that has any unassigned activity company grain
  * ENTIRELY (all its rows summed); `'drop'` keeps only its tagged series and discards the rest.
  * Accounts with no activity at all (default off, `includeNoActivity`) become zero company rows.
@@ -17,9 +19,11 @@
  * budgeted month, never on a month the source left blank.
  */
 import { sql, type DbRow } from '@/lib/neon';
+import { isHeaderSql } from '../core/budgetAccount';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { requireFiscalYear } from '../gl/fiscalYearRegistry';
 import { toBudgetYearInfo } from '../core/budgetYears';
+import { BudgetVersionError } from './budgetVersionTypes';
 import { toCents } from './grid/cents';
 import { loadPriorActuals, type PriorGrain } from './priorActuals';
 
@@ -41,8 +45,7 @@ export type UnassignedRule = 'company' | 'drop';
 /** Every revenue/expense account of the company with the facts the seed's leaf rule needs. */
 export async function loadSeedAccounts(companyId: string): Promise<Map<string, SeedAccount>> {
   const rows = (await sql`
-    SELECT ga.id, ga.account_code, ga.account_name, ga.is_active,
-           EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = ga.company_id AND ch.parent_account_id = ga.id) AS is_header
+    SELECT ga.id, ga.account_code, ga.account_name, ga.is_active, ${isHeaderSql()} AS is_header
       FROM gl_accounts ga
      WHERE ga.company_id = ${companyId}::UUID AND ga.account_type IN ('revenue', 'expense')
   `) as DbRow[];
@@ -68,21 +71,31 @@ function dimColumns(grain: PriorGrain, dimensionId: string | null): Pick<SeedSer
 
 export interface PySeriesOptions { grain: PriorGrain; unassigned: UnassignedRule; includeNoActivity: boolean }
 
+/** The members a dimension grain may budget: active, and for CC1/CC2 a cost centre of exactly that cc_type. */
+async function seedMembers(companyId: string, grain: Exclude<PriorGrain, 'company'>): Promise<Set<string>> {
+  const rows = (grain === 'bu'
+    ? await sql`SELECT id FROM business_units WHERE company_id = ${companyId}::UUID AND COALESCE(is_active, true)`
+    : await sql`SELECT id FROM cost_centres WHERE company_id = ${companyId}::UUID AND cc_type = ${grain} AND is_active`) as DbRow[];
+  return new Set(rows.map((r) => String(r.id)));
+}
+
 /** PY-actuals series for the registry year `fiscalYear`, and how many accounts with activity were left out (headers, inactive). */
 export async function pySeries(
   companyId: string, fiscalYear: number, accounts: ReadonlyMap<string, SeedAccount>, opts: PySeriesOptions,
 ): Promise<{ series: SeedSeries[]; skipped: number }> {
   const prior = await loadPriorActuals(companyId, fiscalYear, opts.grain);
+  const members = opts.grain === 'company' ? null : await seedMembers(companyId, opts.grain);
   const n = prior.months.length;
   const monthIndex = new Map(prior.months.map((m, i) => [m, i]));
   const byAccount = new Map<string, Map<string | null, number[]>>();
   for (const c of prior.cells) {
     const i = monthIndex.get(c.month);
     if (i === undefined) continue;
+    const dim = c.dimensionId !== null && members?.has(c.dimensionId) ? c.dimensionId : null;
     const dims = byAccount.get(c.glAccountId) ?? new Map<string | null, number[]>();
-    const cents = dims.get(c.dimensionId) ?? Array<number>(n).fill(0);
+    const cents = dims.get(dim) ?? Array<number>(n).fill(0);
     cents[i] = (cents[i] ?? 0) + toCents(c.amount);
-    dims.set(c.dimensionId, cents);
+    dims.set(dim, cents);
     byAccount.set(c.glAccountId, dims);
   }
 
@@ -116,12 +129,28 @@ export async function pySeries(
   return { series, skipped };
 }
 
-/** Holds the source version row (shared, bounded wait) so a concurrent delete cannot empty the copy. */
-export async function holdSourceVersion(companyId: string, versionId: string): Promise<void> {
-  await withRowLockBudget(
-    () => sql`SELECT id FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID FOR SHARE`,
-    () => new RowLockTimeoutError('The source budget version'),
-  );
+/**
+ * Every version row lock a seed takes, FOR UPDATE, in ONE statement ordered by (fiscal_year, id),
+ * before anything of the source is read: the source's row, and with `year` every version of that
+ * year (what P1's copyVersion and setPrimary lock later, so they wait for nothing more). Two seeds
+ * then queue on the first row they share: a shared lock upgraded later deadlocked two make-primary
+ * copies of one source. Bounded wait (503). Returns the source's year label; a source that is not
+ * the company's, or was deleted before the lock, is BUDGET_VERSION_NOT_FOUND.
+ */
+export async function lockSeedVersions(companyId: string, sourceId: string | null, year: number | null): Promise<number | null> {
+  if (sourceId === null && year === null) return null;
+  const rows = (await withRowLockBudget(
+    () => sql`
+      SELECT id, fiscal_year FROM budget_versions
+       WHERE company_id = ${companyId}::UUID AND (id = ${sourceId}::UUID OR fiscal_year = ${year}::INT)
+       ORDER BY fiscal_year, id FOR UPDATE
+    `,
+    () => new RowLockTimeoutError('The budget versions this seed uses'),
+  )) as DbRow[];
+  if (sourceId === null) return null;
+  const source = rows.find((r) => String(r.id) === sourceId.toLowerCase());
+  if (!source) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found');
+  return Number(source.fiscal_year);
 }
 
 /** The source version's series, its months mapped by position onto a target year of `targetMonths` months. */
