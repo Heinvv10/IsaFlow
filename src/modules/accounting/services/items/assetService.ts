@@ -170,7 +170,9 @@ export function validateAsset(input: AssetInput): ValidationResult {
   if (!input.usefulLifeYears || input.usefulLifeYears <= 0) errors.push({ field: 'usefulLifeYears', message: 'Useful life must be greater than zero' });
   if (input.depreciationMethod && !VALID_DEPRECIATION_METHODS.includes(input.depreciationMethod as DepreciationMethod)) errors.push({ field: 'depreciationMethod', message: 'Invalid depreciation method' });
   if (input.status && !VALID_STATUSES.includes(input.status as AssetStatus)) errors.push({ field: 'status', message: 'Invalid asset status' });
-  if (input.purchaseDate) {
+  if (!input.purchaseDate || String(input.purchaseDate).trim() === '') {
+    errors.push({ field: 'purchaseDate', message: 'Enter the purchase date' });
+  } else {
     const parsed = new Date(input.purchaseDate);
     if (isNaN(parsed.getTime())) { errors.push({ field: 'purchaseDate', message: 'Invalid date format' }); }
     else { const today = new Date(); today.setHours(23, 59, 59, 999); if (parsed > today) errors.push({ field: 'purchaseDate', message: 'Purchase date cannot be in the future' }); }

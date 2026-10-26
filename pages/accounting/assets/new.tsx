@@ -35,6 +35,7 @@ export default function NewAssetPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [dateError, setDateError] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
 
@@ -76,6 +77,11 @@ export default function NewAssetPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    if (!form.purchaseDate) {
+      setDateError('Enter the purchase date.');
+      return;
+    }
+    setDateError('');
     setSaving(true);
     try {
       const res = await apiFetch('/api/accounting/assets', {
@@ -206,7 +212,7 @@ export default function NewAssetPage() {
                   </div>
                 </div>
 
-                <AssetFinancialFields form={form} update={update} />
+                <AssetFinancialFields form={form} update={update} dateError={dateError} />
               </div>
 
               {/* Right column — sticky summary */}
