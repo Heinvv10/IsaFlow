@@ -17,6 +17,7 @@ import { StatementReviewPanel, type BankStatementImport } from '@/components/acc
 import { StatementReading, StatementReadFailed } from '@/components/accounting/StatementReadState';
 import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
 import { useStatementReadActions } from '@/hooks/useStatementReadActions';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 type BankAccount = Extract<ResponseFor<'/api/accounting/bank-accounts'>, unknown[]>[number];
 
@@ -51,6 +52,7 @@ export default function ImportPdfPage() {
   const importId = typeof queryId === 'string' ? queryId : null;
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
+  const afterDelay = useTimeoutOnce();
   const [selectedAccount, setSelectedAccount] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -67,8 +69,8 @@ export default function ImportPdfPage() {
 
   const showToast = useCallback((msg: string, kind: 'ok' | 'err') => {
     setToast({ msg, kind });
-    setTimeout(() => setToast(null), 5000);
-  }, []);
+    afterDelay(() => setToast(null), 5000);
+  }, [afterDelay]);
 
   const loadAccounts = useCallback(async () => {
     try {

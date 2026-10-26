@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { localISODate } from '@/lib/dateUtils';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 interface FieldDef {
   field: string;
@@ -44,6 +45,7 @@ const EMPTY_RESULT: RunResult = { columns: [], rows: [], totals: {}, rowCount: 0
 export default function ReportBuilderPage() {
   const router = useRouter();
   const [dataSource, setDataSource] = useState('');
+  const afterDelay = useTimeoutOnce();
   const [availableFields, setAvailableFields] = useState<FieldDef[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
   const [filters, setFilters] = useState<FilterRow[]>([]);
@@ -57,7 +59,7 @@ export default function ReportBuilderPage() {
 
   function showToast(msg: string) {
     setToast(msg);
-    setTimeout(() => setToast(''), 3000);
+    afterDelay(() => setToast(''), 3000);
   }
 
   function handleSourceChange(source: string) {
