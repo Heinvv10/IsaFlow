@@ -11,7 +11,12 @@ export interface AssetFinancialForm {
   usefulLifeYears: string;
 }
 
-export function AssetFinancialFields({ form, update, dateError }: { form: AssetFinancialForm; update: (field: string, value: string) => void; dateError?: string }) {
+export function AssetFinancialFields({ form, update, onDateChange, dateError }: {
+  form: AssetFinancialForm;
+  update: (field: string, value: string) => void;
+  onDateChange: (iso: string | null, reason: string | null) => void;
+  dateError?: string;
+}) {
   return (
     <div className={`${card} p-5`}>
       <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
@@ -26,7 +31,7 @@ export function AssetFinancialFields({ form, update, dateError }: { form: AssetF
             required
             error={dateError || undefined}
             value={form.purchaseDate || null}
-            onChange={iso => update('purchaseDate', iso ?? '')}
+            onChange={(iso, v) => onDateChange(iso, v.valid ? null : v.reason)}
           />
         </div>
         <div>

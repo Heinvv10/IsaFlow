@@ -14,7 +14,7 @@ import { auditContrast } from '../helpers/themeContrast';
 const THEMES = ['light', 'dark'] as const;
 
 /**
- * minTexts is a render check, not a data count: the floor is roughly half of what auditContrast measured on dev
+ * minTexts is a render check, not a data count: each floor is about 40-47% of what auditContrast measured on dev
  * (Demo company) on 2026-10-26 (ap-aging 9042, supplier-invoices 460, journal-entries-new 43, assets-new 45,
  * dunning-runs 43, disputes 28, recurring-invoices 26, delivery-notes 20), so ordinary data churn cannot fail it
  * but a page that rendered only its shell does.
