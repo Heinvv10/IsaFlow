@@ -92,8 +92,7 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
     // MoneyField parses on blur.
     fireEvent.change(screen.getByLabelText(/Annual amount/), { target: { value: '1200' } });
     fireEvent.blur(screen.getByLabelText(/Annual amount/));
-    // Submit the form directly: a click is blocked here by jsdom's constraint validation on the numeric input.
-    fireEvent.submit(screen.getByRole('button', { name: /save budget/i }).closest('form')!);
+    fireEvent.click(screen.getByRole('button', { name: /save budget/i }));
     await sees(MSG);
   });
 
