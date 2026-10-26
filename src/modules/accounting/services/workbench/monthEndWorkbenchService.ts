@@ -11,7 +11,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
+import { getSalesFigures, sumAging } from './monthEndSalesFigures';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
+import { fmtDate } from '@/lib/fmtDate';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { listPayrollRuns } from '@/modules/accounting/services/payroll/payrollRunService';
 import { listAfsDocuments } from '@/modules/accounting/services/afs/afsDocumentService';
@@ -51,23 +54,8 @@ function parsePeriod(period: string): { start: string; end: string } {
   return { start, end };
 }
 
-function sumAging(buckets: AgingBucket[]): { total: number; overdue: number } {
-  let total = 0;
-  let overdue = 0;
-  for (const b of buckets) {
-    const cur = Number(b.current) || 0;
-    const d30 = Number(b.days30) || 0;
-    const d60 = Number(b.days60) || 0;
-    const d90 = Number(b.days90) || 0;
-    const d120 = Number(b.days120Plus) || 0;
-    total += cur + d30 + d60 + d90 + d120;
-    overdue += d30 + d60 + d90 + d120;
-  }
-  return { total, overdue };
-}
-
 function fmtR(n: number): string {
-  return `R${n.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}`;
+  return formatMoney(n);
 }
 
 async function buildBankingCard(companyId: string, periodEnd: string): Promise<WorkbenchCard> {
@@ -91,7 +79,7 @@ async function buildBankingCard(companyId: string, periodEnd: string): Promise<W
   const unmatched = Number(t.unmatched) || 0;
   const matched = Number(t.matched) || 0;
   const lastReconRaw = reconRows[0]?.last_recon_completed_at;
-  const lastRecon = lastReconRaw ? String(lastReconRaw).slice(0, 10) : 'never';
+  const lastRecon = lastReconRaw ? formatDisplayDate(fmtDate(lastReconRaw)) : 'never';
   const status: CardStatus = unmatched === 0 ? 'ready' : unmatched < 20 ? 'in_progress' : 'attention';
   return {
     id: 'banking',
@@ -105,15 +93,14 @@ async function buildBankingCard(companyId: string, periodEnd: string): Promise<W
 }
 
 async function buildSalesCard(companyId: string, periodEnd: string): Promise<WorkbenchCard> {
-  const buckets = await getARAging(companyId, periodEnd);
-  const { total, overdue } = sumAging(buckets);
+  const { total, overdue, customers } = await getSalesFigures(companyId, periodEnd);
   const status: CardStatus = overdue > total * 0.4 ? 'attention' : overdue > 0 ? 'in_progress' : 'ready';
   return {
     id: 'sales',
     title: 'Sales & Receivables',
     status,
     primary: `${fmtR(overdue)} overdue`,
-    secondary: `${fmtR(total)} outstanding · ${buckets.length} customers`,
+    secondary: `${fmtR(total)} outstanding · ${customers} customers`,
     href: '/accounting/debtors-manager',
   };
 }
