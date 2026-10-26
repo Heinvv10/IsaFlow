@@ -9,7 +9,6 @@ import Link from 'next/link';
 import { CheckCircle2, Circle, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { Skeleton } from '@/components/ui/Skeleton';
 import type { SetupModuleProgress, SetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 
 function ModuleSection({ module }: { module: SetupModuleProgress }) {
@@ -70,15 +69,8 @@ export function ModuleSetupChecklist() {
     return () => { cancelled = true; };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5" aria-busy="true">
-        <Skeleton variant="heading" width="40%" />
-        <Skeleton variant="text" count={3} className="mt-2" />
-      </div>
-    );
-  }
-  if (!progress || progress.allComplete) return null;
+  // Nothing until loaded: a placeholder would shift the page when the card then hides.
+  if (loading || !progress || progress.allComplete) return null;
 
   return (
     <section

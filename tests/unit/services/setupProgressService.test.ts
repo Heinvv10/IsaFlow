@@ -1,65 +1,76 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/modules/accounting/services/bank/hasBankAccountService', () => ({ countBankAccounts: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/hasBankAccountService', () => ({ hasBankAccount: vi.fn() }));
 
-import {
-  buildSetupProgress, completedGuideTasks, type SetupFacts,
-} from '@/modules/accounting/services/core/setupProgressService';
+import { buildSetupProgress, completedGuideTasks, type SetupFacts } from '@/modules/accounting/services/core/setupProgressService';
+import { NO_FACTS, ALL_FACTS } from '../helpers/setupFacts';
 
-const NONE: SetupFacts = {
-  logo: false, registrationNumber: false, vatNumber: false, vatPeriodSet: false, payeReference: false,
-  vatVendor: true, bankAccounts: 0, bankTransactions: 0, customers: 0, customerInvoices: 0, receipts: 0,
-  suppliers: 0, supplierInvoices: 0, fiscalPeriods: 0, openingBalances: 0, employees: 0, payrollRuns: 0,
-};
-const ALL: SetupFacts = {
-  ...NONE, vatNumber: true, vatPeriodSet: true, payeReference: true, bankAccounts: 1, bankTransactions: 1,
-  customers: 1, customerInvoices: 1, receipts: 1, suppliers: 1, supplierInvoices: 1, employees: 1, payrollRuns: 1,
-};
-const mod = (p: ReturnType<typeof buildSetupProgress>, id: string) => p.modules.find((m) => m.id === id)!;
+const mod = (p: ReturnType<typeof buildSetupProgress>, id: string) => p.modules.find((m) => m.id === id);
+const doneIds = (p: ReturnType<typeof buildSetupProgress>) =>
+  p.modules.flatMap((m) => m.tasks.filter((t) => t.done).map((t) => `${m.id}/${t.id}`));
 
 describe('buildSetupProgress', () => {
-  it('a fresh company is 0 of N with nothing complete', () => {
-    const p = buildSetupProgress(NONE);
-    expect(p.modules.map((m) => m.id)).toEqual(['sales', 'purchases', 'banking', 'payroll', 'tax']);
+  it('a fresh company with no payroll is 0 of 8: Sales, Purchases, Banking, Tax', () => {
+    const p = buildSetupProgress(NO_FACTS);
+    expect(p.modules.map((m) => m.id)).toEqual(['sales', 'purchases', 'banking', 'tax']);
     expect(p.doneCount).toBe(0);
-    expect(p.totalCount).toBe(12);
+    expect(p.totalCount).toBe(8);
     expect(p.allComplete).toBe(false);
-    expect(p.modules.every((m) => !m.complete)).toBe(true);
   });
 
-  it('one customer marks Sales 1 done, and only Sales', () => {
-    const p = buildSetupProgress({ ...NONE, customers: 1 });
-    expect(mod(p, 'sales').doneCount).toBe(1);
-    expect(mod(p, 'sales').tasks.find((t) => t.id === 'customers')!.done).toBe(true);
-    expect(p.doneCount).toBe(1);
+  // Each fact set alone must tick exactly its own task: a probe wired to the wrong fact goes red here.
+  it.each<[keyof SetupFacts, string]>([
+    ['hasCustomers', 'sales/customers'],
+    ['hasCustomerInvoices', 'sales/customer-invoices'],
+    ['hasReceipts', 'sales/receipts'],
+    ['hasSuppliers', 'purchases/suppliers'],
+    ['hasSupplierInvoices', 'purchases/supplier-invoices'],
+    ['hasBankAccount', 'banking/bank-account'],
+    ['hasBankTransactions', 'banking/bank-transactions'],
+    ['vatNumber', 'tax/vat-number'],
+  ])('%s alone ticks only %s', (fact, task) => {
+    expect(doneIds(buildSetupProgress({ ...NO_FACTS, [fact]: true }))).toEqual([task]);
   });
 
-  it('payroll needs employees, a run and the PAYE reference', () => {
-    expect(mod(buildSetupProgress({ ...NONE, employees: 2 }), 'payroll').doneCount).toBe(1);
-    expect(mod(buildSetupProgress({ ...NONE, payeReference: true }), 'payroll').tasks.find((t) => t.id === 'paye-reference')!.done).toBe(true);
-    expect(mod(buildSetupProgress({ ...NONE, payrollRuns: 1 }), 'payroll').tasks.find((t) => t.id === 'payroll-run')!.done).toBe(true);
+  it('a company without payroll can reach all complete and the Payroll module is absent', () => {
+    const p = buildSetupProgress({ ...ALL_FACTS, hasEmployees: false, hasPayrollRuns: false, payeReference: false });
+    expect(mod(p, 'payroll')).toBeUndefined();
+    expect(p.allComplete).toBe(true);
+  });
+
+  it('Payroll applies once there is an employee: run and PAYE reference are then open', () => {
+    const p = buildSetupProgress({ ...NO_FACTS, hasEmployees: true });
+    expect(mod(p, 'payroll')!.tasks.map((t) => [t.id, t.done])).toEqual([
+      ['employees', true], ['payroll-run', false], ['paye-reference', false],
+    ]);
+    expect(buildSetupProgress({ ...NO_FACTS, hasEmployees: true, payeReference: true })
+      .modules.find((m) => m.id === 'payroll')!.tasks.find((t) => t.id === 'paye-reference')!.done).toBe(true);
+  });
+
+  it('Payroll applies for a real pay run without an employee, but then has no PAYE task', () => {
+    const p = buildSetupProgress({ ...NO_FACTS, hasPayrollRuns: true });
+    expect(mod(p, 'payroll')!.tasks.map((t) => t.id)).toEqual(['employees', 'payroll-run']);
   });
 
   it('everything set up is complete', () => {
-    const p = buildSetupProgress(ALL);
+    const p = buildSetupProgress(ALL_FACTS);
     expect(p.allComplete).toBe(true);
     expect(p.doneCount).toBe(p.totalCount);
-    expect(p.modules.every((m) => m.complete)).toBe(true);
+    expect(p.totalCount).toBe(11);
   });
 
   it('omits Tax for a company that is not a VAT vendor', () => {
-    const p = buildSetupProgress({ ...ALL, vatNumber: false, vatPeriodSet: false, vatVendor: false });
-    expect(p.modules.some((m) => m.id === 'tax')).toBe(false);
+    const p = buildSetupProgress({ ...ALL_FACTS, vatNumber: false, vatVendor: false });
+    expect(mod(p, 'tax')).toBeUndefined();
     expect(p.allComplete).toBe(true);
   });
 });
 
 describe('completedGuideTasks', () => {
   it('maps facts to the setup guide task ids', () => {
-    expect(completedGuideTasks(NONE)).toEqual([]);
-    expect(completedGuideTasks({ ...NONE, logo: true, customers: 1, bankAccounts: 2 }).sort())
+    expect(completedGuideTasks(NO_FACTS)).toEqual([]);
+    expect(completedGuideTasks({ ...NO_FACTS, logo: true, hasCustomers: true, hasBankAccount: true }).sort())
       .toEqual(['bank-account', 'company-logo', 'customers']);
   });
 });

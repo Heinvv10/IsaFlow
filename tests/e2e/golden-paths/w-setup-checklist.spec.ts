@@ -14,6 +14,15 @@ import { test, expect } from '@playwright/test';
 import { Api } from './_api';
 import { activeCompanyId, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 
+// Creates a sandbox company and a permanent customer, so it is a dev/CI gate only:
+// playwright-golden.config.ts leaves it out of the production post-deploy verify.
+const PROD_HOST = /(^|\.)app\.isaflow\.co\.za$/;
+
+test.beforeAll(({}, testInfo) => {
+  const host = new URL(String(testInfo.project.use.baseURL ?? 'http://localhost')).hostname;
+  if (PROD_HOST.test(host)) throw new Error('w-setup-checklist writes a sandbox company and a customer: never run it against production');
+});
+
 const SANDBOX_NAME = '0GP Golden Checklist Sandbox';
 const SANDBOX_ONBOARDING_ID = '3b9f1c7e-52d4-4a8b-9e61-7c0d2f4a6b18';
 const CUSTOMER_NAME = '0GP-Checklist-Customer';
