@@ -29,3 +29,25 @@ for (const theme of THEMES) {
     await expectNoSeriousA11yViolations(page, { include: [NAV], key: `shell:top-nav-menu`, includeShell: true });
   });
 }
+
+for (const theme of THEMES) {
+  test(`${theme} theme: a hovered top tab and a keyboard-focused top tab are axe-clean`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await seedTheme(page, theme);
+    await page.goto('/accounting');
+    await settle(page);
+    // A hovered tab with no menu (hover colour on the bare tab) and one with a menu open.
+    await page.locator('[data-tour="nav-workbench"] a').hover();
+    await expectNoSeriousA11yViolations(page, { include: [NAV], key: 'shell:top-nav-menu', includeShell: true });
+    await page.locator('[data-tour="nav-purchases"] a').first().hover();
+    await expectNoSeriousA11yViolations(page, { include: [NAV], key: 'shell:top-nav-menu', includeShell: true });
+    // Keyboard modality, so :focus-visible styles apply.
+    await page.mouse.move(640, 600);
+    await page.keyboard.press('Tab');
+    await page.locator('[data-tour="nav-reports"] a').first().focus();
+    await expect(page.locator('[data-tour="nav-reports"] a').first()).toBeFocused();
+    await expectNoSeriousA11yViolations(page, { include: [NAV], key: 'shell:top-nav-menu', includeShell: true });
+    await page.locator('[data-tour="nav-reports"] button').first().focus();
+    await expectNoSeriousA11yViolations(page, { include: [NAV], key: 'shell:top-nav-menu', includeShell: true });
+  });
+}

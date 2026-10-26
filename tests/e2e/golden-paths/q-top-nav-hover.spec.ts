@@ -30,7 +30,14 @@ for (const { tab, link, path } of T1) {
   test(`Home → ${link}: one hover, one click`, async ({ page }) => {
     await page.goto('/accounting');
     await tabOf(page, tab).hover();
-    await tabOf(page, tab).getByRole('link', { name: link, exact: true }).click();
+    const target = tabOf(page, tab).getByRole('link', { name: link, exact: true });
+    // VAT201 only exists for a VAT vendor. This spec also runs in the post-deploy check against production Demo,
+    // where a missing link must never be a red run (a red run rolls the deploy back).
+    if (link === 'VAT201') {
+      await expect(tabOf(page, tab).getByRole('link', { name: 'EMP201', exact: true })).toBeVisible();
+      test.skip((await target.count()) === 0, 'company is not VAT registered: no VAT201 link');
+    }
+    await target.click();
     await page.waitForURL(path, { timeout: 30_000 });
     await expect(tabOf(page, tab).locator('[aria-current="true"]').first()).toBeVisible();
   });
@@ -40,7 +47,7 @@ test('keyboard only: Pay Runs from the Payroll menu button', async ({ page }) =>
   await page.goto('/accounting');
   const button = tabOf(page, 'payroll').getByRole('button', { name: 'Payroll menu' });
   await button.focus();
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('Space');
   await expect(tabOf(page, 'payroll').getByRole('link', { name: 'Pay Runs', exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(button).toBeFocused();
@@ -48,6 +55,24 @@ test('keyboard only: Pay Runs from the Payroll menu button', async ({ page }) =>
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   await page.waitForURL(/\/payroll\/runs$/, { timeout: 30_000 });
+});
+
+test('ArrowDown on the Sales label opens the menu; Tab past the last entry closes it', async ({ page }) => {
+  await page.goto('/accounting');
+  const sales = tabOf(page, 'sales');
+  await sales.getByRole('link', { name: 'Sales', exact: true }).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(sales.getByRole('link', { name: 'Invoices', exact: true })).toBeFocused();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Tab');
+  await expect(sales.getByRole('link', { name: 'Invoices', exact: true })).toHaveCount(0);
+});
+
+test('a click on the chevron right after hovering leaves the menu open', async ({ page }) => {
+  await page.goto('/accounting');
+  await tabOf(page, 'banking').hover();
+  await tabOf(page, 'banking').getByRole('button', { name: 'Banking menu' }).click();
+  await expect(tabOf(page, 'banking').getByRole('link', { name: 'Reconcile', exact: true })).toBeVisible();
 });
 
 test('the right tab lights up on a sub-page, a query tab and an #anchor', async ({ page }) => {
