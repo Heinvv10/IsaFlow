@@ -12,6 +12,12 @@ import type { Tab } from './types';
  */
 export const payrollTab: Tab = {
   id: 'payroll', label: 'Payroll',
+  href: '/payroll/runs',
+  links: [
+    { label: 'Pay Runs', href: '/payroll/runs' },
+    { label: 'Employees', href: '/payroll/employees' },
+    { label: 'Leave', href: '/payroll/leave' },
+  ],
   topItems: [
     { label: 'New Payroll Run', href: '/payroll/runs/new' },
   ],
