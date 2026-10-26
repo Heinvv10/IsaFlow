@@ -33,13 +33,23 @@ export async function downloadTemplate(route: unknown, u: SetupUser, query: Reco
   };
 }
 
+/** One multipart part: a field, or a file (an .xlsx by type). */
+export type Part = { field: string; value: string } | { file: string; content: Buffer };
+
 /** POST multipart `file` (+ `versionId`) to import-preview as `u`. */
 export async function uploadPreview(route: unknown, u: SetupUser, versionId: string, file: Buffer): Promise<RouteOut> {
+  return uploadParts(route, u, [{ field: 'versionId', value: versionId }, { file: 'file', content: file }]);
+}
+
+/** POST any multipart parts to import-preview as `u`. */
+export async function uploadParts(route: unknown, u: SetupUser, parts: readonly Part[]): Promise<RouteOut> {
   const boundary = '----budgetImportFixture';
   const body = Buffer.concat([
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="versionId"\r\n\r\n${versionId}\r\n`),
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="budget.xlsx"\r\nContent-Type: ${XLSX_MIME}\r\n\r\n`),
-    file, Buffer.from(`\r\n--${boundary}--\r\n`),
+    ...parts.flatMap((p) => ('field' in p
+      ? [Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${p.field}"\r\n\r\n${p.value}\r\n`)]
+      : [Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${p.file}"; filename="budget.xlsx"\r\nContent-Type: ${XLSX_MIME}\r\n\r\n`),
+        p.content, Buffer.from('\r\n')])),
+    Buffer.from(`--${boundary}--\r\n`),
   ]);
   const { cookies, cookie } = cookieHeaders(u);
   const req = Readable.from([body]) as unknown as Record<string, unknown>;
@@ -62,6 +72,17 @@ export async function editWorkbook(file: Buffer, edit: (wb: ExcelJS.Workbook) =>
 }
 
 export const budgetSheet = (wb: ExcelJS.Workbook): ExcelJS.Worksheet => wb.getWorksheet('Budget')!;
+export const baseSheet = (wb: ExcelJS.Workbook): ExcelJS.Worksheet => wb.getWorksheet('_base')!;
+
+/** Replace or add zip parts of `file` (`null` removes one): edits Excel would never make. */
+export async function withParts(file: Buffer, parts: Record<string, string | null | ((xml: string) => string)>): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(file);
+  for (const [path, body] of Object.entries(parts)) {
+    if (body === null) zip.remove(path);
+    else zip.file(path, typeof body === 'function' ? body(await zip.file(path)!.async('string')) : body);
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 9 } });
+}
 
 /** The 1-based column whose header (row 1) reads `text`. */
 export function col(ws: ExcelJS.Worksheet, text: string): number {

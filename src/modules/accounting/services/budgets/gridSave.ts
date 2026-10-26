@@ -13,12 +13,14 @@
  * as its parent) or an inactive account unless that account already holds amounts in the version.
  */
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
+import { isHeaderSql } from '../core/budgetAccount';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { getFiscalYear } from '../gl/fiscalYearRegistry';
 import { budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { BudgetVersionError, mapBudgetDbError, type BudgetVersionStatus } from './budgetVersionTypes';
 import { toCents } from './grid/cents';
+import { inputError, tokenSql } from './gridErrors';
 import { accountWithTwoGrains, assertMonthsInYear, validateBatch, type SaveCell, type ValidatedBatch } from './gridSaveValidate';
 
 export { MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
@@ -44,7 +46,6 @@ export class BudgetVersionStaleError extends BudgetVersionError {
   }
 }
 
-const input400 = (message: string) => new BudgetVersionError('BUDGET_VERSION_INPUT', message);
 const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
 
 export async function saveCells(companyId: string, userId: string, input: SaveCellsInput): Promise<SaveCellsResult> {
@@ -91,8 +92,7 @@ async function takeVersion(companyId: string, versionId: string, expected: strin
       UPDATE budget_versions SET updated_at = clock_timestamp()
        WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
          AND updated_at = ${expected}::TIMESTAMPTZ AND status <> 'locked'
-      RETURNING fiscal_year, status,
-                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS token
+      RETURNING fiscal_year, status, ${tokenSql()} AS token
     `,
     () => new RowLockTimeoutError('This budget version'),
   )) as DbRow[];
@@ -100,7 +100,7 @@ async function takeVersion(companyId: string, versionId: string, expected: strin
     return { fiscalYear: Number(rows[0].fiscal_year), status: String(rows[0].status) as BudgetVersionStatus, updatedAt: String(rows[0].token) };
   }
   const now = (await sql`
-    SELECT status, to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS token
+    SELECT status, ${tokenSql()} AS token
       FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!now[0]) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found');
@@ -116,8 +116,7 @@ async function takeVersion(companyId: string, versionId: string, expected: strin
 async function checkAccounts(companyId: string, versionId: string, cells: SaveCell[], batch: ValidatedBatch): Promise<Map<string, string>> {
   const ids = unique(cells.map((c) => c.glAccountId));
   const rows = (await sql`
-    SELECT t.id::text AS id, ga.account_code, ga.account_name, ga.account_type, ga.is_active,
-           EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = ga.company_id AND ch.parent_account_id = ga.id) AS is_header,
+    SELECT t.id::text AS id, ga.account_code, ga.account_name, ga.account_type, ga.is_active, ${isHeaderSql()} AS is_header,
            EXISTS (SELECT 1 FROM budget_month_amounts bm
                     WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID AND bm.gl_account_id = ga.id) AS holds
       FROM unnest(${ids}::UUID[]) AS t(id)
@@ -127,15 +126,15 @@ async function checkAccounts(companyId: string, versionId: string, cells: SaveCe
   const upserted = new Set(batch.upserts.map((u) => u.glAccountId));
   for (const r of rows) {
     const id = String(r.id);
-    if (r.account_code === null || r.account_code === undefined) throw input400(`Account ${id} is not an account of this company`);
+    if (r.account_code === null || r.account_code === undefined) throw inputError(`Account ${id} is not an account of this company`);
     const label = `${String(r.account_code)} ${String(r.account_name ?? '')}`.trim();
     labels.set(id, label);
     if (r.account_type !== 'revenue' && r.account_type !== 'expense') {
-      throw input400(`Account ${label} is not a revenue or expense account; budgets are set on revenue and expense accounts only`);
+      throw inputError(`Account ${label} is not a revenue or expense account; budgets are set on revenue and expense accounts only`);
     }
     if (!upserted.has(id) || r.holds) continue;
-    if (r.is_header) throw input400(`Account ${label} is a header account: budget its sub-accounts instead`);
-    if (!r.is_active) throw input400(`Account ${label} is inactive: a new budget cannot be set on it`);
+    if (r.is_header) throw inputError(`Account ${label} is a header account: budget its sub-accounts instead`);
+    if (!r.is_active) throw inputError(`Account ${label} is inactive: a new budget cannot be set on it`);
   }
   return labels;
 }
@@ -152,7 +151,7 @@ async function checkDimensions(companyId: string, cells: SaveCell[]): Promise<vo
        WHERE cc.cc_type IS DISTINCT FROM t.kind
        LIMIT 1
     `) as DbRow[];
-    if (bad[0]) throw input400(`${String(bad[0].kind).toUpperCase()} ${String(bad[0].id)} is not a ${String(bad[0].kind).toUpperCase()} cost centre of this company`);
+    if (bad[0]) throw inputError(`${String(bad[0].kind).toUpperCase()} ${String(bad[0].id)} is not a ${String(bad[0].kind).toUpperCase()} cost centre of this company`);
   }
   const units = unique(cells.map((c) => c.buId).filter((x): x is string => x !== null));
   if (units.length > 0) {
@@ -161,7 +160,7 @@ async function checkDimensions(companyId: string, cells: SaveCell[]): Promise<vo
        WHERE NOT EXISTS (SELECT 1 FROM business_units b WHERE b.id = t.id AND b.company_id = ${companyId}::UUID)
        LIMIT 1
     `) as DbRow[];
-    if (bad[0]) throw input400(`Business unit ${String(bad[0].id)} is not a business unit of this company`);
+    if (bad[0]) throw inputError(`Business unit ${String(bad[0].id)} is not a business unit of this company`);
   }
 }
 

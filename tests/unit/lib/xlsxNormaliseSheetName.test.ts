@@ -1,17 +1,24 @@
 /**
- * normaliseXlsx with a sheet name (the budget import reads `Budget` and the hidden `_meta`).
+ * normaliseXlsxSheets with one sheet name (the budget import reads `Budget`, `_base` and the hidden `_meta`).
  * The named sheet is resolved through workbook.xml's `r:id` and the workbook rels; only a plain
- * relative `worksheets/<file>.xml` target is taken, so a crafted rels entry (`..`, an absolute
- * path, a part outside xl/worksheets/) is refused before anything is read. Without a name the
+ * relative `worksheets/<file>.xml` target (or `/xl/worksheets/<file>.xml`, xlsxNormaliseHostile) is
+ * taken, so a crafted rels entry (`..`, another absolute path, a part outside xl/worksheets/) is
+ * refused before anything is read. Without a name the
  * first sheet is kept, as before. Every read counts against the same inflate budget.
  */
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { normaliseXlsx } from '@/lib/xlsxNormalise';
+import { normaliseXlsx, normaliseXlsxSheets } from '@/lib/xlsxNormalise';
 import { SpreadsheetTooLargeError } from '@/lib/spreadsheetErrors';
 
 const MB = 1024 * 1024;
+
+/** The one named sheet's normalised zip, or null when it is not read. */
+async function named(buf: Buffer, maxBytes: number, name: string): Promise<Buffer | null> {
+  const out = await normaliseXlsxSheets(buf, [name], { maxBytes });
+  return out.sheets.length === 1 ? out.zip : null;
+}
 
 /** Sheets First, Budget, hidden _meta, each with its own marker value. */
 async function threeSheets(): Promise<Buffer> {
@@ -43,17 +50,17 @@ async function retarget(src: Buffer, name: string, target: string, extra: Record
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-describe('normaliseXlsx(buf, max, sheetName)', () => {
+describe('normaliseXlsxSheets(buf, [sheetName])', () => {
   it('keeps the named sheet, a hidden one included', async () => {
     const src = await threeSheets();
-    const meta = await keptSheet(await normaliseXlsx(src, MB, '_meta'));
+    const meta = await keptSheet(await named(src, MB, '_meta'));
     expect(meta).toBe(await part(src, 'xl/worksheets/sheet3.xml'));
-    const budget = await keptSheet(await normaliseXlsx(src, MB, 'Budget'));
+    const budget = await keptSheet(await named(src, MB, 'Budget'));
     expect(budget).toBe(await part(src, 'xl/worksheets/sheet2.xml'));
   });
 
   it('answers null for a name the workbook does not have', async () => {
-    expect(await normaliseXlsx(await threeSheets(), MB, 'Nope')).toBeNull();
+    expect(await named(await threeSheets(), MB, 'Nope')).toBeNull();
   });
 
   it('without a name keeps the first sheet, as before', async () => {
@@ -80,15 +87,15 @@ describe('normaliseXlsx(buf, max, sheetName)', () => {
     ['shared strings', 'sharedStrings.xml'],
   ])('refuses a named sheet whose rels target is %s, without reading it', async (_label, target) => {
     const crafted = await retarget(await threeSheets(), '_meta', target, { 'xl/evil.xml': big, 'xl/worksheets/sub/evil.xml': big, 'xl/worksheets\\..\\evil.xml': big });
-    expect(await normaliseXlsx(crafted, MB, '_meta')).toBeNull();
-    expect(await normaliseXlsx(crafted, MB, 'Budget')).not.toBeNull();
+    expect(await named(crafted, MB, '_meta')).toBeNull();
+    expect(await named(crafted, MB, 'Budget')).not.toBeNull();
   });
 
   it('still counts a named sheet against the inflate budget', async () => {
     const zip = await JSZip.loadAsync(await threeSheets());
     zip.file('xl/worksheets/sheet3.xml', `<worksheet><sheetData>${' '.repeat(2 * MB)}</sheetData></worksheet>`);
     const bomb = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    await expect(normaliseXlsx(bomb, MB, '_meta')).rejects.toBeInstanceOf(SpreadsheetTooLargeError);
-    expect(await normaliseXlsx(bomb, MB, 'Budget')).not.toBeNull();
+    await expect(named(bomb, MB, '_meta')).rejects.toBeInstanceOf(SpreadsheetTooLargeError);
+    expect(await named(bomb, MB, 'Budget')).not.toBeNull();
   });
 });

@@ -1,30 +1,40 @@
 /**
  * The Excel import preview (P2 spec 9.2): a parsed template checked against the version's read
- * model and diffed with `grid/diff.diffCells`. WRITES NOTHING: the commit sends `cells` (the save
- * route's shape) and `updatedAt` (the token at preview) to POST budget-grid/save, so an edit made
- * between preview and commit is a 409 there and the user re-runs the preview.
+ * model and diffed 3-way against the amounts it was downloaded with (`budgetImportBase`, ruling
+ * R1): only cells the user changed are changes, and a cell also changed in the version since is a
+ * conflict (listed, applied as the user's value). WRITES NOTHING: the commit sends `cells` (the
+ * save route's shape) and `updatedAt` (the token at preview) to POST budget-grid/save, so an edit
+ * made between preview and commit is a 409 there and the user re-runs the preview.
  *
- * Refused whole (400): another version's or year's file, an altered `_meta`, month headers that
- * are not the year's months. Per row: an unknown account or member code, an account budgeted at
+ * The upload is read (bounded) before the read model loads. Refused whole (400): another version's
+ * or year's file, an altered `_meta`, a missing or altered `_base`, month headers that are not the
+ * year's months. Per row: an unknown account or member code, an account budgeted at
  * another grain in this version (decision 4), a row key twice (both copies), a cell that is not an
  * amount, and new amounts on a header or inactive account that holds none (save refuses those,
  * decision 18) are ERRORS and the row is left out; a header or inactive account that already holds
- * amounts is a WARNING. Rows absent from the file are untouched; a blank cell clears; 0 is a
- * budgeted zero. Amounts on the wire are rand, as the read model's.
+ * amounts is a WARNING, as is a version saved since the download. Rows absent from the file are
+ * untouched; a blank cell clears; 0 is a budgeted zero. Codes compare trimmed. At most MAX_ISSUES
+ * errors and warnings are listed (`errorCount` / `warningCount` count them all), and upload text
+ * echoed in a message is clipped. Amounts on the wire are rand, as the read model's.
  */
 import { fromCents } from './grid/cents';
 import { parseKey, type CellKey } from './grid/cellKey';
-import { diffCells, type DiffCounts } from './grid/diff';
-import { foldBands, type BandTotals, type Metric } from './grid/subtotals';
+import type { DiffCounts } from './grid/diff';
+import type { BandTotals } from './grid/subtotals';
+import { inputError } from './gridErrors';
 import { loadGridReadModel } from './gridReadModel';
-import { BudgetVersionError } from './budgetVersionTypes';
-import { cellsInCents, COLUMN, GRAIN_LABEL, isBudgetLine, templateRowKey, type TemplateGrain } from './budgetTemplateXlsx';
-import { parseLayout, parseLines, parseMeta, readBudgetWorkbook, type BudgetWorkbook, type ImportLine } from './budgetImportParse';
+import { bandTotals, ownMonths } from './gridTotals';
+import { cellsInCents, COLUMN, GRAIN_LABEL, templateRowKey, type TemplateGrain } from './budgetTemplateXlsx';
+import { clip, parseLayout, parseLines, parseMeta, readBudgetWorkbook, type BudgetWorkbook, type ImportLine } from './budgetImportParse';
+import { lineKey, parseBase, tampered, threeWay } from './budgetImportBase';
 import type { GridAccount, GridMember, GridReadModel } from './gridReadTypes';
 import type { SaveCell } from './gridSaveValidate';
 
+/** Errors and warnings listed in one preview; the counts say how many there were. */
+export const MAX_ISSUES = 200;
+
 export interface ImportIssue {
-  /** The sheet row (1-based). */
+  /** The sheet row (1-based); 0 for the file as a whole. */
   row: number;
   /** The column's header text ('Account code', 'Dimension code', '2026-03', ...). */
   column: string;
@@ -38,13 +48,21 @@ export interface ImportPreview {
   /** The changed cells in the save route's shape (`amount: null` clears). */
   cells: SaveCell[];
   counts: DiffCounts;
+  /** Cells changed in the file AND in the version since the download (rand): applied as the file's `after`. */
+  conflicts: Array<{ key: CellKey; downloaded: number | null; current: number | null; after: number | null }>;
+  /** The first MAX_ISSUES, by row. */
   errors: ImportIssue[];
   warnings: ImportIssue[];
+  errorCount: number;
+  warningCount: number;
+  /** More errors or warnings than are listed. */
+  truncated: boolean;
   /** Band totals and GP / OP / NP per month and FY, rand: the version now, and with the valid rows applied. */
   totals: { before: BandTotals; after: BandTotals };
 }
 
-const refuse = (message: string): never => { throw new BudgetVersionError('BUDGET_VERSION_INPUT', message); };
+const refuse = (message: string): never => { throw inputError(message); };
+const rand = (cents: number | null): number | null => (cents === null ? null : fromCents(cents));
 
 interface Resolved { line: ImportLine; account: GridAccount; rowKey: string }
 
@@ -53,8 +71,8 @@ function resolveLines(model: GridReadModel, grain: TemplateGrain, lines: readonl
   const errors: ImportIssue[] = [];
   const warnings: ImportIssue[] = [];
   const byCode = new Map<string, GridAccount | null>();
-  for (const a of model.accounts) byCode.set(a.code, byCode.has(a.code) ? null : a);
-  const members = new Map<string, GridMember>((grain === 'company' ? [] : model.dimensions[grain]).map((m) => [m.code, m]));
+  for (const a of model.accounts) byCode.set(a.code.trim(), byCode.has(a.code.trim()) ? null : a);
+  const members = new Map<string, GridMember>((grain === 'company' ? [] : model.dimensions[grain]).map((m) => [m.code.trim(), m]));
   const holds = new Set([...cents.keys()].map((k) => k.slice(0, k.indexOf('|'))));
   const resolved: Resolved[] = [];
 
@@ -62,9 +80,9 @@ function resolveLines(model: GridReadModel, grain: TemplateGrain, lines: readonl
     const error = (column: string, message: string) => errors.push({ row: line.row, column, message });
     const account = byCode.get(line.accountCode);
     if (line.accountCode === '') { error(COLUMN.accountCode, 'This row has amounts but no account code.'); continue; }
-    if (account === null) { error(COLUMN.accountCode, `Account code ${line.accountCode} is used by more than one account; fix the chart of accounts first.`); continue; }
+    if (account === null) { error(COLUMN.accountCode, `Account code ${clip(line.accountCode)} is used by more than one account; fix the chart of accounts first.`); continue; }
     if (account === undefined) {
-      error(COLUMN.accountCode, `Account code ${line.accountCode} is not a revenue or expense account you can budget (unknown, or inactive without a budget).`);
+      error(COLUMN.accountCode, `Account code ${clip(line.accountCode)} is not a revenue or expense account you can budget (unknown, or inactive without a budget).`);
       continue;
     }
     if (account.grain !== null && account.grain !== grain) {
@@ -77,11 +95,11 @@ function resolveLines(model: GridReadModel, grain: TemplateGrain, lines: readonl
     let memberId: string | null = null;
     if (grain !== 'company') {
       const member = members.get(line.dimensionCode ?? '');
-      if (!member) { error(COLUMN.dimensionCode, `${GRAIN_LABEL[grain]} code ${line.dimensionCode || '(blank)'} is not one of this company's ${GRAIN_LABEL[grain]} members.`); continue; }
+      if (!member) { error(COLUMN.dimensionCode, `${GRAIN_LABEL[grain]} code ${clip(line.dimensionCode || '(blank)')} is not one of this company's ${GRAIN_LABEL[grain]} members.`); continue; }
       memberId = member.id;
     }
     const bad = line.amounts.filter((a) => a.cell.kind === 'error');
-    for (const a of bad) if (a.cell.kind === 'error') error(a.month, a.cell.raw === '' ? a.cell.reason : `"${a.cell.raw}": ${a.cell.reason}`);
+    for (const a of bad) if (a.cell.kind === 'error') error(a.month, a.cell.raw === '' ? a.cell.reason : `"${clip(a.cell.raw)}": ${a.cell.reason}`);
     if (bad.length > 0) continue;
     const kind = account.isHeader ? 'a header account' : !account.isActive ? 'inactive' : null;
     if (kind && !holds.has(account.id)) {
@@ -102,30 +120,11 @@ function resolveLines(model: GridReadModel, grain: TemplateGrain, lines: readonl
     const at = rowsOf.get(r.rowKey)!;
     if (at.length === 1) return true;
     const others = at.filter((n) => n !== r.line.row).join(', ');
-    errors.push({ row: r.line.row, column: COLUMN.accountCode, message: `${r.account.code}${r.line.dimensionCode ? ` / ${r.line.dimensionCode}` : ''} appears more than once (also on row ${others}).` });
+    errors.push({ row: r.line.row, column: COLUMN.accountCode, message: `${r.account.code}${r.line.dimensionCode ? ` / ${clip(r.line.dimensionCode)}` : ''} appears more than once (also on row ${clip(others)}).` });
     return false;
   });
   errors.sort((a, b) => a.row - b.row);
   return { rows: unique, errors, warnings };
-}
-
-/** Band totals in rand: lines and a legacy header's own amounts, once each (the read model's rule). */
-function totalsOf(model: GridReadModel, values: ReadonlyMap<CellKey, number | null>): BandTotals {
-  const monthIndex = new Map(model.year.monthKeys.map((m, i) => [m, i]));
-  const own = new Map<string, number[]>();
-  for (const [key, v] of values) {
-    if (v === null) continue;
-    const parts = key.split('|');
-    const i = monthIndex.get(parts[4]!);
-    if (i === undefined) continue;
-    const months = own.get(parts[0]!) ?? Array<number>(model.year.monthKeys.length).fill(0);
-    months[i] = (months[i] ?? 0) + v;
-    own.set(parts[0]!, months);
-  }
-  const t = foldBands(model.accounts.filter(isBudgetLine), (a) => own.get(a.id) ?? [], model.year.monthKeys.length);
-  const months = Object.fromEntries(Object.entries(t.months).map(([k, v]) => [k, v.map(fromCents)])) as Record<Metric, number[]>;
-  const fy = Object.fromEntries(Object.entries(t.fy).map(([k, v]) => [k, fromCents(v)])) as Record<Metric, number>;
-  return { months, fy };
 }
 
 /** The preview of `wb` against the version `versionId` as `model` holds it now. Pure. */
@@ -141,28 +140,40 @@ export function previewImport(model: GridReadModel, versionId: string, wb: Budge
   const months = model.year.monthKeys;
   const [header, ...data] = wb.budget;
   const layout = parseLayout(header, months, meta.grain);
-  const base = cellsInCents(model);
-  const { rows, errors, warnings } = resolveLines(model, meta.grain, parseLines(data, layout), base);
-
-  const incoming = new Map<CellKey, number | null>();
-  for (const r of rows) {
-    for (const a of r.line.amounts) incoming.set(`${r.rowKey}|${a.month}`, a.cell.kind === 'value' ? a.cell.cents : null);
+  const base = parseBase(wb.base, months, meta.grain);
+  const current = cellsInCents(model);
+  const { rows, errors, warnings } = resolveLines(model, meta.grain, parseLines(data, layout), current);
+  const diff = threeWay(rows.map((r) => ({
+    rowKey: r.rowKey,
+    base: base.get(lineKey(r.line.accountCode, r.line.dimensionCode)) ?? null,
+    file: r.line.amounts.map((a) => (a.cell.kind === 'value' ? a.cell.cents : null)),
+  })), months, current);
+  if (meta.updatedAt === model.updatedAt) {
+    if (diff.moved > 0) return tampered(); // nothing was saved since the download, so _base must be the version
+  } else {
+    const n = diff.moved, k = diff.conflicts.length;
+    warnings.unshift({
+      row: 0, column: '', message: `This budget was saved after you downloaded this file: ${n} ${n === 1 ? 'cell' : 'cells'} in it changed since you downloaded it. `
+        + `Cells you left as downloaded keep the newer amounts; ${k} ${k === 1 ? 'cell' : 'cells'} you changed that also changed in IsaFlow ${k === 1 ? 'is' : 'are'} listed as conflicts and take your amount.`,
+    });
   }
-  const { changes, counts } = diffCells(base, incoming);
-  const after = new Map<CellKey, number | null>(base);
-  for (const c of changes) after.set(c.key, c.after);
 
-  const cells: SaveCell[] = changes.map((c) => ({ ...parseKey(c.key), amount: c.after === null ? null : fromCents(c.after) }));
+  const after = new Map<CellKey, number | null>(current);
+  for (const c of diff.changes) after.set(c.key, c.after);
   return {
     updatedAt: model.updatedAt,
-    changes: changes.map((c) => ({ key: c.key, before: c.before === null ? null : fromCents(c.before), after: c.after === null ? null : fromCents(c.after) })),
-    cells, counts, errors, warnings,
-    totals: { before: totalsOf(model, base), after: totalsOf(model, after) },
+    changes: diff.changes.map((c) => ({ key: c.key, before: rand(c.before), after: rand(c.after) })),
+    cells: diff.changes.map((c) => ({ ...parseKey(c.key), amount: rand(c.after) })),
+    counts: diff.counts,
+    conflicts: diff.conflicts.map((c) => ({ key: c.key, downloaded: rand(c.downloaded), current: rand(c.current), after: rand(c.after) })),
+    errors: errors.slice(0, MAX_ISSUES), warnings: warnings.slice(0, MAX_ISSUES),
+    errorCount: errors.length, warningCount: warnings.length, truncated: errors.length > MAX_ISSUES || warnings.length > MAX_ISSUES,
+    totals: { before: model.totals, after: bandTotals(model.accounts, ownMonths(after, months), months.length) },
   };
 }
 
-/** Read the upload and preview it against the company's version (another tenant's: BUDGET_VERSION_NOT_FOUND). */
+/** Read the upload (bounded, before any database read), then preview it against the company's version (another tenant's: BUDGET_VERSION_NOT_FOUND). */
 export async function buildImportPreview(companyId: string, versionId: string, file: Buffer): Promise<ImportPreview> {
-  const model = await loadGridReadModel(companyId, { versionId });
-  return previewImport(model, versionId, await readBudgetWorkbook(file));
+  const wb = await readBudgetWorkbook(file);
+  return previewImport(await loadGridReadModel(companyId, { versionId }), versionId, wb);
 }

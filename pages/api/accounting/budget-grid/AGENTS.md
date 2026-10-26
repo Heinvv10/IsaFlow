@@ -11,7 +11,7 @@ The budget workspace's routes (budgets P2). Version lifecycle (create, status, c
 |---|---|---|
 | `GET /api/accounting/budget-grid?version_id=` or `?fiscal_year=` | `index.ts` | Read model (primary, else newest version of the year; `version: null` when the year has none). `&cells_only=1` → cells + token only. |
 | `GET /api/accounting/budget-grid/prior-actuals?fiscal_year=&grain=` | `prior-actuals.ts` | PY actuals at `company`/`cc1`/`cc2`/`bu`. |
-| `POST /api/accounting/budget-grid/save` | `save.ts` | `{ versionId, expectedUpdatedAt, cells[] }` batch save (`amount: null` deletes). 10 MB body. |
+| `POST /api/accounting/budget-grid/save` | `save.ts` | `{ versionId, expectedUpdatedAt, cells[] }` batch save (`amount: null` deletes). 32 MB body: MAX_SAVE_CELLS 200 000 × ~150 B of JSON. |
 | `POST /api/accounting/budget-grid/seed` | `seed.ts` | Wizard: new draft version from PY actuals +x%, a version copy, or blank. |
 | `GET /api/accounting/budget-grid/template?version_id=&grain=` | `template.ts` | `.xlsx` template (viewers allowed). |
 | `POST /api/accounting/budget-grid/import-preview` | `import-preview.ts` | multipart `file` + `versionId` → diff preview. Writes nothing; commit goes through `save`. |
