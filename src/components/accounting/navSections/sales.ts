@@ -2,6 +2,15 @@ import type { Tab } from './types';
 
 export const salesTab: Tab = {
   id: 'sales', label: 'Sales',
+  href: '/accounting/customer-invoices',
+  // Sections render as hover-only rows; the daily set is surfaced as direct links.
+  links: [
+    { label: 'Invoices', href: '/accounting/customer-invoices' },
+    { label: 'Quotes', href: '/accounting/customer-quotes' },
+    { label: 'Receipts', href: '/accounting/customer-payments' },
+    { label: 'Credit Notes', href: '/accounting/credit-notes' },
+    { label: 'Customers', href: '/accounting/customers' },
+  ],
   topItems: [
     { label: 'Add a Customer', href: '/accounting/customers/new' },
   ],

@@ -21,6 +21,7 @@ import {
 } from '@/components/accounting/group/IntercompanyCreateModal';
 import { IntercompanyTable } from '@/components/accounting/group/IntercompanyTable';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 interface CompanyGroup {
   id: string;
@@ -212,11 +213,8 @@ export default function IntercompanyReconciliationPage() {
               </div>
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-                <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)}
-                  className="px-2 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-primary)]" />
-                <span className="text-[var(--ff-text-tertiary)] text-sm">to</span>
-                <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)}
-                  className="px-2 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-primary)]" />
+                <DateField label="Period start" required value={periodStart || null} onChange={(iso, v) => { if (v.valid && iso) setPeriodStart(iso); }} />
+                <DateField label="Period end" required value={periodEnd || null} onChange={(iso, v) => { if (v.valid && iso) setPeriodEnd(iso); }} />
               </div>
               <button
                 onClick={() => setShowCreate(true)}
