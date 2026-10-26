@@ -93,7 +93,9 @@ describe('944 conversion: notes headers', () => {
     // depend on the headers step (the months are filed and verified), so a registry refusal must not stop it.
     await setupYears(gap, gapAcct, [[2027, '2026-03-01', '2027-02-28'], [2028, '2027-03-01', '2028-02-29']], false);
     await budget(gapAcct, 3000, { mar: 1 }, 0, gap, 'far');
-    expect(await convert(gap)).toBe(1);
+    // Since migration 947 the month itself cannot be filed (no registry year holds it, so no version does):
+    // the conversion stops loudly. The headers step reads the legacy rows, not the months, and still completes.
+    await expect(convert(gap)).rejects.toThrow(/budget month 3000-03-01 of company .* has no financial year in the registry/);
     await follow(gap);
     expect((await headers(gapAcct, gap)).map((h) => h.fiscal_year)).toEqual([3000]);
   });

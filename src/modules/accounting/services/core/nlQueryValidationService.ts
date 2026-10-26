@@ -63,7 +63,9 @@ export const ALLOWED_TABLES = new Set([
   'products', 'product_categories',
   'vat_returns', 'vat_adjustments', 'sars_submissions',
   'assets', 'asset_categories', 'asset_depreciation_schedule', 'asset_disposals',
-  'fiscal_periods', 'accounting_budgets', 'budget_month_amounts', 'currencies', 'exchange_rates',
+  // Budget amounts only through the primary-version view (migration 947), never the base
+  // table: a free SUM over it would add drafts, reforecasts and scenarios together.
+  'fiscal_periods', 'accounting_budgets', 'budget_primary_month_amounts', 'currencies', 'exchange_rates',
   'projects', 'project_time_entries', 'time_entries',
   'cost_centres', 'business_units',
   'payroll_runs', 'payslips', 'employees', 'leave_types',

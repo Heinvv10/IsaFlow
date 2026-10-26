@@ -2,6 +2,8 @@
  * Budget Action API
  * POST — delete an account's budget for a year ({glAccountId, fiscalYear}) or
  *        copy a year's budgets onto another by month position ({fromYear, toYear})
+ * Both act on the primary versions (migration 947); a locked one is 409
+ * BUDGET_VERSION_LOCKED, refused before any write.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,6 +15,7 @@ import { log } from '@/lib/logger';
 import { BudgetInputError, deleteBudget, copyBudgets } from '@/modules/accounting/services/core/budgetService';
 import { parseYearLabel } from '@/modules/accounting/services/core/budgetMonths';
 import { isUuidParam } from '@/lib/validation';
+import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
@@ -28,7 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (!isUuidParam(glAccountId)) return apiResponse.badRequest(res, 'glAccountId must be an account id');
         const label = parseYearLabel(fiscalYear);
         if (label === null) return apiResponse.badRequest(res, 'fiscalYear must be a year label such as 2027');
-        await deleteBudget(companyId, glAccountId, label);
+        await deleteBudget(companyId, glAccountId, label, userId);
         return apiResponse.success(res, { deleted: true });
       }
       case 'copy': {
@@ -45,6 +48,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.error('Budget action failed', { action, error: err }, 'accounting-api');
     // Only a refusal written for the caller is a 400; any other failure is a server error (withErrorHandler's 500).
     if (err instanceof BudgetInputError) return apiResponse.badRequest(res, err.message);
+    if (respondBudgetVersionError(res, err)) return;
     throw err;
   }
 }
