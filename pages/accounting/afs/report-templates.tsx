@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { FileText, Loader2, AlertCircle, Copy, Check } from 'lucide-react';
 import type { AfsTemplateKey } from '@/lib/entityTypes';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 // ── Types ─────��─────────────────────────────────��───────────────────────────
 
@@ -51,6 +52,7 @@ const FRAMEWORK_LABELS: Record<Framework, string> = {
 
 export default function ReportTemplatesPage() {
   const [reportType, setReportType] = useState<ReportType>('compilation');
+  const afterDelay = useTimeoutOnce();
   const [entityType, setEntityType] = useState<EntityType>('pty');
   const [framework, setFramework] = useState<Framework>('ifrs_smes');
   const [data, setData] = useState<TemplateResponse | null>(null);
@@ -92,7 +94,7 @@ export default function ReportTemplatesPage() {
   const copyToClipboard = async (text: string, key: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(key);
-    setTimeout(() => setCopied(null), 2000);
+    afterDelay(() => setCopied(null), 2000);
   };
 
   return (

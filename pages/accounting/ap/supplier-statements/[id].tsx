@@ -14,6 +14,7 @@ import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReadi
 import { useStatementReadActions } from '@/hooks/useStatementReadActions';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 
 type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 type MismatchReason = 'missing_in_isaflow' | 'missing_in_statement' | 'amount_diff' | 'date_diff' | null;
@@ -70,6 +71,7 @@ export default function SupplierStatementDetailPage() {
   const reconId = typeof id === 'string' ? id : null;
 
   const [recon, setRecon] = useState<SupplierStatementReconciliation | null>(null);
+  const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState<Toast>(null);
@@ -79,8 +81,8 @@ export default function SupplierStatementDetailPage() {
 
   const showToast = useCallback((msg: string, kind: 'ok' | 'err') => {
     setToast({ msg, kind });
-    setTimeout(() => setToast(null), 5000);
-  }, []);
+    afterDelay(() => setToast(null), 5000);
+  }, [afterDelay]);
 
   // `silent`: a poll while the statement is being read. It keeps what is on screen and shows no spinner.
   // Resolves to what the poll found: 'stop' when the statement is gone or not ours (404/403), 'bad' for any other error.
