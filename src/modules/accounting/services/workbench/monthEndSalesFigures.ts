@@ -8,7 +8,7 @@
  *
  * Sales, current period: the shared AR aggregate (getAROutstandingSummary, the
  * figure the dashboard and the invoice-list tiles read), with the customer count
- * from the same population (getARDebtorCount). Ageing a current month "as at"
+ * from the same population (debtorCount, same query). Ageing a current month "as at"
  * its future last day would count every invoice due between today and then as
  * overdue, a debt nobody can chase yet (dev Demo, Oct 2026: 32 invoices,
  * R 3 680.00 above the tile).
@@ -26,7 +26,7 @@
 
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
-import { getAROutstandingSummary, getARDebtorCount } from '@/modules/accounting/services/ar/arOutstandingService';
+import { getAROutstandingWithDebtors } from '@/modules/accounting/services/ar/arOutstandingService';
 import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
 
@@ -56,8 +56,8 @@ export async function getSalesFigures(companyId: string, periodEnd: string, toda
     const buckets = await getARAging(companyId, periodEnd);
     return { ...sumAging(buckets), parties: buckets.length, past: true };
   }
-  const [summary, parties] = await Promise.all([getAROutstandingSummary(companyId), getARDebtorCount(companyId)]);
-  return { overdue: summary.overdueAmount, total: summary.outstanding, parties, past: false };
+  const summary = await getAROutstandingWithDebtors(companyId);
+  return { overdue: summary.overdueAmount, total: summary.outstanding, parties: summary.debtorCount, past: false };
 }
 
 export async function getPurchasesFigures(companyId: string, periodEnd: string, today: string = asAtTodayStr()): Promise<SalesFigures> {
