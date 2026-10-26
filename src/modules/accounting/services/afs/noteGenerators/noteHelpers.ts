@@ -372,8 +372,6 @@ const POLICY_BLOCKS: PolicyBlock[] = [
 export function getAccountingPolicies(
   framework: FrameworkType,
   overrides?: {
-    depMethod?: string;
-    invMethod?: string;
     currency?: string;
     vatBasis?: string;
     /** False when the company is not a registered VAT vendor. */

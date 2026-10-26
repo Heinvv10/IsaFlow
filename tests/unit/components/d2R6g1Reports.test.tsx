@@ -4,6 +4,7 @@
  * 4xx -> the server's message; empty-body 500 -> a plain sentence (never JSON / HTTP / bare Failed); a failed
  * (re)load clears the old figures instead of leaving them beside the error.
  */
+import { typeDate, dateFieldInputs } from '../helpers/dateFields';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -51,7 +52,7 @@ describe('bank transactions report', () => {
     expect(await screen.findByText('D2 deposit row')).toBeTruthy();
     expect(exportBtn().disabled).toBe(false);
     failing = true;
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-01-01' } });
+    typeDate(dateFieldInputs(container)[0]!, '2026-01-01');
     expect(await screen.findByText('Could not load the bank transactions report - try again')).toBeTruthy();
     expect(screen.queryByText('D2 deposit row')).toBeNull();
     expect(exportBtn().disabled).toBe(true);

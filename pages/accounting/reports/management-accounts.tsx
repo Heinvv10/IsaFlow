@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { DateField } from '@/components/ui/DateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import Link from 'next/link';
@@ -196,20 +197,10 @@ export default function ManagementAccountsPage() {
             {/* Period selector */}
             <div className="flex items-center gap-3 mt-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--ff-text-tertiary)]">From</label>
-                <input
-                  type="date" value={periodStart}
-                  onChange={e => setPeriodStart(e.target.value)}
-                  className="rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-2 py-1 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:border-teal-500"
-                />
+                <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--ff-text-tertiary)]">To</label>
-                <input
-                  type="date" value={periodEnd}
-                  onChange={e => setPeriodEnd(e.target.value)}
-                  className="rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-2 py-1 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:border-teal-500"
-                />
+                <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
               </div>
               <button
                 onClick={loadReport}
