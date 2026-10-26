@@ -8,12 +8,14 @@ vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.
 import { useStatementComparators } from '@/components/accounting/reportControls/useStatementComparators';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 
+import { buildBudgetVsActualLines } from '@/modules/accounting/services/reports/budgetVsActualLines';
 const MONTHS = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`);
 const trendsFor = (v: number) => ({ months: MONTHS, byAccountCode: { '1000': MONTHS.map(() => v) }, unavailable: {} });
-const budgetLines = (amount: number) => ([{
-  account_code: '1000', account_name: 'Sales', account_type: 'revenue',
-  budget_amount: amount, actual_amount: 900, variance: 0, variance_pct: 0,
-}]);
+// The real row model (budgetVsActualLines), so the fixture cannot drift from what the service answers.
+const budgetLines = (amount: number) => buildBudgetVsActualLines(
+  [{ id: 'g-1000', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900 }],
+  { 'g-1000': amount },
+);
 const ROW = (): StatementRow[] => ([
   { id: 'acc:1000', kind: 'line', label: 'Sales', depth: 1, accountCode: '1000', actual: 900 },
 ]);
