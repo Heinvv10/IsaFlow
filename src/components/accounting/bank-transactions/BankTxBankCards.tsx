@@ -50,7 +50,7 @@ interface Props {
 }
 
 /** Whether the row has more cards to its right than it shows. */
-function useOverflowRight() {
+function useOverflowRight(cardCount: number) {
   const ref = useRef<HTMLDivElement>(null);
   const [more, setMore] = useState(false);
   const measure = useCallback(() => {
@@ -65,6 +65,8 @@ function useOverflowRight() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [measure]);
+  // A card added or removed changes scrollWidth without resizing the row itself.
+  useEffect(measure, [measure, cardCount]);
   return { ref, more, measure };
 }
 
@@ -74,7 +76,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
   const hints = useMemo(() => findUngroupedHints(primaries, groups), [primaries, groups]);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const expandedGroup = groups.find(g => g.groupId === expandedGroupId);
-  const row = useOverflowRight();
+  const row = useOverflowRight(primaries.length + groups.length);
 
   // Deep links (?account_id=) can select a sub-account before any user
   // interaction — auto-expand its group so the selection is visible.

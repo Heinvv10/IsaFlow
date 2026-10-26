@@ -9,10 +9,11 @@
  *      arrives" serialise: the add waits, re-reads, and is refused when the move left the parent childless.
  * Disposable databases only — the suite skips elsewhere.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { SignJWT } from 'jose';
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { reclassifyAccount } from '@/modules/accounting/services/gl/accountReclassifyService';
@@ -29,10 +30,11 @@ const DATE = '2026-07-10';
 const WAIT_MS = 1500;
 let h: HeaderFixture;
 
-const post = (account: string) => async () => {
+const post = (account: string, amount = 100) => async () => {
+  const [dr, cr] = amount >= 0 ? [account, h.fx.bankAccountId] : [h.fx.bankAccountId, account];
   const e = await createJournalEntry(h.fx.companyId, {
     entryDate: DATE, description: 'HAH', source: 'manual',
-    lines: [{ glAccountId: account, debit: 100, credit: 0 }, { glAccountId: h.fx.bankAccountId, debit: 0, credit: 100 }],
+    lines: [{ glAccountId: dr, debit: Math.abs(amount), credit: 0 }, { glAccountId: cr, debit: 0, credit: Math.abs(amount) }],
   }, h.fx.userId);
   await postJournalEntry(h.fx.companyId, e.id, h.fx.userId);
 };
@@ -41,9 +43,10 @@ const post = (account: string) => async () => {
  * A level-1 parent posted while it was a leaf. `children` > 0 then gives it children by direct insert — the
  * state VF's chart is in, and one no guarded path can produce, since a post to a header is refused.
  */
-async function postedParent(tag: string, children: number, subtype: string | null = null) {
+async function postedParent(tag: string, children: number, subtype: string | null = null, netZero = false) {
   const parent = await addAccount(h.fx, { code: `HAH-${tag}`, type: 'asset', level: 1, subtype });
   await inTx(h.fx, post(parent));
+  if (netZero) await inTx(h.fx, post(parent, -100));
   const kids: string[] = [];
   for (let i = 1; i <= children; i += 1) {
     kids.push(await addAccount(h.fx, { code: `HAH-${tag}.${i}`, type: 'asset', level: 2, parentId: parent, subtype }));
@@ -98,6 +101,9 @@ async function twoClients(run: (a: PoolClient, b: PoolClient) => Promise<void>):
 describeIfDb('a posted parent that is already a header may take another child', () => {
   beforeAll(async () => { h = await seedHeaderFixture('HAH', process.env.DATABASE_URL!); }, 120000);
   afterAll(async () => { await dropHeaderFixture(h); }, 120000);
+  afterEach(() => { vi.restoreAllMocks(); });
+  const headerWarnings = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls.filter((c) => String(c[0]).startsWith('Child added to a header'));
 
   describe('chart path (reclassifyAccount / createAccount, the update_gl_account MCP tool)', () => {
     it('(a) a posted level-1 parent with NO child is still refused; nothing changes', async () => {
@@ -116,6 +122,27 @@ describeIfDb('a posted parent that is already a header may take another child', 
       expect(await childCount(parent)).toBe(2);
       const level = ((await sql`SELECT level FROM gl_accounts WHERE id = ${loose}::UUID`) as Row[])[0]!.level;
       expect(Number(level)).toBe(2);
+    });
+
+    it('(b) a header whose own lines do not net to zero is admitted, with a warning naming it', async () => {
+      const warn = vi.spyOn(log, 'warn');
+      const { parent } = await postedParent('W1', 1);
+      const loose = await addAccount(h.fx, { code: 'HAH-W1X', type: 'asset', level: 1 });
+      expect(await settle(inTx(h.fx, move(loose, parent)))).toBeNull();
+      const hits = headerWarnings(warn);
+      expect(hits).toHaveLength(1);
+      expect(hits[0]![1]).toMatchObject({ parentId: parent, accountCode: 'HAH-W1', net: '100.00' });
+    });
+
+    it('(b) control: lines netting to zero (VF 1544420) raise no warning', async () => {
+      const warn = vi.spyOn(log, 'warn');
+      const { parent } = await postedParent('W0', 1, null, true);
+      const net = ((await sql`SELECT SUM(debit - credit)::TEXT AS n, COUNT(*)::INT AS c FROM gl_journal_lines
+        WHERE gl_account_id = ${parent}::UUID`) as Row[])[0]!;
+      expect([Number(net.n), Number(net.c)]).toEqual([0, 2]);
+      const loose = await addAccount(h.fx, { code: 'HAH-W0X', type: 'asset', level: 1 });
+      expect(await settle(inTx(h.fx, move(loose, parent)))).toBeNull();
+      expect(headerWarnings(warn)).toHaveLength(0);
     });
 
     it('(b) createAccount under the same kind of header is accepted', async () => {
@@ -165,6 +192,23 @@ describeIfDb('a posted parent that is already a header may take another child', 
       });
       expect(await childCount(parent)).toBe(0);
       expect(await parentOf(loose)).toBe('');
+    }, 120000);
+
+    it('bank PUT: MOVE AWAY first (uncommitted): the grouping PUT waits, then is a 400', async () => {
+      const { parent, kids } = await postedParent('C3', 1, 'bank');
+      const member = await addAccount(h.fx, { code: 'HAH-C3M', type: 'asset', level: 1, subtype: 'bank' });
+      await twoClients(async (a) => {
+        expect(await settle(runOn(h.fx, a, move(kids[0]!, null)))).toBeNull();
+        const state = { settled: false };
+        const put = putBankAccount({ id: member, parentAccountId: parent }).finally(() => { state.settled = true; });
+        await pause(WAIT_MS);
+        expect(state.settled, 'the PUT did not wait for the move').toBe(false);
+        await a.query('COMMIT');
+        const out = await put;
+        expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+        expect(JSON.stringify(out.body)).toContain('HAH-C3 has journal lines posted to it');
+      });
+      expect(await parentOf(member)).toBe('');
     }, 120000);
 
     it('ADD first (uncommitted): the move away waits; both commit and the parent never stopped being a header', async () => {

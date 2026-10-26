@@ -75,7 +75,7 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
             onChange={e => setSearch(e.target.value)}
             placeholder={`Search ${group.groupName}…`}
             aria-label={`Search ${group.groupName}`}
-            className="flex-1 bg-transparent text-sm text-[var(--ff-text-primary)] placeholder-[var(--ff-text-tertiary)] outline-none"
+            className="flex-1 rounded bg-transparent text-sm text-[var(--ff-text-primary)] placeholder-[var(--ff-text-tertiary)] outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
           />
         </div>
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter sub-accounts">
@@ -83,7 +83,7 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
             <button key={c.id} type="button" onClick={() => setFilter(c.id)} aria-pressed={filter === c.id}
               data-testid={`worklist-chip-${c.id}`}
               className={`rounded-full border px-2.5 py-0.5 text-xs ${filter === c.id
-                ? 'border-teal-600 bg-teal-600 text-white'
+                ? 'border-teal-700 bg-teal-700 text-white'
                 : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:border-[var(--ff-text-tertiary)]'}`}>
               {c.label} <span className="tabular-nums">{view.counts[c.id]}</span>
             </button>
@@ -104,7 +104,8 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
           return (
             <div key={a.id} data-testid="bank-group-row"
               className={`flex items-center gap-3 px-3 py-2 text-sm ${active ? 'bg-teal-500/10' : 'hover:bg-[var(--ff-bg-secondary)]'}`}>
-              <button onClick={() => onSelectBank(a.id)} className="flex-1 flex items-center gap-3 text-left min-w-0">
+              <button onClick={() => onSelectBank(a.id)} aria-current={active ? 'true' : undefined}
+                className="flex-1 flex items-center gap-3 text-left min-w-0">
                 <span className={`truncate ${active ? 'text-teal-700 dark:text-teal-400 font-semibold' : 'text-[var(--ff-text-primary)]'}`}>
                   {a.accountName}
                 </span>

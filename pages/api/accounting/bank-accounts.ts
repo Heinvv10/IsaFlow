@@ -20,6 +20,7 @@ import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl
 import { holderAsParentRefusal, roleBarringChildren } from '@/modules/accounting/services/gl/roleTargetRules';
 import { hasChildAccounts, isSubjectToLeafRule } from '@/modules/accounting/services/gl/isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from '@/modules/accounting/services/gl/glAccountLock';
+import { warnIfHeaderHoldsMoney } from '@/modules/accounting/services/gl/accountParentRules';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { lockPaymentsFromAccount, recordPayingAccountEdit } from '@/modules/accounting/services/ap/payingAccountAuthors';
 
@@ -88,7 +89,10 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
     // exemption: a group that already has a member is already a header, so another member hides nothing new.
     if (isSubjectToLeafRule(Number(parent.level), String(parent.account_type))) {
       await lockGlAccountsForUpdate(companyId, [parentId]);
-      if (await hasChildAccounts(companyId, parentId)) return setParent(companyId, id, parentId);
+      if (await hasChildAccounts(companyId, parentId)) {
+        await warnIfHeaderHoldsMoney(companyId, { id: parentId, account_code: String(parent.account_code) });
+        return setParent(companyId, id, parentId);
+      }
       const [posted] = await sql`
         SELECT 1 FROM gl_journal_lines WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID LIMIT 1`;
       if (posted) {
