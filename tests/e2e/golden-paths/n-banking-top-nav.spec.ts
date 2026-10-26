@@ -24,4 +24,13 @@ for (const { name, path } of LINKS) {
     await page.waitForURL(path, { timeout: 30_000 });
     await expect(page).toHaveURL(path);
   });
+
+  test(`Banking top-nav, opened by click → ${name}`, async ({ page }) => {
+    await page.goto('/accounting');
+    const banking = page.locator('[data-tour="nav-banking"]');
+    await banking.getByRole('button', { name: /banking/i }).click();
+    await banking.getByRole('link', { name, exact: true }).click();
+    await page.waitForURL(path, { timeout: 30_000 });
+    await expect(page).toHaveURL(path);
+  });
 }
