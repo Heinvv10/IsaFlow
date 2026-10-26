@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { useState } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { MoneyField, type MoneyFieldProps } from '@/components/ui/MoneyField';
 
 function Harness(props: Partial<MoneyFieldProps> & { initial?: number | null; spy?: MoneyFieldProps['onChange'] }) {
@@ -343,13 +343,20 @@ describe('MoneyField', () => {
     it('the echo of a refusal keeps the text, whether the parent adopts null at once or after an await', async () => {
       function Adopting({ delayMs }: { delayMs: number }) {
         const [value, setValue] = useState<number | null>(500);
-        return <MoneyField label="Amount" value={value}
-          onChange={(v) => { if (delayMs === 0) setValue(v); else setTimeout(() => setValue(v), delayMs); }} />;
+        return (
+          <>
+            <MoneyField label="Amount" value={value}
+              onChange={(v) => { if (delayMs === 0) setValue(v); else setTimeout(() => setValue(v), delayMs); }} />
+            <output data-testid="adopted">{String(value)}</output>
+          </>
+        );
       }
       for (const delayMs of [0, 20]) {
         const { unmount } = render(<Adopting delayMs={delayMs} />);
         commitText('abc');
-        await new Promise((r) => setTimeout(r, 60));
+        await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
+        // the parent really did adopt null (else the check below could pass without the echo ever arriving)
+        expect(screen.getByTestId('adopted').textContent, `delay ${delayMs}`).toBe('null');
         expect(input().value, `delay ${delayMs}`).toBe('abc');
         expect(screen.getByRole('alert')).toBeTruthy();
         unmount();

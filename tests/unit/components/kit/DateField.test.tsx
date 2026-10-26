@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterAll } from 'vitest';
 import { useRef, useState } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { DateField, type DateFieldProps } from '@/components/ui/DateField';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
@@ -316,13 +316,20 @@ describe('DateField', () => {
     it('the echo of a refusal keeps the text, whether the parent adopts null at once or after an await', async () => {
       function Adopting({ delayMs }: { delayMs: number }) {
         const [value, setValue] = useState<string | null>('2026-10-21');
-        return <DateField label="Invoice date" getToday={TODAY} value={value}
-          onChange={(v) => { if (delayMs === 0) setValue(v); else setTimeout(() => setValue(v), delayMs); }} />;
+        return (
+          <>
+            <DateField label="Invoice date" getToday={TODAY} value={value}
+              onChange={(v) => { if (delayMs === 0) setValue(v); else setTimeout(() => setValue(v), delayMs); }} />
+            <output data-testid="adopted">{String(value)}</output>
+          </>
+        );
       }
       for (const delayMs of [0, 20]) {
         const { unmount } = render(<Adopting delayMs={delayMs} />);
         commit('garbage');
-        await new Promise((r) => setTimeout(r, 60));
+        await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
+        // the parent really did adopt null (else the check below could pass without the echo ever arriving)
+        expect(screen.getByTestId('adopted').textContent, `delay ${delayMs}`).toBe('null');
         expect(input().value, `delay ${delayMs}`).toBe('garbage');
         expect(screen.getByRole('alert')).toBeTruthy();
         unmount();
