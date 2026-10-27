@@ -30,7 +30,7 @@ export function StatusBadge({ status }: { status: string }) {
     cancelled: 'bg-red-500/10 text-red-400',
   };
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/10 text-gray-600 dark:text-gray-400'}`}>
       {status}
     </span>
   );

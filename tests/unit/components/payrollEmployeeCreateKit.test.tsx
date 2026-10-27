@@ -63,6 +63,8 @@ describe('employee create form', () => {
     const start = screen.getByLabelText(/^Start date/) as HTMLInputElement;
     await waitFor(() => expect(document.activeElement).toBe(start));
     expect(start.getAttribute('aria-invalid')).toBe('true');
+    // The real reason, not the generic empty-field copy: the refusal must not collapse into "left blank".
+    expect(screen.queryByText('Enter a start date.')).toBeNull();
     expect(posts()).toHaveLength(0);
   });
 
@@ -97,5 +99,18 @@ describe('employee create form', () => {
     expect(url).toBe('/api/payroll/employees');
     expect(init.method).toBe('POST');
     expect(init.body).toBe(BODY_BEFORE_KIT);
+  });
+
+  it('a minimal form omits the optional keys instead of posting empty strings', async () => {
+    render(<Page />);
+    typeInto('First name *', 'Thandi');
+    typeInto('Last name *', 'Nkosi');
+    typeInto('Employee number *', 'E-001');
+    submit();
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    const body = JSON.parse(String((posts()[0]![1] as RequestInit).body));
+    expect(Object.keys(body)).toEqual(['firstName', 'lastName', 'employeeNumber', 'employmentType', 'startDate',
+      'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount']);
+    expect(String((posts()[0]![1] as RequestInit).body)).not.toMatch(/taxNumber|idNumber|dateOfBirth/);
   });
 });

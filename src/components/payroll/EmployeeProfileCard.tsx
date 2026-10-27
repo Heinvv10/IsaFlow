@@ -2,7 +2,7 @@
  * Payroll Employee Profile card — editable profile fields + Save button.
  * Used by /payroll/employees/[id].
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
 import { todayInSast } from '@/lib/saDateParser';
@@ -39,6 +39,8 @@ const label = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
 export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Props) {
   // A refused date reaches onChange as null, which would save as "cleared": Save waits until it is fixed.
   const [refused, setRefused] = useState({ dateOfBirth: false, endDate: false });
+  // The flags belong to the typed text of one record: a different employee starts clean.
+  useEffect(() => setRefused({ dateOfBirth: false, endDate: false }), [employee.id]);
   const track = (k: 'dateOfBirth' | 'endDate') => (valid: boolean) => setRefused(r => ({ ...r, [k]: !valid }));
   return (
     <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">

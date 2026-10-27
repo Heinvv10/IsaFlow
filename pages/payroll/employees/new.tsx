@@ -94,9 +94,7 @@ export default function NewEmployeePage() {
 
         <form onSubmit={handleSubmit} noValidate className="p-6 max-w-3xl space-y-2">
           {error && (
-            <div role="alert" className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-              {error}
-            </div>
+            <div role="alert" className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}
           <PersonalSection {...section} />
           <EmploymentSection {...section} />
@@ -110,9 +108,7 @@ export default function NewEmployeePage() {
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Create Employee
             </button>
-            <Link href="/payroll/employees" className="px-4 py-2 rounded-lg text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] text-sm">
-              Cancel
-            </Link>
+            <Link href="/payroll/employees" className="px-4 py-2 rounded-lg text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] text-sm">Cancel</Link>
           </div>
         </form>
       </div>
