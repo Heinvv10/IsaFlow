@@ -43,7 +43,7 @@ describe('pages/_app.tsx — the gate, rendered', () => {
     }));
     let pathname = '/accounting/reports/report-packs';
     vi.doMock('next/router', () => ({
-      useRouter: () => ({ pathname, events: { on: () => {}, off: () => {} } }),
+      useRouter: () => ({ pathname, asPath: pathname, events: { on: () => {}, off: () => {} } }),
     }));
 
     const { default: App } = await import('../../../pages/_app');

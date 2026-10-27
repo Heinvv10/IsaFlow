@@ -21,7 +21,7 @@ const getRegistrations = vi.fn(() => Promise.resolve([]));
 let pathname = '/accounting/reports/report-packs';
 
 vi.mock('next/router', () => ({
-  useRouter: () => ({ pathname, events: { on: () => {}, off: () => {} } }),
+  useRouter: () => ({ pathname, asPath: pathname, events: { on: () => {}, off: () => {} } }),
 }));
 vi.mock('@/components/analytics/TrackerScript', () => ({ TrackerScript: () => null }));
 

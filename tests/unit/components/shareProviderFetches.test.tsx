@@ -20,7 +20,7 @@ import { cleanup, render, screen, act } from '@testing-library/react';
 let pathname = '/accounting/reports/report-packs';
 
 vi.mock('next/router', () => ({
-  useRouter: () => ({ pathname, isReady: true, query: {}, events: { on: () => {}, off: () => {} } }),
+  useRouter: () => ({ pathname, asPath: pathname, isReady: true, query: {}, events: { on: () => {}, off: () => {} } }),
 }));
 vi.mock('@/components/analytics/TrackerScript', () => ({ TrackerScript: () => null }));
 
