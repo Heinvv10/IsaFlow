@@ -10,6 +10,7 @@ import { notify } from '@/utils/toast';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { Loader2, Plus, ArrowRight } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 export interface Currency {
   code: string;
@@ -102,13 +103,7 @@ export function AddRateForm({ currencies, onAdded }: AddRateFormProps) {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Effective Date</label>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className={INPUT_CLS}
-          />
+          <DateField label="Effective Date" value={date || null} onChange={iso => setDate(iso ?? '')} />
         </div>
       </div>
       <div className="flex justify-end mt-4">
@@ -192,12 +187,7 @@ export function ConverterWidget({ currencies }: ConverterWidgetProps) {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Date</label>
-          <input
-            type="date" value={date}
-            onChange={e => { setDate(e.target.value); setResult(null); }}
-            className="px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500"
-          />
+          <DateField label="Date" value={date || null} onChange={iso => { setDate(iso ?? ''); setResult(null); }} />
         </div>
         <button
           onClick={handleConvert}

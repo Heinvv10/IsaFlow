@@ -11,6 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Landmark, ArrowLeft, Loader2 } from 'lucide-react';
 import { RateCurve } from '@/components/loans/types';
+import { DateField } from '@/components/ui/DateField';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -184,8 +185,7 @@ export default function NewLoanPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Start Date *</label>
-                  <input type="date" className="ff-input w-full text-sm" value={form.startDate} onChange={e => set('startDate', e.target.value)} required />
+                  <DateField label="Start Date" required value={form.startDate || null} onChange={iso => set('startDate', iso ?? '')} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Term (months) *</label>

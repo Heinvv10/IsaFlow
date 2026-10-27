@@ -11,6 +11,7 @@ import type { CompanyUserSummary } from '@/modules/accounting/services/practice/
 import type { StaffCostRate } from '@/modules/accounting/services/practice/practiceCostRateService';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -172,14 +173,10 @@ export default function StaffCostRatesPage() {
                   onChange={(e) => setField('currency', e.target.value.toUpperCase())} />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Effective from *</label>
-                <input type="date" className={INPUT} value={form.effectiveFrom}
-                  onChange={(e) => setField('effectiveFrom', e.target.value)} />
+                <DateField label="Effective from" required value={form.effectiveFrom || null} onChange={(iso) => setField('effectiveFrom', iso ?? '')} />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Effective to</label>
-                <input type="date" className={INPUT} value={form.effectiveTo}
-                  onChange={(e) => setField('effectiveTo', e.target.value)} />
+                <DateField label="Effective to" value={form.effectiveTo || null} onChange={(iso) => setField('effectiveTo', iso ?? '')} />
               </div>
             </div>
             <div className="flex items-end gap-3">

@@ -27,6 +27,7 @@ import { LoanEventsTab } from '@/components/loans/LoanEventsTab';
 import { LoanOverviewTab } from '@/components/loans/LoanOverviewTab';
 import { LoanScheduleTab } from '@/components/loans/LoanScheduleTab';
 import type { Loan } from '@/components/loans/types';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); routerState.query = {}; routerState.push.mockReset(); });
@@ -81,7 +82,7 @@ describe('D2 success envelope is honoured (group 1c)', () => {
       method(init) === 'POST' ? ok({ id: 'loan-created-9' }) : ok([]));
     const { container } = render(<NewLoanPage />);
     fireEvent.change(screen.getByPlaceholderText('1000000.00'), { target: { value: '5000000' } });
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-02-01' } });
+    typeDate(dateInputs(container)[0]!, '2026-02-01');
     fireEvent.change(screen.getByPlaceholderText('60'), { target: { value: '60' } });
     fireEvent.change(screen.getByPlaceholderText('10.5'), { target: { value: '11' } });
     fireEvent.submit(screen.getByRole('button', { name: /create loan/i }).closest('form')!);
@@ -101,7 +102,7 @@ describe('D2 success envelope is honoured (group 1c)', () => {
     const onRefresh = vi.fn();
     const { container } = render(<LoanEventsTab loanId="loan-1" events={[]} onRefresh={onRefresh} />);
     fireEvent.click(screen.getByRole('button', { name: /add event/i }));
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-03-01' } });
+    typeDate(dateInputs(container)[0]!, '2026-03-01');
     fireEvent.change(screen.getByPlaceholderText('Amount (ZAR)'), { target: { value: '5000' } });
     fireEvent.submit(screen.getByRole('button', { name: /save event/i }).closest('form')!);
     await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
@@ -113,7 +114,7 @@ describe('D2 success envelope is honoured (group 1c)', () => {
     vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok({ rows: [row] }));
     const { container } = render(<LoanScheduleTab loanId="loan-1" rows={[]} loading={false} />);
     fireEvent.click(screen.getByRole('button', { name: /preview what-if/i }));
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2031-07-15' } });
+    typeDate(dateInputs(container)[0]!, '2031-07-15');
     fireEvent.click(screen.getByRole('button', { name: /run preview/i }));
     await sees('4242');
   });

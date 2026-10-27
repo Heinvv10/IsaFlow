@@ -10,6 +10,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 interface Employee { id: string; employeeNumber: string; firstName: string; lastName: string }
 interface Event {
@@ -191,12 +192,8 @@ export default function TrainingPage() {
               <input type="text" placeholder="Provider" value={form.provider}
                 onChange={e => setForm({ ...form, provider: e.target.value })}
                 className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-              <input type="date" value={form.plannedStart}
-                onChange={e => setForm({ ...form, plannedStart: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-              <input type="date" value={form.plannedEnd}
-                onChange={e => setForm({ ...form, plannedEnd: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+              <DateField label="Planned start" value={form.plannedStart || null} onChange={iso => setForm({ ...form, plannedStart: iso ?? '' })} />
+              <DateField label="Planned end" value={form.plannedEnd || null} onChange={iso => setForm({ ...form, plannedEnd: iso ?? '' })} />
               <input type="number" step="0.01" placeholder="Cost planned" value={form.costPlanned}
                 onChange={e => setForm({ ...form, costPlanned: Number(e.target.value) })}
                 className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />

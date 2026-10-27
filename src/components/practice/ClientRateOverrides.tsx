@@ -4,6 +4,7 @@ import { DollarSign, Plus, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 interface RateOverride {
   id: string;
@@ -181,22 +182,10 @@ export function ClientRateOverrides({ clientId }: Props) {
               />
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Effective From *</label>
-              <input
-                type="date"
-                value={form.effectiveFrom}
-                onChange={(e) => setForm((f) => ({ ...f, effectiveFrom: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-teal-500"
-              />
+              <DateField label="Effective From" required value={form.effectiveFrom || null} onChange={(iso) => setForm((f) => ({ ...f, effectiveFrom: iso ?? '' }))} />
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Effective To</label>
-              <input
-                type="date"
-                value={form.effectiveTo}
-                onChange={(e) => setForm((f) => ({ ...f, effectiveTo: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-teal-500"
-              />
+              <DateField label="Effective To" value={form.effectiveTo || null} onChange={(iso) => setForm((f) => ({ ...f, effectiveTo: iso ?? '' }))} />
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Notes</label>

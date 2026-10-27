@@ -22,6 +22,7 @@ import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignm
 import { LoanEventsTab } from '@/components/loans/LoanEventsTab';
 import { TopUpModal } from '@/components/billing/TopUpModal';
 import { WaitlistForm } from '@/components/landing/WaitlistForm';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -63,8 +64,8 @@ describe('plain sentences for an empty 5xx', () => {
     serve(on('POST', '/events', empty500));
     render(<LoanEventsTab loanId="l1" events={[]} onRefresh={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /add event/i }));
-    const date = document.querySelector('input[type="date"]') as HTMLInputElement;
-    fireEvent.change(date, { target: { value: '2026-01-01' } });
+    const date = dateInputs()[0]!;
+    typeDate(date, '2026-01-01');
     const amount = document.querySelector('input[type="number"]') as HTMLInputElement | null;
     if (amount) fireEvent.change(amount, { target: { value: '10' } });
     fireEvent.submit(date.closest('form') as HTMLFormElement);

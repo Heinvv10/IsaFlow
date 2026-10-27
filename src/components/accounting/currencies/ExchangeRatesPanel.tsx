@@ -12,6 +12,7 @@ import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatAmount, formatRate } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 interface Props {
   currencies: Currency[];
@@ -179,13 +180,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Effective Date</label>
-              <input
-                type="date"
-                value={rateForm.effectiveDate}
-                onChange={e => setRateForm(f => ({ ...f, effectiveDate: e.target.value }))}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-violet-500"
-              />
+              <DateField label="Effective Date" value={rateForm.effectiveDate || null} onChange={iso => setRateForm(f => ({ ...f, effectiveDate: iso ?? '' }))} />
             </div>
           </div>
           <div className="flex justify-end mt-4">

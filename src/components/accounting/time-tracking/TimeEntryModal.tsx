@@ -1,4 +1,5 @@
 import { X, Loader2 } from 'lucide-react';
+import { DateField } from '@/components/ui/DateField';
 
 interface Customer { id: string; companyName: string }
 
@@ -38,10 +39,7 @@ export function TimeEntryModal({ form, editId, busy, customers, onClose, onSubmi
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
-              <input type="date" required value={form.entryDate}
-                onChange={e => onChange('entryDate', e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+              <DateField label="Date" required value={form.entryDate || null} onChange={iso => onChange('entryDate', iso ?? '')} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project</label>

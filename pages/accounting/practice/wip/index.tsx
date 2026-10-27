@@ -12,6 +12,7 @@ import type { WipClientRow, GenerateWipInvoiceInput } from '@/modules/accounting
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 
 function todayIso() { return localISODate(); }
 function fmtMoney(n: number) { return formatMoney(n); }
@@ -111,8 +112,7 @@ function InvoiceModal({ client, selectedIds, state, onChange, onConfirm, onCance
         <div className="px-6 py-5 space-y-4">
           {error && <ErrBanner msg={error} />}
           <div>
-            <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Invoice Date</label>
-            <input type="date" value={state.invoiceDate} onChange={(e) => onChange({ invoiceDate: e.target.value })} className={INPUT_CLS} />
+            <DateField label="Invoice Date" value={state.invoiceDate || null} onChange={(iso) => onChange({ invoiceDate: iso ?? '' })} />
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Tax Rate (%)</label>

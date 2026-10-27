@@ -17,8 +17,8 @@ import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/p
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 type Tab = 'details' | 'tasks' | 'time';
-
 const ALLOWED: Record<PracticeJob['status'], PracticeJob['status'][]> = {
   new: ['in_progress', 'cancelled'], in_progress: ['review', 'cancelled'],
   review: ['in_progress', 'approved', 'cancelled'], approved: ['billed', 'cancelled'],
@@ -207,7 +207,7 @@ export default function JobDetailPage() {
               <div className="grid grid-cols-2 gap-4">
                 <label className="col-span-2"><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Title</span><input value={form.title ?? ''} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={inp} /></label>
                 <label className="col-span-2"><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Description</span><textarea rows={3} value={form.description ?? ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={inp} /></label>
-                <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Due Date</span><input type="date" value={form.dueDate ?? ''} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value || null }))} className={inp} /></label>
+                <DateField label="Due Date" value={form.dueDate || null} onChange={iso => setForm(f => ({ ...f, dueDate: iso }))} />
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Priority</span>
                   <select value={form.priority ?? 'normal'} onChange={e => setForm(f => ({ ...f, priority: e.target.value as PracticeJob['priority'] }))} className={inp}>
                     {(['low', 'normal', 'high', 'urgent'] as const).map(p => <option key={p} value={p}>{PLBL[p]}</option>)}

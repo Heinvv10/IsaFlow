@@ -11,6 +11,7 @@ import {
   addFleetRecord, deleteFleetRecord, loadFuelRecords, loadServiceRecords, type FleetKind, type FleetRecord,
 } from './fleetRecordsApi';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
 
 interface Props { assetId: string; kind: FleetKind; onChanged?: () => void }
 
@@ -84,7 +85,7 @@ export function FleetRecordsTab({ assetId, kind, onChanged }: Props) {
     <div className="space-y-3">
       {error && <div className="text-xs text-red-400 bg-red-500/10 rounded px-3 py-2">{error}</div>}
       <div className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end">
-        <label className="text-xs text-[var(--ff-text-tertiary)]">Date<input type="date" aria-label="Date" className={input} value={form.date} onChange={set('date')} /></label>
+        <DateField label="Date" value={form.date || null} onChange={iso => setForm(f => ({ ...f, date: iso ?? '' }))} />
         {kind === 'fuel'
           ? <label className="text-xs text-[var(--ff-text-tertiary)]">Litres<input type="number" aria-label="Litres" min="0" step="0.01" className={input} value={form.litres} onChange={set('litres')} /></label>
           : <label className="text-xs text-[var(--ff-text-tertiary)] md:col-span-2">Description<input aria-label="Description" className={input} value={form.description} onChange={set('description')} /></label>}

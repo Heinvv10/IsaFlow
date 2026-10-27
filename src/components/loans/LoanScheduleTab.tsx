@@ -7,6 +7,7 @@ import { SlidersHorizontal, X, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ScheduleRow, LoanEvent } from './types';
 import { LoanScheduleTable } from './LoanScheduleTable';
+import { DateField } from '@/components/ui/DateField';
 
 interface Props {
   loanId: string;
@@ -114,12 +115,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
                 <option value="LUMP">Lump Sum</option>
                 <option value="SKIP">Skip</option>
               </select>
-              <input
-                type="date"
-                value={ev.date}
-                onChange={e => updateEvent(i, 'date', e.target.value)}
-                className="ff-input text-xs"
-              />
+              <DateField label="Event date" value={ev.date || null} onChange={iso => updateEvent(i, 'date', iso ?? '')} />
               {ev.kind === 'LUMP' ? (
                 <input
                   type="number"

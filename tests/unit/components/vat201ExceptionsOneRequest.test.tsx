@@ -1,0 +1,69 @@
+// One Generate means one GET /api/accounting/sars/vat-exceptions. React StrictMode (on in dev) runs the panel's
+// mount effect twice, and the period-lock form reads the same report: both share the in-flight request.
+import { StrictMode } from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
+
+import { apiFetch } from '@/lib/apiFetch';
+import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
+import { fetchVatExceptions } from '@/components/accounting/sars/vatExceptionsFetch';
+import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+
+const report: VatExceptionsReport = {
+  periodStart: '2026-07-01', periodEnd: '2026-08-31',
+  uncodedGlLines: [], uncodedGlLineCount: 0,
+  invoiceTaxCodeIssues: [], invoiceTaxCodeIssueCount: 0,
+  billTaxCodeWarnings: [], billTaxCodeWarningCount: 0, billTaxCodeWarningPotentialVat: 0,
+  invoiceGlMismatches: [], invoiceGlMismatchCount: 0,
+  vatOnBalanceSheetLines: [], vatOnBalanceSheetCount: 0,
+  vatNonSupplyLines: [], vatNonSupplyCount: 0,
+  controlRecon: {
+    outputVat201: 0, outputGl: 0, outputVariance: 0, inputVat201: 0, inputGl: 0, inputVariance: 0,
+    netVat201: 0, netGl: 0, netVariance: 0, unpostedCustomerVat: 0, unpostedCustomerCount: 0,
+    unpostedSupplierVat: 0, unpostedSupplierCount: 0,
+  },
+  unpostedInvoiceVat: [], unpostedInvoiceVatCount: 0,
+  declaredElsewhereVat: [], declaredElsewhereVatCount: 0,
+  unsupportedInputVat: [], unsupportedInputVatCount: 0,
+  inputVatWithoutTaxInvoice: [], inputVatWithoutTaxInvoiceCount: 0,
+  totalExceptions: 0,
+  degradedData: false,
+  degradedSources: [],
+};
+
+
+afterEach(() => vi.clearAllMocks());
+
+const ok = () => new Response(JSON.stringify({ success: true, data: report }), { status: 200 });
+const exceptionCalls = () => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes('vat-exceptions')).length;
+
+it('the panel sends one request when StrictMode mounts its effect twice', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => ok());
+  render(<StrictMode><VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} /></StrictMode>);
+  await waitFor(() => expect(screen.getByText('No exceptions')).toBeTruthy());
+  expect(exceptionCalls()).toBe(1);
+});
+
+it('two callers asking for the same period at once share one request; a later ask sends a fresh one', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => ok());
+  const [a, b] = await Promise.all([
+    fetchVatExceptions('2026-07-01', '2026-08-31', 'failed', 'test'),
+    fetchVatExceptions('2026-07-01', '2026-08-31', 'failed', 'test'),
+  ]);
+  expect(a).toEqual(b);
+  expect(exceptionCalls()).toBe(1);
+  await fetchVatExceptions('2026-07-01', '2026-08-31', 'failed', 'test');
+  expect(exceptionCalls()).toBe(2);
+});
+
+it('a different period is its own request', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => ok());
+  await Promise.all([
+    fetchVatExceptions('2026-07-01', '2026-08-31', 'failed', 'test'),
+    fetchVatExceptions('2026-09-01', '2026-10-31', 'failed', 'test'),
+  ]);
+  expect(exceptionCalls()).toBe(2);
+});

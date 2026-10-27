@@ -22,6 +22,7 @@ vi.mock('papaparse', () => ({
 }));
 
 import OpeningBalancesPage from '../../../pages/accounting/migration/opening-balances';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 let PARSED: Record<string, string>[] = [];
 let FIELDS: string[] = [];
@@ -57,7 +58,7 @@ describe('opening balances wizard page', () => {
     const { container } = render(<OpeningBalancesPage />);
     upload(container);
     expect(await screen.findByText('Balanced')).toBeTruthy();
-    fireEvent.change(container.querySelector('input[type="date"]') as HTMLInputElement, { target: { value: '2026-03-01' } });
+    typeDate(dateInputs(container)[0]!, '2026-03-01');
     fireEvent.click(screen.getByText(/Set Opening Balances/));
 
     await waitFor(() => expect(posted).not.toBeNull(), { timeout: 5000 });

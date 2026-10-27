@@ -8,6 +8,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
+import { DateField } from '@/components/ui/DateField';
 
 interface Opt { id: string; name?: string; legalName?: string }
 interface FormState {
@@ -206,8 +207,7 @@ export default function NewPracticeJobPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={LC}>Due Date</label>
-                <input type="date" value={form.dueDate} onChange={(e) => set('dueDate', e.target.value)} className={IC} />
+                <DateField label="Due Date" value={form.dueDate || null} onChange={(iso) => set('dueDate', iso ?? '')} />
               </div>
               <div>
                 <label className={LC}>Financial Year</label>
