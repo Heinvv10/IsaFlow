@@ -193,7 +193,7 @@ export default function RecurringInvoicesPage() {
                       <tr key={item.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors ${due ? 'bg-orange-50/50 dark:bg-orange-900/5' : ''}`}>
                         <td className="px-5 py-3.5">
                           <div className="font-medium text-slate-900 dark:text-slate-100">{item.templateName}</div>
-                          {item.description && <div className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-0.5">{item.description}</div>}
+                          {item.description && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{item.description}</div>}
                         </td>
                         <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300">{item.clientName ?? '—'}</td>
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 capitalize">{item.frequency}</td>
