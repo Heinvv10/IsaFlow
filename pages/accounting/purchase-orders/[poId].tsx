@@ -26,6 +26,7 @@ import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -426,16 +427,12 @@ export default function PurchaseOrderDetailPage() {
                       className="ff-input w-full" placeholder="Supplier quote ref" />
                   </div>
                   <div>
-                    <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Order Date *</label>
-                    <input type="date" name="orderDate" required value={form.order_date}
-                      onChange={e => setForm(f => f ? { ...f, order_date: e.target.value } : f)}
-                      className="ff-input w-full" />
+                    <DateField label="Order Date" required name="orderDate" value={form.order_date || null}
+                      onChange={(iso, v) => setForm(f => f ? { ...f, order_date: v.valid ? iso ?? '' : '' } : f)} />
                   </div>
                   <div>
-                    <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Expected Delivery</label>
-                    <input type="date" name="expectedDeliveryDate" value={form.expected_delivery_date}
-                      onChange={e => setForm(f => f ? { ...f, expected_delivery_date: e.target.value } : f)}
-                      className="ff-input w-full" />
+                    <DateField label="Expected Delivery" name="expectedDeliveryDate" value={form.expected_delivery_date || null}
+                      onChange={(iso, v) => setForm(f => f ? { ...f, expected_delivery_date: v.valid ? iso ?? '' : '' } : f)} />
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Status</label>

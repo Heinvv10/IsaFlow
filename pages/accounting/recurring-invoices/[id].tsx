@@ -16,6 +16,7 @@ import {
   LineItemsSection,
   type LineItem,
 } from '@/components/accounting/recurringInvoices/LineItemsSection';
+import { DateField } from '@/components/ui';
 
 interface Customer { id: string; name?: string; company_name?: string }
 
@@ -276,25 +277,12 @@ export default function EditRecurringInvoicePage() {
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Next Run Date *</label>
-                <input
-                  type="date"
-                  name="nextRunDate"
-                  className={inputCls}
-                  value={form.nextRunDate}
-                  onChange={e => setForm(f => ({ ...f, nextRunDate: e.target.value }))}
-                  required
-                />
+                <DateField label="Next Run Date" required name="nextRunDate" value={form.nextRunDate || null}
+                  onChange={(iso, v) => setForm(f => ({ ...f, nextRunDate: v.valid ? iso ?? '' : '' }))} />
               </div>
               <div>
-                <label className={labelCls}>End Date (optional)</label>
-                <input
-                  type="date"
-                  name="endDate"
-                  className={inputCls}
-                  value={form.endDate}
-                  onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}
-                />
+                <DateField label="End Date (optional)" name="endDate" value={form.endDate || null} minDate={form.nextRunDate || undefined}
+                  onChange={(iso, v) => setForm(f => ({ ...f, endDate: v.valid ? iso ?? '' : '' }))} />
               </div>
             </div>
           </div>

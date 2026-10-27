@@ -1,6 +1,7 @@
 /**
  * Reusable form section panels for the New Item page.
  */
+import { DateField } from '@/components/ui';
 
 interface Category {
   id: string;
@@ -187,8 +188,7 @@ export function OpeningBalancesSection({ opening_qty, opening_cost, opening_date
           <input type="number" step="0.01" min="0" value={opening_cost} onChange={e => onChange('opening_cost', e.target.value)} className="ff-input w-full" />
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Opening Date</label>
-          <input type="date" value={opening_date} onChange={e => onChange('opening_date', e.target.value)} className="ff-input w-full" />
+          <DateField label="Opening Date" name="opening_date" value={opening_date || null} onChange={(iso, v) => onChange('opening_date', v.valid ? iso ?? '' : '')} />
         </div>
       </div>
     </div>

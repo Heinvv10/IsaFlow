@@ -17,6 +17,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { useCapturedDocument } from '@/hooks/useCapturedDocument';
 import { CaptureReadStatus } from '@/components/accounting/document-capture/CaptureReadStatus';
+import { DateField } from '@/components/ui';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -270,15 +271,9 @@ export default function DocumentCaptureDetailPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Date</label>
-                <input
-                  type="date"
-                  name="documentDate"
-                  value={documentDate}
-                  onChange={(e) => setDocumentDate(e.target.value)}
-                  className="ff-input w-full text-sm"
-                  disabled={doc.status === 'rejected' || isReading}
-                />
+                <DateField label="Date" name="documentDate" value={documentDate || null}
+                  onChange={(iso, v) => setDocumentDate(v.valid ? iso ?? '' : '')}
+                  disabled={doc.status === 'rejected' || isReading} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Reference / Invoice No.</label>

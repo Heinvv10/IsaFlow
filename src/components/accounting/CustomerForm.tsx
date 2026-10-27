@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
 
 export type AutoAllocateStrategy = 'off' | 'oldest' | 'newest';
 
@@ -191,9 +192,8 @@ export function CustomerForm({ form, onChange, fieldErrors = {}, categories = []
             <input type="number" min="0" step="0.01" value={form.opening_balance} onChange={(e) => set('opening_balance', e.target.value)}
               placeholder="0.00" className={inputClass} />
           </Field>
-          <Field label="Opening Balance as At">
-            <input type="date" value={form.opening_balance_date} onChange={(e) => set('opening_balance_date', e.target.value)} className={inputClass} />
-          </Field>
+          <DateField label="Opening Balance as At" name="opening_balance_date" value={form.opening_balance_date || null}
+            onChange={(iso, v) => set('opening_balance_date', v.valid ? iso ?? '' : '')} />
         </div>
         <div className="mt-3 flex items-center gap-3">
           <Toggle

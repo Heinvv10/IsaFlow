@@ -10,6 +10,8 @@ import { ArrowLeft, PackageCheck, Loader2, Receipt } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface PurchaseOrder {
   id: string;
@@ -46,6 +48,7 @@ export default function NewGRNPage() {
   const [loadingItems, setLoadingItems] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
 
   useEffect(() => {
     Promise.all(['approved', 'partially_received'].map(async (status) => {
@@ -88,6 +91,7 @@ export default function NewGRNPage() {
   const totalItems = Object.values(receivedQtys).reduce((s, q) => s + q, 0);
 
   const handleSubmit = async () => {
+    if (dates.blocked) return;
     if (!selectedPO) { setError('Please select a purchase order'); return; }
     const items = poItems
       .filter((item) => (receivedQtys[item.id] ?? 0) > 0)
@@ -160,8 +164,8 @@ export default function NewGRNPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className={lbl}>Receipt Date *</label>
-                      <input type="date" name="receivedDate" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} className={inp} />
+                      <DateField label="Receipt Date" required name="receivedDate" value={receivedDate || null}
+                        onChange={dates.bind('receivedDate', setReceivedDate)} />
                     </div>
                     <div>
                       <label className={lbl}>Delivery Note #</label>

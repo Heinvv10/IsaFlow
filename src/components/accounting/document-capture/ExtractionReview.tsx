@@ -3,6 +3,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { notify } from '@/utils/toast';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { DateField } from '@/components/ui';
 
 interface ReviewForm {
   vendor: string;
@@ -125,8 +126,7 @@ export function ExtractionReview({ uploadResult, form, onChange, onDismiss, onRe
           <input type="text" value={form.vendor} onChange={(e) => onChange('vendor', e.target.value)} className="ff-input w-full text-sm" placeholder="Enter vendor name" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Date</label>
-          <input type="date" value={form.date} onChange={(e) => onChange('date', e.target.value)} className="ff-input w-full text-sm" />
+          <DateField label="Date" name="date" value={form.date || null} onChange={(iso, v) => onChange('date', v.valid ? iso ?? '' : '')} />
         </div>
         <div>
           <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Reference / Invoice No.</label>

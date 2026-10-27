@@ -11,6 +11,8 @@ import { postingWarningsIn } from '@/components/accounting/postingWarningsNotice
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
@@ -36,6 +38,7 @@ export default function RecurringJournalsPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const dates = useDateGate();
   /** A generate's non-blocking notice: its journal held as a draft by an approval rule (R-035 PR6), a cost centre not applied. */
   const [held, setHeld] = useState('');
   const [editId, setEditId] = useState('');
@@ -117,6 +120,7 @@ export default function RecurringJournalsPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     setError('');
     if (!editId && Math.abs(totalDebit - totalCredit) > 0.01) { setError('Lines must balance (DR = CR)'); return; }
     setBusy('new');
@@ -200,7 +204,8 @@ export default function RecurringJournalsPage() {
                   <option value="weekly">Weekly</option><option value="monthly">Monthly</option>
                   <option value="quarterly">Quarterly</option><option value="annually">Annually</option>
                 </select>
-                <input type="date" value={form.nextRunDate} onChange={e => setForm(f => ({ ...f, nextRunDate: e.target.value }))} className="ff-input" required />
+                <DateField label="First Run Date" name="nextRunDate" required value={form.nextRunDate || null}
+                  onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })))} />
               </div>
               {!editId && (
                 <div className="space-y-2">

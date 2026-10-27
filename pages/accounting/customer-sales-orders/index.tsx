@@ -5,11 +5,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, Plus, Search, Loader2, Trash2, Edit, X, FileText } from 'lucide-react';
-import { StatusPill, PageHeader } from '@/components/ui';
+import { StatusPill, PageHeader, DateField } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface SalesOrder {
   id: string; orderNumber: string; customerName: string;
@@ -40,10 +41,11 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
   const [lines, setLines] = useState([{ description: '', quantity: 1, unit_price: 0, tax_rate: 15 }]);
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState('');
+  const dates = useDateGate();
   const subtotal = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0);
 
   const handleCreate = async () => {
-    if (lines.every(l => !l.description)) return;
+    if (dates.blocked || lines.every(l => !l.description)) return;
     setSaving(true); setCreateError('');
     try {
       const res = await apiFetch('/api/accounting/customer-sales-orders', {
@@ -76,8 +78,8 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
               </select>
               {customersError && <p className="text-xs text-red-500 mt-1">{customersError}</p>}
             </div>
-            <div><label className={lbl}>Order Date</label><input type="date" value={form.order_date} onChange={e => setForm(p => ({ ...p, order_date: e.target.value }))} className={inp} /></div>
-            <div><label className={lbl}>Delivery Date</label><input type="date" value={form.delivery_date} onChange={e => setForm(p => ({ ...p, delivery_date: e.target.value }))} className={inp} /></div>
+            <DateField label="Order Date" name="orderDate" value={form.order_date || null} onChange={dates.bind('order_date', iso => setForm(p => ({ ...p, order_date: iso })))} />
+            <DateField label="Delivery Date" name="deliveryDate" value={form.delivery_date || null} onChange={dates.bind('delivery_date', iso => setForm(p => ({ ...p, delivery_date: iso })))} />
             <div><label className={lbl}>Reference</label><input value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} placeholder="Optional" className={inp} /></div>
             <div><label className={lbl}>Notes</label><input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional" className={inp} /></div>
           </div>

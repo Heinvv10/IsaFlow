@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { PageHeader } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { log } from '@/lib/logger';
 import { Plus, Trash2, Loader2, AlertCircle, CheckCircle2, BookOpen, Receipt } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
@@ -12,6 +12,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAutocomplete';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface LineInput {
   key: string;
@@ -45,6 +46,7 @@ export default function NewJournalEntryPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const dates = useDateGate();
 
   useEffect(() => {
     apiFetch('/api/accounting/chart-of-accounts')
@@ -78,6 +80,7 @@ export default function NewJournalEntryPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     setError(null);
     if (!isBalanced) { setError('Journal entry must be balanced (total debits must equal total credits)'); return; }
     const validLines = lines.filter(l => l.accountId && (parseFloat(l.debitAmount) || parseFloat(l.creditAmount)));
@@ -144,8 +147,8 @@ export default function NewJournalEntryPage() {
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className={lbl}>Entry Date *</label>
-                      <input type="date" name="entryDate" value={entryDate} onChange={e => setEntryDate(e.target.value)} required className={inp} />
+                      <DateField label="Entry Date" required name="entryDate" value={entryDate || null}
+                        onChange={dates.bind('entryDate', setEntryDate)} />
                     </div>
                     <div>
                       <label className={lbl}>Description</label>
@@ -186,7 +189,7 @@ export default function NewJournalEntryPage() {
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{idx + 1}</td>
                           <td className="px-3 py-2">
-                            <select name="accountId" value={line.accountId} onChange={e => updateLine(line.key, 'accountId', e.target.value)} className={inp} required>
+                            <select name="accountId" aria-label="Account" value={line.accountId} onChange={e => updateLine(line.key, 'accountId', e.target.value)} className={inp} required>
                               <option value="">Select account…</option>
                               {accounts.map(a => (
                                 <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>
@@ -209,7 +212,7 @@ export default function NewJournalEntryPage() {
                             <input type="number" value={line.creditAmount} onChange={e => updateLine(line.key, 'creditAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
                           </td>
                           <td className="px-2 py-2">
-                            <button type="button" onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
+                            <button type="button" aria-label="Remove line" onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>
