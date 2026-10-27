@@ -259,6 +259,8 @@ describe('budget-versions routes', () => {
     const x = await budgets.owner();
     const xAdmin = await member(x.u.homeCompanyId, 'admin');
     const v = data(await create(x.u, 'First', 'scenario', x.label));
+    const before = (await pool.query('SELECT COUNT(*)::int n FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].n;
+    expect(before).toBe(0);
     const r = await primary.call(xAdmin, 'POST', undefined, { id: v.id });
     expect([r.status, data(r).isPrimary]).toEqual([200, true]);
   });
