@@ -5,6 +5,8 @@
 import { Loader2, AlertCircle } from 'lucide-react';
 import type { TemplateInput } from '@/modules/accounting/services/core/recurringTransactionService';
 import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
+import { notify } from '@/utils/toast';
 
 const INPUT_CLS = 'w-full px-3 py-2 text-sm bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-primary)] placeholder-[var(--ff-text-secondary)] focus:outline-none focus:ring-2 focus:ring-teal-500/30';
 const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium';
@@ -45,6 +47,7 @@ interface Props {
 }
 
 export function RecurringModal({ form, isEdit, saving, formError, onChange, onSave, onClose }: Props) {
+  const dates = useDateGate();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -86,7 +89,7 @@ export function RecurringModal({ form, isEdit, saving, formError, onChange, onSa
             </div>
             <div>
               <DateField label="Next Run Date" name="nextRunDate" value={form.nextRunDate || null}
-                onChange={(iso, v) => onChange({ nextRunDate: v.valid ? iso ?? '' : '' })} />
+                onChange={dates.bind('nextRunDate', (iso) => onChange({ nextRunDate: iso }), form.nextRunDate)} />
             </div>
             <div className="flex items-center gap-6 pt-5">
               <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] cursor-pointer">
@@ -116,7 +119,7 @@ export function RecurringModal({ form, isEdit, saving, formError, onChange, onSa
           </div>
         </div>
         <div className="px-6 py-4 border-t border-[var(--ff-border-light)] flex gap-2">
-          <button onClick={onSave} disabled={saving} className={BTN_PRIMARY}>
+          <button onClick={() => { if (dates.blocked) notify.error('Fix the date marked in red before saving.'); else onSave(); }} disabled={saving} className={BTN_PRIMARY}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {saving ? 'Saving...' : 'Save Template'}
           </button>

@@ -63,7 +63,11 @@ export default function BankTransfersPage() {
   useEffect(() => { setNeedsConfirm(false); }, [fromAccount, toAccount, amount, transferDate]);
 
   const handleTransfer = async (confirmDuplicate = false) => {
-    if (dates.blocked || !fromAccount || !toAccount || !amount || fromAccount === toAccount) {
+    if (dates.blocked) {
+      setMessage({ type: 'error', text: 'Fix the date marked in red before transferring.' });
+      return;
+    }
+    if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {
       setMessage({ type: 'error', text: 'Please fill all fields and select different accounts' });
       return;
     }
@@ -178,7 +182,7 @@ export default function BankTransfersPage() {
                   </div>
                   <div>
                     <DateField label="Date" name="transferDate" value={transferDate || null} disabled={isSubmitting}
-                      onChange={dates.bind('transferDate', setTransferDate)} />
+                      onChange={dates.bind('transferDate', setTransferDate, transferDate)} />
                   </div>
                 </div>
 

@@ -147,7 +147,7 @@ export default function NewSupplierPaymentPage() {
                   </div>
                   <div>
                     <DateField label="Payment Date" required name="paymentDate" value={form.paymentDate || null}
-                      onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })))} />
+                      onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>
                   <div>
                     <label className={lbl}>Method</label>

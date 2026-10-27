@@ -72,7 +72,7 @@ const SUPPLIER_CATEGORIES = [
 interface Props {
   form: SupplierFormData;
   onChange: (form: SupplierFormData) => void;
-  fieldErrors?: Partial<Record<keyof SupplierFormData, string>>;
+  fieldErrors?: Partial<Record<keyof SupplierFormData, string>>; dates: import('@/hooks/useDateGate').DateGate;
 }
 
 const inputClass =
@@ -119,7 +119,7 @@ function Card({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
+export function SupplierForm({ form, onChange, fieldErrors = {}, dates }: Props) {
   function set<K extends keyof SupplierFormData>(key: K, value: SupplierFormData[K]) {
     onChange({ ...form, [key]: value });
   }
@@ -263,7 +263,7 @@ export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
             />
           </Field>
           <DateField label="Opening Balance as At" name="opening_balance_date" value={form.opening_balance_date || null}
-            onChange={(iso, v) => set('opening_balance_date', v.valid ? iso ?? '' : '')} />
+            onChange={dates.bind('opening_balance_date', (iso) => set('opening_balance_date', iso), form.opening_balance_date)} />
         </div>
         <div className="mt-3 flex items-center gap-3">
           <button

@@ -24,21 +24,22 @@ interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreat
 function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
   const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: localISODate(), expiryDate: '', notes: '' });
   const [lines, setLines] = useState([{ desc: '', qty: 1, price: 0 }]);
-  const dates = useDateGate();
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); const dates = useDateGate();
   const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
 
   const handleCreate = async () => {
     if (dates.blocked || !form.clientId || lines.every(l => !l.desc)) return;
-    setSaving(true); setError('');
+    setSaving(true);
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-quotes', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: lines.filter(l => l.desc).map(l => ({ description: l.desc, quantity: l.qty, unitPrice: l.price, taxRate: 15 })) }),
       });
       await assertOk(res, 'Could not create the quote - try again');
-      onCreated(); onClose();
+      onCreated();
+      onClose();
     } catch (e) {
       setError(apiErrorMessage(e, 'Could not create the quote - try again'));
     } finally {
@@ -66,8 +67,8 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <DateField label="Quote Date" name="quoteDate" value={form.quoteDate || null} onChange={dates.bind('quoteDate', iso => setForm(p => ({ ...p, quoteDate: iso })))} />
-            <DateField label="Expiry Date" name="expiryDate" value={form.expiryDate || null} onChange={dates.bind('expiryDate', iso => setForm(p => ({ ...p, expiryDate: iso })))} />
+            <DateField label="Quote Date" name="quoteDate" value={form.quoteDate || null} onChange={dates.bind('quoteDate', iso => setForm(p => ({ ...p, quoteDate: iso })), form.quoteDate)} />
+            <DateField label="Expiry Date" name="expiryDate" value={form.expiryDate || null} onChange={dates.bind('expiryDate', iso => setForm(p => ({ ...p, expiryDate: iso })), form.expiryDate)} />
             <div><label className={lbl}>Notes</label><input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional" className={inp} /></div>
           </div>
 

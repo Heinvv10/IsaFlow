@@ -165,7 +165,7 @@ export default function NewGRNPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <DateField label="Receipt Date" required name="receivedDate" value={receivedDate || null}
-                        onChange={dates.bind('receivedDate', setReceivedDate)} />
+                        onChange={dates.bind('receivedDate', setReceivedDate, receivedDate)} />
                     </div>
                     <div>
                       <label className={lbl}>Delivery Note #</label>

@@ -77,7 +77,7 @@ export default function NewExpenseClaim() {
               </select>
             </div>
             <div>
-              <DateField label="Claim date" name="claimDate" value={claimDate || null} onChange={dates.bind('claimDate', setClaimDate)} />
+              <DateField label="Claim date" name="claimDate" value={claimDate || null} onChange={dates.bind('claimDate', setClaimDate, claimDate)} />
             </div>
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Title</label>

@@ -150,7 +150,7 @@ export default function VATAdjustmentsPage() {
               <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">New VAT Adjustment</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <DateField label="Adjustment Date" name="adjustmentDate" required value={form.adjustmentDate || null}
-                  onChange={dates.bind('adjustmentDate', iso => setForm(f => ({ ...f, adjustmentDate: iso })))} />
+                  onChange={dates.bind('adjustmentDate', iso => setForm(f => ({ ...f, adjustmentDate: iso })), form.adjustmentDate)} />
                 <input value={form.vatPeriod} onChange={e => setForm(f => ({ ...f, vatPeriod: e.target.value }))} className="ff-input" placeholder="VAT Period (e.g. 2026-01)" />
                 <select value={form.adjustmentType} onChange={e => setForm(f => ({ ...f, adjustmentType: e.target.value }))} className="ff-select">
                   <option value="input">Input VAT (Claimable)</option>

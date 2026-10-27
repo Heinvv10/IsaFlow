@@ -205,7 +205,7 @@ export default function RecurringJournalsPage() {
                   <option value="quarterly">Quarterly</option><option value="annually">Annually</option>
                 </select>
                 <DateField label="First Run Date" name="nextRunDate" required value={form.nextRunDate || null}
-                  onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })))} />
+                  onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })), form.nextRunDate)} />
               </div>
               {!editId && (
                 <div className="space-y-2">

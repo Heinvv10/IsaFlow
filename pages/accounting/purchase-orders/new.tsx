@@ -18,7 +18,7 @@ import { useDateGate } from '@/hooks/useDateGate';
 interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 const fmt = (n: number) => formatMoney(n);
 
@@ -121,11 +121,11 @@ export default function NewPurchaseOrderPage() {
                   </div>
                   <div>
                     <DateField label="Order Date" required name="orderDate" value={form.orderDate || null}
-                      onChange={dates.bind('orderDate', iso => setForm(p => ({ ...p, orderDate: iso })))} />
+                      onChange={dates.bind('orderDate', iso => setForm(p => ({ ...p, orderDate: iso })), form.orderDate)} />
                   </div>
                   <div>
                     <DateField label="Expected Delivery" name="expectedDeliveryDate" value={form.expectedDeliveryDate || null}
-                      onChange={dates.bind('expectedDeliveryDate', iso => setForm(p => ({ ...p, expectedDeliveryDate: iso })))} />
+                      onChange={dates.bind('expectedDeliveryDate', iso => setForm(p => ({ ...p, expectedDeliveryDate: iso })), form.expectedDeliveryDate)} />
                   </div>
                 </div>
               </div>

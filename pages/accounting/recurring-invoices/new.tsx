@@ -190,11 +190,11 @@ export default function NewRecurringInvoicePage() {
                     </div>
                     <div>
                       <DateField label="First Run Date" required name="nextRunDate" value={form.nextRunDate || null}
-                        onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })))} />
+                        onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })), form.nextRunDate)} />
                     </div>
                     <div>
                       <DateField label="End Date (optional)" name="endDate" value={form.endDate || null} minDate={form.nextRunDate || undefined}
-                        onChange={dates.bind('endDate', iso => setForm(f => ({ ...f, endDate: iso })))} />
+                        onChange={dates.bind('endDate', iso => setForm(f => ({ ...f, endDate: iso })), form.endDate)} />
                     </div>
                   </div>
                   <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
