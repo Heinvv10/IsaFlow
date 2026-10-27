@@ -2,8 +2,8 @@
  * BankTxListStates: the loading and empty states of the bank transactions
  * list, and the page size and height they are drawn to. The skeleton is a
  * full page of rows at the grid's measured row height (1568 px wide, Demo,
- * 2026-10-27: header 34, row 41, keyboard-hint footer 33), and the frame
- * holds that height, so the swap to rows shifts nothing.
+ * 2026-10-27: header 34, row 41, keyboard-hint footer 33). The frame holds
+ * that height while loading, so the swap to a full page shifts nothing.
  */
 import type { BankTxTab } from './BankTxTabs';
 import { Skeleton } from '@/components/ui/Skeleton';
