@@ -205,7 +205,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
                   <div key={n} className={`grid grid-cols-12 gap-2 items-center px-1 py-1.5 rounded-lg ${isEmpty ? 'opacity-50' : ''}`}>
                     <div className="col-span-1 text-xs text-[var(--ff-text-tertiary)] font-mono">{n}</div>
                     <div className="col-span-4">
-                      <input
+                      <input aria-label={`Field ${n} label`}
                         type="text"
                         placeholder={`Field ${n} (unused)`}
                         value={slot.fieldLabel}
@@ -215,7 +215,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
                       />
                     </div>
                     <div className="col-span-3">
-                      <select
+                      <select aria-label={`Field ${n} type`}
                         value={slot.fieldType}
                         onChange={e => updateSlot(n, { fieldType: e.target.value as UdfFieldType })}
                         disabled={isEmpty}
@@ -228,7 +228,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
                     </div>
                     <div className="col-span-2">
                       {slot.fieldType === 'select' && (
-                        <input
+                        <input aria-label={`Field ${n} options`}
                           type="text"
                           placeholder="a,b,c"
                           value={slot.fieldOptions ?? ''}
@@ -239,7 +239,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
                       )}
                     </div>
                     <div className="col-span-1 flex justify-center">
-                      <input
+                      <input aria-label={`Field ${n} required`}
                         type="checkbox"
                         checked={slot.isRequired}
                         onChange={e => updateSlot(n, { isRequired: e.target.checked })}
