@@ -2,7 +2,7 @@
  * Overview Tab — KPI Dashboard with charts and quick actions
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
@@ -32,7 +32,7 @@ const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: fa
 const Legend = dynamic(() => import('recharts').then(m => m.Legend), { ssr: false });
 const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
 
-interface KPIData {
+export interface KPIData {
   kpis: {
     revenue: { total: number; priorTotal: number; changePercent: number };
     expenses: { total: number; priorTotal: number };
@@ -64,9 +64,16 @@ function fmtCurrency(n: number): string {
 const fmtCompact = (n: number): string => formatMoneyCompact(n);
 
 /** `setupOpen`: setup tasks are still open, so TodoWidget must not say "All caught up!". */
-export function OverviewTab({ setupOpen = false }: { setupOpen?: boolean }) {
-  const [data, setData] = useState<KPIData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+/** The kpi-dashboard load a parent already made (pages/accounting/index.tsx), so Home fetches it once. */
+export interface KpiLoad { data: KPIData | null; error: string; loading: boolean }
+
+export function OverviewTab({ setupOpen = false, kpiLoad }: { setupOpen?: boolean; kpiLoad?: KpiLoad }) {
+  const [ownData, setData] = useState<KPIData | null>(null);
+  const [ownLoading, setIsLoading] = useState(!kpiLoad);
+  const data = kpiLoad ? kpiLoad.data : ownData;
+  const isLoading = kpiLoad ? kpiLoad.loading : ownLoading;
+  /** Fixed at mount: a parent that supplies the load supplies it for good. */
+  const fetchOwn = useRef(!kpiLoad);
   const [kpiError, setKpiError] = useState('');
   const [provisionalCount, setProvisionalCount] = useState<number | null>(null);
   const [missingInvoiceCount, setMissingInvoiceCount] = useState<number | null>(null);
@@ -75,7 +82,7 @@ export function OverviewTab({ setupOpen = false }: { setupOpen?: boolean }) {
   );
 
   useEffect(() => {
-    void loadKPIData();
+    if (fetchOwn.current) void loadKPIData();
     void loadQuickActions();
     apiFetch('/api/accounting/provisional/outstanding')
       .then(async r => { await assertOk(r, 'Could not load the provisional entry count - try again'); return r.json(); })
