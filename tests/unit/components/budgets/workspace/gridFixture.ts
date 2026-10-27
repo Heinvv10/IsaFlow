@@ -28,7 +28,7 @@ function account(id: string, code: string, band: Band, extra: Partial<GridAccoun
   const revenue = band === 'turnover' || band === 'other_income';
   return {
     id, code, name: `Account ${code}`, type: revenue ? 'revenue' : 'expense', subtype: null, band, isActive: true,
-    parentId: null, depth: 0, isHeader: false, childIds: [], ownAmounts: false, grain: null, rollup: null, ...extra,
+    parentId: null, depth: 0, isHeader: false, childIds: [], ownAmounts: false, grain: null, rollup: null, note: null, ...extra,
   };
 }
 
