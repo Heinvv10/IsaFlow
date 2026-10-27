@@ -156,7 +156,8 @@ const FY = 2033;
 /**
  * The year's budget for an account on its primary version, `annual` spread evenly over the year's
  * months with the cents on the last, written directly as the grid save stores amounts (the legacy
- * upsertBudget that did this was removed in budgets P2 PR-D).
+ * upsertBudget that did this was removed in budgets P2 PR-D). When the year has no primary,
+ * budget_version_original makes an APPROVED 'Original' (as migration 947 converted legacy budgets).
  */
 async function setBudget(f: Fixture, accountId: string, annual: number): Promise<void> {
   const year = await requireFiscalYear(f.companyId, FY);
@@ -166,8 +167,8 @@ async function setBudget(f: Fixture, accountId: string, annual: number): Promise
   const amounts = keys.map((_, i) => (i === keys.length - 1 ? cents - each * (keys.length - 1) : each) / 100);
   const [v] = (await sql`SELECT public.budget_version_original(${f.companyId}::uuid, ${FY}, ${f.userId}) AS id`) as Array<{ id: string }>;
   await sql`
-    INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
-    SELECT ${f.companyId}::uuid, ${v!.id}::uuid, ${accountId}::uuid, (t.m || '-01')::date, t.a
+    INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
+    SELECT ${f.companyId}::uuid, ${v!.id}::uuid, ${accountId}::uuid, (t.m || '-01')::date, t.a, ${f.userId}
       FROM unnest(${keys}::text[], ${amounts}::numeric[]) AS t(m, a)
   `;
 }

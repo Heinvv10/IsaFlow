@@ -24,21 +24,23 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
   }
 
   /**
-   * Month amounts on the year's PRIMARY version, written directly (the converted 'Original' when the
-   * year has none: public.budget_version_original), with the year's notes header when `notes` is
-   * given. The suites' setup, now that the legacy writers are gone.
+   * Month amounts on the year's PRIMARY version, written directly, with the year's notes header when
+   * `notes` is given. The suites' setup, now that the legacy writers are gone. When the year has no
+   * primary, public.budget_version_original creates one as migration 947 converted legacy budgets:
+   * an APPROVED primary 'Original' (approved_by / created_by the user), not the draft the wizard
+   * makes. Amount rows carry `created_by`, as the app's writers set it.
    */
   async function seedPrimary(u: SetupUser, account: string, label: number, months: Array<{ month: string; amount: number }>, notes?: string): Promise<string> {
     const version = String((await pool.query('SELECT public.budget_version_original($1, $2, $3) AS id', [u.homeCompanyId, label, u.userId])).rows[0].id);
     await pool.query(
-      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
-       SELECT $1, $2, $3, (m || '-01')::DATE, a FROM unnest($4::TEXT[], $5::NUMERIC[]) AS t(m, a)
+      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
+       SELECT $1, $2, $3, (m || '-01')::DATE, a, $6 FROM unnest($4::TEXT[], $5::NUMERIC[]) AS t(m, a)
        ON CONFLICT ON CONSTRAINT budget_month_amounts_one_per_cell DO UPDATE SET amount = EXCLUDED.amount`,
-      [u.homeCompanyId, version, account, months.map((m) => m.month), months.map((m) => m.amount)]);
+      [u.homeCompanyId, version, account, months.map((m) => m.month), months.map((m) => m.amount), u.userId]);
     if (notes !== undefined) {
       await pool.query(
-        `INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes) VALUES ($1, $2, $3, $4, $5)`,
-        [u.homeCompanyId, `FY${label} Budget`, label, account, notes]);
+        `INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes, created_by) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [u.homeCompanyId, `FY${label} Budget`, label, account, notes, u.userId]);
     }
     return version;
   }
