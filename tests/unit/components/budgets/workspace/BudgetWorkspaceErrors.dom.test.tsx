@@ -97,7 +97,8 @@ describe('writes', () => {
     await typeIntoMarchRev2('500');
     net.on(isSave, () => fail(400, MSG));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByTestId('save-bar-status')).toHaveTextContent(MSG);
+    // The status element is there (empty) before the save answers: wait for the text, not the element.
+    await waitFor(() => expect(screen.getByTestId('save-bar-status')).toHaveTextContent(MSG));
     expect(screen.getByTestId('save-bar-status')).toHaveAttribute('role', 'alert');
     expect(screen.getByTestId('save-bar-count')).toHaveTextContent('1 unsaved change');
     expect(marchRev2()).toHaveAttribute('data-dirty', 'true');
@@ -110,7 +111,7 @@ describe('writes', () => {
     await typeIntoMarchRev2('500');
     net.on(isSave, empty500);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByTestId('save-bar-status')).toHaveTextContent('Could not save the budget.');
+    await waitFor(() => expect(screen.getByTestId('save-bar-status')).toHaveTextContent('Could not save the budget.'));
     expect(marchRev2()).toHaveAttribute('data-dirty', 'true');
     expectNoRawError();
   });
