@@ -89,6 +89,8 @@ const nextConfig = {
       { source: '/accounting/quotes', destination: '/accounting/customer-quotes', permanent: false },
       { source: '/accounting/sales-orders', destination: '/accounting/customer-sales-orders', permanent: false },
       { source: '/accounting/sars/vat-adjustments', destination: '/accounting/vat-adjustments', permanent: true },
+      // The budget workspace's preview URL (budgets P2 PR-C) became the budgets page itself (PR-D).
+      { source: '/accounting/budgets/workspace', destination: '/accounting/budgets', permanent: true },
       // Nav menu roots — ensure clicking a top-level menu label never 404s
       { source: '/accounting/banking', destination: '/accounting/bank-accounts', permanent: false },
       { source: '/accounting/vat', destination: '/accounting/sars/vat201', permanent: false },
