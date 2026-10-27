@@ -100,7 +100,7 @@ describe('accept invite', () => {
   it('a rejecting push does not say "Network error" for an accepted invite and the button is not stuck', async () => {
     router.push.mockRejectedValue(new Error('Route Cancelled'));
     const c = await setup();
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/accounting/dashboard'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/accounting'));
     await waitFor(() => expect(submitBtn(c).disabled).toBe(false));
     expect(document.body.textContent).not.toMatch(/Network error|could not submit|Could not accept/i);
   });

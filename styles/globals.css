@@ -234,6 +234,16 @@
   .dark input:is([type="date"], [type="time"], [type="datetime-local"]):not(:where([data-surface="light"] *))::-webkit-calendar-picker-indicator {
     filter: invert(1);
   }
+
+  /*
+   * Buttons and links without .ff-focus-ring got the browser's 1 px `outline: auto`. Give them the kit ring. The selector is
+   * :where(...) so it scores (0,1,0) and every utility (focus:outline-none, focus:ring-*) and .ff-focus-ring(-inset) still win. Keyboard focus only
+   * (:focus-visible), so a mouse click stays ring-free.
+   */
+  :where(a[href], button, [role="button"], [role="tab"], [role="menuitem"], summary):focus-visible {
+    outline: var(--ff-focus-ring-width) solid var(--ff-focus-ring);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {

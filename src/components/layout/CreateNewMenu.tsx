@@ -96,7 +96,7 @@ function Dropdown({ anchorRect, focusedIndex, onSelect, onFocusChange }: Dropdow
         'shadow-xl shadow-black/10 dark:shadow-black/40',
       )}
     >
-      <p className="px-3 pb-1 pt-0.5 text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 dark:text-gray-500 select-none">
+      <p className="px-3 pb-1 pt-0.5 text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 select-none">
         Create New
       </p>
       {MENU_ITEMS.map((item, i) => {
@@ -119,9 +119,9 @@ function Dropdown({ anchorRect, focusedIndex, onSelect, onFocusChange }: Dropdow
                 : 'hover:bg-gray-50 dark:hover:bg-gray-800',
             )}
           >
-            <Icon className="w-4 h-4 flex-shrink-0 text-gray-600 dark:text-gray-400 dark:text-gray-500" />
+            <Icon className="w-4 h-4 flex-shrink-0 text-gray-600 dark:text-gray-400" />
             <span className="flex-1 text-left">{item.label}</span>
-            <span className="text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500 font-mono tabular-nums">
+            <span className="text-xs text-gray-600 dark:text-gray-400 font-mono tabular-nums">
               N {item.shortcutLetter}
             </span>
           </button>
