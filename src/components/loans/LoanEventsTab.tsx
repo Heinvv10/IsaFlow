@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Plus, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { LoanEvent, fmtDate, fmt } from './types';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Props {
   loanId: string;
@@ -26,6 +26,7 @@ interface EventForm {
 const EMPTY_FORM: EventForm = { kind: 'LUMP', date: '', amount: '', note: '' };
 
 export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
+  const dateGate = useDateGate();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<EventForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
@@ -86,7 +87,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
             >
               {KIND_OPTIONS.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
-            <DateField label="Event date" required value={form.date || null} onChange={iso => setForm(f => ({ ...f, date: iso ?? '' }))} />
+            <GatedDateField gate={dateGate} gateKey="event-date" label="Event date" required value={form.date || null} onValue={iso => setForm(f => ({ ...f, date: iso }))} />
             {form.kind === 'LUMP' && (
               <input
                 type="number"
@@ -117,7 +118,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
             </button>
             <button
               type="submit"
-              disabled={busy}
+              disabled={busy || dateGate.blocked}
               className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save Event'}

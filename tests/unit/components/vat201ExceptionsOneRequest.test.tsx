@@ -5,7 +5,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
+const company = vi.hoisted(() => ({ id: 'co1' }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', activeCompany: { id: company.id } }) }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
@@ -35,7 +36,7 @@ const report: VatExceptionsReport = {
 };
 
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => { vi.clearAllMocks(); company.id = 'co1'; });
 
 const ok = () => new Response(JSON.stringify({ success: true, data: report }), { status: 200 });
 const exceptionCalls = () => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes('vat-exceptions')).length;
@@ -66,4 +67,52 @@ it('a different period is its own request', async () => {
     fetchVatExceptions('2026-09-01', '2026-10-31', 'failed', 'test'),
   ]);
   expect(exceptionCalls()).toBe(2);
+});
+
+const gate = () => { let release!: () => void; const wait = new Promise<void>((r) => { release = r; }); return { wait, release }; };
+
+it('the same period for a different company is its own request, so a company switch never hands over the old report', async () => {
+  const a = { ...report, totalExceptions: 7 };
+  const b = { ...report, totalExceptions: 0 };
+  const hold = gate();
+  let n = 0;
+  vi.mocked(apiFetch).mockImplementation(async () => { const mine = ++n === 1 ? a : b; await hold.wait; return new Response(JSON.stringify({ success: true, data: mine }), { status: 200 }); });
+  const first = fetchVatExceptions('2026-07-01', '2026-08-31', 'failed', 'test', { companyId: 'co1' });
+  const second = fetchVatExceptions('2026-07-01', '2026-08-31', 'failed', 'test', { companyId: 'co2' });
+  hold.release();
+  expect(await first).toMatchObject({ totalExceptions: 7 });
+  expect(await second).toMatchObject({ totalExceptions: 0 });
+  expect(exceptionCalls()).toBe(2);
+});
+
+it('an explicit reload while a request is in flight sends a new one', async () => {
+  const hold = gate();
+  vi.mocked(apiFetch).mockImplementation(async () => { await hold.wait; return ok(); });
+  const first = fetchVatExceptions('2026-07-01', '2026-08-31', 'failed', 'test', { companyId: 'co1' });
+  const again = fetchVatExceptions('2026-07-01', '2026-08-31', 'failed', 'test', { companyId: 'co1', fresh: true });
+  hold.release();
+  await Promise.all([first, again]);
+  expect(exceptionCalls()).toBe(2);
+});
+
+it('Generate clicked while the panel is loading asks the server again', async () => {
+  const hold = gate();
+  vi.mocked(apiFetch).mockImplementation(async () => { await hold.wait; return ok(); });
+  const { rerender } = render(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} />);
+  await waitFor(() => expect(exceptionCalls()).toBe(1));
+  rerender(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={2} />);
+  await waitFor(() => expect(exceptionCalls()).toBe(2));
+  hold.release();
+  await waitFor(() => expect(screen.getByText('No exceptions')).toBeTruthy());
+});
+
+it('a company switch while the panel is loading asks for the new company\'s report', async () => {
+  const hold = gate();
+  vi.mocked(apiFetch).mockImplementation(async () => { await hold.wait; return ok(); });
+  const view = render(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} />);
+  await waitFor(() => expect(exceptionCalls()).toBe(1));
+  company.id = 'co2';
+  view.rerender(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} />);
+  await waitFor(() => expect(exceptionCalls()).toBe(2));
+  hold.release();
 });

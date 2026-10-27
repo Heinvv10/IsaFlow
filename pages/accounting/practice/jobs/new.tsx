@@ -8,7 +8,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Opt { id: string; name?: string; legalName?: string }
 interface FormState {
@@ -51,6 +51,7 @@ async function fetchUsers(): Promise<CompanyUserSummary[]> {
 }
 
 export default function NewPracticeJobPage() {
+  const dateGate = useDateGate();
   const router = useRouter();
   const [form, setForm] = useState<FormState>(INITIAL);
   const [clients, setClients] = useState<Opt[]>([]); const [cats, setCats] = useState<Opt[]>([]);
@@ -207,7 +208,7 @@ export default function NewPracticeJobPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <DateField label="Due Date" value={form.dueDate || null} onChange={(iso) => set('dueDate', iso ?? '')} />
+                <GatedDateField gate={dateGate} gateKey="due-date" label="Due Date" value={form.dueDate || null} onValue={(iso) => set('dueDate', iso)} />
               </div>
               <div>
                 <label className={LC}>Financial Year</label>
@@ -237,7 +238,7 @@ export default function NewPracticeJobPage() {
               <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Approved value of time on this job. All time captured against it, at the staff rate, is measured against this amount.</p>
             </div>
             <div className="flex items-center gap-3 pt-2">
-              <button type="submit" disabled={isSubmitting}
+              <button type="submit" disabled={isSubmitting || dateGate.blocked}
                 className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {isSubmitting ? 'Saving…' : 'Save Job'}

@@ -17,7 +17,7 @@ import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/p
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 type Tab = 'details' | 'tasks' | 'time';
 const ALLOWED: Record<PracticeJob['status'], PracticeJob['status'][]> = {
   new: ['in_progress', 'cancelled'], in_progress: ['review', 'cancelled'],
@@ -35,7 +35,7 @@ const inp = 'w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(
 const TH = ({ h }: { h: string }) => <th className="text-left py-2 px-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">{h}</th>;
 
 export default function JobDetailPage() {
-  const router = useRouter();
+  const router = useRouter(); const dateGate = useDateGate();
   const jobId = typeof router.query.id === 'string' ? router.query.id : null;
   const [job, setJob] = useState<PracticeJob | null>(null);
   const [loading, setLoading] = useState(true);
@@ -207,7 +207,7 @@ export default function JobDetailPage() {
               <div className="grid grid-cols-2 gap-4">
                 <label className="col-span-2"><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Title</span><input value={form.title ?? ''} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={inp} /></label>
                 <label className="col-span-2"><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Description</span><textarea rows={3} value={form.description ?? ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={inp} /></label>
-                <DateField label="Due Date" value={form.dueDate || null} onChange={iso => setForm(f => ({ ...f, dueDate: iso }))} />
+                <GatedDateField gate={dateGate} gateKey="due-date" label="Due Date" value={form.dueDate || null} onValue={iso => setForm(f => ({ ...f, dueDate: iso || null }))} />
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Priority</span>
                   <select value={form.priority ?? 'normal'} onChange={e => setForm(f => ({ ...f, priority: e.target.value as PracticeJob['priority'] }))} className={inp}>
                     {(['low', 'normal', 'high', 'urgent'] as const).map(p => <option key={p} value={p}>{PLBL[p]}</option>)}
@@ -244,7 +244,7 @@ export default function JobDetailPage() {
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Engagement Budget (R)</span><input type="number" min="0" step="0.01" value={form.budgetAmount ?? ''} placeholder="No budget" onChange={e => setForm(f => ({ ...f, budgetAmount: e.target.value ? Number(e.target.value) : null }))} className={inp} /></label>
               </div>
               <div className="flex justify-end pt-2">
-                <button onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                <button onClick={() => void save()} disabled={saving || dateGate.blocked} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
                   {saving && <Loader2 className="h-4 w-4 animate-spin" />}Save Changes
                 </button>
               </div>

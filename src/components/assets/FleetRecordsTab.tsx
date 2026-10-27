@@ -11,7 +11,7 @@ import {
   addFleetRecord, deleteFleetRecord, loadFuelRecords, loadServiceRecords, type FleetKind, type FleetRecord,
 } from './fleetRecordsApi';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Props { assetId: string; kind: FleetKind; onChanged?: () => void }
 
@@ -34,6 +34,7 @@ function bodyOf(kind: FleetKind, f: typeof EMPTY): Record<string, unknown> {
 }
 
 export function FleetRecordsTab({ assetId, kind, onChanged }: Props) {
+  const dateGate = useDateGate();
   const [rows, setRows] = useState<FleetRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -85,7 +86,7 @@ export function FleetRecordsTab({ assetId, kind, onChanged }: Props) {
     <div className="space-y-3">
       {error && <div className="text-xs text-red-400 bg-red-500/10 rounded px-3 py-2">{error}</div>}
       <div className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end">
-        <DateField label="Date" value={form.date || null} onChange={iso => setForm(f => ({ ...f, date: iso ?? '' }))} />
+        <GatedDateField gate={dateGate} gateKey="date" label="Date" value={form.date || null} onValue={iso => setForm(f => ({ ...f, date: iso }))} />
         {kind === 'fuel'
           ? <label className="text-xs text-[var(--ff-text-tertiary)]">Litres<input type="number" aria-label="Litres" min="0" step="0.01" className={input} value={form.litres} onChange={set('litres')} /></label>
           : <label className="text-xs text-[var(--ff-text-tertiary)] md:col-span-2">Description<input aria-label="Description" className={input} value={form.description} onChange={set('description')} /></label>}
@@ -93,7 +94,7 @@ export function FleetRecordsTab({ assetId, kind, onChanged }: Props) {
         <label className="text-xs text-[var(--ff-text-tertiary)]">Odometer (km)<input type="number" aria-label="Odometer" min="0" step="1" className={input} value={form.odometerKm} onChange={set('odometerKm')} /></label>
         <label className="text-xs text-[var(--ff-text-tertiary)]">Supplier<input aria-label="Supplier" className={input} value={form.supplierName} onChange={set('supplierName')} /></label>
         {kind === 'fuel' && <label className="text-xs text-[var(--ff-text-tertiary)]">Notes<input aria-label="Notes" className={input} value={form.notes} onChange={set('notes')} /></label>}
-        <button onClick={() => void add()} disabled={saving || !form.date || form.amount === '' || (kind === 'fuel' ? form.litres === '' : !form.description.trim())}
+        <button onClick={() => void add()} disabled={(saving || !form.date || form.amount === '' || (kind === 'fuel' ? form.litres === '' : !form.description.trim())) || dateGate.blocked}
           className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50">
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Add
         </button>

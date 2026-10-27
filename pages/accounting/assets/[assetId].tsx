@@ -16,7 +16,7 @@ import { buildDepreciationSchedule } from '@/modules/accounting/services/items/d
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 // ---- Types ----
 
@@ -101,6 +101,7 @@ function DepTable({ asset }: { asset: Asset }) {
 // ---- Main page ----
 
 export default function AssetDetailPage() {
+  const dateGate = useDateGate();
   const router = useRouter();
   const { assetId } = router.query;
   const [asset, setAsset] = useState<Asset | null>(null);
@@ -226,7 +227,7 @@ export default function AssetDetailPage() {
               {disposalError && <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 rounded px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{disposalError}</div>}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <DateField label="Disposal Date" name="disposal_date" value={form.disposal_date || null} onChange={iso => setForm(f => ({ ...f, disposal_date: iso ?? '' }))} />
+                  <GatedDateField gate={dateGate} gateKey="disposal-date" label="Disposal Date" name="disposal_date" value={form.disposal_date || null} onValue={iso => setForm(f => ({ ...f, disposal_date: iso }))} />
                 </div>
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Disposal Method</label>
@@ -244,7 +245,7 @@ export default function AssetDetailPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <button onClick={() => void handleDispose()} disabled={submitting} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors disabled:opacity-50">
+                <button onClick={() => void handleDispose()} disabled={submitting || dateGate.blocked} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors disabled:opacity-50">
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}{submitting ? 'Processing…' : 'Confirm Disposal'}
                 </button>
                 <button onClick={() => { setShowDisposal(false); setDisposalError(''); }} className="px-4 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors">Cancel</button>

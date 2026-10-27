@@ -12,7 +12,7 @@ import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatAmount, formatRate } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Props {
   currencies: Currency[];
@@ -35,6 +35,7 @@ interface ConvertForm {
 
 // 🟢 WORKING: Exchange rate management with set-rate form, history table, and quick converter
 export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Props) {
+  const dateGate = useDateGate();
   const today = localISODate();
 
   const defaultFrom = currencies.find(c => c.code !== 'ZAR')?.code || '';
@@ -180,13 +181,13 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
               />
             </div>
             <div>
-              <DateField label="Effective Date" value={rateForm.effectiveDate || null} onChange={iso => setRateForm(f => ({ ...f, effectiveDate: iso ?? '' }))} />
+              <GatedDateField gate={dateGate} gateKey="effective-date" label="Effective Date" value={rateForm.effectiveDate || null} onValue={iso => setRateForm(f => ({ ...f, effectiveDate: iso }))} />
             </div>
           </div>
           <div className="flex justify-end mt-4">
             <button
               onClick={handleSaveRate}
-              disabled={savingRate}
+              disabled={savingRate || dateGate.blocked}
               className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
             >
               {savingRate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

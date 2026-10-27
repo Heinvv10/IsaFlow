@@ -5,7 +5,7 @@
 
 import { Loader2, Plus, X } from 'lucide-react';
 import { FieldInput, FieldSelect, TX_TYPES } from './IntercompanyShared';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 export interface CreateForm {
   sourceCompanyId: string;
@@ -30,6 +30,7 @@ interface Props {
 export function IntercompanyCreateModal({
   form, companies, saving, onClose, onSubmit, onFormChange,
 }: Props) {
+  const dateGate = useDateGate();
   const targetCompanies = companies.filter((c) => c.id !== form.sourceCompanyId);
   const canSubmit = !saving && !!form.sourceCompanyId && !!form.targetCompanyId && !!form.amount;
 
@@ -88,7 +89,7 @@ export function IntercompanyCreateModal({
               onChange={(v) => onFormChange({ amount: v })}
               placeholder="0.00"
             />
-            <DateField label="Date" value={form.date || null} onChange={(iso) => onFormChange({ date: iso ?? '' })} />
+            <GatedDateField gate={dateGate} gateKey="date" label="Date" value={form.date || null} onValue={(iso) => onFormChange({ date: iso })} />
           </div>
 
           <FieldInput
@@ -115,7 +116,7 @@ export function IntercompanyCreateModal({
           </button>
           <button
             onClick={onSubmit}
-            disabled={!canSubmit}
+            disabled={!canSubmit || dateGate.blocked}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-40 transition-colors"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}

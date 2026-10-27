@@ -182,7 +182,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                     type="button"
                     {...trigger}
                     aria-label={`${t.label} menu`}
-                    className={`h-8 pl-1 pr-3 ${textCls(t)}`}
+                    className={`h-10 pl-1 pr-3 ${textCls(t)}`}
                     onClick={e => activate(t.id, isOpen, e.detail === 0)}
                     onKeyDown={arrowDown(t.id, isOpen)}
                   >
