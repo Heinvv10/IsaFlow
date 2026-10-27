@@ -42,18 +42,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       : fmtDate(fyStart);
     // The SAST day, never toISOString(): that is the UTC day, which is
     // yesterday for two hours every night and shifted fyStart back a day.
+    const today = todayInSast(now);
     const to = req.query.to
       ? String(req.query.to)
-      : todayInSast(now);
+      : today;
     const months = Math.max(1, Math.min(Number(req.query.months) || 6, 120));
 
     const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
       await Promise.all([
-        getDashboardKPIs(companyId, from, to),
+        getDashboardKPIs(companyId, from, to, today),
         getRevenueChart(companyId, months),
         getCashFlowChart(companyId, months),
-        getAgingBreakdown(companyId, 'ar'),
-        getAgingBreakdown(companyId, 'ap'),
+        getAgingBreakdown(companyId, 'ar', today),
+        getAgingBreakdown(companyId, 'ap', today),
         getTopCustomers(companyId, 5),
         getTopExpenseCategories(companyId, 5),
         hasBankAccount(companyId),

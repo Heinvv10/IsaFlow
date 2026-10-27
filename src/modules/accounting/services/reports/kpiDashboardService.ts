@@ -6,10 +6,10 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { marginPct } from './marginPct';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { todayInSast } from '@/lib/saDateParser';
+import { getOpenBook } from './dashboardOpenBook';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
@@ -24,20 +24,20 @@ export interface DashboardKPIs {
   activity: { invoicesIssued: number; paymentsReceived: number; journalsPosted: number };
 }
 
+/**
+ * `todayStr` is the SAST app date the Receivables / Payables tiles are as at
+ * (reports/dashboardOpenBook), never the UTC session's CURRENT_DATE.
+ */
 export async function getDashboardKPIs(companyId: string,
   fromDate: string,
-  toDate: string
+  toDate: string,
+  todayStr: string = todayInSast(),
 ): Promise<DashboardKPIs> {
   try {
     const from = new Date(fromDate);
     const to = new Date(toDate);
     const durationMs = to.getTime() - from.getTime();
     const priorFrom = new Date(from.getTime() - durationMs);
-    // K-053: these AR/AP figures are "as at now", so now is the date they ask
-    // the soft-delete question at. An undated deleted_at IS NULL would drop a
-    // document deleted BEFORE the delete began reversing its journal — the
-    // control account still carries that one. See shared/softDeleteLedgerPresence.
-    const kpiAsAtStr = asAtTodayStr();
     const priorFromStr = priorFrom.toISOString().slice(0, 10);
     const priorToStr = new Date(from.getTime() - 86400000).toISOString().slice(0, 10);
 
@@ -45,8 +45,8 @@ export async function getDashboardKPIs(companyId: string,
       revenueRows, priorRevenueRows,
       expenseRows, priorExpenseRows,
       cashRows, priorCashRows,
-      arRows, arOverdueRows, arDebtorDaysRows,
-      apRows, apOverdueRows, apCreditorDaysRows,
+      arBook, arDebtorDaysRows,
+      apBook, apCreditorDaysRows,
       invoicesIssuedRows, paymentsReceivedRows, journalsPostedRows,
     ] = await Promise.all([
       sql`
@@ -118,23 +118,9 @@ export async function getDashboardKPIs(companyId: string,
           AND bt.feed_state = 'posted'
           AND bt.transaction_date <= ${priorToStr}
       `,
-      sql`
-        SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
-        FROM customer_invoices ci
-        WHERE ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-          AND ci.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('ci', kpiAsAtStr, companyId)}
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
-      `,
-      sql`
-        SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
-        FROM customer_invoices ci
-        WHERE ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-          AND ci.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('ci', kpiAsAtStr, companyId)}
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
-          AND ci.due_date < CURRENT_DATE
-      `,
+      // The aging report's own population, as at todayStr; its soft-delete
+      // presence is dated there too (K-053, shared/softDeleteLedgerPresence).
+      getOpenBook(companyId, 'ar', todayStr),
       sql`
         SELECT COALESCE(AVG(
           EXTRACT(EPOCH FROM (COALESCE(paid_at, CURRENT_DATE) - invoice_date)) / 86400
@@ -144,23 +130,7 @@ export async function getDashboardKPIs(companyId: string,
           AND company_id = ${companyId}::UUID
           AND invoice_date >= ${fromDate}
       `,
-      sql`
-        SELECT COALESCE(SUM(si.balance), 0) AS total
-        FROM supplier_invoices si
-        WHERE si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-          AND si.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('si', kpiAsAtStr, companyId)}
-          AND si.balance > 0
-      `,
-      sql`
-        SELECT COALESCE(SUM(si.balance), 0) AS total
-        FROM supplier_invoices si
-        WHERE si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-          AND si.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('si', kpiAsAtStr, companyId)}
-          AND si.balance > 0
-          AND si.due_date < CURRENT_DATE
-      `,
+      getOpenBook(companyId, 'ap', todayStr),
       sql`
         SELECT COALESCE(AVG(
           EXTRACT(EPOCH FROM (COALESCE(paid_at, CURRENT_DATE) - invoice_date)) / 86400
@@ -211,13 +181,13 @@ export async function getDashboardKPIs(companyId: string,
       netProfit: { amount: grossProfit, margin: grossMargin },
       cash: { total: cashTotal, priorTotal: priorCash, change: cashTotal - priorCash },
       receivables: {
-        total: Number((arRows as DbRow[])[0]?.total || 0),
-        overdue: Number((arOverdueRows as DbRow[])[0]?.total || 0),
+        total: arBook.total,
+        overdue: arBook.overdue,
         avgDebtorDays: Math.round(Number((arDebtorDaysRows as DbRow[])[0]?.avg_days || 0)),
       },
       payables: {
-        total: Number((apRows as DbRow[])[0]?.total || 0),
-        overdue: Number((apOverdueRows as DbRow[])[0]?.total || 0),
+        total: apBook.total,
+        overdue: apBook.overdue,
         avgCreditorDays: Math.round(Number((apCreditorDaysRows as DbRow[])[0]?.avg_days || 0)),
       },
       activity: {
