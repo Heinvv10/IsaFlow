@@ -49,10 +49,10 @@ describe('EmployeeProfileCard date inputs', () => {
     uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
   };
 
-  it('keeps the YYYY-MM-DD value a date input needs (a display date would leave it blank)', () => {
-    const { container } = render(<EmployeeProfileCard employee={employee} onChange={noop} onSave={noop} saving={false} />);
-    const values = [...container.querySelectorAll('input[type="date"]')].map((i) => (i as HTMLInputElement).value);
-    expect(values).toEqual(['1990-05-20', '2026-12-31']);
+  it('shows a stored timestamp as a date in the kit DateField (a raw ISO string would leak through)', () => {
+    render(<EmployeeProfileCard employee={employee} onChange={noop} onSave={noop} saving={false} />);
+    const values = ['Date of birth', 'End date'].map((l) => (screen.getByLabelText(l) as HTMLInputElement).value);
+    expect(values).toEqual(['20 May 1990', '31 Dec 2026']);
   });
 });
 
