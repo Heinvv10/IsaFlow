@@ -1,17 +1,25 @@
 /**
  * One GET /api/accounting/sars/vat-exceptions per period at a time. Callers that ask for the same period while a
  * request is in flight (React StrictMode runs a mount effect twice in dev; the VAT201 panel and the period-lock form
- * both read the same report) share that request instead of each sending their own.
+ * both read the same report) share that request instead of each sending their own. The request is shared only
+ * within one company, and an explicit reload (`fresh`) never joins a request that was already running.
  */
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 const inflight = new Map<string, Promise<unknown>>();
 
+export interface VatExceptionsScope {
+  /** The active company: a company switch must not receive the previous company's report. */
+  companyId?: string;
+  /** True for a person's explicit reload: send a new request even if one is in flight. */
+  fresh?: boolean;
+}
+
 /** The report's `data` for [from, to]. Rejects with assertOk's error carrying `failMessage` when the server refuses. */
-export function fetchVatExceptions(from: string, to: string, failMessage: string, caller: string): Promise<unknown> {
-  const key = `${from}|${to}|${failMessage}`;
-  const pending = inflight.get(key);
+export function fetchVatExceptions(from: string, to: string, failMessage: string, caller: string, scope: VatExceptionsScope = {}): Promise<unknown> {
+  const key = `${scope.companyId ?? ''}|${from}|${to}|${failMessage}`;
+  const pending = scope.fresh ? undefined : inflight.get(key);
   if (pending) return pending;
   log.debug('GET vat-exceptions', { from, to }, caller);
   const request = (async () => {
@@ -19,7 +27,7 @@ export function fetchVatExceptions(from: string, to: string, failMessage: string
     await assertOk(res, failMessage);
     const json = await res.json();
     return json.data;
-  })().finally(() => { inflight.delete(key); });
+  })().finally(() => { if (inflight.get(key) === request) inflight.delete(key); });
   inflight.set(key, request);
   return request;
 }

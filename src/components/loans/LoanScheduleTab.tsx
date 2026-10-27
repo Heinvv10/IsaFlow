@@ -7,7 +7,7 @@ import { SlidersHorizontal, X, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ScheduleRow, LoanEvent } from './types';
 import { LoanScheduleTable } from './LoanScheduleTable';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Props {
   loanId: string;
@@ -22,6 +22,7 @@ interface WhatIfEvent {
 }
 
 export function LoanScheduleTab({ loanId, rows, loading }: Props) {
+  const dateGate = useDateGate();
   const [showPanel, setShowPanel] = useState(false);
   const [previewRows, setPreviewRows] = useState<ScheduleRow[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -115,7 +116,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
                 <option value="LUMP">Lump Sum</option>
                 <option value="SKIP">Skip</option>
               </select>
-              <DateField label="Event date" value={ev.date || null} onChange={iso => updateEvent(i, 'date', iso ?? '')} />
+              <GatedDateField gate={dateGate} gateKey="event-date" label="Event date" value={ev.date || null} onValue={iso => updateEvent(i, 'date', iso)} />
               {ev.kind === 'LUMP' ? (
                 <input
                   type="number"
@@ -147,7 +148,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
             </button>
             <button
               onClick={runPreview}
-              disabled={previewLoading}
+              disabled={previewLoading || dateGate.blocked}
               className="ml-auto inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-medium disabled:opacity-50"
             >
               {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Run Preview'}

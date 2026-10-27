@@ -10,7 +10,7 @@ import { notify } from '@/utils/toast';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { Loader2, Plus, ArrowRight } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 export interface Currency {
   code: string;
@@ -38,6 +38,7 @@ interface AddRateFormProps {
 }
 
 export function AddRateForm({ currencies, onAdded }: AddRateFormProps) {
+  const dateGate = useDateGate();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('ZAR');
   const [rate, setRate] = useState('');
@@ -103,13 +104,13 @@ export function AddRateForm({ currencies, onAdded }: AddRateFormProps) {
           />
         </div>
         <div>
-          <DateField label="Effective Date" value={date || null} onChange={iso => setDate(iso ?? '')} />
+          <GatedDateField gate={dateGate} gateKey="effective-date" label="Effective Date" value={date || null} onValue={iso => setDate(iso)} />
         </div>
       </div>
       <div className="flex justify-end mt-4">
         <button
           onClick={handleAdd}
-          disabled={saving}
+          disabled={saving || dateGate.blocked}
           className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm transition-colors"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -127,6 +128,7 @@ interface ConverterWidgetProps {
 }
 
 export function ConverterWidget({ currencies }: ConverterWidgetProps) {
+  const dateGate = useDateGate();
   const [amount, setAmount] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('ZAR');
@@ -187,11 +189,11 @@ export function ConverterWidget({ currencies }: ConverterWidgetProps) {
           </select>
         </div>
         <div>
-          <DateField label="Date" value={date || null} onChange={iso => { setDate(iso ?? ''); setResult(null); }} />
+          <GatedDateField gate={dateGate} gateKey="date" label="Date" value={date || null} onValue={iso => { setDate(iso); setResult(null); }} />
         </div>
         <button
           onClick={handleConvert}
-          disabled={converting}
+          disabled={converting || dateGate.blocked}
           className="px-4 py-2 bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] hover:border-teal-500 text-[var(--ff-text-primary)] rounded-lg flex items-center gap-2 text-sm transition-colors disabled:opacity-50"
         >
           {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Convert'}

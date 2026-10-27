@@ -11,7 +11,7 @@ import type { CompanyUserSummary } from '@/modules/accounting/services/practice/
 import type { StaffCostRate } from '@/modules/accounting/services/practice/practiceCostRateService';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -42,6 +42,7 @@ const EMPTY_FORM: FormState = {
 };
 
 export default function StaffCostRatesPage() {
+  const dateGate = useDateGate();
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [rates, setRates] = useState<StaffCostRate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,10 +174,10 @@ export default function StaffCostRatesPage() {
                   onChange={(e) => setField('currency', e.target.value.toUpperCase())} />
               </div>
               <div className="flex flex-col gap-1">
-                <DateField label="Effective from" required value={form.effectiveFrom || null} onChange={(iso) => setField('effectiveFrom', iso ?? '')} />
+                <GatedDateField gate={dateGate} gateKey="effective-from" label="Effective from" required value={form.effectiveFrom || null} onValue={(iso) => setField('effectiveFrom', iso)} />
               </div>
               <div className="flex flex-col gap-1">
-                <DateField label="Effective to" value={form.effectiveTo || null} onChange={(iso) => setField('effectiveTo', iso ?? '')} />
+                <GatedDateField gate={dateGate} gateKey="effective-to" label="Effective to" value={form.effectiveTo || null} onValue={(iso) => setField('effectiveTo', iso)} />
               </div>
             </div>
             <div className="flex items-end gap-3">
@@ -188,7 +189,7 @@ export default function StaffCostRatesPage() {
               <button
                 type="button"
                 onClick={() => void handleAdd()}
-                disabled={adding}
+                disabled={adding || dateGate.blocked}
                 className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}

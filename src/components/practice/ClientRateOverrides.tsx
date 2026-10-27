@@ -4,7 +4,7 @@ import { DollarSign, Plus, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface RateOverride {
   id: string;
@@ -43,6 +43,7 @@ interface Props {
 }
 
 export function ClientRateOverrides({ clientId }: Props) {
+  const dateGate = useDateGate();
   const [overrides, setOverrides] = useState<RateOverride[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -182,10 +183,10 @@ export function ClientRateOverrides({ clientId }: Props) {
               />
             </div>
             <div>
-              <DateField label="Effective From" required value={form.effectiveFrom || null} onChange={(iso) => setForm((f) => ({ ...f, effectiveFrom: iso ?? '' }))} />
+              <GatedDateField gate={dateGate} gateKey="effective-from" label="Effective From" required value={form.effectiveFrom || null} onValue={(iso) => setForm((f) => ({ ...f, effectiveFrom: iso }))} />
             </div>
             <div>
-              <DateField label="Effective To" value={form.effectiveTo || null} onChange={(iso) => setForm((f) => ({ ...f, effectiveTo: iso ?? '' }))} />
+              <GatedDateField gate={dateGate} gateKey="effective-to" label="Effective To" value={form.effectiveTo || null} onValue={(iso) => setForm((f) => ({ ...f, effectiveTo: iso }))} />
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Notes</label>
@@ -204,7 +205,7 @@ export function ClientRateOverrides({ clientId }: Props) {
           <div className="flex gap-2 mt-3">
             <button
               onClick={() => void handleAdd()}
-              disabled={saving}
+              disabled={saving || dateGate.blocked}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}

@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, ShieldAlert } from 'lucide-react';
 import { apiErrorMessage } from '@/lib/apiFetch';
+import { useCompany } from '@/contexts/CompanyContext';
 import { fetchVatExceptions } from './vatExceptionsFetch';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import VatNonSupplySection from './VatNonSupplySection';
@@ -29,13 +30,15 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
   const [report, setReport] = useState<VatExceptionsReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const companyId = useCompany().activeCompany?.id;
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
+  const askedKey = useRef<number | null>(null);
 
-  const load = useCallback(async (cancelledRef?: { current: boolean }) => {
+  const load = useCallback(async (cancelledRef?: { current: boolean }, fresh = false) => {
     setLoading(true); setError('');
     try {
-      const data = await fetchVatExceptions(from, to, 'Could not load exceptions - try again', 'VAT201ExceptionsPanel') as VatExceptionsReport;
+      const data = await fetchVatExceptions(from, to, 'Could not load exceptions - try again', 'VAT201ExceptionsPanel', { companyId, fresh }) as VatExceptionsReport;
       if (!cancelledRef?.current) { setReport(data); onLoadedRef.current?.(data); }
     } catch (err) {
       if (!cancelledRef?.current) {
@@ -45,12 +48,15 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
     } finally {
       if (!cancelledRef?.current) setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, companyId]);
 
   useEffect(() => {
     if (!from || !to || reloadKey === 0) return;
     const cancelledRef = { current: false };
-    void load(cancelledRef);
+    // StrictMode re-runs this effect with the same reloadKey and should share the request; a new key is a Generate click.
+    const fresh = askedKey.current !== null && askedKey.current !== reloadKey;
+    askedKey.current = reloadKey;
+    void load(cancelledRef, fresh);
     return () => { cancelledRef.current = true; };
   }, [from, to, reloadKey, load]);
 

@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface EmployeeOption { id: string; firstName: string; lastName: string; employeeNumber: string }
 interface LeaveTypeOption { id: string; name: string; isPaid: boolean }
@@ -30,6 +30,7 @@ function calcBusinessDays(start: string, end: string): number {
 }
 
 export default function NewLeaveRequestPage() {
+  const dateGate = useDateGate();
   const router = useRouter();
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeOption[]>([]);
@@ -165,10 +166,10 @@ export default function NewLeaveRequestPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <DateField label="Start Date" required value={startDate || null} onChange={iso => setStartDate(iso ?? '')} />
+                  <GatedDateField gate={dateGate} gateKey="start-date" label="Start Date" required value={startDate || null} onValue={iso => setStartDate(iso)} />
                 </div>
                 <div>
-                  <DateField label="End Date" required minDate={startDate || undefined} value={endDate || null} onChange={iso => setEndDate(iso ?? '')} />
+                  <GatedDateField gate={dateGate} gateKey="end-date" label="End Date" required minDate={startDate || undefined} value={endDate || null} onValue={iso => setEndDate(iso)} />
                 </div>
               </div>
 
@@ -193,7 +194,7 @@ export default function NewLeaveRequestPage() {
               <div className="flex gap-3 pt-2">
                 <button
                   type="submit"
-                  disabled={isSaving}
+                  disabled={isSaving || dateGate.blocked}
                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium"
                 >
                   {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}

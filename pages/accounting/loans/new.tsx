@@ -11,7 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Landmark, ArrowLeft, Loader2 } from 'lucide-react';
 import { RateCurve } from '@/components/loans/types';
-import { DateField } from '@/components/ui/DateField';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -48,7 +48,7 @@ const INITIAL: LoanForm = {
 };
 
 export default function NewLoanPage() {
-  const router = useRouter();
+  const router = useRouter(); const dateGate = useDateGate();
   const [form, setForm] = useState<LoanForm>(INITIAL);
   const [curves, setCurves] = useState<RateCurve[]>([]);
   const [busy, setBusy] = useState(false);
@@ -185,7 +185,7 @@ export default function NewLoanPage() {
                   </select>
                 </div>
                 <div>
-                  <DateField label="Start Date" required value={form.startDate || null} onChange={iso => set('startDate', iso ?? '')} />
+                  <GatedDateField gate={dateGate} gateKey="start-date" label="Start Date" required value={form.startDate || null} onValue={iso => set('startDate', iso)} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Term (months) *</label>
@@ -286,7 +286,7 @@ export default function NewLoanPage() {
               </Link>
               <button
                 type="submit"
-                disabled={busy}
+                disabled={busy || dateGate.blocked}
                 className="inline-flex items-center gap-2 px-6 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create Loan'}
