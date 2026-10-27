@@ -20,7 +20,7 @@ const height = (id: string) => screen.getByTestId(id).style.height;
 describe('ShellSkeleton', () => {
   it('reserves the header, the top nav and the module nav at the shell heights', () => {
     render(<ShellSkeleton hasModuleNav />);
-    expect(height('shell-header')).toBe(`${SHELL_HEIGHTS.header}px`);
+    expect(screen.getByTestId('shell-header').style.minHeight).toBe(`${SHELL_HEIGHTS.header}px`);
     expect(height('shell-top-nav')).toBe(`${SHELL_HEIGHTS.topNav}px`);
     expect(height('shell-module-nav')).toBe(`${SHELL_HEIGHTS.moduleNav}px`);
   });

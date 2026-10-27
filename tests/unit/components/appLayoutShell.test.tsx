@@ -3,13 +3,14 @@
  * them, rendered for real with the heavy children stubbed. Plus the document-title precedence with the real next/head.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-library/react';
 import Head from 'next/head';
 import { HeadManagerContext } from 'next/dist/shared/lib/head-manager-context.shared-runtime';
 import type { ReactNode } from 'react';
 
 const h = vi.hoisted(() => ({
   router: { pathname: '/accounting', asPath: '/accounting', query: {}, push: vi.fn(async () => true) },
+  topNavMounts: 0,
   auth: { loading: false, user: { firstName: 'Q', lastName: 'A', email: 'qa@x' } as unknown, logout: vi.fn(async () => undefined), authUnavailable: false, authChecking: false, refreshUser: vi.fn() },
 }));
 vi.mock('next/router', () => ({ useRouter: () => h.router }));
@@ -20,10 +21,10 @@ vi.mock('@/contexts/CompanyContext', () => ({
 vi.mock('next/image', () => ({ default: () => null }));
 vi.mock('@/hooks/useTrackPageVisit', () => ({ useTrackPageVisit: () => undefined }));
 vi.mock('@/lib/auth/sessionHeartbeat', () => ({ startSessionHeartbeat: () => () => undefined }));
-vi.mock('@/components/accounting/AccountingNav', () => ({ AccountingNav: () => null }));
+vi.mock('@/components/accounting/AccountingNav', () => ({ AccountingNav: () => { h.topNavMounts += 1; return null; } }));
 vi.mock('@/components/accounting/SecondaryModuleNav', () => ({ SecondaryModuleNav: () => null }));
 vi.mock('@/components/layout/SidebarNav', () => ({ SidebarNav: () => null }));
-vi.mock('@/components/layout/DrawerNav', () => ({ DrawerNav: () => <nav><a href="/accounting/customer-invoices">Invoices</a></nav> }));
+vi.mock('@/components/layout/DrawerNav', () => ({ DrawerNav: () => <nav><a href="/accounting/customer-invoices">Invoices</a><a href="/accounting/customer-quotes">Quotes</a></nav> }));
 vi.mock('@/components/layout/CommandPalette', () => ({ CommandPalette: ({ isOpen }: { isOpen: boolean }) => (isOpen ? <div data-testid="palette" /> : null) }));
 vi.mock('@/components/layout/ShortcutHelpOverlay', () => ({ ShortcutHelpOverlay: ({ isOpen }: { isOpen: boolean }) => (isOpen ? <div data-testid="shortcut-help" /> : null) }));
 vi.mock('@/components/onboarding/AccountingTour', () => ({ AccountingTour: () => null }));
@@ -80,13 +81,40 @@ describe('AppLayout', () => {
     expect(drawer.className).toContain('invisible');
   });
 
-  it('Escape closes the open drawer and returns focus to the hamburger; opening moves focus into it', () => {
+  it('Escape closes the open drawer and returns focus to the hamburger; opening moves focus into it', async () => {
     render(page());
     fireEvent.click(hamburger());
-    expect(document.activeElement?.textContent).toBe('Invoices');
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Invoices'));
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(hamburger().getAttribute('aria-expanded')).toBe('false');
     expect(document.activeElement).toBe(hamburger());
+  });
+
+  it('the open drawer keeps focus: Tab past its last control wraps to the first, Shift+Tab the other way', async () => {
+    render(page());
+    fireEvent.click(hamburger());
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Invoices'));
+    const drawer = screen.getByTestId('mobile-drawer');
+    const controls = [...drawer.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')];
+    controls.at(-1)!.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(controls[0]);
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(controls.at(-1));
+    hamburger().focus(); // focus outside the drawer is pulled back in
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(drawer.contains(document.activeElement)).toBe(true);
+  });
+
+  it('a sidebar user never gets the top nav, not even on a fresh AppLayout\'s first frame', () => {
+    document.documentElement.setAttribute('data-nav-mode', 'side');
+    try {
+      h.topNavMounts = 0;
+      render(page());
+      expect(h.topNavMounts).toBe(0);
+    } finally {
+      document.documentElement.removeAttribute('data-nav-mode');
+    }
   });
 
   it('a route change closes the drawer', () => {

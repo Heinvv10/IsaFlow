@@ -30,11 +30,8 @@ import { PwaInstallBanner, usePwaInstallPrompt } from '@/components/layout/PwaIn
 import { useGlobalShortcuts } from '@/components/layout/useGlobalShortcuts';
 import { SHELL_HEIGHTS } from '@/components/layout/shellHeights';
 import { isPayrollPath } from '@/components/layout/shellRoutes';
+import { readShellPrefs, writeShellPrefs, type NavMode } from '@/components/layout/shellPrefs';
 
-const SIDEBAR_COLLAPSED_KEY = 'accounting-sidebar-collapsed';
-const NAV_MODE_KEY = 'accounting-nav-mode';
-
-type NavMode = 'top' | 'side';
 
 // ─── Props ──────────────────────────────────────────────────────────────────
 
@@ -69,13 +66,11 @@ export function AppLayout({ children }: AppLayoutProps) {
     return startSessionHeartbeat({ idleTimeoutMinutes: idle });
   }, [user, activeCompany?.id, activeCompany?.idleTimeoutMinutes]);
 
-  // On admin subdomain, hide accounting-specific UI (nav, company switcher, etc.)
-  const [isAdminHost, setIsAdminHost] = useState(false);
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.hostname === 'admin.isaflow.co.za') {
-      setIsAdminHost(true);
-    }
-  }, []);
+  // The saved layout, read from what shell-init.js put on <html>: right from this AppLayout's first frame, so a
+  // client-side navigation never flashes the top nav for a sidebar user. On the admin subdomain the accounting-specific
+  // UI (nav, company switcher, etc.) is hidden.
+  const [initialPrefs] = useState(readShellPrefs);
+  const { isAdminHost } = initialPrefs;
 
   // Command palette
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -84,29 +79,15 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
 
   // Nav mode preference
-  const [navMode, setNavMode] = useState<NavMode>('top');
+  const [navMode, setNavMode] = useState<NavMode>(initialPrefs.navMode);
 
   // Mobile sidebar open state (used in both modes for mobile)
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Desktop collapsed state (sidebar mode only)
-  const [collapsed, setCollapsed] = useState(false);
-  const [hydrated, setHydrated] = useState(false);
+  const [collapsed, setCollapsed] = useState(initialPrefs.collapsed);
 
-  useEffect(() => {
-    const savedMode = localStorage.getItem(NAV_MODE_KEY) as NavMode | null;
-    if (savedMode === 'top' || savedMode === 'side') setNavMode(savedMode);
-    const savedCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
-    if (savedCollapsed !== null) setCollapsed(JSON.parse(savedCollapsed) as boolean);
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (hydrated) {
-      localStorage.setItem(NAV_MODE_KEY, navMode);
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, JSON.stringify(collapsed));
-    }
-  }, [collapsed, navMode, hydrated]);
+  useEffect(() => { writeShellPrefs(navMode, collapsed); }, [collapsed, navMode]);
 
   // ─── Global keyboard shortcuts ────────────────────────────────────────────
   const openCommandPalette = useCallback(() => setCommandPaletteOpen(true), []);

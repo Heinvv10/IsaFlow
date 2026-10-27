@@ -45,4 +45,13 @@ describe('DrawerNav', () => {
     expect(button('Transactions').getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByRole('link', { name: 'Sales Orders' }).getAttribute('aria-current')).toBe('page');
   });
+
+  it('a route change into another module opens that module (the drawer can stay mounted)', () => {
+    const { rerender } = render(<DrawerNav />);
+    expect(button('Banking').getAttribute('aria-expanded')).toBe('false');
+    router.pathname = '/accounting/bank-transactions';
+    router.asPath = '/accounting/bank-transactions';
+    rerender(<DrawerNav />);
+    expect(button('Banking').getAttribute('aria-expanded')).toBe('true');
+  });
 });

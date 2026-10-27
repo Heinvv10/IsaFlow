@@ -241,6 +241,8 @@ test.describe('screenshots', () => {
       const drawer = page.getByTestId('mobile-drawer');
       await drawer.getByRole('button', { name: 'Sales', exact: true }).click();
       await drawer.getByRole('button', { name: 'Transactions', exact: true }).click();
+      // The slide-in and the chevrons have finished: no running animation or transition in the drawer.
+      await expect.poll(() => drawer.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
       mkdirSync(EVIDENCE_DIR, { recursive: true });
       await page.screenshot({ path: `${EVIDENCE_DIR}/390-drawer-sales-${theme}.png` });
     });

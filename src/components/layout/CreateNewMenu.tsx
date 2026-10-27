@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { cn } from '@/utils/cn';
+import { anchoredMenuStyle } from '@/components/layout/menuPosition';
 
 // ─── Menu item definition ────────────────────────────────────────────────────
 
@@ -83,16 +84,13 @@ function Dropdown({ anchorRect, focusedIndex, onSelect, onFocusChange }: Dropdow
     itemRefs.current[focusedIndex]?.focus();
   }, [focusedIndex]);
 
-  const top = anchorRect.bottom + window.scrollY + 8;
-  const left = anchorRect.right + window.scrollX;
-
   return createPortal(
     <div
       role="menu"
       aria-label="Create new"
-      style={{ position: 'absolute', top, left, transform: 'translateX(-100%)' }}
+      style={anchoredMenuStyle(anchorRect, 256)}
       className={cn(
-        'z-[9999] w-64 py-1.5 rounded-xl',
+        'z-[9999] py-1.5 rounded-xl',
         'bg-white dark:bg-gray-900',
         'border border-gray-200 dark:border-gray-700',
         'shadow-xl shadow-black/10 dark:shadow-black/40',

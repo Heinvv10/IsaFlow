@@ -1,8 +1,8 @@
 /**
  * The app's sidebar: the desktop sidebar in sidebar nav mode (SidebarNav, hover flyouts), and the slide-in drawer
  * behind the hamburger, which every mode has below `lg` (DrawerNav, an accordion). Both carry the logo, the same TABS
- * as the top nav and the user area. The closed drawer is `invisible`, so its links leave the tab order; Escape closes
- * the open drawer and hands focus back to the hamburger.
+ * as the top nav and the user area. The closed drawer is `invisible`, so its links leave the tab order; the open one
+ * takes focus and keeps it (Tab wraps), and Escape closes it and hands focus back to the hamburger.
  */
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import Image from 'next/image';
@@ -85,14 +85,26 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
 
   useEffect(() => {
     if (!mobileOpen) return;
-    drawer.current?.querySelector<HTMLElement>('nav a, nav button')?.focus();
+    // Wait a frame for the style change to apply: focus() on a still-hidden element is a no-op. (Visibility is only
+    // transitioned on close, so the drawer is visible from its first open frame; on close it hides after the slide.)
+    const frame = requestAnimationFrame(() => drawer.current?.querySelector<HTMLElement>('nav a, nav button')?.focus());
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      onCloseMobile();
-      menuButtonRef.current?.focus();
+      if (e.key === 'Escape') {
+        onCloseMobile();
+        menuButtonRef.current?.focus();
+        return;
+      }
+      // Focus stays in the open drawer: Tab past the last control wraps to the first, Shift+Tab before the first to the last.
+      if (e.key !== 'Tab' || !drawer.current) return;
+      const items = [...drawer.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')];
+      const first = items[0];
+      const last = items[items.length - 1];
+      const inside = drawer.current.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || !inside)) { e.preventDefault(); first?.focus(); }
     };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', onKey); };
   }, [mobileOpen, onCloseMobile, menuButtonRef]);
 
   return (
@@ -131,7 +143,7 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
         ref={drawer}
         aria-label="Menu"
         data-testid="mobile-drawer"
-        className={`fixed inset-y-0 left-0 z-50 w-64 flex flex-col lg:hidden transition-[transform,visibility] duration-300 ${mobileOpen ? 'translate-x-0 visible' : '-translate-x-full invisible'}`}
+        className={`fixed inset-y-0 left-0 z-50 w-64 flex flex-col lg:hidden duration-300 ${mobileOpen ? 'translate-x-0 visible transition-transform' : '-translate-x-full invisible transition-[transform,visibility]'}`}
         style={ASIDE_STYLE}
       >
         <SidebarContent collapsed={false} nav={<DrawerNav />} />

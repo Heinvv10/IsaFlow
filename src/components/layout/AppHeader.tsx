@@ -34,9 +34,11 @@ const ICON_BUTTON = 'p-2 rounded-lg text-ink-muted hover:text-slate-900 dark:hov
 export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileNav, menuButtonRef, onToggleNavMode, onOpenCommandPalette }: AppHeaderProps) {
   const { user, logout } = useAuth();
   const showSidebar = navMode === 'side';
+  // The desktop sidebar takes 256px of the width, so in sidebar mode the inline controls need one breakpoint more.
+  const inline = showSidebar ? 'hidden xl:block' : 'hidden lg:block';
 
   return (
-    <header className="flex items-center px-4 gap-3 flex-shrink-0" style={{ height: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
+    <header className="flex items-center px-4 gap-3 flex-shrink-0" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
       {/* Mobile hamburger */}
       <button
         ref={menuButtonRef}
@@ -94,19 +96,20 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
       {/* Nav mode toggle */}
       <button
         onClick={onToggleNavMode}
-        className={`hidden lg:block ${ICON_BUTTON}`}
+        className={`${inline} ${ICON_BUTTON}`}
         title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
       >
         {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
       </button>
 
       {/* Table density toggle (below lg these live in MobileHeaderMenu) */}
-      <div className="hidden lg:block"><TableDensityToggle /></div>
+      <div className={inline}><TableDensityToggle /></div>
 
       {/* Theme: Light / Dark / System */}
-      <div className="hidden lg:block"><ThemeToggle /></div>
+      <div className={inline}><ThemeToggle /></div>
 
       <MobileHeaderMenu
+        className={showSidebar ? 'xl:hidden' : 'lg:hidden'}
         name={user ? `${user.firstName} ${user.lastName}` : ''}
         navMode={navMode}
         onToggleNavMode={onToggleNavMode}
@@ -115,7 +118,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
 
       {/* User info */}
       {user && (
-        <div className="hidden xl:flex items-center gap-2 text-sm text-ink-muted">
+        <div className={`hidden ${showSidebar ? '2xl:flex' : 'xl:flex'} items-center gap-2 text-sm text-ink-muted`}>
           <User className="w-4 h-4" />
           <span className="truncate max-w-[160px]">
             {user.firstName} {user.lastName}
@@ -127,7 +130,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
       {!showSidebar && (
         <button
           onClick={() => void logout()}
-          className="hidden lg:block p-2 rounded-lg text-ink-muted hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+          className={`${inline} p-2 rounded-lg text-ink-muted hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors`}
           title="Log out"
         >
           <LogOut className="w-4 h-4" />
