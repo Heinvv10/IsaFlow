@@ -5,8 +5,9 @@
  * holds a full page, so swapping the skeleton for a full page of rows shifts
  * nothing; once loaded it fits the rows, so a short tab has no gap above the
  * pager.
- * No rows while `total` > 0 is a page past the end that usePageClamp is about
- * to leave: it shows the skeleton, never "No new transactions".
+ * No rows on a page past the end (bankTxPastEnd) is a page usePageClamp is
+ * about to leave: it shows the skeleton, never "No new transactions". Any
+ * other empty page says empty, so nothing can leave the skeleton stuck.
  */
 
 import type { ReactNode } from 'react';
@@ -22,14 +23,14 @@ interface Props {
   isLoading: boolean;
   error: string;
   empty: boolean;
-  /** Rows matching the filters across every page, from the same load as `empty`. */
-  total: number;
+  /** bankTxPastEnd(page, total, pageSize), from the same load as `empty`. */
+  pastEnd: boolean;
   tab: BankTxTab;
   children: ReactNode;
 }
 
-export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, total, tab, children }: Props) {
-  const loading = isLoading || (empty && total > 0);
+export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, pastEnd, tab, children }: Props) {
+  const loading = isLoading || (empty && pastEnd);
   return (
     <>
       {relinkFailed && (

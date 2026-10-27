@@ -2,12 +2,14 @@
  * Past-the-end page. Accepting or excluding the last row of the last page reloads that page, which now
  * lies past the end: the API returns no rows and a total above zero. The list then said "No new
  * transactions for this account" while the count beside it said 24. usePageClamp moves to the last page
- * that exists and so refetches once; BankTxListFrame never shows the empty state while total > 0.
+ * that exists and so refetches once; BankTxListFrame shows the skeleton, not the empty state, while the page
+ * is past the end. Only then: an empty page 1 with a stale total above zero still says empty, never a skeleton
+ * that nothing will replace.
  */
 import { describe, it, expect } from 'vitest';
 import React, { useEffect, useState } from 'react';
 import { render, screen, act } from '@testing-library/react';
-import { lastPage, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
+import { bankTxPastEnd, lastPage, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
 import { BankTxLoading, BANK_TX_FRAME_MIN_PX, BANK_TX_PAGE_SIZE, BANK_TX_ROW_PX } from '@/components/accounting/bank-transactions/BankTxListStates';
 
@@ -64,31 +66,42 @@ describe('usePageClamp', () => {
 });
 
 describe('BankTxListFrame', () => {
-  const frame = (empty: boolean, total: number) => render(
-    <BankTxListFrame relinkFailed={false} aiPolling={0} isLoading={false} error="" empty={empty} total={total} tab="new">
+  const frame = (empty: boolean, pastEnd: boolean) => render(
+    <BankTxListFrame relinkFailed={false} aiPolling={0} isLoading={false} error="" empty={empty} pastEnd={pastEnd} tab="new">
       <div data-testid="rows" />
     </BankTxListFrame>,
   );
 
-  it('no rows but total > 0 (a page past the end, about to be clamped) shows the skeleton, not "empty"', () => {
-    frame(true, 24);
+  it('no rows on a page past the end (about to be clamped) shows the skeleton, not "empty"', () => {
+    frame(true, true);
     expect(screen.queryByTestId('bank-tx-empty')).toBeNull();
     expect(screen.getByTestId('list-skeleton')).toBeInTheDocument();
   });
 
-  it('no rows and total 0 is empty', () => {
-    frame(true, 0);
+  it('no rows on a page that exists is empty', () => {
+    frame(true, false);
     expect(screen.getByTestId('bank-tx-empty')).toBeInTheDocument();
   });
 
+  it('page 1 with no rows and a stale total above zero says empty: the clamp will not move it, so a skeleton would stick', () => {
+    expect(bankTxPastEnd(1, 24, 25)).toBe(false);
+    frame(true, bankTxPastEnd(1, 24, 25));
+    expect(screen.getByTestId('bank-tx-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('list-skeleton')).toBeNull();
+  });
+
+  it.each([[2, 24, true], [2, 26, false], [1, 0, false], [3, 50, true]])('page %i of total %i is past the end: %s', (page, total, want) => {
+    expect(bankTxPastEnd(page, total, 25)).toBe(want);
+  });
+
   it('rows render the table', () => {
-    frame(false, 24);
+    frame(false, false);
     expect(screen.getByTestId('rows')).toBeInTheDocument();
   });
 
   it('holds a full page while loading, so a full page of rows replaces the skeleton without a shift', () => {
     render(
-      <BankTxListFrame relinkFailed={false} aiPolling={0} isLoading error="" empty={false} total={411} tab="new">
+      <BankTxListFrame relinkFailed={false} aiPolling={0} isLoading error="" empty={false} pastEnd={false} tab="new">
         <div data-testid="rows" />
       </BankTxListFrame>,
     );
@@ -96,14 +109,14 @@ describe('BankTxListFrame', () => {
   });
 
   it('holds a full page on a past-the-end page too (the skeleton shows there)', () => {
-    frame(true, 24);
+    frame(true, true);
     expect(screen.getByTestId('bank-tx-list-frame').style.minHeight).toBe(`${BANK_TX_FRAME_MIN_PX}px`);
   });
 
   it('once loaded, fits its rows: a short tab leaves no gap above the pager', () => {
-    frame(false, 3);
+    frame(false, false);
     expect(screen.getByTestId('bank-tx-list-frame').style.minHeight).toBe('');
-    frame(true, 0);
+    frame(true, false);
     expect(screen.getAllByTestId('bank-tx-list-frame')[1]!.style.minHeight).toBe('');
   });
 });

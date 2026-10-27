@@ -10,6 +10,11 @@ export function lastPage(total: number, pageSize: number): number {
   return Math.max(1, Math.ceil(total / pageSize));
 }
 
+/** The page lies beyond the last page `total` allows: the rows are gone and usePageClamp is about to move. */
+export function bankTxPastEnd(page: number, total: number, pageSize: number): boolean {
+  return page > lastPage(total, pageSize);
+}
+
 interface Args {
   page: number;
   total: number;
