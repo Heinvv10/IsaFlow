@@ -225,13 +225,18 @@ describe('an existing GoTrue account with no IsaFlow profile row', () => {
     expect(h.adminUpdateUser).toHaveBeenCalledWith('gt-orphan', expect.objectContaining({ password: 'a-new-password-1' }));
   });
 
-  it('an account this accept just created is not looked up for factors', async () => {
+  // Review round 3: a lookup that misses (or a race) and a create that 422s
+  // hands back an EXISTING account; "just created" cannot be trusted to skip this.
+  it('an account adminCreateUser answered from a 422 is checked too', async () => {
     h.findUserByEmail.mockResolvedValue(null);
-    h.adminCreateUser.mockResolvedValue({ id: 'gt-new', email: 'invitee@example.test' });
-    h.signIn.mockResolvedValue(tokens('gt-new'));
+    h.adminCreateUser.mockResolvedValue({ id: 'gt-2fa', email: 'invitee@example.test' });
+    h.adminListUserFactors.mockResolvedValue([{ id: 'f1', status: 'verified', factor_type: 'totp' }]);
 
-    expect((await accept('a-new-password-1')).status).toBe(200);
-    expect(h.adminListUserFactors).not.toHaveBeenCalled();
+    const { status, body } = await accept('attacker-chosen-pw-1');
+
+    expect(status).toBe(401);
+    expect(body.error?.code).toBe('MFA_REQUIRED');
+    expect(h.adminUpdateUser).not.toHaveBeenCalled();
   });
 });
 

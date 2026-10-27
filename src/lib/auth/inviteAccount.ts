@@ -6,12 +6,6 @@ import { AuthUpstreamUnavailableError } from './authUpstream';
 /** The strength floor for a password being SET (register.ts, do-reset-password.ts). */
 export const MIN_NEW_PASSWORD_LENGTH = 10;
 
-export interface InvitationAccount {
-  id: string;
-  /** Created by this accept, so it can have no second factor yet. */
-  created: boolean;
-}
-
 /**
  * The GoTrue account an invitation is accepted as, or null when the address
  * has no account and `password` is too weak to create one with.
@@ -28,17 +22,18 @@ export interface InvitationAccount {
  * someone's own login (a pending signup, a member removed everywhere) that
  * this invitation never created. An existing account is always found first,
  * never created over. Concurrent accepts converge: the second create 422s and
- * adminCreateUser answers the first one's account.
+ * adminCreateUser answers the first one's account — which is why the caller
+ * checks factors for every account without a `users` row, not only found ones.
  */
 export async function resolveInvitationAccount(
   inv: { email: string; gotrue_user_id: string | null },
   password: string,
-): Promise<InvitationAccount | null> {
-  if (inv.gotrue_user_id) return { id: inv.gotrue_user_id, created: false };
+): Promise<string | null> {
+  if (inv.gotrue_user_id) return inv.gotrue_user_id;
   const existing = await findUserByEmail(inv.email);
-  if (existing) return { id: existing.id, created: false };
+  if (existing) return existing.id;
   if (password.length < MIN_NEW_PASSWORD_LENGTH) return null;
-  return { id: (await adminCreateUser({ email: inv.email, email_confirm: true })).id, created: true };
+  return (await adminCreateUser({ email: inv.email, email_confirm: true })).id;
 }
 
 /**

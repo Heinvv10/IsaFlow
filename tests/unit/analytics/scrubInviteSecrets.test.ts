@@ -92,3 +92,14 @@ describe.each([
     expect(out).not.toContain(T.slice(0, 32));
   });
 });
+
+// The scrub knows a token by its shape only; this keeps it honest if the minting changes.
+describe('a token as the app actually mints it', () => {
+  it('is redacted from a path, a query and a referrer', async () => {
+    const { mintInviteToken } = await import('@/lib/auth/inviteToken');
+    const minted = mintInviteToken();
+    expect(scrubInvitePath(`/invite/${minted}`)).not.toContain(minted);
+    expect(scrubInviteQuery(`token=${minted}`)).not.toContain(minted);
+    expect(scrubInviteReferrer(`https://app.isaflow.co.za/invite/${minted}`)).not.toContain(minted);
+  });
+});

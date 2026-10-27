@@ -21,6 +21,11 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
 
+// accept.ts reads the factors of any account without a `users` row before setting its password: none here.
+vi.mock('@/lib/auth/gotrue-mfa', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  adminListUserFactors: vi.fn(async () => []),
+}));
 const sentEmails: Array<{ html: string }> = [];
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendEmail: vi.fn(async (msg: { html: string }) => { sentEmails.push(msg); return { success: true, messageId: 'disposable' }; }),
