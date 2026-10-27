@@ -4,7 +4,7 @@ import { buildSeedRequest, defaultDraft, parsePct, stepError } from '@/component
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
 
 const S = 's', C = 'c', H = 'h', X = 'x';
-const acc = (id: string, band: PreviewAccount['band'], over: Partial<PreviewAccount> = {}): PreviewAccount => ({ id, band, isActive: true, isHeader: false, ...over });
+const acc = (id: string, band: PreviewAccount['band'], over: Partial<PreviewAccount> = {}): PreviewAccount => ({ id, band, code: id.toUpperCase(), name: `Account ${id}`, isActive: true, isHeader: false, ...over });
 const ACCOUNTS = [acc(S, 'turnover'), acc(C, 'cost_of_sales'), acc(H, 'turnover', { isHeader: true }), acc(X, 'operating_expense', { isActive: false })];
 const months = ['2027-01', '2027-02', '2027-03'];
 const cell = (glAccountId: string, month: string, amount: number, dimensionId: string | null = null) => ({ glAccountId, dimensionId, month, amount });
@@ -52,4 +52,29 @@ it('wizard draft: a name is required, the uplift must be in range, and Import Ex
   expect(parsePct('7,5')).toBe(7.5);
   expect(parsePct('abc')).toBeNull();
   expect(buildSeedRequest({ ...d, name: ' B ', source: 'import' }).source).toEqual({ type: 'blank' });
+});
+
+// +10% at R1000: 1 540 and 1 540 round up to 2 000 each, 110 to 0; the target 3 190 rounds to 3 000, so March takes -1 000.
+const FLIP_CELLS = [cell(S, '2027-01', 1400), cell(S, '2027-02', 1400), cell(S, '2027-03', 100)];
+
+it('lists the accounts whose rounding difference flips the last month to the other sign', () => {
+  const r = pySeedFigures(ACCOUNTS, prior([...FLIP_CELLS, cell(C, '2027-01', 500), cell(C, '2027-02', 500), cell(C, '2027-03', 500)]), { ...OPT, pct: 10, unit: 1000 });
+  expect(r.ok && r.flips).toEqual([S]);
+});
+
+it('lists nothing when the rounding keeps the last month on the total\'s side', () => {
+  const r = pySeedFigures(ACCOUNTS, prior(FLIP_CELLS), { ...OPT, pct: 10, unit: 1 });
+  expect(r.ok && r.flips).toEqual([]);
+});
+
+it('does not blame the rounding for a last month that was already the other sign in the prior year', () => {
+  const credit = [cell(S, '2027-01', 10000), cell(S, '2027-02', 3000), cell(S, '2027-03', -4000)];
+  const r = pySeedFigures(ACCOUNTS, prior(credit), { ...OPT, pct: 10, unit: 1 });
+  expect(r.ok && r.flips).toEqual([]);
+});
+
+it('lists a flipped account once, even when it is seeded per member', () => {
+  const dims = FLIP_CELLS.flatMap((x) => [{ ...x, dimensionId: 'm1' }, { ...x, dimensionId: 'm2' }]);
+  const r = pySeedFigures(ACCOUNTS, prior(dims, 'cc1'), { ...OPT, grain: 'cc1', pct: 10, unit: 1000 });
+  expect(r.ok && r.flips).toEqual([S]);
 });

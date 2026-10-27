@@ -12,8 +12,8 @@ const CC = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const year = (fiscalYear: number, monthKeys: string[]) => ({ fiscalYear, startDate: `${fiscalYear}-01-01`, endDate: `${fiscalYear}-02-28`, kind: 'standard', monthKeys });
 const YEARS = [year(2027, ['2027-01', '2027-02']), year(2026, ['2026-01', '2026-02'])];
 const ACCOUNTS = [
-  { id: A_SALES, band: 'turnover' as const, isActive: true, isHeader: false },
-  { id: A_COGS, band: 'cost_of_sales' as const, isActive: true, isHeader: false },
+  { id: A_SALES, band: 'turnover' as const, code: '4000', name: 'Sales', isActive: true, isHeader: false },
+  { id: A_COGS, band: 'cost_of_sales' as const, code: '5000', name: 'Purchases', isActive: true, isHeader: false },
 ];
 const version = (id: string, fy: number, name: string) => ({ id, fiscalYear: fy, name, kind: 'original' }) as never;
 const ok = <T,>(data: T) => ({ ok: true as const, data });
@@ -159,4 +159,29 @@ it.each([
   expect((await screen.findByRole('alert')).textContent).toMatch(text);
   expect(props.onCreated).not.toHaveBeenCalled();
   expect(props.onClose).not.toHaveBeenCalled();
+});
+
+const accounts7 = Array.from({ length: 7 }, (_, i) => ({ id: `acc-${i}`, band: 'turnover' as const, code: `4${i}00`, name: `Income ${i}`, isActive: true, isHeader: false }));
+
+it('warns, without blocking Create, about accounts whose rounding flips the last month; at most 5 are named', async () => {
+  vi.mocked(client.fetchPriorActuals).mockResolvedValue(ok({
+    fiscalYear: 2027, grain: 'company', months: ['2027-01', '2027-02', '2027-03'], priorMonths: [],
+    cells: accounts7.flatMap((a) => [['2027-01', 1400], ['2027-02', 1400], ['2027-03', 100]].map(([m, amount]) => ({ glAccountId: a.id, dimensionId: null, month: m as string, amount: amount as number }))),
+  }));
+  render(<CreateWizard {...base({ accounts: accounts7, years: [year(2027, ['2027-01', '2027-02', '2027-03'])] })} />);
+  name('B');
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(false));
+  next();
+  fireEvent.change(screen.getByLabelText('Uplift (%)'), { target: { value: '10' } });
+  next();
+  fireEvent.change(screen.getByLabelText('Round each month to'), { target: { value: '1000' } });
+  const notice = await screen.findByRole('status');
+  expect(notice.textContent).toMatch(/4000 Income 0/);
+  expect(notice.textContent).toMatch(/4400 Income 4/);
+  expect(notice.textContent).not.toMatch(/4500 Income 5/);
+  expect(notice.textContent).toMatch(/and 2 more/);
+  expect(notice.textContent).toMatch(/smaller rounding unit/i);
+  expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText('Round each month to'), { target: { value: '1' } });
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
 });

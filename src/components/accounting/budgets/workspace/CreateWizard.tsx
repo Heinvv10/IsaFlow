@@ -4,7 +4,7 @@
  * reforecast" (pass `sourceVersionId`). Import Excel creates a blank version, then reports
  * `thenImport` so the workspace opens the import dialog on it.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -79,6 +79,7 @@ export function CreateWizard(p: CreateWizardProps) {
 
   const patch = (x: Partial<WizardDraft>) => { setDraft((d) => ({ ...d, ...x })); setError(null); };
   const preview = useWizardPreview(draft, p.years, p.accounts, p.open && step === 2);
+  const labels = useMemo(() => new Map(p.accounts.map((a) => [a.id, `${a.code} ${a.name}`])), [p.accounts]);
   const firstVersion = yearHasVersions === false;
   const blocked = stepError(draft, step, firstVersion);
   const current: PreviewFigures | null = p.currentTotals && draft.fiscalYear === p.fiscalYear
@@ -121,7 +122,7 @@ export function CreateWizard(p: CreateWizardProps) {
           </div>
         )}
         {step === 1 && <WizardSourceStep draft={draft} years={p.years} onChange={patch} />}
-        {step === 2 && <WizardOptionsStep draft={draft} current={current} preview={preview} onChange={patch} />}
+        {step === 2 && <WizardOptionsStep draft={draft} current={current} preview={preview} onChange={patch} accountLabels={labels} />}
         {blocked && step < 2 && <p className="mt-3 text-xs text-[var(--ff-text-tertiary)]">{blocked}</p>}
         {error && <p role="alert" className="mt-3 text-sm text-[var(--ff-unfav)]">{error}</p>}
       </Modal.Body>

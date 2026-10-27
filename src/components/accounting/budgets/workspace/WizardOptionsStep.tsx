@@ -8,12 +8,16 @@ import type { Unassigned } from './seedPreview';
 import type { WizardDraft } from './wizardDraft';
 import { LABEL, RadioOption, SelectField } from './wizardFields';
 
+const MAX_NAMED = 5;
+
 interface Props {
   draft: WizardDraft;
   /** The year's current version figures (rand), or null when it has none. */
   current: PreviewFigures | null;
   preview: WizardPreview;
   onChange: (patch: Partial<WizardDraft>) => void;
+  /** id -> "code name" for the rounding-flip notice. */
+  accountLabels: ReadonlyMap<string, string>;
 }
 
 const GRAINS: readonly { value: PriorGrain; label: string }[] = [
@@ -23,6 +27,17 @@ const GRAINS: readonly { value: PriorGrain; label: string }[] = [
   { value: 'bu', label: 'By business unit' },
 ];
 const UNITS: readonly RoundingUnit[] = [1, 100, 1000];
+
+function FlipNotice({ ids, labels }: { ids: readonly string[]; labels: ReadonlyMap<string, string> }) {
+  if (ids.length === 0) return null;
+  const named = ids.slice(0, MAX_NAMED).map((id) => labels.get(id) ?? id);
+  const more = ids.length - named.length;
+  return (
+    <p role="status" className="rounded border border-[var(--ff-border-light)] p-2 text-xs text-[var(--ff-text-primary)]">
+      Rounding turns the last month of {named.join(', ')}{more > 0 ? ` and ${more} more` : ''} into the opposite sign to the account total; consider a smaller rounding unit.
+    </p>
+  );
+}
 
 function PreviewTable({ current, preview }: { current: PreviewFigures | null; preview: WizardPreview }) {
   const cell = (f: PreviewFigures | null | undefined, m: keyof PreviewFigures) => (f ? formatStatementFigure(f[m]) : '…');
@@ -54,7 +69,7 @@ function PreviewTable({ current, preview }: { current: PreviewFigures | null; pr
   );
 }
 
-export function WizardOptionsStep({ draft, current, preview, onChange }: Props) {
+export function WizardOptionsStep({ draft, current, preview, onChange, accountLabels }: Props) {
   const py = draft.source === 'py_actuals';
   return (
     <div className="space-y-4">
@@ -86,6 +101,7 @@ export function WizardOptionsStep({ draft, current, preview, onChange }: Props) 
         </label>
       )}
       <PreviewTable current={current} preview={preview} />
+      {preview.next?.ok && <FlipNotice ids={preview.next.flips} labels={accountLabels} />}
     </div>
   );
 }
