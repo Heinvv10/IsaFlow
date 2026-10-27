@@ -225,12 +225,12 @@ const handler: NextApiHandler = async (req, res) => {
         // No `email = EXCLUDED.email` on the conflict branch: that reverted the
         // profile email of an account that had changed it, every time its owner
         // accepted an invitation. The row's own email stays its own.
-        // onboarding_completed + cookie, as /api/invite/[token]: no new-company wizard for a member.
+        // onboarding_completed + cookie: no new-company wizard for a member (an admin's reset to false is kept).
         `INSERT INTO users (id, email, first_name, last_name, is_active, onboarding_completed)
          VALUES ($1, $2, $3, $4, true, true)
          ON CONFLICT (id) DO UPDATE SET
            first_name = COALESCE(EXCLUDED.first_name, users.first_name),
-           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name), onboarding_completed = true`,
+           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name), onboarding_completed = COALESCE(users.onboarding_completed, true)`,
         [tok.user.id, inv.email, firstName, lastName]
       );
     } catch (err) {
@@ -278,7 +278,6 @@ const handler: NextApiHandler = async (req, res) => {
     refreshToken: tok.refresh_token,
     expiresIn: tok.expires_in,
   });
-  setOnboardingDoneCookie(res);
   // The invited company is normally the right landing spot, but an invitation
   // can outlive its company (admin soft delete writes companies.status =
   // 'deleted'). Pointing the cookie at one would 403 every later request, so
@@ -287,7 +286,7 @@ const handler: NextApiHandler = async (req, res) => {
   const landingCompanyId = (await isLiveCompanyForUser(tok.user.id, inv.company_id))
     ? inv.company_id
     : await pickInitialCompanyId(tok.user.id);
-  if (landingCompanyId) setActiveCompanyCookie(res, landingCompanyId);
+  if (landingCompanyId) { setActiveCompanyCookie(res, landingCompanyId); setOnboardingDoneCookie(res); }
 
   return res.status(200).json({ success: true, data: { userId: tok.user.id, companyId: landingCompanyId } });
 };
