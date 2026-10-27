@@ -7,17 +7,21 @@
  * Evidence mode: INVOICE_EVIDENCE_DIR=<dir> writes screenshots at 390 and 1568 in both themes.
  */
 // golden:dev-only
-// Dev only: it creates a draft invoice and runs axe against dev data. The post-deploy run skips it by this marker.
+// Dev only: it creates a company and a draft invoice and runs axe against dev data. The post-deploy run skips it by this marker.
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { Api } from './_api';
+import { findOrCreateSandbox, switchApiCompany, switchBrowserCompany } from './_migrationSandbox';
 import { todayInSast } from '../../../src/lib/saDateParser';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
 const NEW = '/accounting/customer-invoices/new';
 const EVIDENCE = process.env.INVOICE_EVIDENCE_DIR;
+// The keyboard test saves a draft, so it runs in its own sandbox company and never writes to Demo (Willie uses Demo for QA).
+const SANDBOX_NAME = '0GP Golden Invoice Form Sandbox';
+const SANDBOX_ONBOARDING_ID = 'd6630d3e-22b5-4c1f-b872-262d940a869a';
 
 const plusDays = (iso: string, n: number): string => {
   const [y, m, d] = iso.split('-').map(Number);
@@ -39,8 +43,11 @@ for (const theme of THEMES) {
   });
 }
 
-test('keyboard only: client, "t" and "+30", save a draft, the API holds ISO dates', async ({ page, baseURL }) => {
+test('keyboard only: client, "t" and "+30", save a draft, the API holds ISO dates', async ({ page, context, baseURL }) => {
   const api = await Api.login(baseURL!);
+  const sandboxId = await findOrCreateSandbox(api, { name: SANDBOX_NAME, onboardingId: SANDBOX_ONBOARDING_ID });
+  await switchApiCompany(api, sandboxId);
+  await switchBrowserCompany(context, sandboxId);
   await api.fixtureCustomer();
   await open(page);
 
