@@ -5,7 +5,9 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Package, ArrowLeft, Loader2, Database } from 'lucide-react';
+import { PageHeader } from '@/components/ui';
+import { AssetFinancialFields, card, inp, lbl } from '@/components/accounting/assets/AssetFinancialFields';
+import { Package, Loader2, Database } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -28,14 +30,13 @@ const DEPRECIATION_METHODS = [
   { value: 'sum_of_years', label: 'Sum-of-Years Digits' },
 ];
 
-const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
-const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export default function NewAssetPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [dateError, setDateError] = useState('');
+  const [dateReason, setDateReason] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
 
@@ -73,10 +74,22 @@ export default function NewAssetPage() {
   };
 
   const update = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
+  /** A committed purchase date (or a refusal of what was typed) replaces any submit-time error. */
+  const onDateChange = (iso: string | null, reason: string | null) => {
+    update('purchaseDate', iso ?? '');
+    // DateField's bare "Enter a date." (field emptied) gives way to the more specific message at submit.
+    setDateReason(reason === 'Enter a date.' ? null : reason);
+    setDateError('');
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    if (!form.purchaseDate) {
+      setDateError(dateReason ?? 'Enter the purchase date.');
+      return;
+    }
+    setDateError('');
     setSaving(true);
     try {
       const res = await apiFetch('/api/accounting/assets', {
@@ -106,25 +119,12 @@ export default function NewAssetPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Page header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/assets" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Assets
-            </Link>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center">
-                <Package className="w-5 h-5 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Record</p>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-white">New Asset</h1>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={Package}
+          title="New Asset"
+          backLink={{ label: 'Back to Assets', href: '/accounting/assets' }}
+          className="mb-0"
+        />
 
         <form onSubmit={handleSubmit}>
           <div className="p-6 xl:p-8">
@@ -220,37 +220,7 @@ export default function NewAssetPage() {
                   </div>
                 </div>
 
-                {/* Section 3 — Financial Details */}
-                <div className={`${card} p-5`}>
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                    <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">3</span>
-                    Financial Details
-                  </h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className={lbl}>Purchase Date *</label>
-                      <input type="date" name="purchaseDate" required value={form.purchaseDate}
-                        onChange={e => update('purchaseDate', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className={lbl}>Cost (Purchase Price) *</label>
-                      <input type="number" name="cost" required step="0.01" min="0.01" value={form.cost}
-                        onChange={e => update('cost', e.target.value)}
-                        placeholder="25000.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className={lbl}>Salvage (Residual) Value</label>
-                      <input type="number" name="salvageValue" step="0.01" min="0" value={form.salvageValue}
-                        onChange={e => update('salvageValue', e.target.value)}
-                        placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className={lbl}>Useful Life (years) *</label>
-                      <input type="number" name="usefulLifeYears" required step="0.5" min="0.5" value={form.usefulLifeYears}
-                        onChange={e => update('usefulLifeYears', e.target.value)} className={inp} />
-                    </div>
-                  </div>
-                </div>
+                <AssetFinancialFields form={form} update={update} onDateChange={onDateChange} dateError={dateError} />
               </div>
 
               {/* Right column — sticky summary */}
