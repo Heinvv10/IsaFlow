@@ -3,7 +3,7 @@
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import CompanySettingsPage from '../../../pages/accounting/company-settings';
 import { apiFetch } from '@/lib/apiFetch';
 import { typeDate } from '../helpers/dateFields';
@@ -55,4 +55,16 @@ it('leaving the General tab drops the refused entry (the field shows the saved d
   fireEvent.click(screen.getAllByRole('button', { name: /VAT Settings/ })[0] as HTMLElement);
   await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Lockdown Date' })).toBeNull());
   expect(save().disabled).toBe(false);
+});
+
+it('the save handler itself refuses while Lockdown Date is refused, not only the disabled button', async () => {
+  render(<CompanySettingsPage />);
+  typeDate(await screen.findByRole('textbox', { name: 'Lockdown Date' }), 'garbage');
+  await waitFor(() => expect(save().disabled).toBe(true));
+  // React drops clicks on a disabled button, so call the handler React holds for it, as another path would.
+  const key = Object.keys(save()).find((k) => k.startsWith('__reactProps'));
+  const props = (save() as unknown as Record<string, { onClick: () => void }>)[key ?? ''];
+  expect(props?.onClick).toBeTypeOf('function');
+  await act(async () => { props?.onClick(); });
+  expect(puts()).toEqual([]);
 });
