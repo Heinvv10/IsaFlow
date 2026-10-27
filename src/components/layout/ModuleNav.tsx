@@ -159,14 +159,14 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
               onBlur={menu ? closeOnFocusOut(t.id) : undefined}
             >
               {t.href && !menu && (
-                <Link href={t.href} aria-current={activeTab === t.id ? 'true' : undefined} className={`block px-4 py-2.5 ${borderCls(t)} ${textCls(t)}`}>{t.label}</Link>
+                <Link href={t.href} aria-current={activeTab === t.id ? 'true' : undefined} className={`block px-4 py-2 leading-6 ${borderCls(t)} ${textCls(t)}`}>{t.label}</Link>
               )}
               {t.href && menu && (
                 <div className={`flex items-center ${borderCls(t)}`}>
                   <Link
                     href={t.href}
                     aria-current={activeTab === t.id ? 'true' : undefined}
-                    className={`py-2.5 pl-4 pr-1 ${textCls(t)}`}
+                    className={`py-2 pl-4 pr-1 leading-6 ${textCls(t)}`}
                     onClick={e => {
                       // Touch and pen: the first tap opens the menu, the second follows the link.
                       if (!isOpen && lastPointer.current !== 'mouse' && lastPointer.current !== '') {
@@ -182,7 +182,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                     type="button"
                     {...trigger}
                     aria-label={`${t.label} menu`}
-                    className={`py-2.5 pl-0.5 pr-3 ${textCls(t)}`}
+                    className={`h-8 pl-1 pr-3 ${textCls(t)}`}
                     onClick={e => activate(t.id, isOpen, e.detail === 0)}
                     onKeyDown={arrowDown(t.id, isOpen)}
                   >
@@ -195,7 +195,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                   type="button"
                   {...trigger}
                   aria-current={activeTab === t.id ? 'true' : undefined}
-                  className={`px-4 py-2.5 inline-flex items-center gap-1 ${borderCls(t)} ${textCls(t)}`}
+                  className={`px-4 py-2 leading-6 inline-flex items-center gap-1 ${borderCls(t)} ${textCls(t)}`}
                   onClick={e => activate(t.id, isOpen, e.detail === 0)}
                   onKeyDown={arrowDown(t.id, isOpen)}
                 >
