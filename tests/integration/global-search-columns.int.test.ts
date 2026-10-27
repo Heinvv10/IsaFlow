@@ -28,9 +28,13 @@ describe.skipIf(!process.env.DATABASE_URL)('global search against the real schem
       VALUES (${co}::UUID, ${c.fx.customerId}::UUID, ${c.fx.customerId}::UUID, ${`INV-${c.fx.tag}`},
         '2026-05-10', '2026-05-10', 'draft', 1000, 15, 150, 1150, 0, ${c.fx.userId}::UUID)`;
     await sql`INSERT INTO items (company_id, code, description) VALUES (${co}::UUID, ${`IT-${c.fx.tag}`}, 'Widget')`;
+    await sql`
+      INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
+      VALUES (${co}::UUID, ${`E${c.fx.tag.slice(-12)}`}, ${`Thandi${c.fx.tag}`}, 'Nkosi', '2026-01-01')`;
   }, 120000);
   afterAll(async () => {
     if (!c) return; // setup failed: its own error is the one to read
+    await sql`DELETE FROM payroll_employees WHERE company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM items WHERE company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM customer_invoices WHERE company_id = ${c.fx.companyId}::UUID`;
     await teardown(c);
@@ -109,6 +113,40 @@ describe.skipIf(!process.env.DATABASE_URL)('global search against the real schem
       const results = await globalSearch(o.fx.companyId, c.fx.tag, 50);
       expect(results).toEqual([]);
     } finally {
+      await teardown(o);
+    }
+  }, 120000);
+
+  it('finds an active employee by name or number, and never one that has left', async () => {
+    const byName = await globalSearch(c.fx.companyId, `Thandi${c.fx.tag}`, 50);
+    const [emp] = (await sql`SELECT id FROM payroll_employees WHERE employee_number = ${`E${c.fx.tag.slice(-12)}`}`) as Row[];
+    expect(byName.filter((r) => r.type === 'employee').map((r) => [r.id, r.title, r.subtitle, r.url])).toEqual([
+      [String(emp!.id), `Thandi${c.fx.tag} Nkosi`, `E${c.fx.tag.slice(-12)}`, `/payroll/employees/${String(emp!.id)}`],
+    ]);
+    expect((await globalSearch(c.fx.companyId, `E${c.fx.tag.slice(-12)}`, 50)).filter((r) => r.type === 'employee')).toHaveLength(1);
+    await sql`UPDATE payroll_employees SET status = 'terminated' WHERE id = ${String(emp!.id)}::UUID`;
+    try {
+      expect((await globalSearch(c.fx.companyId, `Thandi${c.fx.tag}`, 50)).filter((r) => r.type === 'employee')).toEqual([]);
+    } finally {
+      await sql`UPDATE payroll_employees SET status = 'active' WHERE id = ${String(emp!.id)}::UUID`;
+    }
+  }, 60000);
+
+  it('an employee in company B is never returned for company A, and the reverse', async () => {
+    const o = await setup('GSE');
+    try {
+      await sql`
+        INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
+        VALUES (${o.fx.companyId}::UUID, ${`E${o.fx.tag.slice(-12)}`}, ${`Sipho${o.fx.tag}`}, 'Dlamini', '2026-01-01')`;
+      const employees = (rows: { type: string; title: string }[]) => rows.filter((r) => r.type === 'employee').map((r) => r.title);
+      // B's employee, searched by name and by number, as company A.
+      expect(employees(await globalSearch(c.fx.companyId, `Sipho${o.fx.tag}`, 50))).toEqual([]);
+      expect(employees(await globalSearch(c.fx.companyId, `E${o.fx.tag.slice(-12)}`, 50))).toEqual([]);
+      // ...and A's as B; each company still finds its own.
+      expect(employees(await globalSearch(o.fx.companyId, `Thandi${c.fx.tag}`, 50))).toEqual([]);
+      expect(employees(await globalSearch(o.fx.companyId, `Sipho${o.fx.tag}`, 50))).toEqual([`Sipho${o.fx.tag} Dlamini`]);
+    } finally {
+      await sql`DELETE FROM payroll_employees WHERE company_id = ${o.fx.companyId}::UUID`;
       await teardown(o);
     }
   }, 120000);

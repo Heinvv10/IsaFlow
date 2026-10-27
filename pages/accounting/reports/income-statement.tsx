@@ -7,8 +7,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { DateField } from '@/components/ui/DateField';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
+import { BarChart3, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -245,9 +246,7 @@ export default function IncomeStatementPage() {
           )}
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
-            </div>
+            <ListSkeleton rows={14} label="Loading profit and loss" />
           ) : report ? (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
               <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">

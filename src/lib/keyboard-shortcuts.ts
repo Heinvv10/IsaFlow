@@ -77,7 +77,10 @@ export function matchesShortcut(
   if (shortcut.isSequence) return false;
 
   if (shortcut.ctrl  !== (event.ctrlKey  || event.metaKey)) return false;
-  if (shortcut.shift !== event.shiftKey)                    return false;
+  // A symbol such as "?" is typed WITH Shift on most layouts, and event.key already says so: comparing
+  // Shift too made "?" match no real key press, so the shortcut overlay could not be opened from the keyboard.
+  const symbolKey = shortcut.keys.length === 1 && /^[^a-z0-9]$/i.test(shortcut.keys[0] ?? '');
+  if (!symbolKey && shortcut.shift !== event.shiftKey)      return false;
   if (shortcut.alt   !== event.altKey)                      return false;
 
   const eventKey = event.key.toLowerCase();
