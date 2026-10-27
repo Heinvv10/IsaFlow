@@ -8,6 +8,7 @@
 import type { ReactNode } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { BankTxTab } from './BankTxTabs';
+import { BankTxLoading, BankTxEmpty } from './BankTxListStates';
 
 interface Props {
   relinkFailed: boolean;
@@ -34,15 +35,11 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, emp
       )}
       <div className="min-h-[480px]">
         {isLoading ? (
-          <div className="space-y-2 py-2" role="status" aria-busy="true" aria-label="Loading transactions">
-            {Array.from({ length: 8 }, (_, i) => <div key={i} className="h-12 animate-pulse rounded bg-[var(--ff-bg-tertiary)]" />)}
-          </div>
+          <BankTxLoading />
         ) : error ? (
           <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
         ) : empty ? (
-          <div data-testid="bank-tx-empty" className="text-center py-12 text-[var(--ff-text-secondary)]">
-            No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : 'reviewed'} transactions for this account
-          </div>
+          <BankTxEmpty tab={tab} />
         ) : children}
       </div>
     </>

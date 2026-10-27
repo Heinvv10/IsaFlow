@@ -50,6 +50,8 @@ export interface CompanyUser {
   companyName: string;
   role: string;
   isDefault: boolean;
+  /** The seeded demo tenant (`companies.is_demo`). Absent on an older API answer. */
+  isDemo?: boolean;
 }
 
 export const COMPANY_STORAGE_KEY = 'isaflow_active_company';
@@ -104,6 +106,7 @@ export function mapCompanyUsers(raw: unknown): CompanyUser[] {
     companyName: (c.companyName || c.company_name) as string,
     role: c.role as string,
     isDefault: Boolean(c.isDefault ?? c.is_default ?? false),
+    isDemo: Boolean(c.isDemo ?? c.is_demo ?? false),
   }));
 }
 

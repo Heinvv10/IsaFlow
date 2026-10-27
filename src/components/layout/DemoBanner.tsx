@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, Loader2 } from 'lucide-react';
-import { useCompany } from '@/contexts/CompanyContext';
+import { useCompany, type CompanyUser } from '@/contexts/CompanyContext';
 
 import { apiErrorMessage } from '@/lib/apiFetch';
 /**
@@ -18,14 +18,13 @@ import { apiErrorMessage } from '@/lib/apiFetch';
  * older cached responses or the `/api/accounting/companies` shape — guard
  * for both.
  */
-function readIsDemo(activeCompany: unknown): boolean {
+function readIsDemo(activeCompany: unknown, companies: readonly CompanyUser[]): boolean {
   if (!activeCompany || typeof activeCompany !== 'object') return false;
-  const c = activeCompany as { isDemo?: unknown; is_demo?: unknown; name?: unknown };
-  if (c.isDemo === true) return true;
-  if (c.is_demo === true) return true;
-  // Last-resort fallback: name contains "demo". Covers the case where
-  // CompanyContext hydrated from localStorage and dropped the boolean.
-  return typeof c.name === 'string' && /demo/i.test(c.name);
+  const c = activeCompany as { id?: unknown; isDemo?: unknown; is_demo?: unknown };
+  if (c.isDemo === true || c.is_demo === true) return true;
+  // Right after a switch the active company's own flag is not loaded yet: the membership list carries it.
+  // Never the name: a customer's own "Demo Plumbing" is not the demo tenant.
+  return companies.some((m) => m.companyId === c.id && m.isDemo === true);
 }
 
 export function DemoBanner() {
@@ -34,13 +33,13 @@ export function DemoBanner() {
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isDemo = readIsDemo(activeCompany);
+  const isDemo = readIsDemo(activeCompany, companies);
 
   // First non-demo membership the user has. We prefer the row marked
   // `isDefault`, then fall back to the first company that isn't a demo.
   const realCompany = useMemo(() => {
     if (!isDemo) return null;
-    const notDemo = companies.filter(c => !/demo/i.test(c.companyName));
+    const notDemo = companies.filter(c => !c.isDemo);
     return notDemo.find(c => c.isDefault) ?? notDemo[0] ?? null;
   }, [companies, isDemo]);
 
