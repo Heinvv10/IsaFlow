@@ -31,12 +31,15 @@ export function useBankCardOrder(companyId: string | null | undefined) {
   const storedRef = useRef<string[] | null>(null);
   const companyRef = useRef(companyId);
   const saveSeq = useRef(0);
+  // True while what is shown is a revert to storedRef: a load arriving then may replace it.
+  const reverted = useRef(false);
   const chain = useRef<Promise<void>>(Promise.resolve());
   const show = useCallback((next: string[] | null) => { orderRef.current = next; setOrder(next); }, []);
 
   useEffect(() => {
     companyRef.current = companyId;
     saveSeq.current = 0;
+    reverted.current = false;
     storedRef.current = null;
     show(null);
     if (!companyId) return undefined;
@@ -49,7 +52,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
         // A reorder made while this was loading wins over the stored order.
         if (cancelled) return;
         storedRef.current = parseCardOrder(json.data?.[cardOrderPrefKey(companyId)]);
-        if (saveSeq.current === 0) show(storedRef.current);
+        if (saveSeq.current === 0 || reverted.current) show(storedRef.current);
       } catch (err) {
         log.warn('Bank card order unavailable, using the default order', { error: err }, 'bank-transactions');
       }
@@ -60,6 +63,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
   const save = useCallback((next: string[] | null): Promise<void> => {
     if (!companyId) return Promise.resolve();
     const seq = ++saveSeq.current;
+    reverted.current = false;
     show(next);
     chain.current = chain.current.then(async () => {
       try {
@@ -68,6 +72,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
       } catch (err) {
         log.warn('Saving the bank card order failed', { error: err }, 'bank-transactions');
         if (companyRef.current !== companyId || saveSeq.current !== seq) return;
+        reverted.current = true;
         show(storedRef.current);
         notify.error(apiErrorMessage(err, 'Could not save your card order'));
       }

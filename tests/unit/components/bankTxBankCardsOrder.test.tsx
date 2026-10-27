@@ -258,3 +258,19 @@ it('a drop on nothing, or on itself, changes nothing', async () => {
   expect(slotKeys()).toEqual(['p1', 'p2', 'group:g1']);
   expect(puts()).toEqual([]);
 });
+
+it('a save refused before the saved order loaded shows the saved order once it arrives', async () => {
+  saved = { 'bank_card_order:co-1': JSON.stringify(['group:g1', 'p1', 'p2']) };
+  let releaseGet!: () => void;
+  const get = new Promise<void>((r) => { releaseGet = r; });
+  apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === '/api/auth/preferences' && init?.method === 'PUT') return json({}, 500);
+    if (url === '/api/auth/preferences') { await get; return json(saved); }
+    return json([]);
+  });
+  view();
+  await altRight(/Main/);
+  await waitFor(() => expect(notify.error).toHaveBeenCalledTimes(1));
+  await act(async () => { releaseGet(); await get; });
+  await waitFor(() => expect(slotKeys()).toEqual(['group:g1', 'p1', 'p2']));
+});
