@@ -111,11 +111,10 @@ const handler: NextApiHandler = async (req, res) => {
   let unusable = false;
   try {
     // Never NULL past here: a NULL id would skip the guard below and PUT to /admin/users/null.
-    const account = await resolveInvitationAccount(inv, password);
-    if (account === null) {
+    const accountId = await resolveInvitationAccount(inv, password);
+    if (accountId === null) {
       return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
     }
-    const accountId = account.id;
 
     // 2. Does this address already hold an established IsaFlow login? A `users`
     //    row is written only by tenant provisioning (after email verification)
@@ -131,9 +130,9 @@ const handler: NextApiHandler = async (req, res) => {
     const isEstablished = (established.rowCount ?? 0) > 0;
 
     if (!isEstablished) {
-      // An existing account without a `users` row may still carry a second
-      // factor: refuse before its password is touched, not only after sign-in.
-      if (!account.created && await accountHasVerifiedFactor({ userId: accountId })) {
+      // An account without a `users` row may still carry a second factor (even
+      // one adminCreateUser answered from a 422): refuse before the password is set.
+      if (await accountHasVerifiedFactor({ userId: accountId })) {
         return res.status(401).json({ success: false, error: MFA_REQUIRED });
       }
       // Brand-new invitee: this invitation is what establishes the login, so
