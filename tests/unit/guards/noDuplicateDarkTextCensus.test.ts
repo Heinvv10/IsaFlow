@@ -9,7 +9,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(__dirname, '../../..');
-const DARK_TEXT = /(?<![:\w-])dark:text-[a-z]+-\d+/g;
+const DARK_TEXT = /(?<![:\w-])dark:text-(?:[a-z]+-\d+|white|black|\[[^\]]+\])/g;
 const STRING_LITERAL = /"[^"\n]*"|'[^'\n]*'|`[^`]*`/g;
 
 /** Class strings in `source`: each quoted literal, and a template's static text apart from its `${}` branches. */
@@ -31,6 +31,8 @@ describe('duplicate dark:text-* census', () => {
     expect(duplicateDarkText('<p className="text-sm dark:text-gray-400 dark:text-gray-500">')).toHaveLength(1);
     expect(duplicateDarkText('<p className="dark:text-gray-400 hover:dark:text-gray-200">')).toHaveLength(0);
     expect(duplicateDarkText('<p className="dark:text-gray-400">')).toHaveLength(0);
+    expect(duplicateDarkText('<p className="dark:text-white dark:text-slate-900">')).toHaveLength(1);
+    expect(duplicateDarkText('<p className="dark:text-black dark:text-[#123]">')).toHaveLength(1);
     expect(duplicateDarkText("`x ${a ? 'dark:text-red-400' : 'dark:text-green-400'}`")).toHaveLength(0);
     expect(duplicateDarkText("`dark:text-gray-400 ${a} dark:text-gray-500`")).toHaveLength(1);
   });

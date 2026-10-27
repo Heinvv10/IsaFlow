@@ -236,11 +236,11 @@
   }
 
   /*
-   * Buttons and links without .ff-focus-ring got the browser's 1 px `outline: auto`. Give them the kit ring. Base layer
-   * on purpose: .ff-focus-ring(-inset) in components, and any outline utility, still win. Keyboard focus only
+   * Buttons and links without .ff-focus-ring got the browser's 1 px `outline: auto`. Give them the kit ring. The selector is
+   * :where(...) so it scores (0,1,0) and every utility (focus:outline-none, focus:ring-*) and .ff-focus-ring(-inset) still win. Keyboard focus only
    * (:focus-visible), so a mouse click stays ring-free.
    */
-  :is(a[href], button, [role="button"], [role="tab"], [role="menuitem"], summary):focus-visible {
+  :where(a[href], button, [role="button"], [role="tab"], [role="menuitem"], summary):focus-visible {
     outline: var(--ff-focus-ring-width) solid var(--ff-focus-ring);
     outline-offset: 2px;
   }

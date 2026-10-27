@@ -12,6 +12,7 @@
  * works in CI, against dev, and against prod Demo. Serial workers: the specs
  * share the Demo company's books.
  */
+import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { devOnlySpecPattern } from './tests/e2e/golden-paths/helpers/devOnlySpecs';
 
@@ -22,7 +23,8 @@ export default defineConfig({
   // would still import it. A spec needs the marker if it uses axe, writes data or a sandbox company, measures timing
   // or layout shift, or depends on dev data. Production verify specs must be read-only and deterministic, because a
   // red run rolls the deploy back. Never edit a regex here: mark the spec.
-  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? devOnlySpecPattern('./tests/e2e/golden-paths') : undefined,
+  testMatch: '**/*.spec.ts',
+  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? devOnlySpecPattern(path.join(__dirname, 'tests/e2e/golden-paths')) : undefined,
   globalSetup: './tests/e2e/golden-paths/_global-setup.ts',
   timeout: 90_000,
   retries: 0,
