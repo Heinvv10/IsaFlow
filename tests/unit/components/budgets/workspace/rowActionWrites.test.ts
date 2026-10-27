@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { cellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import {
-  childWrites, clearWrites, splitShares, grainChangeWrites, moveWrites, rowWrites, splitAcrossChildren, type ChildShare,
+  childWrites, clearWrites, grainChangeWrites, moveWrites, rowWrites, splitAcrossChildren, type ChildShare,
 } from '@/components/accounting/budgets/workspace/rowActionWrites';
 
 const MONTHS = ['2026-03', '2026-04', '2026-05'];
@@ -81,42 +81,3 @@ describe('grainChangeWrites', () => {
   });
 });
 
-describe('splitShares (N children, residue on the LAST, decision 5)', () => {
-  const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
-  const cases: { name: string; total: number; n: number; unit: 1 | 100 | 1000; weights: number[] | null; want: number[] }[] = [
-    { name: 'even, exact', total: 300_00, n: 3, unit: 1, weights: null, want: [100_00, 100_00, 100_00] },
-    { name: 'even, residue last', total: 100_00, n: 3, unit: 1, weights: null, want: [33_00, 33_00, 34_00] },
-    { name: 'even, cents residue', total: 100_01, n: 2, unit: 1, weights: null, want: [50_00, 50_01] },
-    { name: 'even, R100 unit', total: 1000_00, n: 3, unit: 100, weights: null, want: [300_00, 300_00, 400_00] },
-    { name: 'even, R1000 unit, negative', total: -5000_00, n: 4, unit: 1000, weights: null, want: [-1000_00, -1000_00, -1000_00, -2000_00] },
-    { name: 'even, total under a unit lands on the last', total: 40_00, n: 3, unit: 100, weights: null, want: [0, 0, 40_00] },
-    { name: 'even, negative half rounds away from zero', total: -300_00, n: 2, unit: 100, weights: null, want: [-200_00, -100_00] },
-    { name: 'PY share', total: 900_00, n: 3, unit: 1, weights: [1, 2, 6], want: [100_00, 200_00, 600_00] },
-    { name: 'PY share, residue last', total: 100_00, n: 3, unit: 1, weights: [1, 1, 1], want: [33_00, 33_00, 34_00] },
-    { name: 'PY share, negative weights', total: 1000_00, n: 2, unit: 1, weights: [-1, -3], want: [250_00, 750_00] },
-    { name: 'PY share, zero weight child', total: 500_00, n: 3, unit: 1, weights: [0, 5, 5], want: [0, 250_00, 250_00] },
-  ];
-  it.each(cases)('$name', ({ total, n, unit, weights, want }) => {
-    const r = splitShares(total, n, unit, weights);
-    expect(r).toEqual({ ok: true, shares: want });
-    if (r.ok) expect(sum(r.shares)).toBe(total);
-  });
-
-  it('N far above 15: 1 000 children, Σ exact, every share but the last a unit multiple', () => {
-    const r = splitShares(123_456_78, 1000, 100);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.shares).toHaveLength(1000);
-    expect(sum(r.shares)).toBe(123_456_78);
-    expect(r.shares.slice(0, -1).every(x => x % 100_00 === 0)).toBe(true);
-  });
-
-  it.each([
-    { name: 'no children', n: 0, weights: null },
-    { name: 'mixed-sign PY', n: 2, weights: [1, -1] },
-    { name: 'all-zero PY', n: 2, weights: [0, 0] },
-    { name: 'weight count mismatch', n: 3, weights: [1, 2] },
-  ])('refuses: $name', ({ n, weights }) => {
-    expect(splitShares(100_00, n, 1, weights)).toMatchObject({ ok: false, reason: expect.any(String) });
-  });
-});

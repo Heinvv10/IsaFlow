@@ -10,7 +10,7 @@ import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/ce
 import { type CellWrite, copyMatrix, fillDown, fillRight, pasteInto } from '@/modules/accounting/services/budgets/grid/fill';
 import { parseCell, parseClipboard } from '@/modules/accounting/services/budgets/grid/pasteParse';
 import { type Pos, type Rect, clampToEditable } from '@/modules/accounting/services/budgets/grid/selection';
-import { spreadEven } from '@/modules/accounting/services/budgets/grid/spread';
+import { residueFlipsSign, spreadEven } from '@/modules/accounting/services/budgets/grid/spread';
 import { toTsv } from '@/modules/accounting/services/budgets/grid/tsv';
 import type { CellWriteByKey, GridStore } from './gridStore';
 
@@ -25,26 +25,36 @@ function byKey(store: GridStore, writes: readonly CellWrite[]): CellWriteByKey[]
   return out;
 }
 
-/** Commit an edit draft. The FY total column spreads the typed total evenly with `unit` (decision 5). */
-export function commitDraft(store: GridStore, pos: Pos, draft: string, isTotal: boolean, unit: RoundingUnit): void {
+/**
+ * Commit an edit draft. The FY total column spreads the typed total evenly with `unit` (decision 5);
+ * when the unit pushes the last month across zero the spread still applies and a notice says so.
+ * Returns the refusal reason (nothing written), or null when the draft was taken.
+ */
+export function commitDraft(store: GridStore, pos: Pos, draft: string, isTotal: boolean, unit: RoundingUnit): string | null {
   const months = store.getLayout().months;
-  if (!store.isEditable(pos)) { store.announce(store.readReason(pos) ?? 'Read-only'); return; }
+  if (!store.isEditable(pos)) { const why = store.readReason(pos) ?? 'Read-only'; store.announce(why); return why; }
   const cell = parseCell(draft);
-  if (cell.kind === 'error') { store.announce(`Not changed: ${cell.reason}`); return; }
+  if (cell.kind === 'error') { store.announce(`Not changed: ${cell.reason}`); return cell.reason; }
   const cents = cell.kind === 'blank' ? null : cell.cents;
   if (!isTotal && pos.c < months.length) {
     const key = store.cellKeyAt(pos);
     if (key) store.apply([{ key, cents }]);
-    return;
+    return null;
   }
   const keys = months.map((_, c) => store.cellKeyAt({ r: pos.r, c }));
   if (cents === null) {
     store.apply(keys.flatMap(key => (key ? [{ key, cents: null }] : [])));
-    return;
+    return null;
   }
   const spread = spreadEven(cents, months.length, unit);
-  if (!spread.ok) { store.announce(`Not changed: ${spread.reason}`); return; }
+  if (!spread.ok) { store.announce(`Not changed: ${spread.reason}`); return spread.reason; }
   store.apply(keys.flatMap((key, i) => (key ? [{ key, cents: spread.months[i] ?? 0 }] : [])));
+  if (residueFlipsSign(cents, spread.months)) {
+    const reason = `The R${unit} rounding leaves the last month on the other side of zero; use a smaller rounding unit or edit the months.`;
+    store.setNotice([{ rowLabel: store.rowLabel(pos.r), monthLabel: monthLabel(months[months.length - 1] ?? ''), raw: draft, reason }]);
+    store.announce(reason);
+  }
+  return null;
 }
 
 export function clearCells(store: GridStore, positions: readonly Pos[]): void {
@@ -82,12 +92,24 @@ export function pasteText(store: GridStore, rect: Rect, text: string): void {
   const res = pasteInto(rect, parsed.rows, store.fillGrid());
   store.apply(byKey(store, res.writes));
   const months = store.getLayout().months;
-  store.setNotice(res.invalid.map(i => ({
+  // pasteInto drops clipboard cells that land below the last line row or right of the FY column
+  // without a word: what it neither wrote, skipped nor refused fell off the grid. (A 1×1 paste fills
+  // the selection, so it accounts for at least its one cell and never counts as clipped.)
+  const sent = parsed.rows.reduce((n, cols) => n + cols.length, 0);
+  const clipped = Math.max(0, sent - res.writes.length - res.skipped - res.invalid.length);
+  const notice = res.invalid.map(i => ({
     rowLabel: store.rowLabel(i.pos.r), monthLabel: monthLabel(months[i.pos.c] ?? ''), raw: i.raw, reason: i.reason,
-  })));
+  }));
+  if (clipped > 0) {
+    notice.push({ rowLabel: 'Past the end of the grid', monthLabel: '', raw: '', reason: clipped === 1
+      ? '1 pasted cell fell past the end of the grid and was not pasted.'
+      : `${clipped} pasted cells fell past the end of the grid and were not pasted.` });
+  }
+  store.setNotice(notice);
   let message = `Pasted ${cells(res.writes.length)}`;
   if (res.skipped > 0) message += `; ${res.skipped} skipped (read-only)`;
   if (res.invalid.length > 0) message += `; ${res.invalid.length} not a number (left unchanged)`;
+  if (clipped > 0) message += `; ${clipped} not pasted (past the end of the grid)`;
   store.announce(message);
 }
 

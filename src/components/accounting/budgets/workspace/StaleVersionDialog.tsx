@@ -16,6 +16,26 @@ import type { StaleState } from './types';
 
 export type StaleChoice = 'reapply' | 'discard' | 'download' | 'copy';
 
+/** budgetVersions.ts refuses a name over 120 characters once trimmed. */
+export const VERSION_NAME_MAX = 120;
+
+/** "<name> (my changes YYYY-MM-DD HH:MM)" in local time; the name is shortened (…) so the whole fits VERSION_NAME_MAX. */
+export function myChangesName(name: string, at: Date): string {
+  const two = (n: number) => String(n).padStart(2, '0');
+  const suffix = ` (my changes ${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())})`;
+  const base = name.trim();
+  const room = VERSION_NAME_MAX - suffix.length;
+  return `${base.length <= room ? base : `${base.slice(0, room - 1).trimEnd()}…`}${suffix}`;
+}
+
+/** When the server says the version was last changed (the 409's token), in South African time. */
+export function changedAt(stale: StaleState): string | null {
+  if (!stale.currentUpdatedAt) return null;
+  const at = new Date(stale.currentUpdatedAt);
+  if (Number.isNaN(at.getTime())) return null;
+  return new Intl.DateTimeFormat('en-ZA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Johannesburg' }).format(at);
+}
+
 export interface StaleVersionDialogProps {
   stale: StaleState;
   /** Runs one choice; resolves with null on success, else the message to show. */
@@ -33,7 +53,7 @@ export function staleHeadline(stale: StaleState): string {
 }
 
 const BTN = 'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50';
-const PRIMARY = `${BTN} bg-[var(--ff-brand)] text-white hover:opacity-90`;
+const PRIMARY = `${BTN} bg-brand-600 text-white hover:bg-brand-700`;
 const SECONDARY = `${BTN} border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)]`;
 
 export function StaleVersionDialog({ stale, onChoose, onClose }: StaleVersionDialogProps) {
@@ -78,6 +98,7 @@ export function StaleVersionDialog({ stale, onChoose, onClose }: StaleVersionDia
         )}
       </>}>
       <p>{staleHeadline(stale)} Your {plural(stale.dirtyCount, 'unsaved change')} {stale.dirtyCount === 1 ? 'is' : 'are'} kept.</p>
+      {changedAt(stale) && <p data-testid="stale-when">It was last changed at {changedAt(stale)}.</p>}
       {stale.chunks > 1 && (
         <p data-testid="stale-chunk">
           Part {stale.failedChunk + 1} of {stale.chunks} was refused. {stale.failedChunk === 0 ? 'Nothing was saved.'
@@ -86,8 +107,7 @@ export function StaleVersionDialog({ stale, onChoose, onClose }: StaleVersionDia
       )}
       {!locked && <p>Re-applying loads the latest amounts and puts your changes on top. Cells someone else also changed are highlighted for you to check.</p>}
       {locked && <p>A locked version cannot be edited. Copy it into a new draft version with your changes, or download them.</p>}
-      {stale.message && <p className="text-[var(--ff-text-tertiary)]">{stale.message}</p>}
-      {error && <p role="alert" className="text-[var(--ff-error-500)]">{error}</p>}
+      {error && <p role="alert" className="text-error-700 dark:text-error-400">{error}</p>}
     </WorkspaceDialog>
   );
 }

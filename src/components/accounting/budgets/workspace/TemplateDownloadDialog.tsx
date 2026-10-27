@@ -85,7 +85,7 @@ export function TemplateDownloadDialog(p: TemplateDownloadDialogProps) {
               </div>
             </fieldset>
           )}
-          {error && <p role="alert" className="text-sm text-[var(--ff-error-500)]">{error}</p>}
+          {error && <p role="alert" className="text-sm text-[var(--ff-unfav)]">{error}</p>}
         </div>
       </Modal.Body>
       <Modal.Footer>

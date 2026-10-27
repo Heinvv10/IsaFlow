@@ -75,13 +75,13 @@ export function ImportDiffPreview(p: ImportDiffPreviewProps) {
       </p>
       {nothing && <p className={`text-sm ${MUTED}`}>No changes: the file matches the budget as it is.</p>}
       {preview.conflicts.length > 0 && (
-        <p className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--ff-warning-500)' }}>
+        <p className="flex items-center gap-1.5 text-sm text-[var(--ff-text-primary)]">
           <AlertTriangle size={14} aria-hidden="true" />
           {preview.conflicts.length} conflict{preview.conflicts.length === 1 ? '' : 's'}: also changed in the budget since you downloaded; your value is applied.
         </p>
       )}
-      <Issues title="Errors" items={preview.errors} total={preview.errorCount} tone="var(--ff-error-500)" />
-      <Issues title="Warnings" items={preview.warnings} total={preview.warningCount} tone="var(--ff-warning-500)" />
+      <Issues title="Errors" items={preview.errors} total={preview.errorCount} tone="var(--ff-unfav)" />
+      <Issues title="Warnings" items={preview.warnings} total={preview.warningCount} tone="var(--ff-text-primary)" />
 
       <div className="max-h-72 overflow-auto rounded border border-[var(--ff-border-light)]">
         {groups.map((g) => (
@@ -102,7 +102,7 @@ export function ImportDiffPreview(p: ImportDiffPreviewProps) {
                         <>
                           {figure(c.after)}
                           {c.before !== null && <span className={`block ${MUTED}`}>was {figure(c.before)}</span>}
-                          {c.possibleRevert && <span className="block" style={{ color: 'var(--ff-warning-500)' }}>possible revert</span>}
+                          {c.possibleRevert && <span className="block font-medium text-[var(--ff-text-primary)]">possible revert</span>}
                           {ago && <span className={`block ${MUTED}`}>{ago}</span>}
                         </>
                       )}

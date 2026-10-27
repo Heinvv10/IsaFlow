@@ -4,9 +4,10 @@
  * locked, 429, 503, 400 naming the account). Nothing here throws on a status or a dropped
  * connection. The token is the `updatedAt` text exactly as the server sent it.
  *
- * A commit bigger than one save request (an import) is CHAINED by `saveChained`: clears first,
- * MAX_SAVE_CELLS a request, each chunk sent with the token the previous save returned, stopping
- * at the first refusal (non-atomic: the chunks before it stay saved, and the result says so).
+ * A commit bigger than one save request (an import) is CHAINED by `saveChained`: chunks of at
+ * most MAX_SAVE_CELLS cut on ACCOUNT boundaries (clears first in each), each sent with the token
+ * the previous save returned, stopping at the first refusal (non-atomic: the chunks before it
+ * stay saved, and the result says so).
  */
 import { apiFetch } from '@/lib/apiFetch';
 import type { ResponseFor } from '@/lib/apiRoutes';
@@ -127,16 +128,49 @@ export type ChainResult =
     updatedAt: string; saved: number; deleted: number;
   };
 
+const clearsFirst = (cells: readonly SaveCell[]): SaveCell[] =>
+  [...cells.filter(c => c.clear === true), ...cells.filter(c => c.clear !== true)];
+
+/**
+ * The chained commit's requests: whole accounts packed in order, so one account's clears and
+ * upserts (a grain change: old grain cleared, new grain written) land in the SAME request and a
+ * chain that stops part-way never leaves an account half changed. Clears go first in each
+ * request. An account bigger than one request (a dimension grain with over ~1 300 members ×
+ * 15 months) cannot keep that promise: its clears lead its first request, its upserts follow
+ * across as many requests as it needs, and the next account packs in after its last piece.
+ */
+export function chunkByAccount(cells: readonly SaveCell[]): SaveCell[][] {
+  const byAccount = new Map<string, SaveCell[]>();
+  for (const c of cells) {
+    const list = byAccount.get(c.glAccountId);
+    if (list) list.push(c); else byAccount.set(c.glAccountId, [c]);
+  }
+  const out: SaveCell[][] = [];
+  let current: SaveCell[] = [];
+  for (const group of byAccount.values()) {
+    const ordered = clearsFirst(group);
+    if (ordered.length > MAX_SAVE_CELLS) {
+      if (current.length > 0) out.push(current);
+      for (let i = 0; i + MAX_SAVE_CELLS < ordered.length; i += MAX_SAVE_CELLS) out.push(ordered.slice(i, i + MAX_SAVE_CELLS));
+      current = ordered.slice(Math.floor((ordered.length - 1) / MAX_SAVE_CELLS) * MAX_SAVE_CELLS);
+      continue;
+    }
+    if (current.length + ordered.length > MAX_SAVE_CELLS) { out.push(current); current = []; }
+    current.push(...ordered);
+  }
+  if (current.length > 0) out.push(current);
+  return out.map(clearsFirst);
+}
+
 export async function saveChained(versionId: string, cells: readonly SaveCell[], token: string): Promise<ChainResult> {
-  // Clears first, so a grain change split over chunks never meets the one-grain rule half done.
-  const ordered = [...cells.filter(c => c.clear === true), ...cells.filter(c => c.clear !== true)];
-  const chunks = Math.ceil(ordered.length / MAX_SAVE_CELLS);
+  const requests = chunkByAccount(cells);
+  const chunks = requests.length;
   let updatedAt = token;
   let saved = 0;
   let deleted = 0;
   for (let i = 0; i < chunks; i++) {
-    const r = await saveCells(versionId, updatedAt, ordered.slice(i * MAX_SAVE_CELLS, (i + 1) * MAX_SAVE_CELLS));
-    if (!r.ok) return { ok: false, failure: r, failedChunk: i, chunks, committed: ordered.slice(0, i * MAX_SAVE_CELLS), updatedAt, saved, deleted };
+    const r = await saveCells(versionId, updatedAt, requests[i]!);
+    if (!r.ok) return { ok: false, failure: r, failedChunk: i, chunks, committed: requests.slice(0, i).flat(), updatedAt, saved, deleted };
     updatedAt = r.data.updatedAt;
     saved += r.data.saved;
     deleted += r.data.deleted;

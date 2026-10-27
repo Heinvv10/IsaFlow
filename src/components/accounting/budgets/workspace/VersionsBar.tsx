@@ -9,13 +9,14 @@ import { useState } from 'react';
 import { Lock, Star } from 'lucide-react';
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/ActionMenu';
 import { longDate } from '@/components/accounting/budgets/budgetClient';
+import { canWrite } from '@/lib/auth/writeRoles';
 import { VersionStatusDialogs, type RunVersionAction, type VersionAction } from './VersionStatusDialogs';
 import type { BudgetVersion } from './types';
 
 const MANAGE_ROLES = new Set(['owner', 'admin']);
-const WRITE_ROLES = new Set(['owner', 'admin', 'manager']);
 
-export const canWriteRole = (role: string | null): boolean => role !== null && WRITE_ROLES.has(role);
+/** The roles `withWriteAccess` lets write (one list, `@/lib/auth/writeRoles`; import-free, bundle-safe). */
+export const canWriteRole = canWrite;
 
 /** The status-changing buttons a role sees on a version (spec §10 table). */
 export function versionButtons(v: BudgetVersion | null, role: string | null): ReadonlySet<VersionAction> {

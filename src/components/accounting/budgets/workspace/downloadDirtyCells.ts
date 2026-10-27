@@ -16,6 +16,7 @@ import type { GridAccount, GridDimensions } from '@/modules/accounting/services/
 import { type CellKey, type Dimension, grainOf, parseKey, rowKeyOf } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { fromCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { BAND_LABEL, BAND_ORDER } from '@/modules/accounting/services/budgets/grid/subtotals';
+import { saveBlob } from '@/lib/saveBlob';
 
 /** The template's column labels and sheet names (budgetTemplateXlsx.ts COLUMN / sheets; the import matches them by text). */
 export const TEMPLATE_TEXT = {
@@ -118,17 +119,6 @@ export async function workbookFor(ExcelJS: ExcelModule, input: DirtyExportInput,
     ['updatedAt', input.token], ['templateVersion', String(T.templateVersion)], ['signature', ''],
   ]);
   return wb.xlsx.writeBuffer() as Promise<ArrayBuffer>;
-}
-
-function saveBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

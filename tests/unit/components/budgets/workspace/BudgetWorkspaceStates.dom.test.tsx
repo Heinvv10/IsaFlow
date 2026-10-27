@@ -29,13 +29,26 @@ afterEach(() => {
 const yearSelect = () => screen.getByTestId('workspace-year') as HTMLSelectElement;
 
 describe('BudgetWorkspace states', () => {
-  it('loading: skeleton while the model is in flight, versions bar disabled; then the grid', async () => {
+  it('loading: skeleton while the model is in flight; on a year switch the versions bar is disabled, then usable', async () => {
     let release!: () => void;
-    const held = new Promise<void>((r) => { release = r; });
+    let held = new Promise<void>((r) => { release = r; });
     net.on(isModel, async () => { await held; return ok(gridModel()); });
     render(<BudgetWorkspace />);
     expect(await screen.findByTestId('workspace-loading')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByRole('grid')).toBeNull();
+    await act(async () => { release(); await held; });
+    expect(await screen.findByRole('grid', { name: 'Budget' })).toBeInTheDocument();
+    expect(screen.getByTestId('version-select')).not.toBeDisabled();
+
+    // Switch year: the bar still shows the last version, but must not act on it while the next one loads.
+    held = new Promise<void>((r) => { release = r; });
+    net.on((u) => isModel(u) && u.endsWith('fiscal_year=2028'), async () => { await held; return ok(modelFor(2028)); });
+    fireEvent.change(yearSelect(), { target: { value: '2028' } });
+    expect(await screen.findByTestId('workspace-loading')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByRole('grid')).toBeNull();
+    expect(screen.getByTestId('version-select')).toBeDisabled();
+    for (const b of within(screen.getByTestId('version-actions')).getAllByRole('button')) expect(b).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Template' })).toBeNull();
     await act(async () => { release(); await held; });
     expect(await screen.findByRole('grid', { name: 'Budget' })).toBeInTheDocument();
     expect(screen.queryByTestId('workspace-loading')).toBeNull();

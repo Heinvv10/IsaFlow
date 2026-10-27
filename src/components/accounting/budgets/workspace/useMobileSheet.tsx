@@ -1,21 +1,20 @@
 /**
- * The phone path of the grid (spec §12): a tapped cell opens `MobileCellSheet`; Save cell writes
- * that one cell through the store (the FY column spreads evenly with the rounding unit, as typing
- * in it does on desktop), one undo entry; Next month saves the same way and moves along the row.
+ * The phone path of the grid (spec §12): a tapped cell opens `MobileCellSheet`; Save cell commits
+ * that one cell through the desktop editor's path (`commitDraft`: the FY column spreads evenly with
+ * the rounding unit), one undo entry; Next month saves the same way and moves along the row.
  */
 import { useCallback, useState, type ReactNode } from 'react';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
-import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 import { accountGrains, type View } from '@/modules/accounting/services/budgets/grid/pivot';
 import type { Pos } from '@/modules/accounting/services/budgets/grid/selection';
-import { spreadEven } from '@/modules/accounting/services/budgets/grid/spread';
+import { centsToPlain } from '@/modules/accounting/services/budgets/grid/tsv';
 import type { GridStore } from './gridStore';
 import type { GridLayout } from './types';
 import type { LineRow } from './BudgetGridRow';
 import { rowActionItems, type RowAction } from './RowActionsMenu';
 import { MobileCellSheet } from './MobileCellSheet';
-import { rowWrites, type CellWriteByKey } from './rowActionWrites';
+import { commitDraft } from './gridCommands';
 
 interface UseMobileSheetArgs {
   store: GridStore;
@@ -44,22 +43,14 @@ export function useMobileSheet({ store, layout, roundingUnit, view, canWrite, on
   const cents = isTotal ? snap.fy : snap.values[pos.c] ?? null;
 
   const save = (value: number | null, next: boolean) => {
-    let writes: CellWriteByKey[];
-    if (!snap.editable || value === cents) { if (next) setPos({ r: pos.r, c: pos.c + 1 }); else close(); return; }
-    if (isTotal) {
-      const keys = months.map((_, c) => store.cellKeyAt({ r: pos.r, c })).filter((k): k is CellKey => k !== null);
-      if (value === null) writes = keys.map(key => ({ key, cents: null }));
-      else {
-        const spread = spreadEven(value, months.length, roundingUnit);
-        if (!spread.ok) { store.announce(spread.reason); return; }
-        writes = rowWrites(keys, spread.months);
-      }
-    } else {
-      const key = store.cellKeyAt(pos);
-      if (key === null) return;
-      writes = [{ key, cents: value }];
+    if (snap.editable && value !== cents) {
+      // The desktop editor's commit path: kit parser, FY spread with the unit, residue notice.
+      const seq = store.getMeta().announcement.seq;
+      const refused = commitDraft(store, pos, value === null ? '' : centsToPlain(value), isTotal, roundingUnit);
+      if (refused !== null) return;
+      // commitDraft announces only a warning (the residue notice); keep it rather than talk over it.
+      if (store.getMeta().announcement.seq === seq) store.announce(`${accountLabel}, ${isTotal ? 'full year' : monthLabel(months[pos.c] ?? '')} changed`);
     }
-    if (store.apply(writes) > 0) store.announce(`${accountLabel}, ${isTotal ? 'full year' : monthLabel(months[pos.c] ?? '')} changed`);
     if (next) setPos({ r: pos.r, c: pos.c + 1 }); else close();
   };
 

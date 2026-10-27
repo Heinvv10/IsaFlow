@@ -34,7 +34,7 @@ export function WorkspaceEmptyState({ fiscalYear, noAccounts, canWrite, canCopy,
         <p className="mt-1 text-sm text-[var(--ff-text-secondary)]">
           A budget is set per revenue and expense account. Add them to your chart of accounts first.
         </p>
-        <Link href="/accounting/chart-of-accounts" className="mt-4 inline-block text-sm font-medium text-[var(--ff-brand)] underline">
+        <Link href="/accounting/chart-of-accounts" className="mt-4 inline-block text-sm font-medium text-[var(--ff-brand-eyebrow)] underline">
           Open the chart of accounts
         </Link>
       </div>
@@ -53,7 +53,7 @@ export function WorkspaceEmptyState({ fiscalYear, noAccounts, canWrite, canCopy,
             {SOURCES.filter((s) => s.source !== 'version' || canCopy).map(({ source, label, hint, Icon }) => (
               <button key={source} type="button" onClick={() => onStart(source)} data-testid={`empty-start-${source}`}
                 className="flex items-start gap-3 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] p-4 text-left hover:bg-[var(--ff-bg-hover)]">
-                <Icon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--ff-brand)]" aria-hidden="true" />
+                <Icon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--ff-brand-eyebrow)]" aria-hidden="true" />
                 <span>
                   <span className="block text-sm font-medium text-[var(--ff-text-primary)]">{label}</span>
                   <span className="block text-xs text-[var(--ff-text-secondary)]">{hint}</span>

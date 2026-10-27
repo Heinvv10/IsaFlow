@@ -30,8 +30,8 @@ export function validUnlockReason(text: string): string | null {
 
 const BTN = 'inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50';
 const BTN_SECONDARY = `${BTN} border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]`;
-const BTN_PRIMARY = `${BTN} bg-[var(--ff-brand)] text-white hover:opacity-90`;
-const BTN_DANGER = `${BTN} bg-[var(--ff-error-500)] text-white hover:opacity-90`;
+const BTN_PRIMARY = `${BTN} bg-brand-600 text-white hover:bg-brand-700`;
+const BTN_DANGER = `${BTN} bg-error-600 text-white hover:bg-error-700`;
 
 interface ShellProps {
   title: string;
@@ -114,7 +114,7 @@ function useRunner(onRun: RunVersionAction, onClose: () => void) {
 
 function ErrorLine({ error }: { error: string | null }) {
   if (error === null) return null;
-  return <p role="alert" className="rounded-md bg-[var(--ff-bg-tertiary)] p-2 text-[var(--ff-error-500)]">{error}</p>;
+  return <p role="alert" className="rounded-md bg-[var(--ff-bg-tertiary)] p-2 text-error-700 dark:text-error-400">{error}</p>;
 }
 
 function ConfirmVersionDialog({ action, version, onRun, onClose }: {
@@ -157,7 +157,7 @@ function UnlockReasonDialog({ version, onRun, onClose }: { version: BudgetVersio
       <textarea id={fieldId} value={text} onChange={(e) => setText(e.target.value)} rows={3} disabled={busy}
         aria-describedby={`${fieldId}-count`} aria-invalid={text !== '' && reason === null}
         className="w-full rounded-md border border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] p-2 text-[var(--ff-text-primary)]" />
-      <p id={`${fieldId}-count`} className={length > UNLOCK_REASON_MAX ? 'text-[var(--ff-error-500)]' : ''}>
+      <p id={`${fieldId}-count`} className={length > UNLOCK_REASON_MAX ? 'text-error-700 dark:text-error-400' : ''}>
         {length} / {UNLOCK_REASON_MAX} characters
       </p>
       <ErrorLine error={error} />

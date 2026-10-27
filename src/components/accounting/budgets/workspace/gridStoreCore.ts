@@ -30,7 +30,7 @@ const EMPTY_ROW: GridRowSnapshot = Object.freeze({
   compareFy: null, focusCol: null, selected: null, editing: null,
 });
 const EMPTY_TOTAL: GridTotalSnapshot = Object.freeze({ months: [], fy: 0, pyFy: null, compareFy: null });
-const METRICS: readonly Metric[] = ['turnover', 'costOfSales', 'grossProfit', 'otherIncome', 'operatingExpenses', 'operatingProfit', 'otherExpenses', 'netProfit'];
+export const METRICS: readonly Metric[] = ['turnover', 'costOfSales', 'grossProfit', 'otherIncome', 'operatingExpenses', 'operatingProfit', 'otherExpenses', 'netProfit'];
 
 export class GridStoreCore {
   protected layout = EMPTY_LAYOUT;
@@ -57,6 +57,9 @@ export class GridStoreCore {
   protected readonly totalListeners = new Map<Metric, Set<() => void>>();
   protected readonly metaListeners = new Set<() => void>();
   protected readonly layoutListeners = new Set<() => void>();
+  protected readonly revisionListeners = new Set<() => void>();
+  /** Moves on every change of values (a write, undo / redo, reset, discard); never on focus. */
+  protected revision = 0;
 
   // ── Read side (stable references for useSyncExternalStore) ────────────────
   getLayout = (): GridLayout => this.layout;
@@ -66,9 +69,11 @@ export class GridStoreCore {
   getGridState = (): GridState => this.state;
   getView = (): View => this.view;
   getShape = (): GridShape => ({ rowKinds: this.layout.rowKinds, cols: this.layout.cols });
+  getRevision = (): number => this.revision;
 
   subscribeLayout = (cb: () => void): (() => void) => { this.layoutListeners.add(cb); return () => { this.layoutListeners.delete(cb); }; };
   subscribeMeta = (cb: () => void): (() => void) => { this.metaListeners.add(cb); return () => { this.metaListeners.delete(cb); }; };
+  subscribeRevision = (cb: () => void): (() => void) => { this.revisionListeners.add(cb); return () => { this.revisionListeners.delete(cb); }; };
   subscribeRow(rowKey: string, cb: () => void): () => void { return listen(this.rowListeners, rowKey, cb); }
   subscribeTotal(metric: Metric, cb: () => void): () => void { return listen(this.totalListeners, metric, cb); }
 
@@ -84,6 +89,12 @@ export class GridStoreCore {
       touched.add(acct);
     }
     this.refresh(touched);
+    this.bumpRevision();
+  }
+
+  protected bumpRevision(): void {
+    this.revision++;
+    for (const cb of [...this.revisionListeners]) cb();
   }
 
   protected computeOwn(id: string): OwnPart {

@@ -13,6 +13,7 @@ import type { ChartPalette } from '@/components/accounting/charts/chartTypes';
 import { STICKY_FIRST_CELL } from '@/components/accounting/statement/stickyTable';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
 import type { Metric } from '@/modules/accounting/services/budgets/grid/subtotals';
+import { rowVariance } from '@/modules/accounting/services/budgets/grid/variance';
 import type { GridStore } from './gridStore';
 import { useGridTotal } from './gridStoreHooks';
 import type { LayoutRow } from './types';
@@ -54,15 +55,16 @@ export const metricIsIncome = (m: Metric): boolean => INCOME_METRICS.has(m);
 
 /**
  * PY, Δ vs PY (R and %), the PY trend slot and Δ vs compare, in column order (spec §6.1). `incomeUp`: revenue up is favourable,
- * expense up is unfavourable. A PY of zero gives "—", never a percentage of zero.
+ * expense up is unfavourable. A PY of zero gives "—", never a percentage of zero. The figures come
+ * from PR-A `rowVariance`; this only prints them.
  */
 export function DeltaCells({ fy, pyFy, compareFy, cols, incomeUp, palette, trend }: {
   fy: number | null; pyFy: number | null; compareFy: number | null;
   cols: GridColumns; incomeUp: boolean; palette: ChartPalette; trend?: ReactNode;
 }) {
-  const colour = (d: number) => varianceColor(d === 0 ? undefined : (d > 0) === incomeUp, palette);
-  const dPy = fy !== null && pyFy !== null ? fy - pyFy : null;
-  const dCmp = fy !== null && compareFy !== null ? fy - compareFy : null;
+  const v = rowVariance(fy, pyFy, compareFy, incomeUp);
+  const pyColour = varianceColor(v.favPy, palette);
+  const cmpColour = varianceColor(v.favCmp, palette);
   const cell = `${FIG} px-2 py-1 text-xs`;
   return (
     <>
@@ -72,19 +74,19 @@ export function DeltaCells({ fy, pyFy, compareFy, cols, incomeUp, palette, trend
         </td>
       )}
       {cols.delta && (
-        <td role="gridcell" aria-readonly="true" className={cell} style={{ ...FIG_STYLE, color: dPy === null ? undefined : colour(dPy) }}>
-          {dPy === null ? '' : fig(dPy, cols.cents)}
+        <td role="gridcell" aria-readonly="true" className={cell} style={{ ...FIG_STYLE, color: pyColour }}>
+          {fig(v.dPy, cols.cents)}
         </td>
       )}
       {cols.deltaPct && (
-        <td role="gridcell" aria-readonly="true" className={cell} style={{ ...FIG_STYLE, color: dPy === null ? undefined : colour(dPy) }}>
-          {dPy === null || pyFy === null ? '' : pyFy === 0 ? '—' : formatPct((dPy / Math.abs(pyFy)) * 100)}
+        <td role="gridcell" aria-readonly="true" className={cell} style={{ ...FIG_STYLE, color: pyColour }}>
+          {v.pyZero ? '—' : v.pct === null ? '' : formatPct(v.pct)}
         </td>
       )}
       {cols.trend && <td role="gridcell" aria-readonly="true" className="px-2 text-[var(--ff-text-secondary)]">{trend}</td>}
       {cols.compare && (
-        <td role="gridcell" aria-readonly="true" className={cell} style={{ ...FIG_STYLE, color: dCmp === null ? undefined : colour(dCmp) }}>
-          {dCmp === null ? '' : fig(dCmp, cols.cents)}
+        <td role="gridcell" aria-readonly="true" className={cell} style={{ ...FIG_STYLE, color: cmpColour }}>
+          {fig(v.dCmp, cols.cents)}
         </td>
       )}
     </>
@@ -99,11 +101,11 @@ interface TotalRowProps {
   palette: ChartPalette;
 }
 
-/** A band total or a GP / OP / NP row: live per month and FY, never focusable. */
+/** A band total or a GP / OP / NP row: live per month and FY, never focusable. `aria-readonly` sits on each cell (a <tr> may not carry it). */
 export const BudgetSubtotalRow = memo(function BudgetSubtotalRow({ store, row, months, cols, palette }: TotalRowProps) {
   const t = useGridTotal(store, row.metric);
   return (
-    <tr data-kind={row.kind} aria-rowindex={row.index + 2} aria-readonly="true" className={`${KIND_CLASS[row.kind]} text-sm`}>
+    <tr data-kind={row.kind} aria-rowindex={row.index + 2} className={`${KIND_CLASS[row.kind]} text-sm`}>
       <th role="rowheader" scope="row" className={`text-left px-3 py-1.5 ${STICKY_FIRST_CELL}`}>{row.label}</th>
       {months.map((m, i) => {
         const v = t.months[i] ?? 0;
@@ -126,7 +128,7 @@ export const BudgetSubtotalRow = memo(function BudgetSubtotalRow({ store, row, m
 /** A band's section head: label only; navigation skips it. */
 export function BudgetSectionRow({ row, colCount }: { row: Extract<LayoutRow, { kind: 'section' }>; colCount: number }) {
   return (
-    <tr data-kind="section" aria-rowindex={row.index + 2} aria-readonly="true" className={KIND_CLASS.section}>
+    <tr data-kind="section" aria-rowindex={row.index + 2} className={KIND_CLASS.section}>
       <th role="rowheader" scope="row" className={`text-left px-3 pt-4 pb-1 ${STICKY_FIRST_CELL}`}>{row.label}</th>
       <td role="gridcell" aria-readonly="true" colSpan={colCount - 1} />
     </tr>

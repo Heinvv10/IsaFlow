@@ -13,10 +13,11 @@ import { type GridContext, type GridState, initialGridState } from '@/modules/ac
 import { type View, memberTotals, viewCellKey } from '@/modules/accounting/services/budgets/grid/pivot';
 import type { Pos } from '@/modules/accounting/services/budgets/grid/selection';
 import type { FillGrid } from '@/modules/accounting/services/budgets/grid/fill';
-import { BAND_SIGN } from '@/modules/accounting/services/budgets/grid/subtotals';
+import { BAND_SIGN, type Metric } from '@/modules/accounting/services/budgets/grid/subtotals';
+import { fromCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { centsToPlain } from '@/modules/accounting/services/budgets/grid/tsv';
 import { accountRowKey, buildLayout, rollupRowKey } from './gridLayout';
-import { GridStoreCore, type LineRow, ROLLUP_REASON } from './gridStoreCore';
+import { GridStoreCore, type LineRow, METRICS, ROLLUP_REASON } from './gridStoreCore';
 import { byAccount, cellsInCents, sameSelection, selectionPart, touchedRows } from './gridStoreParts';
 import type { InvalidCellNotice } from './types';
 
@@ -53,11 +54,17 @@ export class GridStore extends GridStoreCore {
     const keep = this.layout.rows[this.state.focus.r]?.kind === 'line' && this.state.focus.c < this.layout.cols;
     this.state = keep ? { ...this.state, anchor: this.state.focus, mode: 'nav', draft: '', editOrigin: null } : initialGridState(this.getShape());
     this.rebuildAll();
+    this.bumpRevision();
     for (const cb of [...this.layoutListeners]) cb();
   }
 
   /** Dirty values survive a view switch; the undo stack does not (spec §5.5). */
-  setView(view: View): void { this.view = view; this.undoStack.clear(); this.rebuildAll(); }
+  /**
+   * Dirty values AND the undo stack survive a view switch: a cell key does not depend on the view,
+   * so undo restores the right cells from any view (deliberate deviation from spec §5.5, which
+   * cleared the stack behind a confirm).
+   */
+  setView(view: View): void { this.view = view; this.rebuildAll(); }
   /** The role arrived or changed after the load: editability follows, values and undo stay. */
   setAccess(canWrite: boolean): void { if (canWrite !== this.canWrite) { this.canWrite = canWrite; this.rebuildAll(); } }
   setPrior(prior: PriorActuals | null): void { this.prior = prior; this.rebuildAll(); }
@@ -104,6 +111,18 @@ export class GridStore extends GridStoreCore {
     this.conflicts.clear();
     this.undoStack.clear();
     this.rebuildAll();
+    this.bumpRevision();
+  }
+
+  /** Any budgeted (non-null) cell at all, at any grain: the "no amounts yet" hint's test. */
+  hasAmounts(): boolean {
+    for (const m of this.values.values()) for (const v of m.values()) if (v !== null) return true;
+    return false;
+  }
+
+  /** The live FY totals per metric, in RAND (what the wizard's "Current" column shows). */
+  fyTotals(): Record<Metric, number> {
+    return Object.fromEntries(METRICS.map(m => [m, fromCents(this.getTotal(m).fy)])) as Record<Metric, number>;
   }
 
   /** The account's budgeted (non-null) cells now, at every grain: what a grain change clears. */

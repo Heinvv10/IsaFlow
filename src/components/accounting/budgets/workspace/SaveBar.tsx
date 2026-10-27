@@ -1,11 +1,14 @@
 /**
- * The save bar (spec §5.6, §6.4): "N unsaved changes · Save · Discard", sticky at the bottom of
- * the page. Saving shows a spinner and the grid stays editable (the save sends a snapshot); a
+ * The save bar (spec §5.6, §6.4): "N unsaved changes · Save · Discard", fixed to the bottom of
+ * the viewport over the content column (`<main>`, measured), so it stays in view however far the
+ * page is scrolled sideways by the grid: a `sticky` bar inside the page scrolled out of view at
+ * 390 px (proof F1). An in-flow spacer keeps the last rows clear of it. The page stays the only
+ * scroll container (stickyTable rule). Saving shows a spinner and the grid stays editable (the save sends a snapshot); a
  * failed save (not a 409, which is StaleVersionDialog's) is said inline and the dirty cells stay.
  * Hidden when the version is read-only (locked, or the role cannot write). Ctrl+S is the grid's
  * (useGridKeyboard `onSave`); Discard asks first.
  */
-import { useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import { WorkspaceDialog } from './VersionStatusDialogs';
 import type { SaveState } from './types';
@@ -27,22 +30,42 @@ function statusText(s: SaveState): string {
   return '';
 }
 
+/** Left edge and visible width of the content column the bar belongs to (the nearest `<main>`). */
+function useColumnBox(): [(el: HTMLElement | null) => void, CSSProperties] {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const [box, setBox] = useState<CSSProperties>({ left: 0, right: 0 });
+  useEffect(() => {
+    const column = el?.closest('main');
+    if (!column) return undefined;
+    const measure = () => setBox({ left: column.getBoundingClientRect().left, width: column.clientWidth });
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    ro?.observe(column);
+    return () => { window.removeEventListener('resize', measure); ro?.disconnect(); };
+  }, [el]);
+  return [useCallback((node: HTMLElement | null) => setEl(node), []), box];
+}
+
 export function SaveBar({ dirtyCount, saveState, readOnly, onSave, onDiscard }: SaveBarProps) {
   const [confirming, setConfirming] = useState(false);
+  const [barRef, box] = useColumnBox();
   if (readOnly) return null;
   const saving = saveState.status === 'saving';
   const status = statusText(saveState);
   if (dirtyCount === 0 && status === '' && !saving) return null;
   return (
-    <div data-testid="save-bar"
-      className="sticky bottom-0 z-20 flex flex-wrap items-center gap-3 border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-3 sm:px-6">
+    <>
+    <div aria-hidden="true" className="h-16" data-testid="save-bar-spacer" />
+    <div data-testid="save-bar" ref={barRef} style={box}
+      className="fixed bottom-0 z-20 flex flex-wrap items-center gap-3 border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-3 sm:px-6">
       {dirtyCount > 0 && (
         <span className="text-sm font-medium text-[var(--ff-text-primary)]" data-testid="save-bar-count">
           {plural(dirtyCount, 'unsaved change')}
         </span>
       )}
       <span role={saveState.status === 'error' ? 'alert' : 'status'} data-testid="save-bar-status"
-        className={`text-sm ${saveState.status === 'error' ? 'text-[var(--ff-error-500)]' : 'text-[var(--ff-text-secondary)]'}`}>
+        className={`text-sm ${saveState.status === 'error' ? 'text-error-700 dark:text-error-400' : 'text-[var(--ff-text-secondary)]'}`}>
         {status}
       </span>
       <div className="ml-auto flex items-center gap-2">
@@ -50,8 +73,8 @@ export function SaveBar({ dirtyCount, saveState, readOnly, onSave, onDiscard }: 
           className="rounded-lg border border-[var(--ff-border-light)] px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-50">
           Discard
         </button>
-        <button type="button" onClick={onSave} disabled={dirtyCount === 0 || saving} aria-keyshortcuts="Control+S"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--ff-brand)] px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
+        <button type="button" onClick={onSave} disabled={dirtyCount === 0 || saving} aria-keyshortcuts="Control+S" data-testid="save-bar-save"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
           {saving ? 'Saving…' : 'Save'}
         </button>
@@ -62,11 +85,12 @@ export function SaveBar({ dirtyCount, saveState, readOnly, onSave, onDiscard }: 
             <button type="button" onClick={() => setConfirming(false)}
               className="rounded-lg border border-[var(--ff-border-light)] px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Keep editing</button>
             <button type="button" onClick={() => { setConfirming(false); onDiscard(); }}
-              className="rounded-lg bg-[var(--ff-error-500)] px-4 py-2 text-sm font-medium text-white">Discard</button>
+              className="rounded-lg bg-error-600 px-4 py-2 text-sm font-medium text-white hover:bg-error-700">Discard</button>
           </>}>
           <p>Discard {plural(dirtyCount, 'unsaved change')}? The cells go back to their saved amounts.</p>
         </WorkspaceDialog>
       )}
     </div>
+    </>
   );
 }

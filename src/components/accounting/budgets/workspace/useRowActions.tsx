@@ -2,15 +2,18 @@
  * Runs the grid's row actions (spec §5.5, §6.5, §11): the ones without input write straight
  * through the store, the others open SpreadDialog / GrainChangeDialog. Every action is ONE
  * `store.apply` (one undo entry) plus an announcement. Focus returns to the row's first cell
- * when a dialog closes (spec §12).
+ * when a dialog closes (spec §12), through the store (`focusPos`), so the grid state, the roving
+ * tab stop and DOM focus agree (QA-10). `onRowAction` keeps one identity for the grid's life:
+ * view, members and layout are read through refs (ARCH-H1), so memo rows never re-render for it.
  */
-import { useCallback, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 import { viewCellKey, type View } from '@/modules/accounting/services/budgets/grid/pivot';
 import type { GridStore } from './gridStore';
 import { accountRowKey } from './gridLayout';
 import type { GridLayout } from './types';
+import type { Pos } from '@/modules/accounting/services/budgets/grid/selection';
 import type { LineRow } from './BudgetGridRow';
 import type { RowAction } from './RowActionsMenu';
 import { SpreadDialog, type NamedChild, type RowCells, type SpreadTarget } from './SpreadDialog';
@@ -26,39 +29,40 @@ interface UseRowActionsArgs {
   view: View;
   /** Members of the current view's dimension (for "Budget by CC1 …" naming). */
   members: readonly DimensionMember[];
-  gridRef: RefObject<HTMLElement>;
+  /** The keyboard hook's store-driven focus (state + tab stop + DOM). */
+  focusPos(pos: Pos): void;
 }
 
 const DIM_LABEL = { cc1: 'CC1', cc2: 'CC2', bu: 'BU' } as const;
 const rowLabel = (row: LineRow) => `${row.account.code} ${row.account.name}`;
 
-export function useRowActions({ store, layout, roundingUnit, view, members, gridRef }: UseRowActionsArgs): {
+export function useRowActions({ store, layout, roundingUnit, view, members, focusPos }: UseRowActionsArgs): {
   onRowAction(row: LineRow, action: RowAction): void;
   dialogs: ReactNode;
 } {
   const [spread, setSpread] = useState<{ target: SpreadTarget; r: number } | null>(null);
   const [grain, setGrain] = useState<{ target: GrainChangeTarget; r: number } | null>(null);
+  const live = useRef({ layout, view, members, focusPos });
+  useEffect(() => { live.current = { layout, view, members, focusPos }; });
 
   const cellsOf = useCallback((row: LineRow): RowCells => {
-    const keys = layout.months.map((_, c) => store.cellKeyAt({ r: row.index, c })).filter((k): k is CellKey => k !== null);
+    const keys = live.current.layout.months.map((_, c) => store.cellKeyAt({ r: row.index, c })).filter((k): k is CellKey => k !== null);
     return { keys, values: store.getRow(row.key).values };
-  }, [layout.months, store]);
+  }, [store]);
 
   const childrenOf = useCallback((row: LineRow): NamedChild[] => row.account.childIds.flatMap(id => {
-    const child = layout.rows.find(r => r.key === accountRowKey(id));
+    const child = live.current.layout.rows.find(r => r.key === accountRowKey(id));
     if (!child || child.kind !== 'line' || child.role !== 'account' || !store.isEditable({ r: child.index, c: 0 })) return [];
     const cells = cellsOf(child);
     return [{ accountId: id, label: rowLabel(child), keys: cells.keys, values: cells.values, py: store.getRow(child.key).py }];
-  }), [cellsOf, layout.rows, store]);
+  }), [cellsOf, store]);
 
   const write = useCallback((writes: CellWriteByKey[], text: string) => {
     const n = store.apply(writes);
     store.announce(n === 0 ? `${text}: nothing changed` : text);
   }, [store]);
 
-  const refocus = useCallback((r: number) => {
-    gridRef.current?.querySelector<HTMLElement>(`[data-pos="${r}:0"]`)?.focus();
-  }, [gridRef]);
+  const refocus = useCallback((r: number) => { live.current.focusPos({ r, c: 0 }); }, []);
 
   const onRowAction = useCallback((row: LineRow, action: RowAction) => {
     const label = rowLabel(row);
@@ -88,6 +92,7 @@ export function useRowActions({ store, layout, roundingUnit, view, members, grid
         return;
       }
       case 'grain': {
+        const { view, members, layout } = live.current;
         const id = row.account.id;
         const to = action.to;
         const member = view.kind === 'company' ? undefined : members.find(m => m.id === view.memberId);
@@ -102,7 +107,7 @@ export function useRowActions({ store, layout, roundingUnit, view, members, grid
         return;
       }
     }
-  }, [cellsOf, childrenOf, layout.months, members, store, view, write]);
+  }, [cellsOf, childrenOf, store, write]);
 
   const close = (r: number) => { setSpread(null); setGrain(null); refocus(r); };
 

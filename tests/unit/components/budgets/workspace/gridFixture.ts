@@ -42,7 +42,8 @@ export function gridModel(overrides: Partial<GridReadModel> = {}): GridReadModel
     account(ID.rev1, '1000', 'turnover', { grain: 'company' }),
     account(ID.rev2, '1010', 'turnover'),
     account(ID.cos1, '2000', 'cost_of_sales', { grain: 'company' }),
-    account(ID.hdr, '3000', 'operating_expense', { isHeader: true, childIds: [ID.kid1, ID.kid2], rollup: MONTHS.map(() => 0) }),
+    // `rollup` as the server builds it (gridReadAccounts sumBelow): Σ of the sub-accounts, rand, 0 where none.
+    account(ID.hdr, '3000', 'operating_expense', { isHeader: true, childIds: [ID.kid1, ID.kid2], rollup: MONTHS.map((_, i) => (i === 0 ? 50.5 : 0)) }),
     account(ID.kid1, '3010', 'operating_expense', { parentId: ID.hdr, depth: 1, grain: 'company' }),
     account(ID.kid2, '3020', 'operating_expense', { parentId: ID.hdr, depth: 1 }),
     account(ID.opex, '3100', 'operating_expense'),

@@ -108,6 +108,22 @@ describe('clipboard', () => {
     expect(store.getMeta().canUndo).toBe(false);
   });
 
+  it('a block running past the last row or month says how many cells were not pasted, aloud and in the notice', () => {
+    const last = r(accountRowKey(ID.oexp)); // the last line row
+    // 2 rows × 3 columns at the last row's Feb: row 2 is past the last row; columns 2-3 are FY and past it.
+    pasteText(store, { top: last, left: 11, bottom: last, right: 11 }, '1\t2\t3\n4\t5\t6\n');
+    expect(row(ID.oexp).values[11]).toBe(100);
+    expect(announced()).toBe('Pasted 1 cell; 1 skipped (read-only); 4 not pasted (past the end of the grid)');
+    expect(store.getMeta().notice).toEqual([expect.objectContaining({ reason: '4 pasted cells fell past the end of the grid and were not pasted.' })]);
+  });
+
+  it('a paste that fits says nothing about the grid edge', () => {
+    const top = r(accountRowKey(ID.rev2));
+    pasteText(store, { top, left: 0, bottom: top, right: 0 }, '1\t2\n');
+    expect(announced()).toBe('Pasted 2 cells');
+    expect(store.getMeta().notice).toBeNull();
+  });
+
   it('a 1×1 clipboard fills every editable cell of the selection', () => {
     const top = r(accountRowKey(ID.rev2));
     pasteText(store, { top, left: 0, bottom: top, right: 3 }, '7');

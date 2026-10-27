@@ -121,7 +121,8 @@ export type SaveState =
   | { status: 'idle' }
   | { status: 'saving' }
   | { status: 'saved'; saved: number; deleted: number }
-  | { status: 'error'; message: string; retryAfter: number | null };
+  /** A chained save refused part-way also says which part (`failedChunk`, 0-based) of how many. */
+  | { status: 'error'; message: string; retryAfter: number | null; failedChunk?: number; chunks?: number };
 
 /** A 409 on save (spec §7.3). Unsaved edits are kept in the store. */
 export interface StaleState {

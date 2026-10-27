@@ -19,7 +19,7 @@ import { useGridRow } from './gridStoreHooks';
 import { accountRowKey } from './gridLayout';
 import type { GridRowSnapshot, LayoutRow } from './types';
 import { BudgetCellEditor } from './BudgetCellEditor';
-import { DeltaCells, FIG, FIG_STYLE, KIND_CLASS, fig, type GridColumns } from './BudgetSubtotalRow';
+import { DeltaCells, FIG, FIG_STYLE, KIND_CLASS, fig, spoken, type GridColumns } from './BudgetSubtotalRow';
 import { RowActionsMenu, type RowAction } from './RowActionsMenu';
 
 export type LineRow = Extract<LayoutRow, { kind: 'line' }>;
@@ -91,10 +91,11 @@ function OwnBudgetChip({ store, row, handlers, canChange }: { store: GridStore; 
   );
 }
 
-function RowLabel({ row, snap, chip }: { row: LineRow; snap: GridRowSnapshot; chip: ReactNode }) {
+/** `grain` is the LIVE grain (from the store's held cells), not the load-time model's. */
+function RowLabel({ row, snap, chip, grain }: { row: LineRow; snap: GridRowSnapshot; chip: ReactNode; grain: AccountGrain | null }) {
   const a = row.account;
   const indent = INDENT[Math.min(a.depth + (row.role === 'own' ? 1 : 0), INDENT.length - 1)];
-  const badge = a.grain !== null ? GRAIN_BADGE[a.grain] : undefined;
+  const badge = grain !== null ? GRAIN_BADGE[grain] : undefined;
   return (
     <th role="rowheader" scope="row" title={snap.readReason ?? undefined}
       className={`text-left font-normal py-1 pr-2 ${indent} ${STICKY_FIRST_CELL} max-w-[11rem] md:max-w-[22rem]`}>
@@ -122,6 +123,8 @@ function RowLabel({ row, snap, chip }: { row: LineRow; snap: GridRowSnapshot; ch
 export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, cols, palette, handlers, canChange, view }: BudgetGridRowProps) {
   const snap = useGridRow(store, row.key);
   const r = row.index;
+  // Recomputed on every render of this row; the row re-renders whenever its values change.
+  const grain = handlers.grainOf(row.account.id);
   const label = row.role === 'own' ? `${row.account.name} (own budget)` : `${row.account.code} ${row.account.name}`;
   const incomeUp = row.band === 'turnover' || row.band === 'other_income';
   const values = [...snap.values, snap.fy];
@@ -134,7 +137,7 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
 
   return (
     <tr data-kind="line" data-row={row.key} aria-rowindex={r + 2} className={`${KIND_CLASS.line} text-sm`}>
-      <RowLabel row={row} snap={snap}
+      <RowLabel row={row} snap={snap} grain={grain}
         chip={row.role === 'rollup' && row.account.ownAmounts ? <OwnBudgetChip store={store} row={row} handlers={handlers} canChange={canChange} /> : null} />
       {values.map((v, c) => {
         const isFy = c === months.length;
@@ -151,7 +154,7 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
             tabIndex={snap.focusCol === c ? 0 : -1}
             aria-selected={selected}
             aria-readonly={!snap.editable}
-            aria-label={`${label}, ${month}`}
+            aria-label={`${label}, ${month}, ${spoken(v ?? null)}${!isFy && snap.dirty[c] ? ', unsaved' : ''}${!isFy && snap.conflict[c] ? ', conflict' : ''}`}
             title={snap.readReason ?? undefined}
             className={cellClass(snap, c, months.length)}
             style={FIG_STYLE}
@@ -170,7 +173,7 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
         trend={snap.py ? <Sparkline points={snap.py.map(c => c / 100)} /> : null} />
       <td role="gridcell" aria-readonly="true" className="px-1 text-right">
         <RowActionsMenu row={row} snap={snap} canChange={canChange} view={view}
-          grain={handlers.grainOf(row.account.id)} onAction={a => handlers.onRowAction(row, a)} />
+          grain={grain} onAction={a => handlers.onRowAction(row, a)} />
       </td>
     </tr>
   );

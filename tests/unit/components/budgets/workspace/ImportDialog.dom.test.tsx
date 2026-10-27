@@ -91,3 +91,13 @@ it('shows a refused preview with when to retry', async () => {
   pick(file('budget.xlsx'));
   expect((await screen.findByRole('alert')).textContent).toMatch(/Too many imports\. Try again in 30 s/);
 });
+
+it('says the file could not be read when reading it rejects, and lets the user pick again', async () => {
+  vi.mocked(client.previewImport).mockRejectedValueOnce(new DOMException('The requested file could not be read', 'NotReadableError'));
+  render(<ImportDialog {...props()} />);
+  pick(file('budget.xlsx'));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/could not be read.*choose it again/i);
+  expect((screen.getByLabelText(/Excel file/) as HTMLInputElement).disabled).toBe(false);
+  pick(file('again.xlsx'));
+  await screen.findByTestId('import-counts');
+});

@@ -123,7 +123,7 @@ export function CreateWizard(p: CreateWizardProps) {
         {step === 1 && <WizardSourceStep draft={draft} years={p.years} onChange={patch} />}
         {step === 2 && <WizardOptionsStep draft={draft} current={current} preview={preview} onChange={patch} />}
         {blocked && step < 2 && <p className="mt-3 text-xs text-[var(--ff-text-tertiary)]">{blocked}</p>}
-        {error && <p role="alert" className="mt-3 text-sm text-[var(--ff-error-500)]">{error}</p>}
+        {error && <p role="alert" className="mt-3 text-sm text-[var(--ff-unfav)]">{error}</p>}
       </Modal.Body>
       <Modal.Footer>
         <Button variant="secondary" onClick={p.onClose}>Cancel</Button>

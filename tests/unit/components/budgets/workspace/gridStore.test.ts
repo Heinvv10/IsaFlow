@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GridStore, accountRowKey, rollupRowKey } from '@/components/accounting/budgets/workspace/gridStore';
 import { cellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
+import { toCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { foldBands, type Metric } from '@/modules/accounting/services/budgets/grid/subtotals';
 import { initialGridState } from '@/modules/accounting/services/budgets/grid/keyboard';
 import { ID, MONTHS, gridModel } from './gridFixture';
@@ -75,6 +76,19 @@ describe('values and subtotals', () => {
     expect(hdr.values[0]).toBe(6000);
     expect(hdr.editable).toBe(false);
     expect(hdr.readReason).toBe('Sub-account roll-up');
+  });
+});
+
+describe('header roll-up parity with the read model (R5)', () => {
+  it('on load, every header roll-up row equals the server\'s GridAccount.rollup (rand → cents; null months are 0)', () => {
+    const headers = gridModel().accounts.filter(a => a.isHeader);
+    expect(headers.length).toBeGreaterThan(0);
+    for (const h of headers) {
+      const server = (h.rollup ?? []).map(toCents);
+      const client = store.getRow(rollupRowKey(h.id)).values.map(v => v ?? 0);
+      expect(client).toEqual(server);
+      expect(server.some(v => v !== 0)).toBe(true); // a fixture of zeros would prove nothing
+    }
   });
 });
 
@@ -198,8 +212,12 @@ describe('access and the dimension pivot', () => {
     store.setView(COMPANY);
     expect(store.getRow(accountRowKey(ID.rev2))).toMatchObject({ editable: false });
     expect(store.getRow(accountRowKey(ID.rev2)).values[1]).toBe(900);
-    // Dirty edits survive a view switch; the undo stack does not (spec §5.5).
-    expect(store.getMeta()).toMatchObject({ dirtyCount: 1, canUndo: false });
+    // Dirty edits AND the undo stack survive a view switch: cell keys do not depend on the view
+    // (deliberate deviation from §5.5, which cleared the stack behind a confirm).
+    expect(store.getMeta()).toMatchObject({ dirtyCount: 1, canUndo: true });
+    store.undo();
+    expect(store.getRow(accountRowKey(ID.rev2)).values[1]).toBeNull();
+    expect(store.getMeta().dirtyCount).toBe(0);
   });
 
   it('prior actuals follow the view: company grain, then the member of a dimension', () => {
@@ -226,5 +244,35 @@ describe('access and the dimension pivot', () => {
     expect(store.getRow(accountRowKey(ID.rev1)).values[0]).toBe(5);
     expect(store.getRow(accountRowKey(ID.rev1)).conflict[0]).toBe(true);
     expect(store.getMeta()).toMatchObject({ dirtyCount: 2, conflicts: [key(ID.rev1, 0)] });
+  });
+});
+
+describe('revision, amounts and live totals', () => {
+  it('the revision moves on every value change (write, undo, reset), not on focus moves', () => {
+    const spy = vi.fn();
+    store.subscribeRevision(spy);
+    const r0 = store.getRevision();
+    store.apply([{ key: key(ID.rev2, 0), cents: 1 }]);
+    expect(store.getRevision()).toBeGreaterThan(r0);
+    const r1 = store.getRevision();
+    store.apply([{ key: key(ID.rev2, 0), cents: 2 }]); // already dirty: dirtyCount stays 1, revision still moves
+    expect(store.getRevision()).toBeGreaterThan(r1);
+    const r2 = store.getRevision();
+    store.setGridState({ ...store.getGridState(), focus: { r: 2, c: 1 }, anchor: { r: 2, c: 1 } });
+    expect(store.getRevision()).toBe(r2);
+    store.undo();
+    expect(store.getRevision()).toBeGreaterThan(r2);
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+
+  it('hasAmounts follows the live values; fyTotals are the live FY totals in rand', () => {
+    expect(store.hasAmounts()).toBe(true);
+    expect(store.fyTotals().turnover).toBe(1000);
+    store.apply([{ key: key(ID.rev1, 0), cents: 12345 }]);
+    expect(store.fyTotals().turnover).toBe(123.45);
+    store.reset(gridModel({ cells: [] }), { view: COMPANY, canWrite: true });
+    expect(store.hasAmounts()).toBe(false);
+    store.apply([{ key: key(ID.rev2, 0), cents: 0 }]);
+    expect(store.hasAmounts()).toBe(true);
   });
 });
