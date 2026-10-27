@@ -244,6 +244,16 @@
   .dark input:is([type="date"], [type="time"], [type="datetime-local"]):not(:where([data-surface="light"] *))::-webkit-calendar-picker-indicator {
     filter: invert(1);
   }
+
+  /*
+   * Buttons and links without .ff-focus-ring got the browser's 1 px `outline: auto`. Give them the kit ring. The selector is
+   * :where(...) so it scores (0,1,0) and every utility (focus:outline-none, focus:ring-*) and .ff-focus-ring(-inset) still win. Keyboard focus only
+   * (:focus-visible), so a mouse click stays ring-free.
+   */
+  :where(a[href], button, [role="button"], [role="tab"], [role="menuitem"], summary):focus-visible {
+    outline: var(--ff-focus-ring-width) solid var(--ff-focus-ring);
+    outline-offset: 2px;
+  }
 }
 
 @layer components {
@@ -356,4 +366,18 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+}
+
+/*
+ * ShellSkeleton draws the layout public/shell-init.js recorded on <html> before first paint: the sidebar in sidebar
+ * mode, the top nav rows otherwise (never on the admin host). Driven by CSS, not React state, so the server-rendered
+ * skeleton is already right and nothing moves when the saved nav mode is read.
+ */
+html:not([data-nav-mode="side"]) [data-shell-side],
+html[data-nav-mode="side"] [data-shell-top-nav],
+html[data-admin-host] [data-shell-top-nav] {
+  display: none;
+}
+html[data-sidebar-collapsed="true"] [data-shell-side] {
+  width: 4rem;
 }

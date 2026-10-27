@@ -80,7 +80,7 @@ export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceC
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
-          <ChevronDown className="absolute right-2 top-2.5 w-4 h-4 text-gray-600 dark:text-gray-400 dark:text-slate-500 pointer-events-none" />
+          <ChevronDown className="absolute right-2 top-2.5 w-4 h-4 text-gray-600 dark:text-gray-400 pointer-events-none" />
         </div>
       </div>
 
@@ -109,11 +109,11 @@ export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceC
 
               <div className="flex-1 overflow-y-auto">
                 {loading ? (
-                  <div className="px-4 py-6 text-sm text-gray-600 dark:text-gray-400 dark:text-slate-500 text-center">Loading fields...</div>
+                  <div className="px-4 py-6 text-sm text-gray-600 dark:text-gray-400 text-center">Loading fields...</div>
                 ) : loadError ? (
                   <div className="px-4 py-6 text-sm text-red-500 text-center">{loadError}</div>
                 ) : filtered.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-gray-600 dark:text-gray-400 dark:text-slate-500 text-center">No fields found</div>
+                  <div className="px-4 py-6 text-sm text-gray-600 dark:text-gray-400 text-center">No fields found</div>
                 ) : (
                   filtered.map(f => {
                     const isAdded = selectedFields.includes(f.field);
@@ -126,7 +126,7 @@ export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceC
                       >
                         <div className="flex flex-col min-w-0">
                           <span className="text-sm font-medium text-gray-800 dark:text-slate-200 truncate">{f.label}</span>
-                          <span className="text-xs text-gray-600 dark:text-gray-400 dark:text-slate-500 font-mono truncate">{f.field}</span>
+                          <span className="text-xs text-gray-600 dark:text-gray-400 font-mono truncate">{f.field}</span>
                         </div>
                         <div className="flex items-center gap-1 shrink-0 ml-2">
                           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${TYPE_BADGE[f.type] ?? 'bg-gray-100 text-gray-500'}`}>

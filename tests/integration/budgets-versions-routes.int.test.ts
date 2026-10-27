@@ -63,6 +63,7 @@ afterAll(async () => {
       await pool.query('DELETE FROM budget_versions WHERE company_id = $1', [c]);
     }
     await budgets.cleanup();
+    await pool.query('DELETE FROM audit_log WHERE user_id = ANY($1::text[])', [members]);
     await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [members]);
     await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [members]);
   } finally {
@@ -174,5 +175,37 @@ describe('budget-versions routes', () => {
     const page = await budgets.call(x.u, 'GET', undefined, { fiscal_year: String(x.label) });
     expect((page.body.data as unknown as { items: unknown[] }).items)
       .toEqual([expect.objectContaining({ annualAmount: 0, notes: 'Rent review in June' })]);
+  });
+
+  it('moving the primary away from a LOCKED primary is owner-only; an admin may still switch an unlocked one', async () => {
+    const x = await budgets.owner();
+    const xAdmin = await member(x.u.homeCompanyId, 'admin');
+    await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 });
+    const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
+    const alt = data(await create(x.u, 'Reforecast', 'reforecast', x.label));
+    expect((await move(x.u, prim, { action: 'approve' })).status).toBe(200);
+    expect((await move(x.u, prim, { action: 'lock' })).status).toBe(200);
+    const byAdmin = await primary.call(xAdmin, 'POST', undefined, { id: alt.id });
+    expect([byAdmin.status, errCode(byAdmin)]).toEqual([403, 'BUDGET_VERSION_FORBIDDEN']);
+    expect((await pool.query('SELECT is_primary FROM budget_versions WHERE id = $1', [prim])).rows[0].is_primary).toBe(true);
+    const byOwner = await primary.call(x.u, 'POST', undefined, { id: alt.id });
+    expect([byOwner.status, data(byOwner).isPrimary]).toEqual([200, true]);
+    const audit = (await pool.query(
+      `SELECT changes->'metadata' AS m FROM audit_log WHERE entity_id = $1 AND changes->'metadata'->>'primary' = 'true'`, [alt.id])).rows;
+    expect(audit.map((r) => [r.m.previousPrimary, r.m.previousPrimaryStatus])).toEqual([[prim, 'locked']]);
+    // The new primary is approved but NOT locked: an admin may switch away from it (back to the locked one).
+    expect((await move(x.u, alt.id, { action: 'approve' })).status).toBe(200);
+    const back = await primary.call(xAdmin, 'POST', undefined, { id: prim });
+    expect(back.status).toBe(200);
+  });
+
+  it('an admin may set the primary of a year that has none', async () => {
+    const x = await budgets.owner();
+    const xAdmin = await member(x.u.homeCompanyId, 'admin');
+    const v = data(await create(x.u, 'First', 'scenario', x.label));
+    const before = (await pool.query('SELECT COUNT(*)::int n FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].n;
+    expect(before).toBe(0);
+    const r = await primary.call(xAdmin, 'POST', undefined, { id: v.id });
+    expect([r.status, data(r).isPrimary]).toEqual([200, true]);
   });
 });

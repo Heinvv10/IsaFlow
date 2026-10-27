@@ -48,7 +48,7 @@ export function ReportBuilderPreview({
 
   if (columns.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-600 dark:text-gray-400 dark:text-slate-500">
+      <div className="flex-1 flex items-center justify-center text-gray-600 dark:text-gray-400">
         <div className="text-center">
           <p className="text-lg font-medium mb-1">No columns selected</p>
           <p className="text-sm">Select a data source and click fields to add them to your report</p>
@@ -59,7 +59,7 @@ export function ReportBuilderPreview({
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-600 dark:text-gray-400 dark:text-slate-500">
+      <div className="flex-1 flex items-center justify-center text-gray-600 dark:text-gray-400">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-sm">Running report...</p>
@@ -107,11 +107,11 @@ export function ReportBuilderPreview({
                         {col.label}
                         {dir === 'asc' && <ChevronUp className="w-3 h-3 text-teal-600 dark:text-teal-400" />}
                         {dir === 'desc' && <ChevronDown className="w-3 h-3 text-teal-600 dark:text-teal-400" />}
-                        {!dir && <ChevronsUpDown className="w-3 h-3 text-gray-700 dark:text-gray-300 dark:text-slate-600 group-hover:text-gray-400 dark:group-hover:text-slate-500" />}
+                        {!dir && <ChevronsUpDown className="w-3 h-3 text-gray-700 dark:text-gray-300 group-hover:text-gray-400 dark:group-hover:text-slate-500" />}
                       </button>
                       <button
                         onClick={() => onRemoveColumn(col.field)}
-                        className="ml-1 opacity-0 group-hover:opacity-100 text-gray-600 dark:text-gray-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-all"
+                        className="ml-1 opacity-0 group-hover:opacity-100 text-gray-600 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
                         title="Remove column"
                       >
                         <X className="w-3 h-3" />
@@ -126,7 +126,7 @@ export function ReportBuilderPreview({
           <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400 dark:text-slate-500 text-sm">
+                <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400 text-sm">
                   No results. Adjust filters and click Run.
                 </td>
               </tr>
