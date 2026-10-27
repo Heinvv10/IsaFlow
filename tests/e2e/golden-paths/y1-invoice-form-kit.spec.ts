@@ -11,7 +11,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
-import { Api, today } from './_api';
+import { Api } from './_api';
+import { todayInSast } from '../../../src/lib/saDateParser';
 import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, THEMES } from '../helpers/themeSpec';
 
@@ -67,10 +68,15 @@ test('keyboard only: client, "t" and "+30", save a draft, the API holds ISO date
   await page.waitForURL(/\/accounting\/customer-invoices\/(?!new)[0-9a-f-]{36}/, { timeout: 30_000 });
 
   const id = /customer-invoices\/([0-9a-f-]{36})/.exec(page.url())![1]!;
-  const inv = await api.get<{ status: string; invoice_date: string; due_date: string }>(`/api/accounting/customer-invoices-detail?id=${id}`);
-  expect(inv.status).toBe('draft');
-  expect(String(inv.invoice_date).slice(0, 10)).toBe(today());
-  expect(String(inv.due_date).slice(0, 10)).toBe(plusDays(today(), 30));
+  try {
+    const inv = await api.get<{ status: string; invoice_date: string; due_date: string }>(`/api/accounting/customer-invoices-detail?id=${id}`);
+    expect(inv.status).toBe('draft');
+    expect(String(inv.invoice_date).slice(0, 10)).toBe(todayInSast());
+    expect(String(inv.due_date).slice(0, 10)).toBe(plusDays(todayInSast(), 30));
+  } finally {
+    // One draft per run on Demo: cancel it (a draft has no journal to reverse) so dev data does not grow unbounded.
+    await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
+  }
 });
 
 for (const theme of THEMES) {

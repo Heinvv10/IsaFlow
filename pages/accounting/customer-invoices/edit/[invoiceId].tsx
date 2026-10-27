@@ -160,11 +160,12 @@ export default function EditCustomerInvoicePage() {
     finally { setSubmitting(false); }
   };
 
-  if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div></AppLayout>;
+  if (loading) return <AppLayout><Head><title>Edit invoice · Sales · IsaFlow</title></Head><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div></AppLayout>;
 
   if (error && !invoiceNumber) {
     return (
       <AppLayout>
+        <Head><title>Edit invoice · Sales · IsaFlow</title></Head>
         <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6">
           <AlertCircle className="h-10 w-10 text-red-400" />
           <p className="text-center text-sm text-slate-600 dark:text-slate-300 max-w-md">{error}</p>
@@ -199,7 +200,7 @@ export default function EditCustomerInvoicePage() {
         </div>
 
         <div className="p-4 sm:p-6 xl:p-8">
-          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_288px] gap-6 items-start">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
             <div className="min-w-0 space-y-5">
               {error && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</div>}
 

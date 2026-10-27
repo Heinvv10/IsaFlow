@@ -12,12 +12,17 @@ import { pickOption } from '../helpers/kitPick';
 import { typeDate } from '../helpers/dateFields';
 
 const push = vi.fn();
+const scan = vi.hoisted(() => ({ current: { date: '2026-08-01', dueDate: '2026-08-31' } as { date: string | null; dueDate: string | null } }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: { invoiceId: 'inv-1' }, push, replace: vi.fn(), pathname: '/', isReady: true }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/components/accounting/ScanAndFillButton', () => ({ ScanAndFillButton: () => null }));
+vi.mock('@/components/accounting/ScanAndFillButton', () => ({
+  ScanAndFillButton: ({ onExtracted }: { onExtracted: (d: unknown) => void }) => (
+    <button onClick={() => onExtracted({ ...scan.current, vatRate: null, customerName: null, lineItems: [], confidence: 0.9 })}>scan stub</button>
+  ),
+}));
 vi.mock('@/components/accounting/customer-invoices/InvoiceHeaderFields', async (orig) => {
   const m = await orig<typeof import('@/components/accounting/customer-invoices/InvoiceHeaderFields')>();
   return { ...m, InvoiceHeaderFields: vi.fn(m.InvoiceHeaderFields) };
@@ -137,6 +142,51 @@ describe('dates', () => {
     expect(calls('POST')).toBe(0);
   });
 
+  it('a Due-date refusal made against the old invoice date is dropped when the invoice date moves', async () => {
+    serve();
+    await fillNew();
+    typeDate(field('Due date'), '15 Sep 2026'); // refused: before the 1 Oct invoice date
+    typeDate(field('Invoice date'), '1 Sep 2026');
+    expect(screen.queryAllByRole('alert').map((a) => a.textContent).join('|')).not.toContain('on or after');
+    submitNew();
+    await waitFor(() => expect(calls('POST')).toBe(1));
+    expect((sentBody('POST') as { dueDate: string }).dueDate).toBe('2026-10-31'); // the last accepted due date
+  });
+
+  it('a scan fills the dates and discards refused text', async () => {
+    serve();
+    await fillNew();
+    typeDate(field('Due date'), 'zz');
+    fireEvent.click(screen.getByRole('button', { name: 'scan stub' }));
+    await waitFor(() => expect((field('Due date') as HTMLInputElement).value).toBe('31 Aug 2026'));
+    expect((field('Invoice date') as HTMLInputElement).value).toBe('01 Aug 2026');
+    submitNew();
+    await waitFor(() => expect(calls('POST')).toBe(1));
+    expect(sentBody('POST')).toMatchObject({ invoiceDate: '2026-08-01', dueDate: '2026-08-31' });
+  });
+
+  it('a scan with no due date drops refused Due-date text instead of leaving it red', async () => {
+    serve();
+    scan.current = { date: '2026-08-01', dueDate: null };
+    render(<NewPage />);
+    typeDate(field('Due date'), 'zz');
+    fireEvent.click(screen.getByRole('button', { name: 'scan stub' }));
+    await waitFor(() => expect((field('Invoice date') as HTMLInputElement).value).toBe('01 Aug 2026'));
+    expect((field('Due date') as HTMLInputElement).value).toBe('');
+    expect(screen.queryAllByRole('alert')).toHaveLength(0);
+    scan.current = { date: '2026-08-01', dueDate: '2026-08-31' };
+  });
+
+  it('Save & New clears the form, its due date and any refusal', async () => {
+    serve();
+    await fillNew();
+    fireEvent.click(screen.getByRole('button', { name: /save & new/i }));
+    await waitFor(() => expect(calls('POST')).toBe(1));
+    await waitFor(() => expect((field('Due date') as HTMLInputElement).value).toBe(''));
+    expect((field('Invoice date') as HTMLInputElement).value).not.toBe('');
+    expect(screen.queryAllByRole('alert')).toHaveLength(0);
+  });
+
   it('a cleared invoice date blocks submit', async () => {
     serve();
     await fillNew();
@@ -185,7 +235,7 @@ describe('kit pickers', () => {
     expect(vi.mocked(InvoiceHeaderFields)).toHaveBeenCalled();
   });
 
-  it('has no native date input or select in the header, and every control is named', async () => {
+  it('the header controls are kit fields with no native date input (the Job picker and line selects stay native), and every control is named', async () => {
     serve();
     render(<NewPage />);
     expect(document.querySelectorAll('input[type="date"]').length).toBe(0);
