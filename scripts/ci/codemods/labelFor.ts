@@ -27,11 +27,22 @@ const files = execFileSync('git', ['ls-files', '--', ...globs.map((g) => `:(glob
   .split('\n')
   .filter((f) => f.endsWith('.tsx'));
 
+/** `<Name` tag uses of a component in tracked app .tsx files other than `self`; tests do not count (git grep exits 1 on no match). */
+function usesElsewhere(name: string, self: string): number {
+  let out = '';
+  try {
+    out = execFileSync('git', ['grep', '-c', '-E', `<${name}([[:space:]/>]|$)`, '--', '*.tsx', ':(exclude)tests/**', `:(exclude)${self}`], { encoding: 'utf8' });
+  } catch (e) {
+    if ((e as { status?: number }).status !== 1) throw e;
+  }
+  return out.split('\n').filter(Boolean).reduce((n, line) => n + Number(line.slice(line.lastIndexOf(':') + 1)), 0);
+}
+
 let applied = 0;
 let skipped = 0;
 for (const file of files) {
   const source = readFileSync(file, 'utf8');
-  const { output, pairs } = transformLabelFor(source, file);
+  const { output, pairs } = transformLabelFor(source, file, { usesElsewhere: (name) => usesElsewhere(name, file) });
   for (const p of pairs) {
     const who = p.component ? ` [${p.component}]` : '';
     if (p.skip) {

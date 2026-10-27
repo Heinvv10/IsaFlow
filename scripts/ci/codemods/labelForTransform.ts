@@ -12,11 +12,11 @@
  *   - the pair sits inside a .map/.flatMap/.forEach/.reduce/Array.from callback (`loop`);
  *   - the pair sits in a function nested inside another function, e.g. a renderRow helper (`nested-function`);
  *   - its top-level component is used as a JSX tag more than once in the same file, or once inside a loop
- *     callback (`rendered-twice`);
+ *     callback, or, counting the `usesElsewhere` callback's answer, from 2+ places in all (`rendered-twice`);
  *   - the id is already used in the file, or two pairs would get the same one (`id-collision`);
  *   - neither a literal name attribute nor static label text to build the id from (`no-text`).
- * A component reused from OTHER files is not detectable here: the report names the component so a reviewer can
- * check. Skipped pairs are fixed by hand with useId.
+ * Uses in OTHER files come from `usesElsewhere` (the CLI counts them with git grep, by tag name, so a same-named
+ * component elsewhere over-counts and the pair is skipped, the safe side). Skipped pairs are fixed by hand with useId.
  */
 import ts from 'typescript';
 
@@ -24,6 +24,7 @@ export interface Insertion { offset: number; text: string }
 export type SkipReason = 'loop' | 'nested-function' | 'rendered-twice' | 'id-collision' | 'no-text';
 export interface PairReport { line: number; id: string; component: string | null; skip?: SkipReason }
 export interface TransformResult { output: string; insertions: Insertion[]; pairs: PairReport[] }
+export interface TransformOptions { /** JSX uses of a component name in files other than this one. */ usesElsewhere?: (component: string) => number }
 
 const CONTROLS = new Set(['input', 'select', 'textarea']);
 const LOOP_METHODS = new Set(['map', 'flatMap', 'forEach', 'reduce']);
@@ -139,7 +140,7 @@ function existingIds(sf: ts.SourceFile): Set<string> {
 
 interface Candidate { label: ts.JsxElement; control: Tagged; report: PairReport }
 
-export function transformLabelFor(source: string, filePath: string): TransformResult {
+export function transformLabelFor(source: string, filePath: string, opts: TransformOptions = {}): TransformResult {
   const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const uses = jsxTagUses(sf);
   const taken = existingIds(sf);
@@ -157,7 +158,7 @@ export function transformLabelFor(source: string, filePath: string): TransformRe
     const report: PairReport = { line, id, component };
     if (fns.some(isLoopCallback)) report.skip = 'loop';
     else if (fns.length > 1) report.skip = 'nested-function';
-    else if (component && (uses.get(component) ?? 0) > 1) report.skip = 'rendered-twice';
+    else if (component && (uses.get(component) ?? 0) + (opts.usesElsewhere?.(component) ?? 0) > 1) report.skip = 'rendered-twice';
     else if (!id) report.skip = 'no-text';
     candidates.push({ label, control, report });
   };

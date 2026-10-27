@@ -83,6 +83,25 @@ describe('labelFor codemod: skips', () => {
   });
 });
 
+describe('labelFor codemod: uses in other files', () => {
+  const source = readFileSync(path.join(dir, 'SiblingForm.tsx'), 'utf8');
+  const at = 'src/components/x/SiblingForm.tsx';
+
+  it('a component rendered from 2+ places across the repo is skipped as rendered-twice, with nothing inserted', () => {
+    const seen: string[] = [];
+    const result = transformLabelFor(source, at, { usesElsewhere: (name) => { seen.push(name); return 2; } });
+    expect(seen).toContain('SiblingForm');
+    expect(result.insertions).toEqual([]);
+    expect(result.output).toBe(source);
+    expect(result.pairs.every((p) => p.skip === 'rendered-twice')).toBe(true);
+  });
+
+  it('rendered from one place elsewhere (the usual page -> tab) is named', () => {
+    const result = transformLabelFor(source, at, { usesElsewhere: () => 1 });
+    expect(result.insertions).toHaveLength(6);
+  });
+});
+
 describe('labelFor codemod: ids', () => {
   it('slugs the file and the text', () => {
     expect(fileSlug('src/components/accounting/settings/DetailsTab.tsx')).toBe('details-tab');
