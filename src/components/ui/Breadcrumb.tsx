@@ -45,12 +45,12 @@ function Separator({ type }: { type: BreadcrumbSeparator }) {
     return (
       <ChevronRight
         aria-hidden="true"
-        className="w-4 h-4 text-gray-600 dark:text-gray-400 dark:text-gray-500 shrink-0"
+        className="w-4 h-4 text-gray-600 dark:text-gray-400 shrink-0"
       />
     );
   }
   return (
-    <span aria-hidden="true" className="text-gray-600 dark:text-gray-400 dark:text-gray-500 select-none">
+    <span aria-hidden="true" className="text-gray-600 dark:text-gray-400 select-none">
       /
     </span>
   );
