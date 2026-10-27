@@ -130,6 +130,9 @@ describe('/invite/<token>', () => {
 
     await waitFor(() => expect(posts.map((p) => p.url)).toContain('/api/invite/settings-invite-token'));
     expect(posts[0]!.headers.get('X-CSRF-Token')).toBe('c'.repeat(32));
+    // The page redirects 1.5 s after accepting; let it fire here, not inside a later test.
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/accounting'), { timeout: 3000 });
+    push.mockClear();
   });
 
   it('signed in as someone else: no Join button, an explanation and a sign-out instead', async () => {
@@ -185,3 +188,22 @@ describe('/accept-invite for an account with two-factor sign-in', () => {
   });
 });
 
+describe('/accept-invite on success', () => {
+  beforeEach(() => { push.mockClear(); });
+
+  // Browser proof 2026-10-27: it pushed /accounting/dashboard, which is a 404.
+  it('lands the new member on the inviting company\'s dashboard', async () => {
+    query = { token: 'tok-ok' };
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => (init?.method === 'POST'
+      ? new Response(JSON.stringify({ success: true, data: { userId: 'u-1', companyId: 'co-1' } }), { status: 200 })
+      : new Response(JSON.stringify({ success: true, data: { email: 'i***@test.local', role: 'viewer', company_name: 'Probe Co' } }), { status: 200 }))));
+
+    const { findByText, container } = render(<AcceptInvitePage />);
+    await findByText(/Join Probe Co/);
+    fireEvent.change(container.querySelector('input[type="password"]')!, { target: { value: 'a-new-password-1' } });
+    fireEvent.submit(container.querySelector('form')!);
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/accounting'));
+    expect(push).not.toHaveBeenCalledWith('/accounting/dashboard');
+  });
+});

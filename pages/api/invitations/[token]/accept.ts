@@ -6,7 +6,7 @@ import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/go
 import { AuthUpstreamUnavailableError, respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { sql } from '@/lib/neon';
 import { chargeRateLimit, refundRateLimit, withRateLimit } from '@/lib/rateLimit';
-import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
+import { setAuthCookies, setActiveCompanyCookie, setOnboardingDoneCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { isLiveCompanyForUser, pickInitialCompanyId } from '@/lib/auth/liveCompanies';
@@ -225,11 +225,12 @@ const handler: NextApiHandler = async (req, res) => {
         // No `email = EXCLUDED.email` on the conflict branch: that reverted the
         // profile email of an account that had changed it, every time its owner
         // accepted an invitation. The row's own email stays its own.
-        `INSERT INTO users (id, email, first_name, last_name, is_active)
-         VALUES ($1, $2, $3, $4, true)
+        // onboarding_completed + cookie, as /api/invite/[token]: no new-company wizard for a member.
+        `INSERT INTO users (id, email, first_name, last_name, is_active, onboarding_completed)
+         VALUES ($1, $2, $3, $4, true, true)
          ON CONFLICT (id) DO UPDATE SET
            first_name = COALESCE(EXCLUDED.first_name, users.first_name),
-           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name)`,
+           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name), onboarding_completed = true`,
         [tok.user.id, inv.email, firstName, lastName]
       );
     } catch (err) {
@@ -277,6 +278,7 @@ const handler: NextApiHandler = async (req, res) => {
     refreshToken: tok.refresh_token,
     expiresIn: tok.expires_in,
   });
+  setOnboardingDoneCookie(res);
   // The invited company is normally the right landing spot, but an invitation
   // can outlive its company (admin soft delete writes companies.status =
   // 'deleted'). Pointing the cookie at one would 403 every later request, so

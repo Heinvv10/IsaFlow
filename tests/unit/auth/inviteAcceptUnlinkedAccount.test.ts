@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   listFactors: vi.fn(),
   adminListUserFactors: vi.fn(),
   setAuthCookies: vi.fn(),
+  setOnboardingDoneCookie: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => {
@@ -52,7 +53,9 @@ vi.mock('@/lib/auth/gotrue-mfa', async (orig) => ({
   listFactors: h.listFactors,
   adminListUserFactors: h.adminListUserFactors,
 }));
-vi.mock('@/lib/auth/cookies', () => ({ setAuthCookies: h.setAuthCookies, setActiveCompanyCookie: vi.fn() }));
+vi.mock('@/lib/auth/cookies', () => ({
+  setAuthCookies: h.setAuthCookies, setActiveCompanyCookie: vi.fn(), setOnboardingDoneCookie: h.setOnboardingDoneCookie,
+}));
 vi.mock('@/lib/auth/liveCompanies', () => ({
   isLiveCompanyForUser: vi.fn(async () => true),
   pickInitialCompanyId: vi.fn(async () => null),
@@ -120,6 +123,9 @@ describe('accepting an invitation that names no account', () => {
     expect(ran(/^COMMIT$/)).toBe(true);
     // Never written back: revoke deletes a stored account that has no memberships.
     expect(ran(/SET gotrue_user_id/)).toBe(false);
+    // A member of an existing company skips the new-company onboarding wizard (browser proof 2026-10-27).
+    expect(h.queries.find((q) => /INSERT INTO users/.test(q.text))?.text).toMatch(/onboarding_completed = true/);
+    expect(h.setOnboardingDoneCookie).toHaveBeenCalled();
   });
 
   it('a weak password for an address with no login creates nothing', async () => {
