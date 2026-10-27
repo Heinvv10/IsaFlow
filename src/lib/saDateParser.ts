@@ -13,6 +13,7 @@
  * another zone, or a server in UTC, still gets the South African date at 23:30 SAST.
  */
 import { addDaysISO, localDateFromISO } from '@/lib/dateUtils';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export type DateParseCode = 'empty' | 'format' | 'invalid' | 'range';
 
@@ -88,7 +89,7 @@ export function parseSaDate(input: string, now: Date = new Date(), anchor?: stri
   const offset = /^([+-])(\d+)$/.exec(s);
   if (offset) {
     const days = Number(offset[2]) * (offset[1] === '-' ? -1 : 1);
-    if (Math.abs(days) > MAX_OFFSET_DAYS) return fail('range', `That is too many days from ${from === today ? 'today' : 'the start date'}.`);
+    if (Math.abs(days) > MAX_OFFSET_DAYS) return fail('range', `That is too many days from ${from === today ? 'today' : formatDisplayDate(from)}.`);
     return { ok: true, iso: addDaysISO(from, days) };
   }
 
