@@ -33,6 +33,8 @@ export function useBankCardOrder(companyId: string | null | undefined) {
   const saveSeq = useRef(0);
   // True while what is shown is a revert to storedRef: a load arriving then may replace it.
   const reverted = useRef(false);
+  // True once a save has been stored: the server holds that order, newer than any load still in flight.
+  const savedOk = useRef(false);
   const chain = useRef<Promise<void>>(Promise.resolve());
   const show = useCallback((next: string[] | null) => { orderRef.current = next; setOrder(next); }, []);
 
@@ -40,6 +42,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
     companyRef.current = companyId;
     saveSeq.current = 0;
     reverted.current = false;
+    savedOk.current = false;
     storedRef.current = null;
     show(null);
     if (!companyId) return undefined;
@@ -51,7 +54,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
         const json = (await res.json()) as { data?: Record<string, string> };
         // A reorder made while this was loading wins over the stored order.
         if (cancelled) return;
-        storedRef.current = parseCardOrder(json.data?.[cardOrderPrefKey(companyId)]);
+        if (!savedOk.current) storedRef.current = parseCardOrder(json.data?.[cardOrderPrefKey(companyId)]);
         if (saveSeq.current === 0 || reverted.current) show(storedRef.current);
       } catch (err) {
         log.warn('Bank card order unavailable, using the default order', { error: err }, 'bank-transactions');
@@ -68,7 +71,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
     chain.current = chain.current.then(async () => {
       try {
         await putOrder(companyId, next);
-        if (companyRef.current === companyId) storedRef.current = next;
+        if (companyRef.current === companyId) { storedRef.current = next; savedOk.current = true; }
       } catch (err) {
         log.warn('Saving the bank card order failed', { error: err }, 'bank-transactions');
         if (companyRef.current !== companyId || saveSeq.current !== seq) return;

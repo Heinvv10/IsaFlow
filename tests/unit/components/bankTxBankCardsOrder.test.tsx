@@ -274,3 +274,22 @@ it('a save refused before the saved order loaded shows the saved order once it a
   await act(async () => { releaseGet(); await get; });
   await waitFor(() => expect(slotKeys()).toEqual(['group:g1', 'p1', 'p2']));
 });
+
+it('a load that returns after a stored save does not become the order a later refused save reverts to', async () => {
+  saved = { 'bank_card_order:co-1': JSON.stringify(['group:g1', 'p1', 'p2']) };
+  let releaseGet!: () => void;
+  const get = new Promise<void>((r) => { releaseGet = r; });
+  let n = 0;
+  apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === '/api/auth/preferences' && init?.method === 'PUT') { n += 1; return json({}, n === 1 ? 200 : 500); }
+    if (url === '/api/auth/preferences') { await get; return json(saved); }
+    return json([]);
+  });
+  view();
+  await altRight(/Main/);
+  await waitFor(() => expect(puts()).toHaveLength(1));
+  await act(async () => { releaseGet(); await get; });
+  await altRight(/Main/);
+  await waitFor(() => expect(notify.error).toHaveBeenCalledTimes(1));
+  expect(slotKeys()).toEqual(['p2', 'p1', 'group:g1']);
+});
