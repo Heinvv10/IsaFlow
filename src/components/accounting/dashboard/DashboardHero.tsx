@@ -6,7 +6,7 @@
 import localFont from 'next/font/local';
 import { TrendingUp, FileText, Landmark, Clock, ArrowDown } from 'lucide-react';
 import type { ElementType } from 'react';
-import { formatMoneyCompact } from '@/lib/money/formatMoney';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayMonthYearLong } from '@/utils/dateFormat';
 
 // Self-hosted (OFL, src/assets/fonts/OFL-DMSerifDisplay.txt): the Google-hosted loader fetched it at build time.
@@ -39,7 +39,8 @@ export interface DashboardHeroProps {
   onTabChange: (id: string) => void;
 }
 
-const fmt = (n: number): string => formatMoneyCompact(n);
+// Exact, never abbreviated: a tile is a figure someone reconciles (principle 1).
+const fmt = (n: number): string => formatMoney(n);
 
 const PILLS = (s: DashboardHeroStats) => [
   {
