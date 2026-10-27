@@ -1,7 +1,7 @@
 /**
- * MobileHeaderMenu — below the sm breakpoint the header has no room for the theme, density and
- * navigation-mode controls, the user's name or Log out, so they live in this one menu. From sm up
- * AppLayout shows them inline and this menu is hidden.
+ * MobileHeaderMenu — below the lg breakpoint the header has no room for the theme, density and
+ * navigation-mode controls, the user's name or Log out, so they live in this one menu. From lg up (xl in sidebar
+ * mode) AppHeader shows them inline and this menu is hidden.
  */
 import { useEffect, useRef, useState } from 'react';
 import { LogOut, PanelLeft, PanelTop, User } from 'lucide-react';
@@ -9,6 +9,8 @@ import { TableDensityToggle } from '@/components/ui/TableDensityToggle';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 
 interface MobileHeaderMenuProps {
+  /** The breakpoint from which AppHeader shows these controls inline and this menu hides (`lg:hidden` / `xl:hidden`). */
+  className: string;
   name: string;
   navMode: 'top' | 'side';
   onToggleNavMode: () => void;
@@ -16,7 +18,7 @@ interface MobileHeaderMenuProps {
   onLogout?: () => void;
 }
 
-export function MobileHeaderMenu({ name, navMode, onToggleNavMode, onLogout }: MobileHeaderMenuProps) {
+export function MobileHeaderMenu({ className, name, navMode, onToggleNavMode, onLogout }: MobileHeaderMenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -38,7 +40,7 @@ export function MobileHeaderMenu({ name, navMode, onToggleNavMode, onLogout }: M
 
   const row = 'flex items-center justify-between gap-3 px-3 py-2 text-sm text-ink';
   return (
-    <div ref={root} className="relative sm:hidden">
+    <div ref={root} className={`relative ${className}`}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

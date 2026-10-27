@@ -158,7 +158,7 @@ export function TopCustomersWidget() {
             <tbody className="divide-y divide-gray-50 dark:divide-gray-800/60">
               {rows.map((row, idx) => (
                 <tr key={row.clientId} className="group hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                  <td className="py-2 px-1 text-gray-600 dark:text-gray-400 dark:text-gray-600 font-mono">{idx + 1}</td>
+                  <td className="py-2 px-1 text-gray-600 dark:text-gray-400 font-mono">{idx + 1}</td>
                   <td className="py-2 px-1 max-w-[120px]">
                     <Link
                       href={`/accounting/customers/${row.clientId}`}

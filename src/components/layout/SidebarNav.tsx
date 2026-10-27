@@ -1,171 +1,21 @@
 /**
  * Sidebar navigation using the same TABS config as the top-bar.
  * Hover a tab → flyout panel pops to the right via a portal on document.body.
- * Sub-sections cascade further right, also via portals so nothing is clipped.
+ * Sub-sections cascade further right, also via portals so nothing is clipped (SidebarFlyouts.tsx).
+ *
+ * Keyboard: every tab row is focusable. ArrowRight (or Enter/Space on a row without its own page) opens the row's
+ * flyout and focuses its first entry; Escape closes it and returns focus to the row.
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent as ReactKeyboardEvent, type FocusEvent as ReactFocusEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
-import {
-  TABS,
-  getActiveTabId,
-  isFlyout,
-  activeHrefAmong,
-  type Tab,
-  type NavItem,
-} from '../accounting/accountingNavConfig';
-import { NavLinksBlock } from './NavLinksBlock';
+import { TABS, getActiveTabId } from '../accounting/accountingNavConfig';
+import { panelCls, panelEntries, moveInPanel, TabFlyoutContent } from './SidebarFlyouts';
 import { stripVatNav } from '../accounting/navSections/vatNav';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
-
-// ─── Shared styles ──────────────────────────────────────────────────────────
-
-const panelCls = 'bg-[var(--ff-canvas-mid)] border border-[var(--ff-canvas-border)] rounded-lg shadow-2xl min-w-[210px] py-1';
-
-const linkCls = (active: boolean) =>
-  `block px-4 py-1.5 text-sm whitespace-nowrap transition-colors ${
-    active
-      ? 'text-teal-700 dark:text-teal-300 bg-teal-500/[0.08] font-medium'
-      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5'
-  }`;
-
-// ─── Recursive section flyout using portals ─────────────────────────────────
-
-function SectionFlyout({
-  label,
-  items,
-  asPath,
-  onNav,
-  parentRight: _parentRight,
-  parentTop: _parentTop,
-}: {
-  label: string;
-  items: NavItem[];
-  asPath: string;
-  onNav: () => void;
-  parentRight: number;
-  parentTop: number;
-}) {
-  const activeHref = activeHrefAmong(items, asPath);
-  const [open, setOpen] = useState(false);
-  const [subPos, setSubPos] = useState<{ top: number; left: number } | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cl = () => { if (timer.current) clearTimeout(timer.current); };
-  const dl = () => { timer.current = setTimeout(() => setOpen(false), 150); };
-  useEffect(() => () => cl(), []);
-
-  const handleEnter = () => {
-    cl();
-    setOpen(true);
-    if (ref.current) {
-      const rect = ref.current.getBoundingClientRect();
-      setSubPos({ top: rect.top, left: rect.right });
-    }
-  };
-
-  return (
-    <div ref={ref} onMouseEnter={handleEnter} onMouseLeave={dl}>
-      <div className={`flex items-center justify-between px-4 py-2 text-sm cursor-default transition-colors ${
-        open
-          ? 'bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100'
-          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5'
-      }`}>
-        <span className="font-medium">{label}</span>
-        <ChevronRight className="h-3.5 w-3.5 ml-4 flex-shrink-0" />
-      </div>
-
-      {open && subPos && createPortal(
-        <div
-          style={{ position: 'fixed', top: subPos.top, left: subPos.left, zIndex: 99999 }}
-          className={panelCls}
-          onMouseEnter={cl}
-          onMouseLeave={dl}
-        >
-          {items.map(item => {
-            if (!isFlyout(item)) {
-              return (
-                <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>
-                  {item.label}
-                </Link>
-              );
-            }
-            // Nested section → recurse
-            return (
-              <SectionFlyout
-                key={item.section}
-                label={item.section}
-                items={item.items}
-                asPath={asPath}
-                onNav={onNav}
-                parentRight={subPos.left + 210}
-                parentTop={subPos.top}
-              />
-            );
-          })}
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-}
-
-// ─── Tab flyout content ─────────────────────────────────────────────────────
-
-function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; onNav: () => void }) {
-  const hasSections = tab.items?.some(isFlyout) ?? false;
-  const activeHref = activeHrefAmong(tab.items ?? [], asPath);
-
-  return (
-    <>
-      {/* Plain navigation links */}
-      <NavLinksBlock
-        links={tab.links}
-        tabItems={tab.items}
-        asPath={asPath}
-        onNav={onNav}
-        linkClassName={linkCls}
-        separatorClassName="border-t border-[var(--ff-canvas-border)] my-1"
-      />
-
-      {/* Quick actions */}
-      {tab.topItems?.map(item => (
-        <Link key={item.href} href={item.href} onClick={onNav}
-          className="block px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors whitespace-nowrap">
-          + {item.label}
-        </Link>
-      ))}
-      {tab.topItems && tab.topItems.length > 0 && <div className="border-t border-[var(--ff-canvas-border)] my-1" />}
-
-      {/* Sections with sub-flyouts */}
-      {hasSections && tab.items?.map(item => {
-        if (!isFlyout(item)) {
-          return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>{item.label}</Link>;
-        }
-        return (
-          <SectionFlyout
-            key={item.section}
-            label={item.section}
-            items={item.items}
-            asPath={asPath}
-            onNav={onNav}
-            parentRight={0}
-            parentTop={0}
-          />
-        );
-      })}
-
-      {/* Flat items */}
-      {!hasSections && tab.items?.map(item => {
-        if (isFlyout(item)) return null;
-        return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>{item.label}</Link>;
-      })}
-    </>
-  );
-}
 
 // ─── Main sidebar nav ───────────────────────────────────────────────────────
 
@@ -190,12 +40,48 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
 
   useEffect(() => { setFlyout(null); }, [router.pathname]);
   useEffect(() => () => cl(), [cl]);
+  // Escape closes an open flyout (and its sub-flyouts, which unmount with it) and puts focus back on its row.
+  const trigger = useRef<HTMLElement | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const focusOnOpen = useRef(false);
+  useEffect(() => {
+    if (!flyout) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setFlyout(null);
+      if (panel.current?.contains(document.activeElement)) trigger.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [flyout]);
+  useEffect(() => {
+    if (!flyout || !focusOnOpen.current) return;
+    focusOnOpen.current = false;
+    panelEntries(panel.current)[0]?.focus();
+  }, [flyout]);
 
   const openFlyout = useCallback((tabId: string, el: HTMLElement) => {
     cl();
+    trigger.current = el;
     const rect = el.getBoundingClientRect();
     setFlyout({ tabId, top: rect.top, left: rect.right });
   }, [cl]);
+
+  /** Focus leaving the flyouts (Tab past the last entry) closes them; moving into a section's sub-panel does not. */
+  const closeOnFocusOut = (e: ReactFocusEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget as HTMLElement | null;
+    if (next && (next.closest('[data-sidebar-flyout]') || next === trigger.current)) return;
+    setFlyout(null);
+  };
+
+  /** ArrowRight opens the flyout from the keyboard; so do Enter and Space on a row that has no page of its own. */
+  const keyOpen = (tabId: string, ownPage: boolean) => (e: ReactKeyboardEvent<HTMLElement>) => {
+    tap.current = { type: '', wasOpen: false };
+    if (e.key !== 'ArrowRight' && (ownPage || (e.key !== 'Enter' && e.key !== ' '))) return;
+    e.preventDefault();
+    focusOnOpen.current = true;
+    openFlyout(tabId, e.currentTarget);
+  };
 
   const tabs = stripVatNav(TABS, isRegistered);
   const flyoutTab = flyout ? tabs.find(t => t.id === flyout.tabId) : null;
@@ -230,7 +116,9 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
                 onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
                 onMouseLeave={dl}
                 onPointerDown={(e) => { tap.current = { type: e.pointerType, wasOpen: isOpen }; }}
-                onKeyDown={() => { tap.current = { type: '', wasOpen: false }; }}
+                onKeyDown={keyOpen(tab.id, true)}
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
                 onClick={(e) => {
                   const { type, wasOpen } = tap.current;
                   tap.current = { type: '', wasOpen: false };
@@ -253,6 +141,11 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
           return (
             <div key={tab.id}
               data-testid={`sidebar-tab-${tab.id}`}
+              role="button"
+              tabIndex={0}
+              aria-haspopup="menu"
+              aria-expanded={isOpen}
+              onKeyDown={keyOpen(tab.id, false)}
               onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
               onMouseLeave={dl}
               className={`flex items-center justify-between px-4 py-2 text-sm font-medium cursor-pointer transition-colors border-l-[3px] ${
@@ -271,10 +164,14 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
       {/* First-level flyout via portal */}
       {flyoutTab && flyout && createPortal(
         <div
+          ref={panel}
           style={{ position: 'fixed', top: flyout.top, left: flyout.left, zIndex: 99999 }}
           className={panelCls}
           onMouseEnter={cl}
           onMouseLeave={dl}
+          onKeyDown={moveInPanel}
+          onBlur={closeOnFocusOut}
+          data-sidebar-flyout=""
         >
           <TabFlyoutContent tab={flyoutTab} asPath={asPath} onNav={() => setFlyout(null)} />
         </div>,
