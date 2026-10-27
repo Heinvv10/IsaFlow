@@ -18,6 +18,8 @@
  */
 
 const SECRET_RUN = /[0-9a-f]{32,}/gi;
+/** Non-global twin for `.test`: a global regex carries lastIndex between calls. */
+const HAS_SECRET_RUN = /[0-9a-f]{32,}/i;
 const REDACTED = '[token]';
 const MAX_DECODES = 3;
 
@@ -36,7 +38,7 @@ function decoded(value: string): string {
 /** The value with every token-shaped run redacted; unchanged (exact bytes) when it holds none. */
 function redact(value: string): string {
   const plain = decoded(value);
-  return new RegExp(SECRET_RUN.source, 'i').test(plain) ? plain.replace(SECRET_RUN, REDACTED) : value;
+  return HAS_SECRET_RUN.test(plain) ? plain.replace(SECRET_RUN, REDACTED) : value;
 }
 
 export function scrubInvitePath(path: string): string {
@@ -53,4 +55,19 @@ export function scrubInviteReferrer(referrer: string | null): string | null {
   if (!referrer) return referrer;
   const hash = referrer.indexOf('#');
   return redact(hash === -1 ? referrer : referrer.slice(0, hash));
+}
+
+/** Free-text fields the endpoint also stores (page title, event name): same rule. */
+export function scrubInviteText(text: string | null): string | null {
+  return text ? redact(text) : text;
+}
+
+/**
+ * Custom event data (`d`), as sent: dropped entirely if it carries a token
+ * anywhere, rather than rewritten. A redaction can break the JSON it sits in.
+ */
+export function scrubInviteEventData(data: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!data) return data;
+  const json = JSON.stringify(data);
+  return redact(json) === json ? data : null;
 }

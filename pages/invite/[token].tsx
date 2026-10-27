@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { Building2, UserCheck, LogIn, UserPlus, AlertTriangle, Loader2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
 
 interface InviteData {
   email: string;
@@ -24,13 +25,6 @@ interface AuthUser {
 }
 
 type PageState = 'loading' | 'valid' | 'invalid' | 'accepting' | 'accepted' | 'error';
-
-/** GET /api/invite/[token]'s mask, to compare the signed-in address with the invited one. */
-function maskEmail(email: string): string {
-  const [local, domain] = email.toLowerCase().split('@');
-  if (!local || !domain) return '***@***';
-  return `${local[0]}***@${domain}`;
-}
 
 /** POST /api/invite/[token]'s 403 for a session whose email is not the invited one. */
 const WRONG_ADDRESS_MESSAGE = 'This invitation was sent to a different email address';
@@ -131,7 +125,7 @@ export default function InvitePage() {
   // The server refuses a mismatched accept (403); say so before the click.
   // A mask can match a different address too; the server's 403 sets wrongAccount then.
   const signedInAsSomeoneElse = wrongAccount ||
-    (currentUser !== null && inviteData !== null && maskEmail(currentUser.email) !== inviteData.email.toLowerCase());
+    (currentUser !== null && inviteData !== null && maskInviteEmail(currentUser.email) !== inviteData.email.toLowerCase());
   const acceptHref = `/accept-invite?token=${encodeURIComponent(token ?? '')}`;
   const signInHref = `/login?invite=${encodeURIComponent(token ?? '')}&returnTo=${encodeURIComponent(`/invite/${encodeURIComponent(token ?? '')}`)}`;
 

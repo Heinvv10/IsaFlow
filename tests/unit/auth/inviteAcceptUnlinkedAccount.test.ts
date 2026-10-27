@@ -69,7 +69,11 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
           const hit = h.establishedIds.has(params[0] as string);
           return { rows: hit ? [{ id: params[0] }] : [], rowCount: hit ? 1 : 0 };
         }
-        if (/SET accepted_at = now\(\)/.test(text)) return { rows: [], rowCount: h.invitationStillPending ? 1 : 0 };
+        // As Postgres answers: an accepted-meanwhile row still matches an UPDATE without
+        // `AND accepted_at IS NULL`, so only the predicate makes the race visible.
+        if (/SET accepted_at = now\(\)/.test(text)) {
+          return { rows: [], rowCount: h.invitationStillPending || !/AND accepted_at IS NULL/.test(text) ? 1 : 0 };
+        }
         return { rows: [], rowCount: 1 };
       },
       release() { /* pooled */ },
@@ -223,6 +227,26 @@ describe('an existing GoTrue account with no IsaFlow profile row', () => {
     expect(h.adminListUserFactors).toHaveBeenCalledWith('gt-orphan');
     expect(h.adminUpdateUser).not.toHaveBeenCalled();
     expect(h.signIn).not.toHaveBeenCalled();
+    expect(h.setAuthCookies).not.toHaveBeenCalled();
+  });
+
+  it('a weak password for it is refused before anything is set', async () => {
+    const { status, body } = await accept('short');
+
+    expect(status).toBe(400);
+    expect(body.error?.code).toBe('WEAK_PASSWORD');
+    expect(h.adminUpdateUser).not.toHaveBeenCalled();
+    expect(h.signIn).not.toHaveBeenCalled();
+  });
+
+  it('a sign-in that answers as a different account is refused (409), with no membership', async () => {
+    h.signIn.mockResolvedValue(tokens('gt-someone-else'));
+
+    const { status, body } = await accept('a-new-password-1');
+
+    expect(status).toBe(409);
+    expect(body.error?.code).toBe('IDENTITY_MISMATCH');
+    expect(ran(/INSERT INTO company_users/)).toBe(false);
     expect(h.setAuthCookies).not.toHaveBeenCalled();
   });
 

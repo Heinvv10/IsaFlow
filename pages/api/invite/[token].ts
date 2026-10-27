@@ -14,6 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { serialize } from 'cookie';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
 type Row = Record<string, unknown>;
 
 /**
@@ -23,12 +24,6 @@ type Row = Record<string, unknown>;
  */
 const PostBody = z.object({}).strict();
 
-
-function maskEmail(email: string): string {
-  const [local, domain] = email.split('@');
-  if (!local || !domain) return '***@***';
-  return `${local[0]}***@${domain}`;
-}
 
 // ── GET: public token validation ──────────────────────────────────────────────
 
@@ -63,7 +58,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const row = rows[0]!;
 
   return apiResponse.success(res, {
-    email: maskEmail(row.email as string),
+    email: maskInviteEmail(row.email as string),
     companyName: row.company_name as string,
     role: row.role as string,
     invitedBy: (row.invited_by_name as string) || 'Someone',

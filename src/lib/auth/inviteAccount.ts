@@ -3,7 +3,7 @@ import { adminCreateUser, findUserByEmail } from './gotrue';
 import { adminListUserFactors, GotrueMfaError, listFactors, type Factor } from './gotrue-mfa';
 import { AuthUpstreamUnavailableError } from './authUpstream';
 
-/** The strength floor for a password being SET (register.ts, do-reset-password.ts). */
+/** The strength floor for a password being SET; the same 10 that register.ts and do-reset-password.ts apply. */
 export const MIN_NEW_PASSWORD_LENGTH = 10;
 
 /**
