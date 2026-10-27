@@ -264,7 +264,7 @@ describe('budgets P0 parity on real Postgres', () => {
     const r = await save.call(u, 'POST', { versionId: version, expectedUpdatedAt,
       cells: [{ glAccountId: acc['P-1100'], cc1Id: null, cc2Id: null, buId: null, month, amount: 1200 }] });
     expect(r.status, JSON.stringify(r.body)).toBe(400);
-    expect(r.body.error?.message).toContain('P-1100');
+    expect(r.body.error?.message).toBe('Account P-1100 Parity P-1100 is not a revenue or expense account; budgets are set on revenue and expense accounts only');
     const written = (await pool.query(
       `SELECT (SELECT count(*) FROM budget_month_amounts WHERE company_id = $1 AND gl_account_id = $2)::int AS months,
               (SELECT count(*) FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2)::int AS headers`,
