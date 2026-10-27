@@ -35,6 +35,15 @@ describe('parseSaDate with an anchor', () => {
     expect(iso('+1', 'garbage')).toBe('2026-10-16');
   });
 
+  it('a +N too far says what it counts from: today, or the anchor date itself', () => {
+    const reason = (input: string, anchor?: string): string => {
+      const r = parseSaDate(input, TODAY, anchor);
+      return r.ok ? '' : r.reason;
+    };
+    expect(reason('+99999')).toBe('That is too many days from today.');
+    expect(reason('+99999', '2026-09-01')).toBe('That is too many days from 01 Sep 2026.');
+  });
+
   it('an explicit date ignores the anchor', () => {
     expect(iso('1 Oct 2026', '2025-01-01')).toBe('2026-10-01');
   });
