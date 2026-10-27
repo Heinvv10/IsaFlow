@@ -10,7 +10,7 @@
   "pages/accounting/assets/[assetId].tsx": 3,
   "pages/accounting/assets/categories.tsx": 1,
   "pages/accounting/assets/index.tsx": 1,
-  "pages/accounting/assets/new.tsx": 8,
+  "pages/accounting/assets/new.tsx": 3,
   "pages/accounting/audit-log.tsx": 1,
   "pages/accounting/bank-reconciliation/new.tsx": 3,
   "pages/accounting/bank-transactions/new.tsx": 6,
