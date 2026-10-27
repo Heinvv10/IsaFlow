@@ -212,7 +212,7 @@ export default function NewJournalEntryPage() {
                             <input type="number" value={line.creditAmount} onChange={e => updateLine(line.key, 'creditAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
                           </td>
                           <td className="px-2 py-2">
-                            <button type="button" aria-label="Remove line" onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
+                            <button type="button" aria-label="Remove line" onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>

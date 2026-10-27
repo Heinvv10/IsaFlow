@@ -179,6 +179,21 @@
     "rule": "color-contrast",
     "selector": "form > div > div > div > p",
     "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[type=\"number\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"invoiceId\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
+    "max": 1
    }
   ]
  }

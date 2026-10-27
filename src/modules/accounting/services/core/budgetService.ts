@@ -22,17 +22,17 @@
  * an account budgeted by dimension in the version is a typed grain refusal.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getFiscalYear, type FiscalYearRecord } from '../gl/fiscalYearRegistry';
 import {
   auditBudgetWrite as auditWrite, holdYearRegistry, lockVersionForWrite, readVersion, resolvePrimaryVersion, writeVersion,
 } from '../budgets/budgetVersionScope';
-import { BudgetVersionError } from '../budgets/budgetVersionTypes';
 import { budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { BudgetInputError, resolveMonthAmounts, round2, type BudgetMonthAmount } from './budgetMonths';
-import { budgetAccountCode } from './budgetAccount';
+import { lockBudgetTarget } from './budgetAccount';
+import { isHeaderSql } from '../budgets/headerSql';
 
 export { BudgetInputError, type BudgetMonthAmount } from './budgetMonths';
 
@@ -153,20 +153,15 @@ export async function upsertBudget(
   await holdYearRegistry(companyId);
   const year = await yearMonths(companyId, input.fiscalYear);
   const amounts = resolveMonthAmounts(year.monthKeys, { months: input.months, annualAmount: input.annualAmount });
+  // The account is checked after the version lock, in a savepoint: a refusal (a 4xx withAuth
+  // commits) keeps neither the token bump nor a primary created for this write.
+  return withSavepoint('budget_upsert', () => writeBudget(companyId, input, userId, year, amounts));
+}
 
-  const accountCode = await budgetAccountCode(companyId, input.glAccountId);
-  const { id: versionId, isPrimary } = await writeVersion(companyId, input.fiscalYear, input.versionId, userId);
-  // The version row is locked, so no other writer of it runs between this check and the write.
-  const otherGrain = (await sql`
-    SELECT 1 FROM budget_month_amounts
-     WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
-       AND gl_account_id = ${input.glAccountId}::UUID AND dim_grain <> 0
-     LIMIT 1
-  `) as Row[];
-  if (otherGrain.length > 0) {
-    throw new BudgetVersionError('BUDGET_GRAIN_CONFLICT',
-      `Account ${accountCode} is budgeted by dimension in this version; it cannot also have a company-level budget`);
-  }
+async function writeBudget(
+  companyId: string, input: BudgetInput, userId: string, year: YearMonths, amounts: BudgetMonthAmount[],
+): Promise<BudgetEntry> {
+  const { id: versionId, isPrimary } = await lockBudgetTarget(companyId, input.fiscalYear, input.glAccountId, input.versionId, userId);
 
   // The notes header is per account and year, shared by every version: only a write of the
   // PRIMARY version (the budget every report shows) sets it. The arbiter index is partial
@@ -230,26 +225,27 @@ export async function deleteBudget(companyId: string, glAccountId: string, fisca
  * (counted from its first month) becomes month i of `toYear`. Months beyond the
  * shorter year are dropped (a 14-month year copied to 12 loses its last two) and
  * months of a longer target stay as they were. A month the target already holds
- * is left alone, so a re-run adds nothing. Returns how many accounts gained months.
+ * is left alone, so a re-run adds nothing. Decision 18: a header or inactive account is carried
+ * only if it already holds amounts in the target; otherwise it is skipped (and counted).
+ * Returns how many accounts gained months, and how many were skipped that way.
  */
 export async function copyBudgets(
-  companyId: string,
-  fromYear: number,
-  toYear: number,
-  userId: string,
-): Promise<number> {
+  companyId: string, fromYear: number, toYear: number, userId: string,
+): Promise<{ copied: number; skipped: number }> {
   if (fromYear === toYear) throw new BudgetInputError('Cannot copy a year onto itself');
   await holdYearRegistry(companyId);
   const from = await yearMonths(companyId, fromYear);
   const to = await yearMonths(companyId, toYear);
   const source = await resolvePrimaryVersion(companyId, fromYear);
-  if (!source) return 0;
+  if (!source) return { copied: 0, skipped: 0 };
   const { id: target } = await writeVersion(companyId, toYear, undefined, userId);
 
   // Dimensions travel with the amounts. An account the target already budgets at another grain is skipped.
   const copied = (await sql`
     WITH moved AS (
       SELECT bm.gl_account_id, bm.amount, bm.cc1_id, bm.cc2_id, bm.bu_id, bm.dim_grain,
+             ((ga.is_active AND NOT ${isHeaderSql()}) OR EXISTS (SELECT 1 FROM budget_month_amounts t WHERE t.company_id = ${companyId}::UUID
+                AND t.version_id = ${target}::UUID AND t.gl_account_id = bm.gl_account_id)) AS allowed,
              ${to.first}::DATE + make_interval(months =>
                (EXTRACT(YEAR FROM bm.month)::INT * 12 + EXTRACT(MONTH FROM bm.month)::INT)
                - (EXTRACT(YEAR FROM ${from.first}::DATE)::INT * 12 + EXTRACT(MONTH FROM ${from.first}::DATE)::INT)
@@ -263,14 +259,15 @@ export async function copyBudgets(
     ), ins AS (
       INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id, cc2_id, bu_id, created_by)
       SELECT ${companyId}::UUID, ${target}::UUID, m.gl_account_id, m.target::DATE, m.amount, m.cc1_id, m.cc2_id, m.bu_id, ${userId}
-      FROM moved m WHERE m.target <= ${to.last}::DATE
+      FROM moved m WHERE m.target <= ${to.last}::DATE AND m.allowed
         AND NOT EXISTS (SELECT 1 FROM budget_month_amounts t
                          WHERE t.company_id = ${companyId}::UUID AND t.version_id = ${target}::UUID
                            AND t.gl_account_id = m.gl_account_id AND t.dim_grain <> m.dim_grain)
       ON CONFLICT ON CONSTRAINT budget_month_amounts_one_per_cell DO NOTHING
       RETURNING gl_account_id
     )
-    SELECT COUNT(DISTINCT gl_account_id)::INT AS copied FROM ins
+    SELECT (SELECT COUNT(DISTINCT gl_account_id) FROM ins)::INT AS copied,
+           (SELECT COUNT(DISTINCT gl_account_id) FROM moved WHERE NOT allowed)::INT AS skipped
   `) as Row[];
 
   // Notes travel with the budget, for accounts that now have months in the target year.
@@ -287,10 +284,10 @@ export async function copyBudgets(
     DO NOTHING
   `;
 
-  const count = Number(copied[0]?.copied ?? 0);
-  await auditWrite(companyId, userId, 'create', target, toYear, { copiedFromFiscalYear: String(fromYear), accounts: String(count) });
-  log.info('Copied budgets', { fromYear, toYear, count }, 'accounting');
-  return count;
+  const count = Number(copied[0]?.copied ?? 0), skipped = Number(copied[0]?.skipped ?? 0);
+  await auditWrite(companyId, userId, 'create', target, toYear, { copiedFromFiscalYear: String(fromYear), accounts: String(count), skipped: String(skipped) });
+  log.info('Copied budgets', { fromYear, toYear, count, skipped }, 'accounting');
+  return { copied: count, skipped };
 }
 
 function budgetName(fiscalYear: number): string {

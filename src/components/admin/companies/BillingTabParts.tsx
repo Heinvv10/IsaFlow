@@ -231,7 +231,7 @@ export function NoSubscription({ companyId }: { companyId: string }) {
 
   return (
     <div className="bg-white dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-10 text-center">
-      <CreditCard className="w-8 h-8 text-gray-700 dark:text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+      <CreditCard className="w-8 h-8 text-gray-700 dark:text-gray-300 mx-auto mb-3" />
       <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">No active subscription</p>
       <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">This company has no subscription linked to a billing plan.</p>
       {createError && <p className="text-xs text-red-500 mb-3">{createError}</p>}

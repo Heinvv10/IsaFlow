@@ -6,11 +6,12 @@ import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/go
 import { AuthUpstreamUnavailableError, respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { sql } from '@/lib/neon';
 import { chargeRateLimit, refundRateLimit, withRateLimit } from '@/lib/rateLimit';
-import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
+import { setAuthCookies, setActiveCompanyCookie, setOnboardingDoneCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { isLiveCompanyForUser, pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { accountHasVerifiedFactor, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount } from '@/lib/auth/inviteAccount';
 
 /**
  * `firstName` / `lastName` arrive in an anonymous request body. Neither type
@@ -32,6 +33,8 @@ function profileName(value: unknown): string | null {
   return capped === '' ? null : capped;
 }
 
+const MFA_REQUIRED = { code: 'MFA_REQUIRED', message: 'This account uses two-factor authentication. Sign in to accept the invitation.' };
+
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } });
@@ -49,21 +52,13 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password is required' } });
   }
 
-  // 1. Look up invitation (RLS policy invites_by_token permits this)
-  //    gotrue_user_id IS NOT NULL is load-bearing twice over. Unifying the token
-  //    encoding (K-104) made userInvitationService's invitations match here, and
-  //    that path never creates a GoTrue user — accepting one would PUT a password
-  //    to /admin/users/null. A NULL also defeats the step-2 guard below, because
-  //    `id = NULL` matches no `users` row, so the account-protection branch would
-  //    be skipped on exactly the rows whose identity is unknown. Those
-  //    invitations are accepted at /invite/<token> instead.
+  // 1. Look up invitation (RLS invites_by_token). gotrue_user_id is NULL on Settings -> User Access invitations.
   const rows = await sql<{
-    id: string; email: string; role: string; company_id: string; gotrue_user_id: string;
+    id: string; email: string; role: string; company_id: string; gotrue_user_id: string | null;
   }>`
     SELECT id, email, role, company_id, gotrue_user_id
     FROM company_invitations
     WHERE token = ${tokenHash} AND accepted_at IS NULL AND expires_at > now()
-      AND gotrue_user_id IS NOT NULL
     LIMIT 1
   `;
   if (rows.length === 0) {
@@ -77,11 +72,8 @@ const handler: NextApiHandler = async (req, res) => {
   // owner — but the invitation is a single acceptance, and nothing legitimate
   // needs more than a handful of tries. Keyed on the digest, never the raw
   // token, so the rate-limit table holds no usable invitation secret.
-  // Charged above 1 for a reason that no longer applies: until R-175
-  // checkRateLimit admitted cost-1 calls from an in-process LRU without
-  // counting them. Every call now reaches the shared counter, so cost 2 of a
-  // max of 20 is simply ten attempts an hour, counted exactly and across pods.
-  // Left at 2 so the live counters keep their meaning.
+  // Cost 2 of 20 is ten attempts an hour (cost 2 predates R-175's exact shared
+  // counter; kept so the live counters keep their meaning).
   //
   // Placed AFTER the 410, not before it: the key is derived from a caller-chosen
   // URL segment, so charging it ahead of the lookup let an unauthenticated
@@ -118,6 +110,12 @@ const handler: NextApiHandler = async (req, res) => {
   let opened = false;
   let unusable = false;
   try {
+    // Never NULL past here: a NULL id would skip the guard below and PUT to /admin/users/null.
+    const accountId = await resolveInvitationAccount(inv, password);
+    if (accountId === null) {
+      return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: `Password must be at least ${MIN_NEW_PASSWORD_LENGTH} characters` } });
+    }
+
     // 2. Does this address already hold an established IsaFlow login? A `users`
     //    row is written only by tenant provisioning (after email verification)
     //    and by step 4 below, so its presence means a password already exists.
@@ -127,16 +125,21 @@ const handler: NextApiHandler = async (req, res) => {
     //    for a company they were never invited to.
     const established = await client.query<{ id: string }>(
       `SELECT id FROM users WHERE id = $1 LIMIT 1`,
-      [inv.gotrue_user_id]
+      [accountId]
     );
     const isEstablished = (established.rowCount ?? 0) > 0;
 
     if (!isEstablished) {
+      // An account without a `users` row may still carry a second factor (even
+      // one adminCreateUser answered from a 422): refuse before the password is set.
+      if (await accountHasVerifiedFactor({ userId: accountId })) {
+        return res.status(401).json({ success: false, error: MFA_REQUIRED });
+      }
       // Brand-new invitee: this invitation is what establishes the login, so
       // the password they type becomes their password — and only here does the
       // strength floor apply, matching register.ts / do-reset-password.ts.
-      if (password.length < 10) {
-        return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
+      if (password.length < MIN_NEW_PASSWORD_LENGTH) {
+        return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: `Password must be at least ${MIN_NEW_PASSWORD_LENGTH} characters` } });
       }
       // email_confirm is not redundant with the `email_confirm: true` that
       // POST /api/invitations passes to adminCreateUser: that call returns
@@ -149,7 +152,7 @@ const handler: NextApiHandler = async (req, res) => {
       // every retry until the invitee's hourly budget is gone. Holding the
       // invitation link is proof of control of the mailbox it was sent to,
       // which is the same proof the verification mail asks for.
-      await adminUpdateUser(inv.gotrue_user_id, {
+      await adminUpdateUser(accountId, {
         password,
         email_confirm: true,
         user_metadata: { first_name: firstName, last_name: lastName },
@@ -170,7 +173,7 @@ const handler: NextApiHandler = async (req, res) => {
       }, 'auth');
       return res.status(401).json({ success: false, error: { code: 'SIGN_IN_REQUIRED', message: 'This email already has an IsaFlow account. Enter that account\'s password to accept the invitation.' } });
     }
-    if (tok.user.id !== inv.gotrue_user_id) {
+    if (tok.user.id !== accountId) {
       log.error('invite accept identity mismatch', {
         inviteId: inv.id,
         companyId: inv.company_id,
@@ -181,6 +184,13 @@ const handler: NextApiHandler = async (req, res) => {
       // locks the rightful invitee out of their own link for an hour.
       await refund();
       return res.status(409).json({ success: false, error: { code: 'IDENTITY_MISMATCH', message: 'Invitation does not match this account' } });
+    }
+    // /api/auth/login withholds the session from an account with a verified
+    // second factor until the code is given; a password here must not skip
+    // that. Refunded like the verdict above: reachable only after signIn.
+    if (isEstablished && await accountHasVerifiedFactor({ accessToken: tok.access_token })) {
+      await refund();
+      return res.status(401).json({ success: false, error: MFA_REQUIRED });
     }
 
     // 4. Attach the membership + profile row.
@@ -215,11 +225,13 @@ const handler: NextApiHandler = async (req, res) => {
         // No `email = EXCLUDED.email` on the conflict branch: that reverted the
         // profile email of an account that had changed it, every time its owner
         // accepted an invitation. The row's own email stays its own.
-        `INSERT INTO users (id, email, first_name, last_name, is_active)
-         VALUES ($1, $2, $3, $4, true)
+        // onboarding_completed + cookie: no new-company wizard for a member (an admin's reset to false is kept).
+        `INSERT INTO users (id, email, first_name, last_name, is_active, onboarding_completed)
+         VALUES ($1, $2, $3, $4, true, true)
          ON CONFLICT (id) DO UPDATE SET
            first_name = COALESCE(EXCLUDED.first_name, users.first_name),
-           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name)`,
+           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name),
+           onboarding_completed = COALESCE(users.onboarding_completed, true)`,
         [tok.user.id, inv.email, firstName, lastName]
       );
     } catch (err) {
@@ -236,10 +248,17 @@ const handler: NextApiHandler = async (req, res) => {
       await refund();
       return res.status(409).json({ success: false, error: { code: 'EMAIL_IN_USE', message: 'This email is already attached to a different IsaFlow profile. Ask an administrator to resolve it before accepting.' } });
     }
-    await client.query(
-      `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid`,
+    // Still pending, or nothing commits: a revoke or a competing accept since
+    // the lookup above leaves no row to mark, and the membership goes with it.
+    const marked = await client.query(
+      `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid AND accepted_at IS NULL`,
       [inv.id]
     );
+    if (marked.rowCount !== 1) {
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      return res.status(410).json({ success: false, error: { code: 'INVALID_OR_EXPIRED', message: 'Invitation not found, expired, or already accepted' } });
+    }
     await client.query('COMMIT');
     opened = false;
   } catch (err) {
@@ -268,7 +287,7 @@ const handler: NextApiHandler = async (req, res) => {
   const landingCompanyId = (await isLiveCompanyForUser(tok.user.id, inv.company_id))
     ? inv.company_id
     : await pickInitialCompanyId(tok.user.id);
-  if (landingCompanyId) setActiveCompanyCookie(res, landingCompanyId);
+  if (landingCompanyId) { setActiveCompanyCookie(res, landingCompanyId); setOnboardingDoneCookie(res); }
 
   return res.status(200).json({ success: true, data: { userId: tok.user.id, companyId: landingCompanyId } });
 };

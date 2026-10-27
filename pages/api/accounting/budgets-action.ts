@@ -38,8 +38,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (!fromYear || !toYear) return apiResponse.badRequest(res, 'fromYear and toYear required');
         const from = parseYearLabel(fromYear), to = parseYearLabel(toYear);
         if (from === null || to === null) return apiResponse.badRequest(res, 'fromYear and toYear must be year labels such as 2027');
-        const count = await copyBudgets(companyId, from, to, userId);
-        return apiResponse.success(res, { copied: count });
+        // `skipped`: header or inactive accounts not carried into a year where they hold nothing (decision 18).
+        return apiResponse.success(res, await copyBudgets(companyId, from, to, userId));
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
