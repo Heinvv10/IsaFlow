@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path (r): Ctrl+K finds pages, actions and records, and the "?" overlay opens (master plan W1 PR P).
  *
