@@ -90,10 +90,12 @@ interface Plan {
 }
 
 /** One seed holds what one import may (the grid, the template and a chained commit are sized to it). */
-function assertSeedSize(cells: number): void {
-  if (cells > MAX_IMPORT_CELLS) {
-    throw inputError(`This seed would create ${cells} cells, more than the ${MAX_IMPORT_CELLS} one budget version is built for; seed a dimension grain with fewer members, or leave out accounts with no activity`);
-  }
+function assertSeedSize(cells: number, exactCopy = false): void {
+  if (cells <= MAX_IMPORT_CELLS) return;
+  // An exact copy computes no grain or activity filter, so the advice for a computed plan would mean nothing.
+  throw inputError(exactCopy
+    ? `This version holds ${cells} cells, more than one seed can copy (${MAX_IMPORT_CELLS})`
+    : `This seed would create ${cells} cells, more than the ${MAX_IMPORT_CELLS} one budget version is built for; seed a dimension grain with fewer members, or leave out accounts with no activity`);
 }
 
 /** Reads and computes everything; writes nothing. `sourceYear`: the locked source version's year label. */
@@ -120,7 +122,7 @@ async function plan(companyId: string, input: SeedInput, sourceYear: number | nu
     const rows = (await sql`
       SELECT COUNT(*)::int AS n FROM budget_month_amounts WHERE company_id = ${companyId}::UUID AND version_id = ${source.versionId}::UUID
     `) as Array<{ n: number }>;
-    assertSeedSize(Number(rows[0]?.n ?? 0));
+    assertSeedSize(Number(rows[0]?.n ?? 0), true);
     return { cells: null, copyOf: source.versionId, skipped: 0, months };
   }
   const series = await versionSeries(companyId, source.versionId, sourceYear, months.length);

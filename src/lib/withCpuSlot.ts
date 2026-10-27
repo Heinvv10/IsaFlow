@@ -12,8 +12,9 @@
  * user cannot take every place (429 with Retry-After past it). The user is the session token's
  * `sub`, checked by its signature alone (local, no database); a request with no session cookie,
  * or one whose token does not verify, is passed straight to withAuth (which 401s it) without
- * taking a slot. A waiter whose client has gone (request destroyed or aborted, response ended)
- * when its turn comes is skipped and the slot passes on. Server-side only.
+ * taking a slot. A waiter whose client has gone (its socket destroyed, the request aborted, the
+ * response ended or destroyed) when its turn comes is skipped and the slot passes on. Never
+ * `req.destroyed`: Node sets it on every request whose body has been read. Server-side only.
  */
 import type { NextApiHandler } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
@@ -98,7 +99,9 @@ export function withCpuSlot(slot: CpuSlot, handler: NextApiHandler, verify: Veri
     if (!owner) return handler(req, res); // withAuth 401s it, slot-free
     try {
       return await slot.run(async () => {
-        const gone = req.destroyed || (req as { aborted?: boolean }).aborted === true || res.writableEnded || res.destroyed;
+        // Not `req.destroyed`: on Node 20 it is true for every live request once the body has been
+        // read (Next reads it first). The socket, an aborted request or a closed response say gone.
+        const gone = (req as { aborted?: boolean }).aborted === true || req.socket?.destroyed === true || res.writableEnded || res.destroyed;
         if (gone) {
           log.debug('CPU slot turn skipped: the client has gone', { url: req.url, slot: slot.name }, 'API');
           return;
