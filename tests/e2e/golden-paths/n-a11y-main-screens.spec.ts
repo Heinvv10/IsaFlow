@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path (n): accessibility of each golden path's main screen.
  *

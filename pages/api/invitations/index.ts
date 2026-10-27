@@ -1,10 +1,9 @@
 // pages/api/invitations/index.ts
 import type { NextApiHandler } from 'next';
-import crypto from 'node:crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { hashInviteToken } from '@/lib/auth/inviteToken';
+import { hashInviteToken, mintInviteToken } from '@/lib/auth/inviteToken';
 import { adminCreateUser } from '@/lib/auth/gotrue';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -49,7 +48,7 @@ const createInvitation: NextApiHandler = async (req, res) => {
   // The raw token goes in the email; only its digest is stored. The other
   // invitation system (userInvitationService) has always stored the digest, and
   // UNIQUE(company_id, email) makes both write the same row — so one encoding.
-  const token = crypto.randomBytes(32).toString('hex');
+  const token = mintInviteToken();
   const tokenHash = hashInviteToken(token);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
