@@ -108,7 +108,7 @@ export function DashboardHero({
 
   return (
     <div
-      className="relative overflow-hidden rounded-3xl border border-slate-900/10 dark:border-white/10"
+      className="relative overflow-hidden rounded-3xl border border-slate-900/10 dark:border-white/10 [contain:paint]"
       style={{ background: `linear-gradient(135deg, var(--ff-canvas-raised) 0%, var(--ff-canvas-mid) 50%, var(--ff-canvas-base) 100%)` }}
       role="banner"
     >
@@ -141,7 +141,8 @@ export function DashboardHero({
         </p>
 
         {loading ? (
-          <div className="h-10 w-64 rounded-lg bg-white/10 animate-pulse mb-2" />
+          // The h1's own line box (text-2xl, leading-tight = 30px), so the subtitle does not move when it lands.
+          <div className="h-[1.875rem] w-64 rounded-lg bg-white/10 animate-pulse" />
         ) : (
           <h1 className={`${serif.className} text-2xl text-slate-900 dark:text-white leading-tight`}>
             {title}
@@ -160,7 +161,7 @@ export function DashboardHero({
         {activeTab === 'overview' && <div className="flex flex-wrap gap-3 mb-7">
           {stats
             ? PILLS(stats).map(({ icon: Icon, label, value, accent, valueColor, warning }) => (
-                <div key={label} className="flex items-center gap-3 px-5 py-3.5 rounded-xl bg-slate-900/5 dark:bg-white/5 border border-slate-900/10 dark:border-white/10 backdrop-blur-sm hover:bg-slate-900/10 dark:hover:bg-white/10 transition-colors">
+                <div key={label} className="flex min-h-[62px] items-center gap-3 px-5 py-3.5 rounded-xl bg-slate-900/5 dark:bg-white/5 border border-slate-900/10 dark:border-white/10 backdrop-blur-sm hover:bg-slate-900/10 dark:hover:bg-white/10 transition-colors">
                   <div className={`p-1.5 rounded-lg ${accent}`}>
                     <Icon className="h-3.5 w-3.5 text-slate-900 dark:text-white" />
                   </div>
@@ -174,7 +175,7 @@ export function DashboardHero({
                 </div>
               ))
             : Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 px-5 py-3.5 rounded-xl bg-slate-900/5 dark:bg-white/5 border border-slate-900/10 dark:border-white/10">
+                <div key={i} className="flex min-h-[62px] items-center gap-3 px-5 py-3.5 rounded-xl bg-slate-900/5 dark:bg-white/5 border border-slate-900/10 dark:border-white/10">
                   <div className="w-7 h-7 rounded-lg bg-slate-900/10 dark:bg-white/10 animate-pulse" />
                   <div className="space-y-1.5">
                     <div className="h-2 w-20 rounded bg-slate-900/10 dark:bg-white/10 animate-pulse" />

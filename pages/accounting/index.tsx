@@ -141,7 +141,8 @@ export default function AccountingPage() {
   if (!isMounted || setup.loading) {
     return (
       <AppLayout>
-        <div className="min-h-screen bg-surface p-6 space-y-6">
+        {/* Distinct keys: React must not reuse the skeleton's nodes for the content, or each reused node "moves" (CLS). */}
+        <div key="dashboard-skeleton" className="min-h-screen bg-surface p-6 space-y-6">
           <div role="status" aria-busy="true" aria-label="Loading accounting module" data-testid="dashboard-skeleton" className="space-y-6">
             <Skeleton variant="heading" width="25%" />
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -156,7 +157,7 @@ export default function AccountingPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[image:var(--ff-canvas-gradient)]">
+      <div key="dashboard-content" className="min-h-screen bg-[image:var(--ff-canvas-gradient)]">
 
         {/* Hero card with integrated pill tabs */}
         <div data-tour="dashboard" className="px-6 pt-6">
