@@ -3,10 +3,10 @@
  * `// golden:dev-only`, otherwise the post-deploy run loads it on a box where axe may be missing, or runs an
  * axe/dev-data gate against production. Imports are followed as text.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { devOnlySpecFiles, isMarked } from '../../e2e/golden-paths/helpers/devOnlySpecs';
+import { allSpecFiles, devOnlySpecFiles, isMarked } from '../../e2e/golden-paths/helpers/devOnlySpecs';
 
 const DIR = path.resolve(__dirname, '../../e2e/golden-paths');
 const AXE = '@axe-core/playwright';
@@ -16,13 +16,17 @@ function resolveImport(from: string, spec: string): string | null {
   return [`${base}.ts`, path.join(base, 'index.ts'), base].find((p) => p.endsWith('.ts') && existsSync(p)) ?? null;
 }
 
+/** Module specifiers a source file imports: static (also multi-line), side-effect, re-export and dynamic `import()`. */
+export function importSpecifiers(src: string): string[] {
+  const re = /\b(?:import|export)\b[^'"`;]*?\bfrom\s*['"]([^'"]+)['"]|\bimport\s*['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+  return [...src.matchAll(re)].map((m) => m[1] ?? m[2] ?? m[3]!);
+}
+
 /** Whether `file` imports axe, directly or via a relative import chain. */
 export function reachesAxe(file: string, seen = new Set<string>()): boolean {
   if (seen.has(file)) return false;
   seen.add(file);
-  const src = readFileSync(file, 'utf8');
-  const specs = [...src.matchAll(/^\s*(?:import|export)\b[^'"\n]*?from\s+['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]/gm)]
-    .map((m) => m[1] ?? m[2]!);
+  const specs = importSpecifiers(readFileSync(file, 'utf8'));
   if (specs.includes(AXE)) return true;
   return specs.filter((s) => s.startsWith('.')).some((s) => {
     const next = resolveImport(file, s);
@@ -30,9 +34,21 @@ export function reachesAxe(file: string, seen = new Set<string>()): boolean {
   });
 }
 
-const specs = readdirSync(DIR).filter((f) => f.endsWith('.spec.ts'));
+const specs = allSpecFiles(DIR);
 
 describe('golden dev-only marker', () => {
+  it('importSpecifiers sees single-line, multi-line, side-effect, re-export and dynamic imports', () => {
+    const src = [
+      "import a from './a';",
+      "import {\n  x,\n  y,\n} from './multi';",
+      "import './side';",
+      "export { z } from './re';",
+      "const m = await import('./dyn');",
+      "const n = await import(\n  './dyn2'\n);",
+    ].join('\n');
+    expect(importSpecifiers(src)).toEqual(['./a', './multi', './side', './re', './dyn', './dyn2']);
+  });
+
   it('finds the specs that need the marker (sanity: axe specs exist)', () => {
     expect(specs.filter((f) => reachesAxe(path.join(DIR, f))).length).toBeGreaterThan(0);
   });

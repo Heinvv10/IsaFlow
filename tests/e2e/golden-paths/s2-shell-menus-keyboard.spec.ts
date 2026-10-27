@@ -150,3 +150,29 @@ test('keyboard focus draws a solid ring of at least 2 px on a link and on a butt
     expect(rings[tag]!.w).toBeGreaterThanOrEqual(2);
   }
 });
+
+test('a utility that opts out of the outline wins over the base focus ring; a plain button gets the ring', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(INVOICES);
+  await ready(page);
+  await page.evaluate(() => {
+    const host = document.createElement('div');
+    host.innerHTML = '<button id="gp-opt-out" class="focus:outline-none focus:ring-2">a</button><button id="gp-plain">b</button>';
+    document.body.prepend(host);
+  });
+  const outline = async (id: string) => {
+    await page.keyboard.press('Tab'); // makes the next programmatic focus keyboard-modality
+    await page.locator(`#${id}`).focus();
+    return page.evaluate(() => {
+      const cs = getComputedStyle(document.activeElement as HTMLElement);
+      return { style: cs.outlineStyle, w: parseFloat(cs.outlineWidth), color: cs.outlineColor };
+    });
+  };
+  const optOut = await outline('gp-opt-out');
+  // Tailwind's outline-none is a transparent 2 px outline, so "no ring" means no visible colour.
+  expect(optOut.style === 'none' || optOut.w === 0 || optOut.color === 'rgba(0, 0, 0, 0)').toBe(true);
+  const plain = await outline('gp-plain');
+  expect(plain.style).toBe('solid');
+  expect(plain.w).toBeGreaterThanOrEqual(2);
+  expect(plain.color).not.toBe('rgba(0, 0, 0, 0)');
+});

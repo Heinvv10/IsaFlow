@@ -13,12 +13,18 @@ export function isMarked(source: string): boolean {
   return source.split('\n').slice(0, HEADER_LINES).some((l) => l.trim() === DEV_ONLY_MARKER);
 }
 
-/** File names (not paths) of the marked `*.spec.ts` files in `dir`, sorted. */
+/** Every `*.spec.ts` under `dir` (the config's `testMatch: '**\/*.spec.ts'`), as `/`-separated paths relative to it. */
+export function allSpecFiles(dir: string, rel = ''): string[] {
+  return readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((e) => {
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) return e.name === 'node_modules' ? [] : allSpecFiles(dir, r);
+    return e.name.endsWith('.spec.ts') ? [r] : [];
+  });
+}
+
+/** Relative paths of the marked specs under `dir`, sorted. */
 export function devOnlySpecFiles(dir: string): string[] {
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.spec.ts'))
-    .filter((f) => isMarked(readFileSync(path.join(dir, f), 'utf8')))
-    .sort();
+  return allSpecFiles(dir).filter((f) => isMarked(readFileSync(path.join(dir, f), 'utf8'))).sort();
 }
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

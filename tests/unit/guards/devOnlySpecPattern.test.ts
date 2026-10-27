@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -34,5 +34,20 @@ describe('devOnlySpecPattern', () => {
     const re = devOnlySpecPattern(dir)!;
     expect(re.test('a.b+c.spec.ts')).toBe(true);
     expect(re.test('aXb+c.spec.ts')).toBe(false);
+  });
+
+  it('finds a marked spec in a subdirectory, and not by a bare-name collision', () => {
+    const dir = dirWith({ 'top.spec.ts': '// plain\n' });
+    mkdirSync(path.join(dir, 'sub'));
+    writeFileSync(path.join(dir, 'sub', 'deep.spec.ts'), '// golden:dev-only\n');
+    const re = devOnlySpecPattern(dir)!;
+    expect(devOnlySpecFiles(dir)).toEqual(['sub/deep.spec.ts']);
+    expect(re.test('sub/deep.spec.ts')).toBe(true);
+    expect(re.test('top.spec.ts')).toBe(false);
+  });
+
+  it('scans the same files the golden config loads (testMatch glob)', async () => {
+    const cfg = (await import('../../../playwright-golden.config')).default;
+    expect(cfg.testMatch).toBe('**/*.spec.ts');
   });
 });
