@@ -81,8 +81,9 @@ test.describe('sidebar mode', () => {
     await page.setViewportSize({ width: 1024, height: 800 });
     await page.goto(INVOICES);
     await ready(page);
-    const h = await page.locator('header').evaluate((el) => ({ scroll: el.scrollWidth, width: el.clientWidth }));
+    const h = await page.locator('header').evaluate((el) => ({ scroll: el.scrollWidth, width: el.clientWidth, height: el.getBoundingClientRect().height }));
     expect(h.scroll).toBeLessThanOrEqual(h.width);
+    expect(h.height).toBe(56); // one row: the bar wraps rather than overflow, so width alone would pass a crowded header
   });
 
   test('ArrowRight on a sidebar row opens its flyout with focus in it; Escape returns to the row', async ({ page }) => {

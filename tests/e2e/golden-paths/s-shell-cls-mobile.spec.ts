@@ -151,14 +151,21 @@ test('the document title names the page and its module', async ({ page }) => {
   await expect(page).toHaveTitle('Tax Invoices · Sales · IsaFlow');
 });
 
-for (const width of [390, 768, 1024]) {
-  test(`${width} px: the header fits`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 844 });
-    await page.goto(INVOICES);
-    await settle(page);
-    const header = await page.locator('header').evaluate((el) => ({ scroll: el.scrollWidth, width: window.innerWidth }));
-    expect(header.scroll).toBeLessThanOrEqual(header.width);
-  });
+// The header wraps rather than overflow (so enlarged text keeps every control on screen), which means "no horizontal
+// overflow" alone passes even when the controls no longer fit one row. At the default font the bar must also stay
+// one row: exactly SHELL_HEIGHTS.header tall.
+for (const mode of ['top', 'side'] as const) {
+  for (const width of [390, 768, 1024]) {
+    test(`${width} px, ${mode} nav: the header fits on one row`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      if (mode === 'side') await page.addInitScript(() => localStorage.setItem('accounting-nav-mode', 'side'));
+      await page.goto(INVOICES);
+      await settle(page);
+      const header = await page.locator('header').evaluate((el) => ({ scroll: el.scrollWidth, width: window.innerWidth, height: el.getBoundingClientRect().height }));
+      expect(header.scroll).toBeLessThanOrEqual(header.width);
+      expect(header.height).toBe(SHELL_HEIGHTS.header);
+    });
+  }
 }
 
 for (const width of [390, 768]) {
