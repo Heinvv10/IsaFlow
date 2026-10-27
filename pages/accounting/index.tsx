@@ -5,13 +5,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
-  Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3, Loader2,
+  Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3,
 } from 'lucide-react';
 import { OverviewTab } from '@/components/accounting/dashboard/OverviewTab';
 import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAccountsTab';
@@ -135,10 +136,13 @@ export default function AccountingPage() {
   if (!isMounted) {
     return (
       <AppLayout>
-        <div className="min-h-screen bg-surface flex items-center justify-center">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-teal-500 mx-auto mb-2" />
-            <p className="text-slate-500 dark:text-slate-400">Loading accounting module...</p>
+        <div className="min-h-screen bg-surface p-6 space-y-6">
+          <div role="status" aria-busy="true" aria-label="Loading accounting module" data-testid="dashboard-skeleton" className="space-y-6">
+            <Skeleton variant="heading" width="25%" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <Skeleton variant="card" count={4} />
+            </div>
+            <Skeleton variant="card" height="16rem" />
           </div>
         </div>
       </AppLayout>

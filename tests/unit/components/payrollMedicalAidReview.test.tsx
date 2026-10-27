@@ -19,7 +19,7 @@ const linkRenders = vi.hoisted(() => [] as string[]);
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => { linkRenders.push(href); return <a href={href}>{children}</a>; } }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CompanyContext', () => ({
-  useCompany: () => ({ companyRole: company.role, activeCompany: { id: company.id } }),
+  useCompany: () => ({ companyRole: company.role, activeCompany: { id: company.id }, companies: [] }),
 }));
 
 import { apiFetch } from '@/lib/apiFetch';
@@ -217,7 +217,8 @@ describe('employees list — medical-aid review banner', () => {
   it('the banner is a status region, not an alert', async () => {
     serveReview([E1]);
     render(<EmployeesListPage />);
-    expect((await screen.findByRole('status')).getAttribute('data-testid')).toBe('medical-aid-review-banner');
+    const banner = await screen.findByTestId('medical-aid-review-banner');
+    expect(banner.getAttribute('role')).toBe('status');
     expect(screen.queryByRole('alert')).toBeNull();
   });
 

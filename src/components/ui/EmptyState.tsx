@@ -12,6 +12,7 @@
  *   />
  */
 
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/utils/cn';
@@ -33,6 +34,10 @@ interface EmptyStateProps {
   description?: string;
   primaryAction?: ActionButton;
   secondaryAction?: ActionButton;
+  /** What a first run involves, as short steps (rendered as a numbered list). */
+  checklist?: string[];
+  /** Extra content under the actions (e.g. the demo-company offer). */
+  footer?: ReactNode;
   className?: string;
 }
 
@@ -67,17 +72,20 @@ function ActionLink({ action, primary }: { action: ActionButton; primary: boolea
 // Component
 // ---------------------------------------------------------------------------
 
-// WORKING: Pure presentational component — no state
+// WORKING: Pure presentational component — no state, no context
 export function EmptyState({
   icon: Icon,
   title,
   description,
   primaryAction,
   secondaryAction,
+  checklist,
+  footer,
   className,
 }: EmptyStateProps) {
   return (
     <div
+      data-testid="empty-state"
       className={cn(
         'flex flex-col items-center justify-center text-center py-16 px-6',
         className
@@ -98,6 +106,12 @@ export function EmptyState({
         </p>
       )}
 
+      {checklist && checklist.length > 0 && (
+        <ol className="mt-4 max-w-xs list-decimal space-y-1 pl-5 text-left text-sm text-gray-600 dark:text-gray-300">
+          {checklist.map((step) => <li key={step}>{step}</li>)}
+        </ol>
+      )}
+
       {/* Actions */}
       {(primaryAction || secondaryAction) && (
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -105,6 +119,7 @@ export function EmptyState({
           {secondaryAction && <ActionLink action={secondaryAction} primary={false} />}
         </div>
       )}
+      {footer && <div className="mt-4">{footer}</div>}
     </div>
   );
 }

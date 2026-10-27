@@ -4,10 +4,12 @@
  * Route: /accounting/suppliers
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Truck, Loader2, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
+import { Truck, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
+import { ListEmpty } from '@/components/ui/ListEmpty';
 import { KpiStrip } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
@@ -42,7 +44,12 @@ const LIMIT = 25;
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // The search the rows on screen answer: until it matches the debounced one the rows are stale (no one-frame empty flash).
+  const [loadedQ, setLoadedQ] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const seq = useRef(0);
+  useEffect(() => () => { seq.current++; }, []); // unmount invalidates any request still in flight
+  // // only the newest request may write state: an older response landing late is dropped
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -58,6 +65,7 @@ export default function SuppliersPage() {
   }, [search]);
 
   const loadSuppliers = useCallback(async () => {
+    const mine = ++seq.current;
     setIsLoading(true);
     setError('');
     try {
@@ -68,14 +76,16 @@ export default function SuppliersPage() {
       const res = await apiFetch(`/api/accounting/suppliers-list?${params}`);
       await assertOk(res, 'Could not load the suppliers - try again');
       const json = await res.json();
+      if (mine !== seq.current) return;
       const data = json.data ?? json;
       setSuppliers((data.suppliers ?? data) as Supplier[]);
       setTotal(data.total ?? 0);
     } catch (err) {
+      if (mine !== seq.current) return;
       setSuppliers([]); setTotal(0);
       setError(apiErrorMessage(err, 'Could not load the suppliers - try again'));
     } finally {
-      setIsLoading(false);
+      if (mine === seq.current) { setLoadedQ(debouncedSearch); setIsLoading(false); }
     }
   }, [debouncedSearch, page]);
 
@@ -121,8 +131,8 @@ export default function SuppliersPage() {
             );
           })()}
           {/* Search bar */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6">
+            <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
@@ -130,7 +140,7 @@ export default function SuppliersPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, email or category..."
-                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-full sm:w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
             {!isLoading && (
@@ -141,32 +151,28 @@ export default function SuppliersPage() {
           </div>
 
           {/* Content */}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" />
-            </div>
+          {isLoading || loadedQ !== debouncedSearch ? (
+            <ListSkeleton label="Loading suppliers" />
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
               <AlertCircle className="h-5 w-5" />
               <span>{error}</span>
             </div>
           ) : suppliers.length === 0 ? (
-            <div className="text-center py-16">
-              <Truck className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)] font-medium">No suppliers found</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
-                {search ? 'Try a different search term' : 'Add your first supplier to get started'}
-              </p>
-              {!search && (
-                <Link
-                  href="/accounting/suppliers/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Supplier
-                </Link>
-              )}
-            </div>
+            <ListEmpty
+              filtered={!!loadedQ}
+              onClearFilters={() => setSearch('')}
+              page={page}
+              total={total}
+              onFirstPage={() => setPage(1)}
+              firstRun={{
+                icon: Truck,
+                title: 'No suppliers yet',
+                description: 'Suppliers are who you buy from. Add one to capture their bills.',
+                checklist: ['Add the supplier', 'Capture their invoice', 'Pay it from the bank'],
+                primaryAction: { label: 'New Supplier', href: '/accounting/suppliers/new' },
+              }}
+            />
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
               <table className="w-full text-sm">
