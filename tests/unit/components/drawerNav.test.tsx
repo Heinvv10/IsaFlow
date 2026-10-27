@@ -27,7 +27,7 @@ describe('DrawerNav', () => {
     expect(screen.getByRole('link', { name: 'Sales Orders' }).getAttribute('href')).toBe('/accounting/customer-sales-orders');
   });
 
-  it('lists a page once: a daily link the sections also list is dropped (W2 H)', () => {
+  it('"Customers" once: a daily link named like the section that lists its page is dropped (W2 H)', () => {
     render(<DrawerNav />);
     fireEvent.click(button('Sales'));
     fireEvent.click(button('Customers'));
@@ -35,6 +35,9 @@ describe('DrawerNav', () => {
     expect(hrefs.filter((h) => h === '/accounting/customers')).toHaveLength(1);
     expect(screen.queryByRole('link', { name: 'Customers' })).toBeNull();
     expect(screen.getByRole('link', { name: 'List of Customers' })).toBeTruthy();
+    expect(screen.getAllByText('Customers')).toHaveLength(1);
+    // A shortcut into a differently named section stays: Invoices -> Transactions > Tax Invoices.
+    expect(screen.getByRole('link', { name: 'Invoices' }).getAttribute('href')).toBe('/accounting/customer-invoices');
   });
 
   it('every module with pages is a native button (Enter and Space toggle it) and collapses again', () => {
