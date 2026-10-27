@@ -27,6 +27,16 @@ describe('DrawerNav', () => {
     expect(screen.getByRole('link', { name: 'Sales Orders' }).getAttribute('href')).toBe('/accounting/customer-sales-orders');
   });
 
+  it('lists a page once: a daily link the sections also list is dropped (W2 H)', () => {
+    render(<DrawerNav />);
+    fireEvent.click(button('Sales'));
+    fireEvent.click(button('Customers'));
+    const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
+    expect(hrefs.filter((h) => h === '/accounting/customers')).toHaveLength(1);
+    expect(screen.queryByRole('link', { name: 'Customers' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'List of Customers' })).toBeTruthy();
+  });
+
   it('every module with pages is a native button (Enter and Space toggle it) and collapses again', () => {
     render(<DrawerNav />);
     for (const name of ['Sales', 'Purchases', 'Banking', 'Payroll', 'Tax', 'Reports', 'Library']) {
