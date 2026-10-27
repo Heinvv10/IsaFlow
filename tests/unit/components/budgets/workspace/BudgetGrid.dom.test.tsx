@@ -69,7 +69,9 @@ describe('roles and ARIA', () => {
     expect(cell(accountRowKey(ID.rev1), 0)).toHaveAttribute('aria-readonly', 'false');
     // Subtotal cells are readable, never focusable.
     const gp = screen.getByRole('rowheader', { name: 'Gross profit' }).closest('tr')!;
-    expect(gp).toHaveAttribute('aria-readonly', 'true');
+    // aria-readonly is not allowed on a <tr> (axe aria-allowed-attr): it sits on every cell instead.
+    expect(document.querySelectorAll('tr[aria-readonly]')).toHaveLength(0);
+    expect(within(gp).getAllByRole('gridcell').every(td => td.getAttribute('aria-readonly') === 'true')).toBe(true);
     expect(within(gp).getByRole('gridcell', { name: /Gross profit, Mar 2026, R 600\.00/ })).toBeInTheDocument();
   });
 

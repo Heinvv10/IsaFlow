@@ -48,8 +48,8 @@ function PreviewTable({ current, preview }: { current: PreviewFigures | null; pr
           ))}
         </tbody>
       </table>
-      {preview.error && <p role="alert" className="text-xs text-[var(--ff-error-500)]">Could not load the figures: {preview.error}</p>}
-      {preview.next && !preview.next.ok && <p role="alert" className="text-xs text-[var(--ff-error-500)]">{preview.next.reason}</p>}
+      {preview.error && <p role="alert" className="text-xs text-[var(--ff-unfav)]">Could not load the figures: {preview.error}</p>}
+      {preview.next && !preview.next.ok && <p role="alert" className="text-xs text-[var(--ff-unfav)]">{preview.next.reason}</p>}
     </div>
   );
 }

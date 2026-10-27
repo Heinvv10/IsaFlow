@@ -56,7 +56,7 @@ export function WizardSourceStep({ draft, years, onChange }: Props) {
             <option value="">{versions === null ? 'Loading…' : 'Pick a version'}</option>
             {(versions ?? []).map((v) => <option key={v.id} value={v.id}>{v.name} · {v.kind}</option>)}
           </SelectField>
-          {error && <p role="alert" className="text-xs text-[var(--ff-error-500)] sm:col-span-2">{error}</p>}
+          {error && <p role="alert" className="text-xs text-[var(--ff-unfav)] sm:col-span-2">{error}</p>}
         </div>
       )}
       {usesPct && (

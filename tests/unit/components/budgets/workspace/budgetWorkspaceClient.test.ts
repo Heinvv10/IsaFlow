@@ -30,7 +30,11 @@ beforeEach(() => {
     return reply(body);
   }));
 });
-afterEach(() => { vi.unstubAllGlobals(); });
+// Leave a fetch that refuses: a late effect must never reach a real server.
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('test over'); }));
+});
 
 const upsert = (i: number): SaveCell => ({
   glAccountId: ID.rev1, cc1Id: null, cc2Id: null, buId: null, month: `${2000 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`, amount: i,
@@ -50,16 +54,34 @@ describe('saveChained', () => {
     expect(bodyOf(sent[0]!).cells.map(c => c.clear === true)).toEqual([true, false, false]);
   });
 
-  it('chunks at MAX_SAVE_CELLS, clears first, chaining each response token into the next request', async () => {
+  it('chunks on ACCOUNT boundaries: an account never spans two requests; clears first in each; tokens chained', async () => {
     expect(MAX_SAVE_CELLS).toBe(20_000);
-    const cells = [...Array.from({ length: MAX_SAVE_CELLS + 5 }, (_, i) => upsert(i)), ...Array.from({ length: 3 }, (_, i) => clear(i))];
-    replies.push(() => ok({ updatedAt: 'T1', saved: 19_997, deleted: 3 }), () => ok({ updatedAt: 'T2', saved: 8, deleted: 0 }));
-    const r = await saveChained(ID.version, cells, TOKEN);
-    expect(r).toEqual({ ok: true, updatedAt: 'T2', saved: 20_005, deleted: 3, chunks: 2 });
-    expect(sent.map(s => bodyOf(s).cells.length)).toEqual([MAX_SAVE_CELLS, 8]);
+    const a = Array.from({ length: 12_000 }, (_, i) => ({ ...upsert(i), glAccountId: ID.rev1 }));
+    const b = [...Array.from({ length: 9_000 }, (_, i) => ({ ...upsert(i), glAccountId: ID.cos1 })), ...Array.from({ length: 5 }, (_, i) => ({ ...clear(i), glAccountId: ID.cos1 }))];
+    const c = Array.from({ length: 3 }, (_, i) => clear(i));
+    replies.push(() => ok({ updatedAt: 'T1', saved: 12_000, deleted: 0 }), () => ok({ updatedAt: 'T2', saved: 9_000, deleted: 8 }));
+    const r = await saveChained(ID.version, [...a, ...b, ...c], TOKEN);
+    expect(r).toEqual({ ok: true, updatedAt: 'T2', saved: 21_000, deleted: 8, chunks: 2 });
+    expect(sent.map(s => bodyOf(s).cells.length)).toEqual([12_000, 9_008]);
     expect(sent.map(s => bodyOf(s).expectedUpdatedAt)).toEqual([TOKEN, 'T1']);
+    const accounts = sent.map(s => new Set(bodyOf(s).cells.map(x => x.glAccountId)));
+    expect(accounts[0]).toEqual(new Set([ID.rev1]));
+    expect(accounts[1]).toEqual(new Set([ID.cos1, ID.rev2]));
+    const second = bodyOf(sent[1]!).cells;
+    expect(second.slice(0, 8).every(x => x.clear === true)).toBe(true);
+    expect(second.slice(8).some(x => x.clear)).toBe(false);
+  });
+
+  it('an account bigger than one request: its clears and first upserts lead, the rest follow, the next account packs in after', async () => {
+    const big = [...Array.from({ length: MAX_SAVE_CELLS + 5 }, (_, i) => upsert(i)), ...Array.from({ length: 3 }, (_, i) => ({ ...clear(i), glAccountId: ID.rev1 }))];
+    const other = [upsert(0), upsert(1)].map(x => ({ ...x, glAccountId: ID.cos1 }));
+    replies.push(() => ok({ updatedAt: 'T1', saved: 19_997, deleted: 3 }), () => ok({ updatedAt: 'T2', saved: 10, deleted: 0 }));
+    const r = await saveChained(ID.version, [...big, ...other], TOKEN);
+    expect(r).toEqual({ ok: true, updatedAt: 'T2', saved: 20_007, deleted: 3, chunks: 2 });
+    expect(sent.map(s => bodyOf(s).cells.length)).toEqual([MAX_SAVE_CELLS, 10]);
     expect(bodyOf(sent[0]!).cells.slice(0, 3).every(c => c.clear === true && c.amount === null)).toBe(true);
     expect(bodyOf(sent[0]!).cells.slice(3).some(c => c.clear)).toBe(false);
+    expect(bodyOf(sent[1]!).cells.slice(-2).every(c => c.glAccountId === ID.cos1)).toBe(true);
   });
 
   it('stops on a 409 mid-chain: names the failed chunk, the cells already committed and the last good token', async () => {

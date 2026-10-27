@@ -5,8 +5,8 @@
  */
 import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { parseKey } from '@/modules/accounting/services/budgets/grid/cellKey';
-import { type RoundingUnit, divRoundHalfAway, isCents } from '@/modules/accounting/services/budgets/grid/cents';
-import { spreadEven } from '@/modules/accounting/services/budgets/grid/spread';
+import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
+import { type SplitResult, splitByWeights, spreadEven } from '@/modules/accounting/services/budgets/grid/spread';
 
 export interface CellWriteByKey { key: CellKey; cents: number | null }
 
@@ -25,34 +25,6 @@ export interface ChildShare {
   py: readonly number[] | null;
 }
 
-export type ShareResult = { ok: true; shares: number[] } | { ok: false; reason: string };
-
-/**
- * `totalCents` split across `n` children (any n ≥ 1; PR-A's spreads stop at 15 months on purpose):
- * evenly, or by `weights` (PY share, one-signed, not all zero). Every share but the LAST is rounded
- * half away from zero to the unit; the last takes the residue, so Σ shares = total exactly (decision 5).
- */
-export function splitShares(totalCents: number, n: number, unit: RoundingUnit, weights: readonly number[] | null = null): ShareResult {
-  if (!Number.isInteger(n) || n < 1) return { ok: false, reason: 'There is nothing to spread across.' };
-  if (!isCents(totalCents)) return { ok: false, reason: `Not a budget amount in cents: ${totalCents}.` };
-  if (weights !== null) {
-    if (weights.length !== n || !weights.every(Number.isSafeInteger)) return { ok: false, reason: 'One prior-year amount per sub-account is needed.' };
-    if (weights.some(w => w > 0) && weights.some(w => w < 0)) return { ok: false, reason: 'The sub-accounts\' prior-year amounts have mixed signs, so they give no shares.' };
-    if (weights.every(w => w === 0)) return { ok: false, reason: 'The sub-accounts have no prior-year actuals.' };
-  }
-  const step = BigInt(unit * 100);
-  const total = BigInt(totalCents);
-  const wSum = weights === null ? BigInt(n) : weights.reduce((s, w) => s + BigInt(w), 0n);
-  const shares: number[] = [];
-  for (let i = 0; i < n - 1; i++) {
-    const w = weights === null ? 1n : BigInt(weights[i]!);
-    shares.push(Number(divRoundHalfAway(total * w, wSum * step) * step));
-  }
-  shares.push(totalCents - shares.reduce((s, x) => s + x, 0));
-  if (!shares.every(isCents)) return { ok: false, reason: 'The result is larger than the biggest amount a budget month can hold.' };
-  return { ok: true, shares: shares.map(x => (x === 0 ? 0 : x)) };
-}
-
 export type ChildSplit =
   | { ok: true; perChild: number[][]; note: string | null }
   | { ok: false; reason: string };
@@ -68,23 +40,23 @@ export function splitAcrossChildren(
 ): ChildSplit {
   if (children.length === 0) return { ok: false, reason: 'This header has no sub-accounts.' };
   let note: string | null = null;
-  let shares: ShareResult;
+  let shares: SplitResult;
   if (mode === 'py') {
     const weights = children.map(ch => (ch.py === null ? 0 : month === null ? ch.py.reduce((s, c) => s + c, 0) : ch.py[month] ?? 0));
     if (weights.every(w => w === 0)) {
       note = 'The sub-accounts have no prior-year actuals, so the amount was spread evenly.';
-      shares = splitShares(totalCents, children.length, unit);
+      shares = splitByWeights(totalCents, children.length, unit);
     } else {
-      shares = splitShares(totalCents, children.length, unit, weights);
+      shares = splitByWeights(totalCents, weights, unit);
     }
   } else {
-    shares = splitShares(totalCents, children.length, unit);
+    shares = splitByWeights(totalCents, children.length, unit);
   }
   if (!shares.ok) return shares;
   const perChild: number[][] = [];
   for (let i = 0; i < children.length; i++) {
     const child = children[i]!;
-    const share = shares.shares[i] ?? 0;
+    const share = shares.parts[i] ?? 0;
     if (month !== null) {
       perChild.push(Array.from({ length: monthCount }, (_, m) => (m === month ? share : child.values[m] ?? 0)));
       continue;

@@ -1,7 +1,9 @@
 /**
  * The budget planning grid (spec §4.4, §5, §6, §12): `<table role="grid">` with a sticky head and
- * first column (stickyTable: the PAGE scrolls, no nested scroll box), one `<tbody>` per band
- * (`content-visibility: auto`, §13), line rows that subscribe per row, and live subtotal rows.
+ * first column (stickyTable: the PAGE scrolls, no nested scroll box), one `<tbody>` per band, line
+ * rows that subscribe per row, and live subtotal rows. No `content-visibility` (§13): on a `<tbody>`
+ * it is inert (internal table boxes take no containment), and wrapping a band in a block box would
+ * break the one table the sticky head and column rely on; the perf spec measures the page as is.
  * Keys, mouse and clipboard go through the core hooks (`useGridKeyboard`, `useGridClipboard`);
  * row actions through `useRowActions`. On a coarse pointer or under 768px a tap opens the
  * single-cell sheet instead (§12: read + single-cell edit, no range or clipboard).
@@ -38,15 +40,17 @@ export interface BudgetGridProps {
   /** Members of the current view's dimension (empty in the Company view). */
   members: readonly DimensionMember[];
   onSave(): void;
-  /** Tab past the last column: move focus to the save bar. */
-  onExit(): void;
+  /**
+   * Tab past the last column: move focus to the save bar and return true; return false when there
+   * is nowhere to go (save bar hidden) and the browser's own Tab moves on (no keyboard trap).
+   */
+  onExit(): boolean;
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const shortMonth = (m: string) => `${monthLabel(m).slice(0, 3)} ${m.slice(2, 4)}`;
 const longMonth = (m: string) => `${MONTH_NAMES[Number(m.slice(5, 7)) - 1] ?? m} ${m.slice(0, 4)}`;
 const HEAD = 'px-2 py-2 text-xs font-semibold text-right whitespace-nowrap text-[var(--ff-text-secondary)]';
-const SECTION_STYLE = { contentVisibility: 'auto', containIntrinsicSize: 'auto 480px' } as const;
 
 /** Coarse pointer or a phone-width viewport (spec §12). */
 function useCompact(): boolean {
@@ -81,7 +85,7 @@ export function BudgetGrid(props: BudgetGridProps) {
   const gridRef = useRef<HTMLTableElement>(null);
   const keys = useGridKeyboard({ store, gridRef, roundingUnit, onSave, onExit });
   const clip = useGridClipboard(store);
-  const { onRowAction, dialogs } = useRowActions({ store, layout, roundingUnit, view, members, gridRef });
+  const { onRowAction, dialogs } = useRowActions({ store, layout, roundingUnit, view, members, focusPos: keys.focusPos });
   const sheet = useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction });
 
   const accountant = density === 'accountant';
@@ -146,7 +150,7 @@ export function BudgetGrid(props: BudgetGridProps) {
       >
         <thead>{header}</thead>
         {groups(layout.rows).map(g => (
-          <tbody key={g[0]!.key} style={g[0]!.kind === 'section' ? SECTION_STYLE : undefined}>{g.map(render)}</tbody>
+          <tbody key={g[0]!.key}>{g.map(render)}</tbody>
         ))}
       </table>
       <div aria-live="polite" className="sr-only" data-testid="grid-announcement">
@@ -155,11 +159,14 @@ export function BudgetGrid(props: BudgetGridProps) {
       {meta.notice && (
         <div role="status" className="mt-3 rounded border border-[var(--ff-border-secondary)] bg-[var(--ff-bg-secondary)] p-3 text-sm">
           <div className="flex items-start justify-between gap-3">
-            <p className="font-medium text-[var(--ff-text-primary)]">{meta.notice.length} pasted {meta.notice.length === 1 ? 'cell was' : 'cells were'} not a number and left unchanged</p>
+            <p className="font-medium text-[var(--ff-text-primary)]">{meta.notice.length} {meta.notice.length === 1 ? 'cell needs' : 'cells need'} a look</p>
             <button type="button" onClick={store.dismissNotice} className="text-xs underline text-[var(--ff-text-secondary)]">Dismiss</button>
           </div>
           <ul className="mt-2 space-y-0.5 text-xs text-[var(--ff-text-secondary)]">
-            {meta.notice.map((n, i) => <li key={i}>{n.rowLabel}, {n.monthLabel}: “{n.raw}”: {n.reason}</li>)}
+            {meta.notice.map((n, i) => (
+              // No text to quote (a paste clipped at the grid's edge): "label[, month]: reason".
+              <li key={i}>{[n.rowLabel, n.monthLabel].filter(Boolean).join(', ')}: {n.raw === '' ? '' : `“${n.raw}”: `}{n.reason}</li>
+            ))}
           </ul>
         </div>
       )}

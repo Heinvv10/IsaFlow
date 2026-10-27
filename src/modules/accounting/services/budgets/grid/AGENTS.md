@@ -7,7 +7,7 @@ The budget planning grid's pure model (Budgets P2, spec `docs/plans/budgets/P2-b
 
 ## Modules
 - `cents.ts`: `toCents` (reuses `core/budgetMonths.round2`), `fromCents`, `roundToUnit(cents, 1|100|1000)`, `divRoundHalfAway`, `isCents` / `MAX_CENTS` (NUMERIC(15,2) bound). Integer cents everywhere; half away from zero on the decimal value.
-- `spread.ts`: `spreadEven`, `spreadSeasonal`, `spreadStep`, `uplift` → `{ok, months} | {ok:false, reason}`. All exact (BigInt); `ok:true` months are always within `MAX_CENTS`.
+- `spread.ts`: `spreadEven`, `spreadSeasonal`, `spreadStep`, `uplift` → `{ok, months} | {ok:false, reason}`. All exact (BigInt); `ok:true` months are always within `MAX_CENTS`. `splitByWeights(total, count|weights, unit)` → `{ok, parts}`: the same rule over N parts with no 15 cap (a header's sub-accounts). `residueFlipsSign` flags a residue month on the other side of zero (the grid warns).
 - `cellKey.ts`: `cellKey` / `parseKey` (`acct|cc1|cc2|bu|YYYY-MM`), `rowKeyOf`, `grainOf`.
 - `selection.ts`: positions, ranges, `nextFocusable` (vertical moves skip non-line rows), `edgeFocusable`, `cellsIn`, `clampToEditable`.
 - `keyboard.ts`: `gridReducer(state, action, ctx) → {state, effects, handled}` (the §5.2 key table).
@@ -33,3 +33,4 @@ The budget planning grid's pure model (Budgets P2, spec `docs/plans/budgets/P2-b
 
 ## Recent changes
 - 2026-10-26: created (P2 PR-A).
+- 2026-10-27: `splitByWeights` + `residueFlipsSign` (PR-C round 1, R3 / QA-15e).

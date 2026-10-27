@@ -12,7 +12,7 @@ import { MoneyField } from '@/components/ui/MoneyField';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
 import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
-import { spreadEven, spreadSeasonal, spreadStep, type SpreadResult } from '@/modules/accounting/services/budgets/grid/spread';
+import { residueFlipsSign, spreadEven, spreadSeasonal, spreadStep, type SpreadResult } from '@/modules/accounting/services/budgets/grid/spread';
 import { fig } from './BudgetSubtotalRow';
 import {
   type CellWriteByKey, type ChildShare, childWrites, clearWrites, moveWrites, rowWrites, splitAcrossChildren,
@@ -63,7 +63,10 @@ function preview(target: SpreadTarget, months: readonly string[], unit: Rounding
       ? (target.py ? spreadSeasonal(amount, target.py, unit) : { ok: false, reason: 'Prior-year actuals are not loaded.' })
       : method === 'step' ? spreadStep(amount, n, growth, unit) : spreadEven(amount, n, unit);
     if (!r.ok) return r;
-    return { ok: true, note: null, writes: rowWrites(target.row.keys, r.months), lines: r.months.map((c, i) => ({ label: monthLabel(months[i] ?? ''), cents: c })) };
+    const note = residueFlipsSign(amount, r.months)
+      ? `The R${unit} rounding puts the last month on the other side of zero; a smaller rounding unit avoids it.`
+      : null;
+    return { ok: true, note, writes: rowWrites(target.row.keys, r.months), lines: r.months.map((c, i) => ({ label: monthLabel(months[i] ?? ''), cents: c })) };
   }
   const split = splitAcrossChildren(amount, target.children, method === 'py' ? 'py' : 'even', month, months.length, unit);
   if (!split.ok) return split;

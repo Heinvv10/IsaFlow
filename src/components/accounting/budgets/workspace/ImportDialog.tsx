@@ -45,7 +45,13 @@ export function ImportDialog(p: ImportDialogProps) {
   const run = async (file: File) => {
     setBusy(true); setError(null); setFailure(null); setPreview(null);
     let r: Awaited<ReturnType<typeof previewImport>>;
-    try { r = await previewImport(p.versionId, file); } finally { setBusy(false); }
+    try {
+      r = await previewImport(p.versionId, file);
+    } catch {
+      // The browser could not read the file (moved, renamed or locked since it was picked).
+      setError('The file could not be read. Check it still exists, then choose it again.');
+      return;
+    } finally { setBusy(false); }
     if (r.ok) setPreview(r.data); else setError(failureText(r));
   };
   const pick = (file: File | undefined) => {
@@ -74,12 +80,12 @@ export function ImportDialog(p: ImportDialogProps) {
                    onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
           </label>
           {p.dirtyCount > 0 && (
-            <p role="alert" className="text-sm text-[var(--ff-warning-500)]">
+            <p role="alert" className="text-sm font-medium text-[var(--ff-text-primary)]">
               You have {p.dirtyCount} unsaved edit{p.dirtyCount === 1 ? '' : 's'}. Save or discard them before you commit an import.
             </p>
           )}
           {busy && preview === null && <p className="text-sm text-[var(--ff-text-tertiary)]">Reading the file…</p>}
-          {error && <p role="alert" className="text-sm text-[var(--ff-error-500)]">{error}</p>}
+          {error && <p role="alert" className="text-sm text-[var(--ff-unfav)]">{error}</p>}
           {preview && (
             <ImportDiffPreview preview={preview} months={p.months} accountLabels={p.accountLabels} memberLabels={p.memberLabels}
                                nowMs={Date.now()} busy={busy || p.dirtyCount > 0} failure={failure}

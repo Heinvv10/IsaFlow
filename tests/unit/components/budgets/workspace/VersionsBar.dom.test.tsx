@@ -1,7 +1,8 @@
 /** Versions bar (spec §10): the role × status matrix decides which buttons render; dialogs gate every action. */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { VersionsBar, versionButtons, type VersionsBarProps } from '@/components/accounting/budgets/workspace/VersionsBar';
+import { VersionsBar, canWriteRole, versionButtons, type VersionsBarProps } from '@/components/accounting/budgets/workspace/VersionsBar';
+import { DEFAULT_WRITE_ROLES, canWrite } from '@/lib/auth/writeRoles';
 import { validUnlockReason } from '@/components/accounting/budgets/workspace/VersionStatusDialogs';
 import type { BudgetVersion } from '@/components/accounting/budgets/workspace/types';
 
@@ -57,6 +58,13 @@ describe('role × status matrix', () => {
     expect(versionButtons(version({ status: 'locked' }), 'owner').has('unlock')).toBe(true);
     expect(versionButtons(null, 'owner').size).toBe(0);
     expect(versionButtons(version(), null).size).toBe(0);
+  });
+});
+
+describe('write roles', () => {
+  it('come from the server\'s list (@/lib/auth/writeRoles), not a copy', () => {
+    expect(canWriteRole).toBe(canWrite);
+    for (const role of [...DEFAULT_WRITE_ROLES, 'viewer', 'accountant', null]) expect(canWriteRole(role)).toBe(canWrite(role));
   });
 });
 

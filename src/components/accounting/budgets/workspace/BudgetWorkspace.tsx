@@ -17,7 +17,7 @@ import { downloadDirtyCells } from './downloadDirtyCells';
 import { GridToolbar } from './GridToolbar';
 import { ImportDialog } from './ImportDialog';
 import { SaveBar } from './SaveBar';
-import { StaleVersionDialog, type StaleChoice } from './StaleVersionDialog';
+import { StaleVersionDialog, myChangesName, type StaleChoice } from './StaleVersionDialog';
 import { TemplateDownloadDialog } from './TemplateDownloadDialog';
 import { useBudgetGrid } from './useBudgetGrid';
 import { useUnsavedGuard } from './useUnsavedGuard';
@@ -32,6 +32,19 @@ type Wizard = null | { source?: SourceChoice; fromVersion?: { id: string; fiscal
 const PANEL = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
 const SELECT = 'min-w-0 max-w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)]';
 
+/**
+ * The grid's `onExit` (Tab off its last cell): focus the save bar's Save button when it is there
+ * and enabled, and say whether focus moved. The grid prevents the browser's Tab only on true, so
+ * with no bar (clean, locked, read-only) focus leaves the grid natively: no keyboard trap.
+ */
+export function exitToSaveBar(direction: 'forward' | 'backward' = 'forward'): boolean {
+  if (direction !== 'forward') return false;
+  const save = document.querySelector<HTMLButtonElement>('[data-testid="save-bar-save"]');
+  if (!save || save.disabled) return false;
+  save.focus();
+  return document.activeElement === save;
+}
+
 function GridSkeleton() {
   return (
     <div className={`${PANEL} p-4`} data-testid="workspace-loading" aria-busy="true" aria-label="Loading the budget">
@@ -43,7 +56,7 @@ function GridSkeleton() {
 
 function ErrorPanel({ message, onRetry, busy }: { message: string; onRetry: () => void; busy: boolean }) {
   return (
-    <div role="alert" data-testid="workspace-error" className={`${PANEL} flex flex-wrap items-center justify-between gap-2 p-4 text-sm text-[var(--ff-error-500)]`}>
+    <div role="alert" data-testid="workspace-error" className={`${PANEL} flex flex-wrap items-center justify-between gap-2 p-4 text-sm text-error-700 dark:text-error-400`}>
       <span>{message}</span>
       <button type="button" onClick={onRetry} disabled={busy} className="rounded border border-[var(--ff-border-primary)] px-3 py-1 text-[var(--ff-text-primary)] disabled:opacity-50">Retry</button>
     </div>
@@ -68,7 +81,9 @@ export function BudgetWorkspace() {
   const { model, version, status } = grid;
   const locked = version?.status === 'locked';
   const editable = canWrite && version !== null && !locked;
-  const loading = years.loading || status === 'loading' || status === 'idle';
+  // Years answered but name no year to budget: say so (the hook stays idle without a year).
+  const noYear = !years.loading && !years.error && fiscalYear === null;
+  const loading = years.loading || status === 'loading' || (status === 'idle' && !noYear);
   const compareLabel = versions.versions.find((v) => v.id === grid.compareVersionId)?.name ?? null;
   const yearOptions = years.years.length > 0 ? years.years : [];
 
@@ -80,7 +95,7 @@ export function BudgetWorkspace() {
 
   const chooseStale = async (choice: StaleChoice): Promise<string | null> => {
     if (!model || !version || !grid.token) return 'The budget is not loaded.';
-    if (choice === 'reapply') { await grid.reapplyMine(); return null; }
+    if (choice === 'reapply') return grid.reapplyMine();
     if (choice === 'discard') { await grid.discardAndReload(); return null; }
     if (choice === 'download') {
       return downloadDirtyCells({
@@ -90,12 +105,11 @@ export function BudgetWorkspace() {
       });
     }
     // Locked: a draft copy of the version, my cells re-applied on top (unsaved, for review).
-    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    const copy = await copyVersion(version.id, { name: `${version.name} (my changes ${stamp})`, kind: version.kind === 'original' ? 'reforecast' : version.kind });
+    const copy = await copyVersion(version.id, { name: myChangesName(version.name, new Date()), kind: version.kind === 'original' ? 'reforecast' : version.kind });
     if (!copy.ok) return failureText(copy);
-    await grid.reapplyMine(copy.data.id);
+    const notLoaded = await grid.reapplyMine(copy.data.id);
     versions.refresh();
-    return null;
+    return notLoaded === null ? null : `The copy “${copy.data.name}” was created but could not be loaded: ${notLoaded} Your changes are still here; pick the copy in the version list and re-apply.`;
   };
 
   const onCreated = (versionId: string, opts: { thenImport: boolean }) => {
@@ -103,14 +117,13 @@ export function BudgetWorkspace() {
     void grid.selectVersion(versionId).then(() => { versions.refresh(); if (opts.thenImport) setImportOpen(true); });
   };
 
-  const focusSaveBar = () => document.querySelector<HTMLButtonElement>('[data-testid="save-bar"] button:last-of-type')?.focus();
 
   return (
     <div className="min-h-screen bg-[var(--ff-bg-primary)]">
       <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-4 sm:px-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <Wallet className="h-6 w-6 shrink-0 text-[var(--ff-brand)]" aria-hidden="true" />
+            <Wallet className="h-6 w-6 shrink-0 text-[var(--ff-brand-eyebrow)]" aria-hidden="true" />
             <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Budget workspace</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -132,8 +145,14 @@ export function BudgetWorkspace() {
       <div className="space-y-4 p-4 sm:p-6">
         {years.error && <ErrorPanel message={years.error} onRetry={years.retry} busy={years.loading} />}
         {!years.error && status === 'error' && <ErrorPanel message={grid.error ?? 'Could not load the budget.'} onRetry={() => { void grid.reload(); }} busy={false} />}
-        {(versions.listError || grid.compareError) && <p role="alert" className="text-sm text-[var(--ff-error-500)]">{versions.listError ?? grid.compareError}</p>}
+        {(versions.listError || grid.compareError) && <p role="alert" className="text-sm text-error-700 dark:text-error-400">{versions.listError ?? grid.compareError}</p>}
         {!years.error && loading && status !== 'error' && <GridSkeleton />}
+        {noYear && (
+          <div data-testid="workspace-no-year" className={`${PANEL} flex flex-wrap items-center justify-between gap-2 p-4 text-sm text-[var(--ff-text-secondary)]`}>
+            <span>There is no financial year to budget yet. Set the company&apos;s financial year in Settings, then try again.</span>
+            <button type="button" onClick={years.retry} className="rounded border border-[var(--ff-border-primary)] px-3 py-1 text-[var(--ff-text-primary)]">Try again</button>
+          </div>
+        )}
         {status === 'empty' && fiscalYear !== null && model && (
           <WorkspaceEmptyState fiscalYear={fiscalYear} noAccounts={model.accounts.length === 0} canWrite={canWrite}
             canCopy onStart={(source) => setWizard({ source })} />
@@ -147,14 +166,14 @@ export function BudgetWorkspace() {
               roundingUnit={grid.roundingUnit} onRoundingUnitChange={grid.setRoundingUnit} density={density} onDensityChange={setDensity}
               showPy={showPy} onShowPyChange={setShowPy} onDownloadTemplate={() => setTemplateOpen(true)}
               onImport={editable ? () => setImportOpen(true) : null} disabled={false} />
-            {model.cells.length === 0 && editable && (
+            {!grid.hasAmounts && editable && (
               <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="workspace-no-amounts">
                 This version has no amounts yet. Paste a block from Excel into the grid, type amounts, or use a row&apos;s actions to spread a total.
               </p>
             )}
             <BudgetGrid store={grid.store} view={grid.view} roundingUnit={grid.roundingUnit} density={density} showPy={showPy}
               compareLabel={compareLabel} canWrite={editable} members={grid.members}
-              onSave={() => { void grid.save(); }} onExit={focusSaveBar} />
+              onSave={() => { void grid.save(); }} onExit={exitToSaveBar} />
           </>
         )}
       </div>
@@ -165,7 +184,7 @@ export function BudgetWorkspace() {
       {wizard && fiscalYear !== null && (
         <CreateWizard open onClose={() => setWizard(null)} years={years.years} fiscalYear={fiscalYear}
           canMakePrimary={companyRole === 'owner' || companyRole === 'admin'} accounts={model?.accounts ?? []}
-          currentTotals={version ? model?.totals.fy ?? null : null} sourceVersion={wizard.fromVersion ?? null}
+          currentTotals={version ? grid.store.fyTotals() : null} sourceVersion={wizard.fromVersion ?? null}
           initialSource={wizard.source} onCreated={onCreated} />
       )}
       {importOpen && version && model && (

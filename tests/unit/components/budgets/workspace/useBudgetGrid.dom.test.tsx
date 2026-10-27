@@ -38,7 +38,11 @@ beforeEach(() => {
     return route.reply(url, body);
   }));
 });
-afterEach(() => { vi.unstubAllGlobals(); });
+// Leave a fetch that refuses: a late effect must never reach a real server.
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('test over'); }));
+});
 
 async function loaded(fiscalYear: number | null = 2027) {
   const hook = renderHook(({ fy }) => useBudgetGrid({ fiscalYear: fy, canWrite: true }), { initialProps: { fy: fiscalYear } });

@@ -9,7 +9,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BudgetWorkspace } from '@/components/accounting/budgets/workspace/BudgetWorkspace';
 import { buildLayout } from '@/components/accounting/budgets/workspace/gridLayout';
-import { StaleVersionDialog, staleHeadline } from '@/components/accounting/budgets/workspace/StaleVersionDialog';
+import { StaleVersionDialog, VERSION_NAME_MAX, myChangesName, staleHeadline } from '@/components/accounting/budgets/workspace/StaleVersionDialog';
 import type { StaleState } from '@/components/accounting/budgets/workspace/types';
 import { fail, installNetwork, isModel, isSave, ok } from './workspaceHarness';
 import { ID, TOKEN, gridModel } from './gridFixture';
@@ -36,6 +36,8 @@ describe('StaleVersionDialog alone', () => {
     render(<StaleVersionDialog stale={stale()} onChoose={onChoose} onClose={onClose} />);
     expect(screen.getByTestId('stale-dialog')).toHaveTextContent('This budget was changed since you opened it. Your 3 unsaved changes are kept.');
     expect(screen.queryByRole('button', { name: 'Copy into a new draft version' })).toBeNull();
+    // The server's sentence says what the headline already says: printed once, not twice (proof F3).
+    expect(screen.getByTestId('stale-dialog')).not.toHaveTextContent('This budget version changed since you loaded it');
     fireEvent.click(screen.getByRole('button', { name: 'Reload and re-apply mine' }));
     await waitFor(() => expect(onChoose).toHaveBeenCalledWith('reapply'));
     fireEvent.click(screen.getByRole('button', { name: 'Download my changes (.xlsx)' }));
@@ -67,6 +69,16 @@ describe('StaleVersionDialog alone', () => {
     expect(screen.getByTestId('stale-chunk')).toHaveTextContent('Part 2 of 3 was refused. Part 1 was saved.');
     fireEvent.click(screen.getByRole('button', { name: 'Discard mine and reload' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the budget.');
+  });
+
+  it('the copy\'s name fits the server\'s 120-character limit and keeps the stamp', () => {
+    const at = new Date(2026, 9, 27, 9, 15); // local time, as the name is written
+    expect(myChangesName('Original', at)).toBe('Original (my changes 2026-10-27 09:15)');
+    const long = myChangesName('B'.repeat(118), at);
+    expect(VERSION_NAME_MAX).toBe(120);
+    expect(long.length).toBeLessThanOrEqual(120);
+    expect(long).toMatch(/^B+… \(my changes 2026-10-27 09:15\)$/);
+    expect(myChangesName(`  ${'C'.repeat(200)}  `, at).length).toBeLessThanOrEqual(120);
   });
 
   it('headline follows the version status the server reported', () => {

@@ -29,6 +29,8 @@ export interface BudgetGridApi {
   /** The version token: what the next save (or a status move) sends as `expectedUpdatedAt`. */
   token: string | null;
   dirtyCount: number;
+  /** Any budgeted cell in the store now (the "no amounts yet" hint). */
+  hasAmounts: boolean;
   view: View;
   setView(view: View): void;
   /** The current dimension's members with their FY net profit (cents); [] in the Company view. */
@@ -44,8 +46,11 @@ export interface BudgetGridApi {
   saveState: SaveState;
   discard(): void;
   stale: StaleState | null;
-  /** Fresh read + rebaseDirty; `intoVersionId` re-applies into another version (a draft copy of a locked one). */
-  reapplyMine(intoVersionId?: string): Promise<void>;
+  /**
+   * Fresh read + rebaseDirty; `intoVersionId` re-applies into another version (a draft copy of a
+   * locked one). Resolves null when done, else the message to show (the edits stay in the store).
+   */
+  reapplyMine(intoVersionId?: string): Promise<string | null>;
   discardAndReload(): Promise<void>;
   dismissStale(): void;
   compareVersionId: string | null;
@@ -56,6 +61,14 @@ export interface BudgetGridApi {
 }
 
 const COMPANY: View = { kind: 'company' };
+/** The Company view's members: ONE array, so its identity never changes what the grid's row handlers see. */
+const NO_MEMBERS: MemberTotal[] = [];
+
+/** "Parts 1–k of n were saved" for a chained commit refused at chunk `failed` (0-based). */
+function savedParts(failed: number, chunks: number): string {
+  if (failed === 0) return 'Nothing was saved.';
+  return failed === 1 ? `Part 1 of ${chunks} was saved; the rest was not.` : `Parts 1–${failed} of ${chunks} were saved; the rest were not.`;
+}
 
 export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | null; canWrite: boolean }): BudgetGridApi {
   const [store] = useState(() => new GridStore());
@@ -71,11 +84,18 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
   const [compareVersionId, setCompareVersionId] = useState<string | null>(null);
   const [compareError, setCompareError] = useState<string | null>(null);
   const dirtyCount = useSyncExternalStore(store.subscribeMeta, () => store.getMeta().dirtyCount, () => store.getMeta().dirtyCount);
+  const hasAmounts = useSyncExternalStore(store.subscribeRevision, () => store.hasAmounts(), () => store.hasAmounts());
+  // Member NP moves with every value change, but only a dimension view shows it: the Company view
+  // reads 0, so its edits never re-render the workspace through this.
+  const revisionOf = useCallback(() => (view.kind === 'company' ? 0 : store.getRevision()), [store, view.kind]);
+  const revision = useSyncExternalStore(store.subscribeRevision, revisionOf, revisionOf);
 
   // Refs: the async paths read the latest without re-binding every callback.
   const seq = useRef(0);
+  // Written ONLY where the matching state is set (never from render): a render forced by a store
+  // subscription mid-update would carry the previous state and undo a newer value here.
   const live = useRef({ model, token, view, canWrite });
-  live.current = { model, token, view, canWrite };
+  useEffect(() => { live.current = { ...live.current, canWrite }; }, [canWrite]);
   const priorCache = useRef(new Map<string, PriorActuals>());
   const compareCells = useRef<GridCell[] | null>(null);
   const saving = useRef(false);
@@ -114,7 +134,11 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     setError(null);
     const r = await fetchGridModel(sel);
     if (mine !== seq.current) return;
-    if (!r.ok) { setModel(null); setToken(null); setError(r.message); setStatus('error'); return; }
+    if (!r.ok) {
+      live.current = { ...live.current, model: null, token: null };
+      setModel(null); setToken(null); setError(r.message); setStatus('error');
+      return;
+    }
     show(r.data);
   }, [show]);
 
@@ -136,10 +160,18 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     if (id) await load({ versionId: id }); else if (fiscalYear !== null) await load({ fiscalYear });
   }, [load, fiscalYear]);
 
+  const clearCompare = useCallback(() => {
+    compareCells.current = null;
+    setCompareVersionId(null);
+    setCompareError(null);
+    store.setCompare(null);
+  }, [store]);
+
   const selectVersion = useCallback(async (id: string | null) => {
     setStale(null);
+    clearCompare();
     if (id) await load({ versionId: id }); else if (fiscalYear !== null) await load({ fiscalYear });
-  }, [load, fiscalYear]);
+  }, [load, fiscalYear, clearCompare]);
 
   const setView = useCallback((v: View) => {
     live.current = { ...live.current, view: v };
@@ -160,7 +192,8 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     setSaveState({ status: 'saving' });
     try {
       const res = await saveChained(versionId, toSaveCells(snapshot), t);
-      if (mine !== seq.current) return; // another version or year is on screen now
+      // Another version or year is on screen now: its save bar starts clean.
+      if (mine !== seq.current) { setSaveState({ status: 'idle' }); return; }
       const done = res.ok ? snapshot : committedPart(snapshot, res.committed);
       if (done.size > 0) store.markSaved(done);
       live.current = { ...live.current, token: res.updatedAt };
@@ -179,7 +212,10 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
           failedChunk: res.failedChunk, chunks: res.chunks, dirtyCount: store.getMeta().dirtyCount,
         });
       } else {
-        setSaveState({ status: 'error', message: f.message, retryAfter: 'retryAfter' in f ? f.retryAfter : null });
+        const retryAfter = 'retryAfter' in f ? f.retryAfter : null;
+        setSaveState(res.chunks > 1
+          ? { status: 'error', message: `${f.message} ${savedParts(res.failedChunk, res.chunks)}`, retryAfter, failedChunk: res.failedChunk, chunks: res.chunks }
+          : { status: 'error', message: f.message, retryAfter });
       }
       store.announce(f.message);
     } finally {
@@ -189,19 +225,20 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
 
   const reapplyMine = useCallback(async (intoVersionId?: string) => {
     const id = intoVersionId ?? live.current.model?.version?.id;
-    if (!id) return;
+    if (!id) return 'There is no budget version to re-apply your changes to.';
     const original = store.originalMap();
     const mine = store.dirtyMap();
     const ticket = ++seq.current;
     const r = await fetchGridModel({ versionId: id });
-    if (ticket !== seq.current) return;
-    if (!r.ok) { setSaveState({ status: 'error', message: r.message, retryAfter: 'retryAfter' in r ? r.retryAfter : null }); return; }
+    if (ticket !== seq.current) return 'Another budget was opened meanwhile; your changes were not re-applied.';
+    if (!r.ok) return r.message;
     const rebased = rebaseDirty(original, cellsInCents(r.data.cells), mine);
     setStale(null);
     setSaveState({ status: 'idle' });
     show(r.data, { values: rebased.values, conflicts: rebased.conflicts });
     const n = rebased.dirty.size;
     store.announce(`${n} change${n === 1 ? '' : 's'} re-applied${rebased.conflicts.length > 0 ? `; ${rebased.conflicts.length} also changed by someone else` : ''}`);
+    return null;
   }, [store, show]);
 
   const discard = useCallback(() => { store.discard(); setSaveState({ status: 'idle' }); }, [store]);
@@ -209,6 +246,8 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
   const dismissStale = useCallback(() => setStale(null), []);
 
   const setCompareVersion = useCallback(async (id: string | null) => {
+    // Comparing a version with itself is a column of zeros: never.
+    if (id !== null && id === live.current.model?.version?.id) { clearCompare(); return; }
     setCompareVersionId(id);
     setCompareError(null);
     compareCells.current = null;
@@ -217,7 +256,7 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     if (!r.ok) { store.setCompare(null); setCompareError(r.message); return; }
     compareCells.current = r.data.cells;
     store.setCompare(r.data.cells);
-  }, [store]);
+  }, [store, clearCompare]);
 
   const commitImport = useCallback(async (cells: readonly SaveCell[], previewToken: string): Promise<ChainResult> => {
     const versionId = live.current.model?.version?.id;
@@ -232,15 +271,15 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
   }, [store, reload]);
 
   const members = useMemo<MemberTotal[]>(() => {
-    if (!model || view.kind === 'company') return [];
+    if (!model || view.kind === 'company') return NO_MEMBERS;
     const totals = store.memberTotals(view.kind);
     return model.dimensions[view.kind].map(m => ({ ...m, total: totals.get(m.id) ?? 0 }));
-    // The store is mutable: dirtyCount and token are what say its member totals moved.
+    // The store is mutable: `revision` is what says its member totals moved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, model, view.kind, dirtyCount, token]);
+  }, [store, model, view.kind, revision]);
 
   return {
-    store, status, error, model, version: model?.version ?? null, token, dirtyCount, view, setView, members,
+    store, status, error, model, version: model?.version ?? null, token, dirtyCount, hasAmounts, view, setView, members,
     roundingUnit, setRoundingUnit, priorStatus, selectVersion, reload, save, saveState, discard, stale,
     reapplyMine, discardAndReload, dismissStale, compareVersionId, compareError, setCompareVersion, commitImport,
   };
