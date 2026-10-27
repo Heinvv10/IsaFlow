@@ -1,0 +1,94 @@
+import { describe, it, expect } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { ESLint, RuleTester } from 'eslint';
+import tsParser from '@typescript-eslint/parser';
+import { noUnnamedControl, readControlAllowlist } from '../../../eslint/rules/no-unnamed-control.mjs';
+import isaflow from '../../../eslint/isaflow-plugin.mjs';
+
+RuleTester.describe = describe;
+RuleTester.it = it;
+RuleTester.itOnly = it.only;
+
+const tester = new RuleTester({
+  languageOptions: { parser: tsParser, parserOptions: { ecmaFeatures: { jsx: true } } },
+});
+
+const NONE = [{ allowlist: {} as Record<string, number> }];
+const file = 'src/components/accounting/SomeForm.tsx';
+
+tester.run('no-unnamed-control', noUnnamedControl, {
+  valid: [
+    { code: '<select aria-label="Status" />', filename: file, options: NONE },
+    { code: '<textarea aria-label="Notes" />', filename: file, options: NONE },
+    { code: '<select aria-labelledby="h1" />', filename: file, options: NONE },
+    { code: '<><label htmlFor="s">Status</label><select id="s" /></>', filename: file, options: NONE },
+    { code: '<><textarea id="n" /><label htmlFor="n">Notes</label></>', filename: file, options: NONE },
+    { code: '<label>Status <select /></label>', filename: file, options: NONE },
+    { code: '<label><span><textarea /></span></label>', filename: file, options: NONE },
+    { code: '<select id={id} />', filename: file, options: NONE },
+    { code: '<select {...props} />', filename: file, options: NONE },
+    { code: '<textarea {...register("notes")} />', filename: file, options: NONE },
+    { code: '<select aria-label={label} />', filename: file, options: NONE },
+    { code: '<Select label="Status" />', filename: file, options: NONE },
+    // <input> is the other rule's
+    { code: '<input />', filename: file, options: NONE },
+    // a listed file keeps exactly its count; the kit is exempt
+    { code: '<><select /><textarea /></>', filename: file, options: [{ allowlist: { [file]: 2 } }] },
+    { code: '<select />', filename: 'src/components/ui/Select.tsx', options: NONE },
+  ],
+  invalid: [
+    { code: '<select />', filename: file, options: NONE, errors: [{ messageId: 'unnamed', data: { tag: 'select' } }] },
+    { code: '<textarea placeholder="Notes" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed', data: { tag: 'textarea' } }] },
+    { code: '<select aria-label="" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select aria-label={undefined} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select id={undefined} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select id="s" />', filename: file, options: NONE, errors: [{ messageId: 'orphanId' }] },
+    { code: '<><select id="s" /><label htmlFor="t">x</label></>', filename: file, options: NONE, errors: [{ messageId: 'orphanId' }] },
+    // a sibling <label> that names nothing is not a name
+    { code: '<><label>Status</label><select /></>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<><label>Notes</label><textarea /></>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    // one more than the count fails, and it is the later one that reports
+    { code: '<><select /><select /><textarea /></>', filename: file, options: [{ allowlist: { [file]: 2 } }], errors: [{ messageId: 'unnamed', line: 1, column: 23 }] },
+    { code: '<select />', filename: '__proto__', options: [{ allowlist: {} }], errors: [{ messageId: 'unnamed' }] },
+    { code: '<select />', filename: 'src/components/uix/Thing.tsx', options: NONE, errors: [{ messageId: 'unnamed' }] },
+  ],
+});
+
+describe('the unnamed-control allowlist', () => {
+  it('a missing list reads as empty, so deleting it reports every violation', () => {
+    expect(readControlAllowlist('/nonexistent/unnamed-control-allowlist.json')).toEqual({});
+  });
+
+  it('the committed list is sorted, unique paths to positive counts, only existing tsx files outside the kit', () => {
+    const list: Record<string, number> = JSON.parse(readFileSync('eslint/unnamed-control-allowlist.json', 'utf8'));
+    const files = Object.keys(list);
+    expect(files.length).toBeGreaterThan(0);
+    expect(files).toEqual([...files].sort());
+    for (const f of files) {
+      expect(f.endsWith('.tsx')).toBe(true);
+      expect(f.startsWith('src/components/ui/')).toBe(false);
+      expect(existsSync(f)).toBe(true);
+      expect(list[f]).toBeGreaterThan(0);
+    }
+  });
+
+  it('the rule reads the committed list: a listed file passes at its count and fails at one more', async () => {
+    const list: Record<string, number> = JSON.parse(readFileSync('eslint/unnamed-control-allowlist.json', 'utf8'));
+    const [listed, count] = Object.entries(list)[0] as [string, number];
+    const eslint = new ESLint({
+      overrideConfigFile: true,
+      overrideConfig: [{
+        files: ['**/*.tsx'],
+        languageOptions: { parser: tsParser, parserOptions: { ecmaFeatures: { jsx: true } } },
+        plugins: { isaflow },
+        rules: { 'isaflow/no-unnamed-control': 'error' },
+      }],
+    });
+    const reports = async (n: number) => {
+      const [r] = await eslint.lintText(`export const X = () => <>${'<select />'.repeat(n)}</>;\n`, { filePath: listed });
+      return r?.messages.filter((m) => m.ruleId === 'isaflow/no-unnamed-control').length ?? -1;
+    };
+    expect(await reports(count)).toBe(0);
+    expect(await reports(count + 1)).toBe(1);
+  });
+});

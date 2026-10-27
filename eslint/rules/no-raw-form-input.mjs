@@ -8,9 +8,8 @@
  *      {...spread} props are given the benefit of the doubt (the label may arrive through them).
  *      type="hidden" is exempt.
  *
- * Scope: <input> only. Unlabelled <select> and <textarea> are not checked here: adding them would put many more
- * files on the allowlist, and the allowlist may only shrink. A follow-up PR can widen the rule together with a
- * deliberate, reviewed regeneration of the list.
+ * Scope: <input> only. Unlabelled <select> and <textarea> are isaflow/no-unnamed-control (./no-unnamed-control.mjs),
+ * which shares the name helpers below and keeps its own allowlist.
  *
  * `type` is read case-insensitively, and a conditional or logical `type={a ? 'date' : 'text'}` counts as a date
  * input if ANY branch is 'date'. A `type` the rule cannot see through (an identifier, a call) is given the
@@ -28,21 +27,21 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Paths in the allowlist and the kit prefix are relative to the repo root, wherever eslint was started from. */
-const REPO_ROOT = path.resolve(here, '..', '..');
+export const REPO_ROOT = path.resolve(here, '..', '..');
 export const ALLOWLIST_FILE = path.join(REPO_ROOT, 'eslint', 'raw-input-allowlist.json');
 
-const UI_DIR = 'src/components/ui/';
+export const UI_DIR = 'src/components/ui/';
 
 function defaultAllowlist() {
   return JSON.parse(readFileSync(ALLOWLIST_FILE, 'utf8'));
 }
 
-function attr(node, name) {
+export function attr(node, name) {
   return node.attributes.find((a) => a.type === 'JSXAttribute' && a.name.name === name);
 }
 
 /** The attribute's string value when it is a literal ("x", {"x"}, {`x`}); undefined otherwise. */
-function literal(a) {
+export function literal(a) {
   const v = a?.value;
   if (!v) return undefined;
   if (v.type === 'Literal') return typeof v.value === 'string' ? v.value : undefined;
@@ -71,7 +70,7 @@ function typeCandidates(a) {
 }
 
 /** `{undefined}`, `{null}`, `{false}`, `{''}` and `{``}`: written out, but there is nothing in them. */
-function isNothing(a) {
+export function isNothing(a) {
   const e = a.value?.type === 'JSXExpressionContainer' ? a.value.expression : a.value;
   if (!e) return false;
   if (e.type === 'Identifier') return e.name === 'undefined';
@@ -81,7 +80,7 @@ function isNothing(a) {
 }
 
 /** True when the attribute is present and carries something (a literal, or an expression we cannot see through). */
-function hasValue(a) {
+export function hasValue(a) {
   if (!a) return false;
   if (a.value === null) return true; // bare `aria-label` is `true`
   return !isNothing(a);
