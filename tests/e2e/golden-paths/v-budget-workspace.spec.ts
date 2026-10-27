@@ -15,7 +15,7 @@
  *   - deletes its version by id in a `finally` and again in `afterAll`, after re-reading it as non-primary, unlocked
  *     and `GP-` named. The approve's audit row stays (accepted by the contract).
  * The paste is ONE row with 12 tab-separated values: a 12-row column pastes DOWN the accounts, not across months.
- * axe is report-only (annotations + an attached JSON, never a failure). Screenshots: light + dark at 1280 and 390,
+ * axe runs in the dev-only v-budget-workspace-axe (it is not loaded here). Screenshots: light + dark at 1280 and 390,
  * attached to the report, and written to EVIDENCE_DIR when it is set.
  */
 import { mkdirSync } from 'fs';
@@ -138,25 +138,6 @@ async function guardBudgetWrites(page: Page, runName: string): Promise<{ blocked
   return { blocked, violations };
 }
 
-/** axe over the workspace, report-only: serious/critical rules as annotations, the full result attached. */
-async function axeReport(page: Page, tag: string): Promise<void> {
-  const info = test.info();
-  let AxeBuilder: (typeof import('@axe-core/playwright'))['default'];
-  try {
-    AxeBuilder = (await import('@axe-core/playwright')).default;
-  } catch (err) {
-    info.annotations.push({ type: 'a11y-report', description: `${tag}: not run, @axe-core/playwright did not load (${String(err).slice(0, 120)})` });
-    return;
-  }
-  const results = await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
-  await info.attach(`axe-${tag}.json`, { body: JSON.stringify(results.violations, null, 2), contentType: 'application/json' });
-  const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-  info.annotations.push({
-    type: 'a11y-report',
-    description: `${tag}: ${serious.length === 0 ? 'no serious/critical violations' : serious.map((v) => `[${v.impact}] ${v.id} ×${v.nodes.length}`).join(', ')}`,
-  });
-}
-
 async function shoot(page: Page, name: string): Promise<void> {
   const body = await page.screenshot({ fullPage: false });
   await test.info().attach(`${name}.png`, { body, contentType: 'image/png' });
@@ -272,9 +253,8 @@ test('budget workspace: PY+10% scenario → paste a year → save → approve �
     const byMonth = new Map(stored.cells.filter((c) => c.glAccountId === plan.account.id && !c.cc1Id && !c.cc2Id && !c.buId).map((c) => [c.month, toCents(c.amount)]));
     expect(plan.months.slice(0, PASTE_MONTHS).map((m) => byMonth.get(m))).toEqual(pasted.map((p) => p * 100));
 
-    // Screens + axe (report-only): light and dark, 1280 and 390.
+    // Screens: light and dark, 1280 and 390.
     await shoot(page, 'approved-light-1280');
-    await axeReport(page, 'light-1280');
     await page.setViewportSize({ width: 390, height: 844 });
     await shoot(page, 'approved-light-390');
     await page.addInitScript(() => window.localStorage.setItem('accounting-theme', 'dark'));
@@ -282,7 +262,6 @@ test('budget workspace: PY+10% scenario → paste a year → save → approve �
     await openWorkspace(page, { fiscalYear: plan.fiscalYear, versionId });
     await expect(page.locator('html')).toHaveClass(/dark/);
     await shoot(page, 'approved-dark-1280');
-    await axeReport(page, 'dark-1280');
     await page.setViewportSize({ width: 390, height: 844 });
     await shoot(page, 'approved-dark-390');
 
