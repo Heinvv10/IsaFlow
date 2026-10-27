@@ -101,6 +101,11 @@ describe('budget-grid read model: which version', () => {
     expect(m.updatedAt).toBeNull();
     expect(m.cells).toEqual([]);
     expect(m.year.monthKeys).toEqual(monthsFrom('2025-03'));
+    // The accounts a first version can budget: the empty state offers the wizard only when there are some.
+    const ids = new Set(m.accounts.map((x) => x.id));
+    for (const k of ['sales', 'otherIncome', 'cos', 'rent', 'childA', 'childB', 'header'] as const) expect(ids.has(A.acct[k]), k).toBe(true);
+    for (const k of ['bank', 'inactive', 'inactiveHeader', 'inactiveChild'] as const) expect(ids.has(A.acct[k]), k).toBe(false);
+    expect(m.accounts.some((x) => x.ownAmounts)).toBe(false);
   });
 
   it('a 14-month transition year has fourteen months', async () => {

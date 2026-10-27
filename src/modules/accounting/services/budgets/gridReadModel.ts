@@ -4,7 +4,8 @@
  * gridSave. Every query is scoped by company_id.
  *
  * Which version: a named `versionId` (another tenant's is BUDGET_VERSION_NOT_FOUND), else the
- * year's primary, else its newest; a year with no version answers `version: null`.
+ * year's primary, else its newest; a year with no version answers `version: null` with the accounts
+ * a first version can budget (the page's empty state and the create wizard's preview read them).
  * The token (`updatedAt`) is P1's text form of updated_at (UTC ISO, microseconds), which the status
  * route's TIMESTAMP check accepts, so one token chains read -> save -> status (spec 7.1). The token
  * and the cells come from ONE statement (one snapshot): they always describe the same state, so a
@@ -105,9 +106,10 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector): P
   const monthCount = year.monthKeys.length;
   const emptyDims = { cc1: [], cc2: [], bu: [] };
   if (!found) {
+    const accounts = await loadGridAccounts(companyId, new Map(), new Map(), monthCount);
     return {
-      version: null, updatedAt: null, year, accounts: [], dimensions: await loadGridDimensions(companyId, emptyDims), cells: [], grains: {},
-      totals: bandTotals([], new Map(), monthCount),
+      version: null, updatedAt: null, year, accounts, dimensions: await loadGridDimensions(companyId, emptyDims), cells: [], grains: {},
+      totals: bandTotals(accounts, new Map(), monthCount),
     };
   }
 
