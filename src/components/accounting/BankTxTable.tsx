@@ -60,7 +60,8 @@ export function BankTxTable(props: BankTxTableProps) {
           <thead>
             <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs">
               <th className="py-2 px-2 w-8">
-                <input type="checkbox" checked={allSelected} disabled={allRowsPending} onChange={onSelectAll} className="accent-teal-500" />
+                <input type="checkbox" checked={allSelected} disabled={allRowsPending} onChange={onSelectAll} className="accent-teal-500"
+                  aria-label="Select all transactions on this page" />
               </th>
               <th className={`${TH} w-24`}>Date</th>
               <th className={TH}>Description</th>

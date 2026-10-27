@@ -157,8 +157,9 @@ export function BankTxFilters({
 
       {/* Amount range filter */}
       <div className="flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]">
-        <span className="shrink-0">Min R</span>
+        <label htmlFor="bank-tx-min-amount" className="shrink-0">Min R</label>
         <input
+          id="bank-tx-min-amount"
           type="number"
           step="0.01"
           value={fromAmount}
@@ -170,8 +171,9 @@ export function BankTxFilters({
           placeholder="0"
           className="w-20 px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
         />
-        <span className="shrink-0">Max R</span>
+        <label htmlFor="bank-tx-max-amount" className="shrink-0">Max R</label>
         <input
+          id="bank-tx-max-amount"
           type="number"
           step="0.01"
           value={toAmount}
@@ -190,6 +192,7 @@ export function BankTxFilters({
       <select
         value={sortOrder}
         onChange={e => onSortOrderChange(e.target.value as 'asc' | 'desc')}
+        aria-label="Sort order"
         className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
       >
         <option value="desc">Newest First</option>
@@ -200,6 +203,7 @@ export function BankTxFilters({
         <select
           value={allocationFilter}
           onChange={e => onAllocationFilterChange(e.target.value as 'all' | 'unallocated' | 'suggested' | 'allocated')}
+          aria-label="Allocation status"
           className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
         >
           <option value="all">All Status</option>
@@ -212,6 +216,7 @@ export function BankTxFilters({
       <select
         value={txType}
         onChange={e => onTxTypeChange(e.target.value as 'all' | 'spent' | 'received')}
+        aria-label="Spent or received"
         className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
       >
         <option value="all">All Types</option>
@@ -222,6 +227,7 @@ export function BankTxFilters({
       <select
         value={allocType}
         onChange={e => onAllocTypeChange(e.target.value as 'all' | 'account' | 'supplier' | 'customer' | 'transfer')}
+        aria-label="Category"
         className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
       >
         <option value="all">All Categories</option>
@@ -234,6 +240,7 @@ export function BankTxFilters({
       <select
         value={hasSuggestion}
         onChange={e => onHasSuggestionChange(e.target.value as 'all' | 'yes' | 'no')}
+        aria-label="Suggestion"
         className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
       >
         <option value="all">All Suggestions</option>
@@ -274,6 +281,7 @@ export function BankTxFilters({
           <input
             type="text"
             placeholder="Search..."
+            aria-label="Search transactions"
             value={searchTerm}
             onChange={e => onSearchChange(e.target.value)}
             className="pl-7 pr-3 py-1 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] w-44"

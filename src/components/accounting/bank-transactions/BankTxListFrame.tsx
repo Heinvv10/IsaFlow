@@ -3,12 +3,16 @@
  * AI still categorising) and its loading / error / empty states; renders the
  * table (children) only when there are rows. One container for every state:
  * its height is held while the rows load, so the swap shifts nothing.
+ * No rows while `total` > 0 is a page past the end that usePageClamp is about
+ * to leave: it shows the skeleton, never "No new transactions".
  */
 
 import type { ReactNode } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { BankTxTab } from './BankTxTabs';
-import { BankTxLoading, BankTxEmpty } from './BankTxListStates';
+import { BankTxLoading, BankTxEmpty, BANK_TX_FRAME_MIN_PX } from './BankTxListStates';
+
+export { BANK_TX_PAGE_SIZE } from './BankTxListStates';
 
 interface Props {
   relinkFailed: boolean;
@@ -16,11 +20,13 @@ interface Props {
   isLoading: boolean;
   error: string;
   empty: boolean;
+  /** Rows matching the filters across every page, from the same load as `empty`. */
+  total: number;
   tab: BankTxTab;
   children: ReactNode;
 }
 
-export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, tab, children }: Props) {
+export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, total, tab, children }: Props) {
   return (
     <>
       {relinkFailed && (
@@ -33,8 +39,8 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, emp
           <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
         </div>
       )}
-      <div className="min-h-[480px]">
-        {isLoading ? (
+      <div style={{ minHeight: BANK_TX_FRAME_MIN_PX }}>
+        {isLoading || (empty && total > 0) ? (
           <BankTxLoading />
         ) : error ? (
           <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>

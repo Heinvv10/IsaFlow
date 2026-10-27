@@ -38,43 +38,6 @@
      "why": "one Undo button per active auto-post run"
     },
     "maxHint": 20
-   },
-   {
-    "rule": "select-name",
-    "selector": "main > div > div > div > select",
-    "max": 5
-   }
-  ],
-  "/accounting/bank-transactions#rows": [
-   {
-    "rule": "label",
-    "selector": "table[data-testid=\"bank-tx-table\"] > tbody > tr > td > input[type=\"checkbox\"]",
-    "max": 25,
-    "dataDriven": {
-     "source": "/api/accounting/bank-transactions",
-     "why": "one select box per transaction row; the page shows 25 rows"
-    },
-    "maxHint": 25
-   },
-   {
-    "rule": "label",
-    "selector": "table[data-testid=\"bank-tx-table\"] > thead > tr > th > input[type=\"checkbox\"]",
-    "max": 1,
-    "dataDriven": {
-     "source": "/api/accounting/bank-transactions",
-     "why": "the table, and so its header, renders only when the account has transactions"
-    },
-    "maxHint": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "table[data-testid=\"bank-tx-table\"] > tbody > tr > td > select",
-    "max": 46,
-    "dataDriven": {
-     "source": "/api/accounting/bank-transactions",
-     "why": "a few selects per transaction row (type, selection, VAT, and CC1/CC2/BU when enabled); 25 rows x 6"
-    },
-    "maxHint": 150
    }
   ],
   "/accounting/credit-notes": [
