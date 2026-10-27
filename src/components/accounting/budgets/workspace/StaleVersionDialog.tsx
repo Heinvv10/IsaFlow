@@ -11,6 +11,7 @@
  */
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 import { WorkspaceDialog } from './VersionStatusDialogs';
 import type { StaleState } from './types';
 
@@ -28,12 +29,11 @@ export function myChangesName(name: string, at: Date): string {
   return `${base.length <= room ? base : `${base.slice(0, room - 1).trimEnd()}…`}${suffix}`;
 }
 
-/** When the server says the version was last changed (the 409's token), in South African time. */
+/** When the server says the version was last changed (the 409's token), in South African time ("26 Oct 2026, 20:05"). */
 export function changedAt(stale: StaleState): string | null {
   if (!stale.currentUpdatedAt) return null;
-  const at = new Date(stale.currentUpdatedAt);
-  if (Number.isNaN(at.getTime())) return null;
-  return new Intl.DateTimeFormat('en-ZA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Johannesburg' }).format(at);
+  if (Number.isNaN(new Date(stale.currentUpdatedAt).getTime())) return null;
+  return formatDisplayDateTime(stale.currentUpdatedAt);
 }
 
 export interface StaleVersionDialogProps {

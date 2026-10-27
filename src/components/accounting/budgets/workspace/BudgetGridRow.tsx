@@ -9,6 +9,7 @@
  */
 import { memo, type MouseEvent, type ReactNode } from 'react';
 import { Sparkline } from '@/components/accounting/statement/Sparkline';
+import { formatCents } from '@/lib/money/formatMoney';
 import { STICKY_FIRST_CELL } from '@/components/accounting/statement/stickyTable';
 import type { ChartPalette } from '@/components/accounting/charts/chartTypes';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
@@ -79,8 +80,8 @@ function OwnBudgetChip({ store, row, handlers, canChange }: { store: GridStore; 
   const hasKids = row.account.childIds.length > 0;
   const btn = 'underline hover:text-[var(--ff-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-cell-focus-ring)]';
   return (
-    <span role="note" className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-normal text-[var(--ff-unfav)]">
-      <span>This header has its own R {fig(own.fy, true)} budget</span>
+    <span role="note" className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-normal text-[var(--ff-unfav)]">
+      <span>This header has its own {formatCents(own.fy)} budget</span>
       {canChange && hasKids && (
         <>
           <button type="button" tabIndex={-1} className={btn} onClick={() => handlers.onRowAction(ownLine, { type: 'moveOwn' })}>Move to a sub-account</button>
@@ -109,10 +110,10 @@ function RowLabel({ row, snap, chip, grain }: { row: LineRow; snap: GridRowSnaps
           </>
         )}
         {!a.isActive && row.role !== 'own' && (
-          <span className="text-[10px] px-1 rounded border border-[var(--ff-border-secondary)] text-[var(--ff-text-tertiary)] shrink-0">Inactive</span>
+          <span className="text-xs px-1 rounded border border-[var(--ff-border-secondary)] text-[var(--ff-text-tertiary)] shrink-0">Inactive</span>
         )}
         {badge && row.role === 'account' && (
-          <span className="text-[10px] px-1 rounded bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] shrink-0">{badge}</span>
+          <span className="text-xs px-1 rounded bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] shrink-0">{badge}</span>
         )}
       </span>
       {chip}

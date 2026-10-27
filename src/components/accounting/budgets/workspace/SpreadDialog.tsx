@@ -14,6 +14,7 @@ import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 import { residueFlipsSign, spreadEven, spreadSeasonal, spreadStep, type SpreadResult } from '@/modules/accounting/services/budgets/grid/spread';
 import { fig } from './BudgetSubtotalRow';
+import { formatMoney } from '@/lib/money/formatMoney';
 import {
   type CellWriteByKey, type ChildShare, childWrites, clearWrites, moveWrites, rowWrites, splitAcrossChildren,
 } from './rowActionWrites';
@@ -64,7 +65,7 @@ function preview(target: SpreadTarget, months: readonly string[], unit: Rounding
       : method === 'step' ? spreadStep(amount, n, growth, unit) : spreadEven(amount, n, unit);
     if (!r.ok) return r;
     const note = residueFlipsSign(amount, r.months)
-      ? `The R${unit} rounding puts the last month on the other side of zero; a smaller rounding unit avoids it.`
+      ? `The ${formatMoney(unit, { decimals: 0 })} rounding puts the last month on the other side of zero; a smaller rounding unit avoids it.`
       : null;
     return { ok: true, note, writes: rowWrites(target.row.keys, r.months), lines: r.months.map((c, i) => ({ label: monthLabel(months[i] ?? ''), cents: c })) };
   }
