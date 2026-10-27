@@ -62,6 +62,15 @@ function hashEmailLocalPart(email: string): string {
   return `${h}${domain}`;
 }
 
+// Sentry's ui.click / ui.input breadcrumbs describe the element as a selector that copies its aria-label,
+// title and alt verbatim. Grid controls are named after their row (date, payee, amount) and a note's title
+// is the note, so the values go; the selector stays for debugging. A value ends at the first `"]`.
+const UI_TEXT_ATTR_RE = /\[(aria-label|title|alt)="(?:(?!"\])[\s\S])*"\]/g;
+
+function redactUiMessage(message: string): string {
+  return message.replace(UI_TEXT_ATTR_RE, (_m, attr: string) => `[${attr}="${REDACTED}"]`);
+}
+
 export function scrubEvent<T extends Event>(event: T | null): T | null {
   if (!event) return null;
 
@@ -73,6 +82,9 @@ export function scrubEvent<T extends Event>(event: T | null): T | null {
   }
   if (event.breadcrumbs) {
     event.breadcrumbs = event.breadcrumbs.map((crumb) => {
+      if (crumb.category?.startsWith('ui.') && typeof crumb.message === 'string') {
+        crumb = { ...crumb, message: redactUiMessage(crumb.message) };
+      }
       const url = crumb.data?.url;
       if (typeof url !== 'string') return crumb;
       return { ...crumb, data: { ...crumb.data, url: redactShareToken(url) } };

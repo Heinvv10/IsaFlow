@@ -136,4 +136,27 @@ describe('scrubEvent', () => {
     expect(JSON.stringify(fetchCrumb)).not.toContain(token);
     expect(uiCrumb.message).toBe('clicked button');
   });
+  // Sentry's ui.click / ui.input breadcrumbs describe the clicked element as a selector that carries its
+  // aria-label, title and alt verbatim (@sentry/core utils/browser.js _htmlElementAsString). Grid controls
+  // are named after their row ("Select 01 Jun 2026 PAYMENT TO J SMITH −R 1 234.50") and a note button's
+  // title is the note itself, so those values are customer data and never leave the browser.
+  it('redacts aria-label, title and alt out of ui.* breadcrumb messages, keeping the selector', () => {
+    const event: Event = {
+      breadcrumbs: [
+        { category: 'ui.click', message: 'td > input.accent-teal-500[aria-label="Select 01 Jun 2026 PAYMENT TO J SMITH −R 1 234.50"][type="checkbox"]' },
+        { category: 'ui.click', message: 'td > button.text-xs[aria-label="Note, 01 Jun 2026 X R 1.00: paid [cash] to Thabo"][title="paid [cash] to Thabo"]' },
+        { category: 'ui.input', message: 'div > img[alt="ID of J Smith"] > input[name="search"]' },
+      ],
+    };
+    const [a, b, c] = scrubEvent(event)!.breadcrumbs!;
+    expect(a!.message).toBe('td > input.accent-teal-500[aria-label="[REDACTED]"][type="checkbox"]');
+    expect(b!.message).toBe('td > button.text-xs[aria-label="[REDACTED]"][title="[REDACTED]"]');
+    expect(c!.message).toBe('div > img[alt="[REDACTED]"] > input[name="search"]');
+    expect(JSON.stringify(scrubEvent(event))).not.toMatch(/SMITH|Thabo/);
+  });
+
+  it('leaves the message of a non-ui breadcrumb alone', () => {
+    const event: Event = { breadcrumbs: [{ category: 'console', message: 'x[title="kept"]' }] };
+    expect(scrubEvent(event)!.breadcrumbs![0]!.message).toBe('x[title="kept"]');
+  });
 });
