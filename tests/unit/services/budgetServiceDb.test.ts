@@ -26,10 +26,11 @@ describe('budgetService against the real budget_month_amounts table', async () =
   it.skipIf(!reachable)('never returns another company\'s budget', async () => {
     await inRequestTx(async (f) => {
       const keys = await monthsOf(f.companyId, FY);
-      // My budget, on my primary, as the grid save stores it.
+      // My budget on my primary, as the grid save stores it. budget_version_original makes the year's
+      // primary when it has none: an APPROVED 'Original', as migration 947 converted legacy budgets.
       await sql`
-        INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
-        VALUES (${f.companyId}::uuid, (SELECT public.budget_version_original(${f.companyId}::uuid, ${FY}, 'test-fixture')), ${f.expenseAccountId}::uuid, ${`${keys[0]}-01`}::date, 1000)
+        INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
+        VALUES (${f.companyId}::uuid, (SELECT public.budget_version_original(${f.companyId}::uuid, ${FY}, ${f.userId})), ${f.expenseAccountId}::uuid, ${`${keys[0]}-01`}::date, 1000, ${f.userId})
       `;
       // Rows planted directly for the other tenant, on its own account, bypassing the service.
       await sql`

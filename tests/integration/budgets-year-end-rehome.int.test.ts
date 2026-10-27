@@ -85,8 +85,8 @@ async function primaryBudget(id: string, rent: string, label: number, perMonth: 
     `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by)
      VALUES ($1, $2, 'Original', 'original', true, $3) RETURNING id`, [id, label, user])).rows[0].id);
   await pool.query(
-    `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
-     SELECT $1, $2, $3, make_date($4, m, 1), $5 FROM generate_series(1, 12) m`, [id, version, rent, label, perMonth]);
+    `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
+     SELECT $1, $2, $3, make_date($4, m, 1), $5, $6 FROM generate_series(1, 12) m`, [id, version, rent, label, perMonth, user]);
   return version;
 }
 

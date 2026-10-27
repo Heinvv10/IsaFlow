@@ -160,16 +160,19 @@ describe('budget-versions routes', () => {
 
   it('list and primary work, and the budgets GET reads whichever version is primary', async () => {
     const x = await budgets.owner();
-    await budgets.seedPrimary(x.u, x.account, x.label, x.months.map((month) => ({ month, amount: 200 })));
+    await budgets.seedPrimary(x.u, x.account, x.label, x.months.map((month) => ({ month, amount: 200 })), 'Rent review in June');
     const before = await budgets.call(x.u, 'GET', undefined, { fiscal_year: String(x.label) });
-    expect(((before.body.data as unknown as { items: Array<{ annualAmount: number }> }).items).map((i) => i.annualAmount)).toEqual([2400]);
+    expect((before.body.data as unknown as { items: unknown[] }).items)
+      .toEqual([expect.objectContaining({ annualAmount: 2400, notes: 'Rent review in June' })]);
     const items = (await list.call(x.u, 'GET', undefined, { fiscalYear: String(x.label) })).body.data as unknown as { items: V[] };
     expect(items.items.map((i) => [i.name, i.isPrimary, i.total])).toEqual([['Original', true, 2400]]);
     const alt = data(await create(x.u, 'Alt', 'scenario', x.label));
     const p = await primary.call(x.u, 'POST', undefined, { id: alt.id });
     expect([p.status, data(p).isPrimary]).toEqual([200, true]);
-    // The budgets GET now reads the new primary, which holds nothing (and no notes header exists).
+    // The budgets GET now reads the new primary, which holds no months: the account is still listed
+    // through its notes header (shared by every version of the year), at 0, with its notes.
     const page = await budgets.call(x.u, 'GET', undefined, { fiscal_year: String(x.label) });
-    expect(((page.body.data as unknown as { items: unknown[] }).items)).toEqual([]);
+    expect((page.body.data as unknown as { items: unknown[] }).items)
+      .toEqual([expect.objectContaining({ annualAmount: 0, notes: 'Rent review in June' })]);
   });
 });

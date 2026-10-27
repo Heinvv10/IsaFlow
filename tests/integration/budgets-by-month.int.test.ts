@@ -91,13 +91,14 @@ afterAll(async () => {
 
 describe('a 14-month transition year', () => {
   it('stores and reads back all 14 calendar months with the right total', async () => {
+    // The year's primary (budget_version_original: an APPROVED 'Original', as migration 947 converted legacy budgets).
     const version = (await pool.query(`SELECT public.budget_version_original($1, 2026, $2) AS id`, [companyId, user])).rows[0].id;
     await pool.query(
-      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
-       SELECT $1, $2, $3, (m || '-01')::DATE, a FROM unnest($4::TEXT[], $5::NUMERIC[]) AS t(m, a)`,
-      [companyId, version, ids.rent, amounts(100).map((x) => x.month), amounts(100).map((x) => x.amount)]);
-    await pool.query(`INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes) VALUES ($1, 'FY2026 Budget', 2026, $2, 'transition')`,
-      [companyId, ids.rent]);
+      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
+       SELECT $1, $2, $3, (m || '-01')::DATE, a, $6 FROM unnest($4::TEXT[], $5::NUMERIC[]) AS t(m, a)`,
+      [companyId, version, ids.rent, amounts(100).map((x) => x.month), amounts(100).map((x) => x.amount), user]);
+    await pool.query(`INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes, created_by) VALUES ($1, 'FY2026 Budget', 2026, $2, 'transition', $3)`,
+      [companyId, ids.rent, user]);
     const rows = await storedMonths(ids.rent);
     expect(rows).toHaveLength(14);
     expect(rows[0]).toEqual({ month: '2026-01-01', amount: '100.00' });
