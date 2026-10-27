@@ -20,9 +20,12 @@ interface BudgetCellEditorProps {
   label: string;
   onDraftChange(text: string): void;
   onBlur(): void;
+  /** Which way the error box opens: 'left' = from the cell's left edge rightwards (first months, so the
+   *  sticky account column never covers it), 'right' = from the right edge leftwards (late months). */
+  align: 'left' | 'right';
 }
 
-export function BudgetCellEditor({ draft, label, onDraftChange, onBlur }: BudgetCellEditorProps) {
+export function BudgetCellEditor({ draft, label, onDraftChange, onBlur, align }: BudgetCellEditorProps) {
   const ref = useRef<HTMLInputElement>(null);
   const errorId = useId();
   const [attempted, setAttempted] = useState(false);
@@ -69,7 +72,7 @@ export function BudgetCellEditor({ draft, label, onDraftChange, onBlur }: Budget
       />
       {error !== null && (
         <span id={errorId} role="alert"
-          className="absolute right-0 top-full z-[6] mt-0.5 w-56 whitespace-normal rounded border border-[var(--ff-unfav)] bg-[var(--ff-bg-secondary)] px-2 py-1 text-left text-xs font-normal text-[var(--ff-text-primary)] shadow">
+          className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} top-full z-[15] mt-0.5 w-56 whitespace-normal rounded border border-[var(--ff-unfav)] bg-[var(--ff-bg-secondary)] px-2 py-1 text-left text-xs font-normal text-[var(--ff-text-primary)] shadow`}>
           {error}
         </span>
       )}

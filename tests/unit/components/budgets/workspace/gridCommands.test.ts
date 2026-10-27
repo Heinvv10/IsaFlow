@@ -101,7 +101,7 @@ describe('clipboard', () => {
     expect(row(ID.opex).values.slice(0, 2)).toEqual([300, null]);
     expect(row(ID.dimAcc).values.slice(0, 2)).toEqual([3000, null]);
     expect(announced()).toBe('Pasted 3 cells; 2 skipped (read-only); 1 not a number (left unchanged)');
-    expect(store.getMeta().notice).toEqual([{ rowLabel: '3100 Account 3100', monthLabel: 'Apr 2026', raw: 'abc', reason: expect.any(String) }]);
+    expect(store.getMeta().notice).toEqual([{ rowLabel: '3100 Account 3100', monthLabel: 'Apr 2026', raw: 'abc', reason: expect.any(String), cells: 1 }]);
     undoLast(store);
     expect(row(ID.kid2).values.slice(0, 2)).toEqual([null, null]);
     expect(row(ID.opex).values[0]).toBeNull();
@@ -114,7 +114,20 @@ describe('clipboard', () => {
     pasteText(store, { top: last, left: 11, bottom: last, right: 11 }, '1\t2\t3\n4\t5\t6\n');
     expect(row(ID.oexp).values[11]).toBe(100);
     expect(announced()).toBe('Pasted 1 cell; 1 skipped (read-only); 4 not pasted (past the end of the grid)');
-    expect(store.getMeta().notice).toEqual([expect.objectContaining({ reason: '4 pasted cells fell past the end of the grid and were not pasted.' })]);
+    // One entry that stands for 4 cells: the heading counts cells, not entries.
+    expect(store.getMeta().notice).toEqual([expect.objectContaining({ reason: '4 pasted cells fell past the end of the grid and were not pasted.', cells: 4 })]);
+  });
+
+  it('a rounding warning from an FY commit is ADDED to a still-visible paste notice, not put in its place', () => {
+    const kid2 = r(accountRowKey(ID.kid2));
+    pasteText(store, { top: kid2, left: 0, bottom: kid2, right: 0 }, 'abc');
+    expect(store.getMeta().notice).toHaveLength(1);
+    // R1 000 at R100 over 12 months leaves the last month at −R100: the commit warns.
+    commitDraft(store, { r: r(accountRowKey(ID.rev2)), c: 12 }, '1000', false, 100);
+    const notice = store.getMeta().notice!;
+    expect(notice).toHaveLength(2);
+    expect(notice[0]).toMatchObject({ raw: 'abc', cells: 1 });
+    expect(notice[1]).toMatchObject({ rowLabel: '1010 Account 1010', cells: 1 });
   });
 
   it('a paste that fits says nothing about the grid edge', () => {

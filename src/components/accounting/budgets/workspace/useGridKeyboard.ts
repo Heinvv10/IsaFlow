@@ -85,14 +85,16 @@ export function useGridKeyboard(options: GridKeyboardOptions): GridKeyboardHandl
       opts.current.gridRef.current?.querySelector<HTMLElement>(`[data-pos="${p.r}:${p.c}"]`)?.focus();
     };
 
-    const dispatch = (action: GridAction): boolean => {
+    /** `keepOnRefusal`: a refused commit re-opens the editor (keys, and Shift+Tab off column 0). */
+    const dispatch = (action: GridAction, keepOnRefusal = action.type === 'key'): boolean => {
       const { store } = opts.current;
       const prev = store.getGridState();
       const res = gridReducer(prev, action, store.gridContext());
       store.setGridState(res.state);
       const { refused, exitMoved } = run(res.effects);
-      if (refused && action.type === 'key') {
-        // Keep the editor open on the refused cell with the text as typed.
+      if (refused && keepOnRefusal && store.isEditable(refused.pos)) {
+        // Keep the editor open on the refused cell with the text as typed. A cell that turned
+        // read-only mid-edit (view switch, lock) is not re-opened: commitDraft announced why.
         store.setGridState({ ...res.state, focus: refused.pos, anchor: refused.pos, mode: 'edit', draft: refused.draft, editOrigin: prev.editOrigin ?? 'type' });
         return true;
       }
@@ -114,7 +116,9 @@ export function useGridKeyboard(options: GridKeyboardOptions): GridKeyboardHandl
         if (e.nativeEvent.isComposing || !fromCell(e.target)) return;
         if (e.key === 'Tab' && e.shiftKey && opts.current.store.getGridState().focus.c === 0) {
           // First column: commit any draft, put focus on the cell, and let Shift+Tab leave natively.
-          dispatch({ type: 'blur' });
+          // A refused draft keeps the editor open (as Enter / Tab do) and the grid keeps focus.
+          dispatch({ type: 'blur' }, true);
+          if (opts.current.store.getGridState().mode === 'edit') { e.preventDefault(); return; }
           focusCell(opts.current.store.getGridState().focus);
           return;
         }

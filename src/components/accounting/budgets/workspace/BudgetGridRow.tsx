@@ -163,7 +163,7 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
             onDoubleClick={handlers.onCellTap ? undefined : () => handlers.onCellDoubleClick({ r, c })}
           >
             {editing && snap.editing ? (
-              <BudgetCellEditor draft={snap.editing.draft} label={`${label} ${month} budget`}
+              <BudgetCellEditor draft={snap.editing.draft} label={`${label} ${month} budget`} align={c < months.length / 2 ? 'left' : 'right'}
                 onDraftChange={handlers.onDraftChange} onBlur={handlers.onEditorBlur} />
             ) : fig(v ?? null, cols.cents)}
           </td>

@@ -109,6 +109,23 @@ describe('BudgetWorkspace states', () => {
   });
 });
 
+describe('years exist but none holds today', () => {
+  it('asks to pick a year from the select (no "no financial year" panel); picking one loads it', async () => {
+    net.on((u) => u === '/api/accounting/budgets', () => ok({ items: [], fiscalYear: null, year: null,
+      years: [{ fiscalYear: 2026, startDate: '2025-03-01', endDate: '2026-02-28', kind: 'normal', monthKeys: [] },
+        { fiscalYear: 2027, startDate: '2026-03-01', endDate: '2027-02-28', kind: 'normal', monthKeys: [] }] }));
+    render(<BudgetWorkspace />);
+    expect(await screen.findByTestId('workspace-pick-year')).toHaveTextContent('Pick a financial year');
+    expect(screen.queryByTestId('workspace-no-year')).toBeNull();
+    expect(screen.queryByTestId('workspace-loading')).toBeNull();
+    expect(yearSelect()).not.toBeDisabled();
+    expect(yearSelect().value).toBe('');
+    fireEvent.change(yearSelect(), { target: { value: '2027' } });
+    expect(await screen.findByRole('grid', { name: 'Budget' })).toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-pick-year')).toBeNull();
+  });
+});
+
 describe('financial-year switch (replaces budgetsPageRace)', () => {
   it('a slow answer for a year the user left, arriving last, never replaces the year on screen', async () => {
     render(<BudgetWorkspace />);

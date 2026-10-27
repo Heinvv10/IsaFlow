@@ -13,7 +13,7 @@ import { type GridContext, type GridState, initialGridState } from '@/modules/ac
 import { type View, memberTotals, viewCellKey } from '@/modules/accounting/services/budgets/grid/pivot';
 import type { Pos } from '@/modules/accounting/services/budgets/grid/selection';
 import type { FillGrid } from '@/modules/accounting/services/budgets/grid/fill';
-import { BAND_SIGN, type Metric } from '@/modules/accounting/services/budgets/grid/subtotals';
+import { BAND_SIGN, type Metric, foldBands } from '@/modules/accounting/services/budgets/grid/subtotals';
 import { fromCents } from '@/modules/accounting/services/budgets/grid/cents';
 import { centsToPlain } from '@/modules/accounting/services/budgets/grid/tsv';
 import { accountRowKey, buildLayout, rollupRowKey } from './gridLayout';
@@ -58,7 +58,6 @@ export class GridStore extends GridStoreCore {
     for (const cb of [...this.layoutListeners]) cb();
   }
 
-  /** Dirty values survive a view switch; the undo stack does not (spec §5.5). */
   /**
    * Dirty values AND the undo stack survive a view switch: a cell key does not depend on the view,
    * so undo restores the right cells from any view (deliberate deviation from spec §5.5, which
@@ -120,9 +119,20 @@ export class GridStore extends GridStoreCore {
     return false;
   }
 
-  /** The live FY totals per metric, in RAND (what the wizard's "Current" column shows). */
+  /**
+   * The WHOLE version's live FY totals per metric, in RAND (the wizard's "Current" column): every
+   * cell at every grain, folded at company level, whatever the grid's view shows. A header's own
+   * amounts count once; roll-ups never (as the read model's band totals).
+   */
   fyTotals(): Record<Metric, number> {
-    return Object.fromEntries(METRICS.map(m => [m, fromCents(this.getTotal(m).fy)])) as Record<Metric, number>;
+    const inYear = new Set(this.layout.months);
+    const fy = (id: string): number[] => {
+      let sum = 0;
+      for (const [k, v] of this.values.get(id) ?? []) if (v !== null && inYear.has(k.slice(k.lastIndexOf('|') + 1))) sum += v;
+      return [sum];
+    };
+    const totals = foldBands([...this.accounts.values()], a => fy(a.id), 1).fy;
+    return Object.fromEntries(METRICS.map(m => [m, fromCents(totals[m])])) as Record<Metric, number>;
   }
 
   /** The account's budgeted (non-null) cells now, at every grain: what a grain change clears. */
@@ -188,5 +198,7 @@ export class GridStore extends GridStoreCore {
   // ── Announcements ─────────────────────────────────────────────────────────
   announce(text: string): void { this.setMeta({ announcement: { seq: this.meta.announcement.seq + 1, text } }); }
   setNotice(notice: readonly InvalidCellNotice[] | null): void { this.setMeta({ notice: notice && notice.length > 0 ? notice : null }); }
+  /** Adds to a still-visible notice (a commit's warning must not wipe a paste's refused cells). */
+  addNotice(entries: readonly InvalidCellNotice[]): void { this.setNotice([...(this.meta.notice ?? []), ...entries]); }
   dismissNotice = (): void => { this.setNotice(null); };
 }

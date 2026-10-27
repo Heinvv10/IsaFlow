@@ -57,6 +57,24 @@ describe('splitAcrossChildren', () => {
   });
 });
 
+describe('splitAcrossChildren: residue across zero', () => {
+  const kids = (n: number) => Array.from({ length: n }, (_, i) => child(`k${i}`, [null, null, null]));
+  it('flags a last sub-account the unit pushed across zero (R160 over 3 at R100: 100, 100, −40)', () => {
+    const r = splitAcrossChildren(160_00, kids(3), 'even', 0, 3, 100);
+    expect(r.ok && r.perChild.map(m => m[0])).toEqual([100_00, 100_00, -40_00]);
+    expect(r.ok && r.note).toMatch(/other side of zero/);
+  });
+  it('flags a sub-account whose month spread ends across zero (each R1 800 over 12 at R100)', () => {
+    const twelve = Array.from({ length: 2 }, (_, i) => ({ accountId: `k${i}`, keys: Array.from({ length: 12 }, () => k('x', 0)), values: Array(12).fill(null), py: null }));
+    const r = splitAcrossChildren(3600_00, twelve, 'even', null, 12, 100);
+    expect(r.ok && r.note).toMatch(/other side of zero/);
+  });
+  it('no note when nothing crosses zero', () => {
+    const r = splitAcrossChildren(300_00, kids(3), 'even', 0, 3, 100);
+    expect(r.ok && r.note).toBeNull();
+  });
+});
+
 describe('moveWrites', () => {
   it('clears the header and adds its amounts to what the child holds', () => {
     expect(moveWrites(keys('h'), [10, null, 5], keys('c'), [1, 2, null])).toEqual([
