@@ -15,7 +15,6 @@ import { log } from '@/lib/logger';
 import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/accounting/constants/pageRegistry';
 import { OverviewTables } from './OverviewTables';
 import { TodoWidget } from './TodoWidget';
-import { ModuleSetupChecklist } from './ModuleSetupChecklist';
 import { OverviewKpiCards } from './OverviewKpiCards';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { WorkbenchSection } from './WorkbenchSection';
@@ -64,7 +63,8 @@ function fmtCurrency(n: number): string {
 
 const fmtCompact = (n: number): string => formatMoneyCompact(n);
 
-export function OverviewTab() {
+/** `setupOpen`: setup tasks are still open, so TodoWidget must not say "All caught up!". */
+export function OverviewTab({ setupOpen = false }: { setupOpen?: boolean }) {
   const [data, setData] = useState<KPIData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [kpiError, setKpiError] = useState('');
@@ -142,9 +142,7 @@ export function OverviewTab() {
       <WorkbenchSection />
 
       {/* Action Items */}
-      <TodoWidget />
-
-      <ModuleSetupChecklist />
+      <TodoWidget setupOpen={setupOpen} />
 
       {/* Quick Actions — unified teal chip for visual cohesion on the dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
