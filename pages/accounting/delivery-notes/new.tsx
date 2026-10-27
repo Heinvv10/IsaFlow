@@ -165,7 +165,7 @@ export default function NewDeliveryNotePage() {
                   </div>
                   <div>
                     <DateField label="Delivery Date" required name="deliveryDate" value={deliveryDate || null}
-                      onChange={dates.bind('deliveryDate', setDeliveryDate)} />
+                      onChange={dates.bind('deliveryDate', setDeliveryDate, deliveryDate)} />
                   </div>
                   <div>
                     <label className={lbl}>Linked Sales Order (optional)</label>

@@ -78,8 +78,8 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
               </select>
               {customersError && <p className="text-xs text-red-500 mt-1">{customersError}</p>}
             </div>
-            <DateField label="Order Date" name="orderDate" value={form.order_date || null} onChange={dates.bind('order_date', iso => setForm(p => ({ ...p, order_date: iso })))} />
-            <DateField label="Delivery Date" name="deliveryDate" value={form.delivery_date || null} onChange={dates.bind('delivery_date', iso => setForm(p => ({ ...p, delivery_date: iso })))} />
+            <DateField label="Order Date" name="orderDate" value={form.order_date || null} onChange={dates.bind('order_date', iso => setForm(p => ({ ...p, order_date: iso })), form.order_date)} />
+            <DateField label="Delivery Date" name="deliveryDate" value={form.delivery_date || null} onChange={dates.bind('delivery_date', iso => setForm(p => ({ ...p, delivery_date: iso })), form.delivery_date)} />
             <div><label className={lbl}>Reference</label><input value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} placeholder="Optional" className={inp} /></div>
             <div><label className={lbl}>Notes</label><input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional" className={inp} /></div>
           </div>

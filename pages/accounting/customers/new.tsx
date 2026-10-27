@@ -13,6 +13,7 @@ import { notify } from '@/utils/toast';
 import { CustomerForm, type CustomerFormData, INITIAL_CUSTOMER_FORM } from '@/components/accounting/CustomerForm';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { useDateGate } from '@/hooks/useDateGate';
 
 export default function NewCustomerPage() {
   const router = useRouter();
@@ -20,6 +21,7 @@ export default function NewCustomerPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof CustomerFormData, string>>>({});
   const [saveAndNew, setSaveAndNew] = useState(false);
+  const dates = useDateGate();
 
   function validate(): boolean {
     const errors: Partial<Record<keyof CustomerFormData, string>> = {};
@@ -39,6 +41,7 @@ export default function NewCustomerPage() {
 
   async function handleSubmit(e: React.FormEvent, andNew = false) {
     e.preventDefault();
+    if (dates.blocked) { notify.error('Fix the date marked in red before saving.'); return; }
     if (!validate()) return;
     setSaveAndNew(andNew);
 
@@ -101,6 +104,7 @@ export default function NewCustomerPage() {
               form={form}
               onChange={setForm}
               fieldErrors={fieldErrors}
+              dates={dates}
             />
 
             {/* Actions */}

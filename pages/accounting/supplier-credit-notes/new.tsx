@@ -151,7 +151,7 @@ export default function NewSupplierCreditNotePage() {
                   </div>
                   <div>
                     <DateField label="Credit Note Date" required name="creditDate" value={form.creditDate || null}
-                      onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })))} />
+                      onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>
                     <label className={lbl}>Reference Number</label>

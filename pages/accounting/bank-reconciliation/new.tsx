@@ -89,7 +89,7 @@ export default function NewReconciliationPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <DateField label="Statement Date" required name="statementDate" value={form.statementDate || null}
-                  onChange={dates.bind('statementDate', iso => setForm(f => ({ ...f, statementDate: iso })))} />
+                  onChange={dates.bind('statementDate', iso => setForm(f => ({ ...f, statementDate: iso })), form.statementDate)} />
               </div>
 
               <div>

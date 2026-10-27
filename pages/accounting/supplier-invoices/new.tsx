@@ -231,8 +231,8 @@ export default function NewSupplierInvoicePage() {
                         purchaseOrderId: '', grnId: '', copyLinesFromPo: false,
                       })); }} />
                   </div>
-                  <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })))} />
-                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })))} />
+                  <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
+                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })), form.dueDate)} />
                   <div>
                     <label className={lbl}>Payment Terms</label>
                     <select value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>

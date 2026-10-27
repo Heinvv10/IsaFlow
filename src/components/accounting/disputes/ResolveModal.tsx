@@ -73,7 +73,7 @@ export function ResolveModal({
             <span className="text-sm font-medium text-slate-700">Resolution</span>
             <select
               value={mode}
-              onChange={(e) => setMode(e.target.value as ResolveMode)}
+              onChange={(e) => { setMode(e.target.value as ResolveMode); dates.reset('creditDate'); }}
               className="mt-1 w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
             >
               <option value="resolve_with_credit">Resolve with credit note</option>
@@ -83,7 +83,7 @@ export function ResolveModal({
           </label>
 
           {mode === 'resolve_with_credit' && (
-            <DateField label="Credit note date" name="creditDate" value={creditDate || null} onChange={dates.bind('creditDate', setCreditDate)} />
+            <DateField label="Credit note date" name="creditDate" value={creditDate || null} onChange={dates.bind('creditDate', setCreditDate, creditDate)} />
           )}
 
           <label className="block">

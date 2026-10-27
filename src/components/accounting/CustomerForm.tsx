@@ -74,7 +74,7 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
 interface Props {
   form: CustomerFormData;
   onChange: (form: CustomerFormData) => void;
-  fieldErrors?: Partial<Record<keyof CustomerFormData, string>>;
+  fieldErrors?: Partial<Record<keyof CustomerFormData, string>>; dates: import('@/hooks/useDateGate').DateGate;
   categories?: { id: string; name: string }[];
 }
 
@@ -133,7 +133,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   );
 }
 
-export function CustomerForm({ form, onChange, fieldErrors = {}, categories = [] }: Props) {
+export function CustomerForm({ form, onChange, fieldErrors = {}, categories = [], dates }: Props) {
   function set<K extends keyof CustomerFormData>(key: K, value: CustomerFormData[K]) {
     onChange({ ...form, [key]: value });
   }
@@ -193,7 +193,7 @@ export function CustomerForm({ form, onChange, fieldErrors = {}, categories = []
               placeholder="0.00" className={inputClass} />
           </Field>
           <DateField label="Opening Balance as At" name="opening_balance_date" value={form.opening_balance_date || null}
-            onChange={(iso, v) => set('opening_balance_date', v.valid ? iso ?? '' : '')} />
+            onChange={dates.bind('opening_balance_date', (iso) => set('opening_balance_date', iso), form.opening_balance_date)} />
         </div>
         <div className="mt-3 flex items-center gap-3">
           <Toggle

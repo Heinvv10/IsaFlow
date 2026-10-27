@@ -16,7 +16,7 @@ import {
   LineItemsSection,
   type LineItem,
 } from '@/components/accounting/recurringInvoices/LineItemsSection';
-import { DateField } from '@/components/ui';
+import { DateField } from '@/components/ui'; import { useDateGate } from '@/hooks/useDateGate';
 
 interface Customer { id: string; name?: string; company_name?: string }
 
@@ -48,7 +48,7 @@ export default function EditRecurringInvoicePage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(''); const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(''); const [loaded, setLoaded] = useState(false); const dates = useDateGate();
 
   const [form, setForm] = useState({
     templateName: '',
@@ -123,7 +123,7 @@ export default function EditRecurringInvoicePage() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault(); if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
     setError('');
     if (lines.some(l => !l.description)) { setError('All line items must have a description'); return; }
     setSubmitting(true);
@@ -278,11 +278,11 @@ export default function EditRecurringInvoicePage() {
               </div>
               <div>
                 <DateField label="Next Run Date" required name="nextRunDate" value={form.nextRunDate || null}
-                  onChange={(iso, v) => setForm(f => ({ ...f, nextRunDate: v.valid ? iso ?? '' : '' }))} />
+                  onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })), form.nextRunDate)} />
               </div>
               <div>
                 <DateField label="End Date (optional)" name="endDate" value={form.endDate || null} minDate={form.nextRunDate || undefined}
-                  onChange={(iso, v) => setForm(f => ({ ...f, endDate: v.valid ? iso ?? '' : '' }))} />
+                  onChange={dates.bind('endDate', iso => setForm(f => ({ ...f, endDate: iso })), form.endDate)} />
               </div>
             </div>
           </div>

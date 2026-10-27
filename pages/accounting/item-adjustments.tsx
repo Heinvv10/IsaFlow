@@ -117,7 +117,7 @@ export default function ItemAdjustmentsPage() {
                 </div>
                 <div>
                   <DateField label="Date" name="adjustmentDate" value={form.date || null}
-                    onChange={dates.bind('date', iso => setForm(f => ({ ...f, date: iso })))} />
+                    onChange={dates.bind('date', iso => setForm(f => ({ ...f, date: iso })), form.date)} />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Reason</label>
