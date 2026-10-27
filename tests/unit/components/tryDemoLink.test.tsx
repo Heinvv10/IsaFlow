@@ -66,5 +66,20 @@ describe('<TryDemoLink>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try the demo company' }));
     await waitFor(() => expect(h.notify.error).toHaveBeenCalled());
     expect(onSwitched).not.toHaveBeenCalled();
+    expect(screen.queryByText('Opening the demo company…')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Try the demo company' }).hasAttribute('disabled')).toBe(false);
+  });
+  it('covers the old page from the click until the reload replaces it (W2 H)', async () => {
+    let resolve!: () => void;
+    h.switchCompany.mockReturnValue(new Promise<void>((r) => { resolve = r; }));
+    const onSwitched = vi.fn();
+    render(<TryDemoLink onSwitched={onSwitched} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Try the demo company' }));
+    expect(await screen.findByText('Opening the demo company…')).toBeTruthy();
+    resolve();
+    await waitFor(() => expect(onSwitched).toHaveBeenCalled());
+    // switchCompany resolved after starting the reload: the overlay stays up.
+    expect(screen.getByRole('status').textContent).toContain('Opening the demo company…');
+    expect(screen.getByRole('button', { name: 'Try the demo company' }).hasAttribute('disabled')).toBe(true);
   });
 });
