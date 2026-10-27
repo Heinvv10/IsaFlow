@@ -86,3 +86,17 @@ describe('settingsTabTitle', () => {
     expect(new Set(titles).size).toBe(TAB_IDS.length);
   });
 });
+
+describe('contrast fixes axe found', () => {
+  it('user fields: unused rows are not dimmed (opacity-50 put enabled inputs below AA)', async () => {
+    const { container } = render(<UdfTab />);
+    container.querySelectorAll<HTMLButtonElement>('button[type="button"].w-full.justify-between').forEach((b) => fireEvent.click(b));
+    await waitFor(() => expect(controls(container).length).toBeGreaterThan(0));
+    expect(container.querySelectorAll('.opacity-50:not(button)')).toHaveLength(0);
+  });
+
+  it('netcash: the link inside the text block is underlined', () => {
+    const { getByRole } = render(<NetcashTab company={company} onChange={noop} />);
+    expect(getByRole('link', { name: 'netcash.co.za' }).className).toMatch(/\bunderline\b/);
+  });
+});
