@@ -8,6 +8,7 @@ export const reportsTab: Tab = {
     { label: 'Balance Sheet', href: '/accounting/reports/balance-sheet' },
     { label: 'Trial Balance', href: '/accounting/trial-balance' },
     { label: 'Aged Debtors', href: '/accounting/reports/ar-aging' },
+    { label: 'All Reports', href: '/accounting/reports' },
   ],
   items: [
     {

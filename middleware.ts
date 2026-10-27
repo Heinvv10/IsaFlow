@@ -165,6 +165,11 @@ export async function middleware(request: NextRequest) {
     pathname === '/sw.js' ||
     pathname === '/favicon.ico'
   ) {
+    // Join and Sign Out on /invite/<token> are withCsrf, and a browser signing in
+    // from an invitation (/login -> /invite/<token>) never loads a protected page.
+    if (pathname.startsWith('/invite/') || pathname === '/login') {
+      return issueCsrfCookie(request, NextResponse.next());
+    }
     return NextResponse.next();
   }
 

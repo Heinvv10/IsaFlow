@@ -91,7 +91,7 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
       </div>
 
       {filters.length === 0 && (
-        <p className="text-xs text-gray-600 dark:text-gray-400 dark:text-slate-500 italic">No filters applied — showing all records</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 italic">No filters applied — showing all records</p>
       )}
 
       <div className="flex flex-col gap-2">
@@ -139,7 +139,7 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
               )}
               {showRange && (
                 <>
-                  <span className="text-xs text-gray-600 dark:text-gray-400 dark:text-slate-500">and</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">and</span>
                   <input
                     type={inputType}
                     value={filter.value2}
@@ -152,7 +152,7 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
 
               <button
                 onClick={() => removeFilter(filter.id)}
-                className="ml-auto text-gray-600 dark:text-gray-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                className="ml-auto text-gray-600 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                 title="Remove filter"
               >
                 <X className="w-3.5 h-3.5" />

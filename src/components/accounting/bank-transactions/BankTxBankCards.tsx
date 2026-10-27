@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { formatCurrency as fmtCurrency } from '@/utils/formatters';
+import { useCompany } from '@/contexts/CompanyContext';
 import { groupBankAccounts } from './groupBankAccounts';
 import { BankGroupCard } from './BankSubAccountGroup';
 import { BankGroupWorklist } from './BankGroupWorklist';
@@ -15,6 +15,10 @@ import { BankTxStatsStrip } from './BankTxStatsStrip';
 import { UngroupedAccountsHint } from './UngroupedAccountsHint';
 import { findUngroupedHints } from './ungroupedBankHint';
 import { readLastOpened, writeLastOpened } from './lastOpenedSubAccount';
+import { BankPrimaryCard } from './BankPrimaryCard';
+import { SortableCardRow, type SortableCard } from './SortableCardRow';
+import { applyCardOrder } from './bankCardOrder';
+import { useBankCardOrder } from './useBankCardOrder';
 
 export interface BankAcct {
   id: string;
@@ -77,6 +81,8 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const expandedGroup = groups.find(g => g.groupId === expandedGroupId);
   const { ref: rowRef, more: rowMore, measure: measureRow } = useOverflowRight(primaries.length + groups.length);
+  const { activeCompany } = useCompany();
+  const { order, reorder, reset } = useBankCardOrder(activeCompany?.id);
 
   // Deep links (?account_id=) can select a sub-account before any user
   // interaction — auto-expand its group so the selection is visible.
@@ -107,70 +113,48 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
     return a && a.id !== selectedBank ? { id: a.id, name: a.accountName } : null;
   };
 
+  // Choosing a primary account closes any open group, so the group card stops reading as selected.
+  const selectPrimary = (id: string) => { setExpandedGroupId(null); onSelectBank(id); };
+  const cards: SortableCard[] = [
+    ...primaries.map(b => ({
+      key: b.id, label: b.accountName, node: <BankPrimaryCard b={b} active={b.id === selectedBank} onSelect={() => selectPrimary(b.id)} />,
+    })),
+    ...groups.map(g => ({
+      key: `group:${g.groupId}`,
+      label: g.groupName,
+      node: (
+        <BankGroupCard
+          group={g}
+          containsSelection={g.accounts.some(a => a.id === selectedBank)}
+          expanded={g.groupId === expandedGroupId}
+          onToggle={() => setExpandedGroupId(prev => (prev === g.groupId ? null : g.groupId))}
+          resume={resumeFor(g.groupId)}
+          onResume={id => openSubAccount(g.groupId, id)}
+        />
+      ),
+    })),
+  ];
+  const byKey = new Map(cards.map(c => [c.key, c]));
+  const orderedCards = applyCardOrder(cards.map(c => c.key), order).map(k => byKey.get(k)!);
+
   return (
     <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-      <h1 className="text-2xl font-bold text-[var(--ff-text-primary)] mb-3">Bank Transactions</h1>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Bank Transactions</h1>
+        <p className="text-xs text-[var(--ff-text-secondary)]">
+          Drag cards to reorder (or Alt+←/→)
+          {order && (
+            <button type="button" onClick={() => void reset()} data-testid="bank-cards-reset-order"
+              className="ml-3 text-teal-700 dark:text-teal-400 hover:underline">
+              Reset order
+            </button>
+          )}
+        </p>
+      </div>
       <div className="relative min-w-0">
         <div ref={rowRef} onScroll={measureRow} data-testid="bank-cards-row"
           className="flex items-stretch gap-3 overflow-x-auto pb-2">
-          {primaries.map(b => {
-            const active = b.id === selectedBank;
-            const gap = b.unreconciledBalance;
-            const hasGap = Math.abs(gap) >= 0.01;
-            return (
-              <button
-                key={b.id}
-                data-testid="bank-account-card"
-                onClick={() => onSelectBank(b.id)}
-                title={b.accountName}
-                className={`w-[280px] shrink-0 flex items-stretch gap-3 px-4 py-2.5 rounded-lg border-2 transition-all text-left ${
-                  active
-                    ? 'border-teal-500 bg-teal-500/10 shadow-lg shadow-teal-500/10'
-                    : 'border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] hover:border-[var(--ff-text-tertiary)]'
-                }`}
-              >
-                <div className={`w-2 rounded-full shrink-0 ${active ? 'bg-teal-500' : 'bg-[var(--ff-border-light)]'}`} />
-                <div className="min-w-0 flex-1">
-                  <p className={`line-clamp-2 text-sm font-semibold leading-snug ${active ? 'text-teal-700 dark:text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
-                    {b.accountName}
-                  </p>
-                  <div className="mt-1 flex items-baseline justify-between gap-2">
-                    <span className="truncate text-xs text-[var(--ff-text-tertiary)] font-mono">
-                      {b.accountCode}{b.bankAccountNumber && ` | ****${b.bankAccountNumber.slice(-4)}`}
-                    </span>
-                    <span className={`shrink-0 text-sm font-bold tabular-nums ${b.balance >= 0 ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-300'}`}>
-                      {fmtCurrency(b.balance)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-end gap-2 mt-0.5">
-                    <span className="text-xs text-teal-700 dark:text-teal-400 tabular-nums" title="Allocated to GL entries">
-                      ✓ {fmtCurrency(b.reconciledBalance)}
-                    </span>
-                    {hasGap && (
-                      <span
-                        className="text-xs text-amber-800 dark:text-amber-400 tabular-nums"
-                        title={`${b.unreconciledCount} unallocated transaction${b.unreconciledCount !== 1 ? 's' : ''}`}
-                      >
-                        Δ&nbsp;{fmtCurrency(Math.abs(gap))}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-
-          {groups.map(g => (
-            <BankGroupCard
-              key={g.groupId}
-              group={g}
-              containsSelection={g.accounts.some(a => a.id === selectedBank)}
-              expanded={g.groupId === expandedGroupId}
-              onToggle={() => setExpandedGroupId(prev => (prev === g.groupId ? null : g.groupId))}
-              resume={resumeFor(g.groupId)}
-              onResume={id => openSubAccount(g.groupId, id)}
-            />
-          ))}
+          <SortableCardRow cards={orderedCards} onReorder={keys => void reorder(keys)} />
         </div>
         {rowMore && (
           <div aria-hidden data-testid="bank-cards-fade"
