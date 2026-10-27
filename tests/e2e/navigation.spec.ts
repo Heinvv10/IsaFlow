@@ -142,11 +142,14 @@ const ROUTE_TAB_MAPPING: Record<string, string[]> = {
   ],
   accountants: [
     '/accounting/cost-centres',
-    '/accounting/budgets',
     '/accounting/depreciation',
     '/accounting/year-end',
     '/accounting/business-units',
     '/accounting/trial-balance',
+  ],
+  // getActiveTabId: the Accounting module collapses to the Library tab (tests/unit/nav/activeTab.test.ts pins it).
+  library: [
+    '/accounting/budgets',
   ],
 };
 
@@ -209,6 +212,7 @@ test.describe('Route-to-tab highlighting', () => {
           items: 'Items',
           vat: 'VAT',
           accountants: "Accountant's Area",
+          library: 'Library',
         };
         const label = tabLabels[expectedTab];
         if (label) {
