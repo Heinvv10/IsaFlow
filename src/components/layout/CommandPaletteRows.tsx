@@ -39,13 +39,17 @@ export interface PaletteOptionProps {
   subtitle?: string;
   /** Where a page lives, root first: "Sales > Transactions". */
   trail?: string[];
+  /** Other nav labels for this page that matched: "also: Profit & Loss". */
+  aliases?: string[];
   badge?: string;
   isSelected: boolean;
   onClick: () => void;
 }
 
-export function PaletteOption({ id, dataIdx, icon, title, subtitle, trail, badge, isSelected, onClick }: PaletteOptionProps) {
-  const detail = trail && trail.length > 0 ? trail.join(' › ') : subtitle;
+export function PaletteOption({ id, dataIdx, icon, title, subtitle, trail, aliases, badge, isSelected, onClick }: PaletteOptionProps) {
+  const where = trail && trail.length > 0 ? trail.join(' › ') : subtitle;
+  const also = aliases && aliases.length > 0 ? `also: ${aliases.join(', ')}` : '';
+  const detail = [where, also].filter(Boolean).join(' · ');
   return (
     <div
       id={id}
