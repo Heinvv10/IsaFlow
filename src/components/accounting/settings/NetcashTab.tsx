@@ -183,7 +183,7 @@ export function NetcashTab({ company, onChange }: Props) {
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-3">How It Works</h2>
         <ol className="space-y-2 text-sm text-[var(--ff-text-secondary)] list-decimal list-inside">
-          <li>Register a merchant account at <a href="https://www.netcash.co.za" target="_blank" rel="noopener noreferrer" className="text-teal-500 hover:underline">netcash.co.za</a>.</li>
+          <li>Register a merchant account at <a href="https://www.netcash.co.za" target="_blank" rel="noopener noreferrer" className="text-teal-500 underline">netcash.co.za</a>.</li>
           <li>Retrieve your Service Key and Payouts Key from the Netcash merchant portal.</li>
           <li>Enter the keys above and enable the integration.</li>
           <li>Save your company settings.</li>

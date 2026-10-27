@@ -24,6 +24,7 @@ import { UdfTab } from '@/components/accounting/settings/UdfTab';
 import { RegionalTab } from '@/components/accounting/settings/RegionalTab';
 import { CustomerZoneTab } from '@/components/accounting/settings/CustomerZoneTab';
 import { NetcashTab } from '@/components/accounting/settings/NetcashTab';
+import { DimensionsTab } from '@/components/accounting/settings/DimensionsTab';
 
 const company = { ...mapApiCompany({ id: 'c1', name: 'Demo' }), lockdownEnabled: true };
 const noop = () => undefined;
@@ -43,6 +44,7 @@ const TABS: Array<[string, () => ReactElement]> = [
   ['udf', () => <UdfTab />],
   ['regional', () => <RegionalTab company={company} onChange={noop} />],
   ['netcash', () => <NetcashTab company={company} onChange={noop} />],
+  ['dimensions', () => <DimensionsTab enableCC={false} enableBU={false} dimLoaded onCCChange={noop} onBUChange={noop} />],
 ];
 
 beforeEach(() => {
@@ -55,7 +57,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const controls = (root: HTMLElement) =>
-  Array.from(root.querySelectorAll<HTMLElement>('input:not([type="hidden"]), select, textarea'));
+  Array.from(root.querySelectorAll<HTMLElement>('input:not([type="hidden"]), select, textarea, [role="switch"]'));
 
 describe('company settings tabs name every control', () => {
   it.each(TABS)('%s', async (_tab, tab) => {
