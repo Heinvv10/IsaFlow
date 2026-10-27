@@ -86,9 +86,9 @@ tester.run('no-raw-form-input', noRawFormInput, {
     { code: '<input id={undefined} />', filename: file, options: NONE, errors: [{ messageId: 'unlabelled' }] },
     { code: '<input id={undefined} aria-label={undefined} />', filename: file, options: NONE, errors: [{ messageId: 'unlabelled' }] },
     // a listed file may not gain raw inputs: only the reports beyond its count are reported
-    { code: '<><input /><input /><input /></>', filename: file, options: [{ allowlist: { [file]: 2 } }], errors: [{ messageId: 'unlabelled', line: 1, column: 21 }] },
-    { code: '<><input /><input /></>', filename: file, options: [{ allowlist: { [file]: 1 } }], errors: [{ messageId: 'unlabelled', line: 1, column: 12 }] },
-    { code: '<input type="date" />', filename: file, options: [{ allowlist: { [file]: 1 } }], errors: [{ messageId: 'unlabelled' }] },
+    { code: '<><input /><input /><input /></>', filename: file, options: [{ allowlist: { [file]: 2 } }], errors: [{ messageId: 'overList', line: 1, column: 21 }] },
+    { code: '<><input /><input /></>', filename: file, options: [{ allowlist: { [file]: 1 } }], errors: [{ messageId: 'overList', line: 1, column: 12 }] },
+    { code: '<input type="date" />', filename: file, options: [{ allowlist: { [file]: 1 } }], errors: [{ messageId: 'overList' }] },
     { code: '<input />', filename: file, options: [{ allowlist: { [file]: 0 } }], errors: [{ messageId: 'unlabelled' }] },
     { code: '<input />', filename: 'constructor', options: [{ allowlist: {} }], errors: [{ messageId: 'unlabelled' }] },
     { code: '<input />', filename: '__proto__', options: [{ allowlist: {} }], errors: [{ messageId: 'unlabelled' }] },
