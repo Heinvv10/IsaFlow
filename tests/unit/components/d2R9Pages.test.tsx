@@ -259,10 +259,11 @@ describe('forgot password', () => {
 describe('invite accept', () => {
   it('a dropped connection on accept says what could not be done, not "Network error"', async () => {
     router.query = { token: 'tok' };
+    // GET /api/invite/[token] always masks the address; the page compares the session's email through the same mask.
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST') throw new Error('socket hang up');
       if (String(url).includes('/api/auth/me')) return ok({ user: { id: 'u1', email: 'd2@example.test' } });
-      return ok({ email: 'd2@example.test', companyName: 'D2 Co', role: 'admin', invitedBy: 'D2 Owner' });
+      return ok({ email: 'd***@example.test', companyName: 'D2 Co', role: 'admin', invitedBy: 'D2 Owner' });
     }));
     render(<InvitePage />);
     fireEvent.click(await screen.findByRole('button', { name: /join d2 co/i }));

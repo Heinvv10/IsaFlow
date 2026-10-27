@@ -1,5 +1,6 @@
 /**
- * Make a budget version its year's primary (migration 947): owner or admin.
+ * Make a budget version its year's primary (migration 947): owner or admin; owner only when the
+ * year's current primary is locked (moving the reports off a locked budget is an unlock in effect).
  * POST → the version. Every reader without a named version follows the primary.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';

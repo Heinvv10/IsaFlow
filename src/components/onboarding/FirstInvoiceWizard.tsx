@@ -49,7 +49,7 @@ function InvoiceHeaderPreview({ state }: { state: WizardState }) {
         <div className="text-right">
           <p className="text-base font-bold text-teal-600 dark:text-teal-400">INVOICE</p>
           <p className="text-gray-500 dark:text-gray-400">{num}</p>
-          <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500">{formatDisplayDate(new Date())}</p>
+          <p className="text-gray-600 dark:text-gray-400">{formatDisplayDate(new Date())}</p>
         </div>
       </div>
     </div>
@@ -123,7 +123,7 @@ function Step3({ state, setState }: { state: WizardState; setState: SetState }) 
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Your next invoice number will be</p>
         <p className="text-2xl font-bold text-teal-600 dark:text-teal-400 tracking-wide">{preview}</p>
       </div>
-      <p className="text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500">The number increments automatically with each new invoice.</p>
+      <p className="text-xs text-gray-600 dark:text-gray-400">The number increments automatically with each new invoice.</p>
     </div>
   );
 }
