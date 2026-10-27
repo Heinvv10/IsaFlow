@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Lock } from 'lucide-react';
 import { DateField } from '@/components/ui';
 import { Company, Toggle, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
@@ -7,9 +8,13 @@ import { YearEndChangeEntry } from './YearEndChangeEntry';
 interface Props {
   company: Company;
   onChange: (field: keyof Company, value: unknown) => void;
+  /** True while Lockdown Date holds text it refused (the old date is still in `company`): the page blocks Save. Pass a stable setter. */
+  onLockdownInvalid?: (invalid: boolean) => void;
 }
 
-export function GeneralTab({ company, onChange }: Props) {
+export function GeneralTab({ company, onChange, onLockdownInvalid }: Props) {
+  // Leaving the tab drops the refused text: the field shows the saved date again when it comes back.
+  useEffect(() => () => onLockdownInvalid?.(false), [onLockdownInvalid]);
   return (
     <>
       {/* Financial Year & Lockdown */}
@@ -31,11 +36,11 @@ export function GeneralTab({ company, onChange }: Props) {
           </div>
         </div>
         <div className="border-t border-[var(--ff-border-primary)] pt-4">
-          <Toggle checked={company.lockdownEnabled} onChange={v => onChange('lockdownEnabled', v)} label="Enable Lockdown Date" />
+          <Toggle checked={company.lockdownEnabled} onChange={v => { if (!v) onLockdownInvalid?.(false); onChange('lockdownEnabled', v); }} label="Enable Lockdown Date" />
           <p className="text-xs text-[var(--ff-text-tertiary)] mt-1 mb-3">No transactions can be processed or edited with a date up to and including the lockdown date.</p>
           {company.lockdownEnabled && (
             <div className="max-w-xs">
-              <DateField label="Lockdown Date" value={company.lockdownDate || null} onChange={(iso, v) => { if (v.valid) onChange('lockdownDate', iso ?? ''); }} />
+              <DateField label="Lockdown Date" value={company.lockdownDate || null} onChange={(iso, v) => { onLockdownInvalid?.(!v.valid); if (v.valid) onChange('lockdownDate', iso ?? ''); }} />
             </div>
           )}
         </div>
