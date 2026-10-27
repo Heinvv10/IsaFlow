@@ -1,7 +1,9 @@
 /**
  * useBankCardOrder — loads and saves this user's bank card order for the
  * active company through /api/auth/preferences (user_preferences). A save is
- * applied at once and reverted, with a toast, if the server refuses it.
+ * applied at once; saves go to the server one at a time, in order, so the
+ * last order shown is the last one stored. A refused save is reverted, with a
+ * toast, only while it is still the newest save for the same company.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -10,14 +12,30 @@ import { log } from '@/lib/logger';
 import { notify } from '@/utils/toast';
 import { cardOrderPrefKey, parseCardOrder } from './bankCardOrder';
 
+async function putOrder(companyId: string, next: string[] | null): Promise<void> {
+  const res = await apiFetch('/api/auth/preferences', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ preferences: { [cardOrderPrefKey(companyId)]: next ? JSON.stringify(next) : '' } }),
+  });
+  await assertOk(res, 'Could not save your card order');
+}
+
 export function useBankCardOrder(companyId: string | null | undefined) {
   const [order, setOrder] = useState<string[] | null>(null);
-  // Set by a save: the user has reordered, so a load that arrives later must not overwrite it.
-  const touched = useRef(false);
+  // The order last shown, the company it belongs to, and how many saves have started:
+  // read by saves that settle after a re-render, a company switch or a newer save.
+  const orderRef = useRef<string[] | null>(null);
+  const companyRef = useRef(companyId);
+  const saveSeq = useRef(0);
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const show = useCallback((next: string[] | null) => { orderRef.current = next; setOrder(next); }, []);
 
   useEffect(() => {
-    setOrder(null);
-    touched.current = false;
+    companyRef.current = companyId;
+    saveSeq.current = 0;
+    show(null);
     if (!companyId) return undefined;
     let cancelled = false;
     void (async () => {
@@ -25,33 +43,32 @@ export function useBankCardOrder(companyId: string | null | undefined) {
         const res = await apiFetch('/api/auth/preferences');
         await assertOk(res, 'Could not load your card order');
         const json = (await res.json()) as { data?: Record<string, string> };
-        if (!cancelled && !touched.current) setOrder(parseCardOrder(json.data?.[cardOrderPrefKey(companyId)]));
+        // A reorder made while this was loading wins over the stored order.
+        if (!cancelled && saveSeq.current === 0) show(parseCardOrder(json.data?.[cardOrderPrefKey(companyId)]));
       } catch (err) {
         log.warn('Bank card order unavailable, using the default order', { error: err }, 'bank-transactions');
       }
     })();
     return () => { cancelled = true; };
-  }, [companyId]);
+  }, [companyId, show]);
 
-  const save = useCallback(async (next: string[] | null) => {
-    if (!companyId) return;
-    const prev = order;
-    touched.current = true;
-    setOrder(next);
-    try {
-      const res = await apiFetch('/api/auth/preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ preferences: { [cardOrderPrefKey(companyId)]: next ? JSON.stringify(next) : '' } }),
-      });
-      await assertOk(res, 'Could not save your card order');
-    } catch (err) {
-      setOrder(prev);
-      log.warn('Saving the bank card order failed', { error: err }, 'bank-transactions');
-      notify.error(apiErrorMessage(err, 'Could not save your card order'));
-    }
-  }, [companyId, order]);
+  const save = useCallback((next: string[] | null): Promise<void> => {
+    if (!companyId) return Promise.resolve();
+    const prev = orderRef.current;
+    const seq = ++saveSeq.current;
+    show(next);
+    chain.current = chain.current.then(async () => {
+      try {
+        await putOrder(companyId, next);
+      } catch (err) {
+        log.warn('Saving the bank card order failed', { error: err }, 'bank-transactions');
+        if (companyRef.current !== companyId || saveSeq.current !== seq) return;
+        show(prev);
+        notify.error(apiErrorMessage(err, 'Could not save your card order'));
+      }
+    });
+    return chain.current;
+  }, [companyId, show]);
 
   return { order, save };
 }

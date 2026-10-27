@@ -11,7 +11,8 @@ const apiFetch = vi.fn();
 const notify = { success: vi.fn(), error: vi.fn() };
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: (...a: unknown[]) => apiFetch(...a) }));
 vi.mock('@/utils/toast', () => ({ notify: { success: (m: string) => notify.success(m), error: (m: string) => notify.error(m) } }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1' }, companyRole: 'owner' }) }));
+let company = 'co-1';
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: company }, companyRole: 'owner' }) }));
 vi.mock('@/components/accounting/StatementBalanceWidget', () => ({ StatementBalanceWidget: () => null }));
 
 const acct = (id: string, name: string, group?: string): BankAcct => ({
@@ -25,7 +26,7 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify({ succ
 let saved: Record<string, string> = {};
 let putStatus = 200;
 beforeEach(() => {
-  saved = {}; putStatus = 200; notify.error.mockReset(); apiFetch.mockReset();
+  saved = {}; putStatus = 200; company = 'co-1'; notify.error.mockReset(); apiFetch.mockReset();
   apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === '/api/auth/preferences' && init?.method === 'PUT') return json({}, putStatus);
     if (url === '/api/auth/preferences') return json(saved);
@@ -37,12 +38,16 @@ afterEach(() => { cleanup(); });
 const slotKeys = () => screen.getAllByTestId('bank-card-slot').map(e => e.getAttribute('data-card-key'));
 const puts = () => apiFetch.mock.calls.filter(c => (c[1] as RequestInit | undefined)?.method === 'PUT')
   .map(c => JSON.parse((c[1] as RequestInit).body as string).preferences['bank_card_order:co-1'] as string);
-const view = (selectedBank = 'p1') => {
+const ui = (onSelectBank = vi.fn(), list = accounts) => (
+  <BankTxBankCards bankAccounts={list} selectedBank="p1" tab="new" total={0} onSelectBank={onSelectBank} onAccountsChanged={vi.fn()} />);
+const view = () => {
   const onSelectBank = vi.fn();
-  render(<BankTxBankCards bankAccounts={accounts} selectedBank={selectedBank} tab="new" total={0}
-    onSelectBank={onSelectBank} onAccountsChanged={vi.fn()} />);
-  return { onSelectBank };
+  const r = render(ui(onSelectBank));
+  return { onSelectBank, rerender: r.rerender };
 };
+const altRight = (name: RegExp) => act(async () => {
+  fireEvent.keyDown(screen.getByRole('button', { name }), { key: 'ArrowRight', altKey: true });
+});
 
 it('choosing a primary account closes the open group: its card is no longer expanded or selected', async () => {
   const { onSelectBank } = view();
@@ -118,4 +123,73 @@ it('a reorder made before the saved order has loaded is not overwritten when it 
   await act(async () => { release(); await gate; });
   await new Promise((r) => setTimeout(r, 20));
   expect(slotKeys()).toEqual(['p2', 'p1', 'group:g1']);
+});
+
+it('the keyboard move keeps focus on the moved card and announces its new place', async () => {
+  view();
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  screen.getByRole('button', { name: /Main/ }).focus();
+  await altRight(/Main/);
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /Main/ })));
+  expect(screen.getByTestId('bank-cards-announcement').textContent).toBe('Main moved to position 2 of 3');
+});
+
+it('a saved place for a card not on screen is kept when the others are reordered', async () => {
+  saved = { 'bank_card_order:co-1': JSON.stringify(['gone-later', 'p1', 'p2']) };
+  view();
+  await waitFor(() => expect(slotKeys()).toEqual(['p1', 'p2', 'group:g1']));
+  await altRight(/Main/);
+  expect(puts()).toEqual([JSON.stringify(['p2', 'p1', 'group:g1', 'gone-later'])]);
+});
+
+it('saves are sent one at a time: the second waits for the first, and a failed first does not undo the second', async () => {
+  let releaseFirst!: () => void;
+  const first = new Promise<void>((r) => { releaseFirst = r; });
+  let n = 0;
+  apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === '/api/auth/preferences' && init?.method === 'PUT') {
+      n += 1;
+      if (n === 1) { await first; return json({}, 500); }
+      return json({});
+    }
+    return json(url === '/api/auth/preferences' ? {} : []);
+  });
+  view();
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  await altRight(/Main/);
+  await altRight(/Main/);
+  expect(slotKeys()).toEqual(['p2', 'group:g1', 'p1']);
+  expect(puts()).toHaveLength(1);
+  await act(async () => { releaseFirst(); await first; });
+  await waitFor(() => expect(puts()).toHaveLength(2));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(slotKeys()).toEqual(['p2', 'group:g1', 'p1']);
+  expect(notify.error).not.toHaveBeenCalled();
+});
+
+it('a save refused after switching company does not put the old company\'s order on the new one', async () => {
+  let releasePut!: () => void;
+  const put = new Promise<void>((r) => { releasePut = r; });
+  let n = 0;
+  apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === '/api/auth/preferences' && init?.method === 'PUT') {
+      n += 1;
+      if (n === 1) { await put; return json({}, 500); }
+      return json({});
+    }
+    return json(url === '/api/auth/preferences' ? {} : []);
+  });
+  const { rerender } = view();
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  await altRight(/Main/);
+  company = 'co-2';
+  rerender(ui());
+  await waitFor(() => expect(slotKeys()).toEqual(['p1', 'p2', 'group:g1']));
+  // The first save in the new company, made while the old company's save is still pending.
+  await altRight(/Savings/);
+  expect(slotKeys()).toEqual(['p1', 'group:g1', 'p2']);
+  await act(async () => { releasePut(); await put; });
+  await new Promise((r) => setTimeout(r, 20));
+  expect(slotKeys()).toEqual(['p1', 'group:g1', 'p2']);
+  expect(notify.error).not.toHaveBeenCalled();
 });

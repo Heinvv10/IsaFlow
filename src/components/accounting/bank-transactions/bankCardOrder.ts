@@ -42,3 +42,12 @@ export function parseCardOrder(raw: string | undefined): string[] | null {
     return null;
   }
 }
+
+/**
+ * The order to store after a reorder of the cards on screen: saved keys for cards not on screen right
+ * now (still loading, or hidden) are kept after them, so a reorder never forgets their place.
+ */
+export function withUnseen(next: string[], saved: string[] | null): string[] {
+  const shown = new Set(next);
+  return [...next, ...(saved ?? []).filter(k => !shown.has(k))];
+}

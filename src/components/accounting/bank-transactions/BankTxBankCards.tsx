@@ -17,7 +17,7 @@ import { findUngroupedHints } from './ungroupedBankHint';
 import { readLastOpened, writeLastOpened } from './lastOpenedSubAccount';
 import { BankPrimaryCard } from './BankPrimaryCard';
 import { SortableCardRow, type SortableCard } from './SortableCardRow';
-import { applyCardOrder } from './bankCardOrder';
+import { applyCardOrder, withUnseen } from './bankCardOrder';
 import { useBankCardOrder } from './useBankCardOrder';
 
 export interface BankAcct {
@@ -117,10 +117,11 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
   const selectPrimary = (id: string) => { setExpandedGroupId(null); onSelectBank(id); };
   const cards: SortableCard[] = [
     ...primaries.map(b => ({
-      key: b.id, node: <BankPrimaryCard b={b} active={b.id === selectedBank} onSelect={() => selectPrimary(b.id)} />,
+      key: b.id, label: b.accountName, node: <BankPrimaryCard b={b} active={b.id === selectedBank} onSelect={() => selectPrimary(b.id)} />,
     })),
     ...groups.map(g => ({
       key: `group:${g.groupId}`,
+      label: g.groupName,
       node: (
         <BankGroupCard
           group={g}
@@ -153,7 +154,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
       <div className="relative min-w-0">
         <div ref={rowRef} onScroll={measureRow} data-testid="bank-cards-row"
           className="flex items-stretch gap-3 overflow-x-auto pb-2">
-          <SortableCardRow cards={orderedCards} onReorder={save} />
+          <SortableCardRow cards={orderedCards} onReorder={keys => void save(withUnseen(keys, order))} />
         </div>
         {rowMore && (
           <div aria-hidden data-testid="bank-cards-fade"

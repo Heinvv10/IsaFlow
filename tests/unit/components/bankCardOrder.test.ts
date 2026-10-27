@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  applyCardOrder, cardOrderPrefKey, moveCard, moveCardBy, parseCardOrder,
+  applyCardOrder, cardOrderPrefKey, moveCard, moveCardBy, parseCardOrder, withUnseen,
 } from '@/components/accounting/bank-transactions/bankCardOrder';
 
 describe('applyCardOrder', () => {
@@ -56,5 +56,14 @@ describe('stored value', () => {
     expect(parseCardOrder('not json')).toBeNull();
     expect(parseCardOrder('{"a":1}')).toBeNull();
     expect(parseCardOrder('[1,2]')).toBeNull();
+  });
+});
+
+describe('withUnseen', () => {
+  it('keeps saved keys for cards not on screen after the reordered ones', () => {
+    expect(withUnseen(['b', 'a'], ['x', 'a', 'b', 'y'])).toEqual(['b', 'a', 'x', 'y']);
+  });
+  it('no saved order: just the new order', () => {
+    expect(withUnseen(['b', 'a'], null)).toEqual(['b', 'a']);
   });
 });
