@@ -250,6 +250,13 @@ export async function adminCreateUser(input: AdminCreateUserInput): Promise<GoTr
 }
 
 export async function adminGetUserByEmail(email: string): Promise<GoTrueUser> {
+  const user = await findUserByEmail(email);
+  if (!user) throw new Error(`no gotrue user with email ${email}`);
+  return user;
+}
+
+/** adminGetUserByEmail without the throw: null when no account holds the address. */
+export async function findUserByEmail(email: string): Promise<GoTrueUser | null> {
   // GoTrue's admin `/admin/users?filter=` is a free-text ILIKE over email/phone,
   // NOT a PostgREST `col.op.val` expression: `email.eq.<x>` is taken literally
   // and matches nothing, so the old query silently found no users (e.g. every
@@ -266,9 +273,7 @@ export async function adminGetUserByEmail(email: string): Promise<GoTrueUser> {
   if (!res.ok) throw new Error(`gotrue getUserByEmail failed: ${res.status}`);
   const body = (await readAuthUpstreamJson('gotrue adminGetUserByEmail', res)) as { users?: GoTrueUser[] };
   const target = email.trim().toLowerCase();
-  const user = body.users?.find((u) => u.email?.trim().toLowerCase() === target);
-  if (!user) throw new Error(`no gotrue user with email ${email}`);
-  return user;
+  return body.users?.find((u) => u.email?.trim().toLowerCase() === target) ?? null;
 }
 
 export async function adminUpdateUser(

@@ -1,37 +1,47 @@
 // src/lib/auth/inviteAccount.ts
-import type pg from 'pg';
-import { adminCreateUser } from './gotrue';
+import { adminCreateUser, findUserByEmail } from './gotrue';
+import { listFactors } from './gotrue-mfa';
+
+/** The strength floor for a password being SET (register.ts, do-reset-password.ts). */
+export const MIN_NEW_PASSWORD_LENGTH = 10;
 
 /**
- * The GoTrue account an invitation is accepted as.
+ * The GoTrue account an invitation is accepted as, or null when the address
+ * has no account and `password` is too weak to create one with.
  *
  * POST /api/invitations creates (or finds) that account when it sends the
  * invite and stores it in `gotrue_user_id`. userInvitationService — the
- * Settings → User Access screen — never did, so its invitees had no way to
+ * Settings -> User Access screen — never did, so its invitees had no way to
  * set a password and join: /accept-invite refused the row and the only other
  * route was the self-serve signup, which creates a SECOND company.
  *
- * Resolved here instead, at accept time, the same way the invite path does:
- * adminCreateUser answers an existing address with that existing user (422 →
- * lookup), so an address that already has a login gets that login, and the
- * caller's established-account check then demands its current password. The
- * id is written back with COALESCE so concurrent accepts, and a later revoke
- * (pages/api/invitations/revoke/[id].ts), all see one account.
- *
- * `client` is the migration_admin connection the accept handler already holds,
- * outside any transaction, so the link survives a later failed accept and a
- * revoke can still clean the account up.
+ * Resolved here at accept time instead, and deliberately NOT written back to
+ * the invitation: pages/api/invitations/revoke/[id].ts deletes the stored
+ * account when it has no memberships, and an account found here may be
+ * someone's own login (a pending signup, a member removed everywhere) that
+ * this invitation never created. An existing account is always found first,
+ * never created over, and the caller's established-account check then demands
+ * its current password. Concurrent accepts converge: the second create 422s
+ * and adminCreateUser answers the first one's account.
  */
 export async function resolveInvitationAccount(
-  client: pg.PoolClient,
-  inv: { id: string; email: string; gotrue_user_id: string | null },
-): Promise<string> {
+  inv: { email: string; gotrue_user_id: string | null },
+  password: string,
+): Promise<string | null> {
   if (inv.gotrue_user_id) return inv.gotrue_user_id;
-  const account = await adminCreateUser({ email: inv.email, email_confirm: true });
-  const { rows } = await client.query<{ gotrue_user_id: string }>(
-    `UPDATE company_invitations SET gotrue_user_id = COALESCE(gotrue_user_id, $2::uuid)
-      WHERE id = $1::uuid RETURNING gotrue_user_id`,
-    [inv.id, account.id],
-  );
-  return rows[0]?.gotrue_user_id ?? account.id;
+  const existing = await findUserByEmail(inv.email);
+  if (existing) return existing.id;
+  if (password.length < MIN_NEW_PASSWORD_LENGTH) return null;
+  return (await adminCreateUser({ email: inv.email, email_confirm: true })).id;
+}
+
+/**
+ * Does this signed-in account have a verified second factor? Accepting an
+ * invitation with a password must not mint a session that /api/auth/login
+ * would have withheld until the code was given. Throws when the factors cannot
+ * be read; the caller fails closed.
+ */
+export async function accountHasVerifiedFactor(accessToken: string): Promise<boolean> {
+  const factors = await listFactors(accessToken);
+  return factors.totp.some((f) => f.status === 'verified');
 }

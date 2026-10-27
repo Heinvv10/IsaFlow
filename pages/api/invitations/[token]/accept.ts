@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { isLiveCompanyForUser, pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
-import { resolveInvitationAccount } from '@/lib/auth/inviteAccount';
+import { accountHasVerifiedFactor, MIN_NEW_PASSWORD_LENGTH, resolveInvitationAccount } from '@/lib/auth/inviteAccount';
 
 /**
  * `firstName` / `lastName` arrive in an anonymous request body. Neither type
@@ -115,7 +115,10 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     // Never NULL past here: a NULL id matches no `users` row below, which would
     // skip the established-account guard and PUT a password to /admin/users/null.
-    const accountId = await resolveInvitationAccount(client, inv);
+    const accountId = await resolveInvitationAccount(inv, password);
+    if (accountId === null) {
+      return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
+    }
 
     // 2. Does this address already hold an established IsaFlow login? A `users`
     //    row is written only by tenant provisioning (after email verification)
@@ -134,7 +137,7 @@ const handler: NextApiHandler = async (req, res) => {
       // Brand-new invitee: this invitation is what establishes the login, so
       // the password they type becomes their password — and only here does the
       // strength floor apply, matching register.ts / do-reset-password.ts.
-      if (password.length < 10) {
+      if (password.length < MIN_NEW_PASSWORD_LENGTH) {
         return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
       }
       // email_confirm is not redundant with the `email_confirm: true` that
@@ -180,6 +183,14 @@ const handler: NextApiHandler = async (req, res) => {
       // locks the rightful invitee out of their own link for an hour.
       await refund();
       return res.status(409).json({ success: false, error: { code: 'IDENTITY_MISMATCH', message: 'Invitation does not match this account' } });
+    }
+    // /api/auth/login withholds the session from an account with a verified
+    // second factor until the code is given; a password here must not skip
+    // that (a login this accept just created has none). Refunded like the
+    // verdict above: reachable only after signIn.
+    if (isEstablished && await accountHasVerifiedFactor(tok.access_token)) {
+      await refund();
+      return res.status(401).json({ success: false, error: { code: 'MFA_REQUIRED', message: 'This account uses two-factor authentication. Sign in to accept the invitation.' } });
     }
 
     // 4. Attach the membership + profile row.
@@ -235,10 +246,17 @@ const handler: NextApiHandler = async (req, res) => {
       await refund();
       return res.status(409).json({ success: false, error: { code: 'EMAIL_IN_USE', message: 'This email is already attached to a different IsaFlow profile. Ask an administrator to resolve it before accepting.' } });
     }
-    await client.query(
-      `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid`,
+    // Still pending, or nothing commits: a revoke or a competing accept since
+    // the lookup above leaves no row to mark, and the membership goes with it.
+    const marked = await client.query(
+      `UPDATE company_invitations SET accepted_at = now() WHERE id = $1::uuid AND accepted_at IS NULL`,
       [inv.id]
     );
+    if (marked.rowCount !== 1) {
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      return res.status(410).json({ success: false, error: { code: 'INVALID_OR_EXPIRED', message: 'Invitation not found, expired, or already accepted' } });
+    }
     await client.query('COMMIT');
     opened = false;
   } catch (err) {

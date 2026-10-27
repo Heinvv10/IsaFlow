@@ -138,6 +138,7 @@ describe('S-07c: /api/invitations, revoke and the password accept route (GoTrue 
       if (method === 'POST' && path === '/admin/users') return json(200, { id: gid, email });
       if (method === 'PUT' && path === `/admin/users/${gid}`) return json(200, { id: gid, email });
       if (method === 'DELETE' && path === `/admin/users/${gid}`) return json(200, {});
+      if (method === 'GET' && path === '/user') return json(200, { id: gid, factors: [] }); // accept's MFA gate
       if (method === 'POST' && path === '/token?grant_type=password') {
         return json(200, { access_token: 'at', refresh_token: 'rt', expires_in: 3600, user: { id: gid, email } });
       }

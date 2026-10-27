@@ -2,8 +2,11 @@
  * Invitations sent from Settings -> User Access (userInvitationService) carry
  * no gotrue_user_id. POST /api/invitations/<t>/accept used to refuse them
  * (410), which left a brand-new invitee no way to join except the self-serve
- * signup, and that creates a second company. Accept now resolves the account
- * for the invited address first, then runs the same guards as before.
+ * signup, and that creates a second company. Accept now finds the invited
+ * address's account, or creates one for a strong enough password, and runs the
+ * same guards as before. Also pinned here: an account with a verified second
+ * factor gets no session from a password alone, and an invitation revoked
+ * mid-accept commits nothing.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -12,10 +15,13 @@ const h = vi.hoisted(() => ({
   invitation: null as null | Record<string, unknown>,
   queries: [] as { text: string; params: unknown[] }[],
   establishedIds: new Set<string>(),
-  storedAccountId: null as string | null,
+  invitationStillPending: true,
+  findUserByEmail: vi.fn(),
   adminCreateUser: vi.fn(),
   adminUpdateUser: vi.fn(),
   signIn: vi.fn(),
+  listFactors: vi.fn(),
+  setAuthCookies: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => {
@@ -35,11 +41,13 @@ vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async () => (h.invitation ? [h.invitation] : [])),
 }));
 vi.mock('@/lib/auth/gotrue', () => ({
+  findUserByEmail: h.findUserByEmail,
   adminCreateUser: h.adminCreateUser,
   adminUpdateUser: h.adminUpdateUser,
   signIn: h.signIn,
 }));
-vi.mock('@/lib/auth/cookies', () => ({ setAuthCookies: vi.fn(), setActiveCompanyCookie: vi.fn() }));
+vi.mock('@/lib/auth/gotrue-mfa', () => ({ listFactors: h.listFactors }));
+vi.mock('@/lib/auth/cookies', () => ({ setAuthCookies: h.setAuthCookies, setActiveCompanyCookie: vi.fn() }));
 vi.mock('@/lib/auth/liveCompanies', () => ({
   isLiveCompanyForUser: vi.fn(async () => true),
   pickInitialCompanyId: vi.fn(async () => null),
@@ -49,14 +57,11 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
     connect: async () => ({
       async query(text: string, params: unknown[] = []) {
         h.queries.push({ text, params });
-        if (/^\s*UPDATE company_invitations SET gotrue_user_id/.test(text)) {
-          h.storedAccountId ??= params[1] as string;
-          return { rows: [{ gotrue_user_id: h.storedAccountId }], rowCount: 1 };
-        }
         if (/FROM users WHERE id/.test(text)) {
           const hit = h.establishedIds.has(params[0] as string);
           return { rows: hit ? [{ id: params[0] }] : [], rowCount: hit ? 1 : 0 };
         }
+        if (/SET accepted_at = now\(\)/.test(text)) return { rows: [], rowCount: h.invitationStillPending ? 1 : 0 };
         return { rows: [], rowCount: 1 };
       },
       release() { /* pooled */ },
@@ -83,33 +88,45 @@ async function accept(password: string): Promise<{ status: number; body: { error
 }
 
 const tokens = (userId: string) => ({ access_token: 'a', refresh_token: 'r', expires_in: 3600, user: { id: userId } });
+const ran = (re: RegExp) => h.queries.some((q) => re.test(q.text));
 
 beforeEach(() => {
   vi.clearAllMocks();
   h.queries.length = 0;
   h.establishedIds.clear();
-  h.storedAccountId = null;
+  h.invitationStillPending = true;
+  h.findUserByEmail.mockResolvedValue(null);
+  h.listFactors.mockResolvedValue({ totp: [] });
   h.invitation = { id: 'inv-1', email: 'invitee@example.test', role: 'viewer', company_id: 'co-1', gotrue_user_id: null };
 });
 
-describe('accepting an invitation that has no account yet', () => {
-  it('creates the login for the invited address, links it, sets the password and joins the inviting company', async () => {
+describe('accepting an invitation that names no account', () => {
+  it('a new address gets a login for the invited address, a password, and the inviting company', async () => {
     h.adminCreateUser.mockResolvedValue({ id: 'gt-new', email: 'invitee@example.test' });
     h.signIn.mockResolvedValue(tokens('gt-new'));
 
-    const { status } = await accept('a-new-password-1');
-
-    expect(status).toBe(200);
+    expect((await accept('a-new-password-1')).status).toBe(200);
+    expect(h.findUserByEmail).toHaveBeenCalledWith('invitee@example.test');
     expect(h.adminCreateUser).toHaveBeenCalledWith({ email: 'invitee@example.test', email_confirm: true });
-    expect(h.queries.some((q) => /SET gotrue_user_id/.test(q.text) && q.params[1] === 'gt-new')).toBe(true);
     expect(h.adminUpdateUser).toHaveBeenCalledWith('gt-new', expect.objectContaining({ password: 'a-new-password-1' }));
-    const membership = h.queries.find((q) => /INSERT INTO company_users/.test(q.text));
-    expect(membership?.params).toEqual(['co-1', 'gt-new', 'viewer']);
-    expect(h.queries.some((q) => /SET accepted_at = now\(\)/.test(q.text))).toBe(true);
+    expect(h.queries.find((q) => /INSERT INTO company_users/.test(q.text))?.params).toEqual(['co-1', 'gt-new', 'viewer']);
+    expect(ran(/SET accepted_at = now\(\)/)).toBe(true);
+    expect(ran(/^COMMIT$/)).toBe(true);
+    // Never written back: revoke deletes a stored account that has no memberships.
+    expect(ran(/SET gotrue_user_id/)).toBe(false);
   });
 
-  it('an address that already has a login keeps its password: the typed one must match it', async () => {
-    h.adminCreateUser.mockResolvedValue({ id: 'gt-existing', email: 'invitee@example.test' });
+  it('a weak password for an address with no login creates nothing', async () => {
+    const { status, body } = await accept('short');
+
+    expect(status).toBe(400);
+    expect(body.error?.code).toBe('WEAK_PASSWORD');
+    expect(h.adminCreateUser).not.toHaveBeenCalled();
+    expect(h.adminUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it('an existing login is found, never created over, and must give its own password', async () => {
+    h.findUserByEmail.mockResolvedValue({ id: 'gt-existing', email: 'invitee@example.test' });
     h.establishedIds.add('gt-existing');
     h.signIn.mockRejectedValue(new Error('invalid_grant'));
 
@@ -117,52 +134,107 @@ describe('accepting an invitation that has no account yet', () => {
 
     expect(status).toBe(401);
     expect(body.error?.code).toBe('SIGN_IN_REQUIRED');
+    expect(h.adminCreateUser).not.toHaveBeenCalled();
     expect(h.adminUpdateUser).not.toHaveBeenCalled();
-    expect(h.queries.some((q) => /INSERT INTO company_users/.test(q.text))).toBe(false);
+    expect(ran(/INSERT INTO company_users/)).toBe(false);
   });
 
-  it('an account already linked by a concurrent accept wins over the one just looked up', async () => {
-    h.storedAccountId = 'gt-linked-first';
-    h.adminCreateUser.mockResolvedValue({ id: 'gt-looked-up', email: 'invitee@example.test' });
-    h.signIn.mockResolvedValue(tokens('gt-linked-first'));
-
-    expect((await accept('a-new-password-1')).status).toBe(200);
-    expect(h.adminUpdateUser).toHaveBeenCalledWith('gt-linked-first', expect.anything());
-  });
-
-  it('an invitation that already names its account is not looked up again', async () => {
+  it('an invitation that already names its account is not looked up', async () => {
     h.invitation = { ...h.invitation!, gotrue_user_id: 'gt-from-invite' };
     h.signIn.mockResolvedValue(tokens('gt-from-invite'));
 
     expect((await accept('a-new-password-1')).status).toBe(200);
+    expect(h.findUserByEmail).not.toHaveBeenCalled();
     expect(h.adminCreateUser).not.toHaveBeenCalled();
-    expect(h.queries.some((q) => /SET gotrue_user_id/.test(q.text))).toBe(false);
+  });
+});
+
+describe('an existing account with a verified second factor', () => {
+  beforeEach(() => {
+    h.findUserByEmail.mockResolvedValue({ id: 'gt-2fa', email: 'invitee@example.test' });
+    h.establishedIds.add('gt-2fa');
+    h.signIn.mockResolvedValue(tokens('gt-2fa'));
+  });
+
+  it('gets no session and no membership from its password alone: 401 MFA_REQUIRED', async () => {
+    h.listFactors.mockResolvedValue({ totp: [{ id: 'f1', status: 'verified', factor_type: 'totp' }] });
+
+    const { status, body } = await accept('the-right-password');
+
+    expect(status).toBe(401);
+    expect(body.error?.code).toBe('MFA_REQUIRED');
+    expect(h.setAuthCookies).not.toHaveBeenCalled();
+    expect(ran(/INSERT INTO company_users/)).toBe(false);
+  });
+
+  it('an unverified factor does not count', async () => {
+    h.listFactors.mockResolvedValue({ totp: [{ id: 'f1', status: 'unverified', factor_type: 'totp' }] });
+
+    expect((await accept('the-right-password')).status).toBe(200);
+    expect(h.setAuthCookies).toHaveBeenCalled();
+  });
+
+  it('factors that cannot be read fail closed: no session', async () => {
+    const { AuthUpstreamUnavailableError } = await import('@/lib/auth/authUpstream');
+    h.listFactors.mockRejectedValue(new AuthUpstreamUnavailableError('gotrue /user unavailable: HTTP 503'));
+
+    expect((await accept('the-right-password')).status).toBe(503);
+    expect(h.setAuthCookies).not.toHaveBeenCalled();
+    expect(ran(/INSERT INTO company_users/)).toBe(false);
+  });
+});
+
+describe('an invitation revoked or accepted while this accept was running', () => {
+  it('commits nothing and answers 410', async () => {
+    h.adminCreateUser.mockResolvedValue({ id: 'gt-new', email: 'invitee@example.test' });
+    h.signIn.mockResolvedValue(tokens('gt-new'));
+    h.invitationStillPending = false;
+
+    const { status, body } = await accept('a-new-password-1');
+
+    expect(status).toBe(410);
+    expect(body.error?.code).toBe('INVALID_OR_EXPIRED');
+    expect(ran(/^COMMIT$/)).toBe(false);
+    expect(ran(/^ROLLBACK$/)).toBe(true);
+    expect(h.setAuthCookies).not.toHaveBeenCalled();
   });
 });
 
 describe('a GoTrue outage while resolving the account (D9)', () => {
-  it('answers 503 AUTH_UNAVAILABLE, links nothing and refunds the attempt', async () => {
+  it('answers 503 AUTH_UNAVAILABLE and refunds the attempt', async () => {
     const { AuthUpstreamUnavailableError } = await import('@/lib/auth/authUpstream');
     const { refundRateLimit } = await import('@/lib/rateLimit');
-    h.adminCreateUser.mockRejectedValue(new AuthUpstreamUnavailableError('gotrue adminCreateUser unavailable: HTTP 503'));
+    h.findUserByEmail.mockRejectedValue(new AuthUpstreamUnavailableError('gotrue adminGetUserByEmail unavailable: HTTP 503'));
 
     const { status, body } = await accept('a-new-password-1');
 
     expect(status).toBe(503);
     expect(body.error?.code).toBe('AUTH_UNAVAILABLE');
-    expect(h.queries.some((q) => /SET gotrue_user_id/.test(q.text))).toBe(false);
+    expect(h.adminCreateUser).not.toHaveBeenCalled();
     expect(refundRateLimit).toHaveBeenCalled();
   });
 
-  it('the real adminCreateUser classifies a 5xx as an outage, not a plain failure', async () => {
+  it('the real lookups classify a 5xx as an outage, not a plain failure', async () => {
     const real = await vi.importActual<typeof import('@/lib/auth/gotrue')>('@/lib/auth/gotrue');
     const { AuthUpstreamUnavailableError } = await import('@/lib/auth/authUpstream');
     vi.stubEnv('GOTRUE_URL', 'http://gotrue.test.local');
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'synthetic-service-role');
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{"code":503}', { status: 503 })));
     try {
+      await expect(real.findUserByEmail('invitee@example.test')).rejects.toBeInstanceOf(AuthUpstreamUnavailableError);
       await expect(real.adminCreateUser({ email: 'invitee@example.test', email_confirm: true }))
         .rejects.toBeInstanceOf(AuthUpstreamUnavailableError);
+    } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
+  });
+
+  it('the real lookup answers null, not a throw, for an address with no account', async () => {
+    const real = await vi.importActual<typeof import('@/lib/auth/gotrue')>('@/lib/auth/gotrue');
+    vi.stubEnv('GOTRUE_URL', 'http://gotrue.test.local');
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'synthetic-service-role');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ users: [{ id: 'x', email: 'invitee@example.test.other' }] }), { status: 200 })));
+    try {
+      expect(await real.findUserByEmail('invitee@example.test')).toBeNull();
+      await expect(real.adminGetUserByEmail('invitee@example.test')).rejects.toThrow(/no gotrue user/);
     } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
   });
 });

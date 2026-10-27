@@ -1,9 +1,7 @@
 /**
- * /invite/[token] — Invitation landing page.
- * Public page (no AppLayout). Validates the token and lets the user
- * sign in, set up their login at /accept-invite, or (if already logged in as
- * the invited address) accept directly. Every route here joins the INVITING
- * company; none of them creates a new one.
+ * /invite/[token] — Invitation landing page (public, no AppLayout). Sign in,
+ * set up a login at /accept-invite, or (signed in as the invited address)
+ * accept directly. Every route joins the INVITING company, never a new one.
  */
 
 import { useEffect, useState } from 'react';
@@ -27,12 +25,15 @@ interface AuthUser {
 
 type PageState = 'loading' | 'valid' | 'invalid' | 'accepting' | 'accepted' | 'error';
 
-/** Same mask as GET /api/invite/[token], so a signed-in address can be compared with the invited one. */
+/** GET /api/invite/[token]'s mask, to compare the signed-in address with the invited one. */
 function maskEmail(email: string): string {
   const [local, domain] = email.toLowerCase().split('@');
   if (!local || !domain) return '***@***';
   return `${local[0]}***@${domain}`;
 }
+
+/** POST /api/invite/[token]'s 403 for a session whose email is not the invited one. */
+const WRONG_ADDRESS_MESSAGE = 'This invitation was sent to a different email address';
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner', admin: 'Administrator', manager: 'Manager', viewer: 'Viewer',
@@ -46,6 +47,7 @@ export default function InvitePage() {
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [wrongAccount, setWrongAccount] = useState(false);
 
   // Load invite info + check current auth state in parallel
   useEffect(() => {
@@ -89,12 +91,17 @@ export default function InvitePage() {
     setPageState('accepting');
 
     try {
-      // apiFetch, not fetch: the route is withCsrf, and only apiFetch sends the
-      // X-CSRF-Token header. A bare fetch was refused 403 on every click.
+      // apiFetch: the route is withCsrf and a bare fetch (no X-CSRF-Token) was refused 403.
       const res = await apiFetch(`/api/invite/${token}`, { method: 'POST' });
 
       if (!res.ok) {
         const failure = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        // The server's own mismatch verdict: offer the sign-out instead of an error.
+        if (res.status === 403 && failure?.error?.message === WRONG_ADDRESS_MESSAGE) {
+          setWrongAccount(true);
+          setPageState('valid');
+          return;
+        }
         setErrorMsg(failure?.error?.message ?? 'Could not accept the invitation - please try again');
         setPageState('error');
         return;
@@ -122,10 +129,11 @@ export default function InvitePage() {
 
   const roleLabel = inviteData ? (ROLE_LABELS[inviteData.role] ?? inviteData.role) : '';
   // The server refuses a mismatched accept (403); say so before the click.
-  const signedInAsSomeoneElse =
-    currentUser !== null && inviteData !== null && maskEmail(currentUser.email) !== inviteData.email.toLowerCase();
+  // A mask can match a different address too; the server's 403 sets wrongAccount then.
+  const signedInAsSomeoneElse = wrongAccount ||
+    (currentUser !== null && inviteData !== null && maskEmail(currentUser.email) !== inviteData.email.toLowerCase());
   const acceptHref = `/accept-invite?token=${encodeURIComponent(token ?? '')}`;
-  const signInHref = `/login?invite=${encodeURIComponent(token ?? '')}&returnTo=${encodeURIComponent(`/invite/${token ?? ''}`)}`;
+  const signInHref = `/login?invite=${encodeURIComponent(token ?? '')}&returnTo=${encodeURIComponent(`/invite/${encodeURIComponent(token ?? '')}`)}`;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">

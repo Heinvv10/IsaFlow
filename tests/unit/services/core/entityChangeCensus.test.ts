@@ -80,7 +80,6 @@ const WRITERS: Record<string, string[]> = {
   company_invitations: [
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invitations/index.ts', 'pages/api/invitations/revoke/[id].ts',
     'pages/api/invite/[token].ts', `${S}core/userInvitationService.ts`,
-    'src/lib/auth/inviteAccount.ts', // links the invitee's account on accept (gotrue_user_id) — migration_admin pool
   ],
   company_user_permissions: ['src/lib/auth/permissionService.ts'],
   companies: [

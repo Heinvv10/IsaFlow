@@ -53,6 +53,13 @@ export default function AcceptInvitePage() {
       if (!body) { setError('Could not accept the invitation - try again shortly'); return; }
       if (!body.success) {
         if (body.error?.code === 'SIGN_IN_REQUIRED') setNeedsExistingPassword(true);
+        // A two-factor account accepts through the real sign-in, which asks for
+        // the code and returns to /invite/<token> to join.
+        if (body.error?.code === 'MFA_REQUIRED') {
+          accepted = true; // keep the button disabled while the page changes
+          void router.push(`/login?invite=${encodeURIComponent(token)}`);
+          return;
+        }
         setError(body.error?.message ?? 'Could not accept the invitation - try again'); return;
       }
       accepted = true;
