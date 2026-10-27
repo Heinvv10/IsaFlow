@@ -56,7 +56,7 @@ export function useWizardPreview(draft: WizardDraft, years: readonly BudgetYear[
     const pct = parsePct(draft.upliftPct);
     const months = years.find((y) => y.fiscalYear === draft.fiscalYear)?.monthKeys ?? [];
     let next: PreviewResult | null = null;
-    if (draft.source === 'blank' || draft.source === 'import') next = { ok: true, figures: { turnover: 0, grossProfit: 0, netProfit: 0 } };
+    if (draft.source === 'blank' || draft.source === 'import') next = { ok: true, figures: { turnover: 0, grossProfit: 0, netProfit: 0 }, flips: [] };
     else if (pct === null) next = { ok: false, reason: 'Enter an uplift between -100 and 1000.' };
     else if (draft.source === 'py_actuals' && pData) {
       next = pySeedFigures(accounts, pData, { grain: draft.grain, unassigned: draft.unassigned, includeNoActivity: draft.includeNoActivity, pct, unit: draft.roundingUnit });
@@ -68,7 +68,7 @@ export function useWizardPreview(draft: WizardDraft, years: readonly BudgetYear[
     return {
       loading, error: failed,
       prior: pData ? toRand(priorFigures(accounts, pData)) : null,
-      next: next && next.ok ? { ok: true, figures: toRand(next.figures) } : next,
+      next: next && next.ok ? { ...next, figures: toRand(next.figures) } : next,
     };
   }, [prior, copy, error, priorKey, copyKey, draft, years, accounts]);
 }

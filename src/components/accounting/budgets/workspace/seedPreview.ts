@@ -8,13 +8,13 @@
  * types, so it accepts every member.
  */
 import { foldBands, type Band } from '@/modules/accounting/services/budgets/grid/subtotals';
-import { uplift } from '@/modules/accounting/services/budgets/grid/spread';
+import { residueFlipsSign, uplift } from '@/modules/accounting/services/budgets/grid/spread';
 import { toCents, type RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 import type { GridAccount, GridCell } from '@/modules/accounting/services/budgets/gridReadTypes';
 import type { PriorActuals, PriorGrain } from '@/modules/accounting/services/budgets/priorActuals';
 import { pySeriesFrom, versionSeriesFrom, type SeedSeries } from '@/modules/accounting/services/budgets/seedSeriesCore';
 
-export type PreviewAccount = Pick<GridAccount, 'id' | 'band' | 'isActive' | 'isHeader'>;
+export type PreviewAccount = Pick<GridAccount, 'id' | 'code' | 'name' | 'band' | 'isActive' | 'isHeader'>;
 export type { UnassignedRule as Unassigned } from '@/modules/accounting/services/budgets/seedSeriesCore';
 import type { UnassignedRule as Unassigned } from '@/modules/accounting/services/budgets/seedSeriesCore';
 export type PreviewMetric = 'turnover' | 'grossProfit' | 'netProfit';
@@ -23,7 +23,8 @@ export const PREVIEW_METRICS: readonly { metric: PreviewMetric; label: string }[
 ];
 /** Cents per metric, FY. */
 export type PreviewFigures = Record<PreviewMetric, number>;
-export type PreviewResult = { ok: true; figures: PreviewFigures } | { ok: false; reason: string };
+/** `flips`: ids of accounts whose last month lands on the other side of zero from the account's total (the unit rounded the others up past it). */
+export type PreviewResult = { ok: true; figures: PreviewFigures; flips: string[] } | { ok: false; reason: string };
 
 interface Series { band: Band; cents: number[] }
 
@@ -54,16 +55,20 @@ export function priorFigures(accounts: readonly PreviewAccount[], prior: PriorAc
 /** Each series through `uplift` (what the seed inserts), folded into figures by its account's band. */
 function upliftSeries(series: readonly SeedSeries[], byAccount: ReadonlyMap<string, PreviewAccount>, pct: number, unit: RoundingUnit, n: number): PreviewResult {
   const out: Series[] = [];
+  const flips = new Set<string>();
   for (const s of series) {
     const a = byAccount.get(s.glAccountId);
     if (!a) continue;
     const r = uplift(s.cents, pct, unit);
     if (!r.ok) return r;
+    // A last month that was already the other sign in the source is the data, not the rounding.
+    const natural = Math.sign(s.cents[s.cents.length - 1] ?? 0) === Math.sign(r.months[r.months.length - 1] ?? 0);
+    if (!natural && residueFlipsSign(r.months.reduce((t, c) => t + c, 0), r.months)) flips.add(a.id);
     const cents = Array<number>(n).fill(0);
     s.positions.forEach((p, i) => { cents[p] = r.months[i] ?? 0; });
     out.push({ band: a.band, cents });
   }
-  return { ok: true, figures: figuresOf(out, n) };
+  return { ok: true, figures: figuresOf(out, n), flips: [...flips] };
 }
 
 export interface PySeedOptions { grain: PriorGrain; unassigned: Unassigned; includeNoActivity: boolean; pct: number; unit: RoundingUnit }
