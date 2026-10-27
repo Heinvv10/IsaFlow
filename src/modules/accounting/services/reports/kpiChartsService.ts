@@ -7,7 +7,9 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
+import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
+import { todayInSast } from '@/lib/saDateParser';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
@@ -126,52 +128,26 @@ export async function getCashFlowChart(companyId: string, months: number): Promi
   }
 }
 
+/** The aging report's own bucket labels (pages/accounting/reports/ar-aging.tsx). */
+export const AGING_BREAKDOWN_LABELS = ['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days'] as const;
+
+/**
+ * The dashboard's AR / AP ageing: the aging services' buckets summed over every
+ * customer or supplier, as at today in SAST. No SQL of its own — it used to
+ * re-aggregate with its own status list, no disputes, CURRENT_DATE (the UTC
+ * session date) and a "90+" that was really "> 60", so it disagreed with the
+ * report it summarises. One population, one rewind, one clock now.
+ */
 export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap'): Promise<AgingBreakdownBucket[]> {
   try {
-    let rows: DbRow[];
-
-    if (type === 'ar') {
-      rows = (await sql`
-        SELECT
-          CASE
-            WHEN due_date >= CURRENT_DATE THEN 'Current'
-            WHEN CURRENT_DATE - due_date <= 30 THEN '30 Days'
-            WHEN CURRENT_DATE - due_date <= 60 THEN '60 Days'
-            ELSE '90+ Days'
-          END AS bucket,
-          COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
-        FROM customer_invoices ci
-        WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
-          AND ci.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
-        GROUP BY bucket
-      `) as DbRow[];
-    } else {
-      rows = (await sql`
-        SELECT
-          CASE
-            WHEN due_date >= CURRENT_DATE THEN 'Current'
-            WHEN CURRENT_DATE - due_date <= 30 THEN '30 Days'
-            WHEN CURRENT_DATE - due_date <= 60 THEN '60 Days'
-            ELSE '90+ Days'
-          END AS bucket,
-          COALESCE(SUM(si.balance), 0) AS total
-        FROM supplier_invoices si
-        WHERE si.status IN ('approved', 'partially_paid')
-          AND si.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('si', asAtTodayStr(), companyId)}
-          AND si.balance > 0
-        GROUP BY bucket
-      `) as DbRow[];
-    }
-
-    const bucketOrder = ['Current', '30 Days', '60 Days', '90+ Days'];
-    const bucketMap = new Map<string, number>();
-    for (const b of bucketOrder) bucketMap.set(b, 0);
-    for (const r of rows) bucketMap.set(String(r.bucket), Number(r.total || 0));
-
-    return bucketOrder.map(name => ({ name, value: bucketMap.get(name) || 0 }));
+    const rows = type === 'ar'
+      ? await getARAging(companyId, todayInSast())
+      : await getAPAging(companyId, todayInSast());
+    const keys = ['current', 'days30', 'days60', 'days90', 'days120Plus'] as const;
+    return keys.map((k, i) => ({
+      name: AGING_BREAKDOWN_LABELS[i]!,
+      value: Math.round(rows.reduce((s, r) => s + r[k], 0) * 100) / 100,
+    }));
   } catch (err) {
     log.error('Failed to get aging breakdown', { error: err, type }, 'kpi-service');
     throw err;

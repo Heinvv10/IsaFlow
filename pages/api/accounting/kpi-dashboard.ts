@@ -11,6 +11,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
+import { todayInSast } from '@/lib/saDateParser';
 import {
   getDashboardKPIs,
   getRevenueChart,
@@ -37,10 +39,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const fyStart = new Date(year, month - 13, 1); // ~12 months ago
     const from = req.query.from
       ? String(req.query.from)
-      : fyStart.toISOString().slice(0, 10);
+      : fmtDate(fyStart);
+    // The SAST day, never toISOString(): that is the UTC day, which is
+    // yesterday for two hours every night and shifted fyStart back a day.
     const to = req.query.to
       ? String(req.query.to)
-      : now.toISOString().slice(0, 10);
+      : todayInSast(now);
     const months = Math.max(1, Math.min(Number(req.query.months) || 6, 120));
 
     const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
