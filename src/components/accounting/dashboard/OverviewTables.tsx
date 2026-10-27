@@ -11,7 +11,8 @@ const Cell = dynamic(() => import('recharts').then(m => m.Cell), { ssr: false })
 const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
 const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
 
-const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e'];
+/** One per aging bucket: Current, 1–30, 31–60, 61–90, 90+ (kpiChartsService.AGING_BREAKDOWN_LABELS). */
+const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e', '#9f1239'];
 
 function fmtCurrency(n: number): string {
   return formatMoney(n);
