@@ -232,11 +232,13 @@ export interface AdminCreateUserInput {
 }
 
 export async function adminCreateUser(input: AdminCreateUserInput): Promise<GoTrueUser> {
-  const res = await gotrueFetch(
+  // Bounded and classified (D9), as adminUpdateUser: invitation accept calls this
+  // for an invitation with no account yet and answers an outage 503, not 500.
+  const res = await callAuthUpstream('gotrue adminCreateUser', (signal) => gotrueFetch(
     '/admin/users',
-    { method: 'POST', body: JSON.stringify(input) },
+    { method: 'POST', body: JSON.stringify(input), signal },
     adminHeaders()
-  );
+  ));
   if (!res.ok && res.status !== 422) {
     throw new Error(`gotrue adminCreateUser failed: ${res.status} ${await res.text().catch(() => '')}`);
   }
@@ -244,10 +246,17 @@ export async function adminCreateUser(input: AdminCreateUserInput): Promise<GoTr
     // User already exists — look them up instead
     return adminGetUserByEmail(input.email);
   }
-  return res.json() as Promise<GoTrueUser>;
+  return readAuthUpstreamJson('gotrue adminCreateUser', res) as Promise<GoTrueUser>;
 }
 
 export async function adminGetUserByEmail(email: string): Promise<GoTrueUser> {
+  const user = await findUserByEmail(email);
+  if (!user) throw new Error(`no gotrue user with email ${email}`);
+  return user;
+}
+
+/** adminGetUserByEmail without the throw: null when no account holds the address. */
+export async function findUserByEmail(email: string): Promise<GoTrueUser | null> {
   // GoTrue's admin `/admin/users?filter=` is a free-text ILIKE over email/phone,
   // NOT a PostgREST `col.op.val` expression: `email.eq.<x>` is taken literally
   // and matches nothing, so the old query silently found no users (e.g. every
@@ -256,17 +265,15 @@ export async function adminGetUserByEmail(email: string): Promise<GoTrueUser> {
   // insensitive) client-side since ILIKE can also return substring near-matches.
   // per_page large enough that the exact match can't be paginated off page 1
   // even if many substring near-matches share the filter (admin list paginates).
-  const res = await gotrueFetch(
+  const res = await callAuthUpstream('gotrue adminGetUserByEmail', (signal) => gotrueFetch(
     `/admin/users?filter=${encodeURIComponent(email)}&per_page=1000`,
-    { method: 'GET' },
+    { method: 'GET', signal },
     adminHeaders()
-  );
+  ));
   if (!res.ok) throw new Error(`gotrue getUserByEmail failed: ${res.status}`);
-  const body = (await res.json()) as { users?: GoTrueUser[] };
+  const body = (await readAuthUpstreamJson('gotrue adminGetUserByEmail', res)) as { users?: GoTrueUser[] };
   const target = email.trim().toLowerCase();
-  const user = body.users?.find((u) => u.email?.trim().toLowerCase() === target);
-  if (!user) throw new Error(`no gotrue user with email ${email}`);
-  return user;
+  return body.users?.find((u) => u.email?.trim().toLowerCase() === target) ?? null;
 }
 
 export async function adminUpdateUser(
