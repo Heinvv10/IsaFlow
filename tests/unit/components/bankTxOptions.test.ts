@@ -43,6 +43,8 @@ describe('sortByDescriptionMatch', () => {
   it.each([
     ['POS WOOLWORTHS SANDTON', ['b', 'a', 'c', 'd']],
     ['ENGEN GARAGE', ['d', 'a', 'b', 'c']],
+    // reverse match only: no description word is in the name, but a name word is in the description
+    ['POS*WOOLWORTHSFOOD', ['b', 'a', 'c', 'd']],
     ['', ['a', 'b', 'c', 'd']],
     ['ab cd', ['a', 'b', 'c', 'd']],
   ])('%j orders %j', (desc, ids) => {
