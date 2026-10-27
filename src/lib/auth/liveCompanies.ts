@@ -31,6 +31,8 @@ export interface LiveCompanyMembership {
   companyName: string;
   role: string;
   isDefault: boolean;
+  /** `companies.is_demo`: the seeded sandbox tenant, never matched by name. */
+  isDemo: boolean;
 }
 
 /**
@@ -39,7 +41,8 @@ export interface LiveCompanyMembership {
  */
 export async function listLiveCompanyMemberships(userId: string): Promise<LiveCompanyMembership[]> {
   const rows = (await sql`
-    SELECT cu.company_id, c.name AS company_name, cu.role, cu.is_default
+    SELECT cu.company_id, c.name AS company_name, cu.role, cu.is_default,
+           COALESCE(c.is_demo, false) AS is_demo
     FROM public.company_users cu
     JOIN public.companies c ON c.id = cu.company_id
      AND c.is_active = true
@@ -54,6 +57,7 @@ export async function listLiveCompanyMemberships(userId: string): Promise<LiveCo
     companyName: String(r.company_name ?? ''),
     role: String(r.role),
     isDefault: Boolean(r.is_default),
+    isDemo: r.is_demo === true,
   }));
 }
 

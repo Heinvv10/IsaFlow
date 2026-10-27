@@ -169,6 +169,7 @@ export interface CompanyUser {
   companyName: string;
   role: string;
   isDefault: boolean;
+  isDemo: boolean;
 }
 
 // ── Mapper ───────────────────────────────────────────────────────────────────

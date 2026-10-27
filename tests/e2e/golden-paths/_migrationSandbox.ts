@@ -37,31 +37,37 @@ export async function activeCompanyId(api: Api): Promise<string> {
   return (await api.get<UserCompanies>('/api/accounting/companies?action=user-companies')).activeCompanyId;
 }
 
-export async function findOrCreateMigrationSandbox(api: Api): Promise<string> {
+/** A dedicated sandbox company: found by name, created on first use through self-serve onboarding under a fixed key. */
+export interface SandboxSpec { name: string; onboardingId: string }
+
+export async function findOrCreateSandbox(api: Api, spec: SandboxSpec): Promise<string> {
   const find = async () => {
     const uc = await api.get<UserCompanies>('/api/accounting/companies?action=user-companies');
-    return uc.items.find((c) => c.companyName === MIGRATION_SANDBOX_NAME)?.companyId;
+    return uc.items.find((c) => c.companyName === spec.name)?.companyId;
   };
   const found = await find();
   if (found) return found;
   const setup = await api.postRaw('/api/onboarding/complete-setup', {
-    requestKey: MIGRATION_SANDBOX_ONBOARDING_ID,
+    requestKey: spec.onboardingId,
     entityType: 'other', // the one entity with no proof document to upload
     coaTemplate: 'isaflow_standard',
-    company: { name: MIGRATION_SANDBOX_NAME, vatPeriod: 'bi-monthly', vatNumber: '4000000000' },
+    company: { name: spec.name, vatPeriod: 'bi-monthly', vatNumber: '4000000000' },
     people: [],
     documents: [],
   });
   // 409: the key's company exists but was deactivated or soft-deleted, so the
   // finder above skips it and the key cannot create a second one.
   expect(setup.status, setup.status === 409
-    ? `"${MIGRATION_SANDBOX_NAME}" was deactivated or deleted for this user; reactivate it (companies.is_active/status) `
-      + 'or change MIGRATION_SANDBOX_ONBOARDING_ID in _migrationSandbox.ts to create a fresh one'
+    ? `"${spec.name}" was deactivated or deleted for this user; reactivate it (companies.is_active/status) `
+      + 'or change its onboarding key to create a fresh one'
     : JSON.stringify(setup.json)).toBe(200);
   const created = await find();
-  expect(created, 'onboarding must have created the migration sandbox').toBeTruthy();
+  expect(created, `onboarding must have created "${spec.name}"`).toBeTruthy();
   return created!;
 }
+
+export const findOrCreateMigrationSandbox = (api: Api): Promise<string> =>
+  findOrCreateSandbox(api, { name: MIGRATION_SANDBOX_NAME, onboardingId: MIGRATION_SANDBOX_ONBOARDING_ID });
 
 /** Point this API context at `companyId` and prove the server now scopes it there. */
 export async function switchApiCompany(api: Api, companyId: string): Promise<void> {
