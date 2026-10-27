@@ -48,6 +48,8 @@ interface Fixture {
   bankAccountId: string;
 }
 
+// The accounts must be active leaves: the budget writers refuse a header (an account with
+// children) or an inactive account with no amounts yet (budgetAccount.ts).
 // FIXTURE INVARIANT — the fixture MUST keep a revenue account alongside the two
 // expense accounts. Sign normalisation is this service's core claim, and while
 // every test used an expense account, pointing the revenue branch at the expense
@@ -61,16 +63,19 @@ async function loadFixtureIds(): Promise<Fixture> {
            e2.id AS e2_id, e2.account_code AS e2_code,
            r.id AS r_id, r.account_code AS r_code
     FROM gl_accounts bank
-    JOIN gl_accounts e1 ON e1.company_id = bank.company_id AND e1.account_type = 'expense'
+    JOIN gl_accounts e1 ON e1.company_id = bank.company_id AND e1.account_type = 'expense' AND e1.is_active
+                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = e1.company_id AND ch.parent_account_id = e1.id)
     JOIN gl_accounts e2 ON e2.company_id = bank.company_id AND e2.account_type = 'expense'
-                        AND e2.id <> e1.id
-    JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue'
+                        AND e2.id <> e1.id AND e2.is_active
+                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = e2.company_id AND ch.parent_account_id = e2.id)
+    JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue' AND r.is_active
+                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = r.company_id AND ch.parent_account_id = r.id)
     WHERE bank.account_subtype = 'bank'
     ORDER BY bank.company_id, bank.account_code, e1.account_code, e2.account_code, r.account_code
     LIMIT 1
   `) as Array<Record<string, string>>;
   const row = rows[0];
-  if (!row) throw new Error('no company in isaflow_dev has a bank account, two expense accounts and a revenue account');
+  if (!row) throw new Error('no company in isaflow_dev has a bank account, two active leaf expense accounts and an active leaf revenue account');
 
   const users = (await sql`
     SELECT e.created_by FROM gl_journal_entries e JOIN users u ON u.id = e.created_by::text
