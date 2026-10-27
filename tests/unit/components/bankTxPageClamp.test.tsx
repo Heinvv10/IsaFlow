@@ -85,6 +85,27 @@ describe('BankTxListFrame', () => {
     frame(false, 24);
     expect(screen.getByTestId('rows')).toBeInTheDocument();
   });
+
+  it('holds a full page while loading, so a full page of rows replaces the skeleton without a shift', () => {
+    render(
+      <BankTxListFrame relinkFailed={false} aiPolling={0} isLoading error="" empty={false} total={411} tab="new">
+        <div data-testid="rows" />
+      </BankTxListFrame>,
+    );
+    expect(screen.getByTestId('bank-tx-list-frame').style.minHeight).toBe(`${BANK_TX_FRAME_MIN_PX}px`);
+  });
+
+  it('holds a full page on a past-the-end page too (the skeleton shows there)', () => {
+    frame(true, 24);
+    expect(screen.getByTestId('bank-tx-list-frame').style.minHeight).toBe(`${BANK_TX_FRAME_MIN_PX}px`);
+  });
+
+  it('once loaded, fits its rows: a short tab leaves no gap above the pager', () => {
+    frame(false, 3);
+    expect(screen.getByTestId('bank-tx-list-frame').style.minHeight).toBe('');
+    frame(true, 0);
+    expect(screen.getAllByTestId('bank-tx-list-frame')[1]!.style.minHeight).toBe('');
+  });
 });
 
 describe('BankTxLoading', () => {
