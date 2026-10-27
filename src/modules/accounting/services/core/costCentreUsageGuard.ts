@@ -120,7 +120,10 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
         JOIN dimension_tag_batches tb ON tb.id = br.batch_id
         WHERE (br.old_cc1_id = ${id}::UUID OR br.old_cc2_id = ${id}::UUID)
           AND tb.reversed_at IS NULL AND tb.company_id = ${companyId}::UUID
-          AND br.company_id = ${companyId}::UUID) AS tag_bank_history
+          AND br.company_id = ${companyId}::UUID) AS tag_bank_history,
+      -- Budget amounts by CC1 / CC2 (migration 947): a composite FK holds them; counted so the refusal reads.
+      (SELECT COUNT(*) FROM budget_month_amounts bm
+        WHERE (bm.cc1_id = ${id}::UUID OR bm.cc2_id = ${id}::UUID) AND bm.company_id = ${companyId}::UUID) AS budget_amounts
       -- payroll_employee_history is deliberately NOT counted. Its old_value /
       -- new_value hold a cost_centre_id as display-only TEXT: nothing joins it
       -- back, posts from it or restores it, so a deleted id there strands
@@ -142,6 +145,7 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
     ['defaults', 'customer/account default(s)'],
     ['tag_history', 'un-reversed tag batch line(s)'],
     ['tag_bank_history', 'un-reversed tag batch bank row(s)'],
+    ['budget_amounts', 'budget amount(s)'],
   ];
   const used = labels
     .map(([key, label]) => [Number(row[key] ?? 0), label] as const)

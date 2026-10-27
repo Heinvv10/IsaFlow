@@ -43,16 +43,16 @@ describe('944 conversion: registry-labelled years', () => {
     expect(await months(regAcct, reg)).toEqual([['2026-01', 1], ['2026-02', 2], ['2026-03', 3]]);
   });
 
-  it('a registry that cannot place a month (no free label in a hole between stored years) does not stop the conversion', async () => {
+  it('a registry that cannot place a month (no free label in a hole between stored years) stops the conversion, naming the month', async () => {
     // FY2026 ends February 2026 and FY2027 starts March 2027: a year-long hole no label fits in.
     await setupYears(gap, gapAcct, [[2026, '2025-03-01', '2026-02-28'], [2027, '2027-03-01', '2028-02-29']], false);
     // The registry itself refuses a date in the hole ...
     await expect(pool.query(`SELECT * FROM public.fiscal_year_for_date($1, '2026-06-01')`, [gap])).rejects.toThrow(/no free label/);
-    // ... but the conversion files the amounts by the old readers' placement and goes on.
+    // ... and since migration 947 every amount belongs to the version of the registry year holding its month, so a
+    // month no year holds cannot be filed: the conversion stops loudly (it filed it by the old placement under 944).
     await budget(gapAcct, 2026, { mar: 1, jan: 2 }, 0, gap, 'kept');
-    expect(await convert(gap)).toBe(2);
-    expect(await months(gapAcct, gap)).toEqual([['2026-03', 1], ['2027-01', 2]]);
-    expect(await mismatches(gap)).toBe(0);
+    await expect(convert(gap)).rejects.toThrow(/budget month 2027-01-01 of company .* has no financial year in the registry/);
+    expect(await months(gapAcct, gap)).toEqual([]);
   });
 
   it('a short year\'s keys outside its window are skipped (the old reader never read them), so they do not collide with the next year', async () => {

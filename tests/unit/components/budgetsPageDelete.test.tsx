@@ -8,7 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, script } from '../helpers/d2R3a5';
-import { budgetRow, budgetsPayload } from './budgetsApiFixture';
+import { budgetRow, budgetsPayload, clickAddBudget } from './budgetsApiFixture';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -74,7 +74,7 @@ describe('budgets page delete, picker and totals', () => {
   it('the add picker offers no header and no inactive account', async () => {
     serve([]);
     render(<BudgetsPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /add budget/i }));
+    await clickAddBudget();
     await screen.findByRole('option', { name: /Rent/ });
     const picker = screen.getByText('Select GL Account *').closest('select')!;
     const offered = Array.from(picker.options).map((o) => o.value).filter(Boolean);
