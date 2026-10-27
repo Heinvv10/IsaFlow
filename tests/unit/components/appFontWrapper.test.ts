@@ -21,7 +21,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 async function renderApp(pathname: string, query: Record<string, string> = {}) {
   vi.resetModules();
   vi.doMock('next/router', () => ({
-    useRouter: () => ({ pathname, query, isReady: true, events: { on: () => {}, off: () => {} } }),
+    useRouter: () => ({ pathname, asPath: pathname, query, isReady: true, events: { on: () => {}, off: () => {} } }),
   }));
   const { default: App } = await import('../../../pages/_app');
   return renderToStaticMarkup(
