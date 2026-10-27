@@ -184,6 +184,15 @@ test.describe('All nav routes load successfully', () => {
   }
 });
 
+test.describe('Budgets', () => {
+  test('/accounting/budgets is the budget workspace; its old preview URL redirects there', async ({ page }) => {
+    await page.goto('/accounting/budgets/workspace');
+    await expect(page).toHaveURL(/\/accounting\/budgets$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Budget Management' })).toBeVisible();
+    await expect(page.getByTestId('workspace-year')).toBeVisible();
+  });
+});
+
 test.describe('Route-to-tab highlighting', () => {
   for (const [expectedTab, routes] of Object.entries(ROUTE_TAB_MAPPING)) {
     for (const route of routes) {
