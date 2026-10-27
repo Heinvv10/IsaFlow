@@ -220,7 +220,7 @@ function splitHref(url: string): [string, string] {
  * Dashboard; /accounting/sars is the calendar, and its sub-pages are other links or, for a non-vendor, hidden ones).
  * Shared by the menu highlight and navIndex so the two cannot disagree.
  */
-export const EXACT_ONLY_PATHS: ReadonlySet<string> = new Set(['/accounting', '/accounting/sars']);
+export const EXACT_ONLY_PATHS: ReadonlySet<string> = new Set(['/accounting', '/accounting/sars', '/accounting/reports']);
 
 /**
  * Of a set of sibling links, the one that is active for `asPath`: the longest
