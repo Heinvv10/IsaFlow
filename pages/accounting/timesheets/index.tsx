@@ -184,19 +184,19 @@ export default function TimesheetsPage() {
         {toast && (
           <div className={`flex items-center justify-between p-3 rounded-lg text-sm ${toast.ok ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'}`}>
             <span className="flex items-center gap-2">{toast.ok ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}{toast.msg}</span>
-            <button onClick={() => setToast(null)}><X className="w-3.5 h-3.5" /></button>
+            <button aria-label="Dismiss message" onClick={() => setToast(null)}><X className="w-3.5 h-3.5" /></button>
           </div>
         )}
 
         {/* Week nav + filter */}
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-1">
-            <button onClick={() => setWeekStart(d => addDays(d, -7))} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"><ChevronLeft className="w-4 h-4" /></button>
+            <button aria-label="Previous week" onClick={() => setWeekStart(d => addDays(d, -7))} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"><ChevronLeft className="w-4 h-4" /></button>
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300 min-w-[200px] text-center">{fmtWeekRange(weekStart)}</span>
-            <button onClick={() => setWeekStart(d => addDays(d, 7))} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"><ChevronRight className="w-4 h-4" /></button>
+            <button aria-label="Next week" onClick={() => setWeekStart(d => addDays(d, 7))} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"><ChevronRight className="w-4 h-4" /></button>
             <button onClick={() => setWeekStart(getMondayOf(new Date()))} className="ml-2 text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">Today</button>
           </div>
-          <select value={filterCustomer} onChange={e => setFilterCustomer(e.target.value)}
+          <select aria-label="Filter by customer" value={filterCustomer} onChange={e => setFilterCustomer(e.target.value)}
             className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300">
             <option value="">All Customers</option>
             {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
