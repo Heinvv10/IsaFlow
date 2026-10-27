@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path (s): the app shell holds still while it loads, names the tab, and works on a phone and a tablet
  * (master plan W1 PR S).

@@ -169,7 +169,7 @@ describe('a 14-month transition year', () => {
   });
 
   it('copies to the next year by month position: 14 months into 12 drops the last two; a re-run adds nothing', async () => {
-    expect(await inTx(() => copyBudgets(companyId, 2026, 2028, user))).toBe(1);
+    expect(await inTx(() => copyBudgets(companyId, 2026, 2028, user))).toEqual({ copied: 1, skipped: 0 });
     const next = await storedMonths(ids.rent);
     const copied = next.filter(r => r.month >= '2027-03-01');
     expect(copied.map(r => [r.month, r.amount])).toEqual(
@@ -178,7 +178,7 @@ describe('a 14-month transition year', () => {
     expect(target[0]!.months).toHaveLength(12);
     expect(target[0]!.annualAmount).toBe(100 * (12 * 13) / 2);
     expect(target[0]!.notes).toBe('transition');
-    expect(await inTx(() => copyBudgets(companyId, 2026, 2028, user))).toBe(0);
+    expect(await inTx(() => copyBudgets(companyId, 2026, 2028, user))).toEqual({ copied: 0, skipped: 0 });
     await expect(inTx(() => copyBudgets(companyId, 2026, 2026, user))).rejects.toThrow(BudgetInputError);
   });
 
