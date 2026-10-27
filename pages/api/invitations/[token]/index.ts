@@ -3,12 +3,7 @@ import type { NextApiHandler } from 'next';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { sql } from '@/lib/neon';
-
-function maskEmail(email: string): string {
-  const [local, domain] = email.split('@');
-  if (!local || !domain) return '***@***';
-  return `${local[0]}***@${domain}`;
-}
+import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'GET') {
@@ -32,10 +27,9 @@ const handler: NextApiHandler = async (req, res) => {
   if (rows.length === 0) {
     return res.status(410).json({ success: false, error: { code: 'INVALID_OR_EXPIRED', message: 'Invitation not found, expired, or already accepted' } });
   }
-  // Anyone holding the link can read this. Mask the address the same way
-  // pages/api/invite/[token].ts does — the invitee already knows their own.
+  // Anyone holding the link can read this, so the address is masked — the invitee already knows their own.
   const invite = rows[0]!;
-  return res.status(200).json({ success: true, data: { ...invite, email: maskEmail(invite.email) } });
+  return res.status(200).json({ success: true, data: { ...invite, email: maskInviteEmail(invite.email) } });
 };
 
 // withErrorHandler OUTSIDE withInviteToken: withInviteToken rethrows after its

@@ -113,7 +113,7 @@ const handler: NextApiHandler = async (req, res) => {
     // Never NULL past here: a NULL id would skip the guard below and PUT to /admin/users/null.
     const accountId = await resolveInvitationAccount(inv, password);
     if (accountId === null) {
-      return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
+      return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: `Password must be at least ${MIN_NEW_PASSWORD_LENGTH} characters` } });
     }
 
     // 2. Does this address already hold an established IsaFlow login? A `users`
@@ -139,7 +139,7 @@ const handler: NextApiHandler = async (req, res) => {
       // the password they type becomes their password — and only here does the
       // strength floor apply, matching register.ts / do-reset-password.ts.
       if (password.length < MIN_NEW_PASSWORD_LENGTH) {
-        return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
+        return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: `Password must be at least ${MIN_NEW_PASSWORD_LENGTH} characters` } });
       }
       // email_confirm is not redundant with the `email_confirm: true` that
       // POST /api/invitations passes to adminCreateUser: that call returns
@@ -230,7 +230,8 @@ const handler: NextApiHandler = async (req, res) => {
          VALUES ($1, $2, $3, $4, true, true)
          ON CONFLICT (id) DO UPDATE SET
            first_name = COALESCE(EXCLUDED.first_name, users.first_name),
-           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name), onboarding_completed = COALESCE(users.onboarding_completed, true)`,
+           last_name  = COALESCE(EXCLUDED.last_name,  users.last_name),
+           onboarding_completed = COALESCE(users.onboarding_completed, true)`,
         [tok.user.id, inv.email, firstName, lastName]
       );
     } catch (err) {

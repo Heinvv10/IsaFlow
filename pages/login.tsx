@@ -295,8 +295,8 @@ export default function LoginPage() {
   // returnTo still wins, and no-companies always forces onboarding.
   const postLoginRedirect = async (): Promise<string> => {
     if (isAdminHost) return returnTo;
-    // Before the onboarding check: an invitee with no company yet is joining one.
-    if (inviteToken && returnTo !== defaultRedirect) return returnTo;
+    // Before the onboarding check: a return to an invitation is someone joining a company.
+    if (returnTo.startsWith('/invite/')) return returnTo;
     try {
       const res = await fetch('/api/auth/landing', { credentials: 'include' });
       await assertOk(res, 'Could not resolve the landing page');

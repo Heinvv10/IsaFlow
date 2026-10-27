@@ -103,3 +103,38 @@ describe('a token as the app actually mints it', () => {
     expect(scrubInviteReferrer(`https://app.isaflow.co.za/invite/${minted}`)).not.toContain(minted);
   });
 });
+
+describe('what is not a token', () => {
+  it('a 31-character hex run is stored as sent', () => {
+    const notAToken = 'a'.repeat(31);
+    expect(scrubInvitePath(`/accounting/x/${notAToken}`)).toBe(`/accounting/x/${notAToken}`);
+  });
+});
+
+describe('a double-encoded byte in the middle of a token', () => {
+  it('is decoded twice before matching: 31 hex + %2564 + 31 hex is one 63-character run', () => {
+    // After one decode the run is still split (%64) into two 31-character halves: not a token.
+    expect(scrubInviteQuery(`invite=${T.slice(0, 31)}%2564${T.slice(32, 63)}`)).toBe('invite=[token]');
+  });
+});
+
+describe('the free-text fields', () => {
+  it('a page title or event name carrying a token is redacted; event data carrying one is dropped', async () => {
+    const res = { setHeader() { return this; }, status() { return this; }, json() { return this; }, end() { return this; } } as unknown as NextApiResponse;
+    const req = { method: 'POST', headers: {}, body: {
+      t: 'isa_app_001', p: '/x', e: 'custom', ti: `Invite ${TOKEN}`, n: `n-${TOKEN}`, d: { href: `/invite/${TOKEN}` },
+    } } as unknown as NextApiRequest;
+    await handler(req, res);
+    const e = h.ingested.at(-1)!;
+    expect(JSON.stringify(e)).not.toContain(TOKEN);
+    expect(e.pageTitle).toBe('Invite [token]');
+    expect(e.eventData).toBeNull();
+  });
+
+  it('event data without one is stored as sent', async () => {
+    const res = { setHeader() { return this; }, status() { return this; }, json() { return this; }, end() { return this; } } as unknown as NextApiResponse;
+    const req = { method: 'POST', headers: {}, body: { t: 'isa_app_001', p: '/x', e: 'custom', n: 'outbound', d: { href: 'https://example.com/a+b' } } } as unknown as NextApiRequest;
+    await handler(req, res);
+    expect(h.ingested.at(-1)!.eventData).toEqual({ href: 'https://example.com/a+b' });
+  });
+});
