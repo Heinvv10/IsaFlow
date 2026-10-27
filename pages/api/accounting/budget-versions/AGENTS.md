@@ -18,7 +18,7 @@ The only version-lifecycle routes in the budgets programme (P1, migration 947). 
 | `POST /api/accounting/budget-versions/[id]/primary` | `[id]/primary.ts` | Owner/admin: make it the year's primary; owner only when the current primary is locked. |
 
 ## Auth
-`withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))`. Writers are owner/admin/manager (`withWriteAccess`); approve/lock/primary/approved-delete need owner or admin and unlock needs owner, checked in the services from `req.companyRole`.
+`withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))`. Writers are owner/admin/manager (`withWriteAccess`); approve/lock/primary/approved-delete need owner or admin, unlock needs owner, and so does a primary switch away from a LOCKED primary, checked in the services from `req.companyRole`.
 
 ## Response contract
 Errors go through `respondBudgetVersionError` (`@/lib/budgetVersionResponse`): 400 input/grain, 403 role, 404 not found (another tenant's id included, never 403), 409 locked/state/stale; `error.details.code` is `BUDGET_VERSION_*` / `BUDGET_GRAIN_CONFLICT`. A held version row is 503 + Retry-After. Types are registered in `src/lib/apiRoutes.ts`.

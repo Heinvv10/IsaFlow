@@ -155,7 +155,7 @@ export async function setPrimary(companyId: string, versionId: string, actor: Ve
   // A locked primary freezes what the reports show; moving the reports off it is an unlock in effect,
   // so, like an unlock, it is the owner's alone (read under the year's locks, before any write).
   const current = (await sql`
-    SELECT status FROM budget_versions
+    SELECT id, status FROM budget_versions
      WHERE company_id = ${companyId}::UUID AND fiscal_year = ${fiscalYear} AND is_primary AND id <> ${versionId}::UUID
   `) as DbRow[];
   if (current[0]?.status === 'locked' && actor.role !== 'owner') {
@@ -167,7 +167,11 @@ export async function setPrimary(companyId: string, versionId: string, actor: Ve
   `;
   await sql`UPDATE budget_versions SET is_primary = true WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID`;
   const v = await getVersion(companyId, versionId);
-  await audit(companyId, actor, 'update', v, { primary: 'true' });
+  // The previous primary and its status, so an owner's switch off a locked budget is visible in the audit.
+  await audit(companyId, actor, 'update', v, {
+    primary: 'true',
+    ...(current[0] ? { previousPrimary: String(current[0].id), previousPrimaryStatus: String(current[0].status) } : {}),
+  });
   return v;
 }
 
