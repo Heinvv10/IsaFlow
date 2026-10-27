@@ -39,7 +39,8 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
       <p className="flex-1 text-teal-800 dark:text-teal-200">
         {message ?? 'New here? Explore our demo company to see ISAFlow in action.'}
       </p>
-      <TryDemoLink onSwitched={handleDismiss} />
+      {/* Persist only: unmounting the banner would take TryDemoLink's busy overlay with it before the reload lands. */}
+      <TryDemoLink onSwitched={() => localStorage.setItem(DISMISSED_KEY, '1')} />
       <button
         onClick={handleDismiss}
         aria-label="Dismiss"
