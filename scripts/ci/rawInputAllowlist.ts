@@ -163,10 +163,14 @@ export async function runGate(deps: GateDeps): Promise<number> {
   const { env, git, log, error } = deps;
   const list = deps.list ?? RAW_INPUT_LIST;
   const { path: listPath, tag } = list;
-  // Refused in CI for `--write` too: it does not read the base, but a CI that sets the override is wrong either way.
   const resolved = resolveBaseRef(env);
   if (!resolved.ok) {
     error(`${tag} FAIL: ${resolved.reason}`);
+    return 1;
+  }
+  // `--write` regenerates the list from the tree and never compares with the base, so in CI it would pass anything.
+  if (deps.writing && isCI(env)) {
+    error(`${tag} FAIL: --write is refused in CI; it rewrites ${listPath} without checking that the list only shrinks.`);
     return 1;
   }
   const ref = resolved.ref;

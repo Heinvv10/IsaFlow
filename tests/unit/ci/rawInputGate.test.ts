@@ -76,6 +76,17 @@ describe('runGate --write in CI', () => {
     expect(out.written).toEqual([]);
   });
 
+  it.each([[{ GITHUB_ACTIONS: 'true' }], [{ CI: '1' }]])('%j: --write is refused outright, for both lists, with nothing written', async (ci) => {
+    for (const list of [undefined, UNNAMED_CONTROL_LIST]) {
+      const g = git(null);
+      const { d, out } = deps({ writing: true, env: ci, git: g, readList: () => null, list });
+      expect(await runGate(d)).toBe(1);
+      expect(out.error.join('\n')).toMatch(/--write is refused in CI/);
+      expect(d.actualCounts).not.toHaveBeenCalled();
+      expect(out.written).toEqual([]);
+    }
+  });
+
   it('locally --write ignores the override: it prunes and makes no git call at all', async () => {
     const g = git('{"a.tsx": 1}');
     const { d, out } = deps({ writing: true, env: { RAW_INPUT_BASE_REF: 'HEAD' }, git: g, readList: () => '{"a.tsx": 3}' });
