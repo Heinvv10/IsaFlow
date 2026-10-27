@@ -58,10 +58,14 @@ function Items({ items, asPath, depth, idPrefix }: { items: NavItem[]; asPath: s
 
 function TabGroup({ tab, asPath, active }: { tab: Tab; asPath: string; active: boolean }) {
   const id = `drawer-nav-${tab.id}`;
+  // A daily link a section also lists ("Customers" beside the Customers section) would show the page twice in
+  // one accordion; the section entry wins, as it does in the palette's index.
+  const sectionHrefs = new Set(hrefsOf(tab.items ?? []));
+  const links = tab.links?.filter(l => !sectionHrefs.has(l.href));
   return (
     <Group id={id} label={tab.label} depth={0} active={active}>
       {tab.href && <Link href={tab.href} className={rowCls(asPath === tab.href, 1)}>{tab.label} home</Link>}
-      <NavLinksBlock links={tab.links} tabItems={tab.items} asPath={asPath} onNav={() => undefined}
+      <NavLinksBlock links={links} tabItems={tab.items} asPath={asPath} onNav={() => undefined}
         linkClassName={a => rowCls(a, 1)} separatorClassName="border-t border-[var(--ff-canvas-border)] my-1 ml-7" />
       {tab.topItems?.map(item => (
         <Link key={item.href} href={item.href} className="block py-2 pl-7 pr-4 text-sm text-teal-700 dark:text-teal-300 hover:bg-slate-100 dark:hover:bg-white/5">
