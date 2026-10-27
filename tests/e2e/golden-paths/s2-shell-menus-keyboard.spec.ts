@@ -128,3 +128,25 @@ for (const width of [390, 768]) {
     expect(off).toEqual([]);
   });
 }
+
+test('keyboard focus draws a solid ring of at least 2 px on a link and on a button', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(INVOICES);
+  await ready(page);
+  const rings: Record<string, { w: number; style: string }> = {};
+  for (let i = 0; i < 60 && !(rings.A && rings.BUTTON); i++) {
+    await page.keyboard.press('Tab');
+    const seen = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || !['A', 'BUTTON'].includes(el.tagName)) return null;
+      const cs = getComputedStyle(el);
+      return { tag: el.tagName, w: parseFloat(cs.outlineWidth), style: cs.outlineStyle };
+    });
+    if (seen && !rings[seen.tag]) rings[seen.tag] = { w: seen.w, style: seen.style };
+  }
+  for (const tag of ['A', 'BUTTON']) {
+    expect(rings[tag], `no ${tag} reached by Tab`).toBeDefined();
+    expect(rings[tag]!.style).toBe('solid');
+    expect(rings[tag]!.w).toBeGreaterThanOrEqual(2);
+  }
+});

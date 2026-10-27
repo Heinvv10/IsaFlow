@@ -162,7 +162,7 @@ export default function ResetPasswordPage() {
                     type="button"
                     tabIndex={-1}
                     onClick={() => setShowPassword(v => !v)}
-                    className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 dark:text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 transition-colors"
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-gray-300 transition-colors"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -208,7 +208,7 @@ export default function ResetPasswordPage() {
                     type="button"
                     tabIndex={-1}
                     onClick={() => setShowConfirm(v => !v)}
-                    className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 dark:text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 transition-colors"
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-gray-300 transition-colors"
                     aria-label={showConfirm ? 'Hide password' : 'Show password'}
                   >
                     {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
