@@ -17,7 +17,7 @@ import { findUngroupedHints } from './ungroupedBankHint';
 import { readLastOpened, writeLastOpened } from './lastOpenedSubAccount';
 import { BankPrimaryCard } from './BankPrimaryCard';
 import { SortableCardRow, type SortableCard } from './SortableCardRow';
-import { applyCardOrder, withUnseen } from './bankCardOrder';
+import { applyCardOrder } from './bankCardOrder';
 import { useBankCardOrder } from './useBankCardOrder';
 
 export interface BankAcct {
@@ -82,7 +82,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
   const expandedGroup = groups.find(g => g.groupId === expandedGroupId);
   const { ref: rowRef, more: rowMore, measure: measureRow } = useOverflowRight(primaries.length + groups.length);
   const { activeCompany } = useCompany();
-  const { order, save } = useBankCardOrder(activeCompany?.id);
+  const { order, reorder, reset } = useBankCardOrder(activeCompany?.id);
 
   // Deep links (?account_id=) can select a sub-account before any user
   // interaction — auto-expand its group so the selection is visible.
@@ -144,7 +144,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
         <p className="text-xs text-[var(--ff-text-secondary)]">
           Drag cards to reorder (or Alt+←/→)
           {order && (
-            <button type="button" onClick={() => void save(null)} data-testid="bank-cards-reset-order"
+            <button type="button" onClick={() => void reset()} data-testid="bank-cards-reset-order"
               className="ml-3 text-teal-700 dark:text-teal-400 hover:underline">
               Reset order
             </button>
@@ -154,7 +154,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
       <div className="relative min-w-0">
         <div ref={rowRef} onScroll={measureRow} data-testid="bank-cards-row"
           className="flex items-stretch gap-3 overflow-x-auto pb-2">
-          <SortableCardRow cards={orderedCards} onReorder={keys => void save(withUnseen(keys, order))} />
+          <SortableCardRow cards={orderedCards} onReorder={keys => void reorder(keys)} />
         </div>
         {rowMore && (
           <div aria-hidden data-testid="bank-cards-fade"
