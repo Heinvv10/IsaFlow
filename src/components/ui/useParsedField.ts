@@ -3,7 +3,7 @@
  *
  * The user types free text; it is parsed ONCE on commit (blur / Enter). The parent only ever sees the
  * parsed value (or null), never a half-typed string. `null` alone cannot tell "left empty" from "typed
- * something we refused", so every report carries a validity: `{ valid: false, reason }` means the text is
+ * something we refused", so every report carries a validity: `{ valid: false, code, reason }` means the text is
  * on screen but was refused, and a form must not submit. onChange fires when the value OR the validity
  * changes (typing "abc" into an empty field is still news). An outside change to `value` replaces the
  * text; the echo of our own commit does not. A parent that resets the form while refused text is on screen
@@ -21,21 +21,24 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export type ParseOutcome<T> = { ok: true; value: T | null } | { ok: false; reason: string };
+/** A refusal carries a machine `code` (map on it) and a human `reason` (show it; the wording may change). */
+export type ParseOutcome<T, C extends string = string> = { ok: true; value: T | null } | { ok: false; code: C; reason: string };
 
-export interface FieldValidity {
+export interface FieldValidity<C extends string = string> {
   valid: boolean;
-  /** Why the text was refused; null when valid. */
+  /** Which refusal it was, e.g. DateField's 'empty' | 'unreadable' | 'before-min' | 'after-max'; null when valid. */
+  code: C | null;
+  /** Why the text was refused, for display; null when valid. */
   reason: string | null;
 }
 
-const VALID: FieldValidity = { valid: true, reason: null };
+const VALID: FieldValidity<never> = { valid: true, code: null, reason: null };
 
-interface Options<T> {
+interface Options<T, C extends string> {
   value: T | null;
   format: (value: T) => string;
-  parse: (text: string) => ParseOutcome<T>;
-  onChange: (value: T | null, validity: FieldValidity) => void;
+  parse: (text: string) => ParseOutcome<T, C>;
+  onChange: (value: T | null, validity: FieldValidity<C>) => void;
   /** Change it (any value, any change) to discard what is on screen, e.g. a form reset. */
   resetKey?: string | number;
 }
@@ -49,11 +52,11 @@ export interface ParsedField {
   commit: (override?: string) => void;
 }
 
-export function useParsedField<T>({ value, format, parse, onChange, resetKey }: Options<T>): ParsedField {
+export function useParsedField<T, C extends string = string>({ value, format, parse, onChange, resetKey }: Options<T, C>): ParsedField {
   const [text, setText] = useState(value === null ? '' : format(value));
   const [error, setError] = useState<string | null>(null);
   const emitted = useRef<T | null>(value);
-  const emittedValidity = useRef<FieldValidity>(VALID);
+  const emittedValidity = useRef<FieldValidity<C>>(VALID);
   const latest = useRef({ format, parse, onChange });
 
   useEffect(() => {
@@ -87,7 +90,7 @@ export function useParsedField<T>({ value, format, parse, onChange, resetKey }: 
     (override?: string) => {
       const outcome = latest.current.parse(override ?? text);
       const next = outcome.ok ? outcome.value : null;
-      const validity: FieldValidity = outcome.ok ? VALID : { valid: false, reason: outcome.reason };
+      const validity: FieldValidity<C> = outcome.ok ? VALID : { valid: false, code: outcome.code, reason: outcome.reason };
       if (outcome.ok) {
         setError(null);
         setText(next === null ? '' : latest.current.format(next));
@@ -95,7 +98,7 @@ export function useParsedField<T>({ value, format, parse, onChange, resetKey }: 
         setError(outcome.reason);
       }
       const before = emittedValidity.current;
-      if (Object.is(next, emitted.current) && before.valid === validity.valid && before.reason === validity.reason) {
+      if (Object.is(next, emitted.current) && before.valid === validity.valid && before.code === validity.code && before.reason === validity.reason) {
         return;
       }
       emitted.current = next;
