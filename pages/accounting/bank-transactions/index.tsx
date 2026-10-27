@@ -31,7 +31,7 @@ import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useL
 import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
 import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
-import { usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
+import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 
 export default function BankTransactionsPage() {
   const router = useRouter();
@@ -243,7 +243,7 @@ export default function BankTransactionsPage() {
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
-            empty={transactions.length === 0} total={total} tab={tab}>
+            empty={transactions.length === 0} pastEnd={bankTxPastEnd(page, total, PAGE_SIZE)} tab={tab}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}
