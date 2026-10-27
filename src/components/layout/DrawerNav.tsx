@@ -58,10 +58,10 @@ function Items({ items, asPath, depth, idPrefix }: { items: NavItem[]; asPath: s
 
 function TabGroup({ tab, asPath, active }: { tab: Tab; asPath: string; active: boolean }) {
   const id = `drawer-nav-${tab.id}`;
-  // A daily link a section also lists ("Customers" beside the Customers section) would show the page twice in
-  // one accordion; the section entry wins, as it does in the palette's index.
-  const sectionHrefs = new Set(hrefsOf(tab.items ?? []));
-  const links = tab.links?.filter(l => !sectionHrefs.has(l.href));
+  // A daily link named like a section that lists the same page ("Customers" beside the Customers section) shows
+  // "Customers" twice in one accordion; the section wins. A daily link into a differently named section (Invoices
+  // -> Transactions > Tax Invoices) stays: it is the one-tap shortcut the drawer exists for.
+  const links = tab.links?.filter(l => !(tab.items ?? []).some(i => isFlyout(i) && i.section === l.label && hrefsOf(i.items).includes(l.href)));
   return (
     <Group id={id} label={tab.label} depth={0} active={active}>
       {tab.href && <Link href={tab.href} className={rowCls(asPath === tab.href, 1)}>{tab.label} home</Link>}
