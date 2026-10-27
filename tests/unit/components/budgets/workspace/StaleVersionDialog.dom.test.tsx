@@ -99,7 +99,7 @@ async function editedWorkspace() {
   render(<BudgetWorkspace />);
   await screen.findByRole('grid', { name: 'Budget' });
   fireEvent.doubleClick(marchRev1());
-  const editor = screen.getByRole('textbox', { name: '1000 Account 1000 Mar 2026 budget' });
+  const editor = await screen.findByRole('textbox', { name: '1000 Account 1000 Mar 2026 budget' });
   fireEvent.change(editor, { target: { value: '250' } });
   fireEvent.keyDown(editor, { key: 'Enter' });
   expect(marchRev1()).toHaveAttribute('data-dirty', 'true');
