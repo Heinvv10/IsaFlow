@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path X - the off-core pages the wave-0 re-score found below AA (master plan wave 1, PR X).
  *

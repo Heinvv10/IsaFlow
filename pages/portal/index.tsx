@@ -204,7 +204,7 @@ export default function PortalPage() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-slate-600 dark:text-gray-400">{user.name}</span>
-            <button onClick={handleLogout} className="text-slate-500 dark:text-slate-400 dark:text-gray-400 hover:text-slate-700 dark:hover:text-white transition-colors">
+            <button onClick={handleLogout} className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors">
               <LogOut className="h-4 w-4" />
             </button>
           </div>

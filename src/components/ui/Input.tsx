@@ -96,7 +96,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
 
         <div className="relative flex items-center">
           {LeftIcon && (
-            <span className="pointer-events-none absolute left-2.5 flex items-center text-gray-600 dark:text-gray-400 dark:text-gray-500">
+            <span className="pointer-events-none absolute left-2.5 flex items-center text-gray-600 dark:text-gray-400">
               <LeftIcon size={iconSize} />
             </span>
           )}
@@ -121,7 +121,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           />
 
           {RightIcon && (
-            <span className="pointer-events-none absolute right-2.5 flex items-center text-gray-600 dark:text-gray-400 dark:text-gray-500">
+            <span className="pointer-events-none absolute right-2.5 flex items-center text-gray-600 dark:text-gray-400">
               <RightIcon size={iconSize} />
             </span>
           )}

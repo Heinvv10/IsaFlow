@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path (t): report filter dates are typed DateFields (master plan wave 1, F1).
  *
