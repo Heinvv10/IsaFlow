@@ -14,7 +14,7 @@ import { log } from '@/lib/logger';
 import {
   Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3,
 } from 'lucide-react';
-import { OverviewTab } from '@/components/accounting/dashboard/OverviewTab';
+import { OverviewTab, type KPIData, type KpiLoad } from '@/components/accounting/dashboard/OverviewTab';
 import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAccountsTab';
 import { JournalEntriesTab } from '@/components/accounting/dashboard/JournalEntriesTab';
 import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriodsTab';
@@ -33,24 +33,14 @@ const TABS: HeroTab[] = [
   { id: 'reports',           label: 'Reports',           icon: BarChart3       },
 ];
 
-interface KpiResponse {
-  data?: {
-    kpis?: {
-      revenue?:     { total?: number };
-      receivables?: { total?: number };
-      cash?:        { total?: number };
-    };
-  };
-}
-
 export default function AccountingPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { activeCompany, companies, loading: companiesLoading } = useCompany();
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
-  const [heroStats, setHeroStats] = useState<DashboardHeroStats | undefined>();
-  const [heroError, setHeroError] = useState('');
+  // One kpi-dashboard load feeds the hero and the Overview tab.
+  const [kpiLoad, setKpiLoad] = useState<KpiLoad>({ data: null, error: '', loading: true });
   const [impersonateError, setImpersonateError] = useState('');
   const setup = useSetupProgress(activeCompany?.id);
 
@@ -114,27 +104,26 @@ export default function AccountingPage() {
     void router.push({ pathname: '/accounting', query: { tab } }, undefined, { shallow: true });
   }, [router]);
 
-  // Load hero KPI stats
+  // Load the dashboard figures once, for the hero and the Overview tab.
   useEffect(() => {
     if (!isMounted) return;
-    setHeroError('');
+    setKpiLoad({ data: null, error: '', loading: true });
     apiFetch('/api/accounting/kpi-dashboard')
       .then(async res => { await assertOk(res, 'Could not load the dashboard figures - try again'); return res.json(); })
-      .then((json: KpiResponse) => {
-        const kpis = json.data?.kpis;
-        if (!kpis) return;
-        setHeroStats({
-          revenueMtd:          kpis.revenue?.total     ?? 0,
-          outstandingInvoices: kpis.receivables?.total ?? 0,
-          cashPosition:        kpis.cash?.total        ?? 0,
-        });
-      })
+      .then((json: { data?: KPIData }) => setKpiLoad({ data: json.data ?? null, error: '', loading: false }))
       .catch(err => {
-        log.error('Failed to load hero stats', { error: err }, 'accounting-page');
-        setHeroStats(undefined);
-        setHeroError(apiErrorMessage(err, 'Could not load the dashboard figures - try again'));
+        log.error('Failed to load dashboard figures', { error: err }, 'accounting-page');
+        setKpiLoad({ data: null, error: apiErrorMessage(err, 'Could not load the dashboard figures - try again'), loading: false });
       });
   }, [isMounted, activeCompany?.id]);
+
+  const kpis = kpiLoad.data?.kpis;
+  const heroStats: DashboardHeroStats | undefined = kpis && {
+    revenueMtd:          kpis.revenue?.total     ?? 0,
+    outstandingInvoices: kpis.receivables?.total ?? 0,
+    cashPosition:        kpis.cash?.total        ?? 0,
+  };
+  const heroError = kpiLoad.error;
 
   // The skeleton holds until the setup checklist is known: it renders ABOVE the
   // hero, so arriving later would push the whole page down (CLS).
@@ -179,7 +168,7 @@ export default function AccountingPage() {
         {/* key={activeCompany?.id} forces full remount when company switches,
             so each tab's useEffect re-fires with the correct localStorage company */}
         <div className="p-6 pt-5" key={activeCompany?.id ?? 'loading'}>
-          {activeTab === 'overview'          && <OverviewTab setupOpen={isSetupOpen(setup)} />}
+          {activeTab === 'overview'          && <OverviewTab setupOpen={isSetupOpen(setup)} kpiLoad={kpiLoad} />}
           {activeTab === 'chart-of-accounts' && <ChartOfAccountsTab />}
           {activeTab === 'journal-entries'   && <JournalEntriesTab />}
           {activeTab === 'fiscal-periods'    && <FiscalPeriodsTab />}
