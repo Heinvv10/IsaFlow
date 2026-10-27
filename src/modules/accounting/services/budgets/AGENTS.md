@@ -40,6 +40,7 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 
 ## Business rules (decisions 1-4, 11-14)
 - Approve and lock: owner or admin. Unlock: owner only, reason 1-500 chars (DB requires a non-blank reason, 23514). Owner-only is app-enforced (decision 11).
+- Set primary: owner or admin, but owner only when the year's current primary is locked (moving reports off a locked budget is an unlock in effect; Hein, 2026-10-27).
 - Approved-but-unlocked stays editable; locked is immutable in the DB (`budget_month_amounts_refuse_locked`, ENABLE ALWAYS).
 - One grain per account per version (exclusion `budget_month_amounts_one_grain`), and at most one dimension per amount (`budget_month_amounts_one_dimension`).
 - Delete: not primary, not locked; an approved version needs owner/admin; a draft any writer.
