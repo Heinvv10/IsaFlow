@@ -1,9 +1,16 @@
 // src/lib/auth/inviteAccount.ts
 import { adminCreateUser, findUserByEmail } from './gotrue';
-import { listFactors } from './gotrue-mfa';
+import { adminListUserFactors, GotrueMfaError, listFactors, type Factor } from './gotrue-mfa';
+import { AuthUpstreamUnavailableError } from './authUpstream';
 
 /** The strength floor for a password being SET (register.ts, do-reset-password.ts). */
 export const MIN_NEW_PASSWORD_LENGTH = 10;
+
+export interface InvitationAccount {
+  id: string;
+  /** Created by this accept, so it can have no second factor yet. */
+  created: boolean;
+}
 
 /**
  * The GoTrue account an invitation is accepted as, or null when the address
@@ -20,28 +27,40 @@ export const MIN_NEW_PASSWORD_LENGTH = 10;
  * account when it has no memberships, and an account found here may be
  * someone's own login (a pending signup, a member removed everywhere) that
  * this invitation never created. An existing account is always found first,
- * never created over, and the caller's established-account check then demands
- * its current password. Concurrent accepts converge: the second create 422s
- * and adminCreateUser answers the first one's account.
+ * never created over. Concurrent accepts converge: the second create 422s and
+ * adminCreateUser answers the first one's account.
  */
 export async function resolveInvitationAccount(
   inv: { email: string; gotrue_user_id: string | null },
   password: string,
-): Promise<string | null> {
-  if (inv.gotrue_user_id) return inv.gotrue_user_id;
+): Promise<InvitationAccount | null> {
+  if (inv.gotrue_user_id) return { id: inv.gotrue_user_id, created: false };
   const existing = await findUserByEmail(inv.email);
-  if (existing) return existing.id;
+  if (existing) return { id: existing.id, created: false };
   if (password.length < MIN_NEW_PASSWORD_LENGTH) return null;
-  return (await adminCreateUser({ email: inv.email, email_confirm: true })).id;
+  return { id: (await adminCreateUser({ email: inv.email, email_confirm: true })).id, created: true };
 }
 
 /**
- * Does this signed-in account have a verified second factor? Accepting an
- * invitation with a password must not mint a session that /api/auth/login
- * would have withheld until the code was given. Throws when the factors cannot
- * be read; the caller fails closed.
+ * Has this account a verified second factor? Accepting an invitation with a
+ * password must not mint a session, or set a password, that /api/auth/login
+ * would have withheld until the code was given. By the signed-in session when
+ * there is one, else by the admin API (before any password is touched).
+ *
+ * Fails closed: an unreadable factor list is an outage (503, attempt refunded),
+ * as /api/auth/login answers it, never a pass.
  */
-export async function accountHasVerifiedFactor(accessToken: string): Promise<boolean> {
-  const factors = await listFactors(accessToken);
-  return factors.totp.some((f) => f.status === 'verified');
+export async function accountHasVerifiedFactor(
+  by: { accessToken: string } | { userId: string },
+): Promise<boolean> {
+  let factors: Factor[];
+  try {
+    factors = 'accessToken' in by ? (await listFactors(by.accessToken)).totp : await adminListUserFactors(by.userId);
+  } catch (err) {
+    if (err instanceof GotrueMfaError) {
+      throw new AuthUpstreamUnavailableError(`gotrue factor check failed: ${err.status}`, { cause: err });
+    }
+    throw err;
+  }
+  return factors.some((f) => f.factor_type === 'totp' && f.status === 'verified');
 }

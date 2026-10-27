@@ -15,7 +15,7 @@ vi.mock('@/modules/analytics/services/trackingService', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import handler from '../../../pages/api/track/event';
-import { scrubInviteQuery } from '@/modules/analytics/scrubInviteSecrets';
+import { scrubInvitePath, scrubInviteQuery, scrubInviteReferrer } from '@/modules/analytics/scrubInviteSecrets';
 
 // Synthetic, shaped like a real one (64 hex).
 const TOKEN = 'ab'.repeat(32);
@@ -56,9 +56,9 @@ describe('POST /api/track/event stores no invitation token', () => {
     expect(e.referrer).toBe('https://app.isaflow.co.za/invite/[token]?x=1');
   });
 
-  it('an unparseable referrer is dropped rather than stored raw', async () => {
+  it('a referrer that is not a URL is still scrubbed', async () => {
     const e = await track('/accounting', null, `not a url /invite/${TOKEN}`);
-    expect(e.referrer).toBeNull();
+    expect(e.referrer).toBe('not a url /invite/[token]');
   });
 
   it('ordinary pages and queries are stored exactly as sent', async () => {
@@ -67,8 +67,28 @@ describe('POST /api/track/event stores no invitation token', () => {
   });
 });
 
-describe('scrubInviteQuery', () => {
-  it('matches the secret parameter names case-blind', () => {
-    expect(scrubInviteQuery(`Token=${TOKEN}`)).not.toContain(TOKEN);
+// The adversarial review's bypasses of a match on `/invite/` and parameter names.
+const T = 'deadbeef'.repeat(8);
+const lower = (v: string | null) => (v ?? '').toLowerCase();
+describe.each([
+  ['path', scrubInvitePath, `//invite/${T}`],
+  ['path', scrubInvitePath, `/%69nvite/${T}`],
+  ['path', scrubInvitePath, `/invite%2F${T}`],
+  ['path', scrubInvitePath, `/Invite/${T}`],
+  ['path', scrubInvitePath, `/invite/${T.toUpperCase()}`],
+  ['query', scrubInviteQuery, `returnTo=%252Finvite%252F${T}`],
+  ['query', scrubInviteQuery, `returnTo=//x/invite/${T}`],
+  ['query', scrubInviteQuery, `returnTo=/accept-invite%3Ftoken%3D${T}`],
+  ['query', scrubInviteQuery, `return=http://app/invite/${T}`],
+  ['query', scrubInviteQuery, `Token=${T}`],
+  ['query', scrubInviteQuery, `q=${T.slice(0, 20)}%${T.slice(20, 22)}${T.slice(22)}`],
+  ['referrer', scrubInviteReferrer, `https://app.isaflow.co.za/%69nvite/${T}`],
+  ['referrer', scrubInviteReferrer, `https://app.isaflow.co.za//invite/${T}`],
+  ['referrer', scrubInviteReferrer, `https://app.isaflow.co.za/login?invite=%2564eadbeef${T.slice(8)}`],
+] as const)('%s %s', (_kind, scrub, input) => {
+  it('stores no token', () => {
+    const out = lower((scrub as (v: string) => string | null)(input));
+    expect(out).not.toContain(T);
+    expect(out).not.toContain(T.slice(0, 32));
   });
 });

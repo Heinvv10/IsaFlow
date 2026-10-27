@@ -37,6 +37,7 @@ vi.mock('@/lib/auth/gotrue', async (orig) => ({
 vi.mock('@/lib/auth/gotrue-mfa', async (orig) => ({
   ...(await orig<object>()),
   listFactors: vi.fn(async () => ({ totp: [] })),
+  adminListUserFactors: vi.fn(async () => []),
 }));
 vi.mock('@/modules/accounting/services/core/emailService', async (orig) => ({
   ...(await orig<object>()),

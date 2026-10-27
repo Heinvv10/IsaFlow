@@ -33,6 +33,8 @@ function profileName(value: unknown): string | null {
   return capped === '' ? null : capped;
 }
 
+const MFA_REQUIRED = { code: 'MFA_REQUIRED', message: 'This account uses two-factor authentication. Sign in to accept the invitation.' };
+
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } });
@@ -50,9 +52,7 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password is required' } });
   }
 
-  // 1. Look up invitation (RLS policy invites_by_token permits this).
-  //    gotrue_user_id is NULL on invitations sent from Settings -> User Access
-  //    (userInvitationService); step 2 resolves the account for those.
+  // 1. Look up invitation (RLS invites_by_token). gotrue_user_id is NULL on Settings -> User Access invitations.
   const rows = await sql<{
     id: string; email: string; role: string; company_id: string; gotrue_user_id: string | null;
   }>`
@@ -72,11 +72,8 @@ const handler: NextApiHandler = async (req, res) => {
   // owner — but the invitation is a single acceptance, and nothing legitimate
   // needs more than a handful of tries. Keyed on the digest, never the raw
   // token, so the rate-limit table holds no usable invitation secret.
-  // Charged above 1 for a reason that no longer applies: until R-175
-  // checkRateLimit admitted cost-1 calls from an in-process LRU without
-  // counting them. Every call now reaches the shared counter, so cost 2 of a
-  // max of 20 is simply ten attempts an hour, counted exactly and across pods.
-  // Left at 2 so the live counters keep their meaning.
+  // Cost 2 of 20 is ten attempts an hour (cost 2 predates R-175's exact shared
+  // counter; kept so the live counters keep their meaning).
   //
   // Placed AFTER the 410, not before it: the key is derived from a caller-chosen
   // URL segment, so charging it ahead of the lookup let an unauthenticated
@@ -113,12 +110,12 @@ const handler: NextApiHandler = async (req, res) => {
   let opened = false;
   let unusable = false;
   try {
-    // Never NULL past here: a NULL id matches no `users` row below, which would
-    // skip the established-account guard and PUT a password to /admin/users/null.
-    const accountId = await resolveInvitationAccount(inv, password);
-    if (accountId === null) {
+    // Never NULL past here: a NULL id would skip the guard below and PUT to /admin/users/null.
+    const account = await resolveInvitationAccount(inv, password);
+    if (account === null) {
       return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
     }
+    const accountId = account.id;
 
     // 2. Does this address already hold an established IsaFlow login? A `users`
     //    row is written only by tenant provisioning (after email verification)
@@ -134,6 +131,11 @@ const handler: NextApiHandler = async (req, res) => {
     const isEstablished = (established.rowCount ?? 0) > 0;
 
     if (!isEstablished) {
+      // An existing account without a `users` row may still carry a second
+      // factor: refuse before its password is touched, not only after sign-in.
+      if (!account.created && await accountHasVerifiedFactor({ userId: accountId })) {
+        return res.status(401).json({ success: false, error: MFA_REQUIRED });
+      }
       // Brand-new invitee: this invitation is what establishes the login, so
       // the password they type becomes their password — and only here does the
       // strength floor apply, matching register.ts / do-reset-password.ts.
@@ -186,11 +188,10 @@ const handler: NextApiHandler = async (req, res) => {
     }
     // /api/auth/login withholds the session from an account with a verified
     // second factor until the code is given; a password here must not skip
-    // that (a login this accept just created has none). Refunded like the
-    // verdict above: reachable only after signIn.
-    if (isEstablished && await accountHasVerifiedFactor(tok.access_token)) {
+    // that. Refunded like the verdict above: reachable only after signIn.
+    if (isEstablished && await accountHasVerifiedFactor({ accessToken: tok.access_token })) {
       await refund();
-      return res.status(401).json({ success: false, error: { code: 'MFA_REQUIRED', message: 'This account uses two-factor authentication. Sign in to accept the invitation.' } });
+      return res.status(401).json({ success: false, error: MFA_REQUIRED });
     }
 
     // 4. Attach the membership + profile row.

@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   adminUpdateUser: vi.fn(),
   signIn: vi.fn(),
   listFactors: vi.fn(),
+  adminListUserFactors: vi.fn(),
   setAuthCookies: vi.fn(),
 }));
 
@@ -46,7 +47,11 @@ vi.mock('@/lib/auth/gotrue', () => ({
   adminUpdateUser: h.adminUpdateUser,
   signIn: h.signIn,
 }));
-vi.mock('@/lib/auth/gotrue-mfa', () => ({ listFactors: h.listFactors }));
+vi.mock('@/lib/auth/gotrue-mfa', async (orig) => ({
+  ...(await orig<object>()),
+  listFactors: h.listFactors,
+  adminListUserFactors: h.adminListUserFactors,
+}));
 vi.mock('@/lib/auth/cookies', () => ({ setAuthCookies: h.setAuthCookies, setActiveCompanyCookie: vi.fn() }));
 vi.mock('@/lib/auth/liveCompanies', () => ({
   isLiveCompanyForUser: vi.fn(async () => true),
@@ -97,6 +102,7 @@ beforeEach(() => {
   h.invitationStillPending = true;
   h.findUserByEmail.mockResolvedValue(null);
   h.listFactors.mockResolvedValue({ totp: [] });
+  h.adminListUserFactors.mockResolvedValue([]);
   h.invitation = { id: 'inv-1', email: 'invitee@example.test', role: 'viewer', company_id: 'co-1', gotrue_user_id: null };
 });
 
@@ -181,6 +187,51 @@ describe('an existing account with a verified second factor', () => {
     expect((await accept('the-right-password')).status).toBe(503);
     expect(h.setAuthCookies).not.toHaveBeenCalled();
     expect(ran(/INSERT INTO company_users/)).toBe(false);
+  });
+
+  it('a GoTrue refusal reading the factors is 503 AUTH_UNAVAILABLE, as login answers it, never a pass', async () => {
+    const { GotrueMfaError } = await vi.importActual<typeof import('@/lib/auth/gotrue-mfa')>('@/lib/auth/gotrue-mfa');
+    h.listFactors.mockRejectedValue(new GotrueMfaError(401, 'bad jwt', null));
+
+    const { status, body } = await accept('the-right-password');
+
+    expect(status).toBe(503);
+    expect(body.error?.code).toBe('AUTH_UNAVAILABLE');
+    expect(h.setAuthCookies).not.toHaveBeenCalled();
+  });
+});
+
+describe('an existing GoTrue account with no IsaFlow profile row', () => {
+  beforeEach(() => {
+    h.findUserByEmail.mockResolvedValue({ id: 'gt-orphan', email: 'invitee@example.test' });
+    h.signIn.mockResolvedValue(tokens('gt-orphan'));
+  });
+
+  it('with a verified second factor: refused before its password is touched', async () => {
+    h.adminListUserFactors.mockResolvedValue([{ id: 'f1', status: 'verified', factor_type: 'totp' }]);
+
+    const { status, body } = await accept('attacker-chosen-pw-1');
+
+    expect(status).toBe(401);
+    expect(body.error?.code).toBe('MFA_REQUIRED');
+    expect(h.adminListUserFactors).toHaveBeenCalledWith('gt-orphan');
+    expect(h.adminUpdateUser).not.toHaveBeenCalled();
+    expect(h.signIn).not.toHaveBeenCalled();
+    expect(h.setAuthCookies).not.toHaveBeenCalled();
+  });
+
+  it('without one: the invitee sets the password and joins, as a pending signup always could', async () => {
+    expect((await accept('a-new-password-1')).status).toBe(200);
+    expect(h.adminUpdateUser).toHaveBeenCalledWith('gt-orphan', expect.objectContaining({ password: 'a-new-password-1' }));
+  });
+
+  it('an account this accept just created is not looked up for factors', async () => {
+    h.findUserByEmail.mockResolvedValue(null);
+    h.adminCreateUser.mockResolvedValue({ id: 'gt-new', email: 'invitee@example.test' });
+    h.signIn.mockResolvedValue(tokens('gt-new'));
+
+    expect((await accept('a-new-password-1')).status).toBe(200);
+    expect(h.adminListUserFactors).not.toHaveBeenCalled();
   });
 });
 

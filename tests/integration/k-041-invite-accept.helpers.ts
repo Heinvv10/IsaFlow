@@ -204,6 +204,11 @@ export async function setupInviteFixture(): Promise<void> {
       return new Response(JSON.stringify({ id: 'disposable', factors: [] }),
         { status: 200, headers: { 'content-type': 'application/json' } });
     }
+    if (path.startsWith('/admin/users/') && (init?.method ?? 'GET') === 'GET') {
+      // accept.ts reads an existing account's factors before setting a password (MFA gate): none here.
+      return new Response(JSON.stringify({ id: path.split('/').pop(), factors: [] }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (path.startsWith('/admin/users/')) {
       const userId = path.split('/').pop()!;
       if (userId === outageUser) throw new Error('disposable gotrue outage');
