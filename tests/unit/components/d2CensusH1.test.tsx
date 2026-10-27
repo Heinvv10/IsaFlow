@@ -4,6 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, render, screen } from '@testing-library/react';
+import { openCombobox } from '../helpers/kitPick';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -41,6 +42,8 @@ interface Case {
   good: unknown;
   /** Answer for every other request, by URL. */
   rest?: (url: string) => unknown;
+  /** Kit selects render their options only when opened: the combobox to open before looking for `shows`. */
+  open?: string;
   shows: RegExp;
   plain: RegExp;
 }
@@ -76,9 +79,9 @@ const CASES: Case[] = [
   { name: 'convert trial: plans', page: () => <ConvertTrialModal companyId="c1" companyName="D2 Co" onClose={vi.fn()} onConverted={vi.fn()} />,
     fails: u => u.includes('billing/plans'), good: [{ id: 'p1', name: 'D2 Pro Plan', code: 'pro', monthly_price_cents: 100, currency: 'ZAR' }],
     shows: /D2 Pro Plan/, plain: /Could not load plans - try again/ },
-  { name: 'new customer invoice: clients', page: () => <NewCustomerInvoicePage />, fails: u => u.endsWith('/accounting/customers'),
+  { name: 'new customer invoice: clients', page: () => <NewCustomerInvoicePage />, fails: u => u.includes('/accounting/customers'), open: 'Client',
     good: [{ id: 'cl1', name: 'D2 Client Co' }], shows: /D2 Client Co/, plain: /Could not load clients - try again/ },
-  { name: 'new customer invoice: currencies', page: () => <NewCustomerInvoicePage />, fails: u => u.includes('/currencies'),
+  { name: 'new customer invoice: currencies', page: () => <NewCustomerInvoicePage />, fails: u => u.includes('/currencies'), open: 'Currency',
     good: [{ code: 'USD', name: 'D2 Dollar', symbol: '$' }], shows: /D2 Dollar/, plain: /Could not load currencies - try again/ },
 ];
 
@@ -106,6 +109,7 @@ describe.each(CASES)('$name', (c) => {
   it('200: the data renders', async () => {
     script(c, () => ok(c.good));
     render(c.page());
+    if (c.open) openCombobox(c.open);
     expect((await screen.findAllByText(c.shows)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Could not load|Could not check|D2 server says no/)).toBeNull();
   });
