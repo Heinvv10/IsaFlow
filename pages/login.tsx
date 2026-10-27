@@ -272,10 +272,13 @@ export default function LoginPage() {
     typeof window !== 'undefined' && window.location.hostname === 'admin.isaflow.co.za';
   const defaultRedirect = isAdminHost ? '/' : '/accounting';
 
+  // An invitation sign-in returns to the invitation, or nothing accepts it.
   const returnTo =
     typeof router.query.returnTo === 'string' && isSafeRedirect(router.query.returnTo)
       ? router.query.returnTo
-      : defaultRedirect;
+      : inviteToken
+        ? `/invite/${encodeURIComponent(inviteToken)}`
+        : defaultRedirect;
 
   useEffect(() => {
     if (!inviteToken) return;
@@ -292,6 +295,8 @@ export default function LoginPage() {
   // returnTo still wins, and no-companies always forces onboarding.
   const postLoginRedirect = async (): Promise<string> => {
     if (isAdminHost) return returnTo;
+    // Before the onboarding check: an invitee with no company yet is joining one.
+    if (inviteToken && returnTo !== defaultRedirect) return returnTo;
     try {
       const res = await fetch('/api/auth/landing', { credentials: 'include' });
       await assertOk(res, 'Could not resolve the landing page');
@@ -652,7 +657,7 @@ export default function LoginPage() {
           <p className="mt-6 text-center text-sm text-white/75">
             Don&apos;t have an account?{' '}
             <Link
-              href={inviteToken ? `/register?invite=${inviteToken}` : '/register'}
+              href={inviteToken ? `/accept-invite?token=${encodeURIComponent(inviteToken)}` : '/register'}
               className="font-semibold text-teal-100 transition-colors hover:text-white"
             >
               {inviteToken ? 'Create one' : 'Start your free trial'}

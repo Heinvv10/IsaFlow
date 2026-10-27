@@ -1,7 +1,9 @@
 /**
  * /invite/[token] — Invitation landing page.
  * Public page (no AppLayout). Validates the token and lets the user
- * sign in, register, or (if already logged in) accept directly.
+ * sign in, set up their login at /accept-invite, or (if already logged in as
+ * the invited address) accept directly. Every route here joins the INVITING
+ * company; none of them creates a new one.
  */
 
 import { useEffect, useState } from 'react';
@@ -9,6 +11,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { Building2, UserCheck, LogIn, UserPlus, AlertTriangle, Loader2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface InviteData {
   email: string;
@@ -23,6 +26,13 @@ interface AuthUser {
 }
 
 type PageState = 'loading' | 'valid' | 'invalid' | 'accepting' | 'accepted' | 'error';
+
+/** Same mask as GET /api/invite/[token], so a signed-in address can be compared with the invited one. */
+function maskEmail(email: string): string {
+  const [local, domain] = email.toLowerCase().split('@');
+  if (!local || !domain) return '***@***';
+  return `${local[0]}***@${domain}`;
+}
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner', admin: 'Administrator', manager: 'Manager', viewer: 'Viewer',
@@ -79,7 +89,9 @@ export default function InvitePage() {
     setPageState('accepting');
 
     try {
-      const res = await fetch(`/api/invite/${token}`, { method: 'POST' });
+      // apiFetch, not fetch: the route is withCsrf, and only apiFetch sends the
+      // X-CSRF-Token header. A bare fetch was refused 403 on every click.
+      const res = await apiFetch(`/api/invite/${token}`, { method: 'POST' });
 
       if (!res.ok) {
         const failure = await res.json().catch(() => null) as { error?: { message?: string } } | null;
@@ -97,7 +109,23 @@ export default function InvitePage() {
     }
   }
 
+  async function handleSignOut() {
+    try {
+      const res = await apiFetch('/api/auth/logout', { method: 'POST' });
+      await assertOk(res, 'Could not sign you out - please try again');
+      window.location.reload();
+    } catch (e) {
+      setErrorMsg(apiErrorMessage(e, 'Could not sign you out - please try again'));
+      setPageState('error');
+    }
+  }
+
   const roleLabel = inviteData ? (ROLE_LABELS[inviteData.role] ?? inviteData.role) : '';
+  // The server refuses a mismatched accept (403); say so before the click.
+  const signedInAsSomeoneElse =
+    currentUser !== null && inviteData !== null && maskEmail(currentUser.email) !== inviteData.email.toLowerCase();
+  const acceptHref = `/accept-invite?token=${encodeURIComponent(token ?? '')}`;
+  const signInHref = `/login?invite=${encodeURIComponent(token ?? '')}&returnTo=${encodeURIComponent(`/invite/${token ?? ''}`)}`;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
@@ -184,8 +212,23 @@ export default function InvitePage() {
 
             <div className="px-6 py-6 space-y-3">
 
-              {/* Already logged in — show Join button */}
-              {currentUser ? (
+              {/* Signed in as a different address — accepting would be refused */}
+              {currentUser && signedInAsSomeoneElse ? (
+                <>
+                  <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+                    This invitation was sent to{' '}
+                    <span className="text-slate-900 dark:text-white">{inviteData.email}</span>, but you are signed in as{' '}
+                    <span className="text-slate-900 dark:text-white">{currentUser.email}</span>.
+                  </p>
+                  <button
+                    onClick={() => void handleSignOut()}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Sign Out and Continue
+                  </button>
+                </>
+              ) : currentUser ? (
                 <>
                   <p className="text-center text-sm text-gray-600 dark:text-gray-400 mb-4">
                     Signed in as{' '}
@@ -210,27 +253,27 @@ export default function InvitePage() {
                   </button>
                   <p className="text-center text-xs text-gray-600 pt-1">
                     Not you?{' '}
-                    <Link href="/login" className="text-teal-500 hover:text-teal-400">
-                      Sign In with a Different Account
-                    </Link>
+                    <button onClick={() => void handleSignOut()} className="text-teal-500 hover:text-teal-400">
+                      Sign Out
+                    </button>
                   </p>
                 </>
               ) : (
-                /* Not logged in — two CTAs */
+                /* Not logged in — both routes join this company */
                 <>
                   <Link
-                    href={`/login?invite=${token}`}
+                    href={acceptHref}
                     className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
                   >
-                    <LogIn className="h-4 w-4" />
-                    Sign In to Accept
+                    <UserPlus className="h-4 w-4" />
+                    Create Account &amp; Join
                   </Link>
                   <Link
-                    href={`/register?invite=${token}`}
+                    href={signInHref}
                     className="w-full flex items-center justify-center gap-2 rounded-lg border border-slate-300 dark:border-gray-600 px-4 py-3 text-sm font-medium text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-gray-800 hover:text-slate-900 dark:hover:text-white transition-colors"
                   >
-                    <UserPlus className="h-4 w-4" />
-                    Create an Account
+                    <LogIn className="h-4 w-4" />
+                    I Already Have an Account
                   </Link>
                   <p className="text-center text-xs text-gray-600 pt-1">
                     Invitation sent to{' '}
