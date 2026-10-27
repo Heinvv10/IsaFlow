@@ -13,7 +13,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('next/router', () => ({ useRouter: () => route }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1', activeCompany: { id: 'c1' }, loading: false }) }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1', activeCompany: { id: 'c1' }, companies: [], loading: false }) }));
 vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRegistered: true, known: true }) }));
 
 import { apiFetch } from '@/lib/apiFetch';
@@ -216,5 +216,7 @@ describe('supplier-invoices/index (routes: ?status_counts=1 -> { counts }, list 
     render(<SupplierInvoicesPage />);
     expect(await screen.findByText('Could not load the supplier invoices - try again')).toBeDefined();
     expect(screen.queryByText('D2-SI-001')).toBeNull(); expectNoJargon();
+    expect(screen.queryByText('No supplier invoices yet')).toBeNull(); // a failed load is not a first run
+    expect(screen.queryByText('Try the demo company')).toBeNull();
   });
 });

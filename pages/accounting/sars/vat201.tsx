@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Save, Send } from 'lucide-react';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { ApiRequestError, apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodSelector';
 import { VAT201PageHeader } from '@/components/accounting/sars/VAT201PageHeader';
@@ -189,9 +190,8 @@ export default function VAT201Page() {
           {known && !isRegistered && <NotVatRegisteredNotice surface="The VAT201 return" />}
 
           {known && isRegistered && !settingsReady && (
-            <div data-testid="vat201-period-loading" aria-busy="true"
-              className="h-[8.5rem] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] flex items-center justify-center text-sm text-[var(--ff-text-tertiary)]">
-              <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading VAT period settings
+            <div data-testid="vat201-period-loading" className="h-[8.5rem]">
+              <ListSkeleton rows={4} label="Loading VAT period settings" rowClassName="h-5 items-center" />
             </div>
           )}
 

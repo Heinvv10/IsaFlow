@@ -15,6 +15,7 @@ vi.mock('next/router', () => ({ useRouter: () => router }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
 vi.mock('next/head', () => ({ default: () => null }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companies: [], activeCompany: { id: 'c1' }, switchCompany: vi.fn() }) }));
 vi.mock('@/components/shared/ExportCSVButton', () => ({ ExportCSVButton: () => null }));
 
 import { apiFetch } from '@/lib/apiFetch';
