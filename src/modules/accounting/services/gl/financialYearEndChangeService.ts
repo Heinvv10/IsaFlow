@@ -14,6 +14,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { dayBefore, fiscalYearForDate, type FiscalYearRecord } from './fiscalYearRegistry';
 import { planTransition, type TransitionOption } from './financialYearEndChangePlan';
+import { budgetRehomeRefusals } from '../budgets/budgetYearRehome';
 
 export interface YearEndChangeRequest {
   newYearEndMonth: number;
@@ -137,6 +138,7 @@ export async function assessYearEndChange(
         + `${fixed.slice(0, 6).map((p) => p.periodName).join(', ')}${fixed.length > 6 ? ` and ${fixed.length - 6} more` : ''}. `
         + 'Reopen them first; closed and locked periods never move.');
     }
+    refusals.push(...await budgetRehomeRefusals(companyId, boundary, currentYear.fiscalYear));
   }
 
   return {
@@ -154,7 +156,7 @@ function describeEffects(year: FiscalYearRecord, chosen: TransitionOption, movin
     `${moving.length} monthly period(s) change year${posted > 0 ? `, holding ${posted} posted journal(s): they keep their periods and dates` : ''}.`,
     `AFS for FY${year.fiscalYear} will cover ${chosen.months} months ended ${chosen.endDate}, with a note that the `
       + 'comparative figures are not entirely comparable (IAS 1.36).',
-    'Budgets are kept per calendar month, so they follow the months into their new years.',
+    'The primary budget\'s months move with the months into their new years (each year\'s primary budget).',
     'Payroll is unaffected: the PAYE tax year always runs 1 March to the end of February.',
     `Earlier years keep their dates (the year before still ends ${dayBefore(year.startDate)}).`,
   ];

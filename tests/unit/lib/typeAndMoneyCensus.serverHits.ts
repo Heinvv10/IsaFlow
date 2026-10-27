@@ -42,7 +42,7 @@ export const SERVER_HITS: Record<string, number> = {
   "src/modules/accounting/services/core/anomalyDetectionService.ts": 1,
   "src/modules/accounting/services/core/contraSettlementService.ts": 1,
   "src/modules/accounting/services/core/emailNotificationService.ts": 1,
-  "src/modules/accounting/services/core/globalSearchService.ts": 2,
+  "src/modules/accounting/services/core/globalSearchRecords.ts": 2,
   "src/modules/accounting/services/core/migrationOpeningBalanceService.ts": 1,
   "src/modules/accounting/services/core/migrationSubtypeMessage.ts": 1,
   "src/modules/accounting/services/core/migrationValidationService.ts": 6,

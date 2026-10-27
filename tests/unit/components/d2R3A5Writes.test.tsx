@@ -18,7 +18,7 @@ vi.mock('@/components/shared/ExportCSVButton', () => ({ ExportCSVButton: () => n
 vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({ SupplierSelect: () => null }));
 
 import BudgetsPage from '../../../pages/accounting/budgets/index';
-import { budgetRow, budgetsPayload } from './budgetsApiFixture';
+import { budgetRow, budgetsPayload, clickAddBudget } from './budgetsApiFixture';
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import SupplierCategoriesPage from '../../../pages/accounting/supplier-categories/index';
 import BusinessUnitsPage from '../../../pages/accounting/business-units/index';
@@ -44,7 +44,7 @@ const budgetsLoaded = async () => { render(<BudgetsPage />); await screen.findBy
 describe('budgets', () => {
   const addBudget = async () => {
     await budgetsLoaded();
-    fireEvent.click(screen.getByRole('button', { name: /add budget/i }));
+    await clickAddBudget();
     await screen.findByRole('option', { name: /D2 Rent/ });
     fireEvent.change(screen.getAllByRole('combobox')[1]!, { target: { value: 'g1' } });
     // MoneyField parses on blur.
