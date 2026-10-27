@@ -14,8 +14,8 @@
 //        expiry/acceptance are enforced by RLS.
 // H1:    a userInvitationService invitation has no gotrue_user_id. It used to be
 //        refused here (409/410), which left a new invitee only the self-serve
-//        signup, and that creates a second company. Accept now resolves and
-//        links the invited address's account first (src/lib/auth/inviteAccount.ts).
+//        signup, and that creates a second company. Accept now finds or creates
+//        the invited address's account first (src/lib/auth/inviteAccount.ts).
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -31,6 +31,8 @@ vi.mock('@/lib/auth/gotrue', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   adminCreateUser: vi.fn(async ({ email }: { email: string }) =>
     ({ id: email.startsWith('legacy-') ? legacyUserId : gotrueUserId, email })),
+  // The legacy invitee has no account yet: accept creates it.
+  findUserByEmail: vi.fn(async () => null),
   adminUpdateUser: vi.fn(async () => undefined),
   signIn: vi.fn(async (email: string) => ({
     access_token: 'a', refresh_token: 'r', expires_in: 3600, user: { id: legacyUserId, email },
@@ -217,7 +219,8 @@ it('H1: a userInvitationService invitation is accepted here, as the invited addr
 
   const row = await pool.query(
     'SELECT gotrue_user_id, accepted_at IS NOT NULL AS accepted FROM company_invitations WHERE token=$1', [stored(legacyToken)]);
-  expect(row.rows[0]).toEqual({ gotrue_user_id: legacyUserId, accepted: true });
+  // Not written back: revoke deletes a stored account that has no memberships.
+  expect(row.rows[0]).toEqual({ gotrue_user_id: null, accepted: true });
   const member = await pool.query('SELECT company_id, role FROM company_users WHERE user_id=$1', [legacyUserId]);
   // Joined the inviting company, and only that one: no tenant of their own.
   expect(member.rows).toEqual([{ company_id: company, role: 'viewer' }]);

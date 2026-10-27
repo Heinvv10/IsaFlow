@@ -199,6 +199,11 @@ export async function setupInviteFixture(): Promise<void> {
     // The endpoint, relative to GOTRUE_URL: a Supabase-style URL carries its own
     // path (`…/auth/v1`), so the request is `/auth/v1/admin/users/…`, not `/admin/users/…`.
     const path = gotruePath(url);
+    // accept.ts reads an established account's factors (MFA gate): none here.
+    if (path === '/user') {
+      return new Response(JSON.stringify({ id: 'disposable', factors: [] }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (path.startsWith('/admin/users/')) {
       const userId = path.split('/').pop()!;
       if (userId === outageUser) throw new Error('disposable gotrue outage');

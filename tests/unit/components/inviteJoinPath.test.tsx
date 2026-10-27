@@ -17,10 +17,11 @@ import React from 'react';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 
 const replace = vi.fn();
+const push = vi.fn(async () => true);
 let query: Record<string, string> = {};
 
 vi.mock('next/router', () => ({
-  useRouter: () => ({ query, isReady: true, replace, push: vi.fn() }),
+  useRouter: () => ({ query, isReady: true, replace, push }),
 }));
 vi.mock('@/components/auth/SignupForm', () => ({
   SignupForm: () => <div data-testid="signup-form" />,
@@ -33,6 +34,7 @@ vi.mock('next/link', () => ({
 
 import RegisterPage from '../../../pages/register';
 import InvitePage from '../../../pages/invite/[token]';
+import AcceptInvitePage from '../../../pages/accept-invite';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -74,13 +76,14 @@ describe('/register with an invitation', () => {
 describe('/invite/<token>', () => {
   const posts: { url: string; headers: Headers }[] = [];
 
-  /** GET /api/invite answers the invitation; /api/auth/me answers `me` (null = signed out). */
-  function stub(me: { id: string; email: string } | null) {
+  /** GET /api/invite answers the invitation; /api/auth/me answers `me` (null = signed out); POST answers `post`. */
+  function stub(me: { id: string; email: string } | null, post?: { status: number; message: string }) {
     posts.length = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
       if (init?.method === 'POST') {
         posts.push({ url, headers: new Headers(init.headers) });
+        if (post) return new Response(JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message: post.message } }), { status: post.status });
         return new Response(JSON.stringify({ success: true, data: { companyId: 'co-1' } }), { status: 200 });
       }
       if (url.startsWith('/api/invite/')) {
@@ -139,4 +142,46 @@ describe('/invite/<token>', () => {
     expect(queryByText('Join Probe Co')).toBeNull();
     expect(document.body.textContent).toContain('someone@else.example');
   });
+
+  it('a same-mask address the server refuses as another person: the sign-out view, not an error', async () => {
+    query = { token: 'settings-invite-token' };
+    // i***@test.local masks both; only the server knows it is not the invitee.
+    stub({ id: 'u-3', email: 'ian@test.local' }, { status: 403, message: 'This invitation was sent to a different email address' });
+
+    const { findByText } = render(<InvitePage />);
+    fireEvent.click(await findByText('Join Probe Co'));
+
+    expect(await findByText('Sign Out and Continue')).not.toBeNull();
+  });
+
+  it('any other 403 (a CSRF refusal) stays an error, with the server message', async () => {
+    query = { token: 'settings-invite-token' };
+    stub({ id: 'u-1', email: 'invitee@test.local' }, { status: 403, message: 'CSRF token mismatch' });
+
+    const { findByText, queryByText } = render(<InvitePage />);
+    fireEvent.click(await findByText('Join Probe Co'));
+
+    expect(await findByText('CSRF token mismatch')).not.toBeNull();
+    expect(queryByText('Sign Out and Continue')).toBeNull();
+  });
 });
+
+describe('/accept-invite for an account with two-factor sign-in', () => {
+  beforeEach(() => { push.mockClear(); });
+
+  it('MFA_REQUIRED sends the invitee to the real sign-in, which returns to the invitation', async () => {
+    query = { token: 'tok-2fa' };
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => (init?.method === 'POST'
+      ? new Response(JSON.stringify({ success: false, error: { code: 'MFA_REQUIRED', message: 'two-factor' } }), { status: 401 })
+      : new Response(JSON.stringify({ success: true, data: { email: 'i***@test.local', role: 'viewer', company_name: 'Probe Co' } }), { status: 200 }))));
+
+    const { findByText, container } = render(<AcceptInvitePage />);
+    await findByText(/Join Probe Co/);
+    fireEvent.change(container.querySelector('input[type="password"]')!, { target: { value: 'existing-password-1' } });
+    fireEvent.submit(container.querySelector('form')!);
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/login?invite=tok-2fa'));
+    expect(push).not.toHaveBeenCalledWith('/accounting/dashboard');
+  });
+});
+

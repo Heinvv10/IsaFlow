@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { ingestEvent } from '@/modules/analytics/services/trackingService';
 import { extractCountry } from '@/modules/analytics/utils/fingerprint';
+import { scrubInvitePath, scrubInviteQuery, scrubInviteReferrer } from '@/modules/analytics/scrubInviteSecrets';
 
 function str(v: unknown, max = 1000): string | null {
   if (typeof v !== 'string') return null;
@@ -49,9 +50,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const result = await ingestEvent({
       trackingId,
-      urlPath,
-      urlQuery: str(body.q, 500),
-      referrer: str(body.r, 1000),
+      // Invitation tokens never reach analytics_events (scrubInviteSecrets.ts).
+      urlPath: scrubInvitePath(urlPath),
+      urlQuery: scrubInviteQuery(str(body.q, 500)),
+      referrer: scrubInviteReferrer(str(body.r, 1000)),
       screen: str(body.s, 32),
       lang: str(body.l, 16),
       pageTitle: str(body.ti, 200),

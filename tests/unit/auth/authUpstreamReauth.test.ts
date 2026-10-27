@@ -44,6 +44,8 @@ vi.mock('pg', async (importOriginal) => {
         return { rows: [{ id: 'inv-1', email: 'invitee@example.test', role: 'viewer', company_id: 'co-1', gotrue_user_id: 'gt-1' }], rowCount: 1 };
       }
       if (/FROM users WHERE id/.test(text)) return db.established ? { rows: [{ id: 'gt-1' }], rowCount: 1 } : { rows: [], rowCount: 0 };
+      // A pending invitation's accepted_at UPDATE marks one row (accept.ts refuses 0).
+      if (/SET accepted_at = now\(\)/.test(text)) return { rows: [], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
     release() { /* pooled */ },

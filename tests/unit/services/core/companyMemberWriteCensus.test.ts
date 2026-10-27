@@ -73,7 +73,6 @@ const KNOWN_WRITERS = [
   'pages/api/invitations/[token]/accept.ts: writes', // W9 invite accept — migration_admin pool, invitation's role
   'pages/api/invitations/index.ts: writes', // W7 second invitation system — migration_admin pool since S-07c (930), assertCanInvite
   'pages/api/invitations/revoke/[id].ts: writes', // W8 revoke — app_user
-  'src/lib/auth/inviteAccount.ts: writes', // W9 invite accept links gotrue_user_id (never role, email, token) — migration_admin pool, before W9's transaction
   'pages/api/invite/[token].ts: locks', // W10's invitation row, FOR UPDATE inside the accept transaction (S-07b review)
   'pages/api/invite/[token].ts: writes', // W10 /invite accept — migration_admin pool since S-07b (916), invitation's role
   'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
