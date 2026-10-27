@@ -8,38 +8,6 @@
     "max": 2
    }
   ],
-  "/accounting/bank-transactions": [
-   {
-    "rule": "color-contrast",
-    "selector": "button[data-testid=\"bank-account-card\"] > div > div > span",
-    "max": 1,
-    "dataDriven": {
-     "source": "/api/accounting/bank-accounts",
-     "why": "amount and gap chips on a card per bank account: which accounts have them follows their balances. maxHint 100 is a sanity bound (2 chips x 50 accounts): neither the page nor /api/accounting/bank-accounts limits the count"
-    },
-    "maxHint": 100
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "span[data-testid=\"statement-format-chip\"]",
-    "max": 1,
-    "dataDriven": {
-     "source": "/api/accounting/bank-import-batches",
-     "why": "format chip renders only when a statement batch is loaded"
-    },
-    "maxHint": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "ul[aria-label=\"Auto-post runs\"] > li > button[type=\"button\"]",
-    "max": 7,
-    "dataDriven": {
-     "source": "/api/accounting/bank-auto-post",
-     "why": "one Undo button per active auto-post run"
-    },
-    "maxHint": 20
-   }
-  ],
   "/accounting/credit-notes": [
    {
     "rule": "color-contrast",
