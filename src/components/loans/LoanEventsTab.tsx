@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Plus, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { LoanEvent, fmtDate, fmt } from './types';
+import { DateField } from '@/components/ui/DateField';
 
 interface Props {
   loanId: string;
@@ -85,13 +86,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
             >
               {KIND_OPTIONS.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
-            <input
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              className="ff-input text-sm"
-              required
-            />
+            <DateField label="Event date" required value={form.date || null} onChange={iso => setForm(f => ({ ...f, date: iso ?? '' }))} />
             {form.kind === 'LUMP' && (
               <input
                 type="number"

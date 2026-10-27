@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { useAuth } from '@/contexts/AuthContext';
 import type { PracticeTask, PracticeTaskInput } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
+import { DateField } from '@/components/ui/DateField';
 
 interface JobOption { id: string; title: string }
 type TabKey = 'my' | 'overdue' | 'upcoming' | 'all' | 'unassigned';
@@ -241,7 +242,7 @@ export default function PracticeTasksPage() {
             ) : (
               <input value={qaAssigned} onChange={e => setQaAssigned(e.target.value)} placeholder="Assigned to (user id)" className={`w-40 ${inputCls}`} />
             )}
-            <input type="date" value={qaDue} onChange={e => setQaDue(e.target.value)} className={inputCls} />
+            <DateField label="Due date" value={qaDue || null} onChange={iso => setQaDue(iso ?? '')} />
             <select value={qaPriority} onChange={e => setQaPriority(e.target.value as PracticeTask['priority'])} className={inputCls}>
               {(['low', 'normal', 'high', 'urgent'] as const).map(p => <option key={p} value={p}>{PRI_LBL[p]}</option>)}
             </select>

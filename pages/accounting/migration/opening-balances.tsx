@@ -12,6 +12,7 @@ import {
   parseOpeningBalanceCsv,
   type OpeningBalanceCsvRow as BalanceRow,
 } from '@/modules/accounting/services/core/openingBalanceCsv';
+import { DateField } from '@/components/ui/DateField';
 
 /**
  * What importOpeningBalances returns. The page used to read `balancesSet` and
@@ -139,12 +140,7 @@ export default function OpeningBalancesPage() {
 
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">3. Effective Date</h2>
-            <input
-              type="date"
-              value={effectiveDate}
-              onChange={e => setEffectiveDate(e.target.value)}
-              className="text-sm border border-[var(--ff-border-light)] rounded px-3 py-1.5 bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)]"
-            />
+            <DateField label="Effective date" value={effectiveDate || null} onChange={iso => setEffectiveDate(iso ?? '')} />
             <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Typically the first day of your new financial year</p>
           </div>
 

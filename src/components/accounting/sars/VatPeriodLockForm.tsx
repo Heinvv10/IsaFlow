@@ -10,10 +10,12 @@
  */
 import { useEffect, useState } from 'react';
 import { Lock, Loader2 } from 'lucide-react';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage } from '@/lib/apiFetch';
+import { fetchVatExceptions } from './vatExceptionsFetch';
 import { log } from '@/lib/logger';
 import { useCompany } from '@/contexts/CompanyContext';
 import { VatGateOverrideBox, type VatGateCounts } from './VatGateOverrideBox';
+import { DateField } from '@/components/ui/DateField';
 
 const COUNT_FAILED = 'Could not check the VAT exceptions for this period - the server will check again when you lock it';
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
@@ -40,10 +42,8 @@ export function VatPeriodLockForm({ onLock }: Props) {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${periodStart}&to=${periodEnd}`, { credentials: 'include' });
-        await assertOk(res, COUNT_FAILED);
-        const json = await res.json();
-        if (!cancelled) setCounts(typeof json.data?.totalExceptions === 'number' ? json.data : null);
+        const data = await fetchVatExceptions(periodStart, periodEnd, COUNT_FAILED, 'VatPeriodLockForm') as VatGateCounts | undefined;
+        if (!cancelled) setCounts(typeof data?.totalExceptions === 'number' ? data : null);
       } catch (e) {
         // Non-fatal: the form still submits and the server's own gate is authoritative, but the person is told.
         log.warn('VAT exception count did not load', { error: e }, 'VatPeriodLockForm');
@@ -78,20 +78,10 @@ export function VatPeriodLockForm({ onLock }: Props) {
       {error && <p className="mt-2 rounded-lg bg-red-500/10 p-2 text-sm text-red-400">{error}</p>}
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-4">
         <div>
-          <label htmlFor="vat-lock-periodStart" className="block text-xs font-medium text-[var(--ff-text-secondary)]">Period start</label>
-          <input
-            type="date" id="vat-lock-periodStart" name="periodStart" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)]"
-            required
-          />
+          <DateField id="vat-lock-periodStart" name="periodStart" label="Period start" required value={periodStart || null} onChange={(iso) => setPeriodStart(iso ?? '')} />
         </div>
         <div>
-          <label htmlFor="vat-lock-periodEnd" className="block text-xs font-medium text-[var(--ff-text-secondary)]">Period end</label>
-          <input
-            type="date" id="vat-lock-periodEnd" name="periodEnd" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)]"
-            required
-          />
+          <DateField id="vat-lock-periodEnd" name="periodEnd" label="Period end" required value={periodEnd || null} onChange={(iso) => setPeriodEnd(iso ?? '')} />
         </div>
         <div className="sm:col-span-2">
           <label htmlFor="vat-lock-notes" className="block text-xs font-medium text-[var(--ff-text-secondary)]">Notes (optional)</label>

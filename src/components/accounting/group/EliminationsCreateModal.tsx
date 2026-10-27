@@ -13,6 +13,7 @@ import {
   type EliminationType,
   type EliminationLine,
 } from './EliminationsShared';
+import { DateField } from '@/components/ui/DateField';
 
 interface Props {
   formType: EliminationType;
@@ -75,13 +76,7 @@ export function EliminationsCreateModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period</label>
-              <input
-                type="date"
-                value={formPeriod}
-                onChange={(e) => onPeriodChange(e.target.value)}
-                className={inputClass + ' w-full'}
-              />
+              <DateField label="Period" value={formPeriod || null} onChange={(iso) => onPeriodChange(iso ?? '')} />
             </div>
           </div>
 

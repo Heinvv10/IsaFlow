@@ -5,6 +5,7 @@
 
 import { Loader2, Plus, X } from 'lucide-react';
 import { FieldInput, FieldSelect, TX_TYPES } from './IntercompanyShared';
+import { DateField } from '@/components/ui/DateField';
 
 export interface CreateForm {
   sourceCompanyId: string;
@@ -87,12 +88,7 @@ export function IntercompanyCreateModal({
               onChange={(v) => onFormChange({ amount: v })}
               placeholder="0.00"
             />
-            <FieldInput
-              label="Date"
-              type="date"
-              value={form.date}
-              onChange={(v) => onFormChange({ date: v })}
-            />
+            <DateField label="Date" value={form.date || null} onChange={(iso) => onFormChange({ date: iso ?? '' })} />
           </div>
 
           <FieldInput

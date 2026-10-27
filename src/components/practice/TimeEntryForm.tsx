@@ -17,6 +17,7 @@ import {
   type EntryTemplate,
 } from './practiceApi';
 import { JobBudgetPicker } from './JobBudgetPicker';
+import { DateField } from '@/components/ui/DateField';
 
 export interface Client { id: string; legalName: string; tradingName?: string | null; }
 export interface Category { id: string; name: string; }
@@ -197,8 +198,7 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
 
       <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
         <div className="md:col-span-2">
-          <label className={LABEL_CLS}>Date <span className="text-red-400">*</span></label>
-          <input type="date" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className={INPUT_CLS} />
+          <DateField label="Date" required value={entryDate || null} onChange={(iso) => setEntryDate(iso ?? '')} />
         </div>
         <div className="md:col-span-1">
           <label className={LABEL_CLS}>Hours <span className="text-red-400">*</span></label>

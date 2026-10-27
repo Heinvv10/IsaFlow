@@ -11,6 +11,7 @@ vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 
 import { apiFetch } from '@/lib/apiFetch';
 import { apiResponse } from '@/lib/apiResponse';
 import { VatPeriodLocksPanel } from '@/components/accounting/sars/VatPeriodLocksPanel';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 /** The exact body a route sends for `apiResponse.badRequest(res, message)`. */
 function badRequest(message: string): Response {
@@ -78,8 +79,8 @@ it('lock submit posts the right body and shows the 400 message verbatim', async 
   const { container } = render(<VatPeriodLocksPanel />);
   await screen.findByText('No VAT periods have been locked yet.');
 
-  fireEvent.change(container.querySelector('input[name="periodStart"]')!, { target: { value: '2026-09-01' } });
-  fireEvent.change(container.querySelector('input[name="periodEnd"]')!, { target: { value: '2026-10-31' } });
+  typeDate(container.querySelector('#vat-lock-periodStart')!, '2026-09-01');
+  typeDate(container.querySelector('#vat-lock-periodEnd')!, '2026-10-31');
   fireEvent.change(container.querySelector('input[name="notes"]')!, { target: { value: 'Test note' } });
   fireEvent.click(screen.getByText('Lock period'));
 

@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle2, XCircle, BarChart2 } from 'lucide-react';
+import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, CheckCircle2, XCircle, BarChart2 } from 'lucide-react';
 import { AssetDualTrackPanel } from '@/components/assets/AssetDualTrackPanel';
 import { AssetFleetPanel } from '@/components/assets/AssetFleetPanel';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -16,6 +16,7 @@ import { buildDepreciationSchedule } from '@/modules/accounting/services/items/d
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui/DateField';
 
 // ---- Types ----
 
@@ -225,9 +226,7 @@ export default function AssetDetailPage() {
               {disposalError && <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 rounded px-3 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{disposalError}</div>}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Disposal Date</label>
-                  <div className="relative"><Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
-                    <input type="date" name="disposal_date" value={form.disposal_date} onChange={e => setForm(f => ({ ...f, disposal_date: e.target.value }))} className="ff-input pl-9 w-full" /></div>
+                  <DateField label="Disposal Date" name="disposal_date" value={form.disposal_date || null} onChange={iso => setForm(f => ({ ...f, disposal_date: iso ?? '' }))} />
                 </div>
                 <div>
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Disposal Method</label>

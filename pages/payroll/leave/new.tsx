@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { DateField } from '@/components/ui/DateField';
 
 interface EmployeeOption { id: string; firstName: string; lastName: string; employeeNumber: string }
 interface LeaveTypeOption { id: string; name: string; isPaid: boolean }
@@ -104,7 +105,7 @@ export default function NewLeaveRequestPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-4">
-            <Link href="/payroll/leave" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)]">
+            <Link href="/payroll/leave" aria-label="Back to leave requests" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)]">
               <ArrowLeft className="h-4 w-4" />
             </Link>
             <div className="flex items-center gap-3">
@@ -131,8 +132,9 @@ export default function NewLeaveRequestPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Employee</label>
+                <label htmlFor="leave-employee" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Employee</label>
                 <select
+                  id="leave-employee"
                   value={employeeId}
                   onChange={e => setEmployeeId(e.target.value)}
                   required
@@ -146,8 +148,9 @@ export default function NewLeaveRequestPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Leave Type</label>
+                <label htmlFor="leave-type" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Leave Type</label>
                 <select
+                  id="leave-type"
                   value={leaveTypeId}
                   onChange={e => setLeaveTypeId(e.target.value)}
                   required
@@ -162,25 +165,10 @@ export default function NewLeaveRequestPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
+                  <DateField label="Start Date" required value={startDate || null} onChange={iso => setStartDate(iso ?? '')} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">End Date</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={e => setEndDate(e.target.value)}
-                    required
-                    min={startDate}
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
+                  <DateField label="End Date" required minDate={startDate || undefined} value={endDate || null} onChange={iso => setEndDate(iso ?? '')} />
                 </div>
               </div>
 
@@ -191,8 +179,9 @@ export default function NewLeaveRequestPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Notes (optional)</label>
+                <label htmlFor="leave-notes" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Notes (optional)</label>
                 <textarea
+                  id="leave-notes"
                   value={reason}
                   onChange={e => setReason(e.target.value)}
                   rows={3}

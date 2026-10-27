@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Save, Loader2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 interface Employee {
   id: string;
@@ -189,9 +190,7 @@ export default function NewLoanPage() {
                   className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
               </div>
               <div>
-                <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Start date</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
+                <DateField label="Start date" value={startDate || null} onChange={iso => setStartDate(iso ?? '')} />
               </div>
             </div>
 
