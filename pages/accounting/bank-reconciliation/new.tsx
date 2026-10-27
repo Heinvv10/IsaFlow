@@ -12,11 +12,14 @@ import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { BankAccountSelector } from '@/components/accounting/bank/BankAccountSelector';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 export default function NewReconciliationPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
 
   const [form, setForm] = useState({
     bankAccountId: '',
@@ -26,6 +29,7 @@ export default function NewReconciliationPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     setError('');
     setIsSubmitting(true);
 
@@ -84,15 +88,8 @@ export default function NewReconciliationPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Statement Date *</label>
-                <input
-                  type="date"
-                  name="statementDate"
-                  value={form.statementDate}
-                  onChange={e => setForm(f => ({ ...f, statementDate: e.target.value }))}
-                  className="ff-input w-full"
-                  required
-                />
+                <DateField label="Statement Date" required name="statementDate" value={form.statementDate || null}
+                  onChange={dates.bind('statementDate', iso => setForm(f => ({ ...f, statementDate: iso })))} />
               </div>
 
               <div>

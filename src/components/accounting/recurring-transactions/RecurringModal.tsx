@@ -4,6 +4,7 @@
 
 import { Loader2, AlertCircle } from 'lucide-react';
 import type { TemplateInput } from '@/modules/accounting/services/core/recurringTransactionService';
+import { DateField } from '@/components/ui';
 
 const INPUT_CLS = 'w-full px-3 py-2 text-sm bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-primary)] placeholder-[var(--ff-text-secondary)] focus:outline-none focus:ring-2 focus:ring-teal-500/30';
 const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium';
@@ -84,9 +85,8 @@ export function RecurringModal({ form, isEdit, saving, formError, onChange, onSa
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Next Run Date</label>
-              <input type="date" className={INPUT_CLS} value={form.nextRunDate}
-                onChange={e => onChange({ nextRunDate: e.target.value })} />
+              <DateField label="Next Run Date" name="nextRunDate" value={form.nextRunDate || null}
+                onChange={(iso, v) => onChange({ nextRunDate: v.valid ? iso ?? '' : '' })} />
             </div>
             <div className="flex items-center gap-6 pt-5">
               <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] cursor-pointer">
