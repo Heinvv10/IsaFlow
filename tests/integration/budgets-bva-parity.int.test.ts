@@ -73,9 +73,11 @@ async function journal(date: string, lines: Array<[string, number, number]>, opt
   }
 }
 
+/** A month amount on the year's primary version (migration 947), created as the converted 'Original'. */
 async function budget(code: string, amount: number) {
-  await pool.query(`INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount) VALUES ($1, $2, $3::date, $4)`,
-    [companyId, acc[code], `${month}-01`, amount]);
+  const version = (await pool.query('SELECT public.budget_version_original($1, $2, $3) AS id', [companyId, label, u.userId])).rows[0].id;
+  await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount) VALUES ($1, $2, $3, $4::date, $5)`,
+    [companyId, version, acc[code], `${month}-01`, amount]);
 }
 
 beforeAll(async () => {
@@ -264,8 +266,7 @@ describe('budgets P0 parity on real Postgres', () => {
   // Last: it writes the next year's budgets, which no earlier case may see.
   it('copying a year forward never carries a legacy balance-sheet budget', async () => {
     // A legacy row on the bank account (what migration 944 converted), written directly.
-    await pool.query(`INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount) VALUES ($1, $2, $3::date, 77)`,
-      [companyId, acc['P-1100'], `${month}-01`]);
+    await budget('P-1100', 77);
     const r = await act.call(u, 'POST', { action: 'copy', fromYear: label, toYear: label + 1 });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     const next = (await pool.query(

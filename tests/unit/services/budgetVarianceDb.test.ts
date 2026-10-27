@@ -73,8 +73,8 @@ async function loadFixtureIds(): Promise<Fixture> {
   if (!row) throw new Error('no company in isaflow_dev has a bank account, two expense accounts and a revenue account');
 
   const users = (await sql`
-    SELECT created_by FROM gl_journal_entries
-    WHERE company_id = ${row.company_id}::uuid AND created_by IS NOT NULL LIMIT 1
+    SELECT e.created_by FROM gl_journal_entries e JOIN users u ON u.id = e.created_by::text
+    WHERE e.company_id = ${row.company_id}::uuid AND e.created_by IS NOT NULL LIMIT 1
   `) as Array<{ created_by: string }>;
   const userId = users[0]?.created_by;
   if (!userId) throw new Error('no existing journal author to borrow for the fixture');
