@@ -128,7 +128,7 @@ export default function CompanySettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!company || lockdownInvalid) return;
+    if (!company) return;
     setSaving(true); setError(''); setSaved(false);
     try {
       const put = async (url: string, body: unknown, fallback: string) => {
