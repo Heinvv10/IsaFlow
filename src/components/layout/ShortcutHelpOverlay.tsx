@@ -3,13 +3,14 @@
  *
  * Modal showing all registered keyboard shortcuts grouped by category.
  * Triggered by pressing '?' from anywhere in the app.
- * Closes on Esc or backdrop click.
+ * Closes on Esc or backdrop click; focus is trapped while open.
  */
 
-import { useEffect, useCallback } from 'react';
+import { useRef } from 'react';
 import { X } from 'lucide-react';
 import type { ShortcutConfig, ShortcutCategory } from '@/lib/keyboard-shortcuts';
 import { CATEGORY_LABELS, CATEGORY_ORDER } from '@/lib/keyboard-shortcuts';
+import { useFocusTrap } from '@/components/ui/useFocusTrap';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -92,22 +93,9 @@ export function ShortcutHelpOverlay({
   onClose,
   shortcuts,
 }: ShortcutHelpOverlayProps) {
-  // Close on Esc
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (!isOpen) return;
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, handleKeyDown]);
+  // Esc closes, Tab stays inside, focus returns to where it was.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -123,6 +111,7 @@ export function ShortcutHelpOverlay({
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       aria-modal="true"
       role="dialog"

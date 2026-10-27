@@ -113,7 +113,7 @@ describe('a 14-month transition year', () => {
     expect(entry.months.slice(0, 13).every(m => m.amount === 7142.86)).toBe(true);
     expect(entry.months[13]).toEqual({ month: '2027-02', amount: 7142.82 });
     expect(entry.annualAmount).toBe(100000);
-    await inTx(() => deleteBudget(companyId, ids.sales, 2026));
+    await inTx(() => deleteBudget(companyId, ids.sales, 2026, user));
   });
 
   it('refuses months that are not exactly the year, and a label no year carries', async () => {
@@ -183,7 +183,7 @@ describe('a 14-month transition year', () => {
   });
 
   it('deleting a year\'s budget leaves the other year\'s months', async () => {
-    await inTx(() => deleteBudget(companyId, ids.rent, 2028));
+    await inTx(() => deleteBudget(companyId, ids.rent, 2028, user));
     const left = await storedMonths(ids.rent);
     expect(left).toHaveLength(14);
     expect(left.every(r => r.month < '2027-03-01')).toBe(true);

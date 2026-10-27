@@ -18,7 +18,9 @@
  *      number names different months, so their meaning would shift silently.
  *      accounting_budgets is now only the per-year header (notes); the budget
  *      AMOUNTS are keyed by calendar month (budget_month_amounts, migration
- *      944), never shift with a start month, and are not counted.
+ *      944), never shift with a start month, and are not counted. The budget
+ *      VERSIONS (budget_versions, migration 947) are keyed by year number, so
+ *      they count under `budgets` with the headers.
  *
  * Deliberately not counted: payroll's period_year / balance_year columns (the
  * SARS tax year, which no company start month moves), practice_jobs.financial_year
@@ -53,7 +55,8 @@ export async function countFiscalPeriodReferences(companyId: string): Promise<Fi
       (SELECT COUNT(*) FROM consolidation_adjustments WHERE fiscal_period_id IN (SELECT id FROM p))::int AS consolidation_adjustments,
       (SELECT COUNT(*) FROM audit_trail_exports WHERE fiscal_period_id IN (SELECT id FROM p))::int AS audit_trail_exports,
       (SELECT COUNT(*) FROM fiscal_periods WHERE company_id = ${companyId}::UUID AND status <> 'open')::int AS non_open_periods,
-      (SELECT COUNT(*) FROM accounting_budgets WHERE company_id = ${companyId}::UUID)::int AS budgets,
+      ((SELECT COUNT(*) FROM accounting_budgets WHERE company_id = ${companyId}::UUID)
+        + (SELECT COUNT(*) FROM budget_versions WHERE company_id = ${companyId}::UUID))::int AS budgets,
       (SELECT COUNT(*) FROM afs_documents WHERE company_id = ${companyId}::UUID)::int AS afs_documents,
       (SELECT COUNT(*) FROM disclosure_notes_manual WHERE company_id = ${companyId}::UUID)::int AS disclosure_notes
   `) as DbRow[];
