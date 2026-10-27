@@ -1,7 +1,7 @@
 /**
- * /invite/[token] — Invitation landing page.
- * Public page (no AppLayout). Validates the token and lets the user
- * sign in, register, or (if already logged in) accept directly.
+ * /invite/[token] — Invitation landing page (public, no AppLayout). Sign in,
+ * set up a login at /accept-invite, or (signed in as the invited address)
+ * accept directly. Every route joins the INVITING company, never a new one.
  */
 
 import { useEffect, useState } from 'react';
@@ -9,6 +9,8 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { Building2, UserCheck, LogIn, UserPlus, AlertTriangle, Loader2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
 
 interface InviteData {
   email: string;
@@ -24,6 +26,9 @@ interface AuthUser {
 
 type PageState = 'loading' | 'valid' | 'invalid' | 'accepting' | 'accepted' | 'error';
 
+/** POST /api/invite/[token]'s 403 for a session whose email is not the invited one. */
+const WRONG_ADDRESS_MESSAGE = 'This invitation was sent to a different email address';
+
 const ROLE_LABELS: Record<string, string> = {
   owner: 'Owner', admin: 'Administrator', manager: 'Manager', viewer: 'Viewer',
 };
@@ -36,6 +41,7 @@ export default function InvitePage() {
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [wrongAccount, setWrongAccount] = useState(false);
 
   // Load invite info + check current auth state in parallel
   useEffect(() => {
@@ -79,10 +85,17 @@ export default function InvitePage() {
     setPageState('accepting');
 
     try {
-      const res = await fetch(`/api/invite/${token}`, { method: 'POST' });
+      // apiFetch: the route is withCsrf and a bare fetch (no X-CSRF-Token) was refused 403.
+      const res = await apiFetch(`/api/invite/${token}`, { method: 'POST' });
 
       if (!res.ok) {
         const failure = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        // The server's own mismatch verdict: offer the sign-out instead of an error.
+        if (res.status === 403 && failure?.error?.message === WRONG_ADDRESS_MESSAGE) {
+          setWrongAccount(true);
+          setPageState('valid');
+          return;
+        }
         setErrorMsg(failure?.error?.message ?? 'Could not accept the invitation - please try again');
         setPageState('error');
         return;
@@ -97,7 +110,24 @@ export default function InvitePage() {
     }
   }
 
+  async function handleSignOut() {
+    try {
+      const res = await apiFetch('/api/auth/logout', { method: 'POST' });
+      await assertOk(res, 'Could not sign you out - please try again');
+      window.location.reload();
+    } catch (e) {
+      setErrorMsg(apiErrorMessage(e, 'Could not sign you out - please try again'));
+      setPageState('error');
+    }
+  }
+
   const roleLabel = inviteData ? (ROLE_LABELS[inviteData.role] ?? inviteData.role) : '';
+  // The server refuses a mismatched accept (403); say so before the click.
+  // A mask can match a different address too; the server's 403 sets wrongAccount then.
+  const signedInAsSomeoneElse = wrongAccount ||
+    (currentUser !== null && inviteData !== null && maskInviteEmail(currentUser.email) !== inviteData.email.toLowerCase());
+  const acceptHref = `/accept-invite?token=${encodeURIComponent(token ?? '')}`;
+  const signInHref = `/login?invite=${encodeURIComponent(token ?? '')}&returnTo=${encodeURIComponent(`/invite/${encodeURIComponent(token ?? '')}`)}`;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
@@ -184,8 +214,23 @@ export default function InvitePage() {
 
             <div className="px-6 py-6 space-y-3">
 
-              {/* Already logged in — show Join button */}
-              {currentUser ? (
+              {/* Signed in as a different address — accepting would be refused */}
+              {currentUser && signedInAsSomeoneElse ? (
+                <>
+                  <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+                    This invitation was sent to{' '}
+                    <span className="text-slate-900 dark:text-white">{inviteData.email}</span>, but you are signed in as{' '}
+                    <span className="text-slate-900 dark:text-white">{currentUser.email}</span>.
+                  </p>
+                  <button
+                    onClick={() => void handleSignOut()}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Sign Out and Continue
+                  </button>
+                </>
+              ) : currentUser ? (
                 <>
                   <p className="text-center text-sm text-gray-600 dark:text-gray-400 mb-4">
                     Signed in as{' '}
@@ -210,27 +255,27 @@ export default function InvitePage() {
                   </button>
                   <p className="text-center text-xs text-gray-600 pt-1">
                     Not you?{' '}
-                    <Link href="/login" className="text-teal-500 hover:text-teal-400">
-                      Sign In with a Different Account
-                    </Link>
+                    <button onClick={() => void handleSignOut()} className="text-teal-500 hover:text-teal-400">
+                      Sign Out
+                    </button>
                   </p>
                 </>
               ) : (
-                /* Not logged in — two CTAs */
+                /* Not logged in — both routes join this company */
                 <>
                   <Link
-                    href={`/login?invite=${token}`}
+                    href={acceptHref}
                     className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
                   >
-                    <LogIn className="h-4 w-4" />
-                    Sign In to Accept
+                    <UserPlus className="h-4 w-4" />
+                    Create Account &amp; Join
                   </Link>
                   <Link
-                    href={`/register?invite=${token}`}
+                    href={signInHref}
                     className="w-full flex items-center justify-center gap-2 rounded-lg border border-slate-300 dark:border-gray-600 px-4 py-3 text-sm font-medium text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-gray-800 hover:text-slate-900 dark:hover:text-white transition-colors"
                   >
-                    <UserPlus className="h-4 w-4" />
-                    Create an Account
+                    <LogIn className="h-4 w-4" />
+                    I Already Have an Account
                   </Link>
                   <p className="text-center text-xs text-gray-600 pt-1">
                     Invitation sent to{' '}

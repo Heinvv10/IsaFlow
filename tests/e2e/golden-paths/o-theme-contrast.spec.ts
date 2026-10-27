@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path O - both themes meet WCAG AA on the main screens (master plan 3b.1).
  *

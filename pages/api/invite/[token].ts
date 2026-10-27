@@ -11,9 +11,11 @@ import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withUserAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { serialize } from 'cookie';
+import { setActiveCompanyCookie, setOnboardingDoneCookie } from '@/lib/auth/cookies';
+import { isLiveCompanyForUser } from '@/lib/auth/liveCompanies';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { maskInviteEmail } from '@/lib/auth/maskInviteEmail';
 type Row = Record<string, unknown>;
 
 /**
@@ -23,12 +25,6 @@ type Row = Record<string, unknown>;
  */
 const PostBody = z.object({}).strict();
 
-
-function maskEmail(email: string): string {
-  const [local, domain] = email.split('@');
-  if (!local || !domain) return '***@***';
-  return `${local[0]}***@${domain}`;
-}
 
 // ── GET: public token validation ──────────────────────────────────────────────
 
@@ -63,7 +59,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const row = rows[0]!;
 
   return apiResponse.success(res, {
-    email: maskEmail(row.email as string),
+    email: maskInviteEmail(row.email as string),
     companyName: row.company_name as string,
     role: row.role as string,
     invitedBy: (row.invited_by_name as string) || 'Someone',
@@ -162,15 +158,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // not land.
   log.info('Invitation accepted via token page', { inviteId: inv.id, userId, companyId: inv.company_id }, 'invite');
 
-  // Set the onboarding-done cookie so middleware stops redirecting
-  const cookieStr = serialize('ff_onboarding_done', '1', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 30 * 24 * 60 * 60,
-  });
-  res.setHeader('Set-Cookie', cookieStr);
+  // As /api/invitations/<t>/accept: land in the company just joined, and past
+  // the onboarding redirect, unless that company is no longer live (an
+  // invitation can outlive it); then the session keeps its current company.
+  if (await isLiveCompanyForUser(userId, inv.company_id as string)) {
+    setActiveCompanyCookie(res, inv.company_id as string);
+    setOnboardingDoneCookie(res);
+  }
 
   return apiResponse.success(res, { companyId: inv.company_id as string }, 'Invitation accepted');
 }
