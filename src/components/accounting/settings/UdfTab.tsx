@@ -202,7 +202,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
                 if (!slot) return null;
                 const isEmpty = slot.fieldLabel.trim().length === 0;
                 return (
-                  <div key={n} className={`grid grid-cols-12 gap-2 items-center px-1 py-1.5 rounded-lg ${isEmpty ? 'opacity-50' : ''}`}>
+                  <div key={n} className="grid grid-cols-12 gap-2 items-center px-1 py-1.5 rounded-lg">
                     <div className="col-span-1 text-xs text-[var(--ff-text-tertiary)] font-mono">{n}</div>
                     <div className="col-span-4">
                       <input aria-label={`Field ${n} label`}
@@ -251,7 +251,7 @@ function EntitySection({ entityType, label }: { entityType: UdfEntityType; label
                       <Toggle
                         checked={slot.isActive}
                         onChange={v => updateSlot(n, { isActive: v })}
-                        label=""
+                        label="" ariaLabel={`Field ${n} active`}
                       />
                     </div>
                   </div>
