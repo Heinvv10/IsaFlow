@@ -5,7 +5,7 @@
  * portal flyouts opened at x 256-466 on a 390px screen), and hover flyouts are unreachable from the keyboard.
  * Every module and section is a button (Enter/Space toggles, aria-expanded), every page a link, all in tab order.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
@@ -25,6 +25,8 @@ const hrefsOf = (items: NavItem[]): string[] => items.flatMap(i => (isFlyout(i) 
 
 function Group({ id, label, depth, active, children }: { id: string; label: string; depth: number; active: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(active);
+  // A route change that lands in this group opens it (a navigation within the same page keeps the drawer mounted).
+  useEffect(() => { if (active) setOpen(true); }, [active]);
   return (
     <div>
       <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(o => !o)} className={rowCls(active && !open, depth)}>

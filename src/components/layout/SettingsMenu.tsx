@@ -11,6 +11,7 @@ import { useRouter } from 'next/router';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { cn } from '@/utils/cn';
+import { anchoredMenuStyle } from '@/components/layout/menuPosition';
 import { settingsTab } from '@/components/accounting/accountingNavConfig';
 import { isFlyout } from '@/components/accounting/navSections/types';
 import type { DropdownItem } from '@/components/accounting/navSections/types';
@@ -22,9 +23,6 @@ interface PanelProps {
 }
 
 function Panel({ anchorRect, onSelect, panelRef }: PanelProps) {
-  const top = anchorRect.bottom + window.scrollY + 8;
-  const left = anchorRect.right + window.scrollX;
-
   const sections = (settingsTab.items ?? []).filter(isFlyout);
 
   return createPortal(
@@ -32,9 +30,9 @@ function Panel({ anchorRect, onSelect, panelRef }: PanelProps) {
       ref={panelRef}
       role="menu"
       aria-label="Settings"
-      style={{ position: 'absolute', top, left, transform: 'translateX(-100%)' }}
+      style={anchoredMenuStyle(anchorRect, 640)}
       className={cn(
-        'z-[9999] w-[640px] max-w-[92vw] py-3 px-3 rounded-xl',
+        'z-[9999] py-3 px-3 rounded-xl',
         'bg-white dark:bg-gray-900',
         'border border-gray-200 dark:border-gray-700',
         'shadow-xl shadow-black/10 dark:shadow-black/40',
@@ -43,7 +41,7 @@ function Panel({ anchorRect, onSelect, panelRef }: PanelProps) {
       <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 select-none">
         Settings
       </p>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
         {sections.map(section => (
           <div key={section.section}>
             <p className="px-2 mb-1 text-xs font-semibold uppercase tracking-wider text-teal-600 dark:text-teal-400">

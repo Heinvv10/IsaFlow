@@ -35,7 +35,7 @@ export function ShellSkeleton({ hasModuleNav }: ShellSkeletonProps) {
         </div>
       </aside>
       <div className="flex-1 flex flex-col min-w-0">
-        <header data-testid="shell-header" className="flex items-center px-4 gap-3 flex-shrink-0" style={{ ...BAR, height: SHELL_HEIGHTS.header }}>
+        <header data-testid="shell-header" className="flex items-center px-4 gap-3 flex-shrink-0" style={{ ...BAR, minHeight: SHELL_HEIGHTS.header }}>
           <Image src="/logo.png" alt="ISAFlow" width={80} height={32} className="h-8 w-auto hidden sm:block dark:brightness-0 dark:invert" />
         </header>
         <div data-shell-top-nav="" data-testid="shell-top-nav" className="hidden lg:block flex-shrink-0 bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700" style={{ height: SHELL_HEIGHTS.topNav }} />

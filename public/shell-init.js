@@ -1,7 +1,8 @@
 // Marks the saved shell layout on <html> before first paint, so the loading skeleton (ShellSkeleton) draws the
 // sidebar or the top nav rows the shell will have, and nothing moves when the shell replaces it.
-// A static file, not an inline script: production CSP allows script-src 'self' only. Mirrors AppLayout's
-// NAV_MODE_KEY / SIDEBAR_COLLAPSED_KEY and its admin-host check; the rules that read these are in styles/globals.css.
+// A static file, not an inline script: production CSP allows script-src 'self' only. Mirrors
+// src/components/layout/shellPrefs.ts (keys, admin host; AppLayout seeds its state from these attributes); a test holds
+// them together. The CSS rules that read the attributes are in styles/globals.css.
 (function () {
   var root = document.documentElement;
   try {
