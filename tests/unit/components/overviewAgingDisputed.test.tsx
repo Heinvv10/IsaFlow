@@ -8,7 +8,7 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 
 vi.mock('next/dynamic', () => ({ default: () => () => null }));
 
-import { OverviewTables } from '@/components/accounting/dashboard/OverviewTables';
+import { OverviewTables, agingSlices } from '@/components/accounting/dashboard/OverviewTables';
 import { formatMoney } from '@/lib/money/formatMoney';
 
 afterEach(() => { cleanup(); });
@@ -39,5 +39,15 @@ describe('ageing legend', () => {
       arAging={buckets([0, 0, 0, 0, 0, 250])} apAging={buckets([0, 0, 0, 0, 0, 0])} />);
     expect(within(card('AR Aging')).getByText('Disputed')).toBeTruthy();
     expect(screen.queryByText('No outstanding AR')).toBeNull();
+  });
+});
+
+describe('ageing slices', () => {
+  it('each slice carries its own colour, none of them Pie\'s default grey', () => {
+    const fills = agingSlices(buckets([1, 2, 3, 4, 5, 6])).map((s) => s.fill);
+    expect(fills).toHaveLength(6);
+    expect(new Set(fills).size).toBe(6);
+    for (const f of fills) expect(f).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(fills).not.toContain('#808080');
   });
 });
