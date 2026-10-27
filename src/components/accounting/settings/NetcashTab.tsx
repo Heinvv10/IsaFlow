@@ -99,9 +99,9 @@ export function NetcashTab({ company, onChange }: Props) {
         <div className="space-y-4">
           {/* Service Key */}
           <div>
-            <label className={LABEL_CLS}>Service Key</label>
+            <label htmlFor="netcash-tab-service-key" className={LABEL_CLS}>Service Key</label>
             <div className="relative">
-              <input
+              <input id="netcash-tab-service-key"
                 type={showServiceKey ? 'text' : 'password'}
                 className={`${INPUT_CLS} pr-10`}
                 value={company.netcashServiceKey ?? ''}
@@ -125,9 +125,9 @@ export function NetcashTab({ company, onChange }: Props) {
 
           {/* Payouts Key */}
           <div>
-            <label className={LABEL_CLS}>Payouts Key (EFT)</label>
+            <label htmlFor="netcash-tab-payouts-key" className={LABEL_CLS}>Payouts Key (EFT)</label>
             <div className="relative">
-              <input
+              <input id="netcash-tab-payouts-key"
                 type={showPayoutsKey ? 'text' : 'password'}
                 className={`${INPUT_CLS} pr-10`}
                 value={company.netcashPayoutsKey ?? ''}

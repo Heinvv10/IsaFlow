@@ -209,11 +209,11 @@ export default function IncomeStatementPage() {
               <DateField label="From" value={periodStart || null} name="periodStart" onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} name="periodEnd" onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
-              <select name="costCentreId" value={costCentreId} onChange={e => setCostCentreId(e.target.value)}
+              <label htmlFor="income-statement-cost-centre-id" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
+              <select id="income-statement-cost-centre-id" name="costCentreId" value={costCentreId} onChange={e => setCostCentreId(e.target.value)}
                 className="ff-input text-sm min-w-[160px]">
                 <option value="">All Cost Centres</option>
                 {costCentres.map(cc => (
@@ -222,8 +222,8 @@ export default function IncomeStatementPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Business Unit</label>
-              <select value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className="ff-input text-sm min-w-[160px]">
+              <label htmlFor="income-statement-business-unit" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Business Unit</label>
+              <select id="income-statement-business-unit" value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className="ff-input text-sm min-w-[160px]">
                 <option value="">All Business Units</option>
                 {businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) && <option value={businessUnitId}>Selected Business Unit (unavailable)</option>}
                 {businessUnits.map(bu => <option key={bu.id} value={bu.id}>{bu.code} — {bu.name}</option>)}

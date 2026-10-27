@@ -1,4 +1,5 @@
 import { Lock } from 'lucide-react';
+import { DateField } from '@/components/ui';
 import { Company, Toggle, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 import { FinancialYearStartField } from './FinancialYearStartField';
 import { YearEndChangeEntry } from './YearEndChangeEntry';
@@ -20,8 +21,8 @@ export function GeneralTab({ company, onChange }: Props) {
           <FinancialYearStartField company={company} onChange={onChange} />
           <YearEndChangeEntry />
           <div>
-            <label className={LABEL_CLS}>Default Currency</label>
-            <select className={INPUT_CLS} value={company.defaultCurrency || 'ZAR'} onChange={e => onChange('defaultCurrency', e.target.value)}>
+            <label htmlFor="general-tab-default-currency" className={LABEL_CLS}>Default Currency</label>
+            <select id="general-tab-default-currency" className={INPUT_CLS} value={company.defaultCurrency || 'ZAR'} onChange={e => onChange('defaultCurrency', e.target.value)}>
               <option value="ZAR">ZAR - South African Rand</option>
               <option value="USD">USD - US Dollar</option>
               <option value="EUR">EUR - Euro</option>
@@ -34,8 +35,7 @@ export function GeneralTab({ company, onChange }: Props) {
           <p className="text-xs text-[var(--ff-text-tertiary)] mt-1 mb-3">No transactions can be processed or edited with a date up to and including the lockdown date.</p>
           {company.lockdownEnabled && (
             <div className="max-w-xs">
-              <label className={LABEL_CLS}>Lockdown Date</label>
-              <input type="date" className={INPUT_CLS} value={company.lockdownDate || ''} onChange={e => onChange('lockdownDate', e.target.value)} />
+              <DateField label="Lockdown Date" value={company.lockdownDate || null} onChange={(iso, v) => { if (v.valid) onChange('lockdownDate', iso ?? ''); }} />
             </div>
           )}
         </div>
@@ -49,8 +49,8 @@ export function GeneralTab({ company, onChange }: Props) {
           Active sessions stay logged in for the work day regardless.
         </p>
         <div className="max-w-xs">
-          <label className={LABEL_CLS}>Idle Timeout</label>
-          <select
+          <label htmlFor="general-tab-idle-timeout" className={LABEL_CLS}>Idle Timeout</label>
+          <select id="general-tab-idle-timeout"
             className={INPUT_CLS}
             value={company.idleTimeoutMinutes}
             onChange={e => onChange('idleTimeoutMinutes', Number(e.target.value))}
@@ -67,20 +67,20 @@ export function GeneralTab({ company, onChange }: Props) {
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Regional Settings</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div><label className={LABEL_CLS}>Currency Symbol</label><input className={INPUT_CLS} value={company.currencySymbol} onChange={e => onChange('currencySymbol', e.target.value)} /></div>
+          <div><label htmlFor="general-tab-currency-symbol" className={LABEL_CLS}>Currency Symbol</label><input id="general-tab-currency-symbol" className={INPUT_CLS} value={company.currencySymbol} onChange={e => onChange('currencySymbol', e.target.value)} /></div>
           <div>
-            <label className={LABEL_CLS}>Date Format</label>
-            <select className={INPUT_CLS} value={company.dateFormat} onChange={e => onChange('dateFormat', e.target.value)}>
+            <label htmlFor="general-tab-date-format" className={LABEL_CLS}>Date Format</label>
+            <select id="general-tab-date-format" className={INPUT_CLS} value={company.dateFormat} onChange={e => onChange('dateFormat', e.target.value)}>
               <option value="dd/mm/yyyy">dd/mm/yyyy</option>
               <option value="mm/dd/yyyy">mm/dd/yyyy</option>
               <option value="yyyy-mm-dd">yyyy-mm-dd</option>
             </select>
           </div>
-          <div><label className={LABEL_CLS}>Quantity Decimal Places</label><input type="number" min="0" max="6" className={INPUT_CLS} value={company.qtyDecimalPlaces} onChange={e => onChange('qtyDecimalPlaces', Number(e.target.value))} /></div>
-          <div><label className={LABEL_CLS}>Value Decimal Places</label><input type="number" min="0" max="6" className={INPUT_CLS} value={company.valueDecimalPlaces} onChange={e => onChange('valueDecimalPlaces', Number(e.target.value))} /></div>
-          <div><label className={LABEL_CLS}>Hours Decimal Places</label><input type="number" min="0" max="6" className={INPUT_CLS} value={company.hoursDecimalPlaces} onChange={e => onChange('hoursDecimalPlaces', Number(e.target.value))} /></div>
-          <div><label className={LABEL_CLS}>Cost Price Decimal Places</label><input type="number" min="0" max="6" className={INPUT_CLS} value={company.costPriceDecimalPlaces} onChange={e => onChange('costPriceDecimalPlaces', Number(e.target.value))} /></div>
-          <div><label className={LABEL_CLS}>Selling Price Decimal Places</label><input type="number" min="0" max="6" className={INPUT_CLS} value={company.sellingPriceDecimalPlaces} onChange={e => onChange('sellingPriceDecimalPlaces', Number(e.target.value))} /></div>
+          <div><label htmlFor="general-tab-quantity-decimal-places" className={LABEL_CLS}>Quantity Decimal Places</label><input id="general-tab-quantity-decimal-places" type="number" min="0" max="6" className={INPUT_CLS} value={company.qtyDecimalPlaces} onChange={e => onChange('qtyDecimalPlaces', Number(e.target.value))} /></div>
+          <div><label htmlFor="general-tab-value-decimal-places" className={LABEL_CLS}>Value Decimal Places</label><input id="general-tab-value-decimal-places" type="number" min="0" max="6" className={INPUT_CLS} value={company.valueDecimalPlaces} onChange={e => onChange('valueDecimalPlaces', Number(e.target.value))} /></div>
+          <div><label htmlFor="general-tab-hours-decimal-places" className={LABEL_CLS}>Hours Decimal Places</label><input id="general-tab-hours-decimal-places" type="number" min="0" max="6" className={INPUT_CLS} value={company.hoursDecimalPlaces} onChange={e => onChange('hoursDecimalPlaces', Number(e.target.value))} /></div>
+          <div><label htmlFor="general-tab-cost-price-decimal-places" className={LABEL_CLS}>Cost Price Decimal Places</label><input id="general-tab-cost-price-decimal-places" type="number" min="0" max="6" className={INPUT_CLS} value={company.costPriceDecimalPlaces} onChange={e => onChange('costPriceDecimalPlaces', Number(e.target.value))} /></div>
+          <div><label htmlFor="general-tab-selling-price-decimal-places" className={LABEL_CLS}>Selling Price Decimal Places</label><input id="general-tab-selling-price-decimal-places" type="number" min="0" max="6" className={INPUT_CLS} value={company.sellingPriceDecimalPlaces} onChange={e => onChange('sellingPriceDecimalPlaces', Number(e.target.value))} /></div>
         </div>
       </section>
 
@@ -90,8 +90,8 @@ export function GeneralTab({ company, onChange }: Props) {
         <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">Set Accounting to round customer document values.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className={LABEL_CLS}>Rounding Type</label>
-            <select className={INPUT_CLS} value={company.roundingType} onChange={e => onChange('roundingType', e.target.value)}>
+            <label htmlFor="general-tab-rounding-type" className={LABEL_CLS}>Rounding Type</label>
+            <select id="general-tab-rounding-type" className={INPUT_CLS} value={company.roundingType} onChange={e => onChange('roundingType', e.target.value)}>
               <option value="none">No Rounding</option>
               <option value="up">Round Up</option>
               <option value="down">Round Down</option>
@@ -99,7 +99,7 @@ export function GeneralTab({ company, onChange }: Props) {
             </select>
           </div>
           {company.roundingType !== 'none' && (
-            <div><label className={LABEL_CLS}>Round To Nearest</label><input type="number" step="0.01" className={INPUT_CLS} value={company.roundToNearest} onChange={e => onChange('roundToNearest', Number(e.target.value))} /></div>
+            <div><label htmlFor="general-tab-round-to-nearest" className={LABEL_CLS}>Round To Nearest</label><input id="general-tab-round-to-nearest" type="number" step="0.01" className={INPUT_CLS} value={company.roundToNearest} onChange={e => onChange('roundToNearest', Number(e.target.value))} /></div>
           )}
         </div>
       </section>
@@ -141,8 +141,8 @@ export function GeneralTab({ company, onChange }: Props) {
         <div className="space-y-3">
           <Toggle checked={company.ageingMonthly} onChange={v => onChange('ageingMonthly', v)} label="Use Monthly ageing (display unpaid invoices by calendar month)" />
           <div className="max-w-xs">
-            <label className={LABEL_CLS}>Run Ageing Based On</label>
-            <select className={INPUT_CLS} value={company.ageingBasedOn} onChange={e => onChange('ageingBasedOn', e.target.value)}>
+            <label htmlFor="general-tab-run-ageing-based-on" className={LABEL_CLS}>Run Ageing Based On</label>
+            <select id="general-tab-run-ageing-based-on" className={INPUT_CLS} value={company.ageingBasedOn} onChange={e => onChange('ageingBasedOn', e.target.value)}>
               <option value="invoice_date">Invoice Date</option>
               <option value="due_date">Due Date</option>
             </select>
