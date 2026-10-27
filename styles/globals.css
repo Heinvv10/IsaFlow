@@ -111,6 +111,11 @@
     --ff-unfav: #b23a3a;
     --ff-prior: #c9d0cc;
     --ff-plan: #8a94a0;
+    /* Budget grid cells (P2): unsaved edit, 409 re-apply conflict, range selection, focused cell. */
+    --ff-dirty-bg: #fdf3d6;
+    --ff-conflict-bg: #fbe1e1;
+    --ff-cell-selected-bg: #d9eefb;
+    --ff-cell-focus-ring: #0d9488;
     /* --ff-fig-font (statement figures, KPI tiles, chart text) is deliberately not defined on screen:
        figures inherit the app face (DM Sans, digits from 'IsaFlow Figures'), and charts fall back
        to FALLBACK.figFont. The board-pack print page defines it (styles/packPrintPage.css). */
@@ -189,6 +194,11 @@
     --ff-unfav: #f08a8a;
     --ff-prior: #3a4752;
     --ff-plan: #7b8792;
+    /* Budget grid cells (P2), dark. */
+    --ff-dirty-bg: #4a3b12;
+    --ff-conflict-bg: #5a2328;
+    --ff-cell-selected-bg: #173a52;
+    --ff-cell-focus-ring: #2dd4bf;
 
     /* teal-400: 10:1 on the dark canvas (#0f172a), 7:1 on the dark input fill (#1e293b). */
     --ff-focus-ring: #2dd4bf;
