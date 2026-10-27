@@ -20,6 +20,9 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/modules/accounting/documents', () => ({ AccountingDocumentPanel: () => null }));
 vi.mock('@/components/accounting/ScanAndFillButton', () => ({ ScanAndFillButton: () => null }));
 vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({ SupplierSelect: () => null }));
+vi.mock('@/components/accounting/ap/ThreeWayMatchPanel', () => ({ ThreeWayMatchPanel: () => null }));
+vi.mock('@/components/accounting/ap/SupplierInvoiceApprovalPanel', () => ({ SupplierInvoiceApprovalPanel: () => null }));
+vi.mock('@/components/accounting/sars/MarkVatDeclaredElsewhereButton', () => ({ MarkVatDeclaredElsewhereButton: () => null }));
 vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' } }) }));
 import { apiFetch } from '@/lib/apiFetch';
@@ -28,6 +31,8 @@ import RecurringInvoiceEdit from '../../../pages/accounting/recurring-invoices/[
 import DocCapture from '../../../pages/accounting/document-capture/[docId]';
 import JournalNew from '../../../pages/accounting/journal-entries/new';
 import ItemAdjustments from '../../../pages/accounting/item-adjustments';
+import SupplierInvoiceDetail from '../../../pages/accounting/supplier-invoices/[invoiceId]';
+import ItemNew from '../../../pages/accounting/items/new';
 import CustomerNew from '../../../pages/accounting/customers/new';
 import SupplierNew from '../../../pages/accounting/suppliers/new';
 
@@ -71,6 +76,11 @@ const cases: Case[] = [
   { page: 'item-adjustments', query: {}, ui: <ItemAdjustments />, field: 'Date',
     data: () => undefined, open: async () => { await click(/new adjustment|adjust/i); },
     save: () => { fireEvent.submit(document.querySelector('form')!); }, ready: () => screen.findByRole('textbox', { name: /^date/i }) },
+  { page: 'supplier-invoices/[invoiceId]', query: { invoiceId: 'si-1' }, ui: <SupplierInvoiceDetail />, field: 'Due Date',
+    data: (u) => (u.includes('supplier-invoices-detail') ? { id: 'si-1', invoiceNumber: 'SI-1', status: 'draft', supplierName: 'Acme', dueDate: '2026-10-31', invoiceDate: '2026-10-01', items: [], subtotal: 0, taxAmount: 0, totalAmount: 0, balance: 0, approval: null } : undefined),
+    open: async () => { await click(/^edit$/i); }, save: () => click(/^save$/i), ready: () => screen.findByRole('textbox', { name: /^due date/i }) },
+  { page: 'items/new', query: {}, ui: <ItemNew />, field: 'Opening Date',
+    data: () => undefined, save: () => { fireEvent.submit(document.querySelector('form')!); }, ready: () => screen.findByRole('textbox', { name: /^opening date/i }) },
 ];
 
 describe.each(cases)('$page', (c) => {
