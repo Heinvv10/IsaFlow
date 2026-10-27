@@ -24,6 +24,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { repointPeriodToItsYear, YearEndChangeRefusedError } from './financialYearEndChangeApply';
+import { budgetRehomeRefusals, rehomePrimaryBudgetMonths } from '../budgets/budgetYearRehome';
 
 interface SnapYear { id: string; fiscal_year: number; start_date: string; end_date: string; kind: string; change_id: string | null; created_at: string }
 interface SnapPeriod { id: string; fiscal_year_id: string; fiscal_year: number; period_number: number; period_name: string }
@@ -99,8 +100,9 @@ export async function undoRefusals(companyId: string, change: LiveChange | null)
       + 'the change can no longer be undone.');
   }
   const ty = change.fiscalYearId ? (await sql`
-    SELECT status FROM fiscal_years WHERE id = ${change.fiscalYearId}::UUID AND company_id = ${companyId}::UUID
+    SELECT status, fiscal_year FROM fiscal_years WHERE id = ${change.fiscalYearId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[] : [];
+  if (ty[0]) out.push(...await budgetRehomeRefusals(companyId, boundary, Number(ty[0].fiscal_year)));
   if (!ty[0]) out.push('The transition year this change made no longer exists; it cannot be undone.');
   else if (String(ty[0].status) !== 'open') {
     out.push(`The transition year is ${String(ty[0].status)}; reopen its periods before undoing the change.`);
@@ -188,6 +190,8 @@ export async function undoYearEndChange(companyId: string, userId: string, reaso
      WHERE id = ${change.id}::UUID AND company_id = ${companyId}::UUID
   `;
   await sql`SET CONSTRAINTS fiscal_periods_fiscal_year_id_fkey, fiscal_years_change_id_fkey IMMEDIATE`;
+  // The primary budget's months go back with the months (decision 12).
+  await rehomePrimaryBudgetMonths(companyId, boundary, userId);
 
   await logAuditOrThrow({
     companyId, userId, action: 'reverse', entityType: 'fiscal_year_end_change', entityId: change.id,

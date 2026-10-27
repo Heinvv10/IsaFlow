@@ -134,8 +134,8 @@ describe('budgetService against the real budget_month_amounts table', async () =
       );
       // Rows planted directly for the other tenant, on its own account, bypassing the service.
       await sql`
-        INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount)
-        VALUES (${f.otherCompanyId}::uuid, ${f.otherAccountId}::uuid, ${`${keys[0]}-01`}::date, 999999)
+        INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+        VALUES (${f.otherCompanyId}::uuid, (SELECT public.budget_version_original(${f.otherCompanyId}::uuid, fy.fiscal_year, 'test-fixture') FROM public.fiscal_year_for_date(${f.otherCompanyId}::uuid, ${`${keys[0]}-01`}::date) fy), ${f.otherAccountId}::uuid, ${`${keys[0]}-01`}::date, 999999)
       `;
       await sql`
         INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes)
@@ -170,8 +170,8 @@ describe('budgetService against the real budget_month_amounts table', async () =
       const keys = await monthsOf(f.companyId, FY);
       await sql`SAVEPOINT planted`;
       await expect(sql`
-        INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount)
-        VALUES (${f.otherCompanyId}::uuid, ${f.expenseAccountId}::uuid, ${`${keys[0]}-01`}::date, 777777)
+        INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+        VALUES (${f.otherCompanyId}::uuid, (SELECT public.budget_version_original(${f.otherCompanyId}::uuid, fy.fiscal_year, 'test-fixture') FROM public.fiscal_year_for_date(${f.otherCompanyId}::uuid, ${`${keys[0]}-01`}::date) fy), ${f.expenseAccountId}::uuid, ${`${keys[0]}-01`}::date, 777777)
       `).rejects.toThrow(/does not belong to company/);
       await sql`ROLLBACK TO SAVEPOINT planted`;
     });
@@ -213,7 +213,7 @@ describe('budgetService against the real budget_month_amounts table', async () =
       expect(await copyBudgets(f.companyId, FY, FY + 1, f.userId)).toBe(0);
       expect(await getBudgets(f.companyId, FY + 1)).toHaveLength(1);
 
-      await deleteBudget(f.companyId, f.expenseAccountId, FY + 1);
+      await deleteBudget(f.companyId, f.expenseAccountId, FY + 1, f.userId);
       expect(await getBudgets(f.companyId, FY + 1)).toHaveLength(0);
       expect(await getBudgets(f.companyId, FY)).toHaveLength(1);
     });

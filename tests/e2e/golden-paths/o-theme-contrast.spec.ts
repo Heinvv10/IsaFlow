@@ -9,11 +9,11 @@
  * Evidence mode: THEME_EVIDENCE_DIR=<dir> writes a screenshot per screen/theme/viewport and
  * contrast-<slug>.json; THEME_RECORD_ONLY=1 additionally skips the assertions (for "before" runs).
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/navSpec';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { auditContrast } from '../helpers/themeContrast';
-import { THEMES, axeContrastFailures, rootTheme, seedTheme, settle } from '../helpers/themeSpec';
+import { THEMES, axeContrastFailures, rootTheme, seedTheme, settle, SETTLE_MS } from '../helpers/themeSpec';
 
 const SCREENS = [
   { slug: 'dashboard', path: '/accounting' },
@@ -40,7 +40,15 @@ const evidenceDir = process.env.THEME_EVIDENCE_DIR;
 const recordOnly = process.env.THEME_RECORD_ONLY === '1';
 const results: Record<string, unknown> = {};
 
-test.setTimeout(240_000);
+// Six page loads per screen, each up to SETTLE_MS on a loaded runner (a 3 s API delay puts one at 15 to 35 s).
+test.setTimeout(480_000);
+
+/**
+ * What a screen needs in place before its text is audited, where "no spinner on the page" comes too early.
+ * balance-sheet: until the report's period is known the Present control is an inert, half-faded span (opacity-50,
+ * aria-disabled), which the walker reads as low-contrast text; it becomes a link once the dates arrive.
+ */
+const READY: Record<string, string> = { 'balance-sheet': 'main a[href*="/reports/present/"]' };
 
 for (const screen of SCREENS) {
   test(`${screen.slug}: AA contrast in light and dark at 390, 1280 and 1920`, async ({ page }) => {
@@ -51,6 +59,8 @@ for (const screen of SCREENS) {
         await seedTheme(page, theme);
         await page.goto(screen.path, { waitUntil: 'domcontentloaded' });
         await settle(page);
+        const ready = READY[screen.slug];
+        if (ready) await page.locator(ready).first().waitFor({ timeout: SETTLE_MS });
 
         const scheme = (await rootTheme(page)).scheme;
         const walker = await auditContrast(page);
