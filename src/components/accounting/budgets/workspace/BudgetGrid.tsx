@@ -8,7 +8,7 @@
  * row actions through `useRowActions`. On a coarse pointer or under 768px a tap opens the
  * single-cell sheet instead (§12: read + single-cell edit, no range or clipboard).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { useChartPalette } from '@/components/accounting/charts/ChartFrame';
 import { STICKY_FIRST_HEAD, STICKY_HEAD } from '@/components/accounting/statement/stickyTable';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
@@ -89,15 +89,22 @@ export function BudgetGrid(props: BudgetGridProps) {
   const sheet = useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction });
 
   // Shift+F10 / the context-menu key on a cell opens that row's ⋯ menu, so a keyboard user reaches
-  // row actions from the cell they are on without tabbing through every row's button.
+  // row actions from the cell they are on without tabbing through every row's button. Focus moves to
+  // the trigger first: ActionMenu reads its keys on `document`, and a cell keeping focus would also
+  // take them (ArrowDown moving the grid, Enter committing, a digit opening the editor).
   const onKeyDown = useCallback((e: KeyboardEvent<HTMLTableElement>) => {
     if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
       const row = e.target instanceof Element ? e.target.closest('[data-pos]')?.closest('tr') : null;
       const trigger = row?.querySelector<HTMLButtonElement>('button[aria-label^="Row actions for"]');
-      if (trigger) { e.preventDefault(); trigger.click(); return; }
+      if (trigger) { e.preventDefault(); trigger.focus(); trigger.click(); return; }
     }
     keys.onKeyDown(e);
   }, [keys]);
+
+  // The context-menu key also fires `contextmenu` (on key-up on Windows): no browser menu over a cell.
+  const onContextMenu = useCallback((e: MouseEvent<HTMLTableElement>) => {
+    if (e.target instanceof Element && e.target.closest('[data-pos]')) e.preventDefault();
+  }, []);
 
   const accountant = density === 'accountant';
   const cols: GridColumns = useMemo(() => ({
@@ -157,6 +164,7 @@ export function BudgetGrid(props: BudgetGridProps) {
         aria-multiselectable={compact ? undefined : true}
         className="min-w-full border-separate border-spacing-0 text-sm select-none"
         onKeyDown={compact ? undefined : onKeyDown}
+        onContextMenu={compact ? undefined : onContextMenu}
         onCopy={compact ? undefined : clip.onCopy}
         onCut={compact ? undefined : clip.onCut}
         onPaste={compact ? undefined : clip.onPaste}

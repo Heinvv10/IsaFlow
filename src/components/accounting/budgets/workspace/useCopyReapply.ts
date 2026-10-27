@@ -27,11 +27,12 @@ export interface CopyReapply {
 export function useCopyReapply(grid: Pick<BudgetGridApi, 'model' | 'version' | 'reapplyMine'>): CopyReapply {
   const [pendingCopy, setPendingCopy] = useState<PendingCopy | null>(null);
   const pending = useRef<PendingCopy | null>(null);
-  const remember = (p: PendingCopy | null) => { pending.current = p; setPendingCopy(p); };
+  // Stable (a ref and a state setter), so the effect and the callback below list it honestly.
+  const remember = useCallback((p: PendingCopy | null) => { pending.current = p; setPendingCopy(p); }, []);
 
   // A new load of the grid (year, version, reload) means the user moved on: forget the copy.
   // A failed re-apply loads nothing, so it never clears what it just remembered.
-  useEffect(() => { remember(null); }, [grid.model]);
+  useEffect(() => { remember(null); }, [grid.model, remember]);
 
   const { version, reapplyMine } = grid;
   const copyAndReapply = useCallback(async (body: { name: string; kind: BudgetVersionKind }): Promise<CopyReapplyResult> => {
@@ -46,7 +47,7 @@ export function useCopyReapply(grid: Pick<BudgetGridApi, 'model' | 'version' | '
     if (notLoaded === null) { remember(null); return { ok: true }; }
     remember(target);
     return { ok: false, stage: 'load', message: notLoaded, copyName: target.name };
-  }, [version, reapplyMine]);
+  }, [version, reapplyMine, remember]);
 
   return { pendingCopy, copyAndReapply };
 }
