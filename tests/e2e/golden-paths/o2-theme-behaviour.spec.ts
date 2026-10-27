@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path O2 - how the theme behaves (master plan 3b.1 / 3b.3), in a real browser.
  *

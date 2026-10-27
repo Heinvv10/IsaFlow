@@ -12,21 +12,36 @@
 //        dropped. K-105's own claim (email leak, expiry ignored) was a false
 //        positive; the email is masked here for defence in depth and
 //        expiry/acceptance are enforced by RLS.
-// H1:    a userInvitationService invitation has no gotrue_user_id, so neither
-//        endpoint may treat it as an accept-invite invitation.
+// H1:    a userInvitationService invitation has no gotrue_user_id. It used to be
+//        refused here (409/410), which left a new invitee only the self-serve
+//        signup, and that creates a second company. Accept now finds or creates
+//        the invited address's account first (src/lib/auth/inviteAccount.ts).
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
 
+// accept.ts reads the factors of any account without a `users` row before setting its password: none here.
+vi.mock('@/lib/auth/gotrue-mfa', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  adminListUserFactors: vi.fn(async () => []),
+}));
 const sentEmails: Array<{ html: string }> = [];
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendEmail: vi.fn(async (msg: { html: string }) => { sentEmails.push(msg); return { success: true, messageId: 'disposable' }; }),
 }));
 const gotrueUserId = crypto.randomUUID();
+const legacyUserId = crypto.randomUUID();
 vi.mock('@/lib/auth/gotrue', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  adminCreateUser: vi.fn(async () => ({ id: gotrueUserId })),
+  adminCreateUser: vi.fn(async ({ email }: { email: string }) =>
+    ({ id: email.startsWith('legacy-') ? legacyUserId : gotrueUserId, email })),
+  // The legacy invitee has no account yet: accept creates it.
+  findUserByEmail: vi.fn(async () => null),
+  adminUpdateUser: vi.fn(async () => undefined),
+  signIn: vi.fn(async (email: string) => ({
+    access_token: 'a', refresh_token: 'r', expires_in: 3600, user: { id: legacyUserId, email },
+  })),
 }));
 
 assertDisposable();
@@ -107,7 +122,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM company_invitations WHERE company_id=ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [[company, otherCompany]]);
-    await pool.query('DELETE FROM users WHERE id=$1', [inviter]);
+    await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[inviter, legacyUserId]]); // users.id is VARCHAR
     await pool.query('DELETE FROM rate_limit_counters WHERE key LIKE $1', [`invitations:company:${company}%`]);
   } finally { await pool.end(); }
 });
@@ -184,24 +199,19 @@ it('R-030: an expired invitation exposes neither the invitation nor the company'
   expect(rows).toEqual({ invitations: 0, companies: 0, name: null });
 });
 
-it('H1: a userInvitationService invitation is sent to its own flow, not this one', async () => {
+it('H1: a userInvitationService invitation is accepted here, as the invited address, into the inviting company', async () => {
   // Same shape createInvitation writes: hashed token, and no gotrue_user_id
-  // because that path never creates a GoTrue user. Before the encoding was
-  // unified these rows could not match this route at all; now they can.
+  // because that path never creates a GoTrue user.
   const legacyToken = 'f'.repeat(64);
+  const legacyEmail = `legacy-${invitee}`;
   await pool.query(
     `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at,gotrue_user_id)
      VALUES($1,$2,'viewer',$3,$4, now() + interval '7 days', NULL)`,
-    [company, `legacy-${invitee}`, inviter, stored(legacyToken)]);
+    [company, legacyEmail, inviter, stored(legacyToken)]);
 
   const looked = await lookup(legacyToken);
-  expect({
-    status: looked.state.statusCode,
-    code: (looked.state.body as { error?: { code?: string } }).error?.code,
-  }).toEqual({ status: 409, code: 'WRONG_INVITE_FLOW' });
+  expect(looked.state.statusCode).toBe(200);
 
-  // And accept refuses it outright rather than PUTting a password to
-  // /admin/users/null, which is what an unguarded gotrue_user_id produced.
   const accept = (await import('../../pages/api/invitations/[token]/accept')).default;
   const req = {
     method: 'POST', url: `/api/invitations/${legacyToken}/accept`, query: { token: legacyToken },
@@ -210,10 +220,15 @@ it('H1: a userInvitationService invitation is sent to its own flow, not this one
   };
   const result = response();
   await accept(req as never, result.res);
-  expect({
-    status: result.state.statusCode,
-    code: (result.state.body as { error?: { code?: string } }).error?.code,
-  }).toEqual({ status: 410, code: 'INVALID_OR_EXPIRED' });
+  expect(result.state.statusCode).toBe(200);
+
+  const row = await pool.query(
+    'SELECT gotrue_user_id, accepted_at IS NOT NULL AS accepted FROM company_invitations WHERE token=$1', [stored(legacyToken)]);
+  // Not written back: revoke deletes a stored account that has no memberships.
+  expect(row.rows[0]).toEqual({ gotrue_user_id: null, accepted: true });
+  const member = await pool.query('SELECT company_id, role FROM company_users WHERE user_id=$1', [legacyUserId]);
+  // Joined the inviting company, and only that one: no tenant of their own.
+  expect(member.rows).toEqual([{ company_id: company, role: 'viewer' }]);
 });
 
 it('round-2 L2: the SECURITY DEFINER function pins pg_catalog first and is not owned by a superuser', async () => {
