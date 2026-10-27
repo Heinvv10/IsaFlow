@@ -26,11 +26,11 @@ export function InvoiceSummaryCard({ subtotal, tax, total, taxRate, currencyCode
       </div>
       <div className="space-y-3">
         <div className="flex justify-between text-sm">
-          <span className="text-slate-500 dark:text-slate-400">Subtotal</span>
+          <span className="text-ink-muted">Subtotal</span>
           <span className="tabular-nums text-slate-900 dark:text-slate-100">{formatCurrencyAmount(subtotal, currencyCode)}</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-slate-500 dark:text-slate-400">VAT ({taxRate}%)</span>
+          <span className="text-ink-muted">VAT ({taxRate}%)</span>
           <span className="tabular-nums text-slate-900 dark:text-slate-100">{formatCurrencyAmount(tax, currencyCode)}</span>
         </div>
         <div className="h-px bg-slate-100 dark:bg-slate-800" />
@@ -40,11 +40,11 @@ export function InvoiceSummaryCard({ subtotal, tax, total, taxRate, currencyCode
         </div>
         {fx && (
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-            <p className="text-xs text-slate-500 dark:text-slate-400 flex justify-between">
+            <p className="text-xs text-ink-muted flex justify-between">
               <span>ZAR equivalent</span>
               <span className="tabular-nums text-amber-600 dark:text-amber-400 font-semibold">{formatCurrencyAmount(fx.zarTotal, 'ZAR')}</span>
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">@ {fx.rate} {currencyCode}/ZAR</p>
+            <p className="text-xs text-ink-muted mt-0.5">@ {fx.rate} {currencyCode}/ZAR</p>
           </div>
         )}
       </div>
