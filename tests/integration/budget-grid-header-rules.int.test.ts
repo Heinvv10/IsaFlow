@@ -2,7 +2,8 @@
  * Decision 18 (spec §6.5): budgets go on leaf accounts. A NEW budget on a header (any account
  * another account names as its parent, active or not) or on an inactive account is refused with a
  * 400 naming the account, nothing written, by the grid save AND by the legacy writer
- * (core/budgetService.upsertBudget, behind POST /api/accounting/budgets and the MCP tools). An
+ * (core/budgetService.upsertBudget; its route was retired in budgets P2 PR-D, so it is called as
+ * a service here, in a transaction that commits on a refusal as withAuth does for a 4xx). An
  * account that already holds amounts in the version is exempt: a legacy header budget can be
  * edited, moved to a sub-account or spread across them, each in one batch. The legacy writer
  * checks AFTER it locks the version, in a savepoint (round-1 BRK-L1): a header's amounts deleted
@@ -36,8 +37,8 @@ vi.mock('@/lib/neon', async (orig) => {
 });
 
 import saveRoute from '../../pages/api/accounting/budget-grid/save';
-import budgetsRoute from '../../pages/api/accounting/budgets';
-import budgetsActionRoute from '../../pages/api/accounting/budgets-action';
+import { BudgetInputError, copyBudgets, upsertBudget } from '@/modules/accounting/services/core/budgetService';
+import type { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import { budgetGridSaveFixture, errCode, errMessage, type GridWorld } from './helpers/budgetGridSaveFixture';
@@ -45,8 +46,19 @@ import { budgetGridSaveFixture, errCode, errMessage, type GridWorld } from './he
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 const fx = budgetGridSaveFixture(pool, saveRoute, '/api/accounting/budget-grid/save');
-const legacy = budgetsRouteFixture(pool, budgetsRoute, '/api/accounting/budgets');
-const action = budgetsRouteFixture(pool, budgetsActionRoute, '/api/accounting/budgets-action');
+const { asUser } = budgetsRouteFixture(pool, saveRoute, '/api/accounting/budget-grid/save');
+type Input = Parameters<typeof upsertBudget>[1];
+/** The legacy writer as `c`'s owner: 'ok', or the refusal's message (a BudgetInputError or a 4xx BudgetVersionError only). */
+async function legacyUpsert(c: GridWorld, input: Omit<Input, 'fiscalYear'>): Promise<string> {
+  try {
+    await asUser(c.u, () => upsertBudget(c.u.homeCompanyId, { fiscalYear: c.label, ...input } as Input, c.u.userId));
+    return 'ok';
+  } catch (err) {
+    const status = (err as Partial<BudgetVersionError>).status;
+    if (err instanceof BudgetInputError || status === 400) return (err as Error).message;
+    throw err;
+  }
+}
 
 let w: GridWorld;
 beforeAll(async () => { w = await fx.world(); }, 120000);
@@ -126,7 +138,7 @@ describe('decision 18 through the grid save', () => {
   });
 });
 
-describe('decision 18 through the legacy writer (upsertBudget, POST /api/accounting/budgets)', () => {
+describe('decision 18 through the legacy writer (upsertBudget)', () => {
   const primaries = async () => Number((await pool.query(
     'SELECT COUNT(*)::int n FROM budget_versions WHERE company_id = $1 AND is_primary', [w.u.homeCompanyId])).rows[0].n);
   const headerRows = async () => Number((await pool.query(
@@ -137,24 +149,21 @@ describe('decision 18 through the legacy writer (upsertBudget, POST /api/account
     expect(await primaries()).toBe(0);
     const rowsBefore = await headerRows();
     for (const [acct, code] of [[w.header, 'GS-6000'], [w.header2, 'GS-7000'], [w.inactive, 'GS-6900']] as const) {
-      const r = await legacy.call(w.u, 'POST', { glAccountId: acct, fiscalYear: w.label, annualAmount: 1200 });
-      expect(r.status, dump(r)).toBe(400);
-      expect(String(r.body.error?.message)).toContain(code);
+      expect(await legacyUpsert(w, { glAccountId: acct, annualAmount: 1200 })).toContain(code);
     }
     expect(await primaries()).toBe(0);
     expect(await headerRows()).toBe(rowsBefore);
   });
 
-  it('a header that holds amounts in the primary can still be saved through the legacy route', async () => {
+  it('a header that holds amounts in the primary can still be saved through the legacy writer', async () => {
     const prim = await fx.version(w, { primary: true, name: 'Original' });
     await fx.amount(w, prim, w.header, w.months[0]!, 100);
-    const r = await legacy.call(w.u, 'POST', { glAccountId: w.header, fiscalYear: w.label, annualAmount: 1200 });
-    expect(r.status, dump(r)).toBe(200);
+    expect(await legacyUpsert(w, { glAccountId: w.header, annualAmount: 1200 })).toBe('ok');
     const sum = (await pool.query('SELECT SUM(amount)::text s FROM budget_month_amounts WHERE version_id = $1 AND gl_account_id = $2',
       [prim, w.header])).rows[0].s;
     expect(sum).toBe('1200.00');
     // A leaf still saves as before.
-    expect((await legacy.call(w.u, 'POST', { glAccountId: w.child1, fiscalYear: w.label, annualAmount: 600 })).status).toBe(200);
+    expect(await legacyUpsert(w, { glAccountId: w.child1, annualAmount: 600 })).toBe('ok');
   });
 
   it('a header whose amounts a concurrent save deletes, before the legacy write takes the version, is refused (checked after the lock)', async () => {
@@ -165,10 +174,9 @@ describe('decision 18 through the legacy writer (upsertBudget, POST /api/account
     // writeVersion's first read of the named version: the legacy write has not locked it yet.
     hooks.match = /SELECT fiscal_year FROM budget_versions WHERE id = \?::UUID AND company_id = \?::UUID/;
     hooks.fn = async () => { concurrent = (await save(v, [cell(w.header, w.months[0]!, null)])).status; };
-    const r = await legacy.call(w.u, 'POST', { glAccountId: w.header, fiscalYear: w.label, annualAmount: 1200, versionId: v });
+    const r = await legacyUpsert(w, { glAccountId: w.header, annualAmount: 1200, versionId: v });
     expect([hooks.fired, concurrent]).toEqual([1, 200]);
-    expect(r.status, dump(r)).toBe(400);
-    expect(String(r.body.error?.message)).toContain('GS-6000');
+    expect(r).toContain('GS-6000');
     expect(await fx.cells(v)).toEqual([]);
   });
 
@@ -177,22 +185,18 @@ describe('decision 18 through the legacy writer (upsertBudget, POST /api/account
     await fx.amount(w, v, w.sales, w.months[0]!, 9, { cc1: w.cc1 });
     for (const [acct, code] of [[w.header, 'GS-6000'], [w.inactive, 'GS-6900'], [w.sales, 'GS-4000']] as const) {
       const before = { cells: await fx.cells(v), token: await fx.token(v), audits: (await fx.audits(v)).length };
-      const r = await legacy.call(w.u, 'POST', { glAccountId: acct, fiscalYear: w.label, annualAmount: 1200, versionId: v });
-      expect(r.status, dump(r)).toBe(400);
-      expect(String(r.body.error?.message)).toContain(code);
+      expect(await legacyUpsert(w, { glAccountId: acct, annualAmount: 1200, versionId: v })).toContain(code);
       expect({ cells: await fx.cells(v), token: await fx.token(v), audits: (await fx.audits(v)).length }).toEqual(before);
     }
   });
 });
 
-describe('decision 18 through the legacy year copy (copyBudgets, budgets-action copy)', () => {
+describe('decision 18 through the legacy year copy (copyBudgets)', () => {
   it('a header or inactive account holding no amounts in the target year is not copied there, and is counted as skipped', async () => {
     const c = await fx.world();
     const prim = await fx.version(c, { primary: true, name: 'Original' });
     for (const acct of [c.header, c.inactive, c.child1]) await fx.amount(c, prim, acct, c.months[0]!, 100);
-    const r = await action.call(c.u, 'POST', { action: 'copy', fromYear: c.label, toYear: c.label + 1 });
-    expect(r.status, dump(r)).toBe(200);
-    expect(r.body.data).toEqual({ copied: 1, skipped: 2 });
+    expect(await asUser(c.u, () => copyBudgets(c.u.homeCompanyId, c.label, c.label + 1, c.u.userId))).toEqual({ copied: 1, skipped: 2 });
     const copied = (await pool.query(
       `SELECT DISTINCT bm.gl_account_id::text a FROM budget_month_amounts bm JOIN budget_versions v ON v.id = bm.version_id
         WHERE bm.company_id = $1 AND v.fiscal_year = $2`, [c.u.homeCompanyId, c.label + 1])).rows.map((x) => x.a);
@@ -209,8 +213,7 @@ describe('decision 18 through the legacy year copy (copyBudgets, budgets-action 
       [c.u.homeCompanyId, c.label + 1, c.u.userId])).rows[0].id);
     await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
                       VALUES ($1, $2, $3, ($4 || '-01')::DATE + INTERVAL '12 months', 5)`, [c.u.homeCompanyId, next, c.header, c.months[1]]);
-    const r = await action.call(c.u, 'POST', { action: 'copy', fromYear: c.label, toYear: c.label + 1 });
-    expect([r.status, r.body.data], dump(r)).toEqual([200, { copied: 1, skipped: 1 }]);
+    expect(await asUser(c.u, () => copyBudgets(c.u.homeCompanyId, c.label, c.label + 1, c.u.userId))).toEqual({ copied: 1, skipped: 1 });
     const rows = (await pool.query(`SELECT gl_account_id::text a, COUNT(*)::int n FROM budget_month_amounts WHERE version_id = $1 GROUP BY 1`, [next])).rows;
     expect(rows).toEqual([{ a: c.header, n: 2 }]);
   });

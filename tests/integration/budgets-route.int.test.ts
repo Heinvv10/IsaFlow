@@ -1,20 +1,29 @@
 /**
- * The budgets route as the budgets page calls it (real withAuth, request
- * transaction, CSRF): the GET reads the budgets and the year list on the ONE
- * request connection (savepoints there must nest, never interleave), the page's
- * first load (no year chosen yet) is answered with the current year, and bad
- * POST bodies are 400s, not 500s. Disposable schema fixture only; synthetic data.
+ * The budgets route, read-only since the budget workspace replaced the old page (real withAuth,
+ * request transaction): the GET reads the budgets and the year list on the ONE request connection
+ * (savepoints there must nest, never interleave), the first load (no year chosen yet) is answered
+ * with the current year, `years_only=1` answers the year list WITHOUT reading the budgets (what
+ * the workspace's year select uses), and a write method is a 405. Disposable schema fixture only;
+ * synthetic data.
  */
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
 import route from '../../pages/api/accounting/budgets';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 
+const reads = vi.hoisted(() => ({ n: 0 }));
+vi.mock('@/modules/accounting/services/core/budgetService', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/accounting/services/core/budgetService')>();
+  return { ...real, getBudgetsForYear: (...a: Parameters<typeof real.getBudgetsForYear>) => { reads.n += 1; return real.getBudgetsForYear(...a); } };
+});
+
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
-const { call, owner, cleanup } = budgetsRouteFixture(pool, route, '/api/accounting/budgets');
+const { call, owner, cleanup, asUser } = budgetsRouteFixture(pool, route, '/api/accounting/budgets');
 
+beforeEach(() => { reads.n = 0; });
 afterAll(async () => {
   try { await cleanup(); } finally { await pool.end(); }
 }, 60000);
@@ -28,15 +37,16 @@ describe('GET', () => {
       expect(r.body.data?.fiscalYear).toBe(o.label);
       expect((r.body.data?.year as { monthKeys: string[] }).monthKeys).toEqual(o.months);
       expect(r.body.data).not.toHaveProperty('monthKeys');
+      expect(r.body.data?.items).toEqual([]);
       expect((r.body.data?.years as Array<{ fiscalYear: number }>).map((y) => y.fiscalYear)).toContain(o.label);
     }
+    expect(reads.n).toBe(2);
   });
 
   it('a chosen year with a saved budget reads back every month, on one request connection', async () => {
     const o = await owner();
     const months = o.months.map((month, i) => ({ month, amount: (i + 1) * 10 }));
-    const saved = await call(o.u, 'POST', { glAccountId: o.account, fiscalYear: o.label, months });
-    expect(saved.status, JSON.stringify(saved.body).slice(0, 300)).toBe(200);
+    await asUser(o.u, () => upsertBudget(o.u.homeCompanyId, { glAccountId: o.account, fiscalYear: o.label, months }, o.u.userId));
     const r = await call(o.u, 'GET', undefined, { fiscal_year: String(o.label) });
     expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
     const items = r.body.data?.items as Array<{ annualAmount: number; months: Array<{ month: string; amount: number }> }>;
@@ -53,29 +63,39 @@ describe('GET', () => {
   });
 });
 
-describe('POST bodies that are wrong are 400s', () => {
-  it('a fiscalYear that is not a year label', async () => {
+describe('GET years_only=1 (the workspace year select)', () => {
+  it('answers the current year and the year list, and never reads the budgets', async () => {
     const o = await owner();
-    for (const bad of ['abc', true, '1e3', [o.label], 2.5]) {
-      const r = await call(o.u, 'POST', { glAccountId: o.account, fiscalYear: bad, annualAmount: 100 });
-      expect(r.status, `${JSON.stringify(bad)} ${JSON.stringify(r.body).slice(0, 300)}`).toBe(400);
-    }
+    await asUser(o.u, () => upsertBudget(o.u.homeCompanyId, { glAccountId: o.account, fiscalYear: o.label, annualAmount: 1200 }, o.u.userId));
+    reads.n = 0;
+    const r = await call(o.u, 'GET', undefined, { years_only: '1' });
+    expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
+    expect(r.body.data?.fiscalYear).toBe(o.label);
+    expect((r.body.data?.year as { monthKeys: string[] }).monthKeys).toEqual(o.months);
+    expect((r.body.data?.years as Array<{ fiscalYear: number }>).map((y) => y.fiscalYear)).toContain(o.label);
+    expect(r.body.data).not.toHaveProperty('items');
+    expect(reads.n).toBe(0);
   });
 
-  it('a months entry that is null or has no month', async () => {
+  it('a chosen year works the same way; a years_only that is not 1 is a 400', async () => {
     const o = await owner();
-    for (const bad of [null, { amount: 5 }, { month: 202601, amount: 5 }]) {
-      const months = [bad, ...o.months.slice(1).map((month) => ({ month, amount: 1 }))];
-      const r = await call(o.u, 'POST', { glAccountId: o.account, fiscalYear: o.label, months });
-      expect(r.status, `${JSON.stringify(bad)} ${JSON.stringify(r.body).slice(0, 200)}`).toBe(400);
+    const r = await call(o.u, 'GET', undefined, { years_only: '1', fiscal_year: String(o.label) });
+    expect([r.status, r.body.data?.fiscalYear, reads.n]).toEqual([200, o.label, 0]);
+    for (const bad of ['0', 'true', 'yes', '']) {
+      expect((await call(o.u, 'GET', undefined, { years_only: bad })).status, bad).toBe(400);
     }
+    expect(reads.n).toBe(0);
   });
+});
 
-  it('a glAccountId that is not a UUID', async () => {
+describe('writes are retired (the workspace saves through budget-grid/save)', () => {
+  it('POST, PUT and DELETE are 405 and write nothing', async () => {
     const o = await owner();
-    for (const glAccountId of ['not-a-uuid', '1', '00000000-0000-0000-0000-00000000000g']) {
-      const r = await call(o.u, 'POST', { glAccountId, fiscalYear: o.label, annualAmount: 100 });
-      expect(r.status, `${glAccountId} ${JSON.stringify(r.body).slice(0, 200)}`).toBe(400);
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      const r = await call(o.u, method, { glAccountId: o.account, fiscalYear: o.label, annualAmount: 100 });
+      expect(r.status, `${method} ${JSON.stringify(r.body).slice(0, 200)}`).toBe(405);
     }
+    const n = (await pool.query('SELECT COUNT(*)::int n FROM budget_month_amounts WHERE company_id = $1', [o.u.homeCompanyId])).rows[0].n;
+    expect(n).toBe(0);
   });
 });
