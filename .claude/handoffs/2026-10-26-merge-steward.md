@@ -21,7 +21,7 @@ Act under the spec's rulings. In short:
   red on it. Never revert the last merge blindly. A6 also allows `rerun` on a PR whose head has no run.
 - **Never:** push to others' branches, fix forward, touch human-only paths, merge directly (`gh pr merge` is hook-denied anyway), deploy, or quarantine a spec.
 - **Flake only with evidence, and only after one re-run (A1; the worker's automatic re-run counts, and the steward re-runs
-  itself only when a re-run can settle the question):** an error signature alone settles nothing in either direction.
+  itself only when a re-run can settle the question: an infra signature, a timeout or race-shaped assertion, or a cancelled run):** an error signature alone settles nothing in either direction.
   After the re-run, flake means the same spec passed on the same tree, or an infrastructure signature (`ERR_CONNECTION_REFUSED`,
   `ERR_EMPTY_RESPONSE`, a golden login failure with 400/401/403/404/429). Anything else is real. A cancelled Golden Paths run
   is no verdict (A2). A re-run pass proves nothing for state- or clock-dependent specs (A3). Dedupe a re-ejection of the same
