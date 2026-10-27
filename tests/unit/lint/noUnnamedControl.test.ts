@@ -20,7 +20,7 @@ tester.run('no-unnamed-control', noUnnamedControl, {
   valid: [
     { code: '<select aria-label="Status" />', filename: file, options: NONE },
     { code: '<textarea aria-label="Notes" />', filename: file, options: NONE },
-    { code: '<select aria-labelledby="h1" />', filename: file, options: NONE },
+    { code: '<><h3 id="h1">Status</h3><select aria-labelledby="h1" /></>', filename: file, options: NONE },
     { code: '<><label htmlFor="s">Status</label><select id="s" /></>', filename: file, options: NONE },
     { code: '<><textarea id="n" /><label htmlFor="n">Notes</label></>', filename: file, options: NONE },
     { code: '<label>Status <select /></label>', filename: file, options: NONE },
@@ -35,6 +35,19 @@ tester.run('no-unnamed-control', noUnnamedControl, {
     // a listed file keeps exactly its count; the kit is exempt
     { code: '<><select /><textarea /></>', filename: file, options: [{ allowlist: { [file]: 2 } }] },
     { code: '<select />', filename: 'src/components/ui/Select.tsx', options: NONE },
+    // a non-empty title is a name (the last fallback in accname)
+    { code: '<select title="Status" />', filename: file, options: NONE },
+    { code: '<textarea title={label} />', filename: file, options: NONE },
+    // hidden controls are not in the accessibility tree
+    { code: '<select hidden />', filename: file, options: NONE },
+    { code: '<textarea aria-hidden="true" />', filename: file, options: NONE },
+    { code: '<select aria-hidden />', filename: file, options: NONE },
+    // aria-labelledby at an id written in the file, or a dynamic one
+    { code: '<><h2 id="h">Status</h2><select aria-labelledby="h" /></>', filename: file, options: NONE },
+    { code: '<><select aria-labelledby="x h" /><span id="h">S</span></>', filename: file, options: NONE },
+    { code: '<select aria-labelledby={headingId} />', filename: file, options: NONE },
+    // a label with htmlFor wrapping the control it points at
+    { code: '<label htmlFor="s">Status <select id="s" /></label>', filename: file, options: NONE },
   ],
   invalid: [
     { code: '<select />', filename: file, options: NONE, errors: [{ messageId: 'unnamed', data: { tag: 'select' } }] },
@@ -48,9 +61,24 @@ tester.run('no-unnamed-control', noUnnamedControl, {
     { code: '<><label>Status</label><select /></>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<><label>Notes</label><textarea /></>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     // one more than the count fails, and it is the later one that reports
-    { code: '<><select /><select /><textarea /></>', filename: file, options: [{ allowlist: { [file]: 2 } }], errors: [{ messageId: 'unnamed', line: 1, column: 23 }] },
+    { code: '<><select /><select /><textarea /></>', filename: file, options: [{ allowlist: { [file]: 2 } }], errors: [{ messageId: 'overList', line: 1, column: 23 }] },
+    // the over-count message names the file and its allowed count
+    {
+      code: '<><select /><textarea /></>', filename: file, options: [{ allowlist: { [file]: 1 } }],
+      errors: [{ message: `<textarea> has no accessible name. Add aria-label or aria-labelledby, an id that a <label htmlFor> points at, or wrap it in a <label>. Prefer the kit: Select, Textarea. (${file} may have 1 by eslint/unnamed-control-allowlist.json and now has more. The report lands on the first control past the count in file order; the one you added or changed may be earlier in the file.)` }],
+    },
     { code: '<select />', filename: '__proto__', options: [{ allowlist: {} }], errors: [{ messageId: 'unnamed' }] },
     { code: '<select />', filename: 'src/components/uix/Thing.tsx', options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select title="" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select hidden={false} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select aria-hidden="false" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    // aria-labelledby at no id in the file names nothing
+    { code: '<select aria-labelledby="nowhere" />', filename: file, options: NONE, errors: [{ messageId: 'danglingLabelledby', data: { tag: 'select', ids: 'nowhere' } }] },
+    // a wrapping <label> names only its first control
+    { code: '<label>Range <select /><select /></label>', filename: file, options: NONE, errors: [{ messageId: 'secondInLabel', column: 24 }] },
+    { code: '<label>Notes <input /><textarea /></label>', filename: file, options: NONE, errors: [{ messageId: 'secondInLabel' }] },
+    // a <label htmlFor> names its target, not the control it wraps
+    { code: '<label htmlFor="a">Status <select /></label>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
   ],
 });
 

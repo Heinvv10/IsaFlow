@@ -86,6 +86,24 @@ export function hasValue(a) {
   return !isNothing(a);
 }
 
+/** The message `overList` wraps: what the file has too many of, which file, and its allowed count. */
+export const OVER_LIST_MESSAGE =
+  '{{what}} ({{file}} may have {{allowed}} by {{list}} and now has more. The report lands on the first control past the count in file order; the one you added or changed may be earlier in the file.)';
+
+/**
+ * Reports `found` beyond the first `allowed` in file order. In a listed file each one names the file and its count,
+ * because the report lands on whichever control is past the count, not necessarily the one that changed.
+ */
+export function reportBeyondAllowlist(context, found, allowed, list) {
+  found.sort((a, b) => a.node.range[0] - b.node.range[0]);
+  for (const report of found.slice(allowed)) {
+    if (allowed === 0) { context.report(report); continue; }
+    const template = list.messages[report.messageId];
+    const what = template.replace(/\{\{(\w+)\}\}/g, (_, k) => report.data?.[k] ?? '');
+    context.report({ node: report.node, messageId: 'overList', data: { what, file: list.rel, allowed: String(allowed), list: list.name } });
+  }
+}
+
 /** @type {import('eslint').Rule.RuleModule} */
 export const noRawFormInput = {
   meta: {
@@ -98,6 +116,7 @@ export const noRawFormInput = {
         '<input> has no accessible name. Add aria-label or aria-labelledby, an id that a <label htmlFor> points at, or wrap it in a <label>. Prefer the kit: Input, MoneyField, DateField.',
       orphanId:
         '<input id="{{id}}"> is not referenced by any <label htmlFor="{{id}}"> in this file. Add the label, or use aria-label.',
+      overList: OVER_LIST_MESSAGE,
     },
   },
   create(context) {
@@ -143,8 +162,7 @@ export const noRawFormInput = {
           if (!labelTargets.has(id)) found.push({ node, messageId: 'orphanId', data: { id } });
         }
         // The first `allowed` reports in file order are the ones the list already knows about.
-        found.sort((a, b) => a.node.range[0] - b.node.range[0]);
-        for (const report of found.slice(allowed)) context.report(report);
+        reportBeyondAllowlist(context, found, allowed, { rel, name: 'eslint/raw-input-allowlist.json', messages: noRawFormInput.meta.messages });
       },
     };
   },
