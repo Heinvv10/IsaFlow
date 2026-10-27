@@ -2,77 +2,22 @@
  * Budgets P2 PR-B, the grid read model (spec 4.2 gridReadModel, 4.3 GET budget-grid, 6.5, 7.1):
  * primary / newest / named version, the account rule (active leaves + anything holding amounts,
  * inactive flagged), headers as roll-up rows with `ownAmounts`, band totals that count a legacy
- * header's own amounts once and never its roll-up, the microsecond text token, `cells_only`,
- * and tenant isolation (through the route under RLS and through the service on a superuser
- * connection, where only the query's own company_id protects).
+ * header's own amounts once and never its roll-up, the microsecond text token and `cells_only`.
+ * Tenant isolation is budget-grid-read-tenant.int.test.ts; the shared world is
+ * helpers/budgetGridReadWorld.ts.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Pool } from 'pg';
-import gridRoute from '../../pages/api/accounting/budget-grid/index';
-import { als } from '@/lib/als';
-import { loadGridReadModel, type GridReadModel } from '@/modules/accounting/services/budgets/gridReadModel';
+import { beforeAll, describe, expect, it } from 'vitest';
+import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { budgetGridFixture, monthsFrom, type GridCo } from './helpers/budgetGridFixture';
+import { monthsFrom, type GridCo } from './helpers/budgetGridFixture';
+import { FY27, budgetGridReadWorld, data } from './helpers/budgetGridReadWorld';
 
 assertDisposable();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
-const fx = budgetGridFixture(pool);
-const URL = '/api/accounting/budget-grid';
-const get = (c: GridCo, query: Record<string, string>, who: 'owner' | 'viewer' = 'owner') => fx.call(gridRoute, URL, c[who], 'GET', query);
-const data = <T,>(r: { body: { data?: unknown } }) => r.body.data as T;
-
-const FY27 = monthsFrom('2026-03');
-let A: GridCo, B: GridCo, T: GridCo;
+const { pool, fx, get, w } = budgetGridReadWorld();
+let A: GridCo, T: GridCo;
 let primary: string, draftScenario: string, lockedFy27: string, newestFy28: string;
-
-beforeAll(async () => {
-  A = await fx.company();
-  B = await fx.company();
-  T = await fx.company({ transition: true });
-  const a = A.acct;
-
-  primary = await fx.version(A, { fy: 2027, name: 'Original', kind: 'original', status: 'approved', primary: true });
-  await fx.amounts(A, primary, a.sales, FY27, 1000);
-  await fx.amounts(A, primary, a.cos, FY27, 400);
-  await fx.amounts(A, primary, a.rent, FY27, 100, { cc1: A.cc1 });
-  await fx.amounts(A, primary, a.rent, FY27, 50, { cc1: A.cc1b });
-  await fx.amounts(A, primary, a.childA, FY27, 30);
-  await fx.amounts(A, primary, a.childB, FY27, 20);
-  await fx.amount(A, primary, a.header, '2026-03', 7); // a legacy header budget
-  await fx.amount(A, primary, a.inactive, '2026-03', 11); // inactive, but it holds an amount
-  await fx.amount(A, primary, a.otherIncome, '2026-03', 40);
-  await fx.amount(A, primary, a.bank, '2026-03', 999); // not revenue/expense: never listed
-  await fx.amount(A, primary, a.sales, '2030-01', 5555); // outside the year's months: ignored
-  draftScenario = await fx.version(A, { fy: 2027, name: 'Scenario', kind: 'scenario' });
-  lockedFy27 = await fx.version(A, { fy: 2027, name: 'Locked copy', kind: 'reforecast', status: 'locked' });
-  await fx.version(A, { fy: 2028, name: 'Older', kind: 'original' });
-  newestFy28 = await fx.version(A, { fy: 2028, name: 'Newest', kind: 'scenario' });
-
-  // Company B: the same fiscal years, its own versions and amounts.
-  const bp = await fx.version(B, { fy: 2027, name: 'Original', kind: 'original', status: 'approved', primary: true });
-  await fx.amount(B, bp, B.acct.sales, '2026-03', 3);
-  await fx.version(B, { fy: 2027, name: 'B scenario', kind: 'scenario' });
-}, 120000);
-
-afterAll(async () => {
-  try {
-    await fx.cleanup();
-  } finally {
-    await pool.end();
-  }
-}, 60000);
-
-/** The service on a superuser connection (no RLS), so only the query's own company_id isolates tenants. */
-async function direct(c: GridCo, opts: { versionId?: string; fiscalYear?: number }): Promise<GridReadModel> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    return await als.run({ client, companyId: c.id, userId: c.user, claims: {} } as never, () => loadGridReadModel(c.id, opts));
-  } finally {
-    await client.query('ROLLBACK');
-    client.release();
-  }
-}
+// Runs after the world's own beforeAll (registered first): the names the tests below use.
+beforeAll(() => { ({ A, T, primary, draftScenario, lockedFy27, newestFy28 } = w); });
 
 describe('budget-grid read model: which version', () => {
   it('?fiscal_year= answers the primary version, with the year and its twelve months', async () => {
@@ -269,65 +214,5 @@ describe('budget-grid read model: cells and totals', () => {
     expect(body.versionId).toBe(primary);
     expect(body.cells).toEqual(m.cells);
     expect(body.updatedAt).toBe(m.updatedAt);
-  });
-});
-
-describe('budget-grid read model: tenant isolation', () => {
-  it('another tenant\'s version id is a 404, and the same year answers only the caller\'s own figures', async () => {
-    const r = await get(B, { version_id: primary });
-    expect(r.status).toBe(404);
-    expect(r.body.error?.details?.code).toBe('BUDGET_VERSION_NOT_FOUND');
-    const own = data<GridReadModel>(await get(B, { fiscal_year: '2027' }));
-    expect(own.cells.map((c) => c.amount)).toEqual([3]);
-    expect(own.accounts.every((x) => Object.values(B.acct).includes(x.id))).toBe(true);
-  });
-
-  it('the service alone (no RLS) lists only the caller\'s accounts, members and cells', async () => {
-    const m = await direct(B, { fiscalYear: 2027 });
-    expect(m.cells.map((c) => c.glAccountId)).toEqual([B.acct.sales]);
-    expect(m.accounts.every((x) => Object.values(B.acct).includes(x.id))).toBe(true);
-    expect(m.accounts.length).toBeGreaterThan(0);
-    const members = [...m.dimensions.cc1, ...m.dimensions.cc2, ...m.dimensions.bu].map((x) => x.id);
-    expect(members.every((id) => [B.cc1, B.cc1b, B.cc2, B.bu].includes(id))).toBe(true);
-    expect(m.totals.fy.turnover).toBe(3);
-  });
-
-  it('the newest-version fallback never reaches another tenant\'s versions', async () => {
-    // A has FY2028 versions and no primary; B has none: B must see no version, not A's newest.
-    const m = await direct(B, { fiscalYear: 2028 });
-    expect(m.version).toBeNull();
-    expect(m.cells).toEqual([]);
-  });
-
-  it('the service refuses another tenant\'s version id', async () => {
-    await expect(direct(B, { versionId: primary })).rejects.toMatchObject({ code: 'BUDGET_VERSION_NOT_FOUND' });
-  });
-});
-
-describe('budget-grid read model: notes (accounting_budgets.notes, read-only)', () => {
-  const note = (c: GridCo, acct: string, fy: number, text: string) => pool.query(
-    `INSERT INTO accounting_budgets (company_id, gl_account_id, fiscal_year, budget_name, notes) VALUES ($1, $2, $3, $4, $5)`,
-    [c.id, acct, fy, `FY${fy} Budget`, text]);
-  const notes = (m: GridReadModel) => Object.fromEntries(m.accounts.filter((x) => x.note !== null).map((x) => [x.id, x.note]));
-
-  beforeAll(async () => {
-    await note(A, A.acct.rent, 2027, 'Lease renewal from March');
-    await note(A, A.acct.header, 2027, 'Premises: rates and cleaning together');
-    await note(A, A.acct.cos, 2027, '   '); // blank: no note
-    await note(A, A.acct.childA, 2026, 'Last year only'); // another year
-    await note(B, A.acct.sales, 2027, 'Another company'); // another tenant's row, on A's account id
-  });
-
-  it("each account carries its note for the version's year: lines and headers; never a blank, another year's or another tenant's", async () => {
-    const want = { [A.acct.rent]: 'Lease renewal from March', [A.acct.header]: 'Premises: rates and cleaning together' };
-    expect(notes(data<GridReadModel>(await get(A, { version_id: primary })))).toEqual(want);
-    // On a superuser connection only the query's own company_id keeps B's row out.
-    expect(notes(await direct(A, { versionId: primary }))).toEqual(want);
-  });
-
-  it('every version of the year shows the same note (the header is per account and year)', async () => {
-    const m = data<GridReadModel>(await get(A, { version_id: draftScenario }));
-    expect(m.accounts.find((x) => x.id === A.acct.rent)?.note).toBe('Lease renewal from March');
-    expect(m.accounts.find((x) => x.id === A.acct.childA)?.note).toBeNull();
   });
 });
