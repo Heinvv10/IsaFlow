@@ -27,6 +27,7 @@ import PaymentNew from '../../../pages/accounting/customer-payments/new';
 import PoNew from '../../../pages/accounting/purchase-orders/new';
 import SupplierInvoiceNew from '../../../pages/accounting/supplier-invoices/new';
 import BankRecNew from '../../../pages/accounting/bank-reconciliation/new';
+import CreditNoteNew from '../../../pages/accounting/credit-notes/new';
 
 useApiJsonOverMock();
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); vi.mocked(apiFetch).mockImplementation(async () => ok([])); });
@@ -50,6 +51,7 @@ const forms: FormCase[] = [
     dates: [{ label: 'Order Date', key: 'orderDate' }, { label: 'Expected Delivery', key: 'expectedDeliveryDate' }] },
   { page: 'supplier-invoices/new', element: <SupplierInvoiceNew />, prepare: () => { fireEvent.click(screen.getByText('pick-supplier')); },
     dates: [{ label: 'Invoice Date', key: 'invoiceDate' }, { label: 'Due Date', key: 'dueDate' }] },
+  { page: 'credit-notes/new', element: <CreditNoteNew />, dates: [{ label: 'Credit Date', key: 'creditDate' }] },
   { page: 'bank-reconciliation/new', element: <BankRecNew />, dates: [{ label: 'Statement Date', key: 'statementDate' }] },
 ];
 
