@@ -28,14 +28,17 @@ export function TryDemoLink({ onSwitched }: TryDemoLinkProps) {
 
   const go = async () => {
     setBusy(true);
+    let switched = false;
     try {
       await switchCompany(demo.companyId);
+      switched = true;
     } catch (e) {
-      setBusy(false);
       notify.error(apiErrorMessage(e, 'Could not switch company - try again'));
       return; // still on the old company: keep the offer
+    } finally {
+      // Still busy after a good switch: the reload it started replaces this page.
+      if (!switched) setBusy(false);
     }
-    // Still busy: the reload switchCompany started replaces this page.
     onSwitched?.();
   };
 
