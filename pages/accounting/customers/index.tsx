@@ -4,10 +4,12 @@
  * Route: /accounting/customers
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, Loader2, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
+import { Users, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
+import { ListEmpty } from '@/components/ui/ListEmpty';
 import { KpiStrip } from '@/components/ui';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
@@ -39,7 +41,12 @@ function StatusBadge({ active }: { active: boolean }) {
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // The search the rows on screen answer: until it matches the debounced one the rows are stale (no one-frame empty flash).
+  const [loadedQ, setLoadedQ] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const seq = useRef(0);
+  useEffect(() => () => { seq.current++; }, []); // unmount invalidates any request still in flight
+  // // only the newest request may write state: an older response landing late is dropped
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -50,6 +57,7 @@ export default function CustomersPage() {
   }, [search]);
 
   const loadCustomers = useCallback(async () => {
+    const mine = ++seq.current;
     setIsLoading(true);
     setError('');
     try {
@@ -58,12 +66,14 @@ export default function CustomersPage() {
       const res = await apiFetch(`/api/accounting/customers?${params}`);
       await assertOk(res, 'Could not load customers - try again');
       const json = await res.json();
+      if (mine !== seq.current) return;
       setCustomers((json.data ?? json) as Customer[]);
     } catch (err) {
+      if (mine !== seq.current) return;
       setCustomers([]);
       setError(apiErrorMessage(err, 'Could not load customers - try again'));
     } finally {
-      setIsLoading(false);
+      if (mine === seq.current) { setLoadedQ(debouncedSearch); setIsLoading(false); }
     }
   }, [debouncedSearch]);
 
@@ -109,8 +119,8 @@ export default function CustomersPage() {
             );
           })()}
           {/* Search bar */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="relative">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6">
+            <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
@@ -118,7 +128,7 @@ export default function CustomersPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, email or VAT..."
-                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-full sm:w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
             {!isLoading && (
@@ -129,32 +139,25 @@ export default function CustomersPage() {
           </div>
 
           {/* Content */}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
-            </div>
+          {isLoading || loadedQ !== debouncedSearch ? (
+            <ListSkeleton label="Loading customers" />
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
               <AlertCircle className="h-5 w-5" />
               <span>{error}</span>
             </div>
           ) : customers.length === 0 ? (
-            <div className="text-center py-16">
-              <Users className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)] font-medium">No customers found</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
-                {search ? 'Try a different search term' : 'Add your first customer to get started'}
-              </p>
-              {!search && (
-                <Link
-                  href="/accounting/customers/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Customer
-                </Link>
-              )}
-            </div>
+            <ListEmpty
+              filtered={!!loadedQ}
+              onClearFilters={() => setSearch('')}
+              firstRun={{
+                icon: Users,
+                title: 'No customers yet',
+                description: 'Customers are who you invoice. Add one to get started.',
+                checklist: ['Add the customer', 'Set their payment terms', 'Invoice them'],
+                primaryAction: { label: 'New Customer', href: '/accounting/customers/new' },
+              }}
+            />
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
               <table className="w-full text-sm">
