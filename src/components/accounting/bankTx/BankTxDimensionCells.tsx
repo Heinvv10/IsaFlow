@@ -20,10 +20,12 @@ interface Props {
   sel: RowSelection | undefined;
   rowType: AllocType;
   isNew: boolean;
+  /** rowLabel(tx), for the accessible names. */
+  label: string;
   table: BankTxTableProps;
 }
 
-export function BankTxDimensionCells({ tx, sel, rowType, isNew, table }: Props) {
+export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: Props) {
   const { cc1Options, cc2Options, buOptions, showCC, showBU, onRowVatChange, onRowDimensionChange } = table;
   // s17(2)(a) denies input tax on entertainment — but its proviso
   // lets a vendor who continuously supplies entertainment claim it,
@@ -54,6 +56,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, table }: Props) 
             <select
               value={sel?.vatCode || 'none'}
               onChange={e => onRowVatChange(tx.id, e.target.value as VatCode)}
+            aria-label={`VAT, ${label}`}
               className={`text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] w-full ${
                 vatWarn
                   ? 'border border-amber-500 text-amber-500'
@@ -102,6 +105,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, table }: Props) 
       <td className="py-2 px-2">
         {isNew ? (
           <select value={sel?.cc1Id || ''} onChange={e => onRowDimensionChange(tx.id, e.target.value, sel?.cc2Id || '', sel?.buId || '')}
+            aria-label={`Cost centre 1, ${label}`}
             className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
             <option value="">—</option>
             {cc1Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
@@ -116,6 +120,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, table }: Props) 
       <td className="py-2 px-2">
         {isNew ? (
           <select value={sel?.cc2Id || ''} onChange={e => onRowDimensionChange(tx.id, sel?.cc1Id || '', e.target.value, sel?.buId || '')}
+            aria-label={`Cost centre 2, ${label}`}
             className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
             <option value="">—</option>
             {cc2Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
@@ -130,6 +135,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, table }: Props) 
       <td className="py-2 px-2">
         {isNew ? (
           <select value={sel?.buId || ''} onChange={e => onRowDimensionChange(tx.id, sel?.cc1Id || '', sel?.cc2Id || '', e.target.value)}
+            aria-label={`Business unit, ${label}`}
             className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
             <option value="">—</option>
             {buOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}

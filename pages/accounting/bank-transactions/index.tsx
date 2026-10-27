@@ -30,9 +30,8 @@ import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
 import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
-import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
-
-const PAGE_SIZE = 25;
+import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
+import { usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 
 export default function BankTransactionsPage() {
   const router = useRouter();
@@ -133,6 +132,7 @@ export default function BankTransactionsPage() {
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
+  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, setPage });
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, loadTransactions);
@@ -243,7 +243,7 @@ export default function BankTransactionsPage() {
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
-            empty={transactions.length === 0} tab={tab}>
+            empty={transactions.length === 0} total={total} tab={tab}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}

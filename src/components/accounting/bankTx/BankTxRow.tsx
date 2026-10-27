@@ -11,6 +11,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import type { RowProps } from '../useBankTxKeyboardNav';
 import { isPendingFeedRow, PendingFeedBadge } from '../bank-transactions/pendingFeedRow';
 import type { AllocType, BankTx, BankTxTableProps } from './bankTxTypes';
+import { rowLabel } from './bankTxRowLabel';
 import { BankTxSelectionCell, type BankTxDropdownState } from './BankTxSelectionCell';
 import { BankTxDimensionCells } from './BankTxDimensionCells';
 import { BankTxRowActions } from './BankTxRowActions';
@@ -24,9 +25,11 @@ function fmtCurrency(n: number): string {
  * Renders as gray placeholder text when empty, saves on blur.
  */
 function NotesCell({
-  txId, initialValue, onSave,
+  txId, label, initialValue, onSave,
 }: {
   txId: string;
+  /** rowLabel(tx), for the accessible name. */
+  label: string;
   initialValue: string;
   onSave: (txId: string, value: string) => void;
 }) {
@@ -55,6 +58,7 @@ function NotesCell({
         onKeyDown={e => { if (e.key === 'Enter') inputRef.current?.blur(); if (e.key === 'Escape') { setValue(initialValue); setEditing(false); } }}
         className="w-full px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-blue-500/60 text-xs text-[var(--ff-text-primary)] focus:outline-none"
         placeholder="Add note..."
+        aria-label={`Note, ${label}`}
         autoFocus
       />
     );
@@ -65,6 +69,7 @@ function NotesCell({
       onClick={() => setEditing(true)}
       className="text-xs truncate max-w-[140px] block text-left hover:text-[var(--ff-text-primary)] transition-colors"
       title={value || 'Click to add note'}
+      aria-label={value ? `Note, ${label}: ${value}` : `Add note, ${label}`}
     >
       {value
         ? <span className="text-[var(--ff-text-secondary)]">{value}</span>
@@ -93,6 +98,7 @@ export function BankTxRow({ tx, rowProps, table, dropdown }: Props) {
   const received = tx.amount > 0 ? tx.amount : null;
 
   const isExcluded = tx.status === 'excluded';
+  const label = rowLabel(tx);
 
   return (
     <tr
@@ -104,7 +110,8 @@ export function BankTxRow({ tx, rowProps, table, dropdown }: Props) {
       <td className="py-2 px-2">
         <input type="checkbox" checked={selectedIds.has(tx.id)}
           disabled={isPendingFeedRow(tx)}
-          onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
+          onChange={() => onToggleSelect(tx.id)} className="accent-teal-500"
+          aria-label={`Select ${label}`} />
       </td>
       <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
         {formatDisplayDate(tx.transactionDate)}
@@ -130,6 +137,7 @@ export function BankTxRow({ tx, rowProps, table, dropdown }: Props) {
         {onUpdateNotes ? (
           <NotesCell
             txId={tx.id}
+            label={label}
             initialValue={tx.notes || ''}
             onSave={onUpdateNotes}
           />
@@ -143,6 +151,7 @@ export function BankTxRow({ tx, rowProps, table, dropdown }: Props) {
           <select
             value={rowType}
             onChange={e => onRowTypeChange(tx.id, e.target.value as AllocType)}
+            aria-label={`Allocation type, ${label}`}
             className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] w-full"
           >
             <option value="account">Account</option>
@@ -165,14 +174,14 @@ export function BankTxRow({ tx, rowProps, table, dropdown }: Props) {
         )}
       </td>
       {/* Selection — GL account / Supplier / Customer selector */}
-      <BankTxSelectionCell tx={tx} sel={sel} rowType={rowType} isNew={isNew} table={table} dropdown={dropdown} />
+      <BankTxSelectionCell tx={tx} sel={sel} rowType={rowType} isNew={isNew} label={label} table={table} dropdown={dropdown} />
       <td className="py-2 px-2">
         <span className="text-xs text-[var(--ff-text-tertiary)] truncate max-w-[120px] block"
           title={tx.allocationRuleName || ''}>
           {tx.allocationRuleName || '—'}
         </span>
       </td>
-      <BankTxDimensionCells tx={tx} sel={sel} rowType={rowType} isNew={isNew} table={table} />
+      <BankTxDimensionCells tx={tx} sel={sel} rowType={rowType} isNew={isNew} label={label} table={table} />
       <td className="py-2 px-2 text-right tabular-nums text-xs text-red-400">
         {spent !== null ? fmtCurrency(spent) : ''}
       </td>

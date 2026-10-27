@@ -25,16 +25,26 @@ interface Props {
   sel: RowSelection | undefined;
   rowType: AllocType;
   isNew: boolean;
+  /** rowLabel(tx), for the accessible names. */
+  label: string;
   table: BankTxTableProps;
   dropdown: BankTxDropdownState;
 }
 
-export function BankTxSelectionCell({ tx, sel, rowType, isNew, table, dropdown }: Props) {
+export function BankTxSelectionCell({ tx, sel, rowType, isNew, label, table, dropdown }: Props) {
   const { suppliersLoading, onRowEntityChange, onCreateEntity } = table;
   const { openSel, search, dropUp, setOpenSel, setSearch, setDropUp } = dropdown;
   const isOpen = openSel === tx.id;
   const rawOptions = filterOptions(getOptionsForType(rowType, table), isOpen ? search : '');
   const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
+  const triggerText = sel?.entityId ? sel.label : (
+    rowType === 'supplier' ? 'Select Supplier'
+    : rowType === 'customer' ? 'Select Customer'
+    : rowType === 'transfer' ? 'Select Bank Account'
+    : 'Unallocated'
+  );
+  const entityNoun = rowType === 'transfer' ? 'bank account' : rowType;
+  const searchNoun = rowType === 'supplier' ? 'suppliers' : rowType === 'customer' ? 'customers' : rowType === 'transfer' ? 'bank accounts' : 'accounts';
 
   return (
     <td className="py-2 px-2 relative">
@@ -61,6 +71,8 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, table, dropdown }
               setDropUp(rect.bottom + 260 > window.innerHeight);
               setOpenSel(tx.id); setSearch('');
             }}
+            aria-label={`${triggerText}. Choose ${entityNoun}, ${label}`}
+            aria-expanded={isOpen}
             className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block ${
               sel?.entityId
                 ? tx.suggestedGlAccountId && sel.entityId === tx.suggestedGlAccountId
@@ -75,12 +87,7 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, table, dropdown }
                       : 'text-purple-400 bg-purple-500/10 font-medium'
             }`}
           >
-            {sel?.entityId ? sel.label : (
-              rowType === 'supplier' ? 'Select Supplier'
-              : rowType === 'customer' ? 'Select Customer'
-              : rowType === 'transfer' ? 'Select Bank Account'
-              : 'Unallocated'
-            )}
+            {triggerText}
           </button>
           <SharedPoolHint suggestedStrategy={tx.suggestedStrategy} suggestedGlAccountId={tx.suggestedGlAccountId} selectedEntityId={sel?.entityId} />
           {isOpen && (
@@ -89,7 +96,8 @@ export function BankTxSelectionCell({ tx, sel, rowType, isNew, table, dropdown }
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />
                   <input type="text"
-                    placeholder={`Search ${rowType === 'supplier' ? 'suppliers' : rowType === 'customer' ? 'customers' : rowType === 'transfer' ? 'bank accounts' : 'accounts'}...`}
+                    placeholder={`Search ${searchNoun}...`}
+                    aria-label={`Search ${searchNoun}`}
                     value={search} onChange={e => setSearch(e.target.value)}
                     className="w-full pl-7 pr-2 py-1.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
                     autoFocus />
