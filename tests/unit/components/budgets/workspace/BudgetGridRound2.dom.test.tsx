@@ -102,6 +102,12 @@ describe('row actions from the keyboard', () => {
     mount();
     expect(fireEvent.contextMenu(cell(ID.rev2, 3))).toBe(false);
   });
+
+  it('but not inside the cell editor: right-click → Paste in the input keeps the native menu', () => {
+    mount();
+    fireEvent.doubleClick(cell(ID.rev2, 3));
+    expect(fireEvent.contextMenu(editor()!)).toBe(true);
+  });
 });
 
 describe('notice heading counts cells, not entries', () => {

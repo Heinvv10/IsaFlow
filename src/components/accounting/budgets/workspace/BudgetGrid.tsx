@@ -102,8 +102,9 @@ export function BudgetGrid(props: BudgetGridProps) {
   }, [keys]);
 
   // The context-menu key also fires `contextmenu` (on key-up on Windows): no browser menu over a cell.
+  // The cell editor keeps its native menu (right-click → Paste into the input).
   const onContextMenu = useCallback((e: MouseEvent<HTMLTableElement>) => {
-    if (e.target instanceof Element && e.target.closest('[data-pos]')) e.preventDefault();
+    if (e.target instanceof Element && e.target.closest('[data-pos]') && !e.target.closest('[data-cell-editor]')) e.preventDefault();
   }, []);
 
   const accountant = density === 'accountant';
