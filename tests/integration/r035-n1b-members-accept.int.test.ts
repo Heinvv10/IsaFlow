@@ -33,6 +33,12 @@ vi.mock('@/lib/auth/gotrue', async (orig) => ({
       user: { id: gotrueId.current, email } };
   }),
 }));
+// accept.ts reads an established account's factors (MFA gate): none here.
+vi.mock('@/lib/auth/gotrue-mfa', async (orig) => ({
+  ...(await orig<object>()),
+  listFactors: vi.fn(async () => ({ totp: [] })),
+  adminListUserFactors: vi.fn(async () => []),
+}));
 vi.mock('@/modules/accounting/services/core/emailService', async (orig) => ({
   ...(await orig<object>()),
   sendEmail: vi.fn(async (m: { to: string; html: string }) => { sent.push(m); return { success: true }; }),
