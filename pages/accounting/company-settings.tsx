@@ -128,7 +128,8 @@ export default function CompanySettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!company) return;
+    // Defence in depth: Save is disabled while Lockdown Date is refused, but not every path goes through the button.
+    if (!company || lockdownInvalid) return;
     setSaving(true); setError(''); setSaved(false);
     try {
       const put = async (url: string, body: unknown, fallback: string) => {
