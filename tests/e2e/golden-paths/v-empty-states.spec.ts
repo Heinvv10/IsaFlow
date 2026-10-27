@@ -94,13 +94,31 @@ test('customers: a search with no match says No results and never offers the dem
 });
 
 test('"Try the demo company" lands on the demo company with data', async ({ page, context }) => {
-  await open(page, '/accounting/customers');
-  await page.getByRole('button', { name: OFFER }).click();
-  await expect.poll(async () => {
-    const res = await context.request.get('/api/accounting/companies?action=user-companies');
-    return (await res.json())?.data?.activeCompanyId;
-  }, { timeout: 30_000 }).toBe(demoId);
-  await page.goto('/accounting/customers');
+  // switchCompany POSTs switch-company (the active company flips), then POSTs set-default, then reloads the page.
+  // Hold set-default so the window between "flipped" and "reloaded" is open on purpose: the test must wait for
+  // the reload the app performs, not navigate itself into it (that aborted with net::ERR_ABORTED in CI).
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const isSetDefault = (url: URL) => url.pathname === '/api/accounting/companies';
+  await page.route(isSetDefault, async (route) => {
+    if (route.request().method() !== 'POST') { await route.continue(); return; }
+    await gate;
+    await route.continue();
+  });
+  try {
+    await open(page, '/accounting/customers');
+    await page.getByRole('button', { name: OFFER }).click();
+    await expect.poll(async () => {
+      const res = await context.request.get('/api/accounting/companies?action=user-companies');
+      return (await res.json())?.data?.activeCompanyId;
+    }, { timeout: 30_000 }).toBe(demoId);
+    const reloaded = page.waitForEvent('load');
+    release();
+    await reloaded; // the app's own reload, onto the same URL
+  } finally {
+    release();
+    await page.unroute(isSetDefault, { behavior: 'wait' });
+  }
   await settle(page);
   await expect(page.locator('table tbody tr').first()).toBeVisible();
   await expect(page.getByRole('button', { name: OFFER })).toHaveCount(0);

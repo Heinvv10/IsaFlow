@@ -44,8 +44,10 @@ export function AccountingTour() {
     const s = TOUR_STEPS[stepIndex];
     if (!s) return;
     const el = document.querySelector(s.target);
-    if (!el) { setTargetRect(null); return; }
-    const r = el.getBoundingClientRect();
+    const r = el?.getBoundingClientRect();
+    // A target hidden at this width (the top nav tabs below lg) measures 0x0 at the top-left corner: no target, so
+    // the step shows centred instead of spotlighting nothing.
+    if (!r || (r.width === 0 && r.height === 0)) { setTargetRect(null); return; }
     setTargetRect({
       top: r.top - PADDING,
       left: r.left - PADDING,
