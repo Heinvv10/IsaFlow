@@ -3,7 +3,6 @@
  * real owner (real withAuth, request transaction, CSRF) of a fresh March company.
  */
 import type { Pool } from 'pg';
-import { als } from '@/lib/als';
 import { request, response } from '../mfa-impersonation-postgres.helpers';
 import { newSetupUser, type SetupUser } from './onboardingSetupFixture';
 
@@ -25,22 +24,23 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
   }
 
   /**
-   * Runs a budget service as `u` in one transaction on its own connection, and COMMITS whatever
-   * happened, as withAuth does for a 4xx (a refusal must undo its own writes; the caller's
-   * transaction does not). Used by the suites that wrote through the retired legacy routes.
+   * Month amounts on the year's PRIMARY version, written directly (the converted 'Original' when the
+   * year has none: public.budget_version_original), with the year's notes header when `notes` is
+   * given. The suites' setup, now that the legacy writers are gone.
    */
-  async function asUser<T>(u: SetupUser, fn: () => Promise<T>): Promise<T> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      try {
-        return await als.run({ client, companyId: u.homeCompanyId, userId: u.userId, claims: {} } as never, fn);
-      } finally {
-        await client.query('COMMIT'); // a poisoned transaction turns COMMIT into ROLLBACK, as in withAuth
-      }
-    } finally {
-      client.release();
+  async function seedPrimary(u: SetupUser, account: string, label: number, months: Array<{ month: string; amount: number }>, notes?: string): Promise<string> {
+    const version = String((await pool.query('SELECT public.budget_version_original($1, $2, $3) AS id', [u.homeCompanyId, label, u.userId])).rows[0].id);
+    await pool.query(
+      `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+       SELECT $1, $2, $3, (m || '-01')::DATE, a FROM unnest($4::TEXT[], $5::NUMERIC[]) AS t(m, a)
+       ON CONFLICT ON CONSTRAINT budget_month_amounts_one_per_cell DO UPDATE SET amount = EXCLUDED.amount`,
+      [u.homeCompanyId, version, account, months.map((m) => m.month), months.map((m) => m.amount)]);
+    if (notes !== undefined) {
+      await pool.query(
+        `INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes) VALUES ($1, $2, $3, $4, $5)`,
+        [u.homeCompanyId, `FY${label} Budget`, label, account, notes]);
     }
+    return version;
   }
 
   /** An owner of a fresh March company with an expense account; its current year generated. */
@@ -75,5 +75,5 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
     for (const u of users) await pool.query('DELETE FROM company_users WHERE user_id = $1', [u]);
   }
 
-  return { call, owner, cleanup, asUser };
+  return { call, owner, cleanup, seedPrimary };
 }

@@ -8,7 +8,6 @@
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
-import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
 import route from '../../pages/api/accounting/budgets';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
@@ -21,7 +20,7 @@ vi.mock('@/modules/accounting/services/core/budgetService', async (importOrigina
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
-const { call, owner, cleanup, asUser } = budgetsRouteFixture(pool, route, '/api/accounting/budgets');
+const { call, owner, cleanup, seedPrimary } = budgetsRouteFixture(pool, route, '/api/accounting/budgets');
 
 beforeEach(() => { reads.n = 0; });
 afterAll(async () => {
@@ -46,7 +45,7 @@ describe('GET', () => {
   it('a chosen year with a saved budget reads back every month, on one request connection', async () => {
     const o = await owner();
     const months = o.months.map((month, i) => ({ month, amount: (i + 1) * 10 }));
-    await asUser(o.u, () => upsertBudget(o.u.homeCompanyId, { glAccountId: o.account, fiscalYear: o.label, months }, o.u.userId));
+    await seedPrimary(o.u, o.account, o.label, months);
     const r = await call(o.u, 'GET', undefined, { fiscal_year: String(o.label) });
     expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
     const items = r.body.data?.items as Array<{ annualAmount: number; months: Array<{ month: string; amount: number }> }>;
@@ -66,7 +65,7 @@ describe('GET', () => {
 describe('GET years_only=1 (the workspace year select)', () => {
   it('answers the current year and the year list, and never reads the budgets', async () => {
     const o = await owner();
-    await asUser(o.u, () => upsertBudget(o.u.homeCompanyId, { glAccountId: o.account, fiscalYear: o.label, annualAmount: 1200 }, o.u.userId));
+    await seedPrimary(o.u, o.account, o.label, o.months.map((month) => ({ month, amount: 100 })));
     reads.n = 0;
     const r = await call(o.u, 'GET', undefined, { years_only: '1' });
     expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);

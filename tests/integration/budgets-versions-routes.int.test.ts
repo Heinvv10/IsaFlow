@@ -1,7 +1,8 @@
 /**
  * Budgets P1 routes (migration 947), called as real members through withAuth's request
- * transaction: pages/api/accounting/budget-versions/** and the legacy budget writer on a locked primary
- * (core/budgetService, called as a service since its routes were retired in budgets P2 PR-D).
+ * transaction: pages/api/accounting/budget-versions/**, and the budgets GET reading the primary. Amounts
+ * are seeded directly (the legacy writer and its routes were removed in budgets P2 PR-D; the grid
+ * save's own refusals, locked and grain included, are budget-grid-save*.int).
  * Roles (decision 1), 409 before any write, compare-and-set on status, 404 for another tenant's
  * id, the copy's count and sum, and one audit row per amount write.
  */
@@ -18,7 +19,6 @@ import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import { signSession } from './r-032-fake-gotrue.helpers';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { als } from '@/lib/als';
-import { deleteBudget, upsertBudget } from '@/modules/accounting/services/core/budgetService';
 import { transitionVersion } from '@/modules/accounting/services/budgets/budgetVersionStatus';
 
 assertDisposable();
@@ -46,6 +46,8 @@ let other: Awaited<ReturnType<typeof budgets.owner>>;
 beforeAll(async () => {
   o = await budgets.owner();
   other = await budgets.owner();
+  // o's FY primary: 10 in every month (the copy case below counts 12 amounts).
+  await budgets.seedPrimary(o.u, o.account, o.label, o.months.map((month) => ({ month, amount: 10 })));
   admin = await member(o.u.homeCompanyId, 'admin');
   manager = await member(o.u.homeCompanyId, 'manager');
   viewer = await member(o.u.homeCompanyId, 'viewer');
@@ -71,12 +73,9 @@ afterAll(async () => {
 type V = { id: string; status: string; isPrimary: boolean; updatedAt: string; amountCount: number; total: number; name: string };
 const data = (r: { body: { data?: unknown } }) => r.body.data as V;
 const errCode = (r: { body: { error?: unknown } }) => (r.body.error as { details?: { code?: string } } | undefined)?.details?.code;
-const months = (amount: number) => o.months.map((month) => ({ month, amount }));
 const create = async (u: SetupUser, name: string, kind = 'scenario', fiscalYear = o.label) =>
   list.call(u, 'POST', { fiscalYear, name, kind });
 const move = (u: SetupUser, id: string, body: Record<string, unknown>) => status.call(u, 'POST', body, { id });
-const auditCount = async (entityId: string) =>
-  Number((await pool.query('SELECT COUNT(*) n FROM audit_log WHERE entity_id = $1', [entityId])).rows[0].n);
 
 describe('budget-versions routes', () => {
   it('roles: admin approves and locks; a manager (a writer) cannot approve or lock; an admin cannot unlock; the owner unlocks only with a reason', async () => {
@@ -96,44 +95,6 @@ describe('budget-versions routes', () => {
     expect(data(ok).status).toBe('approved');
   });
 
-  it('a save into a locked primary is refused BUDGET_VERSION_LOCKED and writes nothing', async () => {
-    await budgets.asUser(o.u, () => upsertBudget(o.u.homeCompanyId, { glAccountId: o.account, fiscalYear: o.label, months: months(10), notes: 'first' }, o.u.userId));
-    const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND fiscal_year = $2 AND is_primary', [o.u.homeCompanyId, o.label])).rows[0].id;
-    expect((await move(o.u, prim, { action: 'approve' })).status).toBe(200);
-    expect((await move(o.u, prim, { action: 'lock' })).status).toBe(200);
-    const before = (await pool.query('SELECT COUNT(*)::int n, SUM(amount)::text s FROM budget_month_amounts WHERE version_id = $1', [prim])).rows[0];
-    await expect(budgets.asUser(o.u, () => upsertBudget(o.u.homeCompanyId, { glAccountId: o.account, fiscalYear: o.label, months: months(99), notes: 'second' }, o.u.userId)))
-      .rejects.toMatchObject({ code: 'BUDGET_VERSION_LOCKED' });
-    expect((await pool.query('SELECT COUNT(*)::int n, SUM(amount)::text s FROM budget_month_amounts WHERE version_id = $1', [prim])).rows[0]).toEqual(before);
-    const note = (await pool.query('SELECT notes FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2', [o.u.homeCompanyId, o.account])).rows[0].notes;
-    expect(note).toBe('first');
-    // Deleting the locked primary's account budget is refused the same way.
-    await expect(budgets.asUser(o.u, () => deleteBudget(o.u.homeCompanyId, o.account, o.label, o.u.userId)))
-      .rejects.toMatchObject({ code: 'BUDGET_VERSION_LOCKED' });
-    expect((await move(o.u, prim, { action: 'unlock', reason: 'reopen for the next cases' })).status).toBe(200);
-  });
-
-  it('the save refuses a locked version BEFORE writing anything: the request transaction is still usable afterwards', async () => {
-    const x = await budgets.owner();
-    await budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 }, x.u.userId));
-    const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
-    expect((await move(x.u, prim, { action: 'approve' })).status).toBe(200);
-    expect((await move(x.u, prim, { action: 'lock' })).status).toBe(200);
-    const c = await pool.connect();
-    try {
-      await c.query('BEGIN');
-      await als.run({ client: c, companyId: x.u.homeCompanyId, userId: x.u.userId, claims: {} } as never, async () => {
-        await expect(upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 99, notes: 'no' }, x.u.userId))
-          .rejects.toMatchObject({ code: 'BUDGET_VERSION_LOCKED' });
-      });
-      // A statement that failed inside the transaction would make this one fail 25P02.
-      expect((await c.query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
-    } finally {
-      await c.query('ROLLBACK');
-      c.release();
-    }
-  });
-
   it('a move from the wrong status is refused by the compare-and-set, not by the trigger: the transaction stays usable', async () => {
     const v = data(await create(o.u, 'CAS'));
     expect((await move(o.u, v.id, { action: 'approve' })).status).toBe(200);
@@ -151,20 +112,6 @@ describe('budget-versions routes', () => {
       await c.query('ROLLBACK');
       c.release();
     }
-  });
-
-  it('a company-level save for an account budgeted by dimension is 400 BUDGET_GRAIN_CONFLICT naming the account', async () => {
-    const x = await budgets.owner();
-    await budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, months: months(0).map((m, i) => ({ ...m, month: x.months[i]! })) }, x.u.userId));
-    const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
-    const cc = (await pool.query(`INSERT INTO cost_centres (company_id, code, name, cc_type) VALUES ($1, 'G-1', 'G', 'cc1') RETURNING id`, [x.u.homeCompanyId])).rows[0].id;
-    await pool.query('DELETE FROM budget_month_amounts WHERE version_id = $1', [prim]);
-    await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, cc1_id, month, amount) VALUES ($1, $2, $3, $4, $5, 1)`,
-      [x.u.homeCompanyId, prim, x.account, cc, `${x.months[0]}-01`]);
-    const refused = budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 }, x.u.userId));
-    await expect(refused).rejects.toMatchObject({ code: 'BUDGET_GRAIN_CONFLICT', status: 400, message: expect.stringContaining('BR-5000') });
-    await pool.query('DELETE FROM budget_month_amounts WHERE version_id = $1', [prim]);
-    await pool.query('DELETE FROM cost_centres WHERE id = $1', [cc]);
   });
 
   it('copy reproduces the count and sum; a second original is 409; the primary and a locked version cannot be deleted', async () => {
@@ -211,20 +158,18 @@ describe('budget-versions routes', () => {
     expect((await budgets.call(o.u, 'GET', undefined, { fiscal_year: String(o.label), versionId: theirs.id })).status).toBe(404);
   });
 
-  it('each amount write is exactly one audit row on the version; list and primary work', async () => {
+  it('list and primary work, and the budgets GET reads whichever version is primary', async () => {
     const x = await budgets.owner();
-    await budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 }, x.u.userId));
-    const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
-    expect(await auditCount(prim)).toBe(1);
-    await budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 2400 }, x.u.userId));
-    expect(await auditCount(prim)).toBe(2);
+    await budgets.seedPrimary(x.u, x.account, x.label, x.months.map((month) => ({ month, amount: 200 })));
+    const before = await budgets.call(x.u, 'GET', undefined, { fiscal_year: String(x.label) });
+    expect(((before.body.data as unknown as { items: Array<{ annualAmount: number }> }).items).map((i) => i.annualAmount)).toEqual([2400]);
     const items = (await list.call(x.u, 'GET', undefined, { fiscalYear: String(x.label) })).body.data as unknown as { items: V[] };
     expect(items.items.map((i) => [i.name, i.isPrimary, i.total])).toEqual([['Original', true, 2400]]);
     const alt = data(await create(x.u, 'Alt', 'scenario', x.label));
     const p = await primary.call(x.u, 'POST', undefined, { id: alt.id });
     expect([p.status, data(p).isPrimary]).toEqual([200, true]);
-    // The budgets page now reads the new primary: empty.
+    // The budgets GET now reads the new primary, which holds nothing (and no notes header exists).
     const page = await budgets.call(x.u, 'GET', undefined, { fiscal_year: String(x.label) });
-    expect(((page.body.data as unknown as { items: unknown[] }).items)).toEqual([expect.objectContaining({ annualAmount: 0 })]);
+    expect(((page.body.data as unknown as { items: unknown[] }).items)).toEqual([]);
   });
 });
