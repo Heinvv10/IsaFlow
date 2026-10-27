@@ -347,3 +347,17 @@
     display: none;
   }
 }
+
+/*
+ * ShellSkeleton draws the layout public/shell-init.js recorded on <html> before first paint: the sidebar in sidebar
+ * mode, the top nav rows otherwise (never on the admin host). Driven by CSS, not React state, so the server-rendered
+ * skeleton is already right and nothing moves when the saved nav mode is read.
+ */
+html:not([data-nav-mode="side"]) [data-shell-side],
+html[data-nav-mode="side"] [data-shell-top-nav],
+html[data-admin-host] [data-shell-top-nav] {
+  display: none;
+}
+html[data-sidebar-collapsed="true"] [data-shell-side] {
+  width: 4rem;
+}
