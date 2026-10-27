@@ -1,0 +1,114 @@
+---
+title: "PLACEHOLDER - Blog component showcase"
+slug: placeholder-component-showcase
+description: "PLACEHOLDER post that exercises every blog component: charts, screenshot, callouts, GFM table, code and tags. Not real content."
+publishDate: 2026-10-27
+author: ISAFlow Team
+category: Product
+tags:
+  - placeholder
+  - components
+heroImage: /blog/placeholder-component-showcase/hero.webp
+heroAlt: "Placeholder hero image with the word Placeholder on a dark teal background"
+ogImage: /blog/placeholder-component-showcase/og.webp
+draft: true
+---
+
+**This is a placeholder post.** It exists so the blog's components can be checked in
+preview. It is `draft: true`, so it never renders in production. Every figure below is
+made up and labelled as such.
+
+## Callouts
+
+<Callout type="info">
+  An **info** callout for neutral context. Markdown works inside it, including [links](/pricing).
+</Callout>
+
+<Callout type="tip" title="A tip with a custom title">
+  A **tip** callout for a practical suggestion.
+</Callout>
+
+<Callout type="warning">
+  A **warning** callout for something the reader must not miss.
+</Callout>
+
+## Charts
+
+<Chart
+  type="bar"
+  title="Placeholder bar chart: invoices sent per month"
+  source="Placeholder data, not real figures"
+  data={[
+    { label: "Jan", value: 12 },
+    { label: "Feb", value: 18 },
+    { label: "Mar", value: 15 },
+    { label: "Apr", value: 22 },
+  ]}
+/>
+
+<Chart
+  type="line"
+  title="Placeholder line chart: income and expenses"
+  source="Placeholder data, not real figures"
+  unit="R"
+  data={[
+    { label: "Q1", values: { Income: 42000, Expenses: 31000 } },
+    { label: "Q2", values: { Income: 48000, Expenses: 33500 } },
+    { label: "Q3", values: { Income: 45500, Expenses: 36000 } },
+    { label: "Q4", values: { Income: 53000, Expenses: 34000 } },
+  ]}
+/>
+
+<Chart
+  type="pie"
+  title="Placeholder pie chart: expense split"
+  source="Placeholder data, not real figures"
+  unit="%"
+  data={[
+    { label: "Salaries", value: 55 },
+    { label: "Rent", value: 20 },
+    { label: "Software", value: 10 },
+    { label: "Other", value: 15 },
+  ]}
+/>
+
+## Screenshot
+
+<Screenshot
+  src="/blog/placeholder-component-showcase/screenshot-1.webp"
+  alt="Placeholder screenshot of an app screen with grey rows and no real data"
+  caption="A placeholder screenshot. Real posts use real ISAFlow screens with demo data only."
+  width={1600}
+  height={1000}
+/>
+
+## GitHub-flavoured Markdown
+
+A GFM table with left, centred and right-aligned columns:
+
+| Item            | Status   |      Amount |
+| :-------------- | :------: | ----------: |
+| Placeholder A   | Paid     |  R 1 250.00 |
+| Placeholder B   | Due      |    R 640.50 |
+| Placeholder C   | Overdue  | R 12 000.00 |
+
+A task list:
+
+- [x] Write the placeholder
+- [ ] Replace it with a real post
+
+~~Strikethrough text~~ and an autolink: https://isaflow.co.za
+
+> A blockquote, for a quotation or an aside.
+
+```ts
+// A code block
+const total = lines.reduce((sum, l) => sum + l.amount, 0);
+```
+
+### A third-level heading
+
+1. An ordered list
+2. With a second item
+
+That is every component. Delete this post once real posts are approved.
