@@ -16,26 +16,24 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { THEMES, rootTheme, seedTheme, settle } from '../helpers/themeSpec';
 
-/** The pages that draw an always-dark gradient banner (customer-invoices/edit/[invoiceId] needs a record id and is left out). */
+/**
+ * The pages that draw an always-dark gradient banner. #870 moved assets-new, delivery-notes, journal-entries-new,
+ * recurring-invoices and supplier-invoices to the token-based PageHeader, so they have no banner to measure (their
+ * contrast is covered by x-contrast-sweep). customer-invoices/edit/[invoiceId] needs a record id and is left out. */
 const PAGES = [
-  { slug: 'assets-new', path: '/accounting/assets/new' },
   { slug: 'bank-transactions-new', path: '/accounting/bank-transactions/new' },
   { slug: 'batch-payments-new', path: '/accounting/batch-payments/new' },
   { slug: 'credit-notes', path: '/accounting/credit-notes' },
   { slug: 'credit-notes-new', path: '/accounting/credit-notes/new' },
   { slug: 'customer-payments-new', path: '/accounting/customer-payments/new' },
-  { slug: 'delivery-notes', path: '/accounting/delivery-notes' },
   { slug: 'delivery-notes-new', path: '/accounting/delivery-notes/new' },
   { slug: 'goods-received-new', path: '/accounting/goods-received/new' },
   { slug: 'items-new', path: '/accounting/items/new' },
-  { slug: 'journal-entries-new', path: '/accounting/journal-entries/new' },
   { slug: 'purchase-orders', path: '/accounting/purchase-orders' },
   { slug: 'purchase-orders-new', path: '/accounting/purchase-orders/new' },
-  { slug: 'recurring-invoices', path: '/accounting/recurring-invoices' },
   { slug: 'recurring-invoices-new', path: '/accounting/recurring-invoices/new' },
   { slug: 'supplier-credit-notes', path: '/accounting/supplier-credit-notes' },
   { slug: 'supplier-credit-notes-new', path: '/accounting/supplier-credit-notes/new' },
-  { slug: 'supplier-invoices', path: '/accounting/supplier-invoices' },
   { slug: 'supplier-invoices-new', path: '/accounting/supplier-invoices/new' },
   { slug: 'supplier-payments-new', path: '/accounting/supplier-payments/new' },
 ] as const;
