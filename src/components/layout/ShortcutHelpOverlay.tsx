@@ -48,7 +48,7 @@ function ShortcutLabel({ label }: { label: string }) {
       {tokens.map((token, i) => (
         <span key={i} className="flex items-center gap-1">
           {i > 0 && (
-            <span className="text-gray-600 dark:text-gray-400 dark:text-gray-500 text-xs mx-0.5">
+            <span className="text-gray-600 dark:text-gray-400 text-xs mx-0.5">
               {label.toLowerCase().includes(' then ') ? 'then' : '+'}
             </span>
           )}
@@ -69,7 +69,7 @@ function CategorySection({
 }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 dark:text-gray-500 mb-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
         {CATEGORY_LABELS[category]}
       </h3>
       <ul className="space-y-1.5">
@@ -163,7 +163,7 @@ export function ShortcutHelpOverlay({
 
         {/* Footer hint */}
         <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-          <p className="text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500">
+          <p className="text-xs text-gray-600 dark:text-gray-400">
             Shortcuts with <KeyBadge token="Ctrl" /> work while typing. All others require focus outside a text field.
           </p>
         </div>
