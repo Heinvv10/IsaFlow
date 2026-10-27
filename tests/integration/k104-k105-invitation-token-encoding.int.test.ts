@@ -122,7 +122,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM company_invitations WHERE company_id=ANY($1::uuid[])', [[company, otherCompany]]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [[company, otherCompany]]);
-    await pool.query('DELETE FROM users WHERE id=ANY($1::uuid[])', [[inviter, legacyUserId]]);
+    await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[inviter, legacyUserId]]); // users.id is VARCHAR
     await pool.query('DELETE FROM rate_limit_counters WHERE key LIKE $1', [`invitations:company:${company}%`]);
   } finally { await pool.end(); }
 });
