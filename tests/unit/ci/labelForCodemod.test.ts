@@ -88,6 +88,10 @@ describe('labelFor codemod: ids', () => {
     expect(fileSlug('src/components/accounting/settings/DetailsTab.tsx')).toBe('details-tab');
     expect(fileSlug('pages/accounting/assets/index.tsx')).toBe('assets-index');
     expect(fileSlug('pages/accounting/assets/[id].tsx')).toBe('assets-id');
+    // `new` and `edit` say nothing on their own: the directory names the page
+    expect(fileSlug('pages/accounting/loans/new.tsx')).toBe('loans-new');
+    expect(fileSlug('pages/accounting/customer-invoices/edit.tsx')).toBe('customer-invoices-edit');
+    expect(fileSlug('pages/accounting/newsletter.tsx')).toBe('newsletter');
     expect(slug('VAT number *')).toBe('vat-number');
     expect(slug('registrationNumber')).toBe('registration-number');
     expect(slug('Position of logo on invoices and statements')).toBe('position-of-logo-on-invoices-and');

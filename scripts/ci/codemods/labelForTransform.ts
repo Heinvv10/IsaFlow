@@ -59,11 +59,11 @@ export function slug(text: string): string {
   return cut.slice(0, cut.lastIndexOf('-') > 0 ? cut.lastIndexOf('-') : 40);
 }
 
-/** `DetailsTab.tsx` -> `details-tab`; `index.tsx` and `[id].tsx` take the directory's name. */
+/** `DetailsTab.tsx` -> `details-tab`; `index`, `new`, `edit` and `[id]` files take the directory's name too. */
 export function fileSlug(filePath: string): string {
   const parts = filePath.split(/[\\/]/);
   const base = (parts.pop() ?? '').replace(/\.[jt]sx?$/, '');
-  if (base === 'index' || base.startsWith('[')) return slug(`${parts.pop() ?? ''}-${base.replace(/[[\]]/g, '')}`);
+  if (['index', 'new', 'edit'].includes(base) || base.startsWith('[')) return slug(`${parts.pop() ?? ''}-${base.replace(/[[\]]/g, '')}`);
   return slug(base);
 }
 
