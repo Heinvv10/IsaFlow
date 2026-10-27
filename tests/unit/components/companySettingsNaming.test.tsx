@@ -100,3 +100,15 @@ describe('contrast fixes axe found', () => {
     expect(getByRole('link', { name: 'netcash.co.za' }).className).toMatch(/\bunderline\b/);
   });
 });
+
+describe('user fields: names do not repeat across the entity sections', () => {
+  it('each slot control names its section, e.g. "Supplier field 3 label"', async () => {
+    const { container } = render(<UdfTab />);
+    container.querySelectorAll<HTMLButtonElement>('button[type="button"].w-full.justify-between').forEach((b) => fireEvent.click(b));
+    await waitFor(() => expect(controls(container).length).toBeGreaterThan(0));
+    const names = controls(container).map((el) => computeAccessibleName(el));
+    expect(names).toContain('Supplier field 3 label');
+    expect(names).toContain('Item field 12 type');
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
