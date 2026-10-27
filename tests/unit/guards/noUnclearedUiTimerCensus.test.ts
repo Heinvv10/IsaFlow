@@ -12,10 +12,11 @@ import { readFileSync } from 'fs';
 
 const ROOT = process.cwd();
 
-/** Owned by another in-flight PR; remove each entry when its owner converts the timer. */
-const PENDING_OWNER: readonly string[] = [
-  'src/components/layout/AppLayout.tsx', // PWA install banner: shell PR (S)
-];
+/**
+ * Owned by another in-flight PR; remove each entry when its owner converts the timer. Empty since the shell PR (S)
+ * moved AppLayout's PWA-banner timer to useTimeoutOnce; keep the list for the next in-flight owner.
+ */
+const PENDING_OWNER: readonly string[] = [];
 
 const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', 'src', 'pages'], {
   cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
@@ -84,5 +85,8 @@ describe('no uncleared UI state timers', () => {
 
   it('lists only files that still exist (a stale exemption is a failure)', () => {
     for (const f of PENDING_OWNER) expect(findBareStateTimers(readFileSync(`${ROOT}/${f}`, 'utf8')).length).toBeGreaterThan(0);
+    // The check above is what turns a stale entry red, and it rests on the detector: the last exemption's timer
+    // (AppLayout's PWA banner, before S) must still be one it flags.
+    expect(findBareStateTimers('setTimeout(() => setShowInstallBanner(false), 10_000);')).toHaveLength(1);
   });
 });
