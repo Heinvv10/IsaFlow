@@ -4,6 +4,7 @@
  * last month / last sub-account, decision 5); this file only maps it onto cell keys.
  */
 import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { parseKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 import { type SplitResult, residueFlipsSign, splitByWeights, spreadEven } from '@/modules/accounting/services/budgets/grid/spread';
@@ -67,7 +68,7 @@ export function splitAcrossChildren(
     if (residueFlipsSign(share, spread.months)) crossed = true;
     perChild.push(spread.months);
   }
-  if (crossed) note = [note, `The R${unit} rounding puts a last part on the other side of zero; a smaller rounding unit avoids it.`].filter(Boolean).join(' ');
+  if (crossed) note = [note, `The ${formatMoney(unit, { decimals: 0 })} rounding puts a last part on the other side of zero; a smaller rounding unit avoids it.`].filter(Boolean).join(' ');
   return { ok: true, perChild, note };
 }
 

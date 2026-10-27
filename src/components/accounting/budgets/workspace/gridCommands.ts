@@ -6,6 +6,7 @@
  * `fillRight`, `copyMatrix`); the FY-total commit is PR-A `spreadEven`.
  */
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 import { type CellWrite, copyMatrix, fillDown, fillRight, pasteInto } from '@/modules/accounting/services/budgets/grid/fill';
 import { parseCell, parseClipboard } from '@/modules/accounting/services/budgets/grid/pasteParse';
@@ -50,7 +51,7 @@ export function commitDraft(store: GridStore, pos: Pos, draft: string, isTotal: 
   if (!spread.ok) { store.announce(`Not changed: ${spread.reason}`); return spread.reason; }
   store.apply(keys.flatMap((key, i) => (key ? [{ key, cents: spread.months[i] ?? 0 }] : [])));
   if (residueFlipsSign(cents, spread.months)) {
-    const reason = `The R${unit} rounding leaves the last month on the other side of zero; use a smaller rounding unit or edit the months.`;
+    const reason = `The ${formatMoney(unit, { decimals: 0 })} rounding leaves the last month on the other side of zero; use a smaller rounding unit or edit the months.`;
     store.addNotice([{ rowLabel: store.rowLabel(pos.r), monthLabel: monthLabel(months[months.length - 1] ?? ''), raw: draft, reason, cells: 1 }]);
     store.announce(reason);
   }

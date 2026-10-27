@@ -208,7 +208,7 @@ describe('legacy header own-budget chip (spec §6.5)', () => {
     legacy();
     mount();
     const headerRow = document.querySelector(`tr[data-row="${rollupRowKey(ID.hdr)}"]`)!;
-    expect(within(headerRow as HTMLElement).getByRole('note')).toHaveTextContent('This header has its own R 40.00 budget');
+    expect(within(headerRow as HTMLElement).getByRole('note')).toHaveTextContent('This header has its own R 40.00 budget'); // toHaveTextContent folds formatCents' NBSP
   });
 
   it('Move to a sub-account: one batch deletes the header amounts and adds them to the child', async () => {
