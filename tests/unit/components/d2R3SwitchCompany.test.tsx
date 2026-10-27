@@ -19,7 +19,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({
     activeCompany: { id: 'co-1', name: 'First Co' }, loading: false, switchCompany: h.switchCompany,
-    companies: [{ companyId: 'co-1', companyName: 'First Co' }, { companyId: 'co-2', companyName: 'Demo Company', role: 'owner' }],
+    companies: [{ companyId: 'co-1', companyName: 'First Co' }, { companyId: 'co-2', companyName: 'Demo Company', role: 'owner', isDemo: true }],
   }),
 }));
 
@@ -44,16 +44,16 @@ describe('a refused company switch', () => {
 
   it('DemoCompanyCTA shows the message and keeps the offer (does not dismiss)', async () => {
     render(<DemoCompanyCTA />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Try Demo' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Try the demo company' }));
     await waitFor(() => expect(h.notify.error).toHaveBeenCalledWith(MSG));
     expect(localStorage.getItem('isaflow_demo_cta_dismissed')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Try Demo' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Try the demo company' })).toBeTruthy();
   });
 
   it('DemoCompanyCTA: a good switch dismisses the offer', async () => {
     h.switchCompany.mockResolvedValue(undefined);
     render(<DemoCompanyCTA />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Try Demo' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Try the demo company' }));
     await waitFor(() => expect(localStorage.getItem('isaflow_demo_cta_dismissed')).toBe('1'));
     expect(h.notify.error).not.toHaveBeenCalled();
   });
