@@ -6,6 +6,7 @@
  *    through the UI at the same as-at (today, SAST). The donut used to put 61-90 inside its "90+".
  *  - On the empty sandbox company the setup checklist is above the hero and inside the first screen,
  *    and Action Items does not say "All caught up!".
+ *  - The ageing donuts draw in their colours (not Pie's default grey) and fit inside 390 px.
  *  - Ctrl+K "profit" + Enter lands on the Income Statement (Profit & Loss is its nav alias).
  *
  * Dev-only: it reads Demo twice (an edit between the reads must not roll back a prod deploy) and creates
@@ -55,6 +56,29 @@ test('the dashboard AR 90+ equals the AR Age Analysis 90+', async ({ page }) => 
 
   expect(dashboard90).toMatch(/^R\s[\d\s]+\.\d{2}$/);
   expect(dashboard90).toBe(report90);
+});
+
+test('the ageing donuts draw in colour and fit a 390 px screen', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto('/accounting');
+  for (const key of ['arAging', 'apAging']) {
+    const donut = page.getByTestId(`${key}-donut`);
+    await expect(donut.locator('path.recharts-sector').first()).toBeVisible({ timeout: 90_000 });
+    await donut.scrollIntoViewIfNeeded();
+    // Pie's default fill is #808080; a slice in it means the colours were lost.
+    const fills = await donut.locator('path.recharts-sector').evaluateAll((els) => els.map((e) => e.getAttribute('fill')));
+    expect(fills.length).toBeGreaterThan(0);
+    expect(fills.filter((f) => !f || f.toLowerCase() === '#808080'), `${key} grey slices`).toEqual([]);
+    const pie = await donut.locator('svg.recharts-surface').boundingBox();
+    const ring = await donut.locator('g.recharts-pie').boundingBox();
+    expect(pie && ring, `${key} donut drawn`).toBeTruthy();
+    expect(ring!.x, `${key} ring starts on screen`).toBeGreaterThanOrEqual(0);
+    expect(ring!.x + ring!.width, `${key} ring ends on screen`).toBeLessThanOrEqual(390);
+    expect(ring!.x, `${key} ring inside its chart`).toBeGreaterThanOrEqual(pie!.x);
+    expect(ring!.x + ring!.width).toBeLessThanOrEqual(pie!.x + pie!.width);
+  }
+  await shot(page, 'y7-donut-390');
 });
 
 test('on an empty company the setup checklist leads Home and nothing says "All caught up!"', async ({ page, baseURL }) => {

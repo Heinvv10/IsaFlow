@@ -7,7 +7,6 @@ import { formatMoney } from '@/lib/money/formatMoney';
 
 const PieChart = dynamic(() => import('recharts').then(m => m.PieChart), { ssr: false });
 const Pie = dynamic(() => import('recharts').then(m => m.Pie), { ssr: false });
-const Cell = dynamic(() => import('recharts').then(m => m.Cell), { ssr: false });
 const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
 const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
 
@@ -15,6 +14,13 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.Respons
 const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e', '#9f1239', '#8b5cf6'];
 /** A zero Disputed segment is left out of the legend (AP has no disputes); a zero age bucket is not. */
 const shownInLegend = (b: AgingBucket): boolean => b.name !== 'Disputed' || b.value !== 0;
+/**
+ * Each slice carries its own fill. Pie reads per-slice colour from <Cell>
+ * children it recognises by type, and a next/dynamic-wrapped Cell is not one,
+ * so every slice drew in Pie's default grey (#808080).
+ */
+export const agingSlices = (buckets: AgingBucket[]) =>
+  buckets.map((b, i) => ({ ...b, fill: AGING_COLORS[i % AGING_COLORS.length]! }));
 
 function fmtCurrency(n: number): string {
   return formatMoney(n);
@@ -99,18 +105,17 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
           <div key={key} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
             <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">{title}</h3>
             {buckets.some(b => b.value > 0) ? (
-              <div className="flex items-center gap-4">
-                <ResponsiveContainer width="50%" height={200}>
+              <div className="flex flex-col items-center gap-4 sm:flex-row">
+                {/* Full width below sm: half of a 390 px card is narrower than the 160 px donut, which clipped it. */}
+                <div data-testid={`${key}-donut`} className="w-full shrink-0 sm:w-1/2">
+                <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
-                    <Pie data={buckets} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2}>
-                      {buckets.map((_entry, index) => (
-                        <Cell key={`${key}-${index}`} fill={AGING_COLORS[index % AGING_COLORS.length]} />
-                      ))}
-                    </Pie>
+                    <Pie data={agingSlices(buckets)} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} />
                     <Tooltip contentStyle={{ backgroundColor: 'var(--ff-bg-secondary)', border: '1px solid var(--ff-border-light)', borderRadius: '8px', color: 'var(--ff-text-primary)' }} formatter={(value) => [fmtCurrency(Number(value)), '']} />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="flex-1 space-y-2">
+                </div>
+                <div className="w-full flex-1 space-y-2">
                   {buckets.map((bucket, i) => shownInLegend(bucket) && (
                     <div key={i} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
