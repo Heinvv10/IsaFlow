@@ -14,6 +14,16 @@ vi.mock('@/utils/toast', () => ({ notify: { success: (m: string) => notify.succe
 let company = 'co-1';
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: company }, companyRole: 'owner' }) }));
 vi.mock('@/components/accounting/StatementBalanceWidget', () => ({ StatementBalanceWidget: () => null }));
+// The row's real DndContext, with its onDragEnd captured so a test can drop a card without pointer geometry.
+let dragEnd: ((e: { active: { id: string }; over: { id: string } | null }) => void) | null = null;
+vi.mock('@dnd-kit/core', async (orig) => {
+  const real = await orig<typeof import('@dnd-kit/core')>();
+  const { createElement } = await import('react');
+  return { ...real, DndContext: (props: Parameters<typeof real.DndContext>[0]) => {
+    dragEnd = props.onDragEnd as typeof dragEnd;
+    return createElement(real.DndContext, props);
+  } };
+});
 
 const acct = (id: string, name: string, group?: string): BankAcct => ({
   id, accountCode: id, accountName: name, balance: 0, reconciledBalance: 0, unreconciledBalance: 0,
@@ -192,4 +202,59 @@ it('a save refused after switching company does not put the old company\'s order
   await new Promise((r) => setTimeout(r, 20));
   expect(slotKeys()).toEqual(['p1', 'group:g1', 'p2']);
   expect(notify.error).not.toHaveBeenCalled();
+});
+
+it('two moves in one batch both keep the saved place of a card not on screen', async () => {
+  saved = { 'bank_card_order:co-1': JSON.stringify(['gone-later', 'p1', 'p2']) };
+  view();
+  await waitFor(() => expect(slotKeys()).toEqual(['p1', 'p2', 'group:g1']));
+  await act(async () => {
+    fireEvent.keyDown(screen.getByRole('button', { name: /Main/ }), { key: 'ArrowRight', altKey: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: /Main/ }), { key: 'ArrowRight', altKey: true });
+  });
+  await waitFor(() => expect(puts()).toHaveLength(2));
+  expect(puts().every(p => JSON.parse(p).includes('gone-later'))).toBe(true);
+});
+
+it('when every save fails the cards go back to the order the server last confirmed', async () => {
+  saved = { 'bank_card_order:co-1': JSON.stringify(['p2', 'p1']) };
+  let release!: () => void;
+  const hold = new Promise<void>((r) => { release = r; });
+  apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === '/api/auth/preferences' && init?.method === 'PUT') { await hold; return json({}, 500); }
+    return json(url === '/api/auth/preferences' ? saved : []);
+  });
+  view();
+  await waitFor(() => expect(slotKeys()).toEqual(['p2', 'p1', 'group:g1']));
+  // Both moves are made before either save is answered; both are then refused.
+  await altRight(/Savings/);
+  await altRight(/Savings/);
+  expect(slotKeys()).toEqual(['p1', 'group:g1', 'p2']);
+  await act(async () => { release(); await hold; });
+  await waitFor(() => expect(notify.error).toHaveBeenCalledTimes(1));
+  expect(slotKeys()).toEqual(['p2', 'p1', 'group:g1']);
+});
+
+it('a drop moves the card into the target\'s place, and the click it ends with does not select it', async () => {
+  const { onSelectBank } = view();
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  const now = vi.spyOn(Date, 'now');
+  now.mockReturnValue(1_000_000);
+  await act(async () => { dragEnd!({ active: { id: 'p1' }, over: { id: 'group:g1' } }); });
+  expect(slotKeys()).toEqual(['p2', 'group:g1', 'p1']);
+  expect(puts()).toEqual([JSON.stringify(['p2', 'group:g1', 'p1'])]);
+  fireEvent.click(screen.getByRole('button', { name: /Main/ }));
+  expect(onSelectBank).not.toHaveBeenCalled();
+  now.mockReturnValue(1_000_000 + 400);
+  fireEvent.click(screen.getByRole('button', { name: /Main/ }));
+  expect(onSelectBank).toHaveBeenCalledWith('p1');
+  now.mockRestore();
+});
+
+it('a drop on nothing, or on itself, changes nothing', async () => {
+  view();
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  await act(async () => { dragEnd!({ active: { id: 'p1' }, over: null }); dragEnd!({ active: { id: 'p1' }, over: { id: 'p1' } }); });
+  expect(slotKeys()).toEqual(['p1', 'p2', 'group:g1']);
+  expect(puts()).toEqual([]);
 });

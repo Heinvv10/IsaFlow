@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  applyCardOrder, cardOrderPrefKey, moveCard, moveCardBy, parseCardOrder, withUnseen,
+  MAX_STORED_KEYS, applyCardOrder, cardOrderPrefKey, moveCard, moveCardBy, parseCardOrder, withUnseen,
 } from '@/components/accounting/bank-transactions/bankCardOrder';
 
 describe('applyCardOrder', () => {
@@ -62,6 +62,14 @@ describe('stored value', () => {
 describe('withUnseen', () => {
   it('keeps saved keys for cards not on screen after the reordered ones', () => {
     expect(withUnseen(['b', 'a'], ['x', 'a', 'b', 'y'])).toEqual(['b', 'a', 'x', 'y']);
+  });
+  it('unseen keys are dropped past the cap; the cards on screen never are', () => {
+    const unseen = Array.from({ length: MAX_STORED_KEYS + 50 }, (_, i) => `old-${i}`);
+    const out = withUnseen(['a', 'b'], unseen);
+    expect(out).toHaveLength(MAX_STORED_KEYS);
+    expect(out.slice(0, 2)).toEqual(['a', 'b']);
+    const many = Array.from({ length: MAX_STORED_KEYS + 5 }, (_, i) => `on-${i}`);
+    expect(withUnseen(many, ['x'])).toEqual(many);
   });
   it('no saved order: just the new order', () => {
     expect(withUnseen(['b', 'a'], null)).toEqual(['b', 'a']);

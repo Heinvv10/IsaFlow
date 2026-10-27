@@ -2,15 +2,16 @@
  * useBankCardOrder — loads and saves this user's bank card order for the
  * active company through /api/auth/preferences (user_preferences). A save is
  * applied at once; saves go to the server one at a time, in order, so the
- * last order shown is the last one stored. A refused save is reverted, with a
- * toast, only while it is still the newest save for the same company.
+ * last order shown is the last one stored. A refused save goes back, with a
+ * toast, to the order the server last confirmed, and only while it is still
+ * the newest save for the same company.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { notify } from '@/utils/toast';
-import { cardOrderPrefKey, parseCardOrder } from './bankCardOrder';
+import { cardOrderPrefKey, parseCardOrder, withUnseen } from './bankCardOrder';
 
 async function putOrder(companyId: string, next: string[] | null): Promise<void> {
   const res = await apiFetch('/api/auth/preferences', {
@@ -24,9 +25,10 @@ async function putOrder(companyId: string, next: string[] | null): Promise<void>
 
 export function useBankCardOrder(companyId: string | null | undefined) {
   const [order, setOrder] = useState<string[] | null>(null);
-  // The order last shown, the company it belongs to, and how many saves have started:
-  // read by saves that settle after a re-render, a company switch or a newer save.
+  // The order last shown, the order the server last confirmed, the company they belong to, and how
+  // many saves have started: read by saves that settle after a re-render, a company switch or a newer save.
   const orderRef = useRef<string[] | null>(null);
+  const storedRef = useRef<string[] | null>(null);
   const companyRef = useRef(companyId);
   const saveSeq = useRef(0);
   const chain = useRef<Promise<void>>(Promise.resolve());
@@ -35,6 +37,7 @@ export function useBankCardOrder(companyId: string | null | undefined) {
   useEffect(() => {
     companyRef.current = companyId;
     saveSeq.current = 0;
+    storedRef.current = null;
     show(null);
     if (!companyId) return undefined;
     let cancelled = false;
@@ -44,7 +47,9 @@ export function useBankCardOrder(companyId: string | null | undefined) {
         await assertOk(res, 'Could not load your card order');
         const json = (await res.json()) as { data?: Record<string, string> };
         // A reorder made while this was loading wins over the stored order.
-        if (!cancelled && saveSeq.current === 0) show(parseCardOrder(json.data?.[cardOrderPrefKey(companyId)]));
+        if (cancelled) return;
+        storedRef.current = parseCardOrder(json.data?.[cardOrderPrefKey(companyId)]);
+        if (saveSeq.current === 0) show(storedRef.current);
       } catch (err) {
         log.warn('Bank card order unavailable, using the default order', { error: err }, 'bank-transactions');
       }
@@ -54,21 +59,25 @@ export function useBankCardOrder(companyId: string | null | undefined) {
 
   const save = useCallback((next: string[] | null): Promise<void> => {
     if (!companyId) return Promise.resolve();
-    const prev = orderRef.current;
     const seq = ++saveSeq.current;
     show(next);
     chain.current = chain.current.then(async () => {
       try {
         await putOrder(companyId, next);
+        if (companyRef.current === companyId) storedRef.current = next;
       } catch (err) {
         log.warn('Saving the bank card order failed', { error: err }, 'bank-transactions');
         if (companyRef.current !== companyId || saveSeq.current !== seq) return;
-        show(prev);
+        show(storedRef.current);
         notify.error(apiErrorMessage(err, 'Could not save your card order'));
       }
     });
     return chain.current;
   }, [companyId, show]);
 
-  return { order, save };
+  /** The cards on screen in their new order; saved places of cards not on screen are kept after them. */
+  const reorder = useCallback((keys: string[]) => save(withUnseen(keys, orderRef.current)), [save]);
+  const reset = useCallback(() => save(null), [save]);
+
+  return { order, reorder, reset };
 }

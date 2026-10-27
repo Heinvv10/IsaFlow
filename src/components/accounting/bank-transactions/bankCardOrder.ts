@@ -44,10 +44,16 @@ export function parseCardOrder(raw: string | undefined): string[] | null {
 }
 
 /**
+ * At most this many keys are stored. Keys of deleted accounts are never told apart from cards that
+ * are only not on screen yet, so they are kept; the cap stops them growing the value without limit.
+ */
+export const MAX_STORED_KEYS = 300;
+
+/**
  * The order to store after a reorder of the cards on screen: saved keys for cards not on screen right
  * now (still loading, or hidden) are kept after them, so a reorder never forgets their place.
  */
 export function withUnseen(next: string[], saved: string[] | null): string[] {
   const shown = new Set(next);
-  return [...next, ...(saved ?? []).filter(k => !shown.has(k))];
+  return [...next, ...(saved ?? []).filter(k => !shown.has(k))].slice(0, Math.max(next.length, MAX_STORED_KEYS));
 }
