@@ -27,7 +27,7 @@ afterEach(() => {
 
 const MSG = 'D2 server says no: this data is not available';
 const empty500 = () => new Response('', { status: 500 });
-const isYears = (u: string) => u === '/api/accounting/budgets';
+const isYears = (u: string) => u === '/api/accounting/budgets?years_only=1';
 const rev2Row = buildLayout(gridModel().accounts, gridModel().year.monthKeys).rows.find((r) => r.key === `acct:${ID.rev2}`)!.index;
 const marchRev2 = () => document.querySelector<HTMLElement>(`[data-pos="${rev2Row}:0"]`)!;
 /** No raw error text on screen: no JSON, no parse error, no bare status. */

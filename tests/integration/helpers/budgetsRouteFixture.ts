@@ -3,6 +3,7 @@
  * real owner (real withAuth, request transaction, CSRF) of a fresh March company.
  */
 import type { Pool } from 'pg';
+import { als } from '@/lib/als';
 import { request, response } from '../mfa-impersonation-postgres.helpers';
 import { newSetupUser, type SetupUser } from './onboardingSetupFixture';
 
@@ -21,6 +22,25 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
     const out = response();
     await (route as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
     return { status: out.state.statusCode, body: (out.state.body ?? {}) as RouteOut['body'] };
+  }
+
+  /**
+   * Runs a budget service as `u` in one transaction on its own connection, and COMMITS whatever
+   * happened, as withAuth does for a 4xx (a refusal must undo its own writes; the caller's
+   * transaction does not). Used by the suites that wrote through the retired legacy routes.
+   */
+  async function asUser<T>(u: SetupUser, fn: () => Promise<T>): Promise<T> {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      try {
+        return await als.run({ client, companyId: u.homeCompanyId, userId: u.userId, claims: {} } as never, fn);
+      } finally {
+        await client.query('COMMIT'); // a poisoned transaction turns COMMIT into ROLLBACK, as in withAuth
+      }
+    } finally {
+      client.release();
+    }
   }
 
   /** An owner of a fresh March company with an expense account; its current year generated. */
@@ -55,5 +75,5 @@ export function budgetsRouteFixture(pool: Pool, route: unknown, url: string) {
     for (const u of users) await pool.query('DELETE FROM company_users WHERE user_id = $1', [u]);
   }
 
-  return { call, owner, cleanup };
+  return { call, owner, cleanup, asUser };
 }

@@ -1,6 +1,7 @@
 /**
  * Budgets P1 routes (migration 947), called as real members through withAuth's request
- * transaction: pages/api/accounting/budget-versions/** and the budget save on a locked primary.
+ * transaction: pages/api/accounting/budget-versions/** and the legacy budget writer on a locked primary
+ * (core/budgetService, called as a service since its routes were retired in budgets P2 PR-D).
  * Roles (decision 1), 409 before any write, compare-and-set on status, 404 for another tenant's
  * id, the copy's count and sum, and one audit row per amount write.
  */
@@ -17,7 +18,7 @@ import { budgetsRouteFixture } from './helpers/budgetsRouteFixture';
 import { signSession } from './r-032-fake-gotrue.helpers';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 import { als } from '@/lib/als';
-import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
+import { deleteBudget, upsertBudget } from '@/modules/accounting/services/core/budgetService';
 import { transitionVersion } from '@/modules/accounting/services/budgets/budgetVersionStatus';
 
 assertDisposable();
@@ -95,29 +96,26 @@ describe('budget-versions routes', () => {
     expect(data(ok).status).toBe('approved');
   });
 
-  it('a save into a locked primary is 409 BUDGET_VERSION_LOCKED, writes nothing, and the transaction is not poisoned', async () => {
-    const saved = await budgets.call(o.u, 'POST', { glAccountId: o.account, fiscalYear: o.label, months: months(10), notes: 'first' });
-    expect(saved.status, JSON.stringify(saved.body).slice(0, 200)).toBe(200);
+  it('a save into a locked primary is refused BUDGET_VERSION_LOCKED and writes nothing', async () => {
+    await budgets.asUser(o.u, () => upsertBudget(o.u.homeCompanyId, { glAccountId: o.account, fiscalYear: o.label, months: months(10), notes: 'first' }, o.u.userId));
     const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND fiscal_year = $2 AND is_primary', [o.u.homeCompanyId, o.label])).rows[0].id;
     expect((await move(o.u, prim, { action: 'approve' })).status).toBe(200);
     expect((await move(o.u, prim, { action: 'lock' })).status).toBe(200);
     const before = (await pool.query('SELECT COUNT(*)::int n, SUM(amount)::text s FROM budget_month_amounts WHERE version_id = $1', [prim])).rows[0];
-    const r = await budgets.call(o.u, 'POST', { glAccountId: o.account, fiscalYear: o.label, months: months(99), notes: 'second' });
-    expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(409);
-    expect(errCode(r)).toBe('BUDGET_VERSION_LOCKED');
+    await expect(budgets.asUser(o.u, () => upsertBudget(o.u.homeCompanyId, { glAccountId: o.account, fiscalYear: o.label, months: months(99), notes: 'second' }, o.u.userId)))
+      .rejects.toMatchObject({ code: 'BUDGET_VERSION_LOCKED' });
     expect((await pool.query('SELECT COUNT(*)::int n, SUM(amount)::text s FROM budget_month_amounts WHERE version_id = $1', [prim])).rows[0]).toEqual(before);
     const note = (await pool.query('SELECT notes FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2', [o.u.homeCompanyId, o.account])).rows[0].notes;
     expect(note).toBe('first');
     // Deleting the locked primary's account budget is refused the same way.
-    const del = await budgetsRouteFixture(pool, (await import('../../pages/api/accounting/budgets-action')).default, '/api/accounting/budgets-action')
-      .call(o.u, 'POST', { action: 'delete', glAccountId: o.account, fiscalYear: o.label });
-    expect(del.status).toBe(409);
+    await expect(budgets.asUser(o.u, () => deleteBudget(o.u.homeCompanyId, o.account, o.label, o.u.userId)))
+      .rejects.toMatchObject({ code: 'BUDGET_VERSION_LOCKED' });
     expect((await move(o.u, prim, { action: 'unlock', reason: 'reopen for the next cases' })).status).toBe(200);
   });
 
   it('the save refuses a locked version BEFORE writing anything: the request transaction is still usable afterwards', async () => {
     const x = await budgets.owner();
-    await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 });
+    await budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 }, x.u.userId));
     const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
     expect((await move(x.u, prim, { action: 'approve' })).status).toBe(200);
     expect((await move(x.u, prim, { action: 'lock' })).status).toBe(200);
@@ -157,16 +155,14 @@ describe('budget-versions routes', () => {
 
   it('a company-level save for an account budgeted by dimension is 400 BUDGET_GRAIN_CONFLICT naming the account', async () => {
     const x = await budgets.owner();
-    await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, months: months(0).map((m, i) => ({ ...m, month: x.months[i]! })) });
+    await budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, months: months(0).map((m, i) => ({ ...m, month: x.months[i]! })) }, x.u.userId));
     const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
     const cc = (await pool.query(`INSERT INTO cost_centres (company_id, code, name, cc_type) VALUES ($1, 'G-1', 'G', 'cc1') RETURNING id`, [x.u.homeCompanyId])).rows[0].id;
     await pool.query('DELETE FROM budget_month_amounts WHERE version_id = $1', [prim]);
     await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, cc1_id, month, amount) VALUES ($1, $2, $3, $4, $5, 1)`,
       [x.u.homeCompanyId, prim, x.account, cc, `${x.months[0]}-01`]);
-    const r = await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 });
-    expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(400);
-    expect(errCode(r)).toBe('BUDGET_GRAIN_CONFLICT');
-    expect((r.body.error as { message: string }).message).toContain('BR-5000');
+    const refused = budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 }, x.u.userId));
+    await expect(refused).rejects.toMatchObject({ code: 'BUDGET_GRAIN_CONFLICT', status: 400, message: expect.stringContaining('BR-5000') });
     await pool.query('DELETE FROM budget_month_amounts WHERE version_id = $1', [prim]);
     await pool.query('DELETE FROM cost_centres WHERE id = $1', [cc]);
   });
@@ -217,10 +213,10 @@ describe('budget-versions routes', () => {
 
   it('each amount write is exactly one audit row on the version; list and primary work', async () => {
     const x = await budgets.owner();
-    await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 });
+    await budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 }, x.u.userId));
     const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
     expect(await auditCount(prim)).toBe(1);
-    await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, annualAmount: 2400 });
+    await budgets.asUser(x.u, () => upsertBudget(x.u.homeCompanyId, { glAccountId: x.account, fiscalYear: x.label, annualAmount: 2400 }, x.u.userId));
     expect(await auditCount(prim)).toBe(2);
     const items = (await list.call(x.u, 'GET', undefined, { fiscalYear: String(x.label) })).body.data as unknown as { items: V[] };
     expect(items.items.map((i) => [i.name, i.isPrimary, i.total])).toEqual([['Original', true, 2400]]);

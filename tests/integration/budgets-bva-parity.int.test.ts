@@ -16,13 +16,14 @@ import { als } from '@/lib/als';
 import report from '../../pages/api/accounting/reports-budget-vs-actual';
 import exportCsv from '../../pages/api/accounting/budget-vs-actual-export';
 import comparator from '../../pages/api/accounting/reports-budget-comparator';
-import budgets from '../../pages/api/accounting/budgets';
-import budgetsAction from '../../pages/api/accounting/budgets-action';
+import saveRoute from '../../pages/api/accounting/budget-grid/save';
+import seedRoute from '../../pages/api/accounting/budget-grid/seed';
 import { budgetVarianceTool } from '@/lib/mcp/tools/budgetVariance';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetsRouteFixture, type RouteOut } from './helpers/budgetsRouteFixture';
+import { TOKEN_SQL } from './helpers/budgetGridSaveFixture';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 
 assertDisposable();
@@ -30,8 +31,8 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const rep = budgetsRouteFixture(pool, report, '/api/accounting/reports-budget-vs-actual');
 const csv = budgetsRouteFixture(pool, exportCsv, '/api/accounting/budget-vs-actual-export');
 const cmp = budgetsRouteFixture(pool, comparator, '/api/accounting/reports-budget-comparator');
-const bud = budgetsRouteFixture(pool, budgets, '/api/accounting/budgets');
-const act = budgetsRouteFixture(pool, budgetsAction, '/api/accounting/budgets-action');
+const save = budgetsRouteFixture(pool, saveRoute, '/api/accounting/budget-grid/save');
+const seed = budgetsRouteFixture(pool, seedRoute, '/api/accounting/budget-grid/seed');
 let u: SetupUser;
 let companyId: string;
 let label: number;
@@ -73,9 +74,14 @@ async function journal(date: string, lines: Array<[string, number, number]>, opt
   }
 }
 
-/** A month amount on the year's primary version (migration 947), created as the converted 'Original'. */
+/** The year's primary version (migration 947), created as the converted 'Original' when there is none. */
+async function primary(): Promise<string> {
+  return (await pool.query('SELECT public.budget_version_original($1, $2, $3) AS id', [companyId, label, u.userId])).rows[0].id;
+}
+
+/** A month amount on the year's primary version. */
 async function budget(code: string, amount: number) {
-  const version = (await pool.query('SELECT public.budget_version_original($1, $2, $3) AS id', [companyId, label, u.userId])).rows[0].id;
+  const version = await primary();
   await pool.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount) VALUES ($1, $2, $3, $4::date, $5)`,
     [companyId, version, acc[code], `${month}-01`, amount]);
 }
@@ -106,7 +112,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
-    for (const f of [rep, csv, cmp, bud, act]) await f.cleanup();
+    for (const f of [rep, csv, cmp, save, seed]) await f.cleanup();
     await pool.query('DELETE FROM gl_journal_lines WHERE company_id = $1', [companyId]);
   } finally { await pool.end(); }
 }, 60000);
@@ -252,10 +258,13 @@ describe('budgets P0 parity on real Postgres', () => {
     }
   });
 
-  it('a budget on an asset account is refused 400 and nothing is written', async () => {
-    const r = await bud.call(u, 'POST', { glAccountId: acc['P-1100'], fiscalYear: label, annualAmount: 1200 });
+  it('a budget on an asset account is refused 400 by the grid save and nothing is written', async () => {
+    const version = await primary();
+    const expectedUpdatedAt = (await pool.query(`SELECT ${TOKEN_SQL} AS t FROM budget_versions WHERE id = $1`, [version])).rows[0].t;
+    const r = await save.call(u, 'POST', { versionId: version, expectedUpdatedAt,
+      cells: [{ glAccountId: acc['P-1100'], cc1Id: null, cc2Id: null, buId: null, month, amount: 1200 }] });
     expect(r.status, JSON.stringify(r.body)).toBe(400);
-    expect(r.body.error?.message).toBe('Budgets can only be set on revenue and expense accounts');
+    expect(r.body.error?.message).toContain('P-1100');
     const written = (await pool.query(
       `SELECT (SELECT count(*) FROM budget_month_amounts WHERE company_id = $1 AND gl_account_id = $2)::int AS months,
               (SELECT count(*) FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2)::int AS headers`,
@@ -264,21 +273,21 @@ describe('budgets P0 parity on real Postgres', () => {
   });
 
   // Last: it writes the next year's budgets, which no earlier case may see.
-  it('copying a year forward never carries a legacy balance-sheet budget', async () => {
+  it('copying a year forward (the wizard\'s version copy) never carries a legacy balance-sheet budget', async () => {
     // A legacy row on the bank account (what migration 944 converted), written directly.
     await budget('P-1100', 77);
-    const r = await act.call(u, 'POST', { action: 'copy', fromYear: label, toYear: label + 1 });
+    // The next registry year: its first day is a year after this year's.
+    await pool.query(`SELECT public.fiscal_year_ensure($1, (SELECT start_date + INTERVAL '1 year' FROM fiscal_years WHERE company_id = $1 AND fiscal_year = $2)::date)`,
+      [companyId, label]);
+    const next = (await pool.query('SELECT fiscal_year FROM fiscal_years WHERE company_id = $1 AND fiscal_year > $2 ORDER BY fiscal_year LIMIT 1',
+      [companyId, label])).rows[0].fiscal_year as number;
+    const r = await seed.call(u, 'POST', { fiscalYear: next, name: 'Parity copy', kind: 'scenario', makePrimary: false, roundingUnit: 1,
+      source: { type: 'version', versionId: await primary(), upliftPct: 0 } });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    const next = (await pool.query(
+    const copied = (await pool.query(
       `SELECT ga.account_code FROM budget_month_amounts bm JOIN gl_accounts ga ON ga.id = bm.gl_account_id
-        WHERE bm.company_id = $1 AND bm.month > $2::date GROUP BY ga.account_code ORDER BY 1`,
-      [companyId, `${o12(month)}-01`])).rows.map((x: { account_code: string }) => x.account_code);
-    expect(next).toEqual(['P-4000', 'P-6000', 'P-6100', 'P-6200']);
+        WHERE bm.version_id = $1 GROUP BY ga.account_code ORDER BY 1`,
+      [(r.body.data as { versionId: string }).versionId])).rows.map((x: { account_code: string }) => x.account_code);
+    expect(copied).toEqual(['P-4000', 'P-6000', 'P-6100', 'P-6200']);
   });
 });
-
-/** The 'YYYY-MM' eleven months after `m`: the last month of the source year when `m` is its second. */
-function o12(m: string): string {
-  const ord = Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1 + 10;
-  return `${Math.floor(ord / 12)}-${String((ord % 12) + 1).padStart(2, '0')}`;
-}

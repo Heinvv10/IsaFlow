@@ -48,11 +48,11 @@ async function switchTwice(answers: { y2026: () => Response; y2028: () => Respon
 }
 
 describe('year switching', () => {
-  it('the first load asks for the year list with no fiscal_year, then the budget for the year it names', async () => {
+  it('the first load asks for the year list only (years_only, no fiscal_year), then the budget for the year it names', async () => {
     render(<BudgetWorkspace />);
     await screen.findByRole('grid', { name: 'Budget' });
     const years = net.sent.filter((s) => s.url.startsWith('/api/accounting/budgets') && !s.url.startsWith('/api/accounting/budgets-'));
-    expect(years.map((s) => s.url)).toEqual(['/api/accounting/budgets']);
+    expect(years.map((s) => s.url)).toEqual(['/api/accounting/budgets?years_only=1']);
     expect(net.sent.filter((s) => isModel(s.url)).map((s) => s.url)).toEqual(['/api/accounting/budget-grid?fiscal_year=2027']);
     expect(yearSelect().value).toBe('2027');
   });
@@ -106,7 +106,7 @@ describe('a 14-month transition year', () => {
   }
 
   it('the select names the range, the grid has 14 month columns, and an FY total is spread and saved over exactly those months', async () => {
-    net.on((u) => u === '/api/accounting/budgets', () => ok({ items: [], fiscalYear: 2026, year: TRANSITION, years: [TRANSITION, NEXT] }));
+    net.on((u) => u === '/api/accounting/budgets?years_only=1', () => ok({ items: [], fiscalYear: 2026, year: TRANSITION, years: [TRANSITION, NEXT] }));
     net.on((u) => u.startsWith('/api/accounting/budget-versions?fiscalYear='), () => ok({ items: [transitionModel().version] }));
     net.on((u) => u.includes('/prior-actuals'), () => ok({ fiscalYear: 2026, grain: 'company', months: KEYS, priorMonths: KEYS, cells: [] }));
     net.on(isModel, () => ok(transitionModel()));

@@ -1,6 +1,7 @@
 /**
  * The workspace's year and version lists, and the versions bar's actions (spec §10). The years
- * come from the legacy budgets route (the only one that lists the registry years); the first
+ * come from the legacy budgets route with `years_only=1` (the only route that lists the registry
+ * years; that mode does not read the budgets themselves); the first
  * answer also names the year holding today, which the workspace opens on. Every transition
  * sends the version's token, reloads the grid (new token) and refreshes the list; a refusal
  * resolves with the message to show in the dialog. A list answer for a year the user has left
@@ -37,7 +38,7 @@ export function useBudgetYears(): WorkspaceYears {
     setLoading(true);
     void (async () => {
       try {
-        const res = await apiFetch('/api/accounting/budgets');
+        const res = await apiFetch('/api/accounting/budgets?years_only=1');
         await assertOk(res, YEARS_FAILED);
         const json = (await res.json()) as { data?: { fiscalYear?: number; years?: BudgetYear[] } };
         if (gone) return;
