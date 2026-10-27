@@ -88,7 +88,8 @@ function InvoiceDetailRow({ invoice }: { invoice: OverdueInvoice }) {
   );
 }
 
-export function TodoWidget() {
+/** `setupOpen`: setup tasks are still open, so an empty list is not "All caught up!". */
+export function TodoWidget({ setupOpen = false }: { setupOpen?: boolean }) {
   const [data, setData] = useState<TodoData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +147,11 @@ export function TodoWidget() {
         <p className="text-sm text-rose-600 dark:text-rose-400 px-4 py-3">{error}</p>
       )}
 
-      {!loading && !error && isAllClear && (
+      {!loading && !error && isAllClear && setupOpen && (
+        <p role="status" className="px-4 py-4 text-sm text-[var(--ff-text-secondary)]">Finish setup to see your daily tasks</p>
+      )}
+
+      {!loading && !error && isAllClear && !setupOpen && (
         <div role="status" className="flex items-center gap-3 px-4 py-4">
           <CheckCircle2 className="h-5 w-5 text-brand-500" aria-hidden="true" />
           <div>

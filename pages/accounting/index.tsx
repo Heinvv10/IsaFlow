@@ -20,6 +20,8 @@ import { JournalEntriesTab } from '@/components/accounting/dashboard/JournalEntr
 import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriodsTab';
 import { ReportsTab } from '@/components/accounting/dashboard/ReportsTab';
 import { DashboardHero, type DashboardHeroStats, type HeroTab } from '@/components/accounting/dashboard/DashboardHero';
+import { ModuleSetupChecklist } from '@/components/accounting/dashboard/ModuleSetupChecklist';
+import { useSetupProgress, isSetupOpen } from '@/components/accounting/dashboard/useSetupProgress';
 
 type AccountingTab = 'overview' | 'chart-of-accounts' | 'journal-entries' | 'fiscal-periods' | 'reports';
 
@@ -50,6 +52,7 @@ export default function AccountingPage() {
   const [heroStats, setHeroStats] = useState<DashboardHeroStats | undefined>();
   const [heroError, setHeroError] = useState('');
   const [impersonateError, setImpersonateError] = useState('');
+  const setup = useSetupProgress(activeCompany?.id);
 
   useEffect(() => { setIsMounted(true); }, []);
 
@@ -133,7 +136,9 @@ export default function AccountingPage() {
       });
   }, [isMounted, activeCompany?.id]);
 
-  if (!isMounted) {
+  // The skeleton holds until the setup checklist is known: it renders ABOVE the
+  // hero, so arriving later would push the whole page down (CLS).
+  if (!isMounted || setup.loading) {
     return (
       <AppLayout>
         <div className="min-h-screen bg-surface p-6 space-y-6">
@@ -155,6 +160,9 @@ export default function AccountingPage() {
 
         {/* Hero card with integrated pill tabs */}
         <div data-tour="dashboard" className="px-6 pt-6">
+          {activeTab === 'overview' && setup.progress && !setup.progress.allComplete && (
+            <div className="mb-5"><ModuleSetupChecklist progress={setup.progress} /></div>
+          )}
           <DashboardHero
             companyName={activeCompany?.tradingName ?? activeCompany?.name ?? 'ISAFlow'}
             loading={companiesLoading}
@@ -170,7 +178,7 @@ export default function AccountingPage() {
         {/* key={activeCompany?.id} forces full remount when company switches,
             so each tab's useEffect re-fires with the correct localStorage company */}
         <div className="p-6 pt-5" key={activeCompany?.id ?? 'loading'}>
-          {activeTab === 'overview'          && <OverviewTab />}
+          {activeTab === 'overview'          && <OverviewTab setupOpen={isSetupOpen(setup)} />}
           {activeTab === 'chart-of-accounts' && <ChartOfAccountsTab />}
           {activeTab === 'journal-entries'   && <JournalEntriesTab />}
           {activeTab === 'fiscal-periods'    && <FiscalPeriodsTab />}
