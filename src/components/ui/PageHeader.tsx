@@ -31,7 +31,7 @@ export interface PageHeaderProps {
   /** Page title (e.g. "Customers"). */
   title: string;
   /** One-line subtitle / description. */
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   /** Right-aligned actions (CTA buttons, filters, etc.) */
   actions?: React.ReactNode;
   /** Optional back link shown above the title. */
