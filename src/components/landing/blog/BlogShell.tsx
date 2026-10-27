@@ -49,16 +49,16 @@ export function BlogShell({ band, children }: ShellProps) {
 export function Breadcrumb({ trail }: { trail: { name: string; href?: string }[] }) {
   return (
     <nav aria-label="Breadcrumb" className="mb-6 text-sm text-white/70">
-      <ol className="flex flex-wrap items-center gap-1.5">
+      <ol className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
         {trail.map((t, i) => (
-          <li key={t.name} className="flex items-center gap-1.5">
-            {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-white/40" aria-hidden="true" />}
+          <li key={t.name} className={`flex items-center gap-1.5 ${t.href ? 'shrink-0' : 'min-w-0'}`}>
+            {i > 0 && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-white/40" aria-hidden="true" />}
             {t.href ? (
               <Link href={t.href} className="hover:text-teal-300 transition-colors">
                 {t.name}
               </Link>
             ) : (
-              <span aria-current="page" className="text-white/90 line-clamp-1">
+              <span aria-current="page" className="truncate text-white/90">
                 {t.name}
               </span>
             )}
