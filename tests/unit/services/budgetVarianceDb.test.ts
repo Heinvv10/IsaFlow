@@ -70,7 +70,7 @@ async function loadFixtureIds(): Promise<Fixture> {
                         AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = e2.company_id AND ch.parent_account_id = e2.id)
     JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue' AND r.is_active
                         AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = r.company_id AND ch.parent_account_id = r.id)
-    WHERE bank.account_subtype = 'bank'
+    WHERE bank.account_subtype = 'bank' AND bank.is_active
     ORDER BY bank.company_id, bank.account_code, e1.account_code, e2.account_code, r.account_code
     LIMIT 1
   `) as Array<Record<string, string>>;
