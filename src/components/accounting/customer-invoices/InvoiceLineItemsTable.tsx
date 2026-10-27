@@ -57,8 +57,8 @@ const UNOFFERED: Record<InvoiceLineCodingOptions['status'], string> = {
   ready: 'Unavailable — choose another',
 };
 
-export function CodingPicker({ value, options, all, empty, onChange, label, disabled }: {
-  value: string; options: CodingOption[]; all: InvoiceLineCodingOptions; empty: string;
+export function CodingPicker({ value, options, all, empty, onChange, label, disabled, id }: {
+  id?: string; value: string; options: CodingOption[]; all: InvoiceLineCodingOptions; empty: string;
   onChange: (v: string) => void; label: string; disabled?: boolean;
 }) {
   // A stored id the list does not offer (cancelled, deactivated, past the list's
@@ -67,7 +67,7 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
   const offered = options.some((o) => o.id === value);
   const unoffered = value !== '' && !offered ? (all.known[value] ?? UNOFFERED[all.lookupFailed ? 'failed' : all.status]) : null;
   return (
-    <select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={inp}>
+    <select id={id} aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={inp}>
       <option value="">{empty}</option>
       {unoffered !== null && <option value={value}>{unoffered}</option>}
       {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -103,7 +103,9 @@ export function InvoiceLineItemsTable({
           <button type="button" onClick={options.retry} className="underline font-medium">Retry</button>
         </p>
       )}
-      <table className="w-full text-sm">
+      <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400 lg:hidden">Scroll sideways to see every column.</p>
+      <div className="overflow-x-auto" role="region" aria-label="Invoice lines" tabIndex={0}>
+      <table className="w-full min-w-[720px] text-sm">
         <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
           <tr>
             <th className={`${th} px-4 text-left`}>Description</th>
@@ -123,7 +125,7 @@ export function InvoiceLineItemsTable({
           {lines.map((l) => (
             <tr key={l.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
               <td className="px-3 py-2"><input name="description" aria-label="Description" value={l.description} onChange={(e) => onUpdate(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
-              {showIncomeType && <td className="px-3 py-2"><select name="incomeType" value={l.incomeType} onChange={(e) => onUpdate(l.key, 'incomeType', e.target.value)} className={inp}>
+              {showIncomeType && <td className="px-3 py-2"><select name="incomeType" aria-label="Income type" value={l.incomeType} onChange={(e) => onUpdate(l.key, 'incomeType', e.target.value)} className={inp}>
                 <option value="activation">Activation</option><option value="bonus">Bonus</option><option value="adjustment">Adjustment</option><option value="other">Other</option>
               </select></td>}
               <td className="px-3 py-2"><CodingPicker label="Revenue account" value={l.glAccountId} options={options.accounts} all={options} empty="Default sales" onChange={(v) => onUpdate(l.key, 'glAccountId', v)} /></td>
@@ -142,6 +144,7 @@ export function InvoiceLineItemsTable({
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }
