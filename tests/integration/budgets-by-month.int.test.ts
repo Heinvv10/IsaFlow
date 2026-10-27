@@ -91,8 +91,12 @@ afterAll(async () => {
 
 describe('a 14-month transition year', () => {
   it('stores and reads back all 14 calendar months with the right total', async () => {
-    // The year's primary (budget_version_original: an APPROVED 'Original', as migration 947 converted legacy budgets).
-    const version = (await pool.query(`SELECT public.budget_version_original($1, 2026, $2) AS id`, [companyId, user])).rows[0].id;
+    // A DRAFT primary 'Original' (what the wizard or a first save makes), so the readers below (getBudgets, the BvA
+    // variance and window sums) are proven on draft data, not only on migration 947's APPROVED converted Originals.
+    const version = (await pool.query(
+      `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by)
+       VALUES ($1, 2026, 'Original', 'original', true, $2) RETURNING id`, [companyId, user])).rows[0].id;
+    expect((await pool.query('SELECT status FROM budget_versions WHERE id = $1', [version])).rows[0].status).toBe('draft');
     await pool.query(
       `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
        SELECT $1, $2, $3, (m || '-01')::DATE, a, $6 FROM unnest($4::TEXT[], $5::NUMERIC[]) AS t(m, a)`,

@@ -1,8 +1,10 @@
 /**
- * seedVersion's lock order (PR-D review M1): the year registry is held FIRST, before the version
- * row locks and before `plan()` reads the target year (getFiscalYear). Without the early hold a
- * seed racing a change of year end reads the old year's bounds and files months outside the new
- * year (budgets-year-end-rehome.int pins that outcome against a real database).
+ * seedVersion's CALL ORDER (PR-D review M1), with mocks: holdYearRegistry comes first, before the
+ * version row locks (lockSeedVersions) and before `plan()` reads the target year (getFiscalYear).
+ * This pins the order of the calls only; no lock is taken here. The real lock proof is against
+ * PostgreSQL: budgets-year-end-seed-race.int (a seed racing a shortening change of year end writes
+ * only months the new year holds) and budgets-year-end-rehome.int (seeds racing the change and a
+ * start-month change wait for them).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

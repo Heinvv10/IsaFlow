@@ -66,7 +66,8 @@ describe('a seed racing a shortening change of year end', () => {
     const t1 = await pool.connect(), t2 = await pool.connect();
     let seeded: string | null = null;
     try {
-      // T1: shorten FY2026 to November, held open (it holds the year registry exclusively).
+      // T1: the year end moves from December to November (FY2026 ends 2026-11-30, so FY2027 becomes
+      // 2026-12-01..2027-11-30), held open: it holds the year registry exclusively until it commits.
       await t1.query('BEGIN');
       await als.run(ctx(t1), () => applyYearEndChange(id, user, { newYearEndMonth: 11, ...OK }, TODAY));
       // T2: the wizard copies the FY2025 scenario into a new FY2027 scenario.
