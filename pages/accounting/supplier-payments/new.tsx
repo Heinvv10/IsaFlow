@@ -239,7 +239,7 @@ export default function NewSupplierPaymentPage() {
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><Wallet className="h-4 w-4" />Create Payment</>}
                   </button>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center px-2 mt-3">Payment will be recorded and allocated to the selected invoices.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2 mt-3">Payment will be recorded and allocated to the selected invoices.</p>
               </div>
             </div>
           </div>

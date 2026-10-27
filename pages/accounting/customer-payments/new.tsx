@@ -237,7 +237,7 @@ export default function NewCustomerPaymentPage() {
                         </select>
                         <input type="number" name="amount" step="0.01" min="0" max={balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} placeholder="Amount" className={`${inp} w-36`} />
                         {allocations.length > 1 && (
-                          <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-4 w-4" /></button>
                         )}
                       </div>
                     );

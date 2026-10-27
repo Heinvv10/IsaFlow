@@ -95,7 +95,7 @@ export default function CreditNotesPage() {
             </div>
             <div className="flex gap-2">
               {(['', 'customer', 'supplier'] as const).map(v => (
-                <button key={v} onClick={() => setTypeFilter(v)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${typeFilter === v ? 'bg-brand-600 text-white shadow-sm' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                <button key={v} onClick={() => setTypeFilter(v)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${typeFilter === v ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-sm' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                   {v === '' ? 'All Types' : v}
                 </button>
               ))}
