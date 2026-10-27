@@ -14,11 +14,11 @@
  * non-increasing ones are refused), columns are capped per row, and the CSV
  * being written has a byte budget, so one long shared string repeated in every
  * cell cannot multiply into gigabytes. Each limit refuses with a
- * SpreadsheetRefusedError, whose message is for the client.
+ * SpreadsheetRefusedError, whose message is for the client; so does anything
+ * the parser itself throws (`readNormalised`), with a neutral message.
  */
-import { Readable } from 'node:stream';
 import ExcelJS from 'exceljs';
-import { normaliseXlsx } from './xlsxNormalise';
+import { normaliseXlsx, readerInput, readNormalised } from './xlsxNormalise';
 import { SpreadsheetMalformedError, SpreadsheetTooLargeError } from './spreadsheetErrors';
 
 export { SpreadsheetMalformedError, SpreadsheetRefusedError, SpreadsheetTooLargeError } from './spreadsheetErrors';
@@ -30,11 +30,24 @@ export interface XlsxLimits {
   maxColumns: number;
   /** The CSV produced. */
   maxOutputBytes: number;
+  /** styles.xml, inflated; shared strings, inflated and by entry (`<si>` plus rich-text runs). No cap when absent. */
+  maxStylesBytes?: number;
+  maxSharedStringsBytes?: number;
+  maxSharedStrings?: number;
 }
 
-/** Far beyond any chart, contact list or trial balance a business exports. */
+/**
+ * Far beyond any chart, contact list or trial balance a business exports. The styles and
+ * shared-strings caps (round 3 M1) leave room for a generous real-shaped export, measured
+ * 2026-10-26: 50 000 rows x 14 columns of mostly unique text (customer codes, names, emails,
+ * addresses) is 13.5 MB / 409 000 shared strings and a 2 kB styles part, and converts in ~3 s.
+ * Without them 76 MB of shared-string filler (breaker I5) or 23 MB of <font> reached the parser.
+ * The byte cap is the memory bound; the entry cap is maxRows x maxColumns (round 9), one per cell
+ * the sheet may hold, so a wide file with many distinct texts that imported before still does.
+ */
 export const XLSX_LIMITS: XlsxLimits = {
   maxUncompressedBytes: 80 * 1024 * 1024, maxRows: 50_000, maxColumns: 100, maxOutputBytes: 40 * 1024 * 1024,
+  maxStylesBytes: 8 * 1024 * 1024, maxSharedStringsBytes: 32 * 1024 * 1024, maxSharedStrings: 50_000 * 100,
 };
 
 /** An .xlsx is a zip: it starts with the local-file-header signature "PK\x03\x04". */
@@ -70,9 +83,15 @@ function csvField(text: string): string {
  * padded to the widest row at the end, as the CSV parsers expect.
  */
 export async function xlsxBufferToCsv(buf: Buffer, limits: XlsxLimits = XLSX_LIMITS): Promise<string> {
-  const normalised = await normaliseXlsx(buf, limits.maxUncompressedBytes);
+  const normalised = await normaliseXlsx(buf, limits.maxUncompressedBytes, {
+    maxStylesBytes: limits.maxStylesBytes, maxSharedStringsBytes: limits.maxSharedStringsBytes, maxSharedStrings: limits.maxSharedStrings,
+  });
   if (!normalised) return '';
-  const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([normalised]), {
+  return readNormalised(() => readFirstSheet(normalised, limits));
+}
+
+async function readFirstSheet(normalised: Buffer, limits: XlsxLimits): Promise<string> {
+  const reader = new ExcelJS.stream.xlsx.WorkbookReader(readerInput(normalised), {
     worksheets: 'emit', sharedStrings: 'cache', styles: 'cache', hyperlinks: 'ignore', entries: 'ignore',
   });
   const rows: string[][] = [];
