@@ -2,7 +2,7 @@
  * The saved shell layout (nav mode, collapsed sidebar) and the admin-host check, shared by AppLayout and
  * public/shell-init.js. The script copies them onto <html> before first paint; AppLayout seeds its state from those
  * attributes, so even a fresh AppLayout (every client-side navigation mounts one) draws the right nav on its first
- * frame, and writes them back when the user changes them. tests/unit/components/shellInitScript.test.ts holds the script
+ * frame, and writes them back when the user changes them. tests/unit/components/shellInitScript.test.tsx holds the script
  * and these constants together.
  */
 export const NAV_MODE_KEY = 'accounting-nav-mode';
