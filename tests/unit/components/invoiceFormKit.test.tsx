@@ -145,6 +145,18 @@ describe('dates', () => {
     await waitFor(() => expect(calls('POST')).toBe(0));
     expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
   });
+
+  it('a loaded invoice with no invoice date (empty, never refused) blocks save', async () => {
+    serve();
+    const base = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) =>
+      String(url).includes('customer-invoices-detail') && !init?.method ? ok({ ...INV, invoice_date: null }) : base(url, init));
+    render(<EditPage />);
+    await screen.findByDisplayValue('L');
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await screen.findByText('Enter the invoice date');
+    expect(calls('PUT')).toBe(0);
+  });
 });
 
 describe('kit pickers', () => {
