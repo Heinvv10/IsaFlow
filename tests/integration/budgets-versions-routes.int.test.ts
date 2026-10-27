@@ -246,8 +246,20 @@ describe('budget-versions routes', () => {
     expect((await pool.query('SELECT is_primary FROM budget_versions WHERE id = $1', [prim])).rows[0].is_primary).toBe(true);
     const byOwner = await primary.call(x.u, 'POST', undefined, { id: alt.id });
     expect([byOwner.status, data(byOwner).isPrimary]).toEqual([200, true]);
-    // The new primary is not locked: an admin may switch it again (back to the locked one is a switch AWAY from alt).
+    const audit = (await pool.query(
+      `SELECT changes->'metadata' AS m FROM audit_log WHERE entity_id = $1 AND changes->'metadata'->>'primary' = 'true'`, [alt.id])).rows;
+    expect(audit.map((r) => [r.m.previousPrimary, r.m.previousPrimaryStatus])).toEqual([[prim, 'locked']]);
+    // The new primary is approved but NOT locked: an admin may switch away from it (back to the locked one).
+    expect((await move(x.u, alt.id, { action: 'approve' })).status).toBe(200);
     const back = await primary.call(xAdmin, 'POST', undefined, { id: prim });
     expect(back.status).toBe(200);
+  });
+
+  it('an admin may set the primary of a year that has none', async () => {
+    const x = await budgets.owner();
+    const xAdmin = await member(x.u.homeCompanyId, 'admin');
+    const v = data(await create(x.u, 'First', 'scenario', x.label));
+    const r = await primary.call(xAdmin, 'POST', undefined, { id: v.id });
+    expect([r.status, data(r).isPrimary]).toEqual([200, true]);
   });
 });
