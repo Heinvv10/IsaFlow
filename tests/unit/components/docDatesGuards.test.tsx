@@ -33,6 +33,8 @@ import JournalNew from '../../../pages/accounting/journal-entries/new';
 import ItemAdjustments from '../../../pages/accounting/item-adjustments';
 import SupplierInvoiceDetail from '../../../pages/accounting/supplier-invoices/[invoiceId]';
 import ItemNew from '../../../pages/accounting/items/new';
+import BankTxNew from '../../../pages/accounting/bank-transactions/new';
+import ExpenseDetail from '../../../pages/accounting/expenses/[id]';
 import CustomerNew from '../../../pages/accounting/customers/new';
 import SupplierNew from '../../../pages/accounting/suppliers/new';
 
@@ -81,6 +83,28 @@ const cases: Case[] = [
     open: async () => { await click(/^edit$/i); }, save: () => click(/^save$/i), ready: () => screen.findByRole('textbox', { name: /^due date/i }) },
   { page: 'items/new', query: {}, ui: <ItemNew />, field: 'Opening Date',
     data: () => undefined, save: () => { fireEvent.submit(document.querySelector('form')!); }, ready: () => screen.findByRole('textbox', { name: /^opening date/i }) },
+  // These two clear a refused date instead of gating it: the date is required, so the existing validation must refuse.
+  { page: 'bank-transactions/new (required date)', query: {}, ui: <BankTxNew />, field: 'Date',
+    data: (u) => (u.includes('bank-accounts') ? [{ id: 'b1', accountCode: '1000', accountName: 'Cheque' }]
+      : u.includes('chart-of-accounts') ? [{ id: 'a1', accountCode: '4000', accountName: 'Sales' }] : undefined),
+    save: () => { fireEvent.submit(document.querySelector('form')!); },
+    ready: async () => {
+      await screen.findByRole('option', { name: /1000/ });
+      fireEvent.change(document.querySelector('input[name="amount"]')!, { target: { value: '50' } });
+      fireEvent.change(document.querySelector('input[name="search"]')!, { target: { value: 'Sales' } });
+      fireEvent.click(await screen.findByRole('button', { name: /4000/ }));
+    } },
+  { page: 'expenses/[id] (required receipt date)', query: { id: 'claim-1' }, ui: <ExpenseDetail />, field: 'Date',
+    data: (u) => (u.includes('chart-of-accounts') ? [{ id: 'a1', accountCode: '6000', accountName: 'Travel', accountType: 'expense', isActive: true }]
+      : u.includes('expense-claims/claim-1') ? { claim: { id: 'claim-1', claimNumber: 'EC-1', claimDate: '2026-10-01', employeeId: 'e1', title: null, description: null,
+        status: 'draft', totalAmount: 0, totalVat: 0, approvedBy: null, approvedAt: null, rejectionReason: null, postedJeId: null, postedAt: null, lines: [], mileage: [] } } : undefined),
+    open: async () => { await click(/add receipt/i); },
+    save: () => click(/add line/i),
+    ready: async () => {
+      await screen.findByRole('option', { name: /6000/ });
+      fireEvent.change(screen.getByPlaceholderText('Amount'), { target: { value: '20' } });
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'a1' } });
+    } },
 ];
 
 describe.each(cases)('$page', (c) => {
