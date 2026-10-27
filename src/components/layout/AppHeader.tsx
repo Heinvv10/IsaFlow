@@ -38,7 +38,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
   const inline = showSidebar ? 'hidden xl:block' : 'hidden lg:block';
 
   return (
-    <header className="flex items-center px-4 gap-3 flex-shrink-0" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
+    <header className="flex flex-wrap items-center px-4 gap-x-3 gap-y-1 py-1 flex-shrink-0" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
       {/* Mobile hamburger */}
       <button
         ref={menuButtonRef}

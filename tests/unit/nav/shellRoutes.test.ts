@@ -23,6 +23,12 @@ describe('documentTitle', () => {
     expect(documentTitle(entry.href, idx)).toBe(`${entry.label} · ${entry.trail[1]} · IsaFlow`);
   });
 
+  it('names the reports hub, which the nav now reaches, but does not let it own the report pages under it', () => {
+    expect(documentTitle('/accounting/reports', idx)).toBe('All Reports · Reports · IsaFlow');
+    expect(documentTitle('/accounting/reports/balance-sheet', idx)).toBe('Balance Sheet · Reports · IsaFlow');
+    expect(documentTitle('/accounting/reports/three-way-forecast', idx)).toBe('IsaFlow'); // not in the nav
+  });
+
   it('falls back to the product name for a page the nav does not reach', () => {
     expect(documentTitle('/somewhere/else', idx)).toBe('IsaFlow');
     expect(documentTitle('/accounting/customer-invoices', [])).toBe('IsaFlow');

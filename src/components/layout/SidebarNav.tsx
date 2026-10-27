@@ -7,7 +7,7 @@
  * flyout and focuses its first entry; Escape closes it and returns focus to the row.
  */
 
-import { useState, useRef, useEffect, useCallback, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent as ReactKeyboardEvent, type FocusEvent as ReactFocusEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -66,6 +66,13 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
     const rect = el.getBoundingClientRect();
     setFlyout({ tabId, top: rect.top, left: rect.right });
   }, [cl]);
+
+  /** Focus leaving the flyouts (Tab past the last entry) closes them; moving into a section's sub-panel does not. */
+  const closeOnFocusOut = (e: ReactFocusEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget as HTMLElement | null;
+    if (next && (next.closest('[data-sidebar-flyout]') || next === trigger.current)) return;
+    setFlyout(null);
+  };
 
   /** ArrowRight opens the flyout from the keyboard; so do Enter and Space on a row that has no page of its own. */
   const keyOpen = (tabId: string, ownPage: boolean) => (e: ReactKeyboardEvent<HTMLElement>) => {
@@ -163,6 +170,8 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
           onMouseEnter={cl}
           onMouseLeave={dl}
           onKeyDown={moveInPanel}
+          onBlur={closeOnFocusOut}
+          data-sidebar-flyout=""
         >
           <TabFlyoutContent tab={flyoutTab} asPath={asPath} onNav={() => setFlyout(null)} />
         </div>,

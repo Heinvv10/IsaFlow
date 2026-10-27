@@ -101,9 +101,18 @@ describe('AppLayout', () => {
     expect(document.activeElement).toBe(controls[0]);
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(controls.at(-1));
-    hamburger().focus(); // focus outside the drawer is pulled back in
-    fireEvent.keyDown(document, { key: 'Tab' });
-    expect(drawer.contains(document.activeElement)).toBe(true);
+    expect(drawer.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('leaves Tab alone while focus is outside the open drawer (a dialog over it keeps its own Tab)', async () => {
+    render(page());
+    fireEvent.click(hamburger());
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Invoices'));
+    hamburger().focus();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    document.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(hamburger());
   });
 
   it('a sidebar user never gets the top nav, not even on a fresh AppLayout\'s first frame', () => {

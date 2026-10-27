@@ -115,6 +115,7 @@ function SectionFlyout({ label, items, asPath, onNav }: { label: string; items: 
           onMouseEnter={cl}
           onMouseLeave={dl}
           onKeyDown={onPanelKey}
+          data-sidebar-flyout=""
         >
           {items.map(item => {
             if (!isFlyout(item)) {
