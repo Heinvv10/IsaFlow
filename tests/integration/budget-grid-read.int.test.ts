@@ -297,6 +297,8 @@ describe('budget-grid read model: tenant isolation', () => {
     const m = await direct(B, { fiscalYear: 2028 });
     expect(m.version).toBeNull();
     expect(m.cells).toEqual([]);
+    expect(m.accounts.length).toBeGreaterThan(0);
+    expect(m.accounts.every((x) => Object.values(B.acct).includes(x.id))).toBe(true);
   });
 
   it('the service refuses another tenant\'s version id', async () => {
