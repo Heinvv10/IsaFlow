@@ -126,7 +126,7 @@ export default function NewCustomerInvoicePage() {
         />
 
         <div className="p-4 sm:p-6 xl:p-8">
-          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_288px] gap-6 items-start">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
             <div className="min-w-0 space-y-5">
               {scanBanner && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 text-sm flex items-center gap-2">

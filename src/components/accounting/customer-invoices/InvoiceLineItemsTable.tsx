@@ -103,7 +103,7 @@ export function InvoiceLineItemsTable({
           <button type="button" onClick={options.retry} className="underline font-medium">Retry</button>
         </p>
       )}
-      <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400 lg:hidden">Scroll sideways to see every column.</p>
+      <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400 md:hidden">Scroll sideways to see every column.</p>
       <div className="overflow-x-auto" role="region" aria-label="Invoice lines" tabIndex={0}>
       <table className="w-full min-w-[720px] text-sm">
         <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">

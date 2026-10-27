@@ -3,7 +3,7 @@
  * on the form kit: ContactPicker, Select, Input and DateField (typed dates: "1 Oct 2026", "t", "+30").
  * The page owns the form; this reports each change as a patch. The job picker stays the line editor's CodingPicker.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ContactPicker } from '@/components/ui/pickers/ContactPicker';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
@@ -43,8 +43,18 @@ export function InvoiceCard({ n, title, children }: { n: number; title: string; 
 export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, clientLabel, resetKey }: Props) {
   const isFx = form.currencyCode !== 'ZAR';
   const currencyOptions = [{ value: 'ZAR', label: 'ZAR — South African Rand' }, ...currencies.filter((c) => c.code !== 'ZAR').map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))];
+  // Due date's floor is the invoice date, so a refusal made against the old floor is stale once the invoice date moves:
+  // drop it and show the last accepted due date again (the page's value) instead of leaving it red and blocking save.
+  const [dueRevalidate, setDueRevalidate] = useState(0);
+  const prevInvoiceDate = useRef(form.invoiceDate);
+  useEffect(() => {
+    if (prevInvoiceDate.current === form.invoiceDate) return;
+    prevInvoiceDate.current = form.invoiceDate;
+    onDateValidity('dueDate', { valid: true, reason: null });
+    setDueRevalidate((k) => k + 1);
+  }, [form.invoiceDate, onDateValidity]);
   const date = (key: InvoiceDateKey, label: string, extra: { required?: boolean; minDate?: string } = {}) => (
-    <DateField label={label} value={form[key] || null} resetKey={resetKey} {...extra}
+    <DateField label={label} value={form[key] || null} resetKey={key === 'dueDate' ? `${resetKey ?? 0}:${dueRevalidate}` : resetKey} {...extra}
       onChange={(iso, v) => { onDateValidity(key, v); if (v.valid) onChange({ [key]: iso ?? '' }); }} />
   );
   return (
@@ -52,7 +62,8 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
       <InvoiceCard n={1} title="Client & Settings">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ContactPicker kind="customer" label="Client" value={form.clientId || null} valueLabel={clientLabel}
-            onChange={(v) => onChange({ clientId: v ?? '' })} placeholder="Select client…" />
+            onChange={(v) => onChange({ clientId: v ?? '' })} placeholder="Select client…"
+            labelClassName="after:ml-0.5 after:text-red-600 dark:after:text-red-400 after:content-['*']" />
           <Input label="VAT rate %" type="number" name="taxRate" value={form.taxRate} onChange={(e) => onChange({ taxRate: Number(e.target.value) })} />
           <Select label="Currency" options={currencyOptions} value={form.currencyCode} valueOption={{ value: form.currencyCode, label: form.currencyCode }}
             onChange={(v) => onChange({ currencyCode: v ?? 'ZAR', exchangeRate: (v ?? 'ZAR') === 'ZAR' ? 1 : form.exchangeRate })} />
