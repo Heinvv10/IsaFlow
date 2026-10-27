@@ -7,8 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
-import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
-import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
+import { AGING_BREAKDOWN_LABELS, getOpenBook } from './dashboardOpenBook';
 import { todayInSast } from '@/lib/saDateParser';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
@@ -128,26 +127,17 @@ export async function getCashFlowChart(companyId: string, months: number): Promi
   }
 }
 
-/** The aging report's own bucket labels (pages/accounting/reports/ar-aging.tsx). */
-export const AGING_BREAKDOWN_LABELS = ['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days'] as const;
-
 /**
- * The dashboard's AR / AP ageing: the aging services' buckets summed over every
- * customer or supplier, as at today in SAST. No SQL of its own — it used to
- * re-aggregate with its own status list, no disputes, CURRENT_DATE (the UTC
- * session date) and a "90+" that was really "> 60", so it disagreed with the
- * report it summarises. One population, one rewind, one clock now.
+ * The dashboard's AR / AP ageing: the aging report's population and buckets as
+ * at the SAST day (reports/dashboardOpenBook), plus a Disputed segment, so the
+ * donut sums to the report's total and to the Receivables / Payables tile. It
+ * used to re-aggregate with its own status list, no disputes, CURRENT_DATE (the
+ * UTC session date) and a "90+" that was really "> 60".
  */
-export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap'): Promise<AgingBreakdownBucket[]> {
+export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap', todayStr: string = todayInSast()): Promise<AgingBreakdownBucket[]> {
   try {
-    const rows = type === 'ar'
-      ? await getARAging(companyId, todayInSast())
-      : await getAPAging(companyId, todayInSast());
-    const keys = ['current', 'days30', 'days60', 'days90', 'days120Plus'] as const;
-    return keys.map((k, i) => ({
-      name: AGING_BREAKDOWN_LABELS[i]!,
-      value: Math.round(rows.reduce((s, r) => s + r[k], 0) * 100) / 100,
-    }));
+    const { buckets } = await getOpenBook(companyId, type, todayStr);
+    return AGING_BREAKDOWN_LABELS.map((name, i) => ({ name, value: buckets[i]! }));
   } catch (err) {
     log.error('Failed to get aging breakdown', { error: err, type }, 'kpi-service');
     throw err;

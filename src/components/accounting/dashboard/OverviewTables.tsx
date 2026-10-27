@@ -11,8 +11,10 @@ const Cell = dynamic(() => import('recharts').then(m => m.Cell), { ssr: false })
 const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
 const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
 
-/** One per aging bucket: Current, 1–30, 31–60, 61–90, 90+ (kpiChartsService.AGING_BREAKDOWN_LABELS). */
-const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e', '#9f1239'];
+/** One per segment: Current, 1–30, 31–60, 61–90, 90+, Disputed (reports/dashboardOpenBook AGING_BREAKDOWN_LABELS). */
+const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e', '#9f1239', '#8b5cf6'];
+/** A zero Disputed segment is left out of the legend (AP has no disputes); a zero age bucket is not. */
+const shownInLegend = (b: AgingBucket): boolean => b.name !== 'Disputed' || b.value !== 0;
 
 function fmtCurrency(n: number): string {
   return formatMoney(n);
@@ -109,7 +111,7 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="flex-1 space-y-2">
-                  {buckets.map((bucket, i) => (
+                  {buckets.map((bucket, i) => shownInLegend(bucket) && (
                     <div key={i} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: AGING_COLORS[i] }} />
