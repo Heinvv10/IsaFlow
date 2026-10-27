@@ -47,3 +47,12 @@ it('switching the lockdown off drops the refused entry, so Save is open again', 
   fireEvent.click(screen.getByRole('switch', { name: /Enable Lockdown Date/ }));
   await waitFor(() => expect(save().disabled).toBe(false));
 });
+
+it('leaving the General tab drops the refused entry (the field shows the saved date on return), so Save is open', async () => {
+  render(<CompanySettingsPage />);
+  typeDate(await screen.findByRole('textbox', { name: 'Lockdown Date' }), 'garbage');
+  await waitFor(() => expect(save().disabled).toBe(true));
+  fireEvent.click(screen.getAllByRole('button', { name: /VAT Settings/ })[0] as HTMLElement);
+  await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Lockdown Date' })).toBeNull());
+  expect(save().disabled).toBe(false);
+});
