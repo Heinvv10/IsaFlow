@@ -102,7 +102,8 @@ describe('seed: size of a same-year exact copy', () => {
            FROM gl_accounts ga CROSS JOIN generate_series(0, 11) m WHERE ga.company_id = $1 AND ga.account_code LIKE 'GY%'`, [C.id, src]);
       const r = await seed(C, body(2027, 'Y-big-copy', { type: 'version', versionId: src, upliftPct: 0 }));
       expect([r.status, r.body.error?.details?.code], dump(r)).toEqual([400, 'BUDGET_VERSION_INPUT']);
-      expect(String(r.body.error?.message)).toContain(String(MAX_IMPORT_CELLS));
+      // The copy's own message: it computes no grain, so "fewer members" would mean nothing here.
+      expect(String(r.body.error?.message)).toBe(`This version holds 100008 cells, more than one seed can copy (${MAX_IMPORT_CELLS})`);
       expect(Number((await pool.query('SELECT COUNT(*)::int n FROM budget_versions WHERE company_id = $1 AND name = $2', [C.id, 'Y-big-copy'])).rows[0].n)).toBe(0);
     } finally {
       await pool.query('DELETE FROM budget_versions WHERE id = $1', [src]);

@@ -2,10 +2,12 @@
  * The request-body scrubber for error logs (api-error-handler). Credentials are
  * redacted; uploaded files and ID numbers are replaced by a size marker at any
  * depth, so a logged body never carries a certificate, an ID scan or an ID
- * number (onboarding complete-setup, company-directors, company-documents). An
- * array of more than MAX_LOGGED_ITEMS is logged as its count and any string over
- * LONG_STRING as its length: a bulk body (a 20 000-cell budget save, ~3.4 MB, or
- * a 14 MB base64 upload) is never written to the request log whole.
+ * number (onboarding complete-setup, company-directors, company-documents). Size
+ * is bounded at every level: an array of more than MAX_LOGGED_ITEMS is logged as
+ * its item count, an object of more than MAX_LOGGED_KEYS as its key count, and a
+ * string over LONG_STRING as its length, so a bulk body (a 20 000-cell budget
+ * save, ~3.4 MB, or a 14 MB base64 upload) is never written to the request log
+ * whole.
  */
 
 const SENSITIVE_KEYS = new Set([
@@ -42,6 +44,8 @@ function holdsFiles(value: unknown, depth = 0): boolean {
 }
 const omitted = (value: unknown) => (typeof value === 'string' ? `[omitted: ${value.length} chars]`
   : Array.isArray(value) ? `[omitted: ${value.length} items]` : '[omitted]');
+/** Wider objects are logged as `[omitted: N keys]`. */
+const MAX_LOGGED_KEYS = 200;
 const present = (value: unknown) => value !== null && value !== undefined && value !== '';
 /** Longer arrays are logged as `[omitted: N items]`. */
 const MAX_LOGGED_ITEMS = 50;
@@ -52,8 +56,10 @@ export function sanitizeRequestBody(body: unknown, depth = 0): unknown {
   if (!body || typeof body !== 'object') return body;
   if (depth > 8) return '[omitted: nested too deep]';
   if (Array.isArray(body)) return body.length > MAX_LOGGED_ITEMS ? omitted(body) : body.map((v) => sanitizeRequestBody(v, depth + 1));
+  const entries = Object.entries(body as Record<string, unknown>);
+  if (entries.length > MAX_LOGGED_KEYS) return `[omitted: ${entries.length} keys]`;
   const sanitized: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+  for (const [key, value] of entries) {
     if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';
     else if (PAYLOAD_KEYS.has(key) && present(value)) sanitized[key] = omitted(value);
     else if (key === 'data' && holdsFiles(value)) sanitized[key] = omitted(value);

@@ -130,7 +130,7 @@ describe('withCpuSlot: L6 per user, L7 a gone client', () => {
     };
     return { out, r };
   };
-  const req = (sub: string) => ({ url: '/x', destroyed: false, headers: { cookie: `sb-access-token=${token(sub)}` } });
+  const req = (sub: string) => ({ url: '/x', destroyed: true, socket: { destroyed: false }, headers: { cookie: `sb-access-token=${token(sub)}` } });
   const signed = async (t: string) => ({ sub: JSON.parse(Buffer.from(t.split('.')[1]!, 'base64url').toString()).sub as string });
 
   it('L6: a third request from the same user is 429 with Retry-After; another user is not', async () => {
@@ -160,7 +160,7 @@ describe('withCpuSlot: L6 per user, L7 a gone client', () => {
     const last = route(req('u3') as never, res().r as never);
     await tick();
     expect([calls, slot.stats().waiting]).toEqual([1, 2]);
-    goneReq.destroyed = true; // the client hung up while queued
+    goneReq.socket.destroyed = true; // the client hung up while queued (req.destroyed is true on every live request)
     g.open();
     await Promise.all([first, gone, last]);
     expect(calls).toBe(2); // u1 and u3 ran; u2 was skipped

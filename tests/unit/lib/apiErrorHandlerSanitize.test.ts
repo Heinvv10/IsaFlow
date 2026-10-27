@@ -151,3 +151,16 @@ describe('sanitizeBody — long strings', () => {
   });
 });
 
+describe('sanitizeBody — wide objects', () => {
+  it('logs an object of more than 200 keys as its key count, at any depth; 200 or fewer are kept (and scrubbed)', () => {
+    const wide = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, i]));
+    const out = sanitizeBody({ top: 'kept', many: wide(201), nested: { inner: wide(5000) }, some: { ...wide(199), token: 't' } }) as Record<string, any>;
+    expect(out.top).toBe('kept');
+    expect(out.many).toBe('[omitted: 201 keys]');
+    expect(out.nested).toEqual({ inner: '[omitted: 5000 keys]' });
+    expect(Object.keys(out.some)).toHaveLength(200);
+    expect(out.some.token).toBe('[REDACTED]');
+    expect(sanitizeBody(wide(201))).toBe('[omitted: 201 keys]');
+  });
+});
+
