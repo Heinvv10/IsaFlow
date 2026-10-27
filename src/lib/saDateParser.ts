@@ -4,7 +4,9 @@
  *
  * Accepts "1 Oct 2026", "01 October 2026", "2026-10-01", "01/10/2026" (day first, never month first),
  * "1 Oct" (this year), Afrikaans month names ("1 Okt 2026", "Mei", "Maart") and the shortcuts `t` / `today`,
- * `+30` / `-7` (days from today) and `eom` (end of this month). A two-digit year is read in the window
+ * `+30` / `-7` (days from today) and `eom` (end of this month). Given an `anchor` ISO date, `+N` / `-N` and
+ * `eom` count from it instead (a report's "To" from its "From", a due date from the invoice date); `t` is
+ * always today, and an anchor that is not a real date is ignored. A two-digit year is read in the window
  * [now - 79, now + 20]: "01/10/46" is 2046 and "01/10/47" is 1947 when it is 2026.
  *
  * "Today" is the calendar day in Africa/Johannesburg (`todayInSast`), not the device's: a laptop set to
@@ -71,7 +73,7 @@ function endOfMonthISO(iso: string): string {
   return `${iso.slice(0, 8)}${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
 }
 
-export function parseSaDate(input: string, now: Date = new Date()): DateParseResult {
+export function parseSaDate(input: string, now: Date = new Date(), anchor?: string | null): DateParseResult {
   const shown = input.trim();
   const s = shown.toLowerCase().replace(/\s+/g, ' ');
   if (s === '') return fail('empty', 'Enter a date.');
@@ -80,13 +82,14 @@ export function parseSaDate(input: string, now: Date = new Date()): DateParseRes
   const thisYear = Number(today.slice(0, 4));
 
   if (s === 't' || s === 'today') return { ok: true, iso: today };
-  if (s === 'eom') return { ok: true, iso: endOfMonthISO(today) };
+  const from = anchor && localDateFromISO(anchor) ? anchor : today;
+  if (s === 'eom') return { ok: true, iso: endOfMonthISO(from) };
 
   const offset = /^([+-])(\d+)$/.exec(s);
   if (offset) {
     const days = Number(offset[2]) * (offset[1] === '-' ? -1 : 1);
-    if (Math.abs(days) > MAX_OFFSET_DAYS) return fail('range', 'That is too many days from today.');
-    return { ok: true, iso: addDaysISO(today, days) };
+    if (Math.abs(days) > MAX_OFFSET_DAYS) return fail('range', `That is too many days from ${from === today ? 'today' : 'the start date'}.`);
+    return { ok: true, iso: addDaysISO(from, days) };
   }
 
   const iso = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(s);
