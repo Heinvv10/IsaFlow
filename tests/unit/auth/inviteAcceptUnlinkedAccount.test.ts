@@ -124,7 +124,7 @@ describe('accepting an invitation that names no account', () => {
     // Never written back: revoke deletes a stored account that has no memberships.
     expect(ran(/SET gotrue_user_id/)).toBe(false);
     // A member of an existing company skips the new-company onboarding wizard (browser proof 2026-10-27).
-    expect(h.queries.find((q) => /INSERT INTO users/.test(q.text))?.text).toMatch(/onboarding_completed = true/);
+    expect(h.queries.find((q) => /INSERT INTO users/.test(q.text))?.text).toMatch(/onboarding_completed = COALESCE\(users\.onboarding_completed, true\)/);
     expect(h.setOnboardingDoneCookie).toHaveBeenCalled();
   });
 
@@ -298,5 +298,18 @@ describe('a GoTrue outage while resolving the account (D9)', () => {
       expect(await real.findUserByEmail('invitee@example.test')).toBeNull();
       await expect(real.adminGetUserByEmail('invitee@example.test')).rejects.toThrow(/no gotrue user/);
     } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
+  });
+});
+
+describe('an invited company that no longer exists', () => {
+  it('sets no onboarding-done cookie when there is no company to land in', async () => {
+    const live = await import('@/lib/auth/liveCompanies');
+    vi.mocked(live.isLiveCompanyForUser).mockResolvedValueOnce(false);
+    vi.mocked(live.pickInitialCompanyId).mockResolvedValueOnce(null);
+    h.adminCreateUser.mockResolvedValue({ id: 'gt-new', email: 'invitee@example.test' });
+    h.signIn.mockResolvedValue(tokens('gt-new'));
+
+    expect((await accept('a-new-password-1')).status).toBe(200);
+    expect(h.setOnboardingDoneCookie).not.toHaveBeenCalled();
   });
 });
