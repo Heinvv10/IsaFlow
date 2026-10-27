@@ -83,7 +83,7 @@ export function CohortRetentionTable({ data }: Props) {
           ))}
         </tbody>
       </table>
-      <p className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800">
+      <p className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 border-t border-gray-100 dark:border-gray-800">
         Retention at end of each month after signup. Red line at 5% churn is benchmark.
       </p>
     </div>
