@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path (v): main-screen skeletons and signature empty states (master plan wave 1, K).
  *

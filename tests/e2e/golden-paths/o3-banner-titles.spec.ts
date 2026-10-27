@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path O3 - titles on an always-dark banner are readable in both themes (master plan 3b.1 follow-up).
  *

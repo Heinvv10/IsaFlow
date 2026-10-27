@@ -119,3 +119,48 @@ describe('sanitizeBody — file payloads and ID numbers (onboarding complete-set
     expect((sanitizeBody({ data: deep }) as Record<string, unknown>).data).toBe('[omitted]');
   });
 });
+
+describe('sanitizeBody — long arrays', () => {
+  it('logs an array of more than 50 items as a count, at any depth; 50 or fewer are kept (and scrubbed)', () => {
+    const cell = (i: number) => ({ glAccountId: `acct-${i}`, amount: i, token: 't' });
+    const out = sanitizeBody({
+      versionId: 'v1',
+      cells: Array.from({ length: 51 }, (_, i) => cell(i)),
+      nested: { rows: Array.from({ length: 20_000 }, (_, i) => i) },
+      few: Array.from({ length: 50 }, (_, i) => cell(i)),
+    }) as Record<string, any>;
+    expect(out.versionId).toBe('v1');
+    expect(out.cells).toBe('[omitted: 51 items]');
+    expect(out.nested).toEqual({ rows: '[omitted: 20000 items]' });
+    expect(out.few).toHaveLength(50);
+    expect(out.few[0]).toEqual({ glAccountId: 'acct-0', amount: 0, token: '[REDACTED]' });
+    expect(sanitizeBody(Array.from({ length: 51 }, (_, i) => i))).toBe('[omitted: 51 items]');
+  });
+});
+
+describe('sanitizeBody — long strings', () => {
+  it('logs any string longer than 1 024 characters as its length, under any key and at any depth', () => {
+    const huge = 'x'.repeat(14 * 1024 * 1024);
+    const out = sanitizeBody({
+      x: huge, note: 'short', nested: { deeper: [{ blob: 'y'.repeat(1025) }] }, edge: 'z'.repeat(1024),
+    }) as Record<string, any>;
+    expect(out.x).toBe(`[omitted: ${huge.length} chars]`);
+    expect(out.note).toBe('short');
+    expect(out.nested).toEqual({ deeper: [{ blob: '[omitted: 1025 chars]' }] });
+    expect(out.edge).toBe('z'.repeat(1024));
+  });
+});
+
+describe('sanitizeBody — wide objects', () => {
+  it('logs an object of more than 200 keys as its key count, at any depth; 200 or fewer are kept (and scrubbed)', () => {
+    const wide = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, i]));
+    const out = sanitizeBody({ top: 'kept', many: wide(201), nested: { inner: wide(5000) }, some: { ...wide(199), token: 't' } }) as Record<string, any>;
+    expect(out.top).toBe('kept');
+    expect(out.many).toBe('[omitted: 201 keys]');
+    expect(out.nested).toEqual({ inner: '[omitted: 5000 keys]' });
+    expect(Object.keys(out.some)).toHaveLength(200);
+    expect(out.some.token).toBe('[REDACTED]');
+    expect(sanitizeBody(wide(201))).toBe('[omitted: 201 keys]');
+  });
+});
+

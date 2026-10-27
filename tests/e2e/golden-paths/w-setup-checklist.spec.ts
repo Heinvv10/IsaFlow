@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path (w): the per-module setup checklist on Home (master-plan W1 PR C).
  *

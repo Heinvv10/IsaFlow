@@ -3,9 +3,8 @@
  * Invitation CRUD operations — split from userAccessService.ts.
  */
 
-import crypto from 'crypto';
 import { sql } from '@/lib/neon';
-import { hashInviteToken } from '@/lib/auth/inviteToken';
+import { hashInviteToken, mintInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
 import type { PoolClient } from 'pg';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
@@ -67,7 +66,7 @@ export async function createInvitation(
   if (!isValidRole(role)) {
     throw new Error(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`);
   }
-  const rawToken = crypto.randomBytes(32).toString('hex');
+  const rawToken = mintInviteToken();
   const tokenHash = hashInviteToken(rawToken);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 

@@ -45,7 +45,7 @@ const LIMIT = 25;
 
 function CompanyCell({ primaryCompany, count }: { primaryCompany: string | null; count: number }) {
   if (!primaryCompany) {
-    return <span className="text-gray-600 dark:text-gray-400 dark:text-gray-600 italic text-xs">None</span>;
+    return <span className="text-gray-600 dark:text-gray-400 italic text-xs">None</span>;
   }
   const extra = count - 1;
   return (
