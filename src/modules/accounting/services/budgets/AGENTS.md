@@ -7,7 +7,7 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 
 ## Files
 - `budgetVersionTypes.ts`: `BudgetVersion`, `BudgetVersionError` (code + HTTP status), `mapBudgetDbError` (BV001 → LOCKED, BV002 → STATE, 23P01 on `budget_month_amounts_one_grain` → GRAIN; anything else rethrown).
-- `budgetVersionScope.ts`: `resolvePrimaryVersion`, `lockVersionForWrite`, `primaryVersionScope`, `namedVersionScope`, `versionYear`, `readVersion` / `writeVersion` (the core budget service uses them), `auditBudgetWrite`.
+- `budgetVersionScope.ts`: `resolvePrimaryVersion`, `lockVersionForWrite`, `primaryVersionScope`, `namedVersionScope`, `versionYear`, `readVersion` (the core budget reader uses it), `auditBudgetWrite`.
 - `budgetVersions.ts`: list, get, create, copy, set primary, delete. `budgetVersionStatus.ts`: approve, lock, unlock.
 - `index.ts`: the barrel for P2+ code. The pre-P1 services stay in `core/budgetService.ts`, `core/budgetMonths.ts`, `core/budgetYears.ts`, `reports/budgetWindowService.ts`, `reports/budgetVarianceService.ts` (36 importers, 5 `vi.mock` paths) and are re-exported here; a later cleanup may move them behind it.
 
@@ -16,7 +16,7 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 - Writers lock the version FIRST (`lockVersionForWrite`: `UPDATE … SET updated_at` under `withRowLockBudget`), then write amounts. This is the upgrade-deadlock rule (the DB trigger takes `FOR SHARE`) and makes "locked" a typed 409 before any write, so the request tx is never poisoned. `gridSave` does the same (see P2 below).
 - Every amount write leaves one `audit_log` row (entity `budget`, entity_id = version id). Status moves are audited by the DB trigger, never by the app.
 - Every write bumps the version's `updated_at` (the pre-lock), so a status move sent with an `expectedUpdatedAt` read before an amount edit is 409 STALE: "changed since you loaded it" covers amounts too.
-- The notes header (`accounting_budgets`) is per account and year, shared by every version: only a write of the PRIMARY sets notes, and `deleteBudget` removes the header only once no version of the year has months for the account.
+- The notes header (`accounting_budgets`) is per account and year, shared by every version. Nothing in the app writes it since P2 PR-D (the legacy writers are gone); the grid shows it read-only (`GridAccount.note`). Editing notes is a follow-up.
 - Raw DB refusals (BV001/BV002/23P01 one_grain) that get past a service check are answered with the same contract codes by `respondBudgetVersionError` (`budgetDbRefusal`); app_user may INSERT versions only as drafts (column privileges).
 - Roll-ups are computed (company total = Σ dimension rows), never stored.
 - Routes answer `BudgetVersionError` through `@/lib/budgetVersionResponse` (`error.details.code` carries the contract code).
@@ -28,7 +28,7 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 - `gridReadModel.ts` (+ `gridReadAccounts.ts`, `gridReadTypes.ts`): one version's grid. Accounts = active leaf revenue/expense + any account holding amounts (inactive flagged); a header (named as another account's `parent_account_id`) is a roll-up row, `ownAmounts` when it holds its own. Band totals count leaves + a header's own amounts once, never a roll-up. Token `updatedAt` = P1's UTC ISO text with microseconds (never a JS Date). A year with no version answers `version: null` WITH the accounts (the page's empty state and the wizard preview need them). Each account carries `note`: its `accounting_budgets.notes` for the version's year (one per company, account and year, shared by every version of the year; blank left out), read by `loadGridNotes`.
 - `priorActuals.ts`: PY actual per account × the SAME CALENDAR month a year earlier (14-month years map right), posted only, natural sign, optional dimension. Own SQL until P3's `tracking/trackingActualRead.ts` lands; then delegate. Parity-tested against `getMonthlyMovements`.
 - `gridSave.ts` `saveCells`: the ONLY grid batch writer (import commit reuses it). Pure checks, then `holdYearRegistry`, then ONE savepoint: CAS on `updated_at` + not locked (the pre-lock), ownership/kind checks, DELETE nulls then upsert, one audit row. The savepoint matters: withAuth COMMITs a 4xx, so a refusal must not keep the token bump.
-- Decision 18 (both `gridSave` and `core/budgetAccount.ts` for `upsertBudget`): a header or inactive account takes a NEW cell only if it already holds amounts in the version. `upsertBudget` checks it AFTER the version lock (`lockBudgetTarget`) inside a savepoint, so a concurrent move cannot slip a header budget in and a refusal keeps no token bump. Header test: `isHeaderSql()` in `budgets/headerSql.ts` (one copy). The legacy `copyBudgets` applies it too (header/inactive accounts holding nothing in the target are skipped; budgets-action answers `{ copied, skipped }`).
+- Decision 18 (`gridSave`; the seeds' leaf rule): a header or inactive account takes a NEW cell only if it already holds amounts in the version. Header test: `isHeaderSql()` in `budgets/headerSql.ts` (one copy).
 - Seeds lock every version row they touch FOR UPDATE in one statement ordered by (fiscal_year, id) (`lockSeedVersions`) before reading the source: never FOR SHARE then FOR UPDATE (upgrade deadlock).
 - `seedSeriesCore.ts`: the PY / version-copy series rules (leaf filter, unassigned rule, includeNoActivity, months past the target), PURE and imported by the client wizard preview too: never import server-only code into it.
 - `seedVersion.ts` (+ `seedSeries.ts`): wizard create; version + amounts + audit in one savepoint, amounts via PR-A `uplift` (residue on the last month). PY seed is leaf-only; a version copy carries what the source holds. `unassigned: 'company'|'drop'` keeps decision 4 at a dimension grain.
@@ -44,7 +44,7 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 - Approved-but-unlocked stays editable; locked is immutable in the DB (`budget_month_amounts_refuse_locked`, ENABLE ALWAYS).
 - One grain per account per version (exclusion `budget_month_amounts_one_grain`), and at most one dimension per amount (`budget_month_amounts_one_dimension`).
 - Delete: not primary, not locked; an approved version needs owner/admin; a draft any writer.
-- `upsertBudget` on a year with no primary creates a DRAFT primary 'Original'; migration 947 converted existing budgets to APPROVED primary Originals.
+- Migration 947 converted existing budgets to APPROVED primary Originals. A year's first version now comes from the wizard (`seedVersion`) or the version routes.
 
 ## Recent changes
 - 2026-10-26 (P1, migration 947): module created.

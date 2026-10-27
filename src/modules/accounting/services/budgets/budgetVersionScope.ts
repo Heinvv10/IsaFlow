@@ -174,20 +174,6 @@ export async function readVersion(companyId: string, fiscalYear: number, version
   return versionId;
 }
 
-/** The version a write of `fiscalYear` goes to, locked for this transaction (typed 409 when locked). */
-export async function writeVersion(
-  companyId: string, fiscalYear: number, versionId: string | undefined, userId: string,
-): Promise<{ id: string; isPrimary: boolean }> {
-  // A named version of another year (or tenant) is refused BEFORE the lock bumps its updated_at:
-  // a 4xx commits, and a bump for a request that wrote nothing would make other readers stale.
-  if (versionId && (await versionYear(companyId, versionId)).fiscalYear !== fiscalYear) {
-    throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', `Budget version not found in FY${fiscalYear}`);
-  }
-  const id = versionId ?? (await resolvePrimaryVersion(companyId, fiscalYear, { create: true, actor: userId }))!;
-  const locked = await lockVersionForWrite(companyId, id);
-  return { id, isPrimary: locked.isPrimary };
-}
-
 export async function auditBudgetWrite(
   companyId: string, userId: string, action: AuditAction, versionId: string, fiscalYear: number, metadata: Record<string, string>,
 ): Promise<void> {
