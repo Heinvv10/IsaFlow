@@ -52,4 +52,16 @@ describe('SidebarNav from the keyboard', () => {
     expect(screen.queryByRole('link', { name: 'Sales Orders' })).toBeNull();
     expect(active()).toBe(transactions);
   });
+
+  it('Tab out of a keyboard-opened flyout closes it; moving into a section sub-panel does not', () => {
+    render(<SidebarNav />);
+    const sales = screen.getByTestId('sidebar-tab-sales');
+    fireEvent.keyDown(sales, { key: 'ArrowRight' });
+    const transactions = screen.getByRole('button', { name: 'Transactions' });
+    fireEvent.keyDown(transactions, { key: 'Enter' });
+    fireEvent.blur(screen.getByRole('link', { name: 'Invoices' }), { relatedTarget: screen.getByRole('link', { name: 'Sales Orders' }) });
+    expect(sales.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.blur(screen.getByRole('link', { name: 'Invoices' }), { relatedTarget: screen.getByTestId('sidebar-tab-banking') });
+    expect(sales.getAttribute('aria-expanded')).toBe('false');
+  });
 });

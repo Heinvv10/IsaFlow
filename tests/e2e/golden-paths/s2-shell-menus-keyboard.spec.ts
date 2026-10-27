@@ -6,7 +6,8 @@
  *  - Enter on the hamburger puts focus inside the drawer (390 and 768).
  *  - A sidebar user never sees the top nav, also across a client-side navigation.
  *  - Sidebar mode at lg: the header fits at 1024; ArrowRight on a sidebar row opens its flyout with focus in it.
- *  - At a 20px root font the header grows instead of clipping its controls.
+ *  - At a 20px root font the header grows instead of clipping its controls, and wraps instead of pushing them off
+ *    screen at 390 and 768.
  *
  * Deterministic and read-only (no data is created), so it also runs in the post-deploy check.
  */
@@ -112,3 +113,17 @@ test('at a 20px root font the header grows instead of clipping its controls', as
   });
   expect(clipped).toEqual([]);
 });
+
+for (const width of [390, 768]) {
+  test(`${width} px at a 20px root font: every header control is on screen`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(() => document.addEventListener('DOMContentLoaded', () => { document.documentElement.style.fontSize = '20px'; }));
+    await page.goto(INVOICES);
+    await ready(page);
+    const off = await page.locator('header').evaluate((el) => [...el.querySelectorAll<HTMLElement>('button, a, [data-tour]')]
+      .filter((c) => c.offsetParent !== null)
+      .filter((c) => { const r = c.getBoundingClientRect(); return r.left < -0.5 || r.right > window.innerWidth + 0.5; })
+      .map((c) => c.getAttribute('aria-label') ?? c.getAttribute('title') ?? c.textContent));
+    expect(off).toEqual([]);
+  });
+}

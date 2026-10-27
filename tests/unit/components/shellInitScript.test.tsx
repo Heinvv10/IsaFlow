@@ -2,7 +2,7 @@
  * public/shell-init.js (runs before first paint) and shellPrefs.ts (AppLayout) must agree on the storage keys, the
  * attribute values and the admin host, or the skeleton and the shell draw different layouts.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { ADMIN_HOST, NAV_MODE_KEY, SIDEBAR_COLLAPSED_KEY, readShellPrefs, writeShellPrefs } from '@/components/layout/shellPrefs';
 
@@ -38,5 +38,15 @@ describe('shell-init.js and shellPrefs', () => {
     writeShellPrefs('top', false);
     expect(document.documentElement.hasAttribute('data-nav-mode')).toBe(false);
     expect(localStorage.getItem(NAV_MODE_KEY)).toBe('top');
+  });
+
+  it('writeShellPrefs still applies the layout when storage refuses the write', () => {
+    const spy = vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => { throw new Error('QuotaExceededError'); });
+    try {
+      expect(() => writeShellPrefs('side', false)).not.toThrow();
+      expect(readShellPrefs().navMode).toBe('side');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

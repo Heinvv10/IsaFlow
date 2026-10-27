@@ -94,14 +94,14 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
         menuButtonRef.current?.focus();
         return;
       }
-      // Focus stays in the open drawer: Tab past the last control wraps to the first, Shift+Tab before the first to the last.
-      if (e.key !== 'Tab' || !drawer.current) return;
+      // Focus stays in the open drawer: Tab past the last control wraps to the first, Shift+Tab before the first to the
+      // last. Only while the drawer holds focus, so a dialog opened over it (the command palette) keeps its own Tab.
+      if (e.key !== 'Tab' || !drawer.current?.contains(document.activeElement)) return;
       const items = [...drawer.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')];
       const first = items[0];
       const last = items[items.length - 1];
-      const inside = drawer.current.contains(document.activeElement);
-      if (e.shiftKey && (document.activeElement === first || !inside)) { e.preventDefault(); last?.focus(); }
-      else if (!e.shiftKey && (document.activeElement === last || !inside)) { e.preventDefault(); first?.focus(); }
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
     };
     document.addEventListener('keydown', onKey);
     return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', onKey); };
@@ -142,6 +142,9 @@ export function AppSidebar({ showSidebar, collapsed, onToggleCollapsed, mobileOp
       <aside
         ref={drawer}
         aria-label="Menu"
+        id="mobile-drawer"
+        role="dialog"
+        aria-modal={mobileOpen}
         data-testid="mobile-drawer"
         className={`fixed inset-y-0 left-0 z-50 w-64 flex flex-col lg:hidden duration-300 ${mobileOpen ? 'translate-x-0 visible transition-transform' : '-translate-x-full invisible transition-[transform,visibility]'}`}
         style={ASIDE_STYLE}
