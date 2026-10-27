@@ -11,7 +11,6 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import type { RowProps } from '../useBankTxKeyboardNav';
 import { isPendingFeedRow, PendingFeedBadge } from '../bank-transactions/pendingFeedRow';
 import type { AllocType, BankTx, BankTxTableProps } from './bankTxTypes';
-import { rowLabel } from './bankTxRowLabel';
 import { BankTxSelectionCell, type BankTxDropdownState } from './BankTxSelectionCell';
 import { BankTxDimensionCells } from './BankTxDimensionCells';
 import { BankTxRowActions } from './BankTxRowActions';
@@ -81,13 +80,15 @@ function NotesCell({
 
 interface Props {
   tx: BankTx;
+  /** rowLabels() entry for this row: the row-scoped half of every control's accessible name. */
+  label: string;
   /** Keyboard-nav props for the row; empty when keyboard nav is off for this tab. */
   rowProps: RowProps | Record<string, never>;
   table: BankTxTableProps;
   dropdown: BankTxDropdownState;
 }
 
-export function BankTxRow({ tx, rowProps, table, dropdown }: Props) {
+export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
   const { selectedIds, rowSelections, onToggleSelect, onRowTypeChange, onUpdateNotes } = table;
   const isNew = tx.status === 'imported';
   const isAllocated = tx.status === 'allocated';
@@ -98,7 +99,6 @@ export function BankTxRow({ tx, rowProps, table, dropdown }: Props) {
   const received = tx.amount > 0 ? tx.amount : null;
 
   const isExcluded = tx.status === 'excluded';
-  const label = rowLabel(tx);
 
   return (
     <tr
@@ -188,7 +188,7 @@ export function BankTxRow({ tx, rowProps, table, dropdown }: Props) {
       <td className="py-2 px-2 text-right tabular-nums text-xs text-teal-400">
         {received !== null ? fmtCurrency(received) : ''}
       </td>
-      <BankTxRowActions tx={tx} sel={sel} isNew={isNew} isAllocated={isAllocated} isExcluded={isExcluded} table={table} />
+      <BankTxRowActions tx={tx} label={label} sel={sel} isNew={isNew} isAllocated={isAllocated} isExcluded={isExcluded} table={table} />
     </tr>
   );
 }

@@ -5,11 +5,12 @@
  * Notes: inline-editable per row, saved on blur
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useBankTxKeyboardNav } from '@/components/accounting/useBankTxKeyboardNav';
 import { isPendingFeedRow } from './bank-transactions/pendingFeedRow';
 import type { BankTxTableProps } from './bankTx/bankTxTypes';
 import { BankTxRow } from './bankTx/BankTxRow';
+import { rowLabels } from './bankTx/bankTxRowLabel';
 
 export { VAT_OPTIONS } from './bankTx/bankTxTypes';
 export type { AllocType, VatCode, BankTx, SelectOption, RowSelection } from './bankTx/bankTxTypes';
@@ -32,6 +33,7 @@ export function BankTxTable(props: BankTxTableProps) {
   const [search, setSearch] = useState('');
   const [dropUp, setDropUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const labels = useMemo(() => rowLabels(transactions), [transactions]);
 
   // Close dropdown when clicking outside it (data-attribute approach for multi-row support)
   useEffect(() => {
@@ -86,6 +88,7 @@ export function BankTxTable(props: BankTxTableProps) {
               <BankTxRow
                 key={tx.id}
                 tx={tx}
+                label={labels.get(tx.id)!}
                 rowProps={kbdEnabled ? getRowProps(index) : {}}
                 table={props}
                 dropdown={{ openSel, search, dropUp, setOpenSel, setSearch, setDropUp }}

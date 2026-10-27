@@ -11,6 +11,8 @@ import type { BankTx, BankTxTableProps, RowSelection } from './bankTxTypes';
 
 interface Props {
   tx: BankTx;
+  /** rowLabels() entry for this row, for the accessible names. */
+  label: string;
   sel: RowSelection | undefined;
   isNew: boolean;
   isAllocated: boolean;
@@ -18,7 +20,7 @@ interface Props {
   table: BankTxTableProps;
 }
 
-export function BankTxRowActions({ tx, sel, isNew, isAllocated, isExcluded, table }: Props) {
+export function BankTxRowActions({ tx, label, sel, isNew, isAllocated, isExcluded, table }: Props) {
   const { onAccept, onExclude, onUnmatch, onSplit, onFindMatch, onReverse, onAttachments, onAskClient, onCreateRule, onLink } = table;
 
   return (
@@ -44,40 +46,40 @@ export function BankTxRowActions({ tx, sel, isNew, isAllocated, isExcluded, tabl
               <PendingFeedNotice />
             ) : (
             <>
-              <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept" aria-label="Accept"
+              <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept" aria-label={`Accept, ${label}`}
                 className="p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30">
                 <Check className="h-3.5 w-3.5" />
               </button>
               {onFindMatch && (
-                <button onClick={() => onFindMatch(tx.id)} title="Find & Match" aria-label="Find & Match"
+                <button onClick={() => onFindMatch(tx.id)} title="Find & Match" aria-label={`Find & Match, ${label}`}
                   className="p-1 rounded hover:bg-blue-500/10 text-blue-400">
                   <SearchCheck className="h-3.5 w-3.5" />
                 </button>
               )}
-              <button onClick={() => onSplit(tx.id)} title="Split transaction" aria-label="Split transaction"
+              <button onClick={() => onSplit(tx.id)} title="Split transaction" aria-label={`Split transaction, ${label}`}
                 className="p-1 rounded hover:bg-purple-500/10 text-purple-400">
                 <Scissors className="h-3.5 w-3.5" />
               </button>
               {onCreateRule && (
-                <button onClick={() => onCreateRule(tx)} title="Create rule from this transaction" aria-label="Create rule from this transaction"
+                <button onClick={() => onCreateRule(tx)} title="Create rule from this transaction" aria-label={`Create rule from this transaction, ${label}`}
                   className="p-1 rounded hover:bg-yellow-500/10 text-yellow-400">
                   <BookmarkPlus className="h-3.5 w-3.5" />
                 </button>
               )}
-              {onLink && <BankTxLinkAction link={tx.link} onOpen={() => onLink(tx)} />}
+              {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
               {onAttachments && (
-                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label="Attachments"
+                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label={`Attachments, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
                   <Paperclip className="h-3.5 w-3.5" />
                 </button>
               )}
               {onAskClient && (
-                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label="Ask client on WhatsApp"
+                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
                   <MessageCircle className="h-3.5 w-3.5" />
                 </button>
               )}
-              <button onClick={() => onExclude(tx.id)} title="Exclude" aria-label="Exclude"
+              <button onClick={() => onExclude(tx.id)} title="Exclude" aria-label={`Exclude, ${label}`}
                 className="p-1 rounded hover:bg-red-500/10 text-red-400">
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -86,20 +88,20 @@ export function BankTxRowActions({ tx, sel, isNew, isAllocated, isExcluded, tabl
           ) : isAllocated ? (
             <>
               {onReverse && (
-                <button onClick={() => onReverse(tx.id)} title="Undo allocation" aria-label="Undo allocation"
+                <button onClick={() => onReverse(tx.id)} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
                   className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
                   <Undo2 className="h-3.5 w-3.5" />
                 </button>
               )}
-              {onLink && <BankTxLinkAction link={tx.link} onOpen={() => onLink(tx)} />}
+              {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
               {onAttachments && (
-                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label="Attachments"
+                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label={`Attachments, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
                   <Paperclip className="h-3.5 w-3.5" />
                 </button>
               )}
               {onAskClient && (
-                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label="Ask client on WhatsApp"
+                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
                   <MessageCircle className="h-3.5 w-3.5" />
                 </button>
@@ -107,25 +109,25 @@ export function BankTxRowActions({ tx, sel, isNew, isAllocated, isExcluded, tabl
             </>
           ) : (
             <>
-              <button onClick={() => onUnmatch(tx.id)} title="Undo allocation" aria-label="Undo allocation"
+              <button onClick={() => onUnmatch(tx.id)} title="Undo allocation" aria-label={`Undo allocation, ${label}`}
                 className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
                 <Undo2 className="h-3.5 w-3.5" />
               </button>
               {onReverse && tx.status === 'reconciled' && (
-                <button onClick={() => onReverse(tx.id)} title="Reverse reconciled" aria-label="Reverse reconciled"
+                <button onClick={() => onReverse(tx.id)} title="Reverse reconciled" aria-label={`Reverse reconciled, ${label}`}
                   className="p-1 rounded hover:bg-red-500/10 text-red-400">
                   <RotateCcw className="h-3.5 w-3.5" />
                 </button>
               )}
-              {onLink && <BankTxLinkAction link={tx.link} onOpen={() => onLink(tx)} />}
+              {onLink && <BankTxLinkAction link={tx.link} rowName={label} onOpen={() => onLink(tx)} />}
               {onAttachments && (
-                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label="Attachments"
+                <button onClick={() => onAttachments(tx.id)} title="Attachments" aria-label={`Attachments, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
                   <Paperclip className="h-3.5 w-3.5" />
                 </button>
               )}
               {onAskClient && (
-                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label="Ask client on WhatsApp"
+                <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp" aria-label={`Ask client on WhatsApp, ${label}`}
                   className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
                   <MessageCircle className="h-3.5 w-3.5" />
                 </button>

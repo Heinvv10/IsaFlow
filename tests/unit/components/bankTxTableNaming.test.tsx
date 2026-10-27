@@ -78,23 +78,44 @@ describe('BankTxTable: the names, row by row', () => {
     expect(screen.getByRole('textbox', { name: `Note, ${row('a')}` })).toHaveValue('lunch');
   });
 
-  it('gives every icon button its title as aria-label, with the icon hidden', () => {
+  it('names every icon button "{its title}, {row}", with the icon hidden', () => {
     const { container } = render(<BankTxTable {...tableProps()} />);
     const iconButtons = Array.from(container.querySelectorAll('button')).filter(b => !b.textContent?.trim());
     expect(iconButtons.length).toBeGreaterThan(10);
     for (const b of iconButtons) {
-      expect(b.getAttribute('aria-label')).toBe(b.getAttribute('title'));
+      const rowName = b.closest('tr')!.querySelector('input[type=checkbox]')!.getAttribute('aria-label')!.replace(/^Select /, '');
+      expect(b.getAttribute('aria-label')).toBe(`${b.getAttribute('title')}, ${rowName}`);
       for (const svg of Array.from(b.querySelectorAll('svg'))) expect(svg).toHaveAttribute('aria-hidden', 'true');
     }
     const first = within(screen.getAllByRole('row')[1]!);
-    for (const name of ['Accept', 'Find & Match', 'Split transaction', 'Create rule from this transaction', 'Attachments', 'Ask client on WhatsApp', 'Exclude']) {
-      expect(first.getByRole('button', { name })).toBeInTheDocument();
+    for (const name of ['Accept', 'Find & Match', 'Split transaction', 'Create rule from this transaction', 'Link to asset / fuel / service', 'Attachments', 'Ask client on WhatsApp', 'Exclude']) {
+      expect(first.getByRole('button', { name: `${name}, ${row('a')}` })).toBeInTheDocument();
     }
   });
 
   it('names the undo / reverse buttons on reviewed rows', () => {
     render(<BankTxTable {...tableProps({ tab: 'reviewed' })} />);
-    expect(within(screen.getAllByRole('row')[5]!).getByRole('button', { name: 'Undo allocation' })).toBeInTheDocument();
-    expect(within(screen.getAllByRole('row')[6]!).getByRole('button', { name: 'Reverse reconciled' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Undo allocation, ${row('d')}` })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Undo allocation, ${row('e')}` })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Reverse reconciled, ${row('e')}` })).toBeInTheDocument();
+  });
+
+  it('a linked row names its chip by the link and the row', () => {
+    const txs = TXS.map(t => t.id === 'a' ? { ...t, link: { kind: 'asset' as const, id: 'as1', label: 'Hilux' } } : t);
+    render(<BankTxTable {...tableProps({ transactions: txs })} />);
+    expect(screen.getByRole('button', { name: `Linked to Hilux, ${row('a')}` })).toBeInTheDocument();
+  });
+});
+
+describe('BankTxTable: two rows alike still get different names', () => {
+  it('numbers colliding rows by position, so no two controls on the page share a name', () => {
+    const fee = { description: 'FEE', amount: -5, transactionDate: '2026-06-01', status: 'imported' as const };
+    const txs = [{ id: 'p', ...fee }, { id: 'q', ...fee }];
+    const { container } = render(<BankTxTable {...tableProps({ transactions: txs, rowSelections: {} })} />);
+    expect(screen.getByRole('checkbox', { name: `Select ${rowLabel(txs[0]!)} (row 1)` })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: `Select ${rowLabel(txs[1]!)} (row 2)` })).toBeInTheDocument();
+    const names = ROLES.flatMap(r => within(container).queryAllByRole(r)).map(el => el.getAttribute('aria-label')).filter(Boolean);
+    expect(names.length).toBeGreaterThan(10);
+    expect(new Set(names).size).toBe(names.length);
   });
 });
