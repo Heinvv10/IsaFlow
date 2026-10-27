@@ -6,6 +6,7 @@
  */
 import { useRef, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
+import { log } from '@/lib/logger';
 import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
 import type { SaveCell } from '@/modules/accounting/services/budgets/gridSaveValidate';
 import { previewImport, type ChainResult } from './budgetWorkspaceClient';
@@ -28,6 +29,10 @@ export interface ImportDialogProps {
   onImported: () => void;
 }
 
+/** The errors `Blob.arrayBuffer()` / FileReader reject with when the browser cannot read the file. */
+const FILE_READ_ERRORS = new Set(['NotReadableError', 'NotFoundError', 'SecurityError', 'AbortError']);
+export const isFileReadError = (err: unknown): boolean => err instanceof DOMException && FILE_READ_ERRORS.has(err.name);
+
 /** Why `file` cannot be uploaded, or null. */
 export function fileProblem(file: File): string | null {
   if (!/\.xlsx$/i.test(file.name)) return 'Choose an Excel .xlsx file (the template you downloaded).';
@@ -47,9 +52,12 @@ export function ImportDialog(p: ImportDialogProps) {
     let r: Awaited<ReturnType<typeof previewImport>>;
     try {
       r = await previewImport(p.versionId, file);
-    } catch {
-      // The browser could not read the file (moved, renamed or locked since it was picked).
-      setError('The file could not be read. Check it still exists, then choose it again.');
+    } catch (err) {
+      if (isFileReadError(err)) setError('The file could not be read. Check it still exists, then choose it again.');
+      else {
+        log.error('Budget import preview failed before the request was answered', { error: err }, 'ImportDialog');
+        setError('Something went wrong preparing the file. Try again.');
+      }
       return;
     } finally { setBusy(false); }
     if (r.ok) setPreview(r.data); else setError(failureText(r));

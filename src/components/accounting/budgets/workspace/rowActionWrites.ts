@@ -6,7 +6,7 @@
 import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { parseKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
-import { type SplitResult, splitByWeights, spreadEven } from '@/modules/accounting/services/budgets/grid/spread';
+import { type SplitResult, residueFlipsSign, splitByWeights, spreadEven } from '@/modules/accounting/services/budgets/grid/spread';
 
 export interface CellWriteByKey { key: CellKey; cents: number | null }
 
@@ -53,6 +53,7 @@ export function splitAcrossChildren(
     shares = splitByWeights(totalCents, children.length, unit);
   }
   if (!shares.ok) return shares;
+  let crossed = residueFlipsSign(totalCents, shares.parts);
   const perChild: number[][] = [];
   for (let i = 0; i < children.length; i++) {
     const child = children[i]!;
@@ -63,8 +64,10 @@ export function splitAcrossChildren(
     }
     const spread = spreadEven(share, monthCount, unit);
     if (!spread.ok) return spread;
+    if (residueFlipsSign(share, spread.months)) crossed = true;
     perChild.push(spread.months);
   }
+  if (crossed) note = [note, `The R${unit} rounding puts a last part on the other side of zero; a smaller rounding unit avoids it.`].filter(Boolean).join(' ');
   return { ok: true, perChild, note };
 }
 

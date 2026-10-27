@@ -2,7 +2,8 @@
  * The save bar (spec §5.6, §6.4): "N unsaved changes · Save · Discard", fixed to the bottom of
  * the viewport over the content column (`<main>`, measured), so it stays in view however far the
  * page is scrolled sideways by the grid: a `sticky` bar inside the page scrolled out of view at
- * 390 px (proof F1). An in-flow spacer keeps the last rows clear of it. The page stays the only
+ * 390 px (proof F1). It sits above `<main>`'s horizontal scrollbar, and an in-flow spacer as tall
+ * as the bar (measured: it wraps on a long error) keeps the last rows clear of it. The page stays the only
  * scroll container (stickyTable rule). Saving shows a spinner and the grid stays editable (the save sends a snapshot); a
  * failed save (not a 409, which is StaleVersionDialog's) is said inline and the dirty cells stay.
  * Hidden when the version is read-only (locked, or the role cannot write). Ctrl+S is the grid's
@@ -30,35 +31,47 @@ function statusText(s: SaveState): string {
   return '';
 }
 
-/** Left edge and visible width of the content column the bar belongs to (the nearest `<main>`). */
-function useColumnBox(): [(el: HTMLElement | null) => void, CSSProperties] {
+/**
+ * Where the fixed bar goes: over the content column (the nearest `<main>`: its left edge and
+ * visible width), above that column's horizontal scrollbar (the grid scrolls `<main>` sideways),
+ * and how tall the in-flow spacer must be (the bar's own height: it wraps when an error is long).
+ */
+function useBarPlacement(): [(el: HTMLElement | null) => void, CSSProperties, number] {
   const [el, setEl] = useState<HTMLElement | null>(null);
-  const [box, setBox] = useState<CSSProperties>({ left: 0, right: 0 });
+  const [box, setBox] = useState<CSSProperties>({ left: 0, right: 0, bottom: 0 });
+  const [height, setHeight] = useState(64);
   useEffect(() => {
-    const column = el?.closest('main');
-    if (!column) return undefined;
-    const measure = () => setBox({ left: column.getBoundingClientRect().left, width: column.clientWidth });
+    if (!el) return undefined;
+    const column = el.closest('main');
+    const measure = () => {
+      setHeight(el.offsetHeight || 64);
+      if (!column) return;
+      const rect = column.getBoundingClientRect();
+      const scrollbar = Math.max(0, column.offsetHeight - column.clientHeight);
+      setBox({ left: rect.left, width: column.clientWidth, bottom: Math.max(0, window.innerHeight - rect.bottom) + scrollbar });
+    };
     measure();
     window.addEventListener('resize', measure);
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    ro?.observe(column);
+    ro?.observe(el);
+    if (column) ro?.observe(column);
     return () => { window.removeEventListener('resize', measure); ro?.disconnect(); };
   }, [el]);
-  return [useCallback((node: HTMLElement | null) => setEl(node), []), box];
+  return [useCallback((node: HTMLElement | null) => setEl(node), []), box, height];
 }
 
 export function SaveBar({ dirtyCount, saveState, readOnly, onSave, onDiscard }: SaveBarProps) {
   const [confirming, setConfirming] = useState(false);
-  const [barRef, box] = useColumnBox();
+  const [barRef, box, barHeight] = useBarPlacement();
   if (readOnly) return null;
   const saving = saveState.status === 'saving';
   const status = statusText(saveState);
   if (dirtyCount === 0 && status === '' && !saving) return null;
   return (
     <>
-    <div aria-hidden="true" className="h-16" data-testid="save-bar-spacer" />
+    <div aria-hidden="true" style={{ height: barHeight }} data-testid="save-bar-spacer" />
     <div data-testid="save-bar" ref={barRef} style={box}
-      className="fixed bottom-0 z-20 flex flex-wrap items-center gap-3 border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-3 sm:px-6">
+      className="fixed z-20 flex flex-wrap items-center gap-3 border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-3 sm:px-6">
       {dirtyCount > 0 && (
         <span className="text-sm font-medium text-[var(--ff-text-primary)]" data-testid="save-bar-count">
           {plural(dirtyCount, 'unsaved change')}

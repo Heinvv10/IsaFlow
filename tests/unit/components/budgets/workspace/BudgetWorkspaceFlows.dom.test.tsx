@@ -80,7 +80,8 @@ describe('BudgetWorkspace flows', () => {
     net.on((u, method) => method === 'POST' && u.endsWith('/copy'), () => ok(copy));
     net.on((u) => isModel(u) && u.includes(copyId), () => fail(503, 'The budget is busy; try again.'));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy into a new draft version' })); });
-    expect(await screen.findByRole('alert')).toHaveTextContent('The copy “Original (my changes)” was created but could not be loaded: The budget is busy; try again.');
+    // p2c-shell's wording (round 2 M3): the copy exists, it was not opened, and the dialog offers a retry.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/The copy “Original \(my changes\)” was created, but it could not be opened: The budget is busy; try again\./);
     expect(marchRev2()).toHaveAttribute('data-dirty', 'true');
   });
 });

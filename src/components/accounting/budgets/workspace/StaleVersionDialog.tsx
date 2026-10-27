@@ -41,6 +41,8 @@ export interface StaleVersionDialogProps {
   /** Runs one choice; resolves with null on success, else the message to show. */
   onChoose: (choice: StaleChoice) => Promise<string | null>;
   onClose: () => void;
+  /** Locked flow: the draft copy already made whose opening failed; the action then retries it (no second copy). */
+  pendingCopyName?: string | null;
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -56,7 +58,7 @@ const BTN = 'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-
 const PRIMARY = `${BTN} bg-brand-600 text-white hover:bg-brand-700`;
 const SECONDARY = `${BTN} border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)]`;
 
-export function StaleVersionDialog({ stale, onChoose, onClose }: StaleVersionDialogProps) {
+export function StaleVersionDialog({ stale, onChoose, onClose, pendingCopyName = null }: StaleVersionDialogProps) {
   const [busy, setBusy] = useState<StaleChoice | null>(null);
   const [error, setError] = useState<string | null>(null);
   const locked = stale.kind === 'locked' || stale.versionStatus === 'locked';
@@ -89,7 +91,7 @@ export function StaleVersionDialog({ stale, onChoose, onClose }: StaleVersionDia
         </button>
         {locked ? (
           <button type="button" className={PRIMARY} disabled={busy !== null} onClick={() => { void choose('copy'); }}>
-            {spin('copy')}Copy into a new draft version
+            {spin('copy')}{pendingCopyName === null ? 'Copy into a new draft version' : 'Retry opening the copy'}
           </button>
         ) : (
           <button type="button" className={PRIMARY} disabled={busy !== null} onClick={() => { void choose('reapply'); }}>
@@ -106,7 +108,8 @@ export function StaleVersionDialog({ stale, onChoose, onClose }: StaleVersionDia
         </p>
       )}
       {!locked && <p>Re-applying loads the latest amounts and puts your changes on top. Cells someone else also changed are highlighted for you to check.</p>}
-      {locked && <p>A locked version cannot be edited. Copy it into a new draft version with your changes, or download them.</p>}
+      {locked && pendingCopyName === null && <p>A locked version cannot be edited. Copy it into a new draft version with your changes, or download them.</p>}
+      {locked && pendingCopyName !== null && <p data-testid="stale-pending-copy">The copy &ldquo;{pendingCopyName}&rdquo; exists. Retry opening it to put your changes on it, or download them.</p>}
       {error && <p role="alert" className="text-error-700 dark:text-error-400">{error}</p>}
     </WorkspaceDialog>
   );

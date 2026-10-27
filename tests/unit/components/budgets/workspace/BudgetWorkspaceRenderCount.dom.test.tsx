@@ -43,14 +43,16 @@ afterEach(() => {
 });
 
 const layout = buildLayout(gridModel().accounts, gridModel().year.monthKeys);
-const rev2 = layout.rows.find((r) => r.key === `acct:${ID.rev2}`)!.index;
-const cell = (c: number) => document.querySelector<HTMLElement>(`[data-pos="${rev2}:${c}"]`)!;
+const rowOf = (acct: string) => layout.rows.find((r) => r.key === `acct:${acct}`)!.index;
+const rev2 = rowOf(ID.rev2);
+const cellAt = (r: number, c: number) => document.querySelector<HTMLElement>(`[data-pos="${r}:${c}"]`)!;
+const cell = (c: number) => cellAt(rev2, c);
 const EXPECTED = [`acct:${ID.rev2}`, 'profit:grossProfit', 'profit:netProfit', 'profit:operatingProfit', 'total:turnover'];
 
 /** Double-click, type, Tab (commit; focus stays on the row). */
-async function edit(c: number, value: string) {
-  fireEvent.doubleClick(cell(c));
-  const editor = document.querySelector<HTMLInputElement>(`[data-pos="${rev2}:${c}"] input`)!;
+async function edit(c: number, value: string, r = rev2) {
+  fireEvent.doubleClick(cellAt(r, c));
+  const editor = document.querySelector<HTMLInputElement>(`[data-pos="${r}:${c}"] input`)!;
   fireEvent.change(editor, { target: { value } });
   await act(async () => { fireEvent.keyDown(editor, { key: 'Tab' }); });
 }
@@ -74,5 +76,28 @@ describe('BudgetWorkspace render count (real grid)', () => {
     await edit(1, '30');
     expect(screen.getByTestId('save-bar-count')).toHaveTextContent('2 unsaved changes');
     expect([...new Set(renders)].sort()).toEqual(EXPECTED);
+  });
+
+  it('a CC1 member view (members rebuilt on every edit): two edits render only that row, Total Operating Expenses, OP and NP', async () => {
+    const net = installNetwork();
+    render(<BudgetWorkspace />);
+    await screen.findByRole('grid', { name: 'Budget' });
+    fireEvent.change(screen.getByTestId('toolbar-view'), { target: { value: 'cc1' } });
+    fireEvent.change(await screen.findByTestId('toolbar-member'), { target: { value: ID.m1 } });
+    await waitFor(() => expect(net.sent.some((s) => s.url.includes('grain=cc1'))).toBe(true));
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    const dim = rowOf(ID.dimAcc);
+    act(() => { fireEvent.mouseDown(cellAt(dim, 0)); });
+    renders.length = 0;
+    const expected = [`acct:${ID.dimAcc}`, 'profit:netProfit', 'profit:operatingProfit', 'total:operating_expense'];
+
+    await edit(0, '15', dim);
+    expect(await screen.findByTestId('save-bar-count')).toHaveTextContent('1 unsaved change');
+    expect([...new Set(renders)].sort()).toEqual(expected);
+
+    renders.length = 0;
+    await edit(1, '16', dim);
+    expect(screen.getByTestId('save-bar-count')).toHaveTextContent('2 unsaved changes');
+    expect([...new Set(renders)].sort()).toEqual(expected);
   });
 });

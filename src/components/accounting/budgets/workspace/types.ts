@@ -99,6 +99,8 @@ export interface InvalidCellNotice {
   monthLabel: string;
   raw: string;
   reason: string;
+  /** How many grid cells the entry stands for (a paste clipped at the edge: N); 1 when absent. The heading counts these. */
+  cells?: number;
 }
 
 export interface GridMeta {

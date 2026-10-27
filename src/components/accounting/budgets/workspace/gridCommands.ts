@@ -51,7 +51,7 @@ export function commitDraft(store: GridStore, pos: Pos, draft: string, isTotal: 
   store.apply(keys.flatMap((key, i) => (key ? [{ key, cents: spread.months[i] ?? 0 }] : [])));
   if (residueFlipsSign(cents, spread.months)) {
     const reason = `The R${unit} rounding leaves the last month on the other side of zero; use a smaller rounding unit or edit the months.`;
-    store.setNotice([{ rowLabel: store.rowLabel(pos.r), monthLabel: monthLabel(months[months.length - 1] ?? ''), raw: draft, reason }]);
+    store.addNotice([{ rowLabel: store.rowLabel(pos.r), monthLabel: monthLabel(months[months.length - 1] ?? ''), raw: draft, reason, cells: 1 }]);
     store.announce(reason);
   }
   return null;
@@ -98,10 +98,10 @@ export function pasteText(store: GridStore, rect: Rect, text: string): void {
   const sent = parsed.rows.reduce((n, cols) => n + cols.length, 0);
   const clipped = Math.max(0, sent - res.writes.length - res.skipped - res.invalid.length);
   const notice = res.invalid.map(i => ({
-    rowLabel: store.rowLabel(i.pos.r), monthLabel: monthLabel(months[i.pos.c] ?? ''), raw: i.raw, reason: i.reason,
+    rowLabel: store.rowLabel(i.pos.r), monthLabel: monthLabel(months[i.pos.c] ?? ''), raw: i.raw, reason: i.reason, cells: 1,
   }));
   if (clipped > 0) {
-    notice.push({ rowLabel: 'Past the end of the grid', monthLabel: '', raw: '', reason: clipped === 1
+    notice.push({ rowLabel: 'Past the end of the grid', monthLabel: '', raw: '', cells: clipped, reason: clipped === 1
       ? '1 pasted cell fell past the end of the grid and was not pasted.'
       : `${clipped} pasted cells fell past the end of the grid and were not pasted.` });
   }

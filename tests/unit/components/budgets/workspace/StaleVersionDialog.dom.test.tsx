@@ -169,4 +169,71 @@ describe('StaleVersionDialog in the workspace', () => {
     await waitFor(() => expect(net.sent.filter((s) => isSave(s.url))).toHaveLength(2));
     expect(net.sent.filter((s) => isSave(s.url))[1]!.body).toMatchObject({ versionId: copyId, expectedUpdatedAt: T2 });
   });
+
+  it('locked copy that cannot be opened: says so, offers "Retry opening the copy" into the SAME copy (copied once)', async () => {
+    const net = await editedWorkspace();
+    const copyId = 'b0000000-0000-4000-8000-0000000000c2';
+    net.on(isSave, () => fail(409, 'This budget version is locked', { code: 'BUDGET_VERSION_LOCKED' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByTestId('stale-dialog');
+    const m = gridModel();
+    const copy = { ...m.version!, id: copyId, name: 'Original (my changes)', kind: 'reforecast' as const, isPrimary: false, updatedAt: T2 };
+    net.on((u, method) => method === 'POST' && u.endsWith('/copy'), () => ok(copy));
+    net.on((u) => isModel(u) && u.includes(`version_id=${copyId}`), () => fail(503, 'The budget is busy.'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy into a new draft version' })); });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('The copy “Original (my changes)” was created, but it could not be opened: The budget is busy.');
+    expect(alert).toHaveTextContent('Your changes are still here.');
+    expect(alert).not.toHaveTextContent('pick the copy');
+    expect(screen.queryByRole('button', { name: 'Copy into a new draft version' })).toBeNull();
+    expect(screen.getByTestId('save-bar-count')).toHaveTextContent('1 unsaved change');
+
+    net.on((u) => isModel(u) && u.includes(`version_id=${copyId}`), () => ok({ ...m, version: copy, updatedAt: T2 }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry opening the copy' })); });
+    await waitFor(() => expect(screen.queryByTestId('stale-dialog')).toBeNull());
+    expect(net.sent.filter((x) => x.url.endsWith('/copy'))).toHaveLength(1);
+    await waitFor(() => expect(marchRev1()).toHaveAttribute('data-dirty', 'true'));
+    net.on(isSave, () => ok({ updatedAt: '2026-10-26T18:08:00.000001Z', saved: 1, deleted: 0 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(net.sent.filter((x) => isSave(x.url))).toHaveLength(2));
+    expect(net.sent.filter((x) => isSave(x.url))[1]!.body).toMatchObject({ versionId: copyId, expectedUpdatedAt: T2 });
+  });
+
+  it('a new 409 after the copy was opened starts over: no retry button is left behind', async () => {
+    const net = await editedWorkspace();
+    const copyId = 'b0000000-0000-4000-8000-0000000000c3';
+    net.on(isSave, () => fail(409, 'This budget version is locked', { code: 'BUDGET_VERSION_LOCKED' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByTestId('stale-dialog');
+    const m = gridModel();
+    const copy = { ...m.version!, id: copyId, name: 'Copy', kind: 'reforecast' as const, isPrimary: false, status: 'locked' as const, updatedAt: T2 };
+    net.on((u, method) => method === 'POST' && u.endsWith('/copy'), () => ok(copy));
+    net.on((u) => isModel(u) && u.includes(`version_id=${copyId}`), () => ok({ ...m, version: { ...copy, status: 'draft' as const }, updatedAt: T2 }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy into a new draft version' })); });
+    await waitFor(() => expect(screen.queryByTestId('stale-dialog')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('button', { name: 'Copy into a new draft version' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry opening the copy' })).toBeNull();
+  });
+
+  it('closing the dialog after a failed open keeps that copy: the next 409 retries it, never a second copy', async () => {
+    const net = await editedWorkspace();
+    net.on(isSave, () => fail(409, 'This budget version is locked', { code: 'BUDGET_VERSION_LOCKED' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByTestId('stale-dialog');
+    const m = gridModel();
+    const copy = { ...m.version!, id: 'b0000000-0000-4000-8000-0000000000c4', name: 'Kept copy', kind: 'reforecast' as const, isPrimary: false };
+    net.on((u, method) => method === 'POST' && u.endsWith('/copy'), () => ok(copy));
+    net.on((u) => isModel(u) && u.includes(`version_id=${copy.id}`), () => fail(503, 'The budget is busy.'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Copy into a new draft version' })); });
+    await screen.findByRole('button', { name: 'Retry opening the copy' });
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('button', { name: 'Retry opening the copy' })).toBeInTheDocument();
+    expect(screen.getByTestId('stale-pending-copy')).toHaveTextContent('Kept copy');
+    net.on((u) => isModel(u) && u.includes(`version_id=${copy.id}`), () => ok({ ...m, version: copy }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry opening the copy' })); });
+    await waitFor(() => expect(screen.queryByTestId('stale-dialog')).toBeNull());
+    expect(net.sent.filter((x) => x.url.endsWith('/copy'))).toHaveLength(1);
+  });
 });

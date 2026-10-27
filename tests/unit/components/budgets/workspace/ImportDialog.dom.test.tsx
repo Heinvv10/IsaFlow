@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ImportDialog, type ImportDialogProps } from '@/components/accounting/budgets/workspace/ImportDialog';
+import { log } from '@/lib/logger';
 import * as client from '@/components/accounting/budgets/workspace/budgetWorkspaceClient';
 
 vi.mock('@/components/accounting/budgets/workspace/budgetWorkspaceClient');
@@ -100,4 +101,17 @@ it('says the file could not be read when reading it rejects, and lets the user p
   expect((screen.getByLabelText(/Excel file/) as HTMLInputElement).disabled).toBe(false);
   pick(file('again.xlsx'));
   await screen.findByTestId('import-counts');
+});
+
+it('does not report another thrown error as an unreadable file; it logs it and says something else', async () => {
+  const spy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+  vi.mocked(client.previewImport).mockRejectedValueOnce(new TypeError('x is not a function'));
+  render(<ImportDialog {...props()} />);
+  pick(file('budget.xlsx'));
+  const text = (await screen.findByRole('alert')).textContent ?? '';
+  expect(text).not.toMatch(/could not be read/i);
+  expect(text).toMatch(/Something went wrong/);
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect((screen.getByLabelText(/Excel file/) as HTMLInputElement).disabled).toBe(false);
+  spy.mockRestore();
 });

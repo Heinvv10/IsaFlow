@@ -11,7 +11,6 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { useDensity } from '@/components/accounting/reportControls/useDensity';
 import { yearOptionLabel } from '@/components/accounting/budgets/budgetClient';
 import { BudgetGrid } from './BudgetGrid';
-import { copyVersion } from './budgetWorkspaceClient';
 import { CreateWizard } from './CreateWizard';
 import { downloadDirtyCells } from './downloadDirtyCells';
 import { GridToolbar } from './GridToolbar';
@@ -20,11 +19,11 @@ import { SaveBar } from './SaveBar';
 import { StaleVersionDialog, myChangesName, type StaleChoice } from './StaleVersionDialog';
 import { TemplateDownloadDialog } from './TemplateDownloadDialog';
 import { useBudgetGrid } from './useBudgetGrid';
+import { useCopyReapply } from './useCopyReapply';
 import { useUnsavedGuard } from './useUnsavedGuard';
 import { canWriteRole, VersionsBar } from './VersionsBar';
 import { useBudgetYears, useWorkspaceVersions } from './useWorkspaceVersions';
 import { WorkspaceEmptyState } from './WorkspaceEmptyState';
-import { failureText } from './failureText';
 import type { SourceChoice } from './wizardDraft';
 
 type Wizard = null | { source?: SourceChoice; fromVersion?: { id: string; fiscalYear: number } };
@@ -71,6 +70,7 @@ export function BudgetWorkspace() {
   const fiscalYear = chosenYear ?? years.initialYear;
   const grid = useBudgetGrid({ fiscalYear, canWrite });
   const versions = useWorkspaceVersions(fiscalYear, grid);
+  const copy = useCopyReapply(grid);
   const { density, setDensity } = useDensity();
   const [showPy, setShowPy] = useState(true);
   const [wizard, setWizard] = useState<Wizard>(null);
@@ -104,12 +104,12 @@ export function BudgetWorkspace() {
         dirty: grid.store.dirtyMap().keys(), valueAt: (k) => grid.store.valueAt(k),
       });
     }
-    // Locked: a draft copy of the version, my cells re-applied on top (unsaved, for review).
-    const copy = await copyVersion(version.id, { name: myChangesName(version.name, new Date()), kind: version.kind === 'original' ? 'reforecast' : version.kind });
-    if (!copy.ok) return failureText(copy);
-    const notLoaded = await grid.reapplyMine(copy.data.id);
+    // Locked: a draft copy of the version (made once; a retry only re-opens it), my cells re-applied on top.
+    const r = await copy.copyAndReapply({ name: myChangesName(version.name, new Date()), kind: version.kind === 'original' ? 'reforecast' : version.kind });
     versions.refresh();
-    return notLoaded === null ? null : `The copy “${copy.data.name}” was created but could not be loaded: ${notLoaded} Your changes are still here; pick the copy in the version list and re-apply.`;
+    if (r.ok) return null;
+    if (r.stage === 'copy') return r.message;
+    return `The copy “${r.copyName ?? ''}” was created, but it could not be opened: ${r.message} Your changes are still here. Use “Retry opening the copy”.`;
   };
 
   const onCreated = (versionId: string, opts: { thenImport: boolean }) => {
@@ -130,6 +130,7 @@ export function BudgetWorkspace() {
             <select aria-label="Financial year" data-testid="workspace-year" value={fiscalYear ?? ''} className={SELECT}
               disabled={years.loading || grid.dirtyCount > 0} onChange={(e) => setChosenYear(Number(e.target.value))}
               title={grid.dirtyCount > 0 ? 'Save or discard your changes first' : undefined}>
+              {fiscalYear === null && <option value="" disabled>Pick a year…</option>}
               {fiscalYear !== null && !yearOptions.some((y) => y.fiscalYear === fiscalYear) && <option value={fiscalYear}>{fiscalYear}</option>}
               {yearOptions.map((y) => <option key={y.fiscalYear} value={y.fiscalYear}>{yearOptionLabel(y)}</option>)}
             </select>
@@ -147,7 +148,12 @@ export function BudgetWorkspace() {
         {!years.error && status === 'error' && <ErrorPanel message={grid.error ?? 'Could not load the budget.'} onRetry={() => { void grid.reload(); }} busy={false} />}
         {(versions.listError || grid.compareError) && <p role="alert" className="text-sm text-error-700 dark:text-error-400">{versions.listError ?? grid.compareError}</p>}
         {!years.error && loading && status !== 'error' && <GridSkeleton />}
-        {noYear && (
+        {noYear && yearOptions.length > 0 && (
+          <div data-testid="workspace-pick-year" className={`${PANEL} p-4 text-sm text-[var(--ff-text-secondary)]`}>
+            Pick a financial year to budget in the Financial year list above. None of the company&apos;s years holds today.
+          </div>
+        )}
+        {noYear && yearOptions.length === 0 && (
           <div data-testid="workspace-no-year" className={`${PANEL} flex flex-wrap items-center justify-between gap-2 p-4 text-sm text-[var(--ff-text-secondary)]`}>
             <span>There is no financial year to budget yet. Set the company&apos;s financial year in Settings, then try again.</span>
             <button type="button" onClick={years.retry} className="rounded border border-[var(--ff-border-primary)] px-3 py-1 text-[var(--ff-text-primary)]">Try again</button>
@@ -180,7 +186,7 @@ export function BudgetWorkspace() {
 
       <SaveBar dirtyCount={grid.dirtyCount} saveState={grid.saveState} readOnly={!editable}
         onSave={() => { void grid.save(); }} onDiscard={grid.discard} />
-      {grid.stale && <StaleVersionDialog stale={grid.stale} onChoose={chooseStale} onClose={grid.dismissStale} />}
+      {grid.stale && <StaleVersionDialog stale={grid.stale} onChoose={chooseStale} onClose={grid.dismissStale} pendingCopyName={copy.pendingCopy?.name ?? null} />}
       {wizard && fiscalYear !== null && (
         <CreateWizard open onClose={() => setWizard(null)} years={years.years} fiscalYear={fiscalYear}
           canMakePrimary={companyRole === 'owner' || companyRole === 'admin'} accounts={model?.accounts ?? []}

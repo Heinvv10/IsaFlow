@@ -8,7 +8,7 @@
  * row actions through `useRowActions`. On a coarse pointer or under 768px a tap opens the
  * single-cell sheet instead (§12: read + single-cell edit, no range or clipboard).
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useChartPalette } from '@/components/accounting/charts/ChartFrame';
 import { STICKY_FIRST_HEAD, STICKY_HEAD } from '@/components/accounting/statement/stickyTable';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
@@ -88,6 +88,17 @@ export function BudgetGrid(props: BudgetGridProps) {
   const { onRowAction, dialogs } = useRowActions({ store, layout, roundingUnit, view, members, focusPos: keys.focusPos });
   const sheet = useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction });
 
+  // Shift+F10 / the context-menu key on a cell opens that row's ⋯ menu, so a keyboard user reaches
+  // row actions from the cell they are on without tabbing through every row's button.
+  const onKeyDown = useCallback((e: KeyboardEvent<HTMLTableElement>) => {
+    if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
+      const row = e.target instanceof Element ? e.target.closest('[data-pos]')?.closest('tr') : null;
+      const trigger = row?.querySelector<HTMLButtonElement>('button[aria-label^="Row actions for"]');
+      if (trigger) { e.preventDefault(); trigger.click(); return; }
+    }
+    keys.onKeyDown(e);
+  }, [keys]);
+
   const accountant = density === 'accountant';
   const cols: GridColumns = useMemo(() => ({
     py: showPy, delta: showPy, deltaPct: showPy && accountant && !compact, trend: showPy && accountant && !compact,
@@ -105,6 +116,8 @@ export function BudgetGrid(props: BudgetGridProps) {
     grainOf: (id: string) => accountGrains(new Map(store.heldCells(id))).get(id) ?? null,
   }), [keys, compact, sheet.open, onRowAction, store]);
 
+  // An entry can stand for many cells (a paste clipped at the edge): the heading counts cells.
+  const noticeCells = meta.notice ? meta.notice.reduce((n, e) => n + (e.cells ?? 1), 0) : 0;
   const extra = [cols.py, cols.delta, cols.deltaPct, cols.trend, cols.compare].filter(Boolean).length;
   const colCount = 1 + layout.cols + extra + 1;
   const header: ReactNode = (
@@ -143,7 +156,7 @@ export function BudgetGrid(props: BudgetGridProps) {
         aria-readonly={canWrite ? undefined : true}
         aria-multiselectable={compact ? undefined : true}
         className="min-w-full border-separate border-spacing-0 text-sm select-none"
-        onKeyDown={compact ? undefined : keys.onKeyDown}
+        onKeyDown={compact ? undefined : onKeyDown}
         onCopy={compact ? undefined : clip.onCopy}
         onCut={compact ? undefined : clip.onCut}
         onPaste={compact ? undefined : clip.onPaste}
@@ -159,7 +172,7 @@ export function BudgetGrid(props: BudgetGridProps) {
       {meta.notice && (
         <div role="status" className="mt-3 rounded border border-[var(--ff-border-secondary)] bg-[var(--ff-bg-secondary)] p-3 text-sm">
           <div className="flex items-start justify-between gap-3">
-            <p className="font-medium text-[var(--ff-text-primary)]">{meta.notice.length} {meta.notice.length === 1 ? 'cell needs' : 'cells need'} a look</p>
+            <p className="font-medium text-[var(--ff-text-primary)]">{noticeCells} {noticeCells === 1 ? 'cell needs' : 'cells need'} a look</p>
             <button type="button" onClick={store.dismissNotice} className="text-xs underline text-[var(--ff-text-secondary)]">Dismiss</button>
           </div>
           <ul className="mt-2 space-y-0.5 text-xs text-[var(--ff-text-secondary)]">

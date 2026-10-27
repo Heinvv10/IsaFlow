@@ -275,4 +275,22 @@ describe('revision, amounts and live totals', () => {
     store.apply([{ key: key(ID.rev2, 0), cents: 0 }]);
     expect(store.hasAmounts()).toBe(true);
   });
+
+  it('fyTotals are the WHOLE version (every grain, company fold), whatever the view shows', () => {
+    // Whole version: turnover R1 000, CoS R400, opex R50.50 + CC1 R10 + R20 → NP R519.50.
+    const whole = { turnover: 1000, costOfSales: 400, grossProfit: 600, operatingExpenses: 80.5, netProfit: 519.5 };
+    expect(store.fyTotals()).toMatchObject(whole);
+    store.setView({ kind: 'cc1', memberId: ID.m1 }); // this view shows turnover 0 and NP −R10
+    expect(store.getTotal('netProfit').fy).toBe(-1000);
+    expect(store.fyTotals()).toMatchObject(whole);
+    store.apply([{ key: key(ID.dimAcc, 3, ID.m2), cents: 50 }]); // an edit at another member still counts
+    expect(store.fyTotals().netProfit).toBe(519);
+  });
+
+  it('hasAmounts is false again once every amount is cleared', () => {
+    store.reset(gridModel({ cells: [] }), { view: COMPANY, canWrite: true });
+    store.apply([{ key: key(ID.rev2, 0), cents: 0 }]);
+    store.apply([{ key: key(ID.rev2, 0), cents: null }]);
+    expect(store.hasAmounts()).toBe(false);
+  });
 });

@@ -1,5 +1,5 @@
 /** Save bar (spec §5.6, §6.4): count, Save, a confirmed Discard, inline save errors, hidden when read-only. */
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SaveBar, type SaveBarProps } from '@/components/accounting/budgets/workspace/SaveBar';
 
@@ -69,12 +69,43 @@ describe('SaveBar', () => {
     const bar = screen.getByTestId('save-bar');
     expect(bar.className).toMatch(/(?<![\w-])fixed(?![\w-])/);
     expect(bar.className).not.toMatch(/(?<![\w-])sticky(?![\w-])/);
-    expect(bar.className).toMatch(/(?<![\w-])bottom-0(?![\w-])/);
+    expect(bar.style.bottom).toBe('0px'); // <main> reaches the viewport bottom, no horizontal scrollbar
     expect(bar.style.left).toBe('240px');
     expect(bar.style.width).toBe('1025px');
     // The in-flow spacer keeps the last grid rows from hiding under the bar.
     expect(screen.getByTestId('save-bar-spacer')).toBeInTheDocument();
     main.remove();
   });
-});
 
+  it('the spacer follows the bar\'s real height (it wraps on errors) and the bar sits above <main>\'s horizontal scrollbar', () => {
+    const observed: Array<{ cb: () => void; els: Element[] }> = [];
+    vi.stubGlobal('ResizeObserver', class {
+      private entry: { cb: () => void; els: Element[] };
+      constructor(cb: () => void) { this.entry = { cb, els: [] }; observed.push(this.entry); }
+      observe(el: Element) { this.entry.els.push(el); }
+      disconnect() { this.entry.els = []; }
+    });
+    const main = document.createElement('main');
+    document.body.appendChild(main);
+    // <main> ends 40 px above the viewport bottom and has a 15 px horizontal scrollbar.
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(800);
+    main.getBoundingClientRect = () => ({ left: 0, top: 0, right: 390, bottom: 760, width: 390, height: 760, x: 0, y: 0, toJSON: () => ({}) });
+    Object.defineProperty(main, 'clientWidth', { value: 390 });
+    Object.defineProperty(main, 'offsetHeight', { value: 760 });
+    Object.defineProperty(main, 'clientHeight', { value: 745 });
+    render(<SaveBar {...props()} />, { container: main.appendChild(document.createElement('div')) });
+    const bar = screen.getByTestId('save-bar');
+    const spacer = screen.getByTestId('save-bar-spacer');
+    expect(bar.style.bottom).toBe('55px');
+    let height = 56;
+    Object.defineProperty(bar, 'offsetHeight', { get: () => height });
+    act(() => { for (const o of observed) if (o.els.includes(bar)) o.cb(); });
+    expect(spacer.style.height).toBe('56px');
+    height = 104; // wrapped onto two lines
+    act(() => { for (const o of observed) if (o.els.includes(bar)) o.cb(); });
+    expect(spacer.style.height).toBe('104px');
+    main.remove();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+});
