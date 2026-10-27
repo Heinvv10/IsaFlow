@@ -34,6 +34,7 @@ import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { assessYearEndChange, todayLocal, type YearEndChangeRequest } from './financialYearEndChangeService';
 import { generateFiscalYearForDate } from './fiscalYearGenerator';
+import { rehomePrimaryBudgetMonths } from '../budgets/budgetYearRehome';
 
 export interface YearEndChangeApplyInput extends YearEndChangeRequest {
   reason: string;
@@ -166,6 +167,8 @@ export async function applyYearEndChange(
   await sql`SELECT public.fiscal_periods_generate(${yearId}::UUID, true)`;
   await generateFiscalYearForDate(companyId, chosen.nextYearStart);
   await sql`SET CONSTRAINTS fiscal_periods_fiscal_year_id_fkey IMMEDIATE`;
+  // Budget versions are keyed by year: the primary budget's months follow the months (decision 12).
+  await rehomePrimaryBudgetMonths(companyId, boundary, userId);
 
   const drift = (await sql`
     SELECT COUNT(*)::int AS n FROM gl_journal_entries je JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
