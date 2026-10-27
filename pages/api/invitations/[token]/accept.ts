@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { isLiveCompanyForUser, pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { resolveInvitationAccount } from '@/lib/auth/inviteAccount';
 
 /**
  * `firstName` / `lastName` arrive in an anonymous request body. Neither type
@@ -49,21 +50,15 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password is required' } });
   }
 
-  // 1. Look up invitation (RLS policy invites_by_token permits this)
-  //    gotrue_user_id IS NOT NULL is load-bearing twice over. Unifying the token
-  //    encoding (K-104) made userInvitationService's invitations match here, and
-  //    that path never creates a GoTrue user — accepting one would PUT a password
-  //    to /admin/users/null. A NULL also defeats the step-2 guard below, because
-  //    `id = NULL` matches no `users` row, so the account-protection branch would
-  //    be skipped on exactly the rows whose identity is unknown. Those
-  //    invitations are accepted at /invite/<token> instead.
+  // 1. Look up invitation (RLS policy invites_by_token permits this).
+  //    gotrue_user_id is NULL on invitations sent from Settings -> User Access
+  //    (userInvitationService); step 2 resolves the account for those.
   const rows = await sql<{
-    id: string; email: string; role: string; company_id: string; gotrue_user_id: string;
+    id: string; email: string; role: string; company_id: string; gotrue_user_id: string | null;
   }>`
     SELECT id, email, role, company_id, gotrue_user_id
     FROM company_invitations
     WHERE token = ${tokenHash} AND accepted_at IS NULL AND expires_at > now()
-      AND gotrue_user_id IS NOT NULL
     LIMIT 1
   `;
   if (rows.length === 0) {
@@ -118,6 +113,10 @@ const handler: NextApiHandler = async (req, res) => {
   let opened = false;
   let unusable = false;
   try {
+    // Never NULL past here: a NULL id matches no `users` row below, which would
+    // skip the established-account guard and PUT a password to /admin/users/null.
+    const accountId = await resolveInvitationAccount(client, inv);
+
     // 2. Does this address already hold an established IsaFlow login? A `users`
     //    row is written only by tenant provisioning (after email verification)
     //    and by step 4 below, so its presence means a password already exists.
@@ -127,7 +126,7 @@ const handler: NextApiHandler = async (req, res) => {
     //    for a company they were never invited to.
     const established = await client.query<{ id: string }>(
       `SELECT id FROM users WHERE id = $1 LIMIT 1`,
-      [inv.gotrue_user_id]
+      [accountId]
     );
     const isEstablished = (established.rowCount ?? 0) > 0;
 
@@ -149,7 +148,7 @@ const handler: NextApiHandler = async (req, res) => {
       // every retry until the invitee's hourly budget is gone. Holding the
       // invitation link is proof of control of the mailbox it was sent to,
       // which is the same proof the verification mail asks for.
-      await adminUpdateUser(inv.gotrue_user_id, {
+      await adminUpdateUser(accountId, {
         password,
         email_confirm: true,
         user_metadata: { first_name: firstName, last_name: lastName },
@@ -170,7 +169,7 @@ const handler: NextApiHandler = async (req, res) => {
       }, 'auth');
       return res.status(401).json({ success: false, error: { code: 'SIGN_IN_REQUIRED', message: 'This email already has an IsaFlow account. Enter that account\'s password to accept the invitation.' } });
     }
-    if (tok.user.id !== inv.gotrue_user_id) {
+    if (tok.user.id !== accountId) {
       log.error('invite accept identity mismatch', {
         inviteId: inv.id,
         companyId: inv.company_id,

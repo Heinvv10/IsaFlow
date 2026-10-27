@@ -26,17 +26,6 @@ export default function AcceptInvitePage() {
       // An outage answers 5xx with an empty or HTML body: say so, never a JSON parse error.
       const body = r.status >= 500 ? null : await r.json().catch(() => null);
       if (!body) { setError('Could not load the invitation - try again shortly'); setLoading(false); return; }
-      // An invitation created by the other invitation system has no GoTrue user
-      // to set a password on. It is accepted at /invite/<token> by a signed-in
-      // user; /register?invite= and /login?invite= both land here, so forward.
-      // No `?signup=1` on the forward: /register asks the server for the
-      // verdict (GET /api/invitations/<token>, 409 WRONG_INVITE_FLOW) and does
-      // not read that flag, which was attacker-settable and is why the decision
-      // moved server-side.
-      if (body.error?.code === 'WRONG_INVITE_FLOW') {
-        void router.replace(`/invite/${encodeURIComponent(token)}`);
-        return;
-      }
       if (!body.success) { setError(body.error?.message ?? 'This invitation is invalid or has expired'); setLoading(false); return; }
       setInvite(body.data);
       setLoading(false);
@@ -46,7 +35,7 @@ export default function AcceptInvitePage() {
       setError('Network error — could not load the invitation. Check your connection and refresh.');
       setLoading(false);
     });
-  }, [token, router]);
+  }, [token]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
