@@ -30,21 +30,39 @@ afterEach(() => {
 const yearSelect = () => screen.getByTestId('workspace-year') as HTMLSelectElement;
 const modelUrl = (fy: number) => (u: string) => isModel(u) && u.endsWith(`fiscal_year=${fy}`);
 
-/** Loaded on FY2027; the user picks 2026 and then 2028, and each answer waits for its release. */
+/**
+ * Loaded on FY2027; the user picks 2026 and then 2028, and each answer waits for its release.
+ * `answer(fy)` returns once the workspace has READ that response's body (the fetcher's `text()`)
+ * and the effects that follow have run: a late answer is then fully processed, not merely sent.
+ */
 async function switchTwice(answers: { y2026: () => Response; y2028: () => Response }) {
   render(<BudgetWorkspace />);
   await screen.findByRole('grid', { name: 'Budget' });
   const release: Record<string, () => void> = {};
+  const consumed: Record<string, Promise<void>> = {};
   const held = (fy: string, answer: () => Response) => {
     const gate = new Promise<void>((r) => { release[fy] = r; });
-    return async () => { await gate; return answer(); };
+    let read!: () => void;
+    consumed[fy] = new Promise<void>((r) => { read = r; });
+    return async () => {
+      await gate;
+      const res = answer();
+      const text = res.text.bind(res);
+      return Object.assign(res, { text: async () => { try { return await text(); } finally { read(); } } });
+    };
   };
   net.on(modelUrl(2026), held('2026', answers.y2026));
   net.on(modelUrl(2028), held('2028', answers.y2028));
   fireEvent.change(yearSelect(), { target: { value: '2026' } });
   fireEvent.change(yearSelect(), { target: { value: '2028' } });
   await waitFor(() => expect(net.sent.filter((s) => modelUrl(2026)(s.url) || modelUrl(2028)(s.url))).toHaveLength(2));
-  return { answer: (fy: '2026' | '2028') => act(async () => { release[fy]!(); }) };
+  return {
+    answer: (fy: '2026' | '2028') => act(async () => {
+      release[fy]!();
+      await consumed[fy];
+      await new Promise((r) => setTimeout(r, 0)); // the fetcher's parse and the hook's state updates
+    }),
+  };
 }
 
 describe('year switching', () => {
@@ -78,8 +96,8 @@ describe('year switching', () => {
     });
     await answer('2028');
     expect(await screen.findByText('No budget for FY2028 yet')).toBeInTheDocument();
+    // Returns once the late 500 has been read and handled: only then may "no error" be asserted.
     await answer('2026');
-    await waitFor(() => expect(net.sent.some((s) => modelUrl(2026)(s.url))).toBe(true));
     expect(screen.queryByTestId('workspace-error')).toBeNull();
     expect(screen.queryByText(/Could not load/)).toBeNull();
     expect(screen.getByText('No budget for FY2028 yet')).toBeInTheDocument();

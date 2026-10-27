@@ -64,10 +64,6 @@ function listedIds(rows: readonly AccountRow[], holds: ReadonlySet<string>): Set
 }
 
 /**
- * The grid's accounts in tree order (a header, then what is below it, each level by code).
- * `own` is each account's own amounts per year month in cents, summed over its dimension rows.
- */
-/**
  * Each account's budget note for a financial year: `accounting_budgets` holds one header per
  * company, account and year (uq_accounting_budgets_company_account_year), so one string each.
  * Blank notes are left out.
@@ -81,6 +77,10 @@ export async function loadGridNotes(companyId: string, fiscalYear: number): Prom
   return new Map(rows.map((r) => [String(r.gl_account_id), String(r.notes)]));
 }
 
+/**
+ * The grid's accounts in tree order (a header, then what is below it, each level by code).
+ * `own` is each account's own amounts per year month in cents, summed over its dimension rows.
+ */
 export async function loadGridAccounts(
   companyId: string, own: ReadonlyMap<string, readonly number[]>, grains: ReadonlyMap<string, AccountGrain>, monthCount: number,
   notes: ReadonlyMap<string, string>,
