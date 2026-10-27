@@ -71,7 +71,7 @@ export default function AcceptInvitePage() {
     if (!accepted) return;
     // The invite is accepted server-side. The navigation runs outside the try above so a
     // router abort is never reported as a failed accept; awaited, then the button is freed.
-    try { await router.push('/accounting/dashboard'); } catch (e) { log.warn('navigation failed', { error: e }, 'AcceptInvitePage'); }
+    try { await router.push('/accounting'); } catch (e) { log.warn('navigation failed', { error: e }, 'AcceptInvitePage'); }
     setSubmitting(false);
   }
 
