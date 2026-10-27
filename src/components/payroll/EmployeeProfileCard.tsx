@@ -2,7 +2,10 @@
  * Payroll Employee Profile card — editable profile fields + Save button.
  * Used by /payroll/employees/[id].
  */
+import { useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
+import { DateField } from '@/components/ui/DateField';
+import { todayInSast } from '@/lib/saDateParser';
 
 export interface Employee {
   id: string;
@@ -34,13 +37,16 @@ const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border bor
 const label = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
 
 export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Props) {
+  // A refused date reaches onChange as null, which would save as "cleared": Save waits until it is fixed.
+  const [refused, setRefused] = useState({ dateOfBirth: false, endDate: false });
+  const track = (k: 'dateOfBirth' | 'endDate') => (valid: boolean) => setRefused(r => ({ ...r, [k]: !valid }));
   return (
     <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Profile</h2>
         <button
           onClick={onSave}
-          disabled={saving}
+          disabled={saving || refused.dateOfBirth || refused.endDate}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-medium"
         >
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
@@ -68,16 +74,11 @@ export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Prop
           <input className={field} value={employee.idNumber ?? ''}
             onChange={e => onChange({ ...employee, idNumber: e.target.value })} />
         </div>
-        <div>
-          <label className={label}>Date of birth</label>
-          <input type="date" className={field} value={employee.dateOfBirth?.slice(0, 10) ?? ''}
-            onChange={e => onChange({ ...employee, dateOfBirth: e.target.value })} />
-        </div>
-        <div>
-          <label className={label}>End date</label>
-          <input type="date" className={field} value={employee.endDate?.slice(0, 10) ?? ''}
-            onChange={e => onChange({ ...employee, endDate: e.target.value || undefined })} />
-        </div>
+        <DateField label="Date of birth" value={employee.dateOfBirth?.slice(0, 10) || null} maxDate={todayInSast()}
+          maxMessage="Date of birth cannot be in the future."
+          onChange={(iso, v) => { track('dateOfBirth')(v.valid); if (v.valid) onChange({ ...employee, dateOfBirth: iso ?? '' }); }} />
+        <DateField label="End date" value={employee.endDate?.slice(0, 10) || null}
+          onChange={(iso, v) => { track('endDate')(v.valid); if (v.valid) onChange({ ...employee, endDate: iso ?? undefined }); }} />
         <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
           <input type="checkbox" checked={employee.uifExcluded}
             onChange={e => onChange({ ...employee, uifExcluded: e.target.checked })} />
