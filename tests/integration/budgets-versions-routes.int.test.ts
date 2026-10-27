@@ -60,6 +60,7 @@ afterAll(async () => {
       await pool.query('DELETE FROM budget_versions WHERE company_id = $1', [c]);
     }
     await budgets.cleanup();
+    await pool.query('DELETE FROM audit_log WHERE user_id = ANY($1::text[])', [members]);
     await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [members]);
     await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [members]);
   } finally {
@@ -230,5 +231,23 @@ describe('budget-versions routes', () => {
     // The budgets page now reads the new primary: empty.
     const page = await budgets.call(x.u, 'GET', undefined, { fiscal_year: String(x.label) });
     expect(((page.body.data as unknown as { items: unknown[] }).items)).toEqual([expect.objectContaining({ annualAmount: 0 })]);
+  });
+
+  it('moving the primary away from a LOCKED primary is owner-only; an admin may still switch an unlocked one', async () => {
+    const x = await budgets.owner();
+    const xAdmin = await member(x.u.homeCompanyId, 'admin');
+    await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 });
+    const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
+    const alt = data(await create(x.u, 'Reforecast', 'reforecast', x.label));
+    expect((await move(x.u, prim, { action: 'approve' })).status).toBe(200);
+    expect((await move(x.u, prim, { action: 'lock' })).status).toBe(200);
+    const byAdmin = await primary.call(xAdmin, 'POST', undefined, { id: alt.id });
+    expect([byAdmin.status, errCode(byAdmin)]).toEqual([403, 'BUDGET_VERSION_FORBIDDEN']);
+    expect((await pool.query('SELECT is_primary FROM budget_versions WHERE id = $1', [prim])).rows[0].is_primary).toBe(true);
+    const byOwner = await primary.call(x.u, 'POST', undefined, { id: alt.id });
+    expect([byOwner.status, data(byOwner).isPrimary]).toEqual([200, true]);
+    // The new primary is not locked: an admin may switch it again (back to the locked one is a switch AWAY from alt).
+    const back = await primary.call(xAdmin, 'POST', undefined, { id: prim });
+    expect(back.status).toBe(200);
   });
 });

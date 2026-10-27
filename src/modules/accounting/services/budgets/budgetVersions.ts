@@ -147,11 +147,20 @@ async function lockVersionsOfYear(companyId: string, versionId: string): Promise
   return { fiscalYear: v.fiscalYear };
 }
 
-/** Makes `versionId` its year's primary (owner or admin); the readers follow it. */
+/** Makes `versionId` its year's primary (owner or admin; owner only when the current primary is locked); the readers follow it. */
 export async function setPrimary(companyId: string, versionId: string, actor: VersionActor): Promise<BudgetVersion> {
   await holdYearRegistry(companyId);
   if (!APPROVERS.has(actor.role)) throw new BudgetVersionError('BUDGET_VERSION_FORBIDDEN', 'Only an owner or admin can change the primary budget');
   const { fiscalYear } = await lockVersionsOfYear(companyId, versionId);
+  // A locked primary freezes what the reports show; moving the reports off it is an unlock in effect,
+  // so, like an unlock, it is the owner's alone (read under the year's locks, before any write).
+  const current = (await sql`
+    SELECT status FROM budget_versions
+     WHERE company_id = ${companyId}::UUID AND fiscal_year = ${fiscalYear} AND is_primary AND id <> ${versionId}::UUID
+  `) as DbRow[];
+  if (current[0]?.status === 'locked' && actor.role !== 'owner') {
+    throw new BudgetVersionError('BUDGET_VERSION_FORBIDDEN', 'The primary budget is locked: only an owner can make another version primary');
+  }
   await sql`
     UPDATE budget_versions SET is_primary = false
      WHERE company_id = ${companyId}::UUID AND fiscal_year = ${fiscalYear} AND is_primary AND id <> ${versionId}::UUID
