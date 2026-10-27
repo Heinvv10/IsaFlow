@@ -49,6 +49,8 @@ export default function IncomeStatementPage() {
   const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
   const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
+  // A refused From/To keeps the last good date in state; no report is run or exported over it.
+  const [badDate, setBadDate] = useState({ from: false, to: false }); const datesOk = !badDate.from && !badDate.to;
   const reportRequestRef = useRef(0);
 
   // Sync-back effect: when router.query.period_start / period_end populate after
@@ -142,8 +144,9 @@ export default function IncomeStatementPage() {
     setExpandedAccount(prev => (prev === code ? null : code));
   }
   const loadReport = useCallback(async () => {
-    if (router.isReady === false || !periodStart || !periodEnd || !periodResolved) {
+    if (router.isReady === false || !periodStart || !periodEnd || !periodResolved || !datesOk) {
       reportRequestRef.current += 1;
+      if (!datesOk) { setReport(null); setIsLoading(false); }
       return;
     }
     const requestId = ++reportRequestRef.current;
@@ -172,7 +175,7 @@ export default function IncomeStatementPage() {
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }
-  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved]);
+  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved, datesOk]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
@@ -206,10 +209,10 @@ export default function IncomeStatementPage() {
           {/* Date Range + Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <DateField label="From" value={periodStart || null} name="periodStart" onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <DateField label="From" value={periodStart || null} name="periodStart" onChange={(iso, v) => { setBadDate(b => ({ ...b, from: !v.valid })); if (v.valid) setPeriodStart(iso ?? ''); }} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} minDate={periodStart || undefined} onChange={(iso, v) => { setBadDate(b => ({ ...b, to: !v.valid })); if (v.valid) setPeriodEnd(iso ?? ''); }} />
             </div>
             <div>
               <label htmlFor="income-statement-cost-centre-id" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
