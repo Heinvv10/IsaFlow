@@ -31,10 +31,12 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
   const [form, setForm] = useState<EventForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [dateMissing, setDateMissing] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    if (!form.date) { setDateMissing(true); return; }
     setBusy(true);
     try {
       const body: Record<string, unknown> = {
@@ -87,7 +89,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
             >
               {KIND_OPTIONS.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
-            <GatedDateField gate={dateGate} gateKey="event-date" label="Event date" required value={form.date || null} onValue={iso => setForm(f => ({ ...f, date: iso }))} />
+            <GatedDateField gate={dateGate} gateKey="event-date" label="Event date" required value={form.date || null} onValue={iso => { setForm(f => ({ ...f, date: iso })); setDateMissing(false); }} error={dateMissing && !dateGate.blocked ? 'Enter a date.' : undefined} />
             {form.kind === 'LUMP' && (
               <input
                 type="number"
@@ -111,7 +113,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => { setShowForm(false); setForm(EMPTY_FORM); }}
+              onClick={() => { setShowForm(false); setForm(EMPTY_FORM); setDateMissing(false); }}
               className="px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
             >
               Cancel

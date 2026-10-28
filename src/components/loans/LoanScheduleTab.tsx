@@ -2,7 +2,7 @@
  * LoanScheduleTab — schedule table + what-if side panel.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { SlidersHorizontal, X, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ScheduleRow, LoanEvent } from './types';
@@ -16,6 +16,8 @@ interface Props {
 }
 
 interface WhatIfEvent {
+  /** Stable per row: keys the row and its date gate, so removing a row never moves a refusal onto another. */
+  id: number;
   kind: string;
   date: string;
   amount: string;
@@ -27,11 +29,12 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
   const [previewRows, setPreviewRows] = useState<ScheduleRow[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const nextId = useRef(1);
   const [events, setEvents] = useState<WhatIfEvent[]>([
-    { kind: 'LUMP', date: '', amount: '' },
+    { id: 0, kind: 'LUMP', date: '', amount: '' },
   ]);
 
-  const addEvent = () => setEvents(ev => [...ev, { kind: 'LUMP', date: '', amount: '' }]);
+  const addEvent = () => setEvents(ev => [...ev, { id: nextId.current++, kind: 'LUMP', date: '', amount: '' }]);
   const removeEvent = (i: number) => setEvents(ev => ev.filter((_, idx) => idx !== i));
   const updateEvent = (i: number, field: keyof WhatIfEvent, value: string) =>
     setEvents(ev => ev.map((e, idx) => idx === i ? { ...e, [field]: value } : e));
@@ -107,7 +110,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
           )}
 
           {events.map((ev, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+            <div key={ev.id} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
               <select
                 value={ev.kind}
                 onChange={e => updateEvent(i, 'kind', e.target.value)}
@@ -116,7 +119,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
                 <option value="LUMP">Lump Sum</option>
                 <option value="SKIP">Skip</option>
               </select>
-              <GatedDateField gate={dateGate} gateKey="event-date" label="Event date" value={ev.date || null} onValue={iso => updateEvent(i, 'date', iso)} />
+              <GatedDateField gate={dateGate} gateKey={`event-date-${ev.id}`} label="Event date" value={ev.date || null} onValue={iso => updateEvent(i, 'date', iso)} />
               {ev.kind === 'LUMP' ? (
                 <input
                   type="number"
@@ -131,6 +134,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
               )}
               <button
                 onClick={() => removeEvent(i)}
+                aria-label={`Remove event ${i + 1}`}
                 className="text-[var(--ff-text-tertiary)] hover:text-red-400 p-1"
                 disabled={events.length === 1}
               >
