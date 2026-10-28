@@ -19,7 +19,7 @@ import { reportYearOptions } from '@/modules/accounting/services/reports/budgetR
 import { resolveDimensionMembers } from '@/modules/accounting/services/reports/dimensionPnlService';
 import { loadCostCentreChains } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 import { buildBands, buildNotices } from './trackingBands';
-import { readTrackingBudgets, resolveTrackingVersions } from './trackingBudgetRead';
+import { budgetAbsentYears, readTrackingBudgets, resolveTrackingVersions } from './trackingBudgetRead';
 import { readAccountOrder, readPostedThrough, readTrackingActuals } from './trackingActualRead';
 import { buildTrackingMembers } from './trackingByMember';
 import { classifyBudgetRow, effectiveDims } from './trackingDimRollup';
@@ -45,6 +45,9 @@ export async function buildBudgetTrackingReport(
   const plan = projectionPlan(window.fy, window.endDate, today);
 
   const budgetRows = await readTrackingBudgets(companyId, versions.scope);
+  // Budget-absent years are decided from what this read returned (review r4): no version, or no
+  // income-statement row in the year's window months.
+  const absentYears = budgetAbsentYears(window, versions.scope, budgetRows);
   // Every chain the request needs (the budget rows' CC2s and the filter's), in ONE query.
   const chainIds = [...new Set([...filter.chainIds, ...budgetRows.map((r) => r.cc2Id).filter((v): v is string => v !== null)])];
   const nodes = await loadCostCentreChains(companyId, chainIds);
@@ -60,7 +63,7 @@ export async function buildBudgetTrackingReport(
     }
   }
   const effs = budgetRows.map((r) => effectiveDims(r, nodes));
-  const noVersionMonths = window.years.filter((y) => versions.noVersionYears.includes(y.fiscalYear)).flatMap((y) => y.months);
+  const noVersionMonths = window.years.filter((y) => absentYears.includes(y.fiscalYear)).flatMap((y) => y.months);
   const lines = buildTrackingLines({
     noVersionMonths,
     accounts,
@@ -112,11 +115,15 @@ export async function buildBudgetTrackingReport(
     lines,
     bands: buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 }),
     notices: buildNotices(lines, {
-      noVersion: versions.noVersionYears.includes(window.fy.fiscalYear), noVersionYears: versions.noVersionYears, budgetAbsent: noVersionMonths.length > 0,
+      noVersion: absentYears.includes(window.fy.fiscalYear), noVersionYears: absentYears, budgetAbsent: noVersionMonths.length > 0,
     }),
     years: await mapRegistryMiss(() => reportYearOptions(companyId, today)),
   };
-  if (versions.versionsByFy) report.versionsByFy = versions.versionsByFy;
+  if (versions.versionsByFy) {
+    // A year's version that holds no budget in this window is marked, never presented as a budget.
+    report.versionsByFy = Object.fromEntries(Object.entries(versions.versionsByFy).map(([y, v]) =>
+      [y, absentYears.includes(Number(y)) ? { ...v, empty: true as const } : v]));
+  }
   if (members) report.members = members;
   return report;
 }

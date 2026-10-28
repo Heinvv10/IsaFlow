@@ -211,6 +211,52 @@ describe('review round 3', () => {
   });
 });
 
+describe('review round 4: budget-absent is what the scoped read returns', () => {
+  const GAP: TrackingParams = { period: 'custom', from: '2026-01', to: '2026-06' };
+  // An FY2026 primary holding exactly one row: where that row sits decides nothing for the window.
+  const v26With = (acct: () => string, month: string) => async (c: import('pg').PoolClient) => {
+    const vid = String((await c.query(
+      `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by) VALUES ($1, 2026, 'Original', 'original', true, $2) RETURNING id`,
+      [f.a, f.userA])).rows[0].id);
+    await c.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount) VALUES ($1, $2, $3, $4::DATE, 123)`,
+      [f.a, vid, acct(), month]);
+  };
+  const CASES: Array<[string, () => string, string]> = [
+    ['E1: its only row is on a balance-sheet account', () => f.acc.bank, '2026-01-01'],
+    ['E2: its only row is in a month of the year outside the window', () => f.acc.sales, '2025-05-01'],
+    ['E3: its only row is dated in another year\'s month', () => f.acc.sales, '2026-12-01'],
+  ];
+  for (const [name, acct, month] of CASES) {
+    it(`${name}: FY2026 is budget-absent for the window`, async () => {
+      const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, GAP, NOW), { before: v26With(acct, month) });
+      expect(r.notices.noVersionYears).toEqual([2026]);
+      expect([line(r, f.acc.sales).budget, line(r, f.acc.sales).unallocatedBudget]).toEqual([null, null]);
+      expect(r.bands.find((b) => b.key === 'net_profit')!.budget).toBeNull();
+      // The year's version is read, but never presented as a budget.
+      expect(r.versionsByFy?.[2026]).toMatchObject({ name: 'Original', empty: true });
+      expect(r.versionsByFy?.[2027]?.empty).toBeUndefined();
+    });
+  }
+
+  it('a single-year window keeps D5 per line: an account with no row in the window is unbudgeted, the others print', async () => {
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2026-03', to: '2026-05' }, NOW), {
+      before: (c) => c.query(`DELETE FROM budget_month_amounts WHERE version_id = $1 AND gl_account_id = $2 AND month <= '2026-05-01'`, [f.v.primary27, f.acc.cos]),
+    });
+    expect(r.notices.noVersionYears).toEqual([]);
+    expect(line(r, f.acc.sales).budget).toBe(450);
+    expect(line(r, f.acc.cos).budget).toBeNull();
+    expect(r.notices.unbudgetedCount).toBeGreaterThan(0);
+  });
+
+  it('R4 engine: a month budgeted only above the filter says so; a no-version month does not', async () => {
+    // CC2 = P1: COS is budgeted at its FNO (CC1 FT) in FY2027; Jan-Feb 2026 lie in FY2026 (no version).
+    const r = await run({ period: 'custom', from: '2026-01', to: '2026-04', cc2Id: f.cc.P1 });
+    expect(line(r, f.acc.cos).monthly.map((m) => [m.month, m.budget, m.budgetAboveFilter])).toEqual([
+      ['2026-01', null, false], ['2026-02', null, false], ['2026-03', null, true], ['2026-04', null, true],
+    ]);
+  });
+});
+
 describe('review round 2: registry failures on the way are a 4xx (L3)', () => {
   // With no usable start month the registry chains 12-month steps from the last stored year and
   // refuses a date more than 500 steps away (P0001 'fiscal_year_template: ... too far').
