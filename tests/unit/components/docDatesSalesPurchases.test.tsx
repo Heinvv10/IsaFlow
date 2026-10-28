@@ -58,12 +58,16 @@ describe.each(cases)('$page', (c) => {
       await waitFor(() => expect(mirror(f.name).value).toBe('2031-10-05'));
     });
 
-    it(`${f.label}: refused text never becomes the date`, async () => {
+    it(`${f.label}: refused text never becomes the date; the form keeps the last good one`, async () => {
       await show();
       typeDate(box(f.label), '5 Oct 2031');
+      await waitFor(() => expect(mirror(f.name).value).toBe('2031-10-05'));
       typeDate(box(f.label), 'zz');
       expect(box(f.label).getAttribute('aria-invalid')).toBe('true');
-      expect(mirror(f.name).value).not.toBe('zz');
+      expect(box(f.label).value).toBe('zz');
+      // The form still holds the last good date (the gate, not the value, is what stops a submit: docDatesGate,
+      // docDatesSubmit and docDatesGuards each submit with this refusal on screen and expect no request).
+      expect(mirror(f.name).value).toBe(c.clearsRefused ? '' : '2031-10-05');
     });
   }
 });

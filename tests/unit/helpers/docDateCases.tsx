@@ -34,13 +34,15 @@ export interface DateCase {
   respond?: (url: string) => unknown;
   open?: () => Promise<void> | void;
   fields: { label: string; name: string }[];
+  /** The page clears a refused date (its date is required, so its own validation refuses the save) instead of keeping the old one. */
+  clearsRefused?: boolean;
 }
 
 const click = async (name: RegExp): Promise<void> => { fireEvent.click(await screen.findByRole('button', { name })); };
 
 export const cases: DateCase[] = [
   { page: 'bank-reconciliation/new', element: <BankRecNew />, fields: [{ label: 'Statement Date', name: 'statementDate' }] },
-  { page: 'bank-transactions/new', element: <BankTxNew />, fields: [{ label: 'Date', name: 'date' }] },
+  { page: 'bank-transactions/new', element: <BankTxNew />, clearsRefused: true, fields: [{ label: 'Date', name: 'date' }] },
   { page: 'bank-transfers', element: <BankTransfers />, fields: [{ label: 'Date', name: 'transferDate' }] },
   { page: 'credit-notes/new', element: <CreditNoteNew />, fields: [{ label: 'Credit Date', name: 'creditDate' }] },
   { page: 'customer-payments/new', element: <CustomerPaymentNew />, fields: [{ label: 'Payment Date', name: 'paymentDate' }] },
@@ -67,6 +69,7 @@ export const cases: DateCase[] = [
     respond: (u) => (u.includes('expense-claims/claim-1') ? { claim: { id: 'claim-1', claimNumber: 'EC-1', claimDate: '2026-10-01', employeeId: 'e1', title: null, description: null,
       status: 'draft', totalAmount: 0, totalVat: 0, approvedBy: null, approvedAt: null, rejectionReason: null, postedJeId: null, postedAt: null, lines: [], mileage: [] } } : undefined),
     open: async () => { await click(/add receipt/i); },
+    clearsRefused: true,
     fields: [{ label: 'Date', name: 'lineDate' }] },
   { page: 'purchase-orders/[poId] (edit)', element: <PoDetail />, query: { poId: 'po-1' },
     respond: (u) => (u.endsWith('purchase-orders/po-1') ? { id: 'po-1', po_number: 'PO-1', status: 'draft', supplier_id: 's1', order_date: '2026-10-01', expected_delivery_date: null, items: [] } : undefined),
