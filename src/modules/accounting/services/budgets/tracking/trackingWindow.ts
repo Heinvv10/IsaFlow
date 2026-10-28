@@ -133,6 +133,11 @@ async function spanOf(src: YearSource, p: TrackingWindowParams, today: string): 
   }
 }
 
+/** The first day the actuals read covers: the window's start or FY*'s, whichever is earlier (the projection reads FY* to date). */
+export function readStartOf(w: Pick<TrackingWindow, 'startDate' | 'fy'>): string {
+  return w.startDate < w.fy.startDate ? w.startDate : w.fy.startDate;
+}
+
 /** The window a request names, against any year source (the pure core). */
 export async function resolveTrackingWindowFrom(src: YearSource, p: TrackingWindowParams, today: string): Promise<TrackingWindow> {
   const span = await spanOf(src, p, today);

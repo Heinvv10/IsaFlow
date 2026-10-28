@@ -11,6 +11,8 @@ import {
   type BudgetFilter,
 } from '@/modules/accounting/services/budgets/tracking/trackingDimRollup';
 import type { CostCentreNode } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
+import { assertCentreLevel } from '@/modules/accounting/services/budgets/tracking/trackingFilter';
+import { TrackingError } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 
 // FNO A with project P (direct) and Q (through programme G); FNO B with project R; project N has no chain.
 const A = 'aaaaaaaa-0000-4000-8000-00000000000a';
@@ -108,16 +110,32 @@ describe('two levels ANDed', () => {
 
 describe('either level (cost_centre_id, the comparator)', () => {
   it('an FNO matches its own rows and its CC2s', () => {
-    const f: BudgetFilter = { costCentre: { id: A, level: 'cc1', fno: A } };
+    const f: BudgetFilter = { costCentre: { id: A } };
     expect([cls(AT_A, f), cls(AT_P, f), cls(AT_Q, f)]).toEqual(['included', 'included', 'included']);
     expect([cls(AT_B, f), cls(AT_R, f)]).toEqual(['other', 'other']);
-    // As the explicit CC1 filter: a chainless project may be A's, so it is coarser, not excluded.
-    expect([cls(COMPANY, f), cls(AT_N, f), cls(AT_U, f)]).toEqual(['coarser', 'coarser', 'coarser']);
+    // Coarser only when BOTH effective cost centres are NULL (spec §2.4): the company level and a BU row.
+    expect([cls(COMPANY, f), cls(AT_U, f)]).toEqual(['coarser', 'coarser']);
+    // A chainless project has a CC2, so it is excluded, not unallocated (review Q10).
+    expect(cls(AT_N, f)).toBe('other');
   });
-  it('a project matches its own rows; its FNO and the company level are coarser', () => {
-    const f: BudgetFilter = { costCentre: { id: P, level: 'cc2', fno: A } };
+  it('a project matches its own rows; a CC1-grain row (its FNO or another) is other', () => {
+    const f: BudgetFilter = { costCentre: { id: P } };
     expect(cls(AT_P, f)).toBe('included');
-    expect([cls(AT_A, f), cls(COMPANY, f)]).toEqual(['coarser', 'coarser']);
-    expect([cls(AT_Q, f), cls(AT_B, f)]).toEqual(['other', 'other']);
+    expect(cls(COMPANY, f)).toBe('coarser');
+    expect([cls(AT_A, f), cls(AT_Q, f), cls(AT_B, f)]).toEqual(['other', 'other', 'other']);
+  });
+});
+
+describe('the level of an explicit filter (review Q3)', () => {
+  const centre = (ccType: string | null) => ({ id: A, code: 'FT', name: 'Fibertime', ccType });
+  it('cc1_id must name a CC1 and cc2_id a CC2: the other kind is a 400', () => {
+    expect(assertCentreLevel('cc1_id', centre('cc1')).id).toBe(A);
+    expect(assertCentreLevel('cc2_id', centre('cc2')).id).toBe(A);
+    for (const [name, type] of [['cc1_id', 'cc2'], ['cc2_id', 'cc1'], ['cc1_id', null]] as const) {
+      let err: unknown;
+      try { assertCentreLevel(name, centre(type)); } catch (e) { err = e; }
+      expect(err, `${name} given ${String(type)}`).toBeInstanceOf(TrackingError);
+      expect((err as TrackingError).status).toBe(400);
+    }
   });
 });

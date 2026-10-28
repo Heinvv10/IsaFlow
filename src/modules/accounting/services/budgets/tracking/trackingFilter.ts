@@ -3,28 +3,45 @@
  * §2.4, §4): a cost centre or business unit id that is not the company's is a
  * 404, never an empty report, so another tenant's id reveals nothing.
  *
- * Returns the same filter three ways: the members the response names, the
- * actuals filter (`trackingActualRead`, explicit levels) and the budget
- * filter (`trackingDimRollup`), which also needs a project's FNO.
+ * `cc1_id` must name a CC1 centre and `cc2_id` a CC2 (400 otherwise): an
+ * explicit level given a centre of the other kind can only match legacy
+ * cross-tags, which is not what the caller asked for. `cost_centre_id` is
+ * either level and takes any centre.
+ *
+ * Returns the members the response names, the actuals filter
+ * (`trackingActualRead`, explicit levels), the CC2 ids whose chains the
+ * budget filter needs, and `budgetFilter(nodes)`, built once the request has
+ * loaded every chain it needs in one query (the service does).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { isValidUUID } from '@/lib/validation';
-import { deriveFnoId, loadCostCentreChains } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
+import { deriveFnoId, type CostCentreNode } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 import type { BudgetFilter } from './trackingDimRollup';
 import { TrackingError, type BudgetTrackingReport, type TrackingFilter, type TrackingMemberRef, type TrackingParams } from './trackingTypes';
 
 export interface ResolvedTrackingFilter {
   members: BudgetTrackingReport['filter'];
   actual: TrackingFilter;
-  budget: BudgetFilter;
+  /** The CC2 the filter names, whose FNO the budget filter needs. */
+  chainIds: string[];
+  budgetFilter: (nodes: ReadonlyMap<string, CostCentreNode>) => BudgetFilter;
 }
 
-interface Centre extends TrackingMemberRef { ccType: string | null }
+export interface Centre extends TrackingMemberRef { ccType: string | null }
 
 function assertId(name: string, id: string): string {
   if (!isValidUUID(id)) throw new TrackingError(400, `${name} must be a UUID`);
   return id.toLowerCase();
+}
+
+/** Pure: an explicit-level filter must name a centre of that level. */
+export function assertCentreLevel(name: 'cc1_id' | 'cc2_id', c: Centre): Centre {
+  const level = name === 'cc1_id' ? 'cc1' : 'cc2';
+  if (c.ccType !== level) {
+    throw new TrackingError(400, `${name} must name a ${level.toUpperCase()} cost centre; ${c.code} is ${c.ccType ?? 'untyped'}`);
+  }
+  return c;
 }
 
 async function centre(companyId: string, name: string, raw: string): Promise<Centre> {
@@ -47,40 +64,47 @@ async function unit(companyId: string, raw: string): Promise<TrackingMemberRef> 
   return { id: String(r.id).toLowerCase(), code: String(r.code), name: String(r.name) };
 }
 
-async function fnoOf(companyId: string, id: string): Promise<string | null> {
-  return deriveFnoId(id, await loadCostCentreChains(companyId, [id]));
-}
-
 const ref = (c: Centre): TrackingMemberRef => ({ id: c.id, code: c.code, name: c.name });
 
 /** Sequential lookups (one pg client under withAuth). */
 export async function resolveTrackingFilter(companyId: string, p: TrackingParams): Promise<ResolvedTrackingFilter> {
-  const out: ResolvedTrackingFilter = { members: {}, actual: {}, budget: {} };
+  const members: BudgetTrackingReport['filter'] = {};
+  const actual: TrackingFilter = {};
+  let cc1: string | undefined;
+  let cc2: string | undefined;
+  let bu: string | undefined;
+  let either: string | undefined;
   if (p.cc1Id !== undefined) {
-    const c = await centre(companyId, 'cc1_id', p.cc1Id);
-    out.members.cc1 = ref(c);
-    out.actual.cc1 = c.id;
-    out.budget.cc1 = c.id;
+    const c = assertCentreLevel('cc1_id', await centre(companyId, 'cc1_id', p.cc1Id));
+    members.cc1 = ref(c);
+    actual.cc1 = cc1 = c.id;
   }
   if (p.cc2Id !== undefined) {
-    const c = await centre(companyId, 'cc2_id', p.cc2Id);
-    out.members.cc2 = ref(c);
-    out.actual.cc2 = c.id;
-    out.budget.cc2 = { id: c.id, fno: await fnoOf(companyId, c.id) };
+    const c = assertCentreLevel('cc2_id', await centre(companyId, 'cc2_id', p.cc2Id));
+    members.cc2 = ref(c);
+    actual.cc2 = cc2 = c.id;
   }
   if (p.buId !== undefined) {
     const u = await unit(companyId, p.buId);
-    out.members.bu = u;
-    out.actual.bu = u.id;
-    out.budget.bu = u.id;
+    members.bu = u;
+    actual.bu = bu = u.id;
   }
   if (p.costCentreId !== undefined) {
     const c = await centre(companyId, 'cost_centre_id', p.costCentreId);
-    out.members.costCentre = ref(c);
-    out.actual.costCentre = c.id;
-    out.budget.costCentre = c.ccType === 'cc1'
-      ? { id: c.id, level: 'cc1', fno: c.id }
-      : { id: c.id, level: 'cc2', fno: await fnoOf(companyId, c.id) };
+    members.costCentre = ref(c);
+    actual.costCentre = either = c.id;
   }
-  return out;
+  return {
+    members,
+    actual,
+    chainIds: cc2 ? [cc2] : [],
+    budgetFilter: (nodes) => {
+      const f: BudgetFilter = {};
+      if (cc1) f.cc1 = cc1;
+      if (cc2) f.cc2 = { id: cc2, fno: deriveFnoId(cc2, nodes) };
+      if (bu) f.bu = bu;
+      if (either) f.costCentre = { id: either };
+      return f;
+    },
+  };
 }

@@ -66,6 +66,14 @@ for (const appUser of [false, true]) {
   });
 }
 
+it("an explicit level given A's own centre of the other kind is a 400 (review Q3)", async () => {
+  for (const params of [{ ...FY, cc1Id: f.cc.P1 }, { ...FY, cc2Id: f.cc.FT }]) {
+    const { status, text } = await refusal(run(params, true));
+    expect(status, JSON.stringify(params)).toBe(400);
+    expect(text).toMatch(/must name a CC[12] cost centre/);
+  }
+});
+
 it("the owner role and app_user see the same figures for A (RLS hides nothing of A's own)", async () => {
   const [owner, app] = [await run(FY, false), await run(FY, true)];
   expect(app.lines).toEqual(owner.lines);
