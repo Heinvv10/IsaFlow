@@ -114,7 +114,7 @@ describe('editing a budget note from the grid', () => {
     openMenu('1010 Account 1010');
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit note…' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save note' })); });
-    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent('socket hang up');
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent('Could not save the note.');
     expect(screen.getByRole('button', { name: 'Save note' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).toBeNull();

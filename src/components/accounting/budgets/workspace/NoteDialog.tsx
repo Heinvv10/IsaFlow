@@ -9,6 +9,7 @@ import { useId, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { apiErrorMessage } from '@/lib/apiFetch';
 
 /** The server's limit (budgetNotes MAX_NOTE_LENGTH), after trimming. */
 export const NOTE_MAX = 2000;
@@ -44,7 +45,7 @@ export function NoteDialog({ target, fiscalYear, onSave, onClose }: NoteDialogPr
       if (message !== null) setError(message);
     } catch (err) {
       // onSave's fetchers return results, never throw; if one ever does, the dialog must not stay stuck.
-      setError(err instanceof Error ? err.message : 'Could not save the note.');
+      setError(apiErrorMessage(err, 'Could not save the note.'));
     } finally {
       setBusy(false);
     }
