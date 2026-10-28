@@ -1,0 +1,125 @@
+/**
+ * The budget side of the tracking engine (budgets P3 spec §2.2, §2.5): which
+ * version each financial year reads, and its stored amounts per account x
+ * month x grain.
+ *
+ * Versions (contract: "readers use the primary"): with no `versionId` each
+ * financial year the read covers contributes its PRIMARY version's months
+ * (`budgets/budgetVersionScope.primaryVersionScope`, a year with none
+ * contributes nothing). A named version must belong to the company (else 404,
+ * through `versionYear`), and every month of the window must lie in that
+ * version's year, else 400 "version X is FY2027; the window reaches FY2028".
+ *
+ * The read covers the window AND every month of FY* (the year holding the
+ * window's end), because the projection needs FY*'s whole budget.
+ *
+ * Rows come back at their stored grain (cc1 / cc2 / bu, at most one, migration
+ * 947); classifying them against a filter is `trackingDimRollup`'s job. Never
+ * summed across grains here: a roll-up is computed, never stored.
+ */
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { namedVersionScope, primaryVersionScope, versionYear, type VersionScope } from '../budgetVersionScope';
+import type { AccountMeta } from './trackingLines';
+import { TrackingError, type TrackingVersionRef, type TrackingWindow } from './trackingTypes';
+
+export interface BudgetRow extends AccountMeta {
+  /** 'YYYY-MM'. */
+  month: string;
+  cc1Id: string | null;
+  cc2Id: string | null;
+  buId: string | null;
+  amount: number;
+}
+
+export interface TrackingVersions {
+  scope: VersionScope[];
+  /** FY*'s version; null when FY* has none. */
+  version: TrackingVersionRef | null;
+  /** Every year of a cross-FY window that has a version. */
+  versionsByFy?: Record<number, { id: string; name: string }>;
+  /** Window years (and FY*) without a version. */
+  noVersionYears: number[];
+}
+
+async function versionHeads(companyId: string, ids: string[]): Promise<Map<string, TrackingVersionRef>> {
+  if (ids.length === 0) return new Map();
+  const rows = (await sql`
+    SELECT id::TEXT AS id, name, kind, status, is_primary
+      FROM budget_versions
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
+  `) as DbRow[];
+  return new Map(rows.map((r) => [String(r.id), {
+    id: String(r.id), name: String(r.name), kind: String(r.kind), status: String(r.status), isPrimary: Boolean(r.is_primary),
+  }]));
+}
+
+/** The versions a window reads; `versionId` is looked up under the company (404 when it is not its own). */
+export async function resolveTrackingVersions(companyId: string, window: TrackingWindow, versionId?: string): Promise<TrackingVersions> {
+  const fy = window.fy;
+  const readStart = window.startDate < fy.startDate ? window.startDate : fy.startDate;
+  let scope: VersionScope[];
+  if (versionId) {
+    const year = await versionYear(companyId, versionId);
+    const reaches = [...new Set([...window.years.map((y) => y.fiscalYear), fy.fiscalYear])].filter((y) => y !== year.fiscalYear);
+    if (reaches.length > 0) {
+      throw new TrackingError(400, `version ${versionId} is FY${year.fiscalYear}; the window reaches FY${reaches[0]}`);
+    }
+    scope = await namedVersionScope(companyId, versionId);
+  } else {
+    scope = await primaryVersionScope(companyId, readStart, fy.endDate);
+  }
+  const ids = [...new Set(scope.map((s) => s.versionId).filter((v): v is string => v !== null))];
+  const heads = await versionHeads(companyId, ids);
+  const byYear = new Map(scope.map((s) => [s.fiscalYear, s.versionId]));
+  const fyVersion = byYear.get(fy.fiscalYear) ?? null;
+  const windowYears = [...new Set([...window.years.map((y) => y.fiscalYear), fy.fiscalYear])];
+  const out: TrackingVersions = {
+    scope,
+    version: fyVersion === null ? null : heads.get(fyVersion) ?? null,
+    noVersionYears: windowYears.filter((y) => (byYear.get(y) ?? null) === null),
+  };
+  if (window.years.length > 1) {
+    out.versionsByFy = {};
+    for (const y of window.years) {
+      const vid = byYear.get(y.fiscalYear) ?? null;
+      const head = vid === null ? undefined : heads.get(vid);
+      if (head) out.versionsByFy[y.fiscalYear] = { id: head.id, name: head.name };
+    }
+  }
+  return out;
+}
+
+/** Stored amounts of the scoped versions' months, revenue and expense accounts only, company-scoped. */
+export async function readTrackingBudgets(companyId: string, scope: readonly VersionScope[]): Promise<BudgetRow[]> {
+  const live = scope.filter((s): s is VersionScope & { versionId: string } => s.versionId !== null);
+  if (live.length === 0) return [];
+  const rows = (await sql`
+    SELECT ga.id::TEXT AS account_id, ga.account_code, ga.account_name, ga.account_type, ga.account_subtype,
+           to_char(bm.month, 'YYYY-MM') AS month,
+           bm.cc1_id::TEXT AS cc1_id, bm.cc2_id::TEXT AS cc2_id, bm.bu_id::TEXT AS bu_id,
+           SUM(bm.amount)::TEXT AS amount
+      FROM budget_month_amounts bm
+      JOIN unnest(${live.map((s) => s.versionId)}::UUID[], ${live.map((s) => s.first)}::DATE[], ${live.map((s) => s.last)}::DATE[])
+        AS sc(version_id, first_month, last_month)
+        ON bm.version_id = sc.version_id AND bm.month >= sc.first_month AND bm.month <= sc.last_month
+      JOIN gl_accounts ga ON ga.id = bm.gl_account_id AND ga.company_id = ${companyId}::UUID
+     WHERE bm.company_id = ${companyId}::UUID
+       AND ga.account_type IN ('revenue', 'expense')
+     GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.account_subtype, 6, bm.cc1_id, bm.cc2_id, bm.bu_id
+     ORDER BY ga.account_code, 6
+  `) as DbRow[];
+  const text = (v: unknown): string | null => (v == null ? null : String(v).toLowerCase());
+  return rows.map((r) => ({
+    accountId: String(r.account_id).toLowerCase(),
+    accountCode: String(r.account_code),
+    accountName: String(r.account_name),
+    accountType: String(r.account_type) === 'revenue' ? 'revenue' : 'expense',
+    accountSubtype: r.account_subtype == null ? null : String(r.account_subtype),
+    month: String(r.month),
+    cc1Id: text(r.cc1_id),
+    cc2Id: text(r.cc2_id),
+    buId: text(r.bu_id),
+    amount: Number(r.amount),
+  }));
+}
