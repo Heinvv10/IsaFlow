@@ -114,6 +114,23 @@ describe('r7: the member rule per account, the untagged member, a nulled band ke
     for (const m of r.members!) expect([m.name, m.budget, m.variance, m.favourable]).toEqual([m.name, null, null, null]);
   });
 
+  it('A2b: only the UNTAGGED remainder is partial (every line and every tagged member whole): every member is null', async () => {
+    // Finance cost: FY2027 at CC2 P1 (rolls up to FT) AND the chainless PN (untagged under CC1); FY2028 at P1
+    // only. Every other account mirrors FY2027's grain in FY2028 (opex is company level in both already).
+    const r = await run({ ...W, groupBy: 'cc1' }, async (c) => {
+      for (const m of ['2027-03-01', '2027-04-01']) {
+        await c.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc2_id) VALUES ($1, $2, $3, $4::DATE, 3, $5)`,
+          [f.a, f.v.primary27, f.acc.fin, m, f.cc.P1]);
+      }
+      await put28(c, f.acc.sales, 100, { cc2: f.cc.P1 }); await put28(c, f.acc.sales, 50, { cc2: f.cc.P2 });
+      await put28(c, f.acc.cos, 40, { cc1: f.cc.FT }); await put28(c, f.acc.cos, 30, { cc1: f.cc.HT });
+      await put28(c, f.acc.interest, 5, { bu: f.bu.B1 }); await put28(c, f.acc.fin, 3, { cc2: f.cc.P1 });
+    });
+    expect(r.lines.some((l) => l.partialBudget)).toBe(false);
+    expect(band(r, 'net_profit').budget).not.toBeNull();
+    for (const m of r.members!) expect([m.name, m.budget, m.variance, m.favourable]).toEqual([m.name, null, null, null]);
+  });
+
   it('A6: CC2 = P1, sales at P1 in FY2027 and company level in FY2028: turnover has no budget but keeps its unallocated', async () => {
     const r = await run({ ...W, cc2Id: f.cc.P1 }, (c) => put28(c, f.acc.sales, 100, {}));
     expect([line(r, f.acc.sales).partialBudget, line(r, f.acc.sales).budgetAboveFilter, line(r, f.acc.sales).unallocatedBudget]).toEqual([true, true, 200]);
