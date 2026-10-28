@@ -22,6 +22,7 @@ import { useStatementComparatorState } from '@/components/accounting/reportContr
 import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 import { reportHref } from '@/components/reports/reportReturnState';
 import { localISODate } from '@/lib/dateUtils';
+import { deepLinkDates } from '@/components/accounting/reportControls/deepLinkDates';
 
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
@@ -42,13 +43,20 @@ function getDefaultDates(): { periodStart: string; periodEnd: string } {
 
 export default function IncomeStatementPage() {
   const router = useRouter();
-  const qStart = typeof router.query.period_start === 'string' ? router.query.period_start : '';
-  const qEnd = typeof router.query.period_end === 'string' ? router.query.period_end : '';
+  const { qStart, qEnd } = deepLinkDates(router.query);
   const qBusinessUnit = typeof router.query.business_unit_id === 'string' ? router.query.business_unit_id : '';
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
   const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
+  // A refused From/To keeps the last good date in state; no report is run or exported over it. Nor is one for
+  // an empty date, or a From that is after To (typed into From, where DateField has no bound to refuse it).
+  const [badDate, setBadDate] = useState({ from: false, to: false });
+  const rangeInverted = Boolean(periodStart && periodEnd && periodStart > periodEnd);
+  const datesOk = !badDate.from && !badDate.to && Boolean(periodStart && periodEnd) && !rangeInverted;
+  // A refused text keeps DateField's own reason (an external error would hide it).
+  const fromError = badDate.from ? undefined : !periodStart ? 'Enter a From date.' : rangeInverted ? 'From must be on or before To.' : undefined;
+  const toError = badDate.to || periodEnd ? undefined : 'Enter a To date.';
   const reportRequestRef = useRef(0);
 
   // Sync-back effect: when router.query.period_start / period_end populate after
@@ -98,8 +106,10 @@ export default function IncomeStatementPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
-  const [costCentres, setCostCentres] = useState<CostCentre[]>([]); const [costCentreId, setCostCentreId] = useState('');
-  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]); const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
+  const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
+  const [costCentreId, setCostCentreId] = useState('');
+  const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
+  const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
   const [refError, setRefError] = useState<Record<string, string>>({});
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
@@ -142,8 +152,9 @@ export default function IncomeStatementPage() {
     setExpandedAccount(prev => (prev === code ? null : code));
   }
   const loadReport = useCallback(async () => {
-    if (router.isReady === false || !periodStart || !periodEnd || !periodResolved) {
+    if (router.isReady === false || !periodStart || !periodEnd || !periodResolved || !datesOk) {
       reportRequestRef.current += 1;
+      if (!datesOk) { setReport(null); setIsLoading(false); }
       return;
     }
     const requestId = ++reportRequestRef.current;
@@ -172,7 +183,7 @@ export default function IncomeStatementPage() {
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }
-  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved]);
+  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved, datesOk]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
@@ -206,14 +217,14 @@ export default function IncomeStatementPage() {
           {/* Date Range + Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <DateField label="From" value={periodStart || null} name="periodStart" onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <DateField label="From" value={periodStart || null} name="periodStart" error={fromError} onChange={(iso, v) => { setBadDate(b => ({ ...b, from: !v.valid })); if (v.valid) setPeriodStart(iso ?? ''); }} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} name="periodEnd" onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} error={toError} minDate={periodStart || undefined} onChange={(iso, v) => { setBadDate(b => ({ ...b, to: !v.valid })); if (v.valid) setPeriodEnd(iso ?? ''); }} />
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
-              <select name="costCentreId" value={costCentreId} onChange={e => setCostCentreId(e.target.value)}
+              <label htmlFor="income-statement-cost-centre-id" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
+              <select id="income-statement-cost-centre-id" name="costCentreId" value={costCentreId} onChange={e => setCostCentreId(e.target.value)}
                 className="ff-input text-sm min-w-[160px]">
                 <option value="">All Cost Centres</option>
                 {costCentres.map(cc => (
@@ -222,8 +233,8 @@ export default function IncomeStatementPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Business Unit</label>
-              <select value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className="ff-input text-sm min-w-[160px]">
+              <label htmlFor="income-statement-business-unit" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Business Unit</label>
+              <select id="income-statement-business-unit" value={businessUnitId} onChange={e => setBusinessUnitId(e.target.value)} className="ff-input text-sm min-w-[160px]">
                 <option value="">All Business Units</option>
                 {businessUnitId && !businessUnits.some(bu => bu.id === businessUnitId) && <option value={businessUnitId}>Selected Business Unit (unavailable)</option>}
                 {businessUnits.map(bu => <option key={bu.id} value={bu.id}>{bu.code} — {bu.name}</option>)}
