@@ -86,6 +86,29 @@ describe('under a filter: included, unallocated, excluded', () => {
   });
 });
 
+describe('bullets per member (group_by, unfiltered)', () => {
+  it('CC1 members plus the untagged / company-level remainder partition the net profit, actual and budget', async () => {
+    const r = await run({ ...FY, groupBy: 'cc1' });
+    const np = r.bands.find((b) => b.key === 'net_profit')!;
+    const members = r.members!;
+    const total = (pick: (m: (typeof members)[number]) => number) => Math.round(members.reduce((s, m) => s + pick(m) * 100, 0)) / 100;
+    expect(total((m) => m.actual)).toBe(np.actual);
+    expect(total((m) => m.budget ?? 0)).toBe(np.budget);
+    const ft = members.find((m) => m.memberId === f.cc.FT)!;
+    // FT's budget: P1's sales (100) rolled up through its FNO, less FT's COS (40).
+    expect([ft.code, ft.budget]).toEqual(['BT-FT', (100 - 40) * N]);
+    const untagged = members.find((m) => m.memberId === null)!;
+    // Company-level opex, the BU-grain interest and the chainless project's finance cost have no CC1.
+    expect(untagged.budget).toBe((5 - 200 - 7) * N);
+    expect(members.at(-1)!.memberId).toBeNull();
+  });
+
+  it('a filter with group_by is refused: the members would not partition anything', async () => {
+    const err = await run({ ...FY, groupBy: 'cc1', buId: f.bu.B1 }).catch((e: unknown) => e);
+    expect((err as TrackingError).status).toBe(400);
+  });
+});
+
 describe('versions', () => {
   it('a non-primary version is read only when its id is passed', async () => {
     const primary = await run(FY);
