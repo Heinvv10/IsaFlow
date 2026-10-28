@@ -4,7 +4,7 @@
  * South Africa is on the 28th, and the two figures then differ by a day of ageing.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -16,6 +16,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 import { apiFetch } from '@/lib/apiFetch';
 import ARAgingPage from '../../../pages/accounting/reports/ar-aging';
 import APAgingPage from '../../../pages/accounting/reports/ap-aging';
+import { AGING_BREAKDOWN_LABELS } from '@/modules/accounting/services/reports/dashboardOpenBook';
 
 useApiJsonOverMock();
 
@@ -41,3 +42,15 @@ describe.each([['AR', ARAgingPage, 'reports-ar-aging'], ['AP', APAgingPage, 'rep
     });
   },
 );
+
+describe.each([['AR', ARAgingPage], ['AP', APAgingPage]] as const)('%s age analysis bucket labels', (_side, Page) => {
+  it('are the ageing donut\'s labels, character for character (en dash included)', async () => {
+    vi.mocked(apiFetch).mockReset().mockResolvedValue(new Response(JSON.stringify({
+      success: true, data: { rows: [], summary: ['current', '1-30', '31-60', '61-90', '90+'].map((bucket) => ({ bucket, count: 0, total: 0 })), as_at_date: '2026-10-28' },
+    }), { status: 200 }));
+    render(<Page />);
+    for (const label of AGING_BREAKDOWN_LABELS.slice(0, 5)) {
+      expect((await screen.findAllByText(label, { exact: true })).length, label).toBeGreaterThan(0);
+    }
+  });
+});

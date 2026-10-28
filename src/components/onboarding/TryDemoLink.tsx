@@ -12,7 +12,7 @@
  * and its live region is mounted empty and filled afterwards, because a
  * role=status inserted with its text already in place is not announced.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Sparkles } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -27,23 +27,24 @@ interface TryDemoLinkProps {
 
 const OPENING = 'Opening the demo company…';
 
-function BusyOverlay() {
+/** `returnTo`: the trigger. Not read from document.activeElement, which a StrictMode re-run of the effect would find on the dialog itself. */
+function BusyOverlay({ returnTo }: { returnTo: RefObject<HTMLButtonElement | null> }) {
   const overlay = useRef<HTMLDivElement>(null);
   const [announce, setAnnounce] = useState(false);
 
   useEffect(() => {
     const el = overlay.current;
+    const target = returnTo.current;
     if (!el) return;
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const behind = Array.from(document.body.children).filter((c) => c !== el && !c.hasAttribute('inert'));
     behind.forEach((c) => c.setAttribute('inert', ''));
     el.focus();
     setAnnounce(true);
     return () => {
       behind.forEach((c) => c.removeAttribute('inert'));
-      before?.focus();
+      target?.focus();
     };
-  }, []);
+  }, [returnTo]);
 
   return (
     <div ref={overlay} role="dialog" aria-modal="true" aria-label="Opening the demo company" tabIndex={-1}
@@ -59,6 +60,7 @@ function BusyOverlay() {
 export function TryDemoLink({ onSwitched }: TryDemoLinkProps) {
   const { companies, activeCompany, switchCompany } = useCompany();
   const [busy, setBusy] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   const demo = findDemoMembership(companies, activeCompany?.id);
   if (!demo) return null;
 
@@ -80,8 +82,9 @@ export function TryDemoLink({ onSwitched }: TryDemoLinkProps) {
 
   return (
     <>
-    {busy && typeof document !== 'undefined' && createPortal(<BusyOverlay />, document.body)}
+    {busy && typeof document !== 'undefined' && createPortal(<BusyOverlay returnTo={trigger} />, document.body)}
     <button
+      ref={trigger}
       type="button"
       onClick={() => void go()}
       disabled={busy}

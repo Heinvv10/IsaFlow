@@ -40,6 +40,11 @@ async function shot(page: Page, name: string): Promise<void> {
 
 /** "R 10 686 885.43" (spaces may be NBSP) as whole cents. */
 const cents = (text: string): number => Math.round(Number(text.replace(/[^\d.-]/g, '')) * 100);
+/**
+ * The report page's own labels (BUCKET_LABELS in pages/accounting/reports/ar-aging.tsx), which are the
+ * donut's too: en dash U+2013, not a hyphen. The pages' labels are pinned equal to the donut's by
+ * tests/unit/components/agingReportsDefaultDate.test.tsx; this literal was checked against them byte for byte.
+ */
 const BUCKETS = ['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days'] as const;
 
 test('the dashboard AR ties to the AR Age Analysis, whatever is disputed', async ({ page }) => {
