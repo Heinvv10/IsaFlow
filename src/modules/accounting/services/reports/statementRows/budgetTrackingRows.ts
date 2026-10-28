@@ -87,9 +87,9 @@ export function toBudgetTrackingRows(report: Pick<BudgetTrackingReport, 'lines' 
   section('cost_of_sales', false);
   total('gross_profit');
   section('other_income', false);
-  section('operating_expenses', true);
+  section('operating_expense', true);
   total('operating_profit');
-  section('other_expenses', false);
+  section('other_expense', false);
   total('net_profit');
   return rows;
 }

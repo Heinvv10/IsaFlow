@@ -28,7 +28,7 @@ const band = (key: TrackingBand['key'], kind: TrackingBand['kind'], o: Partial<T
 const LINES: TrackingLine[] = [
   line('4000', 'turnover', { actual: 100, budget: 90, variance: 10, variancePct: 11.11, favourable: true, projected: 1000, fyBudget: 1080, projVariance: -80, projFavourable: false }),
   line('4100', 'turnover', { actual: 5, unallocatedBudget: 7, budgetAboveFilter: true, projected: 5 }),
-  line('6000', 'operating_expenses', { actual: 40, budget: 0, variance: 40, variancePct: null, favourable: false, projected: 40, fyBudget: 0, projVariance: 40, projFavourable: false }),
+  line('6000', 'operating_expense', { actual: 40, budget: 0, variance: 40, variancePct: null, favourable: false, projected: 40, fyBudget: 0, projVariance: 40, projFavourable: false }),
 ];
 // Sentinels: none of these equals the sum of the lines above.
 const BANDS: TrackingBand[] = [
@@ -36,9 +36,9 @@ const BANDS: TrackingBand[] = [
   band('cost_of_sales', 'band', {}),
   band('gross_profit', 'total', { actual: 1.23, budget: 4.56, variance: -3.33, variancePct: -73.03, favourable: false, projected: 7, fyBudget: 8, projVariance: -1, projFavourable: false }),
   band('other_income', 'band', {}),
-  band('operating_expenses', 'band', { actual: 55.55, budget: 44.44, variance: 11.11, favourable: false, polarity: 'expense' }),
+  band('operating_expense', 'band', { actual: 55.55, budget: 44.44, variance: 11.11, favourable: false, polarity: 'expense' }),
   band('operating_profit', 'total', { actual: 2.22 }),
-  band('other_expenses', 'band', {}),
+  band('other_expense', 'band', {}),
   band('net_profit', 'grand', { actual: 3.33, budget: 2.22, variance: 1.11, variancePct: 50, favourable: true, projected: 30, fyBudget: 20, projVariance: 10, projFavourable: true }),
 ];
 
@@ -49,7 +49,7 @@ describe('toBudgetTrackingRows', () => {
   it('lays out the income statement bands; an empty COS / other band is left out, as on the statement', () => {
     expect(ROWS.map((r) => r.id)).toEqual([
       'sec:turnover', 'acc:4000', 'acc:4100', 'sub:turnover', 'total:gross_profit',
-      'sec:operating_expenses', 'acc:6000', 'sub:operating_expenses', 'total:operating_profit', 'grand:net_profit',
+      'sec:operating_expense', 'acc:6000', 'sub:operating_expense', 'total:operating_profit', 'grand:net_profit',
     ]);
     expect(row('sec:turnover').kind).toBe('section');
     expect(NON_FIGURE_KINDS.has(row('sec:turnover').kind)).toBe(true);

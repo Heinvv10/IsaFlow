@@ -19,7 +19,8 @@
  */
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
 import type { EffDims } from './trackingDimRollup';
-import { fromCents, isFavourable, pctOf, toCents } from './trackingLines';
+import { fromCents, toCents } from '../grid/cents';
+import { isFavourable, pctOf } from './trackingLines';
 import type { TrackingGroupBy, TrackingMember } from './trackingTypes';
 
 export interface MemberActual { memberId: string | null; month: string; accountType: 'revenue' | 'expense'; amount: number }

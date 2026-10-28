@@ -39,7 +39,7 @@ function names(seed: number, n: number): string[] {
 
 function linesOf(seed: number): TrackingLine[] {
   return names(seed, 12).map((accountName, i) => ({
-    accountId: `id-${i}`, accountCode: String(6000 + i * 10), accountName, accountType: 'expense', band: 'operating_expenses',
+    accountId: `id-${i}`, accountCode: String(6000 + i * 10), accountName, accountType: 'expense', band: 'operating_expense',
     actual: 0, budget: 0, variance: (i + 1) * 100, variancePct: null, favourable: false,
     projected: 0, fyBudget: null, projVariance: null, projFavourable: null, unallocatedBudget: 0, budgetAboveFilter: false,
     monthly: MONTHS.map((month, k) => ({ month, actual: 100 + k, budget: k % 5 === 0 ? null : 100, variance: k % 5 === 0 ? null : k, favourable: k % 5 === 0 ? null : k % 2 === 0 })),

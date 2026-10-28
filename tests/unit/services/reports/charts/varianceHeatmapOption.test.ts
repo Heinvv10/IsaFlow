@@ -23,7 +23,7 @@ function line(code: string, name: string, monthly: Array<[number, number | null,
     month: MONTHS[i]!, actual, budget, variance: budget === null ? null : Math.round((actual - budget) * 100) / 100, favourable,
   }));
   return {
-    accountId: `id-${code}`, accountCode: code, accountName: name, accountType: 'expense', band: 'operating_expenses',
+    accountId: `id-${code}`, accountCode: code, accountName: name, accountType: 'expense', band: 'operating_expense',
     actual: 0, budget: variance === null ? null : 0, variance, variancePct: null, favourable: null,
     projected: 0, fyBudget: null, projVariance: null, projFavourable: null, unallocatedBudget: 0, budgetAboveFilter: false, monthly: months,
   };

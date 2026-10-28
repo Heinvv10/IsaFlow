@@ -7,6 +7,7 @@
  */
 import type { FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { ReportYearOption } from '@/modules/accounting/services/reports/budgetReportYear';
+import type { Band } from '../grid/subtotals';
 
 export type TrackingPeriod = 'month' | 'quarter' | 'ytd' | 'fy' | 'custom';
 
@@ -81,7 +82,8 @@ export interface TrackingWindow {
   notStarted: boolean;
 }
 
-export type TrackingBandKey = 'turnover' | 'cost_of_sales' | 'other_income' | 'operating_expenses' | 'other_expenses';
+/** The budget grid's band keys (`budgets/grid/subtotals.ts`), so the two budget surfaces share one set. */
+export type TrackingBandKey = Band;
 export type TrackingTotalKey = 'gross_profit' | 'operating_profit' | 'net_profit';
 
 /** The figure fields every line and band carries. */

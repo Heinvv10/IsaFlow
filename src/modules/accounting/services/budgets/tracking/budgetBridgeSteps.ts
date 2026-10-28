@@ -16,16 +16,10 @@
  * absent) is no bridge, not a bridge from zero.
  */
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { fromCents, toCents } from './trackingLines';
-import type { BudgetTrackingReport, TrackingBandKey } from './trackingTypes';
+import { fromCents, toCents } from '../grid/cents';
+import { BAND_LABEL, BAND_ORDER, BAND_SIGN } from '../grid/subtotals';
+import type { BudgetTrackingReport } from './trackingTypes';
 
-const STEPS: Array<{ key: TrackingBandKey; label: string; sign: 1 | -1 }> = [
-  { key: 'turnover', label: 'Turnover', sign: 1 },
-  { key: 'cost_of_sales', label: 'Cost of Sales', sign: -1 },
-  { key: 'other_income', label: 'Other Income', sign: 1 },
-  { key: 'operating_expenses', label: 'Operating Expenses', sign: -1 },
-  { key: 'other_expenses', label: 'Other Expenses', sign: -1 },
-];
 
 export function budgetBridgeSteps(report: Pick<BudgetTrackingReport, 'bands'>): WaterfallStep[] {
   const net = report.bands.find((b) => b.key === 'net_profit');
@@ -35,15 +29,16 @@ export function budgetBridgeSteps(report: Pick<BudgetTrackingReport, 'bands'>): 
     { label: 'Budget net profit', start: 0, end: fromCents(budgetNp), value: fromCents(budgetNp), isSubtotal: true, color: 'blue' },
   ];
   let running = budgetNp;
-  for (const s of STEPS) {
-    const band = report.bands.find((b) => b.key === s.key);
+  for (const key of BAND_ORDER) {
+    const sign = BAND_SIGN[key];
+    const band = report.bands.find((b) => b.key === key);
     const delta = band ? toCents(band.actual) - toCents(band.budget ?? 0) : 0;
-    const effect = s.sign * delta;
+    const effect = sign * delta;
     const step: WaterfallStep = {
-      label: s.label, start: fromCents(running), end: fromCents(running + effect), value: fromCents(effect),
+      label: BAND_LABEL[key], start: fromCents(running), end: fromCents(running + effect), value: fromCents(effect),
       isSubtotal: false, color: effect >= 0 ? 'green' : 'red',
     };
-    if (s.sign === -1) step.labelValue = fromCents(delta);
+    if (sign === -1) step.labelValue = fromCents(delta);
     steps.push(step);
     running += effect;
   }

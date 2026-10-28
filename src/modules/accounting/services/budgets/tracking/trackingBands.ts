@@ -15,16 +15,13 @@
  * projection's FY budget. Favourable: income bands up, expense bands down,
  * profit totals up.
  */
-import { fromCents, isFavourable, pctOf, toCents } from './trackingLines';
+import { fromCents, toCents } from '../grid/cents';
+import { BAND_LABEL, BAND_ORDER, BAND_SIGN } from '../grid/subtotals';
+import { isFavourable, pctOf } from './trackingLines';
 import type { TrackingBand, TrackingBandKey, TrackingLine, TrackingTotalKey } from './trackingTypes';
 
-const BANDS: Array<{ key: TrackingBandKey; label: string; polarity: 'income' | 'expense' }> = [
-  { key: 'turnover', label: 'Turnover', polarity: 'income' },
-  { key: 'cost_of_sales', label: 'Cost of Sales', polarity: 'expense' },
-  { key: 'other_income', label: 'Other Income', polarity: 'income' },
-  { key: 'operating_expenses', label: 'Operating Expenses', polarity: 'expense' },
-  { key: 'other_expenses', label: 'Other Expenses', polarity: 'expense' },
-];
+/** The grid's bands (`budgets/grid/subtotals.ts`): one key set, label and sign for every budget surface. */
+const BANDS = BAND_ORDER.map((key) => ({ key, label: BAND_LABEL[key], polarity: BAND_SIGN[key] === 1 ? 'income' as const : 'expense' as const }));
 
 /** Cents, with null = absent. */
 interface Sums { actual: number; budget: number | null; projected: number; fyBudget: number | null; unallocated: number }
@@ -84,17 +81,17 @@ export function buildBands(lines: readonly TrackingLine[]): TrackingBand[] {
   };
   const s = (key: TrackingBandKey) => sums.get(key)!;
   const gross = combine(s('turnover'), s('cost_of_sales'), 'minus');
-  const operating = combine(combine(gross, s('other_income'), 'plus'), s('operating_expenses'), 'minus');
-  const net = combine(operating, s('other_expenses'), 'minus');
+  const operating = combine(combine(gross, s('other_income'), 'plus'), s('operating_expense'), 'minus');
+  const net = combine(operating, s('other_expense'), 'minus');
   const total = (key: TrackingTotalKey, label: string, kind: 'total' | 'grand', x: Sums) => figures(key, label, kind, 'income', x);
   return [
     band('turnover'),
     band('cost_of_sales'),
     total('gross_profit', 'Gross Profit', 'total', gross),
     band('other_income'),
-    band('operating_expenses'),
+    band('operating_expense'),
     total('operating_profit', 'Operating Profit', 'total', operating),
-    band('other_expenses'),
+    band('other_expense'),
     total('net_profit', 'Net Profit / (Loss)', 'grand', net),
   ];
 }

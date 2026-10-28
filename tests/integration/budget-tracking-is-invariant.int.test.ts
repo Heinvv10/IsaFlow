@@ -86,8 +86,8 @@ async function oracle(name: FilterName, start: string, end: string): Promise<Ora
       byCode,
       bands: {
         turnover: is.totalRevenue, cost_of_sales: is.totalCostOfSales, gross_profit: is.grossProfit,
-        other_income: is.totalOtherIncome, operating_expenses: is.totalOperatingExpenses,
-        operating_profit: is.operatingProfit, other_expenses: is.totalOtherExpenses, net_profit: is.netProfit,
+        other_income: is.totalOtherIncome, operating_expense: is.totalOperatingExpenses,
+        operating_profit: is.operatingProfit, other_expense: is.totalOtherExpenses, net_profit: is.netProfit,
       },
     };
   }
@@ -102,7 +102,7 @@ async function oracle(name: FilterName, start: string, end: string): Promise<Ora
     byCode,
     bands: {
       turnover: fig.revenue, cost_of_sales: fig.costOfSales, gross_profit: fig.grossProfit, other_income: fig.otherIncome,
-      operating_expenses: fig.operatingExpenses, operating_profit: fig.operatingProfit, other_expenses: fig.otherExpenses, net_profit: fig.netProfit,
+      operating_expense: fig.operatingExpenses, operating_profit: fig.operatingProfit, other_expense: fig.otherExpenses, net_profit: fig.netProfit,
     },
   };
 }
