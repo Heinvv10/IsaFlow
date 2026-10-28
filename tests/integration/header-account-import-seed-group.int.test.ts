@@ -66,7 +66,10 @@ async function putBankAccount(body: Record<string, unknown>) {
 
 describeIfDb('the import, the template seed and the bank grouping keep posted accounts on the balance sheet', () => {
   beforeAll(async () => { h = await seedHeaderFixture('HIS', process.env.DATABASE_URL!); }, 120000);
-  afterAll(async () => { await dropHeaderFixture(h); }, 120000);
+  afterAll(async () => {
+    await sql`DELETE FROM migration_sessions WHERE company_id = ${h.fx.companyId}::UUID`;   // the import tests' sessions
+    await dropHeaderFixture(h);
+  }, 120000);
 
   describe('chart import', () => {
     it('a new account under a posted, childless level-1 account is refused and not written', async () => {
@@ -132,7 +135,7 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
         WHERE id = ${x}::UUID`) as Row[])[0]!;
       expect(after).toMatchObject({ account_type: 'expense', account_subtype: 'operating_expense', normal_balance: 'debit',
         account_name: 'Imported HIS-X1' });
-      expect(out.errors[0]).toMatchObject({ severity: 'warning', message: expect.stringContaining('header hiding them') });
+      expect(out.errors[0]).toMatchObject({ severity: 'warning', message: expect.stringContaining('has sub-accounts') });
     });
 
     it('control: re-typing an account in use that would not hide anything is a reclassification and goes through', async () => {
@@ -143,7 +146,15 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${r}::UUID`) as Row[])[0]!.account_type).toBe('asset');
     });
 
-    it('a NULL level counts as below 3: that header keeps its type too', async () => {
+    it('an unused parent is not re-typed either: a journal posting to it later must not land on a hidden header', async () => {
+      const q = await addAccount(h.fx, { code: 'HIS-Q1', type: 'expense', level: 1, subtype: 'operating_expense' });
+      await addAccount(h.fx, { code: 'HIS-Q1.1', type: 'expense', level: 2, parentId: q, subtype: 'operating_expense' });
+      const out = await importRows([row('HIS-Q1')]);
+      expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${q}::UUID`) as Row[])[0]!.account_type).toBe('expense');
+      expect(out.errors[0]).toMatchObject({ severity: 'warning', message: expect.stringContaining('has sub-accounts') });
+    });
+
+    it('a parent at a NULL level keeps its type too', async () => {
       const x = await addAccount(h.fx, { code: 'HIS-NL1', type: 'expense', level: 1, subtype: 'operating_expense' });
       await post(x);
       await addAccount(h.fx, { code: 'HIS-NL1.1', type: 'expense', level: 2, parentId: x, subtype: 'operating_expense' });
