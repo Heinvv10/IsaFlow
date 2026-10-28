@@ -192,7 +192,10 @@ export interface BudgetTrackingReport {
     endDate: string;
     months: string[];
     fiscalYear: number;
+    /** The month holding today, and the latest posting in it up to TODAY (a forward-dated journal is not "posted through"). */
     inProgress: { month: string; actualsTo: string | null } | null;
+    /** Latest posted entry date anywhere in the window, in progress or not: P0's `postedThrough` (PR-C facade parity). */
+    postedThrough: string | null;
     notStarted: boolean;
   };
   /** FY*'s version; null when FY* has none. */

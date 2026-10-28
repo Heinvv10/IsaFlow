@@ -85,14 +85,17 @@ export async function buildBudgetTrackingReport(
     });
   }
 
+  // "Actuals posted through" for the in-progress month runs from its 1st to TODAY; the window's
+  // own posted-through (P0's definition) is read over the whole window.
   const inProgress = window.inProgressMonth
-    ? { month: window.inProgressMonth, actualsTo: await readPostedThrough(companyId, window.startDate, window.endDate) }
+    ? { month: window.inProgressMonth, actualsTo: await readPostedThrough(companyId, `${window.inProgressMonth}-01`, today) }
     : null;
+  const postedThrough = await readPostedThrough(companyId, window.startDate, window.endDate);
 
   const report: BudgetTrackingReport = {
     window: {
       period: window.period, label: window.label, startDate: window.startDate, endDate: window.endDate, months: window.months,
-      fiscalYear: window.fiscalYear, inProgress, notStarted: window.notStarted,
+      fiscalYear: window.fiscalYear, inProgress, postedThrough, notStarted: window.notStarted,
     },
     version: versions.version,
     filter: filter.members,

@@ -49,7 +49,7 @@ function fixture(): BudgetTrackingReport {
     budgets: [b('s', '2026-06', 900), b('s', '2026-07', 1100), b('c', '2026-06', 500), b('c', '2026-07', 0), b('w', '2026-07', 0), b('r', '2026-06', 250, 'coarser')],
   });
   return {
-    window: { period: 'custom', label: '2026-06 to 2026-07', startDate: '2026-06-01', endDate: '2026-07-31', months: MONTHS, fiscalYear: 2027, inProgress: null, notStarted: false },
+    window: { period: 'custom', label: '2026-06 to 2026-07', startDate: '2026-06-01', endDate: '2026-07-31', months: MONTHS, fiscalYear: 2027, inProgress: null, postedThrough: '2026-07-31', notStarted: false },
     version: { id: 'v1', name: 'Reforecast 1', kind: 'reforecast', status: 'draft', isPrimary: false },
     filter: {},
     projection: { fiscalYear: 2027, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
