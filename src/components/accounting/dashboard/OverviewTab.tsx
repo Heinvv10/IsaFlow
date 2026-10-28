@@ -35,11 +35,12 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.Respons
 export interface KPIData {
   kpis: {
     revenue: { total: number; priorTotal: number; changePercent: number };
+    revenueMtd: number;
     expenses: { total: number; priorTotal: number };
     grossProfit: { amount: number; margin: number };
     netProfit: { amount: number; margin: number };
     cash: { total: number; priorTotal: number; change: number };
-    receivables: { total: number; overdue: number; avgDebtorDays: number };
+    receivables: { total: number; overdue: number; overdueDisputed: number; avgDebtorDays: number };
     payables: { total: number; overdue: number; avgCreditorDays: number };
     activity: { invoicesIssued: number; paymentsReceived: number; journalsPosted: number };
   };
@@ -63,11 +64,20 @@ function fmtCurrency(n: number): string {
 
 const fmtCompact = (n: number): string => formatMoneyCompact(n);
 
-/** `setupOpen`: setup tasks are still open, so TodoWidget must not say "All caught up!". */
-/** The kpi-dashboard load a parent already made (pages/accounting/index.tsx), so Home fetches it once. */
+/**
+ * The kpi-dashboard load a parent already made (pages/accounting/index.tsx), so Home fetches it once.
+ *
+ * The load lives in the page, not here, on purpose: the hero above the tabs
+ * needs the same figures, so switching tabs does not refetch them. They are
+ * reloaded when the company changes (the page's effect), not on re-entering Overview.
+ */
 export interface KpiLoad { data: KPIData | null; error: string; loading: boolean }
 
-export function OverviewTab({ setupOpen = false, kpiLoad }: { setupOpen?: boolean; kpiLoad?: KpiLoad }) {
+/**
+ * `setupOpen`: setup tasks are still open, so TodoWidget must not say "All caught up!".
+ * `setupUnknown`: the setup checklist has not resolved (timed out or failed), so TodoWidget says neither.
+ */
+export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad }: { setupOpen?: boolean; setupUnknown?: boolean; kpiLoad?: KpiLoad }) {
   const [ownData, setData] = useState<KPIData | null>(null);
   const [ownLoading, setIsLoading] = useState(!kpiLoad);
   const data = kpiLoad ? kpiLoad.data : ownData;
@@ -149,7 +159,7 @@ export function OverviewTab({ setupOpen = false, kpiLoad }: { setupOpen?: boolea
       <WorkbenchSection />
 
       {/* Action Items */}
-      <TodoWidget setupOpen={setupOpen} />
+      <TodoWidget setupOpen={setupOpen} setupUnknown={setupUnknown} />
 
       {/* Quick Actions — unified teal chip for visual cohesion on the dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

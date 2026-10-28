@@ -14,7 +14,7 @@ vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, pu
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'owner' }, loading: false }) }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' }, companies: [{ companyId: 'co-1' }], loading: false }) }));
-vi.mock('@/components/accounting/dashboard/OverviewTab', () => ({ OverviewTab: ({ setupOpen }: { setupOpen: boolean }) => <p>overview setupOpen={String(setupOpen)}</p> }));
+vi.mock('@/components/accounting/dashboard/OverviewTab', () => ({ OverviewTab: ({ setupOpen, setupUnknown }: { setupOpen: boolean; setupUnknown: boolean }) => <p>overview setupOpen={String(setupOpen)}{setupUnknown ? ' unknown=true' : ''}</p> }));
 vi.mock('@/components/accounting/dashboard/DashboardHero', () => ({ DashboardHero: () => <p>the hero</p> }));
 
 import { TodoWidget } from '@/components/accounting/dashboard/TodoWidget';
@@ -38,6 +38,13 @@ describe('Home: checklist first while setup is open', () => {
     expect(screen.getByText('overview setupOpen=true')).toBeTruthy();
   });
 
+  it('a failed checklist load tells the overview setup is open and unknown, never complete', async () => {
+    script((u) => (u.includes('setup-checklist') ? new Response('', { status: 500 }) : ok({})));
+    render(<AccountingPage />);
+    expect(await screen.findByText('overview setupOpen=true unknown=true')).toBeTruthy();
+    expect(screen.queryByText('Finish setting up')).toBeNull();
+  });
+
   it('no checklist once setup is complete', async () => {
     serveSetup(true);
     render(<AccountingPage />);
@@ -55,6 +62,14 @@ describe('TodoWidget empty state', () => {
     render(<TodoWidget setupOpen />);
     expect(await screen.findByText('Finish setup to see your daily tasks')).toBeTruthy();
     expect(screen.queryByText('All caught up!')).toBeNull();
+  });
+
+  it('says neither while the checklist is unknown (its load failed or timed out)', async () => {
+    script(() => ok(clear));
+    render(<TodoWidget setupOpen setupUnknown />);
+    expect(await screen.findByText('Daily tasks will show here once your setup status is confirmed')).toBeTruthy();
+    expect(screen.queryByText('All caught up!')).toBeNull();
+    expect(screen.queryByText('Finish setup to see your daily tasks')).toBeNull();
   });
 
   it('still says "All caught up!" once setup is complete', async () => {

@@ -9,7 +9,8 @@ export interface OverviewKpis {
   revenue: { total: number; priorTotal: number; changePercent: number };
   grossProfit: { amount: number; margin: number };
   cash: { total: number; priorTotal: number; change: number };
-  receivables: { total: number; overdue: number; avgDebtorDays: number };
+  /** `overdueDisputed`: the disputed part of `overdue`, which the ageing donut shows as its own segment. */
+  receivables: { total: number; overdue: number; overdueDisputed?: number; avgDebtorDays: number };
 }
 
 // Exact, never abbreviated: a tile is a figure someone reconciles (principle 1).
@@ -58,6 +59,9 @@ export function OverviewKpiCards({ kpis }: { kpis: OverviewKpis | undefined }) {
         {(kpis?.receivables.overdue ?? 0) > 0
           ? <p className="text-xs mt-1 text-rose-600 dark:text-rose-400">{fmtExact(kpis?.receivables.overdue ?? 0)} overdue</p>
           : <p className="text-xs mt-1 text-teal-500">No overdue</p>}
+        {(kpis?.receivables.overdueDisputed ?? 0) > 0 && (
+          <p className="text-xs text-[var(--ff-text-tertiary)]">of which {fmtExact(kpis?.receivables.overdueDisputed ?? 0)} disputed</p>
+        )}
       </div>
     </div>
   );

@@ -54,6 +54,21 @@ describe('dashboard tiles show exact amounts', () => {
     expect(container.textContent).not.toMatch(COMPACT);
   });
 
+  it('Outstanding AR shows the disputed share of the overdue figure, only when there is one', () => {
+    const kpis = (overdueDisputed: number) => ({
+      revenue: { total: 0, priorTotal: 0, changePercent: 0 },
+      grossProfit: { amount: 0, margin: 0 },
+      cash: { total: 0, priorTotal: 0, change: 0 },
+      receivables: { total: 1500, overdue: 1000, overdueDisputed, avgDebtorDays: 40 },
+    });
+    const { unmount } = render(<OverviewKpiCards kpis={kpis(250)} />);
+    expect(screen.getByText(`${exact(1000)} overdue`)).toBeTruthy();
+    expect(screen.getByText(`of which ${exact(250)} disputed`)).toBeTruthy();
+    unmount();
+    render(<OverviewKpiCards kpis={kpis(0)} />);
+    expect(screen.queryByText(/disputed/)).toBeNull();
+  });
+
   it('workbench VAT estimate', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: true, data: {
       unreconciledBankTxns: 0, draftInvoices: 0, apDueThisWeek: 0, unpostedJournals: 0,
