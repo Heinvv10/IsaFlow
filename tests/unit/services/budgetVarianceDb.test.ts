@@ -48,8 +48,6 @@ interface Fixture {
   bankAccountId: string;
 }
 
-// The accounts must be active leaves: the budget writers refuse a header (an account with
-// children) or an inactive account with no amounts yet (budgetAccount.ts).
 // FIXTURE INVARIANT — the fixture MUST keep a revenue account alongside the two
 // expense accounts. Sign normalisation is this service's core claim, and while
 // every test used an expense account, pointing the revenue branch at the expense
@@ -63,14 +61,15 @@ async function loadFixtureIds(): Promise<Fixture> {
            e2.id AS e2_id, e2.account_code AS e2_code,
            r.id AS r_id, r.account_code AS r_code
     FROM gl_accounts bank
-    JOIN gl_accounts e1 ON e1.company_id = bank.company_id AND e1.account_type = 'expense' AND e1.is_active
-                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = e1.company_id AND ch.parent_account_id = e1.id)
+    JOIN gl_accounts e1 ON e1.company_id = bank.company_id AND e1.account_type = 'expense'
     JOIN gl_accounts e2 ON e2.company_id = bank.company_id AND e2.account_type = 'expense'
-                        AND e2.id <> e1.id AND e2.is_active
-                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = e2.company_id AND ch.parent_account_id = e2.id)
-    JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue' AND r.is_active
-                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = r.company_id AND ch.parent_account_id = r.id)
+                        AND e2.id <> e1.id
+    JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue'
     WHERE bank.account_subtype = 'bank'
+      -- Budgetable accounts only: active leaves. writeBudget refuses a header (decision 18,
+      -- budgets/headerSql.ts), and the first expense account on dev is the 5000 header.
+      AND e1.is_active AND e2.is_active AND r.is_active
+      AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = bank.company_id AND ch.parent_account_id IN (e1.id, e2.id, r.id))
     ORDER BY bank.company_id, bank.account_code, e1.account_code, e2.account_code, r.account_code
     LIMIT 1
   `) as Array<Record<string, string>>;

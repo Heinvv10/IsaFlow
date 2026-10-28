@@ -16,6 +16,11 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
 
+  // Blog hero/screenshot images are served as WebP (Next's default, pinned here).
+  images: {
+    formats: ['image/webp'],
+  },
+
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
     // Pin the file-tracing root to THIS project dir so the standalone build emits
@@ -41,6 +46,9 @@ const nextConfig = {
         './node_modules/pdfjs-dist/**/*',
         './node_modules/@napi-rs/canvas/**/*',
         './node_modules/@napi-rs/canvas-*/**/*',
+        // Blog pages, the RSS feed and the sitemap read content/blog/** with fs at
+        // ISR/request time; the static tracer cannot see those reads.
+        './content/blog/**/*',
       ],
     },
   },
