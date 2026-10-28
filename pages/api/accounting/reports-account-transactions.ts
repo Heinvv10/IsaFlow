@@ -3,7 +3,9 @@
  * GET /api/accounting/reports-account-transactions?account_code=1110&period_start=&period_end=
  * Optional cost_centre_id (either level: cc1 OR cc2), business_unit_id, and the
  * explicit levels cc1_id / cc2_id (the Budget vs Actual drill, budgets P3 §2.6)
- * are cumulative.
+ * are cumulative. The BvA drill also sends `documents=1` (each row's source
+ * document) and `sign=natural` (balances signed by account type, as the BvA
+ * Actual is); no other value is accepted, and no other drill sends them.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,6 +18,7 @@ import { hasNul, NUL_MESSAGE } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { LedgerAccountNotFoundError } from '@/modules/accounting/services/gl/ledgerErrors';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
+import type { AccountTransactionsOptions } from '@/modules/accounting/services/gl/accountTransactionsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -29,12 +32,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (businessUnitId !== undefined && (typeof businessUnitId !== 'string' || !UUID_RE.test(businessUnitId))) {
     return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
   }
-  const dims: { cc1Id?: string; cc2Id?: string } = {};
+  const opts: AccountTransactionsOptions = {};
   for (const [param, key] of [['cc1_id', 'cc1Id'], ['cc2_id', 'cc2Id']] as const) {
     const value = req.query[param];
     if (value === undefined) continue;
     if (typeof value !== 'string' || !UUID_RE.test(value)) return apiResponse.badRequest(res, `${param} must be a valid UUID`);
-    dims[key] = value;
+    opts[key] = value;
+  }
+  for (const [param, expected, key] of [['documents', '1', 'documents'], ['sign', 'natural', 'naturalSign']] as const) {
+    const value = req.query[param];
+    if (value === undefined) continue;
+    if (value !== expected) return apiResponse.badRequest(res, `${param} must be ${expected}`);
+    opts[key] = true;
   }
 
   try {
@@ -47,7 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     if (period_start > period_end) return apiResponse.badRequest(res, 'period_start must not be after period_end');
     const report = await getAccountTransactions(companyId,
-      String(account_code), String(period_start), String(period_end), costCentreId, businessUnitId, dims
+      String(account_code), String(period_start), String(period_end), costCentreId, businessUnitId, opts
     );
     return apiResponse.success(res, report);
   } catch (err) {

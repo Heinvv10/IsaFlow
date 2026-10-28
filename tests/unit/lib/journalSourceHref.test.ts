@@ -16,6 +16,7 @@ describe('journalSourceHref', () => {
     ['credit_note', `/accounting/credit-notes/${D}`],
     ['customer_payment', `/accounting/customer-payments/${D}`],
     ['supplier_invoice', `/accounting/supplier-invoices/${D}`],
+    ['supplier_credit_note', `/accounting/supplier-credit-notes/${D}`],
     ['supplier_payment', `/accounting/supplier-payments/${D}`],
   ] as const)('a %s journal links to its document', (kind, href) => {
     expect(journalSourceHref({ journalId: J, document: { kind, id: D } })).toEqual({ href, label: expect.any(String) });
@@ -28,5 +29,17 @@ describe('journalSourceHref', () => {
 
   it('ids are URI-encoded', () => {
     expect(journalSourceHref({ journalId: 'a/b' })?.href).toBe('/accounting/journal-entries/a%2Fb');
+    expect(journalSourceHref({ journalId: J, document: { kind: 'customer_invoice', id: 'x/../y?z=1#w' } })?.href)
+      .toBe('/accounting/customer-invoices/x%2F..%2Fy%3Fz%3D1%23w');
+  });
+
+  it('carries the report it was opened from as return_to, encoded; an outside URL is dropped', () => {
+    const back = '/accounting/reports/budget-vs-actual?period=fy&fiscal_year=2027&cc1_id=abc';
+    expect(journalSourceHref({ journalId: J, document: { kind: 'supplier_invoice', id: D } }, back)?.href)
+      .toBe(`/accounting/supplier-invoices/${D}?return_to=${encodeURIComponent(back)}`);
+    expect(journalSourceHref({ journalId: J }, back)?.href).toBe(`/accounting/journal-entries/${J}?return_to=${encodeURIComponent(back)}`);
+    for (const bad of ['https://evil.example/accounting', '//evil.example/x', 'javascript:alert(1)']) {
+      expect(journalSourceHref({ journalId: J }, bad)?.href).toBe(`/accounting/journal-entries/${J}`);
+    }
   });
 });

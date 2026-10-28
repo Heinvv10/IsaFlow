@@ -10,13 +10,20 @@
  * and the GL report show. Balance-sheet accounts are cumulative from inception.
  *
  * Filters: `costCentreId` is EITHER level (cc1_id OR cc2_id, the statement
- * pages' meaning); `dims.cc1Id` / `dims.cc2Id` are EXPLICIT levels (the Budget
+ * pages' meaning); `opts.cc1Id` / `opts.cc2Id` are EXPLICIT levels (the Budget
  * vs Actual drill, budgets P3 §2.6), ANDed with it and with `businessUnitId`,
  * so a drill opened from a filtered BvA line foots to that line.
  *
- * Each posted row carries its journal id and, when the journal was posted from
- * a document (customer invoice / credit note / payment, supplier invoice /
- * payment), that document, so the drill can link to it (`lib/journalSourceHref`).
+ * Budget vs Actual opt-ins (every other caller passes neither, and its output
+ * is unchanged):
+ *   - `documents`: each posted row carries its journal id and the document the
+ *     journal was posted from (`journalDocuments`, one batched read per
+ *     document table), so the drill links to it (`lib/journalSourceHref`).
+ *   - `naturalSign`: balances signed by account TYPE (revenue credit − debit,
+ *     expense debit − credit, as the BvA Actual and the income statement read),
+ *     not by the account's own `normal_balance`, so periodNet equals the BvA
+ *     line even for an account set to the other normal balance. Balance-sheet
+ *     types keep `normal_balance`.
  */
 
 import { sql } from '@/lib/neon';
@@ -33,12 +40,21 @@ import {
   yearEndCloseDescription,
 } from './fiscalYearCloseRows';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { loadJournalDocuments, type JournalDocumentRef } from './journalDocuments';
+
+export type { JournalDocumentKind, JournalDocumentRef } from './journalDocuments';
 
 type Row = DbRow;
 
-/** The document a journal was posted from. */
-export type JournalDocumentKind = 'customer_invoice' | 'credit_note' | 'customer_payment' | 'supplier_invoice' | 'supplier_payment';
-export interface JournalDocumentRef { kind: JournalDocumentKind; id: string }
+export interface AccountTransactionsOptions {
+  /** Explicit dimension levels (the BvA drill), ANDed with the other filters. */
+  cc1Id?: string;
+  cc2Id?: string;
+  /** Attach `journalId` + `document` to each posted row (the BvA drill's source links). */
+  documents?: boolean;
+  /** Sign by account type (revenue Cr − Dr, expense Dr − Cr) instead of `normal_balance`. */
+  naturalSign?: boolean;
+}
 
 interface TransactionRow {
   date: string;
@@ -48,9 +64,9 @@ interface TransactionRow {
   credit: number;
   balance: number;
   source: string;
-  /** Posted rows only (a derived year-end close row has none). */
+  /** With `documents`, posted rows only (a derived year-end close row has none). */
   journalId?: string;
-  /** The document the journal was posted from; null when none (posted rows only). */
+  /** With `documents`: the document the journal was posted from; null when none (posted rows only). */
   document?: JournalDocumentRef | null;
   /** A year-end close row: derived, not posted. */
   derived?: boolean;
@@ -76,13 +92,13 @@ export async function getAccountTransactions(
   periodEnd: string,
   costCentreId?: string,
   businessUnitId?: string,
-  dims: { cc1Id?: string; cc2Id?: string } = {},
+  opts: AccountTransactionsOptions = {},
 ): Promise<AccountTransactionsReport> {
   assertLedgerRange(periodStart, periodEnd);
   const cc = costCentreId ?? null;
   const bu = businessUnitId ?? null;
-  const cc1 = dims.cc1Id ?? null;
-  const cc2 = dims.cc2Id ?? null;
+  const cc1 = opts.cc1Id ?? null;
+  const cc2 = opts.cc2Id ?? null;
   try {
     const acctRows = (await sql`
       SELECT ga.account_name, ga.account_type, ga.normal_balance
@@ -91,8 +107,9 @@ export async function getAccountTransactions(
     `) as Row[];
     if (!acctRows[0]) throw new LedgerAccountNotFoundError(accountCode);
 
-    const normalBal = String(acctRows[0].normal_balance);
     const accountType = String(acctRows[0].account_type);
+    const natural = opts.naturalSign && (accountType === 'revenue' || accountType === 'expense');
+    const normalBal = natural ? (accountType === 'revenue' ? 'credit' : 'debit') : String(acctRows[0].normal_balance);
     const openingFloor = await incomeStatementOpeningFloor(companyId, accountType, periodStart);
 
     const obRows = (await sql`
@@ -121,18 +138,10 @@ export async function getAccountTransactions(
     const txnRows = (await sql`
       SELECT
         je.id::TEXT AS journal_id, je.entry_date, je.entry_number, je.description, je.source,
-        jl.debit, jl.credit, doc.kind AS doc_kind, doc.id::TEXT AS doc_id
+        jl.debit, jl.credit
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
-      LEFT JOIN LATERAL (
-        SELECT 'customer_invoice' AS kind, ci.id FROM customer_invoices ci WHERE ci.gl_journal_entry_id = je.id AND ci.company_id = ${companyId}::UUID
-        UNION ALL SELECT 'credit_note', cn.id FROM credit_notes cn WHERE cn.gl_journal_entry_id = je.id AND cn.company_id = ${companyId}::UUID
-        UNION ALL SELECT 'customer_payment', cp.id FROM customer_payments cp WHERE cp.gl_journal_entry_id = je.id AND cp.company_id = ${companyId}::UUID
-        UNION ALL SELECT 'supplier_invoice', si.id FROM supplier_invoices si WHERE si.gl_journal_entry_id = je.id AND si.company_id = ${companyId}::UUID
-        UNION ALL SELECT 'supplier_payment', sp.id FROM supplier_payments sp WHERE sp.gl_journal_entry_id = je.id AND sp.company_id = ${companyId}::UUID
-        LIMIT 1
-      ) doc ON TRUE
       WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
@@ -146,16 +155,23 @@ export async function getAccountTransactions(
       ORDER BY je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
     `) as Row[];
 
-    const lines: Array<Omit<TransactionRow, 'balance'>> = txnRows.map((r: Row) => ({
-      date: fmtDate(r.entry_date),
-      entryNumber: String(r.entry_number),
-      description: String(r.description || ''),
-      debit: Number(r.debit || 0),
-      credit: Number(r.credit || 0),
-      source: String(r.source || 'manual'),
-      journalId: String(r.journal_id),
-      document: r.doc_kind == null || r.doc_id == null ? null : { kind: String(r.doc_kind) as JournalDocumentKind, id: String(r.doc_id) },
-    }));
+    const docs = opts.documents ? await loadJournalDocuments(companyId, txnRows.map((r) => String(r.journal_id).toLowerCase())) : null;
+    const lines: Array<Omit<TransactionRow, 'balance'>> = txnRows.map((r: Row) => {
+      const line: Omit<TransactionRow, 'balance'> = {
+        date: fmtDate(r.entry_date),
+        entryNumber: String(r.entry_number),
+        description: String(r.description || ''),
+        debit: Number(r.debit || 0),
+        credit: Number(r.credit || 0),
+        source: String(r.source || 'manual'),
+      };
+      if (docs) {
+        const journalId = String(r.journal_id).toLowerCase();
+        line.journalId = journalId;
+        line.document = docs.get(journalId) ?? null;
+      }
+      return line;
+    });
     const periodNet = lines.reduce(
       (sum, l) => sum + (normalBal === 'debit' ? l.debit - l.credit : l.credit - l.debit), 0,
     );

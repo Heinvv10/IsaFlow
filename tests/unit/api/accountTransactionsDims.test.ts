@@ -3,7 +3,10 @@
  * EXPLICIT dimension levels the Budget vs Actual drill needs, `cc1_id` and
  * `cc2_id`, ANDed with the existing `cost_centre_id` (either level, unchanged)
  * and `business_unit_id`. Each is validated as a UUID before any query and
- * forwarded to the service.
+ * forwarded to the service. The BvA drill's opt-ins `documents=1` and
+ * `sign=natural` are forwarded only when sent with exactly that value; any
+ * other value is a 400, and without them the call is what every other drill
+ * makes.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -42,6 +45,22 @@ describe('reports-account-transactions explicit dimension levels', () => {
   });
 
   it.each([['cc1_id', 'nope'], ['cc2_id', "1' OR 1=1"], ['cc1_id', [CC1, CC1]]])('refuses %s = %j before any query', async (key, value) => {
+    expect(await call({ ...base, [key]: value })).toBe(400);
+    expect(svc.getAccountTransactions).not.toHaveBeenCalled();
+  });
+});
+
+describe('reports-account-transactions BvA opt-ins', () => {
+  it('forwards documents=1 and sign=natural; without them nothing extra is asked', async () => {
+    expect(await call({ ...base, cc1_id: CC1, documents: '1', sign: 'natural' })).toBe(200);
+    expect(svc.getAccountTransactions).toHaveBeenCalledWith('c1', '4000', '2026-03-01', '2026-06-30', undefined, undefined,
+      { cc1Id: CC1, documents: true, naturalSign: true });
+    svc.getAccountTransactions.mockClear();
+    expect(await call({ ...base })).toBe(200);
+    expect(svc.getAccountTransactions).toHaveBeenCalledWith('c1', '4000', '2026-03-01', '2026-06-30', undefined, undefined, {});
+  });
+
+  it.each([['documents', 'true'], ['documents', '0'], ['sign', 'normal'], ['sign', ['natural', 'natural']]])('refuses %s = %j before any query', async (key, value) => {
     expect(await call({ ...base, [key]: value })).toBe(400);
     expect(svc.getAccountTransactions).not.toHaveBeenCalled();
   });
