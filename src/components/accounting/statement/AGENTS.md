@@ -23,6 +23,11 @@ and is never presented as one of the report's own numbers.
   comparator from that comparator's own variances. `columns.projection`
   (Budget vs Actual only) adds Projected FY · FY budget · Δ FY budget, with
   `projectionTitle` as the header's tooltip; off on every other surface.
+  `budgetTracking` (Budget vs Actual only) turns on three cell rules: a
+  budgeted zero prints 0.00 in Budget / FY budget / Projected (spec §2.1 D5),
+  Var % of a zero budget prints "—", and a line's Var R cell is a button
+  opening its drill like the label (spec §2.6). Off, the IS/BS HTML is the
+  master snapshot and Var R is a plain figure (`budgetTrackingGridCells.test.tsx`).
 - `StatementRowView.tsx` — one row. Blanks the figure on `section` and `empty`
   kinds. With `row.href` the label is a `next/link` and the expand chevron is a
   SIBLING button; an anchor inside a button is invalid and loses one action.
