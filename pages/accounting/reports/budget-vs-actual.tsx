@@ -73,9 +73,9 @@ export default function BudgetVsActualPage() {
 
         <div className="p-4 sm:p-6 space-y-4">
           <BudgetTrackingControls controls={controls} years={t.years} shownYear={report?.window.fiscalYear ?? null}
-            today={t.today} versions={t.versions} versionsError={t.versionsError} sendVersion={t.sendVersion}
-            crossYear={t.windowYear.crossYear} centres={t.centres} units={t.units}
-            update={t.update} setPeriod={t.setPeriod} setVersion={t.setVersion} />
+            today={t.today} versions={t.versions} versionsError={t.versionsError}
+            crossYears={report?.versionsByFy ? Object.keys(report.versionsByFy).map(Number) : null}
+            centres={t.centres} units={t.units} update={t.update} setPeriod={t.setPeriod} />
           {Object.keys(t.refError).length > 0 && (
             <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">{Object.values(t.refError).join(' ')}</p>
           )}
@@ -110,14 +110,14 @@ export default function BudgetVsActualPage() {
               <p className="sm:hidden text-xs text-[var(--ff-text-secondary)]">
                 Swipe the statement sideways for the variance and projected-year columns.
               </p>
-              <StatementGrid rows={rows} columns={COLUMNS} title={report.window.label} sticky cents
+              <StatementGrid rows={rows} columns={COLUMNS} title={report.window.label} sticky cents budgetTracking
                 projectionTitle={projectionHeading(report.projection)}
                 expandedAccount={expanded}
                 onToggleAccount={(code) => setExpanded((e) => (e === code ? null : code))}
                 renderDrill={(code) => (
                   <AccountDrillDown accountCode={code} periodStart={report.window.startDate} periodEnd={report.window.endDate}
                     cc1Id={report.filter.cc1?.id} cc2Id={report.filter.cc2?.id}
-                    businessUnitId={report.filter.bu?.id} asTableRow={false} />
+                    businessUnitId={report.filter.bu?.id} budgetTracking returnTo={t.returnTo} asTableRow={false} />
                 )} />
               <BudgetTrackingVisuals report={report} filtered={filtered} groupBy={controls.groupBy}
                 onGroupBy={(groupBy) => t.update({ groupBy })} />

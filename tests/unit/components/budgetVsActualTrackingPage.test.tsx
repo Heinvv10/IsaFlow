@@ -16,7 +16,7 @@ import { trackingReport, YEARS, type FixtureRow } from '../helpers/budgetTrackin
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn() }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn(), replace: vi.fn(async () => true) }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/accounting/charts/ProfitWaterfall', () => ({
   ProfitWaterfall: ({ steps }: { steps: Array<{ label: string }> }) => <div data-testid="waterfall">{steps.map((s) => s.label).join('|')}</div>,
@@ -26,8 +26,9 @@ vi.mock('@/components/accounting/charts/BudgetBulletRow', () => ({
   BudgetBulletRow: ({ lines }: { lines: Array<{ account_name: string }> }) => <div data-testid="bullet">{lines.map((l) => l.account_name).join('|')}</div>,
 }));
 vi.mock('@/components/accounting/AccountDrillDown', () => ({
-  AccountDrillDown: (p: Record<string, string | undefined>) =>
-    <div data-testid="drill">{[p.accountCode, p.periodStart, p.periodEnd, p.cc1Id ?? '-', p.cc2Id ?? '-', p.businessUnitId ?? '-'].join('|')}</div>,
+  AccountDrillDown: (p: Record<string, string | boolean | undefined>) =>
+    <div data-testid="drill" data-tracking={String(p.budgetTracking)} data-return={String(p.returnTo)}>
+      {[p.accountCode, p.periodStart, p.periodEnd, p.cc1Id ?? '-', p.cc2Id ?? '-', p.businessUnitId ?? '-'].join('|')}</div>,
 }));
 
 import BudgetVsActualPage from '../../../pages/accounting/reports/budget-vs-actual';
@@ -75,7 +76,8 @@ describe('budget vs actual tracking page: controls → query string', () => {
     expect(lastQuery()).toEqual({ period: 'ytd', group_by: 'cc1' });
     const other = screen.getByRole('button', { name: /Other income/ }).closest('tr')!;
     expect(other.querySelector('[title="No budget"]')?.textContent).toBe('—');
-    expect(screen.getByText('Projected FY').getAttribute('title')).toBe('Projected FY2027 = actuals to 30 September 2026 + budget Oct 2026–Feb 2027');
+    expect(screen.getByText('Projected FY').getAttribute('title'))
+      .toBe('Projected FY2027 = actuals to 30 September 2026 + budget Oct 2026–Feb 2027; a line with no budget: actuals to 31 October 2026');
     expect(screen.getByTestId('posted-through').textContent).toBe('October 2026 is in progress; actuals posted through 26 October 2026');
   });
 
@@ -134,8 +136,10 @@ describe('budget vs actual tracking page: controls → query string', () => {
 });
 
 describe('budget vs actual tracking page: version picker across years', () => {
-  it('is disabled on a cross-year custom window, says why, and sends no version_id', async () => {
-    serve();
+  it('is disabled when the engine reports a cross-year window (versionsByFy), says why, and the version is dropped', async () => {
+    const v = { name: 'Original budget', kind: 'original', status: 'approved' };
+    serve((q) => trackingReport(ROWS, q.get('period') === 'custom'
+      ? { versionsByFy: { 2026: { id: 'v26', ...v }, 2027: { id: 'v-primary', ...v } } } : {}));
     render(<BudgetVsActualPage />);
     await screen.findByRole('button', { name: /Sales/ });
     await waitFor(() => expect((screen.getByTestId('bva-version') as HTMLSelectElement).options).toHaveLength(2));
@@ -149,6 +153,10 @@ describe('budget vs actual tracking page: version picker across years', () => {
     expect(screen.getByTestId('bva-version-reason').textContent)
       .toBe('This window spans FY2026 and FY2027: each year reads its own primary version.');
     expect(YEARS.map((y) => y.fiscalYear)).toEqual([2026, 2027]);
+    // Back to one year: the picker is enabled again, on the primary.
+    change('bva-period', 'ytd');
+    await waitFor(() => expect((screen.getByTestId('bva-version') as HTMLSelectElement).disabled).toBe(false));
+    expect((screen.getByTestId('bva-version') as HTMLSelectElement).value).toBe('');
   });
 });
 
@@ -162,8 +170,10 @@ describe('budget vs actual tracking page: notices', () => {
       version: { id: 'v-reforecast', name: 'Reforecast 1', kind: 'reforecast', status: 'draft', isPrimary: false },
     }));
     render(<BudgetVsActualPage />);
-    expect((await screen.findByTestId('bva-no-budget-2028')).textContent).toContain('No budget for FY2028 in this window');
-    expect(screen.getByTestId('bva-partial-budget').textContent).toContain('2 accounts are budgeted for only part of this window');
+    expect((await screen.findByTestId('bva-no-budget-2028')).textContent)
+      .toBe('No budget for FY2028 in this window: its Budget and variance columns are shown as —, never as zero.');
+    expect(screen.getByTestId('bva-partial-budget').textContent)
+      .toBe('2 accounts are budgeted for only part of this window (marked ½): their Budget and variance are shown as —.');
     expect(screen.getByTestId('bva-unbudgeted').textContent).toMatch(/^1 account carry actuals with no budget \(R\s?300\.00 of income actuals\)\.$/);
     expect(screen.getByTestId('bva-version-read').textContent).toBe('Reforecast 1 · draft');
   });
@@ -189,15 +199,30 @@ describe('budget vs actual tracking page: notices', () => {
 });
 
 describe('budget vs actual tracking page: drill, visuals and export', () => {
-  it('a line drills into its window with the report filter (explicit levels)', async () => {
-    serve((q) => trackingReport(ROWS, q.get('cc1_id') ? { filter: { cc1: { id: CC1, code: 'FNO-A', name: 'Fibre North' } } } : {}));
+  const CC2 = CENTRES[1]!.id;
+  it.each([
+    ['bva-cc1', CC1, 'cc1_id', { cc1: { id: CC1, code: 'FNO-A', name: 'Fibre North' } }, `${CC1}|-|-`],
+    ['bva-cc2', CC2, 'cc2_id', { cc2: { id: CC2, code: 'PRJ-1', name: 'Project One' } }, `-|${CC2}|-`],
+    ['bva-bu', BU, 'bu_id', { bu: { id: BU, code: 'BU-1', name: 'Retail' } }, `-|-|${BU}`],
+  ] as const)('%s: a line drills into its window with the report filter, as the BvA drill', async (picker, id, param, filter, tail) => {
+    serve((q) => trackingReport(ROWS, q.get(param) ? { filter } : {}));
     render(<BudgetVsActualPage />);
     await screen.findByRole('button', { name: /Sales/ });
-    await waitFor(() => expect(screen.getByTestId('bva-cc1').querySelectorAll('option')).toHaveLength(2));
-    change('bva-cc1', CC1);
-    await waitFor(() => expect(lastQuery().cc1_id).toBe(CC1));
+    await waitFor(() => expect(screen.getByTestId(picker).querySelectorAll('option').length).toBeGreaterThan(1));
+    change(picker, id);
+    await waitFor(() => expect(lastQuery()[param]).toBe(id));
     fireEvent.click(await screen.findByRole('button', { name: /Sales/ }));
-    expect(screen.getByTestId('drill').textContent).toBe(`4000|2026-10-01|2026-10-31|${CC1}|-|-`);
+    const drill = screen.getByTestId('drill');
+    expect(drill.textContent).toBe(`4000|2026-10-01|2026-10-31|${tail}`);
+    expect(drill.dataset.tracking).toBe('true');
+    expect(drill.dataset.return).toBe(`/accounting/reports/budget-vs-actual?period=ytd&${param}=${id}`);
+  });
+
+  it('the Var R cell opens the same drill as the label', async () => {
+    serve();
+    render(<BudgetVsActualPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Show the transactions behind the 4000 variance' }));
+    expect(screen.getByTestId('drill').textContent).toBe('4000|2026-10-01|2026-10-31|-|-|-');
   });
 
   it('draws the bridge from budget to actual net profit, and the bullets from the members', async () => {

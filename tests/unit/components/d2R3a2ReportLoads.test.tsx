@@ -11,7 +11,7 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 configure({ asyncUtilTimeout: 4000 });
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn() }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn(), replace: vi.fn(async () => true) }) }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('next/dynamic', () => ({ default: () => () => null }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
