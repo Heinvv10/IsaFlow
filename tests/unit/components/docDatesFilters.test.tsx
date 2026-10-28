@@ -89,6 +89,19 @@ describe('vat-adjustments list filter', () => {
     expect(screen.queryByText(/fix the date marked in red/i)).toBeNull();
   });
 
+  it.each(['From', 'To'])('Clear empties a refused %s, with no error or warning, and unfilters the list', async (label) => {
+    await setUp();
+    typeDate(box(label), '1 Nov 2031');
+    typeDate(box(label), 'zz');
+    expect(box(label).getAttribute('aria-invalid')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: /^clear$/i }));
+    expect(box(label).value).toBe('');
+    expect(box(label).getAttribute('aria-invalid')).not.toBe('true');
+    expect(screen.queryByText(/fix the date marked in red/i)).toBeNull();
+    expect(screen.getByText('VA-1')).toBeTruthy();
+    expect(screen.getByText('VA-2')).toBeTruthy();
+  });
+
   it('shows no warning for a valid range', async () => {
     await setUp();
     typeDate(box('From'), '1 Nov 2031');

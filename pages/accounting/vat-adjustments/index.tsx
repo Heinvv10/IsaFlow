@@ -139,10 +139,10 @@ export default function VATAdjustmentsPage() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
 
           <div className="flex items-center gap-4">
-            <DateField label="From" value={dateFrom || null} onChange={onFromChange} />
-            <DateField label="To" value={dateTo || null} onChange={onToChange} />
+            <DateField label="From" value={dateFrom || null} resetKey={dates.resetKey('dateFrom')} onChange={onFromChange} />
+            <DateField label="To" value={dateTo || null} resetKey={dates.resetKey('dateTo')} onChange={onToChange} />
             {(dateFrom || dateTo) && (
-              <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
+              <button onClick={() => { dates.reset('dateFrom'); dates.reset('dateTo'); setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
             )}
             <span className="mt-4 text-sm text-[var(--ff-text-secondary)] ml-auto">{filteredItems.length} adjustments</span>
           </div>
