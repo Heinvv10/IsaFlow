@@ -89,6 +89,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       let emailSent = false;
       try {
         const emailResult = await sendInviteEmail({
+          companyId,
           recipientEmail: emailLower,
           inviteToken: token,
           companyName,
