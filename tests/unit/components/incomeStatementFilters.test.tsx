@@ -119,3 +119,34 @@ it('From typed after To is refused on screen and no inverted range is requested;
   expect(lastParams().get('period_end')).toBe('2026-09-30');
   expect(screen.queryByText(/From must be on or before To/)).toBeNull();
 });
+
+it('clearing To blocks the run and says so on To, not on From', async () => {
+  render(<IncomeStatementPage />);
+  const csv = () => screen.getByRole('button', { name: /Export CSV/ }) as HTMLButtonElement;
+  await waitFor(() => expect(csv().disabled).toBe(false));
+  const calls = () => vi.mocked(apiFetch).mock.calls.length;
+  typeDate(screen.getByRole('textbox', { name: 'To' }), '');
+  expect(await screen.findByText('Enter a To date.')).toBeTruthy();
+  expect(screen.queryByText(/From must be on or before To/)).toBeNull();
+  await waitFor(() => expect(csv().disabled).toBe(true));
+  const before = calls();
+  await new Promise((r) => setTimeout(r, 50));
+  expect(calls()).toBe(before);
+  typeDate(screen.getByRole('textbox', { name: 'To' }), '30 Apr 2026');
+  await waitFor(() => expect(csv().disabled).toBe(false));
+  expect(screen.queryByText('Enter a To date.')).toBeNull();
+});
+
+it('refused text in From shows its own reason, not the inverted-range message that was on screen', async () => {
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(lastParams().get('period_end')).toBe('2026-04-30'));
+  typeDate(screen.getByRole('textbox', { name: 'From' }), '1 Sep 2026');
+  expect(await screen.findByText(/From must be on or before To/)).toBeTruthy();
+  typeDate(screen.getByRole('textbox', { name: 'From' }), 'garbage');
+  await waitFor(() => expect(screen.queryByText(/From must be on or before To/)).toBeNull());
+  const from = screen.getByRole('textbox', { name: 'From' });
+  const described = (from.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+  expect(from.getAttribute('aria-invalid')).toBe('true');
+  expect(described).toMatch(/\S/);
+  expect(described).not.toMatch(/on or before To/);
+});

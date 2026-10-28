@@ -50,10 +50,13 @@ export default function IncomeStatementPage() {
   const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
   const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
   // A refused From/To keeps the last good date in state; no report is run or exported over it. Nor is one for
-  // a From that is after To (typed into From, where DateField has no bound to refuse it).
+  // an empty date, or a From that is after To (typed into From, where DateField has no bound to refuse it).
   const [badDate, setBadDate] = useState({ from: false, to: false });
-  const rangeInverted = periodStart > periodEnd;
-  const datesOk = !badDate.from && !badDate.to && !rangeInverted;
+  const rangeInverted = Boolean(periodStart && periodEnd && periodStart > periodEnd);
+  const datesOk = !badDate.from && !badDate.to && Boolean(periodStart && periodEnd) && !rangeInverted;
+  // A refused text keeps DateField's own reason (an external error would hide it).
+  const fromError = badDate.from ? undefined : !periodStart ? 'Enter a From date.' : rangeInverted ? 'From must be on or before To.' : undefined;
+  const toError = badDate.to || periodEnd ? undefined : 'Enter a To date.';
   const reportRequestRef = useRef(0);
 
   // Sync-back effect: when router.query.period_start / period_end populate after
@@ -214,10 +217,10 @@ export default function IncomeStatementPage() {
           {/* Date Range + Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <DateField label="From" value={periodStart || null} name="periodStart" error={rangeInverted ? 'From must be on or before To.' : undefined} onChange={(iso, v) => { setBadDate(b => ({ ...b, from: !v.valid })); if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <DateField label="From" value={periodStart || null} name="periodStart" error={fromError} onChange={(iso, v) => { setBadDate(b => ({ ...b, from: !v.valid })); if (v.valid) setPeriodStart(iso ?? ''); }} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} minDate={periodStart || undefined} onChange={(iso, v) => { setBadDate(b => ({ ...b, to: !v.valid })); if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} error={toError} minDate={periodStart || undefined} onChange={(iso, v) => { setBadDate(b => ({ ...b, to: !v.valid })); if (v.valid) setPeriodEnd(iso ?? ''); }} />
             </div>
             <div>
               <label htmlFor="income-statement-cost-centre-id" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
