@@ -137,6 +137,40 @@ export interface CloneResult {
   created: boolean;
   /** Rows copied per table; a table the target already holds rows in is left alone and absent. */
   copied: Record<string, number>;
+  /** Tables left alone because a parent they key into already existed (their keys would not match that parent's ids). */
+  skippedChildren: string[];
+}
+
+const scopeFor = (plan: TablePlan): string => plan.scope.replaceAll('$2', '$1');
+const REFERENCE_TYPES = /^(uuid|text|character varying(\(\d+\))?)$/;
+
+/**
+ * Fails when a row of the target holds the id of a source row, in ANY uuid or text column, foreign key or not: a copy
+ * that still points at Demo would let a slot read or write Demo's books. The catalog's keys are re-keyed by the plan;
+ * this is the check for the references the catalog cannot see. Not covered: ids buried in json columns.
+ * @param tables the copied tables with the facts their plans were built from
+ */
+async function assertNoSourceReferences(
+  db: ClientBase, opts: CloneOptions, tables: ReadonlyArray<{ facts: TableFacts; plan: TablePlan }>,
+): Promise<void> {
+  const ids = new Set<string>([opts.sourceId]);
+  for (const { facts, plan } of tables) {
+    const pk = facts.primaryKey.length === 1 ? facts.primaryKey[0] : undefined;
+    if (!pk) continue;
+    const rows = await db.query<{ v: string }>(`SELECT ${q(pk)}::text AS v FROM ${q(facts.table)} WHERE ${scopeFor(plan)}`, [opts.sourceId]);
+    for (const r of rows.rows) ids.add(r.v);
+  }
+  const list = [...ids];
+  const found: string[] = [];
+  for (const { facts, plan } of tables) {
+    const columns = facts.columns.filter((c) => !c.generated && REFERENCE_TYPES.test(c.type)).map((c) => c.name);
+    for (const column of columns) {
+      const hit = await db.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM ${q(facts.table)} WHERE ${scopeFor(plan)} AND ${q(column)}::text = ANY($2::text[])`, [opts.targetId, list]);
+      if (Number(hit.rows[0]?.n ?? 0) > 0) found.push(`${facts.table}.${column} (${hit.rows[0]!.n} rows)`);
+    }
+  }
+  if (found.length) throw new Error(`the copy still references the source company's rows: ${found.join(', ')}; add the column to OVERRIDES (mapped or nulled)`);
 }
 
 async function insertCompanyRow(db: ClientBase, opts: CloneOptions): Promise<void> {
@@ -175,11 +209,19 @@ export async function cloneCompany(db: ClientBase, opts: CloneOptions): Promise<
   const copied = new Set<string>(COPIED_TABLES);
 
   const result: Record<string, number> = {};
+  const skipped = new Set<string>();
+  const skippedChildren: string[] = [];
+  const planned: Array<{ facts: TableFacts; plan: TablePlan }> = [];
   for (const table of COPIED_TABLES) {
-    const plan = planTableClone(await readFacts(db, table), copied, companyScoped, OVERRIDES[table]);
-    const held = await db.query(`SELECT 1 FROM ${q(table)} WHERE ${plan.scope.replace('$2', '$1')} LIMIT 1`, [targetId]);
-    if (held.rowCount) continue;
+    const facts = await readFacts(db, table);
+    const plan = planTableClone(facts, copied, companyScoped, OVERRIDES[table]);
+    planned.push({ facts, plan });
+    const held = await db.query(`SELECT 1 FROM ${q(table)} WHERE ${scopeFor(plan)} LIMIT 1`, [targetId]);
+    if (held.rowCount) { skipped.add(table); continue; }
+    // A parent that already existed keeps its own ids; a child copied now would key into ids this run never made.
+    if (facts.foreignKeys.some((fk) => skipped.has(fk.refTable))) { skipped.add(table); skippedChildren.push(table); continue; }
     result[table] = (await db.query(plan.sql, [targetId, sourceId])).rowCount ?? 0;
   }
-  return { created, copied: result };
+  await assertNoSourceReferences(db, opts, planned);
+  return { created, copied: result, skippedChildren };
 }

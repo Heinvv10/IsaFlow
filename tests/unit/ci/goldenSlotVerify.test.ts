@@ -1,7 +1,7 @@
 // What a slot must hold before the golden suite can run in it: the same preconditions _global-setup.ts and the
 // specs check, as a pure judgement over counts so the provisioner can refuse to commit an unusable slot.
 import { describe, expect, it } from 'vitest';
-import { REQUIRED_SYSTEM_SUBTYPES, slotProblems, type SlotReport } from '../../../scripts/ci/golden/slotVerify';
+import { REQUIRED_SYSTEM_SUBTYPES, slotProblems, slotWarnings, type SlotReport } from '../../../scripts/ci/golden/slotVerify';
 
 const good: SlotReport = {
   companyId: '601d0000-0000-4000-8000-000000000001',
@@ -31,7 +31,7 @@ describe('slotProblems', () => {
     ['the payroll sandbox month closed', { sandboxPeriodOpen: false }, '2027-02'],
     ['a payroll run already in the sandbox month of a fresh slot (the spec reserves it, it must start empty)', { payrollRunsInSandboxMonth: 1 }, 'payroll run'],
     ['no member (nobody could log in)', { members: 0 }, 'member'],
-    ['two members (the slot is one golden user)', { members: 2 }, 'member'],
+    ['two members in a new slot (it is one golden user)', { members: 2 }, 'member'],
   ])('refuses %s', (_label, patch, word) => {
     const problems = slotProblems({ ...good, ...patch }, true);
     expect(problems).toHaveLength(1);
@@ -40,5 +40,13 @@ describe('slotProblems', () => {
 
   it('accepts the reopened payroll run a used slot keeps in the sandbox month, so a re-provision does not fail', () => {
     expect(slotProblems({ ...good, payrollRunsInSandboxMonth: 1 }, false)).toEqual([]);
+  });
+
+  it('a re-run only warns about an extra member of a slot that exists, and still fails when nobody can log in', () => {
+    expect(slotProblems({ ...good, members: 2 }, false)).toEqual([]);
+    expect(slotWarnings({ ...good, members: 2 }, false)).toEqual([expect.stringContaining('2 members')]);
+    expect(slotWarnings({ ...good, members: 2 }, true)).toEqual([]);
+    expect(slotWarnings(good, false)).toEqual([]);
+    expect(slotProblems({ ...good, members: 0 }, false)).toEqual([expect.stringContaining('no member')]);
   });
 });
