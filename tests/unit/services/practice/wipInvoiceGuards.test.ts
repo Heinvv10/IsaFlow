@@ -53,6 +53,6 @@ describe('assertWipEntryLines', () => {
     ['a NULL line', { line_total: null }],
   ])('refuses %s, naming the entry', (_label, over) => {
     expect(() => assertWipEntryLines([entry({}), entry(over)])).toThrow(WipInvoiceRefusal);
-    expect(() => assertWipEntryLines([entry({}), entry(over)])).toThrow(/^time entry 2 \(2026-01-05\) /); // by position and date; the description is customer text
+    expect(() => assertWipEntryLines([entry({}), entry(over)])).toThrow(/^time entry of 2026-01-05, 4\.00h /); // by date and hours, as the Approvals page shows it; the description is customer text
   });
 });

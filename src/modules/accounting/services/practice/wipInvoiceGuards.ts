@@ -45,7 +45,9 @@ export function assertWipTaxRate(input: number | undefined): number {
  * rate or line_total.
  */
 export function assertWipEntryLines(entries: DbRow[]): void {
-  for (const [i, e] of entries.entries()) {
+  // An entry is named as the Approvals and WIP pages show it (date, hours, rate, total), not by its text or its place in the query.
+  for (const e of entries) {
+    const who = `time entry of ${fmtDate(e.entry_date)}, ${Number(e.hours).toFixed(2)}h`;
     // null → NaN, not Number(null) = 0: a missing rate is not a free line.
     const line = e.line_total == null ? Number.NaN : Number(e.line_total);
     const rate = e.applied_rate == null ? Number.NaN : Number(e.applied_rate);
@@ -53,7 +55,7 @@ export function assertWipEntryLines(entries: DbRow[]): void {
     // negative rate is the one sign to test: it is what makes a line negative.
     if (!Number.isFinite(line) || !Number.isFinite(rate) || rate < 0) {
       throw new WipInvoiceRefusal(
-        `time entry ${i + 1} (${fmtDate(e.entry_date)}) has a negative or `
+        `${who} has a negative or `
         + `non-numeric amount (rate ${String(e.applied_rate)}, line ${String(e.line_total)}). `
         + 'An approved entry cannot be edited: write it off on the Approvals page (status "Approved, not billed") '
         + 'and log a corrected one, or bill a reduction as a credit note.',
@@ -67,7 +69,7 @@ export function assertWipEntryLines(entries: DbRow[]): void {
     const hours = Number(e.hours);
     if (!(Math.abs(Math.round(hours * rate * 100) - Math.round(line * 100)) <= 1)) {
       throw new WipInvoiceRefusal(
-        `time entry ${i + 1} (${fmtDate(e.entry_date)}) has a line of ${String(e.line_total)} `
+        `${who} has a line of ${String(e.line_total)} `
         + `that is not its ${String(e.hours)}h × ${String(e.applied_rate)}. An approved entry cannot be edited: `
         + 'write it off on the Approvals page (status "Approved, not billed") and log a corrected entry.',
       );

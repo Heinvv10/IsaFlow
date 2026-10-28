@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { shownPosition } from '@/lib/lineNumbers';
 import { normaliseImportRowDate, type ImportRow, type ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
@@ -95,8 +96,9 @@ export async function importJournalEntries(
 ): Promise<ImportResult> {
   // Day-first ISO before grouping and before Postgres reads it (its default DateStyle is month-first).
   const rows = inputRows.map((r) => ({ ...normaliseImportRowDate(r) })); // copies: each is a distinct key of rowNos
-  // A row is named by its spreadsheet row (header = 1, as the preview numbers it), never its description: the message reaches error capture.
-  const rowNos = new Map(rows.map((r, i) => [r, i + 2] as const));
+  // A row is named by its row in the preview (header = 1), never its description: the message reaches error capture.
+  // The page sends only the valid rows, so each carries its own sheetRow; API/MCP callers get array position + 2.
+  const rowNos = new Map(rows.map((r, i) => [r, shownPosition(r.sheetRow, i + 2)] as const));
   try {
     const accountRows = (await sql`
       SELECT account_code, id
