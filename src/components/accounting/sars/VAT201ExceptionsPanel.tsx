@@ -34,19 +34,24 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
   const askedKey = useRef<number | null>(null);
+  const latestLoad = useRef(0);
 
   const load = useCallback(async (cancelledRef?: { current: boolean }, fresh = false) => {
+    // Latest request wins: an older load that resolves after a newer one (a pre-write request, say) must not
+    // overwrite its report, nor hand it to the eFiling gate through onLoaded.
+    const mine = ++latestLoad.current;
+    const stale = () => cancelledRef?.current || mine !== latestLoad.current;
     setLoading(true); setError('');
     try {
       const data = await fetchVatExceptions(from, to, 'Could not load exceptions - try again', 'VAT201ExceptionsPanel', { companyId, fresh }) as VatExceptionsReport;
-      if (!cancelledRef?.current) { setReport(data); onLoadedRef.current?.(data); }
+      if (!stale()) { setReport(data); onLoadedRef.current?.(data); }
     } catch (err) {
-      if (!cancelledRef?.current) {
+      if (!stale()) {
         setReport(null); onLoadedRef.current?.(null);
         setError(apiErrorMessage(err, 'Could not load exceptions - try again'));
       }
     } finally {
-      if (!cancelledRef?.current) setLoading(false);
+      if (!stale()) setLoading(false);
     }
   }, [from, to, companyId]);
 

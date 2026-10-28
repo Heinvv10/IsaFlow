@@ -168,3 +168,38 @@ it('a reload after an unmark is fresh: it never joins the request that was alrea
   await waitFor(() => expect(exceptionCalls()).toBe(3));
   hold.release();
 });
+
+it('an older request that resolves after the fresh reload cannot overwrite the report or the eFiling gate', async () => {
+  const withItem: VatExceptionsReport = {
+    ...report,
+    totalExceptions: 1,
+    declaredElsewhereVatCount: 1,
+    declaredElsewhereVat: [{ invoiceId: 'ci-1', invoiceKind: 'customer', invoiceNumber: 'INV-1', counterpartyName: 'Acme', invoiceDate: '2026-07-01', vat: 150, markedAt: '2026-08-01', markedBy: 'u1', markedByName: 'Ann', markedReason: 'old' }],
+  };
+  const hold = gate();
+  const json = (data: VatExceptionsReport) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
+  let reads = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+    if (String(url).includes('vat-declared-elsewhere')) return json({} as VatExceptionsReport);
+    reads += 1;
+    if (reads === 1) return json(withItem);
+    if (reads === 2) { await hold.wait; return json(withItem); } // pre-write request, resolves last
+    return json(report); // the fresh reload after the unmark
+  });
+  const onLoaded = vi.fn();
+  const { rerender } = render(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} onLoaded={onLoaded} />);
+  await screen.findByText('INV-1');
+  rerender(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={2} onLoaded={onLoaded} />);
+  await waitFor(() => expect(exceptionCalls()).toBe(2));
+  fireEvent.click(screen.getByRole('button', { name: 'Unmark' }));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Declared in error' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm unmark' }));
+  await waitFor(() => expect(screen.getByText('No exceptions')).toBeTruthy());
+  expect(onLoaded).toHaveBeenLastCalledWith(report);
+  const callsBefore = onLoaded.mock.calls.length;
+  hold.release();
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.getByText('No exceptions')).toBeTruthy();
+  expect(screen.queryByText('INV-1')).toBeNull();
+  expect(onLoaded).toHaveBeenCalledTimes(callsBefore);
+});
