@@ -174,6 +174,30 @@ describe('budget-tracking-export', () => {
     expect(text).toContain('"Wages, ""staff"""');
   });
 
+  it('XLSX text is guarded like csvVal, and ExcelJS stores it as a string, never a formula (review S1)', async () => {
+    const res = await call(exportHandler, { ...query, format: 'xlsx' });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(res.sent as ArrayBuffer);
+    let found = 0;
+    wb.worksheets[0]!.eachRow((r) => {
+      if (r.getCell(1).value === '6000') {
+        const cell = r.getCell(2);
+        expect(cell.value).toBe("'=cmd|calc");
+        expect(cell.type).toBe(ExcelJS.ValueType.String);
+        expect(cell.formula).toBeUndefined();
+        found++;
+      }
+    });
+    expect(found).toBe(1);
+    // And unguarded, ExcelJS still writes a leading '=' string as a string: the guard is for the reader's spreadsheet app.
+    const raw = new ExcelJS.Workbook();
+    raw.addWorksheet('x').addRow(['=cmd|calc']);
+    const back = new ExcelJS.Workbook();
+    await back.xlsx.load(await raw.xlsx.writeBuffer());
+    const c = back.worksheets[0]!.getCell('A1');
+    expect([c.type, c.value, c.formula]).toEqual([ExcelJS.ValueType.String, '=cmd|calc', undefined]);
+  });
+
   it('leads with the company, window, version, filter and projection cutoff', async () => {
     const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
     const lead = Object.fromEntries(csv.slice(0, csv.findIndex((r) => r[0] === 'Code')).filter((r) => r.length >= 2).map((r) => [r[0], r[1]]));
