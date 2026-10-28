@@ -101,20 +101,23 @@ jobs:
     name: Golden Paths E2E (blocking)
     runs-on: [self-hosted, linux, velo]
     timeout-minutes: 30
-    # The suite writes to the SHARED isaflow_dev Demo company; the workflow's
-    # ci-${{ github.ref }} group only serialises same-ref runs, so two branches
-    # could otherwise interleave money flows (e.g. both claiming the same
-    # payroll sandbox period). Serialise across ALL refs, never cancel. With
-    # three runners (2026-10-21) runs of different refs do overlap, so this
-    # group is what keeps them apart. GitHub keeps one PENDING job per group
-    # and cancels the older pending one, so a third arrival shows the second
-    # as cancelled; the merge queue re-runs a cancelled check up to twice per
-    # head. A master push that skips (the step below) still enters the group,
-    # but holds it for seconds. It cannot take a per-sha group instead: the
-    # group is fixed before the step decides, and a push that falls back to
-    # the full suite must stay serialised against PR runs on the Demo company.
+    # Each runner owns one Golden Paths slot: a company of its own on isaflow_dev
+    # with its own golden user (the step below maps $RUNNER_NAME to GOLDEN_SLOT_n
+    # in /home/hein/isaflow-ci.env; scripts/ci/golden/provision-slots.ts creates
+    # them). A runner runs one job at a time, so a slot is exclusive without any
+    # lock, and runs of different refs overlap on different runners. Before the
+    # slots every run wrote to the ONE Demo company (payroll sandbox month,
+    # find-or-create fixtures, per-month depreciation, a FIFO over the oldest
+    # documents), which is why this was a single group for all refs.
+    # The group is per ref and never cancels: it keeps one ref's runs in order,
+    # and (as before) GitHub keeps one PENDING job per group and cancels an older
+    # pending one, which the merge queue re-runs up to twice per head. A master
+    # push that skips (the step below) still enters its ref's group, but holds
+    # it for seconds. It cannot take a per-sha group instead: the group is fixed
+    # before the step decides, and a push that falls back to the full suite must
+    # stay in order with the PR runs of that ref.
     concurrency:
-      group: golden-paths-dev-demo
+      group: golden-paths-${{ github.ref }}
       cancel-in-progress: false
     # Read-only; for the merge check below (as in quality).
     permissions:
@@ -161,12 +164,39 @@ jobs:
             echo "::error::/home/hein/isaflow-ci.env missing on runner — golden paths cannot run (blocking gate, refusing to pass silently)"
             exit 1
           fi
+          # One golden slot per runner. An unknown runner must FAIL: falling
+          # back to the shared Demo company would let two runs interleave
+          # money flows there again.
+          case "$RUNNER_NAME" in
+            velo-server-u) slot=1 ;;
+            velo-isaflow-u2) slot=2 ;;
+            velo-isaflow-u3) slot=3 ;;
+            *)
+              echo "::error::runner '$RUNNER_NAME' has no golden slot; add it to the case in the golden-paths job and provision a slot (scripts/ci/golden/provision-slots.ts)"
+              exit 1
+              ;;
+          esac
+          # Read the slot's keys with grep, not `source`: the file has values
+          # that are not valid shell (SMTP_FROM).
+          slot_value() { grep -m1 "^GOLDEN_SLOT_${slot}_$1=" /home/hein/isaflow-ci.env | cut -d= -f2-; }
+          GOLDEN_COMPANY_ID=$(slot_value COMPANY_ID)
+          GOLDEN_USER_EMAIL=$(slot_value EMAIL)
+          GOLDEN_USER_PASSWORD=$(slot_value PASSWORD)
+          if [ -z "$GOLDEN_COMPANY_ID" ] || [ -z "$GOLDEN_USER_EMAIL" ] || [ -z "$GOLDEN_USER_PASSWORD" ]; then
+            echo "::error::GOLDEN_SLOT_${slot}_{COMPANY_ID,EMAIL,PASSWORD} missing from /home/hein/isaflow-ci.env; run scripts/ci/golden/provision-slots.ts"
+            exit 1
+          fi
+          # GitHub redacts only registered secrets; this one is runner-local.
+          echo "::add-mask::$GOLDEN_USER_PASSWORD"
+          export GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD
           cp /home/hein/isaflow-ci.env .env.local
           bunx playwright install chromium
           # Ephemeral port: avoids collisions with stale servers from earlier
           # cancelled runs on this long-lived runner (a stale next dev on a
-          # fixed port would pass the health check and test OLD code).
-          GOLDEN_PORT=$((3300 + RANDOM % 500))
+          # fixed port would pass the health check and test OLD code). A range
+          # per slot, so two runners never draw the same port (the specs that
+          # check the host allow 3300-3799).
+          GOLDEN_PORT=$((3300 + slot * 100 + RANDOM % 100))
           bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
           DEVPID=$!
           trap 'kill $DEVPID 2>/dev/null || true' EXIT

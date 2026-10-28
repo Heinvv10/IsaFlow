@@ -40,6 +40,7 @@ const GOLDEN_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n     
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
 const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
+const GOLDEN_GROUP = '    concurrency:\n      group: golden-paths-${{ github.ref }}\n';
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
 
 describe('the committed workflow', () => {
@@ -140,12 +141,25 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it("golden-paths moved into the workflow's own ci- group (deadlock cancels the run)", () => {
-    expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n', '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(GOLDEN_GROUP, '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(GOLDEN_GROUP, '    concurrency:\n      group: ci-golden\n')).length).toBeGreaterThan(0);
   });
 
   it('golden-paths concurrency removed or set to cancel', () => {
-    expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n      cancel-in-progress: false\n', '')).length).toBeGreaterThan(0);
+    expect(check(edit(`${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
     expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['the old fixed group, which serialises every ref onto one slot', 'golden-paths-dev-demo'],
+    ['a per-sha group, which a fallback push would not share with PR runs', 'golden-paths-${{ github.sha }}'],
+    ['a per-runner group, which queues a job on a busy runner instead of an idle one', 'golden-paths-${{ runner.name }}'],
+  ])('golden-paths group set to %s', (_label, group) => {
+    expect(check(edit(GOLDEN_GROUP, `    concurrency:\n      group: ${group}\n`)).length).toBeGreaterThan(0);
+  });
+
+  it('golden-paths concurrency given an extra key', () => {
+    expect(check(edit(`${GOLDEN_GROUP}      cancel-in-progress: false\n`, `${GOLDEN_GROUP}      cancel-in-progress: false\n      queue: max\n`)).length).toBeGreaterThan(0);
   });
 
   it('actions: write on the workflow token (any job could then cancel the run)', () => {
