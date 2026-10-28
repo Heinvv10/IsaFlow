@@ -44,9 +44,10 @@ export function OverviewKpiCards({ kpis }: { kpis: OverviewKpis | undefined }) {
           ? <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: —</p>
           : kpis.netProfit.margin == null
             ? (
-              <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]" title={NO_MARGIN_REASON} aria-describedby={marginReason}>
-                Net margin: —<span id={marginReason} className="sr-only">{NO_MARGIN_REASON}</span>
-              </p>
+              <>
+                <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]" aria-describedby={marginReason}>Net margin: —</p>
+                <p id={marginReason} className="text-xs text-[var(--ff-text-secondary)]">{NO_MARGIN_REASON}</p>
+              </>
             )
             : <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: {kpis.netProfit.margin.toFixed(1)}%</p>}
       </div>
