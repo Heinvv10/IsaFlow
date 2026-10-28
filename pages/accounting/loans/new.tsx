@@ -53,6 +53,7 @@ export default function NewLoanPage() {
   const [curves, setCurves] = useState<RateCurve[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [startMissing, setStartMissing] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/accounting/loan-rate-curves')
@@ -76,6 +77,7 @@ export default function NewLoanPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    if (!form.startDate) { setStartMissing(true); return; }
     setBusy(true);
     try {
       const body: Record<string, unknown> = {
@@ -185,7 +187,7 @@ export default function NewLoanPage() {
                   </select>
                 </div>
                 <div>
-                  <GatedDateField gate={dateGate} gateKey="start-date" label="Start Date" required value={form.startDate || null} onValue={iso => set('startDate', iso)} />
+                  <GatedDateField gate={dateGate} gateKey="start-date" label="Start Date" required value={form.startDate || null} onValue={iso => { set('startDate', iso); setStartMissing(false); }} error={startMissing && !dateGate.blocked ? 'Enter a date.' : undefined} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Term (months) *</label>
