@@ -16,13 +16,20 @@ export const TRACKING_EXPORT_COLUMNS = [
   'Code', 'Account', 'Band', 'Actual', 'Budget', 'Var R', 'Var %', 'Favourable', 'Projected FY', 'FY budget', 'Proj. var R', 'Unallocated budget',
 ] as const;
 
-/** One printed row: text, then figures (null = blank). */
+/** One printed row: text, then named figures (null = blank). */
 export interface TrackingExportRow {
   code: string;
   account: string;
   band: string;
-  figures: Array<number | null>;
+  actual: number;
+  budget: number | null;
+  variance: number | null;
+  variancePct: number | null;
   favourable: 'Y' | 'N' | '';
+  projected: number;
+  fyBudget: number | null;
+  projVariance: number | null;
+  unallocated: number;
 }
 
 const pct2 = (n: number | undefined): number | null => (n === undefined ? null : Math.round(n * 100) / 100);
@@ -34,17 +41,15 @@ function exportRow(r: BudgetTrackingRow, band: string): TrackingExportRow {
     code: r.accountCode ?? '',
     account: r.label,
     band,
-    figures: [
-      r.actual,
-      b.absent ? null : b.value,
-      b.absent || b.variance === undefined ? null : b.variance,
-      b.absent ? null : pct2(b.variancePct),
-      p.projected,
-      p.absent || p.fyBudget === undefined ? null : p.fyBudget,
-      p.absent || p.variance === undefined ? null : p.variance,
-      r.unallocatedBudget,
-    ],
+    actual: r.actual,
+    budget: b.absent ? null : b.value,
+    variance: b.absent || b.variance === undefined ? null : b.variance,
+    variancePct: b.absent ? null : pct2(b.variancePct),
     favourable: b.absent || b.favourable === undefined ? '' : b.favourable ? 'Y' : 'N',
+    projected: p.projected,
+    fyBudget: p.absent || p.fyBudget === undefined ? null : p.fyBudget,
+    projVariance: p.absent || p.variance === undefined ? null : p.variance,
+    unallocated: r.unallocatedBudget,
   };
 }
 
@@ -79,16 +84,22 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
 
 const money = (n: number | null): string => (n === null ? '' : n.toFixed(2));
 
+/**
+ * The leading-character guard `csvVal` applies (`src/lib/csv.ts` keeps its copy private), for
+ * XLSX text cells: ExcelJS stores a leading '=' as a string, but a spreadsheet app a user
+ * re-saves or pastes from can still read it as a formula.
+ */
+const xlsxText = (v: string): string => (/^[=+\-@\t\r]/.test(v) ? `'${v}` : v);
+
 export function trackingCsv(report: BudgetTrackingReport, companyName: string): string {
   const out = trackingExportHeader(report, companyName).map(([k, v]) => `${csvVal(k)},${csvVal(v)}`);
   out.push('');
   out.push(TRACKING_EXPORT_COLUMNS.map((c) => csvVal(c)).join(','));
   for (const r of trackingExportRows(report)) {
-    const [actual, budget, variance, pct, projected, fyBudget, projVar, unallocated] = r.figures;
     out.push([
       csvVal(r.code), csvVal(r.account), csvVal(r.band),
-      money(actual!), money(budget!), money(variance!), money(pct!), csvVal(r.favourable),
-      money(projected!), money(fyBudget!), money(projVar!), money(unallocated!),
+      money(r.actual), money(r.budget), money(r.variance), money(r.variancePct), csvVal(r.favourable),
+      money(r.projected), money(r.fyBudget), money(r.projVariance), money(r.unallocated),
     ].join(','));
   }
   return out.join('\n');
@@ -100,17 +111,16 @@ export async function trackingXlsx(report: BudgetTrackingReport, companyName: st
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Budget vs Actual');
   for (const [k, v] of trackingExportHeader(report, companyName)) {
-    const row = ws.addRow([k, v]);
+    const row = ws.addRow([k, xlsxText(v)]);
     row.getCell(1).font = { bold: true };
   }
   ws.addRow([]);
   const head = ws.addRow([...TRACKING_EXPORT_COLUMNS]);
   head.font = { bold: true };
   for (const r of trackingExportRows(report)) {
-    const [actual, budget, variance, pct, projected, fyBudget, projVar, unallocated] = r.figures;
     const row = ws.addRow([
-      r.code === '' ? null : r.code, r.account, r.band, actual, budget, variance, pct, r.favourable === '' ? null : r.favourable,
-      projected, fyBudget, projVar, unallocated,
+      r.code === '' ? null : xlsxText(r.code), xlsxText(r.account), xlsxText(r.band), r.actual, r.budget, r.variance, r.variancePct,
+      r.favourable === '' ? null : r.favourable, r.projected, r.fyBudget, r.projVariance, r.unallocated,
     ]);
     for (const col of [4, 5, 6, 9, 10, 11, 12]) row.getCell(col).numFmt = NUM_FMT;
     if (r.code === '') row.font = { bold: true };
