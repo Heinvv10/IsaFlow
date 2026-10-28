@@ -70,10 +70,16 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * another arms race, so the SET is fixed instead: ci.yml is the only workflow
  * file, its jobs are exactly these, and golden-paths keeps its own group. A new
  * workflow or job means changing this rule in review.
+ *
+ * golden-paths' group is per ref, not one group for every ref: the suite writes
+ * to a Golden Paths slot company (ci.yml maps the runner to one, and a runner
+ * runs one job at a time), so runs of different refs may overlap on different
+ * runners. The group only keeps one ref's runs in order. It must stay clear of
+ * the `ci-` prefix (quality's group, which cancels) and must never cancel.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
 const JOBS = ['quality', 'golden-paths'];
-const GOLDEN_PATHS_CONCURRENCY = { group: 'golden-paths-dev-demo', 'cancel-in-progress': false };
+const GOLDEN_PATHS_CONCURRENCY = { group: 'golden-paths-${{ github.ref }}', 'cancel-in-progress': false };
 /**
  * The token every job gets. With `actions: write` any job (golden-paths
  * included) could `gh run cancel` the run, ending quality CANCELLED. Pinned at
