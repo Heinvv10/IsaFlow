@@ -75,7 +75,7 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
   const atRisk = (await sql`
     SELECT id FROM gl_accounts
      WHERE company_id = ${companyId}::UUID AND account_code = ANY(${parentCodes}::TEXT[])
-       AND account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND level < ${BALANCE_SHEET_LEAF_LEVEL}
+       AND account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND COALESCE(level, 0) < ${BALANCE_SHEET_LEAF_LEVEL}
   `) as { id: string }[];
   if (atRisk.length > 0) await lockGlAccountsForUpdate(companyId, atRisk.map((r) => String(r.id)));
 
@@ -95,7 +95,7 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
         -- every sub-account of an unclassified system header lost its parent.
         AND NOT COALESCE(p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
                          AND p.account_type = ANY(${[...HOLDER_NO_CHILDREN_TYPES]}::TEXT[]), false)
-        AND NOT (p.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND p.level < ${BALANCE_SHEET_LEAF_LEVEL}
+        AND NOT (p.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND COALESCE(p.level, 0) < ${BALANCE_SHEET_LEAF_LEVEL}
           AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = p.id AND ch.company_id = ${companyId}::UUID)
           AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = p.id AND jl.company_id = ${companyId}::UUID))
     )
@@ -114,11 +114,11 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
   `;
   for (let depth = 0; depth < MAX_SEED_DEPTH; depth += 1) {
     const moved = (await sql`
-      UPDATE gl_accounts c SET level = p.level + 1
+      UPDATE gl_accounts c SET level = COALESCE(p.level, 1) + 1
         FROM gl_accounts p
        WHERE c.company_id = ${companyId}::UUID AND p.company_id = ${companyId}::UUID
          AND c.parent_account_id = p.id AND c.account_code = ANY(${inserted}::TEXT[])
-         AND c.level IS DISTINCT FROM p.level + 1
+         AND c.level IS DISTINCT FROM COALESCE(p.level, 1) + 1
       RETURNING c.id
     `) as unknown[];
     if (moved.length === 0) break;
