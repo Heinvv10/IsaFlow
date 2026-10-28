@@ -105,8 +105,9 @@ export interface TrackingFigures {
   projVariance: number | null;
   projFavourable: boolean | null;
   /** Budget set ABOVE the filter (coarser grain) in the window: never in `budget`, never apportioned.
-   *  On a profit total (GP / OP / NP) it is netted by polarity, income − expense, like the budget. */
-  unallocatedBudget: number;
+   *  On a profit total (GP / OP / NP) it is netted by polarity, income − expense, like the budget.
+   *  Null with the window budget (a window month in a year with no version). */
+  unallocatedBudget: number | null;
 }
 
 export interface TrackingMonth {
@@ -168,8 +169,8 @@ export interface TrackingNotices {
   unbudgetedCount: number;
   /** Σ actual of those accounts, per polarity (natural sign). */
   unbudgetedActual: ByPolarity;
-  /** Σ unallocated (coarser) budget over every line, per polarity. */
-  unallocatedBudget: ByPolarity;
+  /** Σ unallocated (coarser) budget over every line, per polarity; null when the window budget is absent. */
+  unallocatedBudget: ByPolarity | null;
   /** FY* has no version at all. */
   noVersion: boolean;
   /** Every window year without a version (cross-FY windows can have a gap). */

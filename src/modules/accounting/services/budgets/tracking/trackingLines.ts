@@ -13,17 +13,29 @@
  * "Budgeted" is the PRESENCE of an included cell in the window (D5): a
  * deliberate zero budget prints 0 and its variance is the actual; no cell
  * prints "—". A window reaching a year with NO version has no window budget
- * at all (every line "—"); the monthly figures keep the versioned months. A line is printed when it has a window actual, a window budget,
+ * at all (every line "—", unallocated too); the monthly figures keep the
+ * versioned months. An account included in some window months and only above
+ * the filter in others (a grain change between versions) has no window budget
+ * either, and is marked above the filter. A line is printed when it has a window actual, a window budget,
  * an FY* budget, a projection or unallocated budget: band and profit totals
  * (`trackingBands`) are sums of these lines, so a line left out would be a
  * figure missing from its band.
  */
+import { log } from '@/lib/logger';
 import { pctOfBudget } from '@/modules/accounting/services/reports/budgetVsActualLines';
 import { fromCents, toCents } from '../grid/cents';
 import { bandOf } from '../grid/subtotals';
 import type { BudgetRowClass } from './trackingDimRollup';
 import { projectCents, type ProjectionPlan } from './trackingProjection';
 import type { TrackingLine, TrackingMonth } from './trackingTypes';
+
+/** An account the print order does not list: a read the service did not make consistently (a 500 after it is logged). */
+export class TrackingOrderError extends Error {
+  constructor(readonly accountId: string) {
+    super(`tracking: account ${accountId} is missing from the print order`);
+    this.name = 'TrackingOrderError';
+  }
+}
 
 export interface AccountMeta {
   accountId: string;
@@ -85,8 +97,13 @@ export function buildTrackingLines(input: {
     const polarity = meta.accountType === 'revenue' ? 'income' : 'expense';
     const ms = input.windowMonths;
     const actual = sumOver(acc.actual, ms);
-    const budget = !windowBudgetAbsent && anyIn(acc.budget, ms) ? sumOver(acc.budget, ms) : null;
-    const unallocated = sumOver(acc.coarser, ms);
+    // A grain change across versions (review A3): included rows in some window months and only
+    // coarser ones in others is a budget for PART of the window, not the window's: absent, above
+    // the filter. (A version holds one grain per account, so a month never has both.)
+    const grainChanged = anyIn(acc.budget, ms) && ms.some((m) => acc.coarser.has(m) && !acc.budget.has(m));
+    const budget = !windowBudgetAbsent && !grainChanged && anyIn(acc.budget, ms) ? sumOver(acc.budget, ms) : null;
+    // Unallocated budget over a window with a no-version month is a partial-window sum too (A2): absent.
+    const unallocated = windowBudgetAbsent ? null : sumOver(acc.coarser, ms);
     const variance = budget === null ? null : actual - budget;
     const proj = projectCents(acc.actual, anyIn(acc.budget, input.plan.fyMonths) ? acc.budget : null, input.plan);
     if (actual === 0 && budget === null && proj.fyBudget === null && proj.projected === 0 && !anyIn(acc.coarser, ms)) continue;
@@ -112,8 +129,8 @@ export function buildTrackingLines(input: {
       fyBudget: proj.fyBudget === null ? null : fromCents(proj.fyBudget),
       projVariance: proj.projVariance === null ? null : fromCents(proj.projVariance),
       projFavourable: proj.projVariance === null ? null : isFavourable(polarity, proj.projVariance),
-      unallocatedBudget: fromCents(unallocated),
-      budgetAboveFilter: !anyIn(acc.budget, ms) && anyIn(acc.coarser, ms),
+      unallocatedBudget: unallocated === null ? null : fromCents(unallocated),
+      budgetAboveFilter: (grainChanged || !anyIn(acc.budget, ms)) && anyIn(acc.coarser, ms),
       monthly,
     });
   }
@@ -121,7 +138,11 @@ export function buildTrackingLines(input: {
   const rank = new Map(input.order.map((id, i) => [id, i]));
   const at = (id: string) => {
     const i = rank.get(id);
-    if (i === undefined) throw new Error(`tracking: account ${id} is missing from the print order`);
+    if (i === undefined) {
+      const err = new TrackingOrderError(id);
+      log.error(err.message, { accountId: id }, 'budgets');
+      throw err;
+    }
     return i;
   };
   return lines.sort((x, y) => at(x.accountId) - at(y.accountId));
