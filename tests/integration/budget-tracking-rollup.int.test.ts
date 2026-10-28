@@ -160,6 +160,57 @@ describe('review round 2: the no-version gap and a grain change across years', (
   });
 });
 
+describe('review round 3', () => {
+  it('R9: an EMPTY primary version counts as no version: the gap rule holds and the year is named', async () => {
+    // What resolvePrimaryVersion({ create: true }) leaves behind: a primary 'Original' with no rows.
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2026-01', to: '2026-06' }, NOW), {
+      before: (c) => c.query(
+        `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by) VALUES ($1, 2026, 'Original', 'original', true, $2)`,
+        [f.a, f.userA]),
+    });
+    const sales = line(r, f.acc.sales);
+    expect([sales.budget, sales.variance, sales.unallocatedBudget]).toEqual([null, null, null]);
+    for (const b of r.bands) expect([b.key, b.budget, b.unallocatedBudget]).toEqual([b.key, null, null]);
+    expect([r.notices.noVersionYears, r.notices.unbudgetedCount, r.notices.unallocatedBudget]).toEqual([[2026], 0, null]);
+    // Its months keep what each version holds: Jan-Feb nothing, Mar on FY2027's primary.
+    expect(sales.monthly.map((m) => m.budget)).toEqual([null, null, 150, 150, 150, 150]);
+  });
+
+  it('R9: an empty version as FY* leaves the projection without a budget, as no version does', async () => {
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'fy', fiscalYear: 2026 }, NOW), {
+      before: (c) => c.query(
+        `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by) VALUES ($1, 2026, 'Original', 'original', true, $2)`,
+        [f.a, f.userA]),
+    });
+    expect([r.notices.noVersion, r.notices.noVersionYears]).toEqual([true, [2026]]);
+    for (const l of r.lines) expect([l.accountCode, l.fyBudget, l.projVariance]).toEqual([l.accountCode, null, null]);
+    // The empty version is still the one read, and named.
+    expect(r.version).toMatchObject({ name: 'Original', status: 'draft', isPrimary: true });
+  });
+
+  it('R1: a gap window with no lines at all leaves every band unallocated absent, like the footer', async () => {
+    const r = await run({ period: 'custom', from: '2025-03', to: '2025-04' });
+    expect([r.lines.length, r.notices.unallocatedBudget]).toEqual([0, null]);
+    for (const b of r.bands) expect([b.key, b.budget, b.unallocatedBudget]).toEqual([b.key, null, null]);
+  });
+
+  it('R5: members follow the ledger collation (ORDER BY code, id), not a JS comparison', async () => {
+    // A lower-case code: Postgres en_US puts 'bt-aa' before 'BT-FT'; a code-unit comparison would put it last.
+    const aa = crypto.randomUUID();
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { ...FY, groupBy: 'cc1' }, NOW), {
+      before: async (c) => {
+        await c.query(`INSERT INTO cost_centres (id, company_id, code, name, cc_type) VALUES ($1, $2, 'bt-aa', 'Lower case', 'cc1')`, [aa, f.a]);
+        await c.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc1_id) VALUES ($1, $2, $3, '2026-06-01', 11, $4)`,
+          [f.a, f.v.primary27, f.acc.cos, aa]);
+      },
+    });
+    const { rows } = await pool.query(`SELECT 'bt-aa' AS code UNION ALL SELECT code FROM cost_centres WHERE company_id = $1 AND cc_type = 'cc1' ORDER BY code`, [f.a]);
+    const named = r.members!.filter((m) => m.memberId !== null).map((m) => m.code);
+    expect(named).toEqual(rows.map((x) => x.code));
+    expect(named[0]).toBe('bt-aa');
+  });
+});
+
 describe('review round 2: registry failures on the way are a 4xx (L3)', () => {
   // With no usable start month the registry chains 12-month steps from the last stored year and
   // refuses a date more than 500 steps away (P0001 'fiscal_year_template: ... too far').
@@ -203,7 +254,10 @@ describe('versions', () => {
   it("a cross-FY window takes each year's primary; a named version cannot reach another year", async () => {
     const r = await run({ period: 'custom', from: '2027-03', to: '2027-07' });
     expect(line(r, f.acc.opex).budget).toBe(200 * 2 + 210 * 3);
-    expect(r.versionsByFy).toEqual({ 2027: { id: f.v.primary27, name: 'Original' }, 2028: { id: f.v.primary28, name: 'Original' } });
+    expect(r.versionsByFy).toEqual({
+      2027: { id: f.v.primary27, name: 'Original', kind: 'original', status: 'approved' },
+      2028: { id: f.v.primary28, name: 'Original', kind: 'original', status: 'approved' },
+    });
     expect(r.version?.id).toBe(f.v.primary28);
     const err = await run({ period: 'custom', from: '2027-03', to: '2027-07', versionId: f.v.primary27 }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(TrackingError);

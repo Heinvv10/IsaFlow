@@ -39,6 +39,8 @@ export function buildTrackingMembers(input: {
   names: ReadonlyMap<string, { code: string; name: string }>;
   /** Window months in a year with no version: any of them leaves every member without a budget (as the lines). */
   noVersionMonths?: readonly string[];
+  /** Member ids in the masters' order (`readMemberOrder`, ORDER BY code, id in SQL). */
+  order?: readonly string[];
 }): TrackingMember[] {
   const inWindow = new Set(input.windowMonths);
   const budgetAbsent = input.windowMonths.some((m) => input.noVersionMonths?.includes(m));
@@ -72,13 +74,16 @@ export function buildTrackingMembers(input: {
       favourable: variance === null ? null : isFavourable('income', variance),
     });
   }
-  // A total order: members by code, then id (two masters can share a code); the untagged remainder last.
-  const key = (m: TrackingMember) => [m.code, m.memberId ?? ''] as const;
+  // A total order: the masters' SQL order (code, then id, in the ledger's collation); a member with
+  // no master row (an unknown id) after them by id; the untagged remainder last.
+  const rank = new Map((input.order ?? []).map((id, i) => [id, i]));
+  const keyOf = (m: TrackingMember): [number, number, string] =>
+    (m.memberId === null ? [2, 0, ''] : rank.has(m.memberId) ? [0, rank.get(m.memberId) ?? 0, ''] : [1, 0, m.memberId]);
   return members.sort((x, y) => {
-    if (x.memberId === null || y.memberId === null) return x.memberId === null ? (y.memberId === null ? 0 : 1) : -1;
-    const [xc, xi] = key(x);
-    const [yc, yi] = key(y);
-    if (xc !== yc) return xc < yc ? -1 : 1;
+    const [xg, xr, xi] = keyOf(x);
+    const [yg, yr, yi] = keyOf(y);
+    if (xg !== yg) return xg - yg;
+    if (xr !== yr) return xr - yr;
     return xi < yi ? -1 : xi > yi ? 1 : 0;
   });
 }

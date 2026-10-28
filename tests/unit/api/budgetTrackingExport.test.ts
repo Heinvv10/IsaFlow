@@ -225,6 +225,31 @@ describe('budget-tracking-export', () => {
     expect(plain.find((r) => r[0] === 'Notice')).toBeUndefined();
   });
 
+  it('R2: a cross-FY window names every version it reads, per year, in CSV and XLSX', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => ({
+      ...fixture(),
+      version: { id: 'v28', name: 'Board v2', kind: 'reforecast', status: 'approved', isPrimary: true },
+      versionsByFy: { 2027: { id: 'v27', name: 'Original', kind: 'original', status: 'approved' }, 2028: { id: 'v28', name: 'Board v2', kind: 'reforecast', status: 'approved' } },
+    }));
+    const want = 'FY2027: Original · approved; FY2028: Board v2 · approved';
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.find((r) => r[0] === 'Version')).toEqual(['Version', want]);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await call(exportHandler, { ...query, format: 'xlsx' })).sent as ArrayBuffer);
+    const head: unknown[][] = [];
+    wb.worksheets[0]!.eachRow((r) => { head.push([r.getCell(1).value, r.getCell(2).value]); });
+    expect(head).toContainEqual(['Version', want]);
+  });
+
+  it('R2: a year of a cross-FY window with no version is named as such', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => {
+      const r = fixture();
+      return { ...r, versionsByFy: { 2027: { id: 'v27', name: 'Original', kind: 'original', status: 'approved' } }, notices: { ...r.notices, noVersionYears: [2026] } };
+    });
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.find((r) => r[0] === 'Version')).toEqual(['Version', 'FY2026: no budget; FY2027: Original · approved']);
+  });
+
   it('refuses an unknown format and a malformed query before any work', async () => {
     expect((await call(exportHandler, { ...query, format: 'pdf' })).statusCode).toBe(400);
     expect((await call(exportHandler, { period: 'quarter', quarter: '7', format: 'csv' })).statusCode).toBe(400);

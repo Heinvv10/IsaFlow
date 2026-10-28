@@ -241,3 +241,12 @@ describe('review round 2', () => {
     expect(logError).toHaveBeenCalledWith(expect.stringMatching(/print order/), expect.objectContaining({ accountId: 'sales' }), 'budgets');
   });
 });
+
+describe('review round 3', () => {
+  it('R1: with the window budget absent and no lines at all, every band has unallocated absent', () => {
+    const bands = buildBands([], { budgetAbsent: true });
+    for (const x of bands) expect([x.key, x.budget, x.unallocatedBudget]).toEqual([x.key, null, null]);
+    // Without the gap an empty window is a real zero.
+    expect(buildBands([]).find((x) => x.key === 'net_profit')!.unallocatedBudget).toBe(0);
+  });
+});

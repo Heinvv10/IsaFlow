@@ -108,3 +108,17 @@ export async function resolveTrackingFilter(companyId: string, p: TrackingParams
     },
   };
 }
+
+/**
+ * Member ids in the masters' own order (`ORDER BY code, id`, Postgres' collation), for the bullets
+ * (review r3 R5): the same rule as the lines' `readAccountOrder`. Company-scoped; an id with no
+ * master row of this company is not listed.
+ */
+export async function readMemberOrder(companyId: string, level: 'cc1' | 'cc2' | 'bu', ids: readonly string[]): Promise<string[]> {
+  const uuids = ids.filter(isValidUUID);
+  if (uuids.length === 0) return [];
+  const rows = (level === 'bu'
+    ? await sql`SELECT id::TEXT AS id FROM business_units WHERE company_id = ${companyId}::UUID AND id = ANY(${uuids}::UUID[]) ORDER BY code, id`
+    : await sql`SELECT id::TEXT AS id FROM cost_centres WHERE company_id = ${companyId}::UUID AND id = ANY(${uuids}::UUID[]) ORDER BY code, id`) as DbRow[];
+  return rows.map((r) => String(r.id).toLowerCase());
+}

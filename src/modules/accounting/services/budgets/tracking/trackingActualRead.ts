@@ -17,10 +17,10 @@
  * (`cc1_id = X OR cc2_id = X`), for the comparator (PR-C). The month is read as
  * text by Postgres (`to_char`), so no Date is built to find it.
  *
- * `postedOnOrBefore` adds each group's latest entry date on or before that day:
- * the in-progress month's "actuals posted through" is then the latest posting
- * THIS read consumed (same filter, income-statement accounts only), never a
- * company journal it did not.
+ * Each group also carries its latest entry date: the in-progress month's
+ * "actuals posted through" is then the latest posting THIS read consumed in
+ * that month (same filter, income-statement accounts only, forward-dated or
+ * not), never a company journal it did not, never one it holds left out.
  *
  * Window, band and projection actuals are sums of these months, which is what
  * invariant 1 (tests/integration/budget-tracking-is-invariant.int.test.ts)
@@ -38,7 +38,7 @@ export interface ActualRow extends AccountMeta {
   /** The `groupBy` member on the line (null: untagged at that level); always null without `groupBy`. */
   memberId: string | null;
   amount: number;
-  /** Latest entry date in this group on or before `postedOnOrBefore` (null: none, or not asked for). */
+  /** Latest entry date of the postings in this group (account x month x member). */
   lastPosted: string | null;
 }
 
@@ -48,7 +48,6 @@ export async function readTrackingActuals(
   endDate: string,
   filter: TrackingFilter = {},
   groupBy: TrackingGroupBy | null = null,
-  postedOnOrBefore: string | null = null,
 ): Promise<ActualRow[]> {
   if (endDate < startDate) return [];
   const cc1 = filter.cc1 ?? null;
@@ -61,7 +60,7 @@ export async function readTrackingActuals(
            to_char(je.entry_date, 'YYYY-MM') AS month,
            (CASE ${groupBy}::TEXT WHEN 'cc1' THEN jl.cc1_id WHEN 'cc2' THEN jl.cc2_id WHEN 'bu' THEN jl.bu_id END)::TEXT AS member_id,
            SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE jl.debit - jl.credit END)::TEXT AS amount,
-           (MAX(je.entry_date) FILTER (WHERE je.entry_date <= ${postedOnOrBefore}::DATE))::TEXT AS last_posted
+           MAX(je.entry_date)::TEXT AS last_posted
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID

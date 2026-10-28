@@ -173,9 +173,9 @@ export interface TrackingNotices {
   unbudgetedActual: ByPolarity;
   /** Σ unallocated (coarser) budget over every line, per polarity; null when the window budget is absent. */
   unallocatedBudget: ByPolarity | null;
-  /** FY* has no version at all. */
+  /** FY* has no version, or an empty one (no rows). */
   noVersion: boolean;
-  /** Every window year without a version (cross-FY windows can have a gap). */
+  /** Every window year (and FY*) without a version or with an empty one (cross-FY windows can have a gap). */
   noVersionYears: number[];
 }
 
@@ -204,7 +204,7 @@ export interface BudgetTrackingReport {
   /** FY*'s version; null when FY* has none. */
   version: TrackingVersionRef | null;
   /** Cross-FY window only: each year's version. */
-  versionsByFy?: Record<number, { id: string; name: string }>;
+  versionsByFy?: Record<number, { id: string; name: string; kind: string; status: string }>;
   filter: { cc1?: TrackingMemberRef; cc2?: TrackingMemberRef; bu?: TrackingMemberRef; costCentre?: TrackingMemberRef };
   projection: TrackingProjectionInfo;
   lines: TrackingLine[];

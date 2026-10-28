@@ -100,3 +100,20 @@ describe('review round 2', () => {
     expect(run([A0, Z])).toEqual([A0, Z]);
   });
 });
+
+describe('review round 3', () => {
+  it("R5: members come in the ledger's order (ORDER BY code, id) when it is given, mixed case included", () => {
+    const a = 'aaaaaaaa-0000-4000-8000-0000000000aa';
+    const b = 'bbbbbbbb-0000-4000-8000-0000000000bb';
+    const c = 'cccccccc-0000-4000-8000-0000000000cc';
+    // Postgres en_US: 'bt-aa' < 'BT-FT' < 'bt-zz'; a code-unit comparison would put 'BT-FT' first.
+    const members = buildTrackingMembers({
+      groupBy: 'cc1', windowMonths: [M],
+      actuals: [b, c, a].map((id) => ({ memberId: id, month: M, accountType: 'revenue' as const, amount: 1 })).concat([{ memberId: null as unknown as string, month: M, accountType: 'revenue' as const, amount: 1 }]),
+      budgets: [],
+      names: new Map([[a, { code: 'bt-aa', name: 'A' }], [b, { code: 'BT-FT', name: 'B' }], [c, { code: 'bt-zz', name: 'C' }]]),
+      order: [a, b, c],
+    });
+    expect(members.map((m) => m.code)).toEqual(['bt-aa', 'BT-FT', 'bt-zz', '']);
+  });
+});

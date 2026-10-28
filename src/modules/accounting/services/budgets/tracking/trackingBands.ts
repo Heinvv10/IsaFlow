@@ -74,9 +74,10 @@ function figures(
 }
 
 /** The eight bands and totals, in statement order. */
-export function buildBands(lines: readonly TrackingLine[]): TrackingBand[] {
+export function buildBands(lines: readonly TrackingLine[], opts: { budgetAbsent?: boolean } = {}): TrackingBand[] {
   // Unallocated budget is absent on EVERY band once the window budget is (lines carry null then, A2).
-  const unallocatedAbsent = lines.some((l) => l.unallocatedBudget === null);
+  // From the window too (review r3 R1): a gap window with no lines has nothing to read it from.
+  const unallocatedAbsent = opts.budgetAbsent === true || lines.some((l) => l.unallocatedBudget === null);
   const sums = new Map(BANDS.map((b) => [b.key, sumLines(lines.filter((l) => l.band === b.key), unallocatedAbsent)]));
   const band = (key: TrackingBandKey) => {
     const def = BANDS.find((b) => b.key === key)!;
