@@ -114,11 +114,11 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
   `;
   for (let depth = 0; depth < MAX_SEED_DEPTH; depth += 1) {
     const moved = (await sql`
-      UPDATE gl_accounts c SET level = COALESCE(p.level, 1) + 1
+      UPDATE gl_accounts c SET level = COALESCE(p.level, 0) + 1
         FROM gl_accounts p
        WHERE c.company_id = ${companyId}::UUID AND p.company_id = ${companyId}::UUID
          AND c.parent_account_id = p.id AND c.account_code = ANY(${inserted}::TEXT[])
-         AND c.level IS DISTINCT FROM COALESCE(p.level, 1) + 1
+         AND c.level IS DISTINCT FROM COALESCE(p.level, 0) + 1
       RETURNING c.id
     `) as unknown[];
     if (moved.length === 0) break;

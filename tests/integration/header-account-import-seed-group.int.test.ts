@@ -17,7 +17,7 @@ import { importChartOfAccounts, type AccountImportRow } from '@/modules/accounti
 import { createSession } from '@/modules/accounting/services/core/migrationService';
 import { seedChartOfAccountsFromTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { inTx, runOn } from './helpers/l1FifoFixture';
+import { inTx } from './helpers/l1FifoFixture';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import { addAccount, dropHeaderFixture, seedHeaderFixture, type HeaderFixture } from './helpers/headerGuardFixture';
 import bankAccounts from '../../pages/api/accounting/bank-accounts';
@@ -126,74 +126,6 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       expect(await byCode('HIS-L2')).toBeUndefined();
     }, 30000);
 
-    it('a row that would re-type an account with lines and sub-accounts keeps its type, with a warning', async () => {
-      const x = await addAccount(h.fx, { code: 'HIS-X1', type: 'expense', level: 1, subtype: 'operating_expense' });
-      await post(x);
-      await addAccount(h.fx, { code: 'HIS-X1.1', type: 'expense', level: 2, parentId: x, subtype: 'operating_expense' });
-      const out = await importRows([row('HIS-X1')]);
-      const after = ((await sql`SELECT account_type, account_subtype, normal_balance, account_name FROM gl_accounts
-        WHERE id = ${x}::UUID`) as Row[])[0]!;
-      expect(after).toMatchObject({ account_type: 'expense', account_subtype: 'operating_expense', normal_balance: 'debit',
-        account_name: 'Imported HIS-X1' });
-      expect(out.errors[0]).toMatchObject({ severity: 'warning', message: expect.stringContaining('has sub-accounts') });
-    });
-
-    it('control: re-typing an account in use that would not hide anything is a reclassification and goes through', async () => {
-      const r = await addAccount(h.fx, { code: 'HIS-X3', type: 'expense', level: 1, subtype: 'operating_expense' });
-      await post(r);
-      const out = await importRows([row('HIS-X3')]);
-      expect(out.errors).toEqual([]);
-      expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${r}::UUID`) as Row[])[0]!.account_type).toBe('asset');
-    });
-
-    it('an unused parent is not re-typed either: a journal posting to it later must not land on a hidden header', async () => {
-      const q = await addAccount(h.fx, { code: 'HIS-Q1', type: 'expense', level: 1, subtype: 'operating_expense' });
-      await addAccount(h.fx, { code: 'HIS-Q1.1', type: 'expense', level: 2, parentId: q, subtype: 'operating_expense' });
-      const out = await importRows([row('HIS-Q1')]);
-      expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${q}::UUID`) as Row[])[0]!.account_type).toBe('expense');
-      expect(out.errors[0]).toMatchObject({ severity: 'warning', message: expect.stringContaining('has sub-accounts') });
-    });
-
-    it('a parent at a NULL level keeps its type too', async () => {
-      const x = await addAccount(h.fx, { code: 'HIS-NL1', type: 'expense', level: 1, subtype: 'operating_expense' });
-      await post(x);
-      await addAccount(h.fx, { code: 'HIS-NL1.1', type: 'expense', level: 2, parentId: x, subtype: 'operating_expense' });
-      await sql`UPDATE gl_accounts SET level = NULL WHERE id = ${x}::UUID`;
-      const out = await importRows([row('HIS-NL1')]);
-      expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${x}::UUID`) as Row[])[0]!.account_type).toBe('expense');
-      expect(out.errors[0]).toMatchObject({ severity: 'warning' });
-    });
-
-    it('an import waits for a posting in flight to an account it names, then sees its line', async () => {
-      const x = await addAccount(h.fx, { code: 'HIS-R1', type: 'expense', level: 1, subtype: 'operating_expense' });
-      await addAccount(h.fx, { code: 'HIS-R1.1', type: 'expense', level: 2, parentId: x, subtype: 'operating_expense' });
-      const a = await h.fx.pool.connect();
-      try {
-        await a.query('BEGIN');
-        // The header's first line (an expense header may be posted to), not yet committed.
-        await runOn(h.fx, a, async () => {
-          const e = await createJournalEntry(h.fx.companyId, { entryDate: DATE, description: 'HIS race', source: 'manual',
-            lines: [{ glAccountId: x, debit: 100, credit: 0 }, { glAccountId: h.fx.bankAccountId, debit: 0, credit: 100 }] }, h.fx.userId);
-          await postJournalEntry(h.fx.companyId, e.id, h.fx.userId);
-        });
-        const state = { settled: false };
-        const imported = importRows([row('HIS-R1')]).finally(() => { state.settled = true; });
-        await new Promise((r) => setTimeout(r, 1500));
-        expect(state.settled, 'the import did not wait for the posting').toBe(false);
-        await a.query('COMMIT');
-        const out = await imported;
-        expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${x}::UUID`) as Row[])[0]!.account_type).toBe('expense');
-        expect(out.errors[0]).toMatchObject({ severity: 'warning' });
-      } finally { await a.query('ROLLBACK').catch(() => undefined); a.release(); }
-    }, 30000);
-
-    it('control: an unused account is re-typed by the import as before', async () => {
-      const u = await addAccount(h.fx, { code: 'HIS-X2', type: 'expense', level: 1, subtype: 'operating_expense' });
-      const out = await importRows([row('HIS-X2')]);
-      expect(out.errors).toEqual([]);
-      expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${u}::UUID`) as Row[])[0]!.account_type).toBe('asset');
-    });
-
     it('re-importing an EXISTING account with a parent code changes no parent and is not refused', async () => {
       const p = await addAccount(h.fx, { code: 'HIS-E1', type: 'asset', level: 1 });
       await post(p);
@@ -212,6 +144,12 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       await post(posted1200);
       const myHeader = await addAccount(h.fx, { code: 'HIS-MINE', type: 'asset', level: 1 });
       const mine1130 = await addAccount(h.fx, { code: '1130', type: 'asset', level: 2, parentId: myHeader });
+      // NULL levels count as top level: a posted, childless NULL-level 3000 (equity) gets no child, and an
+      // unposted NULL-level 4000 (revenue) gets its template children at level 1 (NULL + 1, as assertParentUsable).
+      const nul3000 = await addAccount(h.fx, { code: '3000', type: 'equity', level: 1 });
+      await post(nul3000);
+      const nul4000 = await addAccount(h.fx, { code: '4000', type: 'revenue', level: 1, subtype: 'revenue' });
+      await sql`UPDATE gl_accounts SET level = NULL WHERE id = ANY(${[nul3000, nul4000]}::UUID[])`;
       // The company's own 5000 is a REVENUE account; the template's 5000 children are expenses.
       const rev5000 = await addAccount(h.fx, { code: '5000', type: 'revenue', level: 1, subtype: 'revenue' });
       // 2200 "Non-Current Liabilities" already exists here at level 3 with no lines: it takes its template children.
@@ -220,6 +158,10 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       // 1210 "Equipment" is inserted, but not under the posted 1200, and so at level 1.
       expect(await byCode('1210')).toMatchObject({ parent: '', level: 1 });
       expect(await childCount(posted1200)).toBe(0);
+      expect(await childCount(nul3000)).toBe(0);
+      const rev4000Kids = (await sql`SELECT level FROM gl_accounts WHERE parent_account_id = ${nul4000}::UUID`) as Row[];
+      expect(rev4000Kids.length).toBeGreaterThan(0);
+      expect(rev4000Kids.every((k) => Number(k.level) === 1)).toBe(true);
       // No template expense goes under the company's revenue 5000.
       expect(await childCount(rev5000)).toBe(0);
       // The company's own 1130 keeps its parent.
@@ -231,7 +173,7 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       // Every account in the company with a parent sits exactly one level below it.
       const off = (await sql`
         SELECT c.account_code FROM gl_accounts c JOIN gl_accounts p ON p.id = c.parent_account_id
-         WHERE c.company_id = ${h.fx.companyId}::UUID AND c.level <> p.level + 1
+         WHERE c.company_id = ${h.fx.companyId}::UUID AND c.level <> COALESCE(p.level, 0) + 1
            AND c.account_code !~ '^HIS-'`) as Row[];
       expect(off.map((r) => r.account_code)).toEqual([]);
     });

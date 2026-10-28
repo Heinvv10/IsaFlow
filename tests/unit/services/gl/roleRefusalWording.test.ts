@@ -48,7 +48,7 @@ describe('role refusal wording', () => {
   it('the import\'s note on a system account it did not re-type says "type and subtype"', async () => {
     // The upsert's RETURNING: the row kept its own type and subtype, which differ from the file's.
     vi.mocked(sql as unknown as (s: TemplateStringsArray) => Promise<unknown[]>).mockImplementation(async (s) => (
-      s.join('').includes('INSERT INTO gl_accounts') ? [{ account_type: 'asset', account_subtype: 'bank', kept_as_system: true }] : []));
+      s.join('').includes('INSERT INTO gl_accounts') ? [{ account_type: 'asset', account_subtype: 'bank' }] : []));
     const out = await importChartOfAccounts('11111111-1111-4111-8111-111111111111', 'sess',
       [{ accountCode: '1110', accountName: 'Bank', accountType: 'expense', normalBalance: 'debit', accountSubtype: 'operating_expense' }], {});
     expect(out.errors.map((e) => e.message)).toEqual([
