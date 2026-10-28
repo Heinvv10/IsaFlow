@@ -51,7 +51,7 @@ describe('Invariant 2: company roll-up = Σ grains', () => {
   it('the band budget is Σ its lines, the net profit the statement arithmetic', async () => {
     const r = await run(FY);
     const band = (k: string) => r.bands.find((b) => b.key === k)!.budget;
-    expect([band('turnover'), band('cost_of_sales'), band('other_income'), band('operating_expenses'), band('other_expenses')])
+    expect([band('turnover'), band('cost_of_sales'), band('other_income'), band('operating_expense'), band('other_expense')])
       .toEqual([150 * N, 70 * N, 5 * N, 200 * N, 7 * N]);
     expect(band('net_profit')).toBe((150 - 70 + 5 - 200 - 7) * N);
   });

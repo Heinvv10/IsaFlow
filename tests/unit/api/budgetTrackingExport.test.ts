@@ -148,7 +148,7 @@ describe('budget-tracking-export', () => {
       const label = b.kind === 'band' ? `Total ${b.label}` : b.label;
       const rows = byAccount(csvBody, label);
       const hasLines = report.lines.some((l) => l.band === b.key);
-      if (b.kind === 'band' && !hasLines && b.key !== 'turnover' && b.key !== 'operating_expenses') { expect(rows).toEqual([]); continue; }
+      if (b.kind === 'band' && !hasLines && b.key !== 'turnover' && b.key !== 'operating_expense') { expect(rows).toEqual([]); continue; }
       expect(rows.length, label).toBe(1);
       expect(csvCells(rows[0]!), label).toEqual(expected(b));
       const x = xBody.filter((r) => r[1] === label);

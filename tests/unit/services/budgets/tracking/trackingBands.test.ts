@@ -51,16 +51,16 @@ const CASE = build(
 describe('bands', () => {
   it('come in the income statement order', () => {
     expect(CASE.bands.map((x) => x.key)).toEqual([
-      'turnover', 'cost_of_sales', 'gross_profit', 'other_income', 'operating_expenses', 'operating_profit', 'other_expenses', 'net_profit',
+      'turnover', 'cost_of_sales', 'gross_profit', 'other_income', 'operating_expense', 'operating_profit', 'other_expense', 'net_profit',
     ]);
     expect(CASE.line('interest')!.band).toBe('other_income');
-    expect(CASE.line('fin')!.band).toBe('other_expenses');
+    expect(CASE.line('fin')!.band).toBe('other_expense');
   });
 
   it('band budget = Σ its lines (unbudgeted = 0); band variance carries the unbudgeted actual', () => {
     expect([CASE.band('turnover').actual, CASE.band('turnover').budget]).toEqual([1000, 900]);
     expect([CASE.band('other_income').actual, CASE.band('other_income').budget, CASE.band('other_income').variance]).toEqual([50, null, null]);
-    expect([CASE.band('operating_expenses').actual, CASE.band('operating_expenses').budget, CASE.band('operating_expenses').variance]).toEqual([280, 150, 130]);
+    expect([CASE.band('operating_expense').actual, CASE.band('operating_expense').budget, CASE.band('operating_expense').variance]).toEqual([280, 150, 130]);
   });
 
   it('profit totals follow the statement, never revenue + expense (D1)', () => {
@@ -74,7 +74,7 @@ describe('bands', () => {
   it('favourable by polarity: income up, expense down, profit up', () => {
     expect(CASE.band('turnover').favourable).toBe(true);
     expect(CASE.band('cost_of_sales').favourable).toBe(true);
-    expect(CASE.band('operating_expenses').favourable).toBe(false);
+    expect(CASE.band('operating_expense').favourable).toBe(false);
     expect(CASE.band('net_profit').favourable).toBe(true);
     expect(CASE.line('cos')!.favourable).toBe(true);
     expect(CASE.line('rent')!.favourable).toBe(false);
@@ -82,8 +82,8 @@ describe('bands', () => {
 
   it('a band whose only budgets are zero is budgeted at zero, not unbudgeted', () => {
     const z = build([a('wages', 80)], [b('wages', 0)]);
-    expect([z.band('operating_expenses').budget, z.band('operating_expenses').variance, z.band('operating_expenses').variancePct]).toEqual([0, 80, null]);
-    expect(z.band('operating_expenses').favourable).toBe(false);
+    expect([z.band('operating_expense').budget, z.band('operating_expense').variance, z.band('operating_expense').variancePct]).toEqual([0, 80, null]);
+    expect(z.band('operating_expense').favourable).toBe(false);
   });
 
   it('a company with no budget leaves every band and total absent, never zero', () => {

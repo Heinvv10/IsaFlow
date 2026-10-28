@@ -17,11 +17,12 @@
  * (`trackingBands`) are sums of these lines, so a line left out would be a
  * figure missing from its band.
  */
-import { round2 } from '@/modules/accounting/services/core/budgetMonths';
-import { expenseBand, revenueBand } from '@/modules/accounting/services/gl/accountClassification';
+import { pctOfBudget } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import { fromCents, toCents } from '../grid/cents';
+import { bandOf } from '../grid/subtotals';
 import type { BudgetRowClass } from './trackingDimRollup';
 import { projectCents, type ProjectionPlan } from './trackingProjection';
-import type { TrackingBandKey, TrackingLine, TrackingMonth } from './trackingTypes';
+import type { TrackingLine, TrackingMonth } from './trackingTypes';
 
 export interface AccountMeta {
   accountId: string;
@@ -36,27 +37,13 @@ export interface ActualCell { accountId: string; month: string; amount: number }
 
 export interface ClassifiedBudgetCell { accountId: string; month: string; amount: number; cls: BudgetRowClass }
 
-export const toCents = (rand: number): number => {
-  const c = Math.round(round2(rand) * 100);
-  return c === 0 ? 0 : c;
-};
-export const fromCents = (cents: number): number => (cents === 0 ? 0 : cents / 100);
-
 /** income: up is good; expense: down is good. */
 export const isFavourable = (polarity: 'income' | 'expense', varianceCents: number): boolean =>
   (polarity === 'income' ? varianceCents >= 0 : varianceCents <= 0);
 
+/** variance / |budget| × 100, null on a zero or absent budget: P0's `pctOfBudget` (a ratio, so cents in, the same %). */
 export const pctOf = (varianceCents: number, budgetCents: number | null): number | null =>
-  (budgetCents === null || budgetCents === 0 ? null : (varianceCents / Math.abs(budgetCents)) * 100);
-
-export function bandOf(type: 'revenue' | 'expense', subtype: string | null): TrackingBandKey {
-  if (type === 'revenue') return revenueBand(subtype) === 'other_income' ? 'other_income' : 'turnover';
-  switch (expenseBand(subtype)) {
-    case 'cost_of_sales': return 'cost_of_sales';
-    case 'other_expense': return 'other_expenses';
-    default: return 'operating_expenses';
-  }
-}
+  pctOfBudget(varianceCents, budgetCents ?? 0, budgetCents !== null);
 
 interface Acc { actual: Map<string, number>; budget: Map<string, number>; coarser: Map<string, number> }
 

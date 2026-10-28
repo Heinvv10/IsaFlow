@@ -70,8 +70,8 @@ describe('Projected FY on a 14-month year, November in progress', () => {
     const r = await run({ period: 'fy', fiscalYear: 2027 });
     const sum = (k: string) => Math.round(r.lines.filter((l) => l.band === k).reduce((s, l) => s + l.projected * 100, 0)) / 100;
     const band = (k: string) => r.bands.find((b) => b.key === k)!;
-    expect(band('operating_expenses').projected).toBe(sum('operating_expenses'));
-    const np = sum('turnover') - sum('cost_of_sales') + sum('other_income') - sum('operating_expenses') - sum('other_expenses');
+    expect(band('operating_expense').projected).toBe(sum('operating_expense'));
+    const np = sum('turnover') - sum('cost_of_sales') + sum('other_income') - sum('operating_expense') - sum('other_expense');
     expect(band('net_profit').projected).toBe(Math.round(np * 100) / 100);
   });
 
