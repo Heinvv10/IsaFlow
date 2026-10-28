@@ -17,6 +17,7 @@ vi.mock('@/lib/logger', () => ({
   apiLogger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/modules/admin/services/featureFlagService', () => ({ hasFeature: vi.fn(async () => true) }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/auth/oauth', async () => ({
   OAUTH_SCOPES: (await import('@/lib/auth/oauthScopes')).OAUTH_SCOPES,
