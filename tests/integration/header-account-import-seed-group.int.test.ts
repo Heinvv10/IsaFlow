@@ -16,6 +16,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { importChartOfAccounts, type AccountImportRow } from '@/modules/accounting/services/core/migrationCoaService';
 import { createSession } from '@/modules/accounting/services/core/migrationService';
 import { seedChartOfAccountsFromTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { request, response } from './mfa-impersonation-postgres.helpers';
@@ -226,6 +227,27 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       const out = await putBankAccount({ id: notBank, parentAccountId: group });
       expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
       expect(await byId(notBank)).toEqual({ level: 1, parent: '' });
+    });
+  });
+
+  describe('Opening Balance Equity, created on first use under 3000', () => {
+    let o: HeaderFixture;
+    beforeAll(async () => { o = await seedHeaderFixture('HISO', process.env.DATABASE_URL!); }, 120000);
+    afterAll(async () => { await dropHeaderFixture(o); }, 120000);
+    const obeParent = async () => String(((await sql`
+      SELECT COALESCE(parent_account_id::TEXT, '') AS p FROM gl_accounts
+       WHERE company_id = ${o.fx.companyId}::UUID AND account_subtype = 'opening_balance_equity'`) as Row[])[0]!.p);
+
+    it('is not put under a posted, childless level-1 3000: it goes to the top level', async () => {
+      const e3000 = await addAccount(o.fx, { code: '3000', type: 'equity', level: 1 });
+      await inTx(o.fx, async () => {
+        const e = await createJournalEntry(o.fx.companyId, { entryDate: DATE, description: 'HISO', source: 'manual',
+          lines: [{ glAccountId: o.fx.bankAccountId, debit: 100, credit: 0 }, { glAccountId: e3000, debit: 0, credit: 100 }] }, o.fx.userId);
+        await postJournalEntry(o.fx.companyId, e.id, o.fx.userId);
+      });
+      await inTx(o.fx, () => ensureOpeningBalanceEquityAccount(o.fx.companyId));
+      expect(await childCount(e3000)).toBe(0);
+      expect(await obeParent()).toBe('');
     });
   });
 });
