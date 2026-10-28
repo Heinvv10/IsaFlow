@@ -156,3 +156,21 @@ describe('review round 6', () => {
     expect(whole.map((m) => m.budget)).toEqual([10, 10]);
   });
 });
+
+describe('review round 7', () => {
+  it('a member is partial per account: budgeted in both years, but one account only in one of them', () => {
+    const years = [{ fiscalYear: 2027, months: ['2027-04'] }, { fiscalYear: 2028, months: ['2027-05'] }];
+    const members = buildTrackingMembers({
+      groupBy: 'cc1', windowMonths: ['2027-04', '2027-05'], windowYears: years,
+      actuals: [{ memberId: FT, month: '2027-04', accountType: 'revenue', amount: 10 }],
+      // FT: sales in FY2027 only, COS in both years. On "any account" FT looks whole.
+      budgets: [
+        { eff: eff(FT), month: '2027-04', accountType: 'revenue', amount: 5, accountId: 'sales' },
+        { eff: eff(FT), month: '2027-04', accountType: 'expense', amount: 2, accountId: 'cos' },
+        { eff: eff(FT), month: '2027-05', accountType: 'expense', amount: 2, accountId: 'cos' },
+      ],
+      names: new Map([[FT, { code: 'FT', name: 'Fibertime' }]]),
+    });
+    expect(members.map((m) => [m.name, m.budget])).toEqual([['Fibertime', null]]);
+  });
+});

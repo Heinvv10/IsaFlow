@@ -29,14 +29,15 @@ import { isFavourable, pctOf } from './trackingLines';
 import type { TrackingGroupBy, TrackingMember, WindowYear } from './trackingTypes';
 
 export interface MemberActual { memberId: string | null; month: string; accountType: 'revenue' | 'expense'; amount: number }
-export interface MemberBudget { eff: EffDims; month: string; accountType: 'revenue' | 'expense'; amount: number }
+export interface MemberBudget { eff: EffDims; month: string; accountType: 'revenue' | 'expense'; amount: number; accountId: string }
 
 export const UNTAGGED_LABEL = 'Untagged / company level';
 
 /**
  * Review r6 F1, the lines' cross-year rule at a member's own grain: over a window touching more
- * than one financial year, a member (or the untagged remainder) with budget rows, on any account, in
- * some years' window months and none in another's has a partial-window budget. Any such member
+ * than one financial year, a member (or the untagged remainder) with budget rows for some ACCOUNT in
+ * some years' window months and none for it in another's has a partial-window budget (per member and
+ * account, review r7, as the lines are per account). Any such member
  * leaves every member without one, so the members keep partitioning NP.
  */
 function memberPartial(groupBy: TrackingGroupBy, budgets: readonly MemberBudget[], windowYears: readonly WindowYear[]): boolean {
@@ -47,7 +48,9 @@ function memberPartial(groupBy: TrackingGroupBy, budgets: readonly MemberBudget[
   for (const b of budgets) {
     const y = yearOf.get(b.month);
     if (y === undefined) continue;
-    const key = b.eff[groupBy] ?? '';
+    // Per (member, account), as the lines' rule is per account (review r7): budgeted in both years
+    // on different accounts is still a member budget for part of the window.
+    const key = `${b.eff[groupBy] ?? ''}|${b.accountId}`;
     const ys = seen.get(key) ?? new Set<number>();
     ys.add(y);
     seen.set(key, ys);

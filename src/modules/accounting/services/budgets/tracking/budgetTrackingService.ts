@@ -88,7 +88,7 @@ export async function buildBudgetTrackingReport(
       groupBy,
       windowMonths: window.months,
       actuals: actualRows,
-      budgets: budgetRows.map((r, i) => ({ eff: effs[i]!, month: r.month, accountType: r.accountType, amount: r.amount })),
+      budgets: budgetRows.map((r, i) => ({ eff: effs[i]!, month: r.month, accountType: r.accountType, amount: r.amount, accountId: r.accountId })),
       names: new Map([...named].map(([id, m]) => [id.toLowerCase(), { code: m.code, name: m.name }])),
       noVersionMonths,
       order: memberOrder,
