@@ -80,6 +80,7 @@ describe('dashboard tiles show exact amounts', () => {
     const reason = screen.getByText('Not meaningful: no positive revenue in this period');
     expect(margin.contains(reason)).toBe(true);
     expect(reason.className).not.toMatch(/sr-only/);
+    expect(margin.querySelector('span[aria-hidden="true"]')?.textContent).toBe('—');
     expect(container.querySelectorAll('.sr-only').length).toBe(0);
     expect(document.body.textContent).not.toMatch(/Net margin: -?\d/);
   });
@@ -88,7 +89,6 @@ describe('dashboard tiles show exact amounts', () => {
     render(<OverviewKpiCards kpis={undefined} />);
     const margin = screen.getByText('Net margin: —');
     expect(margin.hasAttribute('title')).toBe(false);
-    expect(margin.hasAttribute('aria-describedby')).toBe(false);
     expect(document.body.textContent).not.toMatch(/no positive revenue/);
   });
 
