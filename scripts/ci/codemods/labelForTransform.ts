@@ -13,6 +13,8 @@
  *   - the pair sits in a function nested inside another function, e.g. a renderRow helper (`nested-function`);
  *   - its top-level component is used as a JSX tag more than once in the same file, or once inside a loop
  *     callback, or, counting the `usesElsewhere` callback's answer, from 2+ places in all (`rendered-twice`);
+ *   - its top-level function has no name to count uses by: memo(() => ...), forwardRef(function ...), a class
+ *     render() or an anonymous default export (`unnamed-component`);
  *   - the id is already used in the file, or two pairs would get the same one (`id-collision`);
  *   - neither a literal name attribute nor static label text to build the id from (`no-text`).
  * Uses in OTHER files come from `usesElsewhere` (the CLI counts them with git grep, by tag name, so a same-named
@@ -21,7 +23,7 @@
 import ts from 'typescript';
 
 export interface Insertion { offset: number; text: string }
-export type SkipReason = 'loop' | 'nested-function' | 'rendered-twice' | 'id-collision' | 'no-text';
+export type SkipReason = 'loop' | 'nested-function' | 'rendered-twice' | 'unnamed-component' | 'id-collision' | 'no-text';
 export interface PairReport { line: number; id: string; component: string | null; skip?: SkipReason }
 export interface TransformResult { output: string; insertions: Insertion[]; pairs: PairReport[] }
 export interface TransformOptions { /** JSX uses of a component name in files other than this one. */ usesElsewhere?: (component: string) => number }
@@ -158,6 +160,7 @@ export function transformLabelFor(source: string, filePath: string, opts: Transf
     const report: PairReport = { line, id, component };
     if (fns.some(isLoopCallback)) report.skip = 'loop';
     else if (fns.length > 1) report.skip = 'nested-function';
+    else if (outer && !component) report.skip = 'unnamed-component';
     else if (component && (uses.get(component) ?? 0) + (opts.usesElsewhere?.(component) ?? 0) > 1) report.skip = 'rendered-twice';
     else if (!id) report.skip = 'no-text';
     candidates.push({ label, control, report });

@@ -83,6 +83,23 @@ describe('labelFor codemod: skips', () => {
   });
 });
 
+describe('labelFor codemod: components whose name cannot be resolved', () => {
+  it('memo(() => ...), forwardRef(function ...), a class render() and an anonymous default export are skipped, not named', () => {
+    const { result, source } = run('WrappedForm.tsx');
+    expect(result.pairs.map((p) => [p.line, p.component, p.skip])).toEqual([
+      [4, null, 'unnamed-component'],
+      [7, null, 'unnamed-component'],
+      [12, null, 'unnamed-component'],
+      [16, null, 'unnamed-component'],
+      [19, 'Plain', undefined],
+    ]);
+    expect(result.output).toContain('<input id="wrapped-form-plain-field" />');
+    expect(result.output).not.toContain('memo-field');
+    expect(result.output).toContain('<label>Memo field</label><input />');
+    expect(withoutInsertions(result)).toBe(source);
+  });
+});
+
 describe('labelFor codemod: uses in other files', () => {
   const source = readFileSync(path.join(dir, 'SiblingForm.tsx'), 'utf8');
   const at = 'src/components/x/SiblingForm.tsx';
