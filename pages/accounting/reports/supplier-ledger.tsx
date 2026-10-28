@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from 'react';
 import { DateField } from '@/components/ui/DateField';
+import { inputVariants } from '@/components/ui';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -158,10 +159,10 @@ export default function SupplierLedgerPage() {
 
         <div className="p-6 max-w-5xl space-y-4">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Supplier</label>
-              <SupplierSelect value={supplierId} onChange={setSupplierId} inputClassName="ff-input text-sm w-full" />
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="flex-1 min-w-[200px] flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+              <SupplierSelect value={supplierId} onChange={setSupplierId} inputClassName={inputVariants()} />
             </div>
             <div>
               <DateField label="From" value={dateFrom || null} onChange={onFromChange} />
@@ -172,7 +173,7 @@ export default function SupplierLedgerPage() {
             <button
               onClick={runReport}
               disabled={loading || !supplierId || dates.blocked}
-              className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
+              className="mt-6 inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Run Report
