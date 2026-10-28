@@ -1,7 +1,7 @@
 // One Generate means one GET /api/accounting/sars/vat-exceptions. React StrictMode (on in dev) runs the panel's
 // mount effect twice, and the period-lock form reads the same report: both share the in-flight request.
 import { StrictMode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/apiFetch', async (original) => ({ ...await original<typeof import('@/lib/apiFetch')>(), apiFetch: vi.fn() }));
@@ -114,5 +114,57 @@ it('a company switch while the panel is loading asks for the new company\'s repo
   company.id = 'co2';
   view.rerender(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} />);
   await waitFor(() => expect(exceptionCalls()).toBe(2));
+  hold.release();
+});
+
+const PANEL_FAILED = 'Could not load exceptions - try again';
+const LOCK_FAILED = 'Could not check the VAT exceptions for this period - the server will check again when you lock it';
+const refused = (message?: string) => new Response(message ? JSON.stringify({ success: false, error: { message } }) : '', { status: message ? 400 : 500 });
+
+it('the panel and the lock form share one request, and each gets its own message when the server says nothing', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => refused());
+  const [panel, lock] = await Promise.allSettled([
+    fetchVatExceptions('2026-07-01', '2026-08-31', PANEL_FAILED, 'panel', { companyId: 'co1' }),
+    fetchVatExceptions('2026-07-01', '2026-08-31', LOCK_FAILED, 'lock', { companyId: 'co1' }),
+  ]);
+  expect(exceptionCalls()).toBe(1);
+  expect(panel).toMatchObject({ status: 'rejected', reason: { message: PANEL_FAILED, status: 500 } });
+  expect(lock).toMatchObject({ status: 'rejected', reason: { message: LOCK_FAILED, status: 500 } });
+});
+
+it('a message the server sent reaches both sharing callers instead of either fallback', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => refused('Period is not open'));
+  const [panel, lock] = await Promise.allSettled([
+    fetchVatExceptions('2026-07-01', '2026-08-31', PANEL_FAILED, 'panel'),
+    fetchVatExceptions('2026-07-01', '2026-08-31', LOCK_FAILED, 'lock'),
+  ]);
+  expect(exceptionCalls()).toBe(1);
+  expect(panel).toMatchObject({ status: 'rejected', reason: { message: 'Period is not open' } });
+  expect(lock).toMatchObject({ status: 'rejected', reason: { message: 'Period is not open' } });
+});
+
+it('a reload after an unmark is fresh: it never joins the request that was already running before the write', async () => {
+  const withItem: VatExceptionsReport = {
+    ...report,
+    declaredElsewhereVatCount: 1,
+    declaredElsewhereVat: [{ invoiceId: 'ci-1', invoiceKind: 'customer', invoiceNumber: 'INV-1', counterpartyName: 'Acme', invoiceDate: '2026-07-01', vat: 150, markedAt: '2026-08-01', markedBy: 'u1', markedByName: 'Ann', markedReason: 'old' }],
+  };
+  const hold = gate();
+  let reads = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+    if (String(url).includes('vat-declared-elsewhere')) return new Response(JSON.stringify({ success: true, data: {} }), { status: 200 });
+    reads += 1;
+    if (reads === 1) return new Response(JSON.stringify({ success: true, data: withItem }), { status: 200 });
+    await hold.wait; // the Generate click's request: started before the unmark, so its report is pre-write
+    return new Response(JSON.stringify({ success: true, data: reads === 2 ? withItem : report }), { status: 200 });
+  });
+  const { rerender } = render(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={1} />);
+  await screen.findByText('INV-1');
+  rerender(<VAT201ExceptionsPanel from="2026-07-01" to="2026-08-31" reloadKey={2} />);
+  await waitFor(() => expect(exceptionCalls()).toBe(2));
+  fireEvent.click(screen.getByRole('button', { name: 'Unmark' }));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Declared in error' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm unmark' }));
+  await waitFor(() => expect(exceptionCalls()).toBe(3));
   hold.release();
 });

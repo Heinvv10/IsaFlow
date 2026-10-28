@@ -111,8 +111,8 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
             <VatNonSupplySection lines={report.vatNonSupplyLines} />
           </Section>
 
-          <VatUnpostedInvoicesSection report={report} Section={Section} onChanged={() => void load()} />
-          <VatDeclaredElsewhereSection report={report} onChanged={() => void load()} />
+          <VatUnpostedInvoicesSection report={report} Section={Section} onChanged={() => void load(undefined, true)} />
+          <VatDeclaredElsewhereSection report={report} onChanged={() => void load(undefined, true)} />
           <VatInputSupportSections report={report} Section={Section} />
           <VatInvoiceIssueSections report={report} />
           <VatBillTaxCodeWarningSection report={report} />
