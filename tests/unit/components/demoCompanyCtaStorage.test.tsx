@@ -25,6 +25,19 @@ const blocked = () => vi.spyOn(Storage.prototype, 'setItem').mockImplementation(
 beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); h.switchCompany.mockResolvedValue(undefined); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+describe('DemoCompanyCTA with storage that refuses reads', () => {
+  it('still shows the banner (nothing is known to be dismissed) and logs the failure', async () => {
+    const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+    try {
+      render(<DemoCompanyCTA />);
+      expect(await screen.findByRole('button', { name: 'Dismiss' })).toBeTruthy();
+      expect(h.logError).toHaveBeenCalledTimes(1);
+    } finally {
+      read.mockRestore();
+    }
+  });
+});
+
 describe('DemoCompanyCTA with storage that refuses writes', () => {
   it('dismiss still hides the banner, and logs the failure', async () => {
     blocked();
