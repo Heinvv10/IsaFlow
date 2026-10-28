@@ -2,8 +2,10 @@
 /**
  * Golden path (y7): Home's money ties to the reports, and Home leads with setup (master plan wave 2, H).
  *
- *  - On Demo, the dashboard's AR "90+ Days" equals the AR Age Analysis report's "90+ Days", both read
- *    through the UI at the same as-at (today, SAST). The donut used to put 61-90 inside its "90+".
+ *  - On Demo, the dashboard's AR buckets tie to the AR Age Analysis report's, both read through the UI at
+ *    the same as-at (today, SAST): equal bucket by bucket when nothing is disputed, otherwise equal in
+ *    total with the gaps summing to the Disputed row (a dispute of any age). The donut used to put 61-90
+ *    inside its "90+".
  *  - On the empty sandbox company the setup checklist is above the hero and inside the first screen,
  *    and Action Items does not say "All caught up!".
  *  - The ageing donuts draw in their colours (not Pie's default grey) and fit inside 390 px.
@@ -36,26 +38,49 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
-test('the dashboard AR 90+ equals the AR Age Analysis 90+', async ({ page }) => {
+/** "R 10 686 885.43" (spaces may be NBSP) as whole cents. */
+const cents = (text: string): number => Math.round(Number(text.replace(/[^\d.-]/g, '')) * 100);
+const BUCKETS = ['Current', '1–30 Days', '31–60 Days', '61–90 Days', '90+ Days'] as const;
+
+test('the dashboard AR ties to the AR Age Analysis, whatever is disputed', async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto('/accounting');
   const card = page.locator('div').filter({ has: page.getByRole('heading', { name: 'AR Aging', exact: true }) }).last();
-  const dashRow = card.locator('div.justify-between').filter({ hasText: '90+ Days' });
+  const row = (label: string) => card.locator('div.justify-between').filter({ hasText: label });
+  const dashRow = row('90+ Days');
   await expect(dashRow).toBeVisible({ timeout: 90_000 });
   // 61–90 is its own bucket now, not folded into "90+".
-  await expect(card.locator('div.justify-between').filter({ hasText: '61–90 Days' })).toBeVisible();
+  await expect(row('61–90 Days')).toBeVisible();
+  const dash: Record<string, number> = {};
+  for (const label of BUCKETS) dash[label] = cents(await row(label).locator('span.tabular-nums').innerText());
+  // Disputed leaves its age bucket on Home and stays in it on the report; it is listed only when non-zero.
+  const disputedRow = row('Disputed');
+  const disputed = (await disputedRow.count()) > 0 ? cents(await disputedRow.locator('span.tabular-nums').innerText()) : 0;
   const dashboard90 = (await dashRow.locator('span.tabular-nums').innerText()).trim();
   await card.scrollIntoViewIfNeeded();
   await shot(page, 'y7-dashboard-ar-aging');
 
   await page.goto('/accounting/reports/ar-aging');
   await settle(page);
-  const reportCard = page.getByRole('button').filter({ hasText: '90+ Days' });
-  const report90 = (await reportCard.locator('p.tabular-nums').innerText()).trim();
+  const report: Record<string, number> = {};
+  for (const label of BUCKETS) {
+    report[label] = cents(await page.getByRole('button').filter({ has: page.getByText(label, { exact: true }) }).locator('p.tabular-nums').innerText());
+  }
   await shot(page, 'y7-report-ar-aging');
 
   expect(dashboard90).toMatch(/^R\s[\d\s]+\.\d{2}$/);
-  expect(dashboard90).toBe(report90);
+  // Total: the six donut rows are the report's five buckets, to the cent, with or without a dispute.
+  const sum = (xs: number[]): number => xs.reduce((t, x) => t + x, 0);
+  expect(sum(Object.values(dash)) + disputed).toBe(sum(Object.values(report)));
+  if (disputed === 0) {
+    // Nothing disputed: every bucket is the report's bucket.
+    for (const label of BUCKETS) expect(dash[label], label).toBe(report[label]);
+  } else {
+    // A disputed amount sits in some report bucket: no bucket here exceeds the report's, and the
+    // gaps add up to the Disputed row (so this holds whichever age the dispute is, 91+ days or not).
+    for (const label of BUCKETS) expect(dash[label]!, label).toBeLessThanOrEqual(report[label]!);
+    expect(sum(BUCKETS.map((l) => report[l]! - dash[l]!))).toBe(disputed);
+  }
 });
 
 test('the ageing donuts draw in colour and fit a 390 px screen', async ({ page }) => {

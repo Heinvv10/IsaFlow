@@ -7,7 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
-import { AGING_BREAKDOWN_LABELS, getOpenBook } from './dashboardOpenBook';
+import { AGING_BREAKDOWN_LABELS, getOpenBook, type OpenBook } from './dashboardOpenBook';
 import { todayInSast } from '@/lib/saDateParser';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
@@ -134,9 +134,15 @@ export async function getCashFlowChart(companyId: string, months: number): Promi
  * used to re-aggregate with its own status list, no disputes, CURRENT_DATE (the
  * UTC session date) and a "90+" that was really "> 60".
  */
-export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap', todayStr: string = todayInSast()): Promise<AgingBreakdownBucket[]> {
+export async function getAgingBreakdown(
+  companyId: string,
+  type: 'ar' | 'ap',
+  todayStr: string = todayInSast(),
+  /** The open book when the caller already read it (the tiles use the same one). */
+  book?: OpenBook,
+): Promise<AgingBreakdownBucket[]> {
   try {
-    const { buckets } = await getOpenBook(companyId, type, todayStr);
+    const { buckets } = book ?? await getOpenBook(companyId, type, todayStr);
     return AGING_BREAKDOWN_LABELS.map((name, i) => ({ name, value: buckets[i]! }));
   } catch (err) {
     log.error('Failed to get aging breakdown', { error: err, type }, 'kpi-service');

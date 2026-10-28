@@ -58,6 +58,7 @@ const CREDITED_FACE = 1000;
 const CREDITED = 400;
 const FUTURE = 4444;
 const NOISE = 77777;
+const ORPHAN = 333.33;
 
 const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 const AP_AGE = [101.01 + 111.11, 121.21 + 202.02 + 131.31, 141.41 + 303.03 + 404.04, 505.05 + 606.06 + 707.07, 808.08 + 909.09];
@@ -189,6 +190,34 @@ describeIfDb('Home ageing and tiles equal the AR/AP aging report routes', () => 
     expect(kpis.payables.total).toBeCloseTo(sum(AP_AGE) + FUTURE, 2);
     expect(kpis.payables.overdue).toBeCloseTo(sum(AP_AGE), 2);
     expect(kpis.receivables.overdue).toBeCloseTo(sum(AR_DASH), 2);
+  });
+
+  it('an invoice whose client_id points at no customer row stays on Home and in the report total', async () => {
+    // client_id has no foreign key, and the report's summary reads customer_invoices
+    // alone: an inner join to customers on Home dropped this invoice from the tile
+    // and the donut while the report total kept it. (supplier_invoices.supplier_id is
+    // NOT NULL with a foreign key, so the AP side has no equivalent row.)
+    const orphanClient = randomUUID();
+    const before = sum((await getAgingBreakdown(COMPANY, 'ar')).map((b) => b.value));
+    const id = ((await sql`
+      INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
+        status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
+      VALUES (${COMPANY}::UUID, ${orphanClient}::UUID, ${customer}::UUID, ${TAG + '-AR-ORPHAN'}, ${shift(-40)}::date, ${shift(-10)}::date,
+        'approved', ${ORPHAN}, 0, 0, ${ORPHAN}, 0, ${USER}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
+    try {
+      const report = await reportBuckets(arAgingRoute);
+      const dash = await getAgingBreakdown(COMPANY, 'ar');
+      const tile = (await getDashboardKPIs(COMPANY, shift(-365), TODAY, todayInSast())).receivables;
+      expect(sum(report)).toBeCloseTo(sum(reportAr) + ORPHAN, 2);
+      expect(sum(dash.map((b) => b.value))).toBeCloseTo(before + ORPHAN, 2);
+      expect(sum(dash.map((b) => b.value))).toBeCloseTo(sum(report), 2);
+      expect(tile.total).toBeCloseTo(sum(report), 2);
+      // 10 days overdue: the 1–30 bucket carries it on both surfaces.
+      expect(dash[1]!.value).toBeCloseTo(report[1]!, 2);
+    } finally {
+      await sql`DELETE FROM customer_invoices WHERE id = ${id}::UUID`;
+    }
   });
 
   it('just after midnight SAST (22:30 UTC the day before) it still ages from the SAST day', async () => {
