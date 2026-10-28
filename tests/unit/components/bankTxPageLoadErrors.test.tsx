@@ -90,3 +90,32 @@ it('an older response arriving while a newer request is pending does not end the
   releasePage3(txPage('ROW-P3'));
   expect(await screen.findByText('ROW-P3')).toBeInTheDocument();
 });
+
+/** Every element ever added to `root`, whether or not it was gone again by the time anything looked. */
+function watchAdded(root: HTMLElement, testId: string): { seen: () => boolean; stop: () => void } {
+  let seen = false;
+  const hit = (n: Node) => n instanceof HTMLElement && (n.dataset.testid === testId || n.querySelector(`[data-testid="${testId}"]`) !== null);
+  const mo = new MutationObserver((records) => { for (const r of records) r.addedNodes.forEach((n) => { if (hit(n)) seen = true; }); });
+  mo.observe(root, { childList: true, subtree: true });
+  return { seen: () => { mo.takeRecords().forEach((r) => r.addedNodes.forEach((n) => { if (hit(n)) seen = true; })); return seen; }, stop: () => mo.disconnect() };
+}
+
+it('a reload past the end never paints "No new transactions": the skeleton holds until the clamped page arrives', async () => {
+  // page 3 of 60 rows; the next load says there are only 50, so page 3 no longer exists and the clamp moves to page 2
+  const total = 60;
+  script(offset => {
+    if (offset === '50') return json({ success: true, data: { transactions: [], total: 50 } });
+    if (offset === '25') return json({ success: true, data: { transactions: [row('ROW-P2')], total: 50 } });
+    return json({ success: true, data: { transactions: [row('ROW-P1')], total } });
+  });
+  const { container } = render(<BankTransactionsPage />);
+  await screen.findByText('ROW-P1');
+
+  const empty = watchAdded(container, 'bank-tx-empty');
+  fireEvent.click(screen.getByRole('button', { name: '3' }));
+  expect(await screen.findByText('ROW-P2')).toBeInTheDocument();
+
+  expect(offsets()).toEqual(['0', '50', '25']);
+  expect(empty.seen()).toBe(false);
+  empty.stop();
+});
