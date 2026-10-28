@@ -257,6 +257,21 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
     expect(await attrs(acct)).toMatchObject({ account_type: 'asset', account_subtype: null });
   });
 
+  // Same shared code, both rows of the account's type: the first carries no subtype, so the
+  // second row's subtype is the one the COALESCE fill writes, and that is what the check judges.
+  it('executeMigration: judges the fill a later same-type row of a shared code makes', async () => {
+    const name = 'VAT Suspense Account';
+    const acct = await addAccount(name, 'asset', null, 'xero');
+    await lockedLine(acct, 'standard');
+    const row = (sourceName: string, mappedSubtype?: string) => ({
+      sourceCode: '', sourceName, sourceType: 'X', openingBalance: 0, mappedType: 'asset' as const,
+      mappedNormalBalance: 'debit' as const, mappedSubtype });
+    const out = await inTx(fx, () => executeMigration(fx.companyId, fx.userId, 'xero',
+      [row(`${name} A`), row(`${name} B`, 'vat_input')], [], []));
+    expect(out.errors.join(' ')).toMatch(/2026-05-01 to 2026-06-30/);
+    expect(await attrs(acct)).toMatchObject({ account_type: 'asset', account_subtype: null });
+  });
+
   /** Each of these re-types alone would leave the journal in the return (the other account still
    *  carries it); both together would take it out. Both rows are refused, so neither account moves. */
   it('executeMigration: refuses both rows of two same-source re-types that would take a journal out of the return together', async () => {

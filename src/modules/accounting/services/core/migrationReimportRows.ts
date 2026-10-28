@@ -28,17 +28,17 @@ export async function reimportAttributeChanges(
     WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
       AND account_code = ANY(${codes}::TEXT[])`) as DbRow[];
   // Two rows can share a code (one derived from a name cut to 20 characters). The upsert runs
-  // them in file order and the subtype fill is COALESCE(existing, mapped), so the FIRST row of
-  // the account's own type is the one that writes; the others are refused or change nothing.
-  const firstSameType = (code: string, type: string) =>
-    accounts.find((a, i) => codes[i] === code && String(a.mappedType) === type);
+  // them in file order and only rows of the account's own type write; the fill is
+  // COALESCE(existing, mapped), so the first of those rows WITH a subtype is the one that fills it.
+  const sameType = (code: string, type: string) =>
+    accounts.filter((a, i) => codes[i] === code && String(a.mappedType) === type);
   return rows.flatMap((r) => {
-    const acct = firstSameType(String(r.account_code), String(r.account_type));
-    if (!acct || r.is_system_account === true) return [];
+    const writers = sameType(String(r.account_code), String(r.account_type));
+    if (writers.length === 0 || r.is_system_account === true) return [];
     const subtype = r.account_subtype == null ? null : String(r.account_subtype);
     const from = { accountType: String(r.account_type), accountSubtype: subtype };
     return [{ accountId: String(r.id), accountCode: String(r.account_code), from,
-      to: { ...from, accountSubtype: subtype ?? acct.mappedSubtype ?? null } }];
+      to: { ...from, accountSubtype: subtype ?? writers.find((a) => a.mappedSubtype)?.mappedSubtype ?? null } }];
   });
 }
 
