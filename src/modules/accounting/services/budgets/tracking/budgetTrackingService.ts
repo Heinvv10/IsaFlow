@@ -94,6 +94,7 @@ export async function buildBudgetTrackingReport(
       order: memberOrder,
       // Members partition NP: when a partial line leaves NP's budget absent, theirs is too.
       budgetAbsent: lines.some((l) => l.partialBudget),
+      windowYears: window.years,
     });
   }
 

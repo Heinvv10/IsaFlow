@@ -26,12 +26,34 @@ import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/b
 import type { EffDims } from './trackingDimRollup';
 import { fromCents, toCents } from '../grid/cents';
 import { isFavourable, pctOf } from './trackingLines';
-import type { TrackingGroupBy, TrackingMember } from './trackingTypes';
+import type { TrackingGroupBy, TrackingMember, WindowYear } from './trackingTypes';
 
 export interface MemberActual { memberId: string | null; month: string; accountType: 'revenue' | 'expense'; amount: number }
 export interface MemberBudget { eff: EffDims; month: string; accountType: 'revenue' | 'expense'; amount: number }
 
 export const UNTAGGED_LABEL = 'Untagged / company level';
+
+/**
+ * Review r6 F1, the lines' cross-year rule at a member's own grain: over a window touching more
+ * than one financial year, a member (or the untagged remainder) with budget rows, on any account, in
+ * some years' window months and none in another's has a partial-window budget. Any such member
+ * leaves every member without one, so the members keep partitioning NP.
+ */
+function memberPartial(groupBy: TrackingGroupBy, budgets: readonly MemberBudget[], windowYears: readonly WindowYear[]): boolean {
+  const years = windowYears.filter((y) => y.months.length > 0);
+  if (years.length < 2) return false;
+  const yearOf = new Map(years.flatMap((y) => y.months.map((m) => [m, y.fiscalYear] as const)));
+  const seen = new Map<string, Set<number>>();
+  for (const b of budgets) {
+    const y = yearOf.get(b.month);
+    if (y === undefined) continue;
+    const key = b.eff[groupBy] ?? '';
+    const ys = seen.get(key) ?? new Set<number>();
+    ys.add(y);
+    seen.set(key, ys);
+  }
+  return [...seen.values()].some((ys) => ys.size < years.length);
+}
 
 export function buildTrackingMembers(input: {
   groupBy: TrackingGroupBy;
@@ -45,9 +67,12 @@ export function buildTrackingMembers(input: {
   order?: readonly string[];
   /** The window's profit budget is a partial-window figure (a partial line, review r5 G1): members partition it, so none has a budget. */
   budgetAbsent?: boolean;
+  /** The window's financial years with their window months, for the member-level cross-year rule (review r6 F1). */
+  windowYears?: readonly WindowYear[];
 }): TrackingMember[] {
   const inWindow = new Set(input.windowMonths);
-  const budgetAbsent = input.budgetAbsent === true || input.windowMonths.some((m) => input.noVersionMonths?.includes(m));
+  const budgetAbsent = input.budgetAbsent === true || input.windowMonths.some((m) => input.noVersionMonths?.includes(m))
+    || memberPartial(input.groupBy, input.budgets, input.windowYears ?? []);
   const acc = new Map<string | null, { actual: number; budget: number | null }>();
   const slot = (id: string | null) => {
     let s = acc.get(id);
