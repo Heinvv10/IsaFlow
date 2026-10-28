@@ -51,8 +51,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Each side of the open book is read once and feeds both its tile and its
     // donut: they are one figure by construction, and one query's cost.
-    const arBook = await getOpenBook(companyId, 'ar', today);
-    const apBook = await getOpenBook(companyId, 'ap', today);
+    const [arBook, apBook] = await Promise.all([
+      getOpenBook(companyId, 'ar', today),
+      getOpenBook(companyId, 'ap', today),
+    ]);
 
     const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
       await Promise.all([

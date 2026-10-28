@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { sql } from '@/lib/neon';
+import { fetchARAgingInvoices } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { getAgingBreakdown } from '@/modules/accounting/services/reports/kpiChartsService';
 import { getDashboardKPIs } from '@/modules/accounting/services/reports/kpiDashboardService';
 import { AGING_BREAKDOWN_LABELS } from '@/modules/accounting/services/reports/dashboardOpenBook';
@@ -59,6 +60,7 @@ const CREDITED = 400;
 const FUTURE = 4444;
 const NOISE = 77777;
 const ORPHAN = 333.33;
+const FOREIGN = 111.11;
 
 const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 const AP_AGE = [101.01 + 111.11, 121.21 + 202.02 + 131.31, 141.41 + 303.03 + 404.04, 505.05 + 606.06 + 707.07, 808.08 + 909.09];
@@ -80,6 +82,16 @@ async function reportBuckets(route: unknown): Promise<number[]> {
   await (route as (a: unknown, b: unknown) => Promise<void>)(req, result.res);
   expect(result.state.statusCode).toBe(200);
   return (result.state.body as { data: AgingBody }).data.summary.map((b) => Number(b.total));
+}
+
+type ReportRow = { customer_name: string; balance_due: number };
+async function reportRows(route: unknown): Promise<ReportRow[]> {
+  const req = request({ 'sb-access-token': token, active_company_id: COMPANY }, 'GET');
+  (req as unknown as { query: unknown }).query = { as_at_date: TODAY };
+  const result = response();
+  await (route as (a: unknown, b: unknown) => Promise<void>)(req, result.res);
+  expect(result.state.statusCode).toBe(200);
+  return (result.state.body as { data: { rows: ReportRow[] } }).data.rows.map((r) => ({ ...r, balance_due: Number(r.balance_due) }));
 }
 
 /** Home's donut, compared bucket by bucket with the report and with the by-hand figures. */
@@ -198,6 +210,9 @@ describeIfDb('Home ageing and tiles equal the AR/AP aging report routes', () => 
     // and the donut while the report total kept it. (supplier_invoices.supplier_id is
     // NOT NULL with a foreign key, so the AP side has no equivalent row.)
     const orphanClient = randomUUID();
+    // Another tenant's customer, named so a leak shows: client_id naming it is no customer of COMPANY.
+    const foreignCustomer = ((await sql`
+      INSERT INTO customers (company_id, name) VALUES (${OTHER}::UUID, ${'Other tenant secret ' + TAG}) RETURNING id`) as { id: string }[])[0]!.id;
     const before = sum((await getAgingBreakdown(COMPANY, 'ar')).map((b) => b.value));
     const id = ((await sql`
       INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
@@ -205,18 +220,34 @@ describeIfDb('Home ageing and tiles equal the AR/AP aging report routes', () => 
       VALUES (${COMPANY}::UUID, ${orphanClient}::UUID, ${customer}::UUID, ${TAG + '-AR-ORPHAN'}, ${shift(-40)}::date, ${shift(-10)}::date,
         'approved', ${ORPHAN}, 0, 0, ${ORPHAN}, 0, ${USER}::UUID)
       RETURNING id`) as { id: string }[])[0]!.id;
+    const foreignId = ((await sql`
+      INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
+        status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
+      VALUES (${COMPANY}::UUID, ${foreignCustomer}::UUID, ${customer}::UUID, ${TAG + '-AR-FOREIGN'}, ${shift(-40)}::date, ${shift(-10)}::date,
+        'approved', ${FOREIGN}, 0, 0, ${FOREIGN}, 0, ${USER}::UUID)
+      RETURNING id`) as { id: string }[])[0]!.id;
     try {
       const report = await reportBuckets(arAgingRoute);
       const dash = await getAgingBreakdown(COMPANY, 'ar');
       const tile = (await getDashboardKPIs(COMPANY, shift(-365), TODAY, todayInSast())).receivables;
-      expect(sum(report)).toBeCloseTo(sum(reportAr) + ORPHAN, 2);
-      expect(sum(dash.map((b) => b.value))).toBeCloseTo(before + ORPHAN, 2);
+      expect(sum(report)).toBeCloseTo(sum(reportAr) + ORPHAN + FOREIGN, 2);
+      expect(sum(dash.map((b) => b.value))).toBeCloseTo(before + ORPHAN + FOREIGN, 2);
       expect(sum(dash.map((b) => b.value))).toBeCloseTo(sum(report), 2);
       expect(tile.total).toBeCloseTo(sum(report), 2);
       // 10 days overdue: the 1–30 bucket carries it on both surfaces.
       expect(dash[1]!.value).toBeCloseTo(report[1]!, 2);
+      // Both named "Unknown customer" in the list, never the other tenant's customer.
+      const names = (await fetchARAgingInvoices(COMPANY, TODAY, TODAY)).filter((i) => i.invoiceNumber.startsWith(`${TAG}-AR-`) && /ORPHAN|FOREIGN/.test(i.invoiceNumber));
+      expect(names.map((i) => i.entityName)).toEqual(['Unknown customer', 'Unknown customer']);
+      // The report's own rows (and so its CSV) sum to its total and carry both.
+      const rows = await reportRows(arAgingRoute);
+      expect(rows.reduce((s, r) => s + r.balance_due, 0)).toBeCloseTo(sum(report), 2);
+      expect(rows.filter((r) => r.customer_name === 'Unknown customer').map((r) => r.balance_due).sort())
+        .toEqual([FOREIGN, ORPHAN]);
+      expect(JSON.stringify(rows)).not.toContain('Other tenant secret');
     } finally {
-      await sql`DELETE FROM customer_invoices WHERE id = ${id}::UUID`;
+      await sql`DELETE FROM customer_invoices WHERE id IN (${id}::UUID, ${foreignId}::UUID)`;
+      await sql`DELETE FROM customers WHERE id = ${foreignCustomer}::UUID`;
     }
   });
 
