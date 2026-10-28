@@ -2,9 +2,9 @@
  * Budgets P3 PR-B (T10, spec §2.6), on real PostgreSQL: the Budget vs Actual
  * drill foots. For every filter the page can set (none, CC1, CC2, BU, CC1 + BU,
  * CC2 + BU), each line's drill `periodNet` (getAccountTransactions with the
- * explicit levels the route forwards) equals the line's Actual, to the cent.
- * A transaction posted from a document carries that document, so the drill can
- * link to it. Seed: helpers/budgetTrackingFixture.ts.
+ * explicit levels the route forwards) equals the line's Actual, to the cent (with the drill's `naturalSign`, as the page sends it).
+ * With `documents` (the BvA drill's opt-in) a transaction posted from a document
+ * carries that document, so the drill can link to it. Seed: helpers/budgetTrackingFixture.ts.
  *
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
  */
@@ -43,7 +43,7 @@ describe('the drill foots to the Budget vs Actual line', () => {
           const r = await buildBudgetTrackingReport(f.a, { ...w, ...flt }, NOW);
           for (const l of r.lines) {
             const d = await getAccountTransactions(f.a, l.accountCode, r.window.startDate, r.window.endDate, undefined, flt.buId,
-              { cc1Id: flt.cc1Id, cc2Id: flt.cc2Id });
+              { cc1Id: flt.cc1Id, cc2Id: flt.cc2Id, naturalSign: true });
             compared++;
             if (Math.round(d.periodNet * 100) !== Math.round(l.actual * 100)) bad.push(`${name} ${l.accountCode}: drill ${d.periodNet}, line ${l.actual}`);
           }
@@ -56,7 +56,7 @@ describe('the drill foots to the Budget vs Actual line', () => {
 
   it('a transaction posted from a customer invoice carries that invoice; a manual one carries none', async () => {
     const inv = crypto.randomUUID();
-    const d = await asRequest(pool, f.a, f.userA, () => getAccountTransactions(f.a, 'BT-4000', '2026-03-01', '2026-03-31', undefined, undefined, {}), {
+    const d = await asRequest(pool, f.a, f.userA, () => getAccountTransactions(f.a, 'BT-4000', '2026-03-01', '2026-03-31', undefined, undefined, { documents: true }), {
       before: async (c) => {
         const { rows } = await c.query(`SELECT je.id FROM gl_journal_entries je WHERE je.company_id = $1 AND je.entry_date = '2026-03-15' AND je.status = 'posted'`, [f.a]);
         const cust = crypto.randomUUID();

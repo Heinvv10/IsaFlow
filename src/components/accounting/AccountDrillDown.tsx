@@ -11,7 +11,7 @@ import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import Link from 'next/link';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { journalSourceHref } from '@/lib/journalSourceHref';
-import type { JournalDocumentRef } from '@/modules/accounting/services/gl/accountTransactionsService';
+import type { JournalDocumentRef } from '@/modules/accounting/services/gl/journalDocuments';
 
 // A request in flight, by URL. React StrictMode (`next dev`) mounts, unmounts and re-mounts the effect
 // below at once: the second run joins the first request instead of sending its own.
@@ -53,9 +53,9 @@ interface Transaction {
   derived?: boolean;
 }
 
-/** The entry number, linked to its source document (or journal entry) when the row was posted. */
-function EntryCell({ tx }: { tx: Transaction }) {
-  const target = tx.derived ? null : journalSourceHref(tx);
+/** The entry number; on the BvA drill (`links`) linked to its source document (or journal entry) when posted. */
+function EntryCell({ tx, links, returnTo }: { tx: Transaction; links: boolean; returnTo?: string }) {
+  const target = links && !tx.derived ? journalSourceHref(tx, returnTo) : null;
   if (!target) return <span className="w-24 font-mono text-[var(--ff-text-secondary)]">{tx.entryNumber}</span>;
   return (
     <Link href={target.href} title={target.label} className="w-24 font-mono text-indigo-400 hover:underline">
@@ -83,6 +83,10 @@ interface AccountDrillDownProps {
   /** Explicit dimension levels (Budget vs Actual), ANDed with the either-level costCentreId. */
   cc1Id?: string;
   cc2Id?: string;
+  /** The Budget vs Actual drill: asks for each row's source document (`documents=1`) and the
+   *  account-type sign (`sign=natural`, so the period net is the BvA Actual), and links each
+   *  posted entry to its document carrying `returnTo`. Every other drill leaves it off. */
+  budgetTracking?: boolean;
   source?: 'tb' | 'bs' | 'is';
   returnTo?: string;
   /** Render inside a <table> (uses <tr>/<td>) vs standalone (uses <div>) */
@@ -99,6 +103,7 @@ export function AccountDrillDown({
   businessUnitId,
   cc1Id,
   cc2Id,
+  budgetTracking = false,
   source,
   returnTo,
   asTableRow,
@@ -129,6 +134,7 @@ export function AccountDrillDown({
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
     if (cc1Id) params.set('cc1_id', cc1Id);
     if (cc2Id) params.set('cc2_id', cc2Id);
+    if (budgetTracking) { params.set('documents', '1'); params.set('sign', 'natural'); }
 
     loadTransactions(params)
       .then(d => {
@@ -145,7 +151,7 @@ export function AccountDrillDown({
       });
 
     return () => { cancelled = true; };
-  }, [accountCode, periodStart, periodEnd, costCentreId, businessUnitId, cc1Id, cc2Id]);
+  }, [accountCode, periodStart, periodEnd, costCentreId, businessUnitId, cc1Id, cc2Id, budgetTracking]);
 
   const postedCount = data ? data.transactions.filter(t => !t.derived).length : 0;
 
@@ -192,7 +198,7 @@ export function AccountDrillDown({
               className={`px-4 py-1 flex items-center gap-3 text-xs border-b border-[var(--ff-border-light)]/40 hover:bg-[var(--ff-bg-tertiary)]/20${tx.derived ? ' italic' : ''}`}
             >
               <span className="w-20 text-[var(--ff-text-tertiary)]">{fmtDate(tx.date)}</span>
-              <EntryCell tx={tx} />
+              <EntryCell tx={tx} links={budgetTracking} returnTo={returnTo} />
               <span className="flex-1 text-[var(--ff-text-secondary)] truncate">{tx.description}</span>
               <span className="w-24 text-right tabular-nums text-[var(--ff-text-primary)]">
                 {tx.debit > 0 ? fmt(tx.debit) : ''}
