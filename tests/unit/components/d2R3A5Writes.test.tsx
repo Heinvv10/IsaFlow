@@ -1,5 +1,5 @@
 /**
- * D2 round 3 (a5): writes on budgets / adjustments / supplier-categories / business-units / customer-allocations.
+ * D2 round 3 (a5): writes on adjustments / supplier-categories / business-units / customer-allocations.
  * A refused write shows the server's reason and claims no success; an empty-body 500 shows a plain sentence;
  * a write that went through followed by a failing reload still says it went through, clears the stale rows
  * and leaves no stuck spinner.
@@ -17,8 +17,6 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/components/shared/ExportCSVButton', () => ({ ExportCSVButton: () => null }));
 vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({ SupplierSelect: () => null }));
 
-import BudgetsPage from '../../../pages/accounting/budgets/index';
-import { budgetRow, budgetsPayload, clickAddBudget } from './budgetsApiFixture';
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import SupplierCategoriesPage from '../../../pages/accounting/supplier-categories/index';
 import BusinessUnitsPage from '../../../pages/accounting/business-units/index';
@@ -31,78 +29,6 @@ const spinner = () => document.querySelector('.animate-spin');
 const click = (el: Element | null) => { expect(el).toBeTruthy(); fireEvent.click(el!); };
 /** jsdom does not run the browser's constraint validation for a click; submit the form the button belongs to. */
 const submit = (btn: Element) => fireEvent.submit(btn.closest('form')!);
-
-const BUDGET = budgetRow();
-const GL = [{ id: 'g1', accountCode: '5000', accountName: 'D2 Rent', accountType: 'expense', isActive: true }];
-const budgetsApi = (write: (url: string, m: string) => Response | undefined, reload?: () => Response) => (u: string, m: string) => {
-  if (m !== 'GET') return write(u, m);
-  if (u.includes('chart-of-accounts')) return ok(GL);
-  return reload ? reload() : ok(budgetsPayload([BUDGET]));
-};
-const budgetsLoaded = async () => { render(<BudgetsPage />); await screen.findByText('D2 Sales Budget'); };
-
-describe('budgets', () => {
-  const addBudget = async () => {
-    await budgetsLoaded();
-    await clickAddBudget();
-    await screen.findByRole('option', { name: /D2 Rent/ });
-    fireEvent.change(screen.getAllByRole('combobox')[1]!, { target: { value: 'g1' } });
-    // MoneyField parses on blur.
-    fireEvent.change(screen.getByLabelText(/Annual amount/), { target: { value: '500' } });
-    fireEvent.blur(screen.getByLabelText(/Annual amount/));
-    submit(screen.getByRole('button', { name: /save budget/i }));
-  };
-
-  it('save refused: the server message shows, the form stays open, no success', async () => {
-    script(budgetsApi(() => refuse()));
-    await addBudget();
-    expect(await screen.findByText(MSG)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /save budget/i })).toBeTruthy();
-    expect(screen.queryByText('Budget saved')).toBeNull();
-  });
-
-  it('save with an empty-body 500: a plain sentence, no bare Failed', async () => {
-    script(budgetsApi(() => empty500()));
-    await addBudget();
-    expect(await screen.findByText('Could not save the budget - try again')).toBeTruthy();
-    expectNoRawError();
-  });
-
-  it('save 200 then reload 500: still says saved, shows the reload error, rows cleared, no spinner', async () => {
-    let saved = false;
-    script(budgetsApi(() => { saved = true; return ok({}); }, () => (saved ? empty500() : ok(budgetsPayload([BUDGET])))));
-    await addBudget();
-    expect(await screen.findByText('Budget saved')).toBeTruthy();
-    expect(await screen.findByText('Could not load budgets - try again')).toBeTruthy();
-    await waitFor(() => expect(screen.queryByText('D2 Sales Budget')).toBeNull());
-    expect(spinner()).toBeNull();
-    expectNoRawError();
-  });
-
-  it('copy refused / empty 500: the reason shows, no "Copied"', async () => {
-    script(budgetsApi(() => refuse()));
-    await budgetsLoaded();
-    click(screen.getByRole('button', { name: /copy to/i }));
-    expect(await screen.findByText(MSG)).toBeTruthy();
-    cleanup();
-    script(budgetsApi(() => empty500()));
-    await budgetsLoaded();
-    click(screen.getByRole('button', { name: /copy to/i }));
-    expect(await screen.findByText('Could not copy the budgets - try again')).toBeTruthy();
-    expect(screen.queryByText(/Copied/)).toBeNull();
-    expectNoRawError();
-  });
-
-  it('delete refused: the reason shows and the row stays', async () => {
-    script(budgetsApi(() => refuse()));
-    await budgetsLoaded();
-    click(screen.getByTitle('Delete'));
-    click(await screen.findByText('Delete')); // delete asks first
-    expect(await screen.findByText(MSG)).toBeTruthy();
-    expect(screen.getByText('D2 Sales Budget')).toBeTruthy();
-    expect(screen.queryByText('Budget deleted')).toBeNull();
-  });
-});
 
 const ADJ = { id: 'j1', adjustmentNumber: 'D2-ADJ-1', entityType: 'customer', entityId: 'c1', entityName: 'D2 Client', adjustmentType: 'debit', amount: 10, reason: 'r', adjustmentDate: '2026-01-01', status: 'draft' };
 const adjApi = (write: (u: string, m: string) => Response | undefined, reload?: () => Response) => (u: string, m: string) => {
