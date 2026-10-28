@@ -66,11 +66,14 @@ describe('toBudgetTrackingRows', () => {
   it('F3: a partial line carries partialBudget for PR-B to render; a whole line carries false', () => {
     const rows = toBudgetTrackingRows({ lines: [{ ...LINES[1]!, partialBudget: true }, LINES[0]!], bands: BANDS });
     expect(rows.find((r) => r.id === 'acc:4100')!.partialBudget).toBe(true);
+    // A partial budget outranks "above the filter" as the reason the grid prints (PR-B).
+    expect(rows.find((r) => r.id === 'acc:4100')!.budget.absentReason).toBe('partial');
     expect(rows.find((r) => r.id === 'acc:4000')!.partialBudget).toBe(false);
   });
 
   it('an unbudgeted line is absent (no value printed, no colour); a zero budget is a 0', () => {
-    expect(row('acc:4100').budget).toEqual({ value: 0, absent: true });
+    // 4100's only budget is above the filter: absent, and the grid's marker says why (PR-B).
+    expect(row('acc:4100').budget).toEqual({ value: 0, absent: true, absentReason: 'above-filter' });
     expect(row('acc:4100').projection).toEqual({ projected: 5, absent: true });
     expect(row('acc:4100').unallocatedBudget).toBe(7);
     expect(row('acc:6000').budget).toEqual({ value: 0, variance: 40, favourable: false });

@@ -11,48 +11,33 @@
  * `budget.variance` is the engine's movement (actual − budget), the sign every
  * StatementGrid comparator prints (comparators.ts exception 1), and
  * `favourable` its polarity judgement. An unbudgeted row is `absent` ("—", no
- * colour): `{ value: 0, absent: true }` with no variance, so a renderer that
- * does not know `absent` yet prints nothing it could colour.
- *
- * `absent` and `projection` are not on `statementModel.ts` yet: that additive
- * change is PR-B's (spec §3). Until then this module's own row type extends
- * the model, so a `BudgetTrackingRow` is a `StatementRow` to every consumer.
+ * colour): `{ value: 0, absent: true }` with no variance; a line whose budget
+ * covers only part of the window, or sits only above the filter, says so in
+ * `absentReason` (the grid's marker and tooltip).
  */
 import type { BudgetTrackingReport, TrackingBand, TrackingBandKey, TrackingFigures, TrackingLine } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
-import type { Comparison, StatementRow } from './statementModel';
-
-export interface TrackingComparison extends Comparison {
-  absent?: true;
-}
-
-export interface TrackingProjectionCells {
-  projected: number;
-  fyBudget?: number;
-  variance?: number;
-  favourable?: boolean;
-  absent?: true;
-}
+import type { Comparison, ProjectionFigures, StatementRow } from './statementModel';
 
 export interface BudgetTrackingRow extends StatementRow {
-  budget: TrackingComparison;
-  projection: TrackingProjectionCells;
+  budget: Comparison;
+  projection: ProjectionFigures;
   /** Budget set above the filter, never in `budget` (spec §2.4); null while the window budget is absent. */
   unallocatedBudget: number | null;
   /** Line rows only: the account's budget covers part of the window (copied from the engine's line). */
   partialBudget?: boolean;
 }
 
-function budgetOf(f: TrackingFigures): TrackingComparison {
+function budgetOf(f: TrackingFigures): Comparison {
   if (f.budget === null || f.variance === null) return { value: 0, absent: true };
-  const c: TrackingComparison = { value: f.budget, variance: f.variance };
+  const c: Comparison = { value: f.budget, variance: f.variance };
   if (f.variancePct !== null) c.variancePct = f.variancePct;
   if (f.favourable !== null) c.favourable = f.favourable;
   return c;
 }
 
-function projectionOf(f: TrackingFigures): TrackingProjectionCells {
+function projectionOf(f: TrackingFigures): ProjectionFigures {
   if (f.fyBudget === null || f.projVariance === null) return { projected: f.projected, absent: true };
-  const p: TrackingProjectionCells = { projected: f.projected, fyBudget: f.fyBudget, variance: f.projVariance };
+  const p: ProjectionFigures = { projected: f.projected, fyBudget: f.fyBudget, variance: f.projVariance };
   if (f.projFavourable !== null) p.favourable = f.projFavourable;
   return p;
 }
@@ -61,9 +46,15 @@ function figureRow(id: string, kind: StatementRow['kind'], label: string, depth:
   return { id, kind, label, depth, actual: f.actual, budget: budgetOf(f), projection: projectionOf(f), unallocatedBudget: f.unallocatedBudget };
 }
 
-const lineRow = (l: TrackingLine): BudgetTrackingRow => ({
-  ...figureRow(`acc:${l.accountCode}`, 'line', l.accountName, 1, l), accountCode: l.accountCode, partialBudget: l.partialBudget,
-});
+const lineRow = (l: TrackingLine): BudgetTrackingRow => {
+  const row: BudgetTrackingRow = { ...figureRow(`acc:${l.accountCode}`, 'line', l.accountName, 1, l), accountCode: l.accountCode, partialBudget: l.partialBudget };
+  // Why a line's budget is "—", when the engine knows: the grid's marker.
+  if (row.budget.absent) {
+    if (l.partialBudget) row.budget = { ...row.budget, absentReason: 'partial' };
+    else if (l.budgetAboveFilter) row.budget = { ...row.budget, absentReason: 'above-filter' };
+  }
+  return row;
+};
 
 export function toBudgetTrackingRows(report: Pick<BudgetTrackingReport, 'lines' | 'bands'>): BudgetTrackingRow[] {
   const bandOf = (key: TrackingBand['key']): TrackingBand => {

@@ -43,31 +43,67 @@ function varianceAmount(v: number, cents: boolean): string {
   return v > 0 ? `+${body}` : body;
 }
 
+/** "—" for a comparator that does not exist (`Comparison.absent`), never the zero dash. */
+const ABSENT = '—';
+const ABSENT_TITLE: Record<NonNullable<Comparison['absentReason']>, string> = {
+  partial: 'Budget covers only part of this window',
+  'above-filter': 'Budget set above this filter',
+};
+
+function AbsentCell({ reason }: { reason?: Comparison['absentReason'] }) {
+  if (!reason) return <span title="No budget">{ABSENT}</span>;
+  return (
+    <span title={ABSENT_TITLE[reason]} data-absent-reason={reason}>
+      {ABSENT}<sup aria-hidden="true" className="ml-0.5 text-[var(--ff-text-tertiary)]">{reason === 'partial' ? '½' : '↑'}</sup>
+      <span className="sr-only">{ABSENT_TITLE[reason]}</span>
+    </span>
+  );
+}
+
 function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey }: {
   c: Comparison | undefined; blank: boolean; columns: StatementColumns;
   maxVariance: Record<ComparatorKey, number>; cents: boolean; comparatorKey: ComparatorKey;
 }) {
   const show = !blank && c !== undefined;
+  // An absent comparator prints "—" in every cell, with no bar and no colour.
+  const absent = show && c.absent === true;
   return (
     <>
       <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
-        {show ? formatStatementFigure(c.value, { cents }) : ''}
+        {absent ? <AbsentCell reason={c.absentReason} /> : show ? formatStatementFigure(c.value, { cents }) : ''}
       </td>
       {columns.variance && (
         <>
-          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: favColour(c?.favourable) }}>
-            {show && c.variance !== undefined ? varianceAmount(c.variance, cents) : ''}
+          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent ? undefined : favColour(c?.favourable) }}>
+            {absent ? ABSENT : show && c.variance !== undefined ? varianceAmount(c.variance, cents) : ''}
           </td>
           <td className="w-36 px-2">
-            {show && c.variance !== undefined && (
+            {show && !absent && c.variance !== undefined && (
               <VarianceBar value={c.variance} max={maxVariance[comparatorKey]} favourable={c.favourable} />
             )}
           </td>
-          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: favColour(c?.favourable) }}>
-            {show && c.variancePct !== undefined ? formatPct(c.variancePct) : ''}
+          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent ? undefined : favColour(c?.favourable) }}>
+            {absent ? ABSENT : show && c.variancePct !== undefined ? formatPct(c.variancePct) : ''}
           </td>
         </>
       )}
+    </>
+  );
+}
+
+/** Projected FY / FY budget / Δ, Budget vs Actual only (`columns.projection`). */
+function ProjectionCells({ row, blank, cents }: { row: StatementRow; blank: boolean; cents: boolean }) {
+  const p = blank ? undefined : row.projection;
+  const none = p === undefined;
+  return (
+    <>
+      <td data-col="projected" className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{none ? '' : formatStatementFigure(p.projected, { cents })}</td>
+      <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
+        {none ? '' : p.absent || p.fyBudget === undefined ? <span title="No FY budget">{ABSENT}</span> : formatStatementFigure(p.fyBudget, { cents })}
+      </td>
+      <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: none || p.absent ? undefined : favColour(p.favourable) }}>
+        {none ? '' : p.absent || p.variance === undefined ? ABSENT : varianceAmount(p.variance, cents)}
+      </td>
     </>
   );
 }
@@ -124,7 +160,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
   const pad = row.depth === 1 ? 'pl-8' : 'pl-3';
   const code = row.accountCode;
   const active = COMPARATORS.filter(c => columns[c.key]);
-  const colSpan = 2 + active.length * (1 + (columns.variance ? 3 : 0)) + (columns.trend ? 1 : 0);
+  const colSpan = 2 + active.length * (1 + (columns.variance ? 3 : 0)) + (columns.trend ? 1 : 0) + (columns.projection ? 3 : 0);
   return (
     <>
       <tr data-kind={row.kind} className={`${KIND_CLASS[row.kind]} text-sm`}>
@@ -144,6 +180,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
           </Fragment>
         ))}
         {columns.trend && <td className="px-2 text-[var(--ff-text-secondary)]">{row.trend && <Sparkline points={row.trend} />}</td>}
+        {columns.projection && <ProjectionCells row={row} blank={blank} cents={cents} />}
       </tr>
       {expanded && code !== undefined && (drill || onEvidence) && (
         <tr data-kind="drill">
