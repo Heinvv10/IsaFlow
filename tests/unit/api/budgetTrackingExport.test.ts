@@ -213,12 +213,12 @@ describe('budget-tracking-export', () => {
       return { ...r, notices: { ...r.notices, noVersion: false, noVersionYears: [2026] } };
     });
     const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
-    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026: the Budget columns are blank for this window']);
+    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026 in this window']);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load((await call(exportHandler, { ...query, format: 'xlsx' })).sent as ArrayBuffer);
     const head: unknown[][] = [];
     wb.worksheets[0]!.eachRow((r) => { head.push([r.getCell(1).value, r.getCell(2).value]); });
-    expect(head).toContainEqual(['Notice', 'No budget for FY2026: the Budget columns are blank for this window']);
+    expect(head).toContainEqual(['Notice', 'No budget for FY2026 in this window']);
     // A fully versioned window carries no notice line.
     buildBudgetTrackingReport.mockImplementation(async () => fixture());
     const plain = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
@@ -247,7 +247,21 @@ describe('budget-tracking-export', () => {
       return { ...r, versionsByFy: { 2027: { id: 'v27', name: 'Original', kind: 'original', status: 'approved' } }, notices: { ...r.notices, noVersionYears: [2026] } };
     });
     const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
-    expect(csv.find((r) => r[0] === 'Version')).toEqual(['Version', 'FY2026: no budget; FY2027: Original · approved']);
+    expect(csv.find((r) => r[0] === 'Version')).toEqual(['Version', 'FY2026: no budget in this window; FY2027: Original · approved']);
+  });
+
+  it('r4: a year whose version holds no budget in this window is never presented as a budget', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => {
+      const r = fixture();
+      return {
+        ...r,
+        versionsByFy: { 2026: { id: 'v26', name: 'Original', kind: 'original', status: 'draft', empty: true }, 2027: { id: 'v27', name: 'Original', kind: 'original', status: 'approved' } },
+        notices: { ...r.notices, noVersionYears: [2026] },
+      };
+    });
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.find((r) => r[0] === 'Version')).toEqual(['Version', 'FY2026: no budget in this window; FY2027: Original · approved']);
+    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026 in this window']);
   });
 
   it('refuses an unknown format and a malformed query before any work', async () => {

@@ -79,7 +79,7 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
       .sort((x, y) => x - y)
       .map((y) => {
         const v = byFy[y];
-        return v && !report.notices.noVersionYears.includes(y) ? `FY${y}: ${v.name} · ${v.status}` : `FY${y}: no budget`;
+        return v && !v.empty && !report.notices.noVersionYears.includes(y) ? `FY${y}: ${v.name} · ${v.status}` : `FY${y}: no budget in this window`;
       })
       .join('; ')
     : report.version ? `${report.version.name} · ${report.version.status}` : `None (no budget for FY${w.fiscalYear})`;
@@ -94,7 +94,7 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
   // Budget column beside a named version reads as an export fault.
   const missing = report.notices.noVersionYears;
   if (missing.length > 0) {
-    head.push(['Notice', `No budget for ${missing.map((y) => `FY${y}`).join(', ')}: the Budget columns are blank for this window`]);
+    head.push(['Notice', `No budget for ${missing.map((y) => `FY${y}`).join(', ')} in this window`]);
   }
   return head;
 }

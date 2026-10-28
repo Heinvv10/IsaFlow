@@ -20,11 +20,11 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { budgetMonthBounds, monthKeyToDate } from '@/modules/accounting/services/reports/budgetPeriodWindow';
+import { budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import { versionYear, type VersionScope } from '../budgetVersionScope';
 import { mapRegistryMiss } from './trackingWindow';
 import type { AccountMeta } from './trackingLines';
-import { TrackingError, type TrackingVersionRef, type TrackingWindow } from './trackingTypes';
+import { TrackingError, type TrackingVersionRef, type TrackingWindow, type WindowYear } from './trackingTypes';
 
 export interface BudgetRow extends AccountMeta {
   /** 'YYYY-MM'. */
@@ -40,8 +40,8 @@ export interface TrackingVersions {
   /** FY*'s version; null when FY* has none. */
   version: TrackingVersionRef | null;
   /** Every year of a cross-FY window that has a version. */
-  versionsByFy?: Record<number, { id: string; name: string; kind: string; status: string }>;
-  /** Window years (and FY*) without a version, or whose version holds no rows at all. */
+  versionsByFy?: Record<number, { id: string; name: string; kind: string; status: string; empty?: true }>;
+  /** Window years (and FY*) without a version. The service widens this to every budget-ABSENT year once the budget read is in (`budgetAbsentYears`). */
   noVersionYears: number[];
 }
 
@@ -73,22 +73,28 @@ function scopeYears(window: TrackingWindow): Array<{ fiscalYear: number; first: 
 }
 
 /**
- * Pure (review r3 R9): the years that have no budget, those with no version AND those whose
- * version holds no rows at all (an empty version, as `resolvePrimaryVersion({ create: true })`
- * leaves one). Both are "no budget" for the gap rule; an empty version is not a budget of zero.
+ * Pure (review r3 R9, r4 E1-E3): the years the WINDOW has no budget for. A year is budget-absent
+ * when it has no version, or when its version contributes no row to the scoped budget read
+ * (`readTrackingBudgets`: income-statement accounts, the version's own months) within that year's
+ * window months. An "any row" check would be fooled by a row outside the window, on a
+ * balance-sheet account, or dated in another year's month. FY* outside the window (a year to date
+ * that has not started) is judged over its whole year, as the projection reads it.
  */
-export function noVersionYearsOf(scope: readonly VersionScope[], withRows: ReadonlySet<string>): number[] {
-  return scope.filter((s) => s.versionId === null || !withRows.has(s.versionId)).map((s) => s.fiscalYear);
-}
-
-/** The versions among `ids` holding at least one amount row (any grain, any month). */
-async function versionsWithRows(companyId: string, ids: readonly string[]): Promise<Set<string>> {
-  if (ids.length === 0) return new Set();
-  const rows = (await sql`
-    SELECT v::TEXT AS id FROM unnest(${[...ids]}::UUID[]) AS v
-     WHERE EXISTS (SELECT 1 FROM budget_month_amounts bm WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = v)
-  `) as DbRow[];
-  return new Set(rows.map((r) => String(r.id)));
+export function budgetAbsentYears(
+  window: { years: readonly WindowYear[]; fy: { fiscalYear: number; startDate: string; endDate: string } },
+  scope: readonly VersionScope[],
+  rows: ReadonlyArray<{ month: string }>,
+): number[] {
+  const budgeted = new Set(rows.map((r) => r.month));
+  const judged = window.years.some((y) => y.fiscalYear === window.fy.fiscalYear)
+    ? window.years
+    : [...window.years, { fiscalYear: window.fy.fiscalYear, months: budgetMonthKeysInWindow(window.fy.startDate, window.fy.endDate) }];
+  return judged
+    .filter((y) => {
+      const version = scope.find((sc) => sc.fiscalYear === y.fiscalYear)?.versionId ?? null;
+      return version === null || !y.months.some((m) => budgeted.has(m));
+    })
+    .map((y) => y.fiscalYear);
 }
 
 /** The versions a window reads; `versionId` is looked up under the company (404 when it is not its own). */
@@ -114,13 +120,12 @@ export async function resolveTrackingVersions(companyId: string, window: Trackin
   }
   const ids = [...new Set(scope.map((s) => s.versionId).filter((v): v is string => v !== null))];
   const heads = await versionHeads(companyId, ids);
-  const withRows = await versionsWithRows(companyId, ids);
   const byYear = new Map(scope.map((s) => [s.fiscalYear, s.versionId]));
   const fyVersion = byYear.get(fy.fiscalYear) ?? null;
   const out: TrackingVersions = {
     scope,
     version: fyVersion === null ? null : heads.get(fyVersion) ?? null,
-    noVersionYears: noVersionYearsOf(scope, withRows),
+    noVersionYears: scope.filter((sc) => sc.versionId === null).map((sc) => sc.fiscalYear),
   };
   if (window.years.length > 1) {
     out.versionsByFy = {};
