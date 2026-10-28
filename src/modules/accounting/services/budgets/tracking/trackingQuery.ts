@@ -6,7 +6,10 @@
  *   month=YYYY-MM | fiscal_year=<label> [&quarter=1..5] | from=YYYY-MM&to=YYYY-MM
  *   version_id, cc1_id, cc2_id, bu_id: uuid    group_by=cc1|cc2|bu (bullets)
  *
- * An empty value is absent. A repeated parameter (an array) is refused. Any
+ * An empty value is absent. A repeated parameter (an array) is refused. Years
+ * lie in 1900-2200, and a parameter of another period (`fiscal_year` with
+ * `period=month`, `quarter` without `period=quarter`, `from`/`to` outside
+ * custom) is refused by the window's own rule (`assertParamsApply`). Any
  * other key is ignored, `company_id` included: the company is the
  * authenticated request's, never the query's. The window rules (quarter past
  * the year, from > to, > 24 months) are `trackingWindow`'s, so they hold for
@@ -14,16 +17,20 @@
  */
 import { z } from 'zod';
 import { UUID } from '@/lib/schemas/common';
-import { TRACKING_PERIODS, type TrackingParams, type TrackingPeriod } from './trackingTypes';
+import { TRACKING_PERIODS, TrackingError, type TrackingParams, type TrackingPeriod } from './trackingTypes';
+import { assertParamsApply, YEAR_MAX, YEAR_MIN } from './trackingWindow';
 
 const blankIsAbsent = (v: unknown) => (v === '' ? undefined : v);
 const opt = <T extends z.ZodTypeAny>(schema: T) => z.preprocess(blankIsAbsent, schema.optional());
-const MonthKey = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Must be a month, YYYY-MM');
+const inRange = (year: number) => year >= YEAR_MIN && year <= YEAR_MAX;
+const RANGE = `Year must lie in ${YEAR_MIN}-${YEAR_MAX}`;
+const MonthKey = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Must be a month, YYYY-MM')
+  .refine((v) => inRange(Number(v.slice(0, 4))), RANGE);
 
 const shape = {
   period: opt(z.enum(TRACKING_PERIODS as [TrackingPeriod, ...TrackingPeriod[]])),
   month: opt(MonthKey),
-  fiscal_year: opt(z.string().regex(/^\d{4}$/, 'Must be a financial-year label such as 2027')),
+  fiscal_year: opt(z.string().regex(/^\d{4}$/, 'Must be a financial-year label such as 2027').refine((v) => inRange(Number(v)), RANGE)),
   quarter: opt(z.string().regex(/^[1-5]$/, 'Must be 1 to 5')),
   from: opt(MonthKey),
   to: opt(MonthKey),
@@ -59,5 +66,12 @@ export function parseTrackingQuery(query: unknown): TrackingQueryResult {
   if (q.cc2_id !== undefined) params.cc2Id = q.cc2_id;
   if (q.bu_id !== undefined) params.buId = q.bu_id;
   if (q.group_by !== undefined) params.groupBy = q.group_by;
+  // The window's own rule, applied before any query: a parameter that does not apply to the period is a 400.
+  try {
+    assertParamsApply(params);
+  } catch (err) {
+    if (err instanceof TrackingError) return { ok: false, message: err.message, fieldErrors: {} };
+    throw err;
+  }
   return { ok: true, params };
 }

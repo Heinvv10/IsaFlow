@@ -32,10 +32,34 @@ export interface YearSource {
   forDate(date: string): Promise<FiscalYearRecord>;
 }
 
+/**
+ * A year the registry cannot place is the caller's 4xx, never a 500: no row for the date
+ * (`fiscalYearForDate`'s own error), a date too far from the stored years or no free label
+ * (the template's P0001 'fiscal_year_template:' raises) are 400; no usable start month
+ * (22023) is 409, a company setting. Anything else is rethrown as it came.
+ */
+function registryMiss(err: unknown): TrackingError | null {
+  const e = err as { code?: unknown; message?: unknown } | null;
+  const message = typeof e?.message === 'string' ? e.message : '';
+  if (e?.code === '22023') return new TrackingError(409, message);
+  if (message.startsWith('fiscalYearForDate: no fiscal year') || (e?.code === 'P0001' && message.startsWith('fiscal_year_template:'))) {
+    return new TrackingError(400, `No financial year can be placed for that date: ${message}`);
+  }
+  return null;
+}
+
+async function mapMiss<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (err) {
+    throw registryMiss(err) ?? err;
+  }
+}
+
 export function registryYears(companyId: string): YearSource {
   return {
-    byLabel: (label) => getFiscalYear(companyId, label),
-    forDate: (date) => fiscalYearForDate(companyId, date),
+    byLabel: (label) => mapMiss(() => getFiscalYear(companyId, label)),
+    forDate: (date) => mapMiss(() => fiscalYearForDate(companyId, date)),
   };
 }
 
@@ -46,12 +70,41 @@ const MAX_YEARS = 40;
 
 const MONTH_KEY = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+/** The years a request may name (review S2): anything else is a typo, not a report. */
+export const YEAR_MIN = 1900;
+export const YEAR_MAX = 2200;
+
+const inYearRange = (year: number) => Number.isInteger(year) && year >= YEAR_MIN && year <= YEAR_MAX;
+
 function monthParam(name: string, raw: string | undefined): string {
   if (raw === undefined) throw new TrackingError(400, `${name} is required (YYYY-MM)`);
   if (!MONTH_KEY.test(raw)) {
     throw new TrackingError(400, `${name} must be a month (YYYY-MM): a budget month cannot be split without inventing a number`);
   }
+  if (!inYearRange(Number(raw.slice(0, 4)))) throw new TrackingError(400, `${name} must lie in ${YEAR_MIN}-${YEAR_MAX}`);
   return raw;
+}
+
+/** Which period each parameter belongs to; one given to another period is refused (review Q8). */
+const APPLIES: Record<'month' | 'fiscalYear' | 'quarter' | 'from' | 'to', readonly TrackingWindowParams['period'][]> = {
+  month: ['month'],
+  fiscalYear: ['quarter', 'ytd', 'fy'],
+  quarter: ['quarter'],
+  from: ['custom'],
+  to: ['custom'],
+};
+const QUERY_NAME = { month: 'month', fiscalYear: 'fiscal_year', quarter: 'quarter', from: 'from', to: 'to' } as const;
+
+/** 400 for a parameter that does not apply to the period, or a year label outside the range. */
+export function assertParamsApply(p: TrackingWindowParams): void {
+  for (const key of Object.keys(APPLIES) as Array<keyof typeof APPLIES>) {
+    if (p[key] !== undefined && !APPLIES[key].includes(p.period)) {
+      throw new TrackingError(400, `${QUERY_NAME[key]} does not apply to period=${p.period}`);
+    }
+  }
+  if (p.fiscalYear !== undefined && !inYearRange(p.fiscalYear)) {
+    throw new TrackingError(400, `fiscal_year must lie in ${YEAR_MIN}-${YEAR_MAX}`);
+  }
 }
 
 function assertCalendarMonths(year: FiscalYearRecord): FiscalYearRecord {
@@ -140,6 +193,7 @@ export function readStartOf(w: Pick<TrackingWindow, 'startDate' | 'fy'>): string
 
 /** The window a request names, against any year source (the pure core). */
 export async function resolveTrackingWindowFrom(src: YearSource, p: TrackingWindowParams, today: string): Promise<TrackingWindow> {
+  assertParamsApply(p);
   const span = await spanOf(src, p, today);
   if (span.notStarted && span.fy) {
     return {

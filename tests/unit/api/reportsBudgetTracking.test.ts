@@ -73,6 +73,12 @@ describe('reports-budget-tracking', () => {
     ['a cc1 id that is not a uuid', { cc1_id: "1' OR 1=1" }],
     ['a repeated parameter', { bu_id: [CC, CC] }],
     ['an unknown group_by', { group_by: 'project' }],
+    ['a month in year 1', { period: 'month', month: '0001-01' }],
+    ['a fiscal year past 2200', { period: 'fy', fiscal_year: '9999' }],
+    ['a custom bound past 2200', { period: 'custom', from: '2201-01', to: '2201-03' }],
+    ['fiscal_year with period=month', { period: 'month', month: '2026-10', fiscal_year: '2027' }],
+    ['quarter without period=quarter', { period: 'ytd', quarter: '2' }],
+    ['from/to outside custom', { period: 'fy', from: '2026-01', to: '2026-03' }],
   ];
   for (const [name, query] of BAD) {
     it(`answers ${name} with a 400 and never runs the engine`, async () => {
