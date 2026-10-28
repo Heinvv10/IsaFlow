@@ -25,7 +25,7 @@ export function VarianceHeatmap({ lines, months }: { lines: TrackingLine[]; mont
       {lines.length > HEATMAP_DEFAULT_LIMIT && (
         <button
           type="button"
-          className="mt-2 text-xs font-medium text-[var(--ff-accent)] hover:underline"
+          className="mt-2 text-xs font-medium text-teal-700 dark:text-teal-400 hover:underline"
           onClick={() => setShowAll((v) => !v)}
         >
           {showAll ? `Show the top ${HEATMAP_DEFAULT_LIMIT}` : `Show all ${lines.length} accounts`}
