@@ -13,7 +13,8 @@ import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { boundedRowWait, lockSystemRoleWrites, textUnlessLockError } from '../gl/systemRoleWriteLock';
 import { clearSystemAccountCacheAfterCommit } from '../gl/systemAccountResolver';
-import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
+import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassification';
+import { accountCodeOf, reimportAttributeChanges, retypeRefusals } from './migrationReimportRows';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
 // route and the wizard keep importing it from here.
@@ -124,7 +125,7 @@ async function executeUnderLock(
             normal_balance, description, level, display_order, imported_from
           ) VALUES (
             ${companyId}::UUID,
-            ${acct.sourceCode || acct.sourceName.substring(0, 20)},
+            ${accountCodeOf(acct)},
             ${acct.sourceName},
             ${acct.mappedType},
             ${acct.mappedSubtype ?? null},
@@ -136,24 +137,28 @@ async function executeUnderLock(
           )
           ON CONFLICT (company_id, account_code) DO UPDATE SET
             account_name    = EXCLUDED.account_name,
-            -- A system account keeps its type and subtype. The subtype is its
-            -- ROLE: only Default Accounts and the COA import's role map place
-            -- one, never this fill (it would make the account a holder, beside
-            -- the role's own). Its type is what the role requires: re-typing
-            -- the bank holder as an expense would leave posting on a mistyped account.
-            account_type    = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_type
-                                   ELSE EXCLUDED.account_type END,
+            -- An existing account never changes type here. A system account
+            -- keeps its type and subtype and still takes the name. The subtype
+            -- is its ROLE: only Default Accounts and the COA import's role map
+            -- place one, never this fill (it would make the account a holder,
+            -- beside the role's own). Any other account whose type the row
+            -- would change is not updated at all: the row is refused, because a
+            -- re-typed parent can leave the balance sheet.
             account_subtype = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
                                    ELSE COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype) END
           WHERE gl_accounts.imported_from = EXCLUDED.imported_from
+            AND (gl_accounts.is_system_account OR gl_accounts.account_type = EXCLUDED.account_type)
           RETURNING account_code
         `)
       )) as DbRow[][];
+      const retyped = await retypeRefusals(companyId, source, validAccounts.filter((_, i) => upserted[i]!.length === 0));
       upserted.forEach((rows, i) => {
         if (rows.length > 0) { accountsImported += 1; return; }
         const acct = validAccounts[i]!;
-        errors.push(
-          `Account "${acct.sourceCode} ${acct.sourceName}": code already used by an account the ${source} import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)`,
+        const currentType = retyped.get(accountCodeOf(acct));
+        errors.push(currentType
+          ? `Account "${acct.sourceCode} ${acct.sourceName}": is an existing ${currentType} account; the file makes it ${String(acct.mappedType)}. A re-run never changes an account's type: left unchanged (change it in the chart of accounts, then re-run)`
+          : `Account "${acct.sourceCode} ${acct.sourceName}": code already used by an account the ${source} import does not own — it was created here, or a partial rollback released it — left unchanged (renumber the source row, or delete the existing account, then re-run)`,
         );
       });
     } catch (err) {
@@ -251,35 +256,4 @@ export async function verifyBalances(
   }
 
   return results;
-}
-
-/**
- * The type/subtype changes the upsert above would make to accounts this SAME
- * source already imported (its ON CONFLICT only updates rows whose
- * imported_from matches): type := mapped type, subtype := COALESCE(existing,
- * mapped). Rows another source or the company owns are left alone by the
- * upsert, so they are not changes.
- */
-async function reimportAttributeChanges(
-  companyId: string, source: MigrationSource, accounts: readonly ParsedAccount[],
-): Promise<AccountAttributeChange[]> {
-  const codes = accounts.map((a) => a.sourceCode || a.sourceName.substring(0, 20));
-  if (codes.length === 0) return [];
-  const rows = (await sql`
-    SELECT id, account_code, account_type, account_subtype, is_system_account FROM gl_accounts
-    WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
-      AND account_code = ANY(${codes}::TEXT[])`) as DbRow[];
-  const byCode = new Map(accounts.map((a, i) => [codes[i]!, a]));
-  return rows.flatMap((r) => {
-    const acct = byCode.get(String(r.account_code));
-    if (!acct) return [];
-    const subtype = r.account_subtype == null ? null : String(r.account_subtype);
-    return [{
-      accountId: String(r.id), accountCode: String(r.account_code),
-      from: { accountType: String(r.account_type), accountSubtype: subtype },
-      to: r.is_system_account === true
-        ? { accountType: String(r.account_type), accountSubtype: subtype }
-        : { accountType: String(acct.mappedType), accountSubtype: subtype ?? acct.mappedSubtype ?? null },
-    }];
-  });
 }
