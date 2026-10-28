@@ -37,7 +37,7 @@ const LEGACY = { id: 'inv-1', invoice_number: 'INV-1', status: 'draft', client_i
   billing_period_start: '2026-09-01', billing_period_end: '2026-09-30', tax_rate: 15, notes: '', currency_code: 'ZAR', exchange_rate: 1,
   items: [{ description: 'L', quantity: 1, unit_price: 10, amount: 10 }] };
 
-function serve(opts: { customersFail?: boolean } = {}) {
+function serve(opts: { customersFail?: boolean; listGate?: Promise<void> } = {}) {
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     const u = String(url);
     if (u.includes('customer-invoices-create') && init?.method === 'POST') return ok({ id: 'n1' });
@@ -45,7 +45,8 @@ function serve(opts: { customersFail?: boolean } = {}) {
     if (u.includes('customer-invoices-detail')) return ok(LEGACY);
     if (u.includes('/customers')) {
       if (opts.customersFail && u === '/api/accounting/customers') return new Response('{}', { status: 500 });
-      return ok([{ id: 'c-1', name: 'Acme' }]);
+      if (u === '/api/accounting/customers') { await opts.listGate; return ok([{ id: 'c-1', name: 'Acme' }]); }
+      return ok([{ id: 'c-1', name: 'Acme' }, { id: 'c-2', name: 'Beta' }]);
     }
     return ok([]);
   });
@@ -95,7 +96,7 @@ describe('a scan cannot crash the form with a date DateField would refuse as a b
     serve();
     const form: InvoiceHeaderForm = { clientId: '', invoiceDate: '1 Oct 2026', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' };
     const opts = { projects: [], accounts: [], costCentres: [], businessUnits: [] } as never;
-    expect(() => render(<InvoiceHeaderFields form={form} onChange={vi.fn()} currencies={[]} options={opts} onProjectChange={vi.fn()} onDateValidity={vi.fn()} />)).not.toThrow();
+    expect(() => render(<InvoiceHeaderFields form={form} onChange={vi.fn()} currencies={[]} options={opts} onProjectChange={vi.fn()} onDateValidity={vi.fn()} refused={{}} />)).not.toThrow();
   });
 });
 
@@ -161,5 +162,77 @@ describe('the client list for scan matching', () => {
     scanNow();
     await waitFor(() => expect(alerts()).toContain('Could not load clients'));
     expect((field('Invoice date') as HTMLInputElement).value).toBe('01 Aug 2026');
+  });
+});
+
+describe('a slow scan lookup cannot overwrite what the user did meanwhile', () => {
+  function gate() {
+    let release!: () => void;
+    const promise = new Promise<void>((r) => { release = r; });
+    return { promise, release };
+  }
+  const clientBox = () => screen.getByRole('combobox', { name: 'Client' }).textContent ?? '';
+
+  it('a client picked while the lookup is in flight stays picked', async () => {
+    const g = gate();
+    serve({ listGate: g.promise });
+    scan.current = { date: '2026-08-01', dueDate: null, customerName: 'Acme' };
+    render(<NewPage />);
+    scanNow();
+    await pickOption('Client', 'Beta');
+    g.release();
+    await waitFor(() => expect(clientListCalls()).toBe(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(clientBox()).toContain('Beta');
+    fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
+    fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
+    await waitFor(() => expect(calls('POST')).toBe(1));
+    expect(sentBody('POST')).toMatchObject({ clientId: 'c-2' });
+  });
+
+  it('a lookup that lands after Save & New does not refill the cleared form', async () => {
+    const g = gate();
+    serve({ listGate: g.promise });
+    scan.current = { date: '2026-08-01', dueDate: null, customerName: 'Acme' };
+    render(<NewPage />);
+    await pickOption('Client', 'Beta');
+    fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
+    fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
+    scanNow(); // the lookup starts after the last pick, so only the reset can invalidate it
+    fireEvent.click(screen.getByRole('button', { name: /save & new/i }));
+    await waitFor(() => expect(calls('POST')).toBe(1));
+    await waitFor(() => expect(clientBox()).toContain('Select client'));
+    g.release();
+    await waitFor(() => expect(clientListCalls()).toBe(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(clientBox()).toContain('Select client');
+  });
+
+  it('a newer scan wins over an older lookup', async () => {
+    const g = gate();
+    serve({ listGate: g.promise });
+    scan.current = { date: '2026-08-01', dueDate: null, customerName: 'Acme' };
+    render(<NewPage />);
+    scanNow();
+    scan.current = { date: '2026-08-02', dueDate: null, customerName: null };
+    scanNow();
+    g.release();
+    await waitFor(() => expect(clientListCalls()).toBe(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(clientBox()).toContain('Select client');
+  });
+});
+
+describe('the Due field says why when its own text is refused, even while due-before-invoice holds', () => {
+  it('shows the refusal reason, not the due-before-invoice message', async () => {
+    serve();
+    render(<EditPage />);
+    await screen.findByDisplayValue('L');
+    expect(screen.getByText('The due date is before the invoice date')).toBeTruthy();
+    typeDate(field('Due date'), '15 Aug 2026'); // refused: before the 15 Sep invoice date
+    await waitFor(() => expect(screen.queryByText('The due date is before the invoice date')).toBeNull());
+    expect(screen.getAllByText(/on or after 15 Sep 2026/).length).toBeGreaterThan(0);
+    expect(field('Due date').getAttribute('aria-invalid')).toBe('true');
   });
 });

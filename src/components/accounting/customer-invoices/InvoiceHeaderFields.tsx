@@ -11,7 +11,7 @@ import { DateField } from '@/components/ui/DateField';
 import type { FieldValidity } from '@/components/ui/useParsedField';
 import { CodingPicker } from './InvoiceLineItemsTable';
 import type { InvoiceLineCodingOptions } from './useInvoiceLineCodingOptions';
-import { dueBeforeInvoice, isoOrEmpty, type InvoiceDateKey, type InvoiceHeaderForm } from './invoiceHeaderForm';
+import { dueBeforeInvoice, isoOrEmpty, type InvoiceDateKey, type InvoiceHeaderForm, type Refused } from './invoiceHeaderForm';
 
 export interface InvoiceCurrency { code: string; name: string }
 
@@ -22,6 +22,8 @@ interface Props {
   options: InvoiceLineCodingOptions;
   onProjectChange: (projectId: string) => void;
   onDateValidity: (key: InvoiceDateKey, v: FieldValidity) => void;
+  /** The page's refused dates (useInvoiceDateValidity), so a field's own refusal reason is not hidden by another message. */
+  refused: Refused;
   /** Names the client when the page already holds it (a scan match), so the picker need not look it up. */
   clientLabel?: string;
   /** Bumped by the page when it resets the form, to clear refused date text. */
@@ -40,7 +42,7 @@ export function InvoiceCard({ n, title, children }: { n: number; title: string; 
   );
 }
 
-export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, clientLabel, resetKey }: Props) {
+export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey }: Props) {
   const isFx = form.currencyCode !== 'ZAR';
   const currencyOptions = [{ value: 'ZAR', label: 'ZAR — South African Rand' }, ...currencies.filter((c) => c.code !== 'ZAR').map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))];
   // Due date's floor is the invoice date, so a refusal made against the old floor is stale once the invoice date moves:
@@ -82,9 +84,10 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
           {date('invoiceDate', 'Invoice date', { required: true })}
           {date('dueDate', 'Due date', {
             // The floor is only ever a real ISO date (DateField throws on any other); the field cannot re-check a value it
-            // already holds when the floor moves, so a due date now before the invoice date is shown red from here.
+            // already holds when the floor moves, so a due date now before the invoice date is shown red from here (unless
+            // the Due text on screen was itself refused: that reason is the one the user needs, and the field shows it).
             ...(isoOrEmpty(form.invoiceDate) ? { minDate: form.invoiceDate } : {}),
-            ...(dueBeforeInvoice(form) ? { error: 'The due date is before the invoice date' } : {}),
+            ...(dueBeforeInvoice(form) && !refused.dueDate ? { error: 'The due date is before the invoice date' } : {}),
           })}
           {date('billingPeriodStart', 'Period start')}
           {date('billingPeriodEnd', 'Period end')}

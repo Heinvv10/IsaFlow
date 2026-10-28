@@ -22,7 +22,7 @@ export interface InvoiceHeaderForm {
 }
 
 export type InvoiceDateKey = 'invoiceDate' | 'dueDate' | 'billingPeriodStart' | 'billingPeriodEnd';
-type Refused = Partial<Record<InvoiceDateKey, string>>;
+export type Refused = Partial<Record<InvoiceDateKey, string>>;
 
 export function useInvoiceDateValidity() {
   const [refused, setRefused] = useState<Refused>({});
