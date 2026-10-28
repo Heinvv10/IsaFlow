@@ -8,20 +8,33 @@
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
 
-test('journal entry: draft → post → reverse nets to zero', async ({ baseURL }) => {
-  const api = await Api.login(baseURL!);
-  try {
-    // Borrow two GL accounts that already accept postings in this company.
-    const posted = await api.get<{ entries: any[] }>(
-      '/api/accounting/journal-entries?status=posted&limit=1',
-    );
-    expect(posted.entries.length, 'Demo company must have at least one posted journal').toBeGreaterThan(0);
+/**
+ * Two GL accounts that already accept postings in this company: the first two lines of its latest posted journal.
+ * A company with no posted journal yet (a golden slot before its first run: slots copy setup data, never
+ * transactions) uses its default expense account and its first bank account instead. This very test posts a journal, so
+ * the fallback is only ever taken once per company.
+ */
+async function postableAccounts(api: Api): Promise<[string, string]> {
+  const posted = await api.get<{ entries: any[] }>('/api/accounting/journal-entries?status=posted&limit=1');
+  if (posted.entries.length > 0) {
     const sample = await api.get<{ lines: any[] }>(
       `/api/accounting/journal-entries-detail?id=${posted.entries[0].id}`,
     );
     expect(sample.lines.length).toBeGreaterThanOrEqual(2);
-    const acctA = sample.lines[0].glAccountId;
-    const acctB = sample.lines[1].glAccountId;
+    return [sample.lines[0].glAccountId, sample.lines[1].glAccountId];
+  }
+  const expense = await api.get<any[]>('/api/accounting/chart-of-accounts?subtype=default_expense');
+  const banks = await api.get<any[]>('/api/accounting/bank-accounts');
+  const expenseId = expense.find((a) => a.isSystemAccount === true)?.id;
+  expect(expenseId, 'a company with no posted journal needs a default expense account to borrow').toBeTruthy();
+  expect(banks.length, 'a company with no posted journal needs a bank account to borrow').toBeGreaterThan(0);
+  return [expenseId, banks[0].id];
+}
+
+test('journal entry: draft → post → reverse nets to zero', async ({ baseURL }) => {
+  const api = await Api.login(baseURL!);
+  try {
+    const [acctA, acctB] = await postableAccounts(api);
 
     // Unbalanced journal must be rejected (pin: validation known-good).
     const unbalanced = await api.postRaw('/api/accounting/journal-entries', {

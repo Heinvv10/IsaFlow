@@ -12,8 +12,9 @@
  */
 import { request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { existsSync } from 'fs';
-import { getE2ECredentials } from '../_creds';
 import { GOLDEN_STATE_FILE } from './_global-setup';
+import { loginGolden } from './helpers/goldenLogin';
+import { readGoldenSlot } from './helpers/goldenSlot';
 
 const CSRF_COOKIE = 'isaflow_csrf';
 const CSRF_HEADER = 'x-csrf-token';
@@ -50,19 +51,10 @@ export class Api {
       await ctx.dispose();
     }
 
-    const { email, password } = getE2ECredentials();
     const ctx = await pwRequest.newContext({ baseURL });
     try {
-      const res = await ctx.post('/api/auth/login', { data: { email, password } });
-      if (res.status() !== 200) {
-        throw new Error(`login failed: ${res.status()} ${await res.text()}`);
-      }
-      let csrf = await Api.readCsrf(ctx);
-      if (!csrf) {
-        // middleware issues the cookie on any routed request
-        await ctx.get('/accounting');
-        csrf = await Api.readCsrf(ctx);
-      }
+      await loginGolden(ctx, readGoldenSlot(process.env));
+      const csrf = await Api.readCsrf(ctx);
       if (!csrf) throw new Error('no isaflow_csrf cookie after login');
       return new Api(ctx, csrf);
     } catch (err) {
