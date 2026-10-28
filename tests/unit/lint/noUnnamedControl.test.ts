@@ -24,7 +24,7 @@ tester.run('no-unnamed-control', noUnnamedControl, {
     { code: '<><label htmlFor="s">Status</label><select id="s" /></>', filename: file, options: NONE },
     { code: '<><textarea id="n" /><label htmlFor="n">Notes</label></>', filename: file, options: NONE },
     { code: '<label>Status <select /></label>', filename: file, options: NONE },
-    { code: '<label><span><textarea /></span></label>', filename: file, options: NONE },
+    { code: '<label><span>Notes</span><textarea /></label>', filename: file, options: NONE },
     { code: '<select id={id} />', filename: file, options: NONE },
     { code: '<select {...props} />', filename: file, options: NONE },
     { code: '<textarea {...register("notes")} />', filename: file, options: NONE },
@@ -42,6 +42,15 @@ tester.run('no-unnamed-control', noUnnamedControl, {
     { code: '<select hidden />', filename: file, options: NONE },
     { code: '<textarea aria-hidden="true" />', filename: file, options: NONE },
     { code: '<select aria-hidden />', filename: file, options: NONE },
+    { code: '<select hidden={true} />', filename: file, options: NONE },
+    { code: '<select hidden="true" />', filename: file, options: NONE },
+    { code: '<textarea aria-hidden={true} />', filename: file, options: NONE },
+    { code: '<textarea aria-hidden={`true`} />', filename: file, options: NONE },
+    // text, an expression, a component or an aria-label on the wrapping label is a name
+    { code: '<label>{text}<select /></label>', filename: file, options: NONE },
+    { code: '<label><Trans /><select /></label>', filename: file, options: NONE },
+    { code: '<label aria-label="Status"><select /></label>', filename: file, options: NONE },
+    { code: '<label {...p}><select /></label>', filename: file, options: NONE },
     // aria-labelledby at an id written in the file, or a dynamic one
     { code: '<><h2 id="h">Status</h2><select aria-labelledby="h" /></>', filename: file, options: NONE },
     { code: '<><select aria-labelledby="x h" /><span id="h">S</span></>', filename: file, options: NONE },
@@ -70,6 +79,15 @@ tester.run('no-unnamed-control', noUnnamedControl, {
     { code: '<select />', filename: '__proto__', options: [{ allowlist: {} }], errors: [{ messageId: 'unnamed' }] },
     { code: '<select />', filename: 'src/components/uix/Thing.tsx', options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<select title="" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    // a dynamic hidden / aria-hidden may be false: it does not exempt the control
+    { code: '<select hidden={isHidden} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<textarea aria-hidden={collapsed} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select hidden={open ? false : true} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select aria-hidden={!!x} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    // a wrapping label with no text, no expression, no component and no aria names nothing; option text is not label text
+    { code: '<label><select /></label>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<label><select><option>A</option></select></label>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<label> <span> </span><textarea /></label>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<select hidden={false} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<select aria-hidden="false" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     // aria-labelledby at no id in the file names nothing

@@ -4,8 +4,10 @@
  * The <input> half of this check is isaflow/no-raw-form-input; this rule uses the same name sources, outside
  * src/components/ui: aria-label, a non-empty title, aria-labelledby at an id written in the same file, an `id`
  * that a <label htmlFor> in the same file points at, or a wrapping <label>. Dynamic ids, dynamic aria-labelledby
- * and {...spread} props get the benefit of the doubt (the name may arrive through them). `hidden` and
- * aria-hidden controls are skipped: they are not in the accessibility tree.
+ * and {...spread} props get the benefit of the doubt (the name may arrive through them). Literal `hidden` and
+ * aria-hidden controls are skipped (not in the accessibility tree); a dynamic `hidden={x}` may be false, so it
+ * does not exempt. A wrapping <label> names its control only if it has text, an expression or a component in it
+ * (or an aria-label); an empty `<label><select /></label>` names nothing.
  *
  * Not a name, and reported:
  *   - a <label> next to the control that names nothing;
@@ -24,23 +26,27 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { REPO_ROOT, UI_DIR, OVER_LIST_MESSAGE, attr, literal, isNothing, hasValue, reportBeyondAllowlist } from './no-raw-form-input.mjs';
+import { REPO_ROOT, UI_DIR, OVER_LIST_MESSAGE, attr, literal, isNothing, hasValue, isLabel, labelNamesContent, reportBeyondAllowlist } from './no-raw-form-input.mjs';
 
 export const UNNAMED_CONTROL_ALLOWLIST_FILE = path.join(REPO_ROOT, 'eslint', 'unnamed-control-allowlist.json');
 
 const CONTROLS = new Set(['select', 'textarea']);
 const LABELABLE = new Set(['input', 'select', 'textarea']);
 
-/** True for `hidden`, `hidden={true}`, `aria-hidden`, `aria-hidden="true"`; false for `{false}` / "false". */
+/**
+ * True for `hidden`, `hidden={true}`, `hidden="true"`, and the same for `aria-hidden`. A dynamic value
+ * (`hidden={collapsed}`) may be false at runtime, so it does not exempt the control; nor does `{false}` / "false".
+ */
 function isHidden(node) {
   return ['hidden', 'aria-hidden'].some((n) => {
     const a = attr(node, n);
-    return hasValue(a) && (literal(a) ?? '').trim().toLowerCase() !== 'false';
+    if (!a) return false;
+    if (a.value === null) return true; // bare attribute is `true`
+    const e = a.value.type === 'JSXExpressionContainer' ? a.value.expression : undefined;
+    if (e?.type === 'Literal' && e.value === true) return true;
+    const text = literal(a)?.trim().toLowerCase();
+    return text !== undefined && text !== '' && text !== 'false';
   });
-}
-
-function isLabel(n) {
-  return n.type === 'JSXElement' && n.openingElement.name.type === 'JSXIdentifier' && n.openingElement.name.name === 'label';
 }
 
 /** The list at `file`, or {} when it does not exist. */
@@ -108,13 +114,17 @@ export const noUnnamedControl = {
         if (label) {
           const forAttr = attr(label.openingElement, 'htmlFor') ?? attr(label.openingElement, 'for');
           if (!forAttr) {
-            if (firstInLabel.get(label) === node) return;
-            found.push({ node, messageId: 'secondInLabel', data: { tag } });
-            return;
+            if (firstInLabel.get(label) !== node) {
+              found.push({ node, messageId: 'secondInLabel', data: { tag } });
+              return;
+            }
+            // An empty wrapping label names nothing: fall through to the control's own id.
+            if (labelNamesContent(label)) return;
+          } else {
+            // A label with htmlFor names its target: this control only if it is that target, or we cannot tell.
+            const target = literal(forAttr);
+            if (target === undefined || target === ownId) return;
           }
-          // A label with htmlFor names its target: this control only if it is that target, or we cannot tell.
-          const target = literal(forAttr);
-          if (target === undefined || target === ownId) return;
         }
 
         const id = attr(node, 'id');
