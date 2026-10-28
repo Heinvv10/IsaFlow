@@ -67,7 +67,7 @@ export default function BankTransactionsPage() {
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [loaded, setLoaded] = useState({ page: 1, total: 0 }), total = loaded.total; // total + the page it was counted for (past-the-end skeleton)
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -120,7 +120,7 @@ export default function BankTransactionsPage() {
   const loadSeq = useRef(0);
   const loadTransactions = useCallback(async () => {
     const seq = ++loadSeq.current, latest = () => seq === loadSeq.current;
-    if (!selectedBank) { setIsLoading(false); setTransactions([]); setTotal(0); return; }
+    if (!selectedBank) { setIsLoading(false); setTransactions([]); setLoaded({ page, total: 0 }); return; }
     setIsLoading(true); setError('');
     try {
       const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
@@ -129,8 +129,8 @@ export default function BankTransactionsPage() {
       const json = await res.json();
       if (!latest()) return;
       const data = json.data || json;
-      setTransactions(data.transactions || []); setTotal(data.total || 0);
-    } catch (err) { if (latest()) { setTransactions([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load transactions - try again')); } }
+      setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0 });
+    } catch (err) { if (latest()) { setTransactions([]); setLoaded({ page, total: 0 }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); } }
     finally { if (latest()) setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
@@ -246,7 +246,7 @@ export default function BankTransactionsPage() {
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
-            empty={transactions.length === 0} pastEnd={bankTxPastEnd(page, total, PAGE_SIZE)} tab={tab}>
+            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}
