@@ -72,6 +72,50 @@ describe('refused dates hold the action', () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ endDate: '2026-03-01' }));
   });
 
+  it('a refused end date text and error are cleared when switching to another employee with no end date', () => {
+    const { rerender } = render(<EmployeeProfileCard employee={EMP} onChange={vi.fn()} onSave={vi.fn()} saving={false} />);
+    typeDate('End date', '31 Feb 2026');
+    expect(screen.getByLabelText('End date').getAttribute('aria-invalid')).toBe('true');
+    rerender(<EmployeeProfileCard employee={{ ...EMP, id: 'e2', firstName: 'Bo' }} onChange={vi.fn()} onSave={vi.fn()} saving={false} />);
+    const end = screen.getByLabelText('End date') as HTMLInputElement;
+    expect(end.value).toBe('');
+    expect(end.getAttribute('aria-invalid')).toBe('false');
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it('a refused date of birth is cleared from the screen when switching employees', () => {
+    const { rerender } = render(<EmployeeProfileCard employee={EMP} onChange={vi.fn()} onSave={vi.fn()} saving={false} />);
+    typeDate('Date of birth', '01 Jan 2099');
+    expect(screen.getByText('Date of birth cannot be in the future.')).toBeTruthy();
+    rerender(<EmployeeProfileCard employee={{ ...EMP, id: 'e2' }} onChange={vi.fn()} onSave={vi.fn()} saving={false} />);
+    expect(screen.queryByText('Date of birth cannot be in the future.')).toBeNull();
+    expect((screen.getByLabelText('Date of birth') as HTMLInputElement).value).toBe('');
+  });
+
+  it('clearing the profile end date reports undefined (an optional date may be emptied)', () => {
+    const onChange = vi.fn();
+    render(<EmployeeProfileCard employee={{ ...EMP, endDate: '2026-03-01' }} onChange={onChange} onSave={vi.fn()} saving={false} />);
+    expect((screen.getByLabelText('End date') as HTMLInputElement).value).not.toBe('');
+    typeDate('End date', '');
+    expect(saveButton().disabled).toBe(false);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0]![0]).toEqual(expect.objectContaining({ endDate: undefined }));
+  });
+
+  it('clearing the bulk "Effective from" omits effectiveFrom from the apply body', async () => {
+    render(<BulkUpdatePage />);
+    fireEvent.click(screen.getByRole('button', { name: /^preview/i }));
+    const apply = await screen.findByRole('button', { name: /apply to 2 employees/i }) as HTMLButtonElement;
+    await waitFor(() => expect(apply.disabled).toBe(false));
+    typeDate(/^Effective from/, '');
+    expect(apply.disabled).toBe(false);
+    fireEvent.click(apply);
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).includes('bulk/apply'))).toBe(true));
+    const call = fetchMock.mock.calls.find(([u]) => String(u).includes('bulk/apply'))!;
+    const body = JSON.parse(String((call[1] as RequestInit).body));
+    expect(body).not.toHaveProperty('effectiveFrom');
+  });
+
   it('a date of birth in the future is refused with the bound message', () => {
     const onChange = vi.fn();
     render(<EmployeeProfileCard employee={EMP} onChange={onChange} onSave={vi.fn()} saving={false} />);

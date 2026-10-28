@@ -112,5 +112,22 @@ describe('employee create form', () => {
     expect(Object.keys(body)).toEqual(['firstName', 'lastName', 'employeeNumber', 'employmentType', 'startDate',
       'uifExcluded', 'medicalAidMainMember', 'medicalAidDependantsCount']);
     expect(String((posts()[0]![1] as RequestInit).body)).not.toMatch(/taxNumber|idNumber|dateOfBirth/);
+    expect(body.medicalAidDependantsCount).toBe(0);
+    expect(body.medicalAidMainMember).toBe(false);
+    expect(body.uifExcluded).toBe(false);
+  });
+
+  it('a blank dependants box posts the number 0, not an empty string or NaN', async () => {
+    render(<Page />);
+    typeInto('First name *', 'Thandi');
+    typeInto('Last name *', 'Nkosi');
+    typeInto('Employee number *', 'E-001');
+    typeInto('Medical aid dependants', '');
+    expect((screen.getByLabelText('Medical aid dependants') as HTMLInputElement).value).toBe('');
+    submit();
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    const body = JSON.parse(String((posts()[0]![1] as RequestInit).body));
+    expect(body.medicalAidDependantsCount).toBe(0);
+    expect(body.medicalAidMainMember).toBe(false);
   });
 });
