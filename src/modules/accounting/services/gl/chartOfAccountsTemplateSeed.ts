@@ -89,6 +89,8 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
     SET parent_account_id = (
       SELECT p.id FROM gl_accounts p
       WHERE p.company_id = ${companyId}::UUID AND p.account_code = t.parent_code
+        -- Same type as the child, as assertParentUsable requires of every other write.
+        AND p.account_type = c.account_type
         -- COALESCE: with a NULL subtype the AND is NULL, NOT NULL is NULL, and
         -- every sub-account of an unclassified system header lost its parent.
         AND NOT COALESCE(p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
