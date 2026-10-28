@@ -48,6 +48,7 @@ import type { getAccountTransactions } from '@/modules/accounting/services/gl/ac
 import type { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
 import type { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
+import type { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
@@ -149,6 +150,9 @@ interface StaticRoutes {
   '/api/accounting/reports-account-transactions': Awaited<ReturnType<typeof getAccountTransactions>>;
   '/api/accounting/reports-general-ledger': { accounts: Awaited<ReturnType<typeof getGeneralLedgerReport>> };
   '/api/accounting/reports-account-trends': Awaited<ReturnType<typeof getMonthlyMovements>>;
+  // Budgets P3: Budget vs Actual on the tracking engine. Its export (`budget-tracking-export`) is a file
+  // (CSV / XLSX) opened in a new tab, never parsed as JSON, so it is not registered here.
+  '/api/accounting/reports-budget-tracking': Awaited<ReturnType<typeof buildBudgetTrackingReport>>;
   '/api/accounting/reports-budget-comparator': {
     fiscalYear: Awaited<ReturnType<typeof getBudgetVariance>>['fiscalYear'];
     monthKeys: Awaited<ReturnType<typeof getBudgetVariance>>['monthKeys'];

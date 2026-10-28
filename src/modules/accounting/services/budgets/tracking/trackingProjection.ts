@@ -15,7 +15,7 @@
  * Every window edge is a month end (`trackingWindow`), and so is the cutoff,
  * so "after the cutoff's month" is a comparison of 'YYYY-MM' keys.
  */
-import { dayBefore } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { addDaysISO } from '@/lib/dateUtils';
 import { budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import type { TrackingProjectionInfo } from './trackingTypes';
 
@@ -25,6 +25,10 @@ export interface ProjectionPlan extends TrackingProjectionInfo {
   /** Every month of FY*. */
   fyMonths: string[];
 }
+
+// Pure calendar arithmetic, not `fiscalYearRegistry.dayBefore`: that module holds SQL, and the
+// BvA page imports this file (through `trackingByMember`) into the browser bundle.
+const dayBefore = (date: string): string => addDaysISO(date, -1);
 
 /** The last day whose actuals the projection uses. */
 export function projectionCutoff(windowEnd: string, today: string, fy: ProjectionYear): string {
