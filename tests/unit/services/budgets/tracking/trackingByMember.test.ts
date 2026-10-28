@@ -130,3 +130,29 @@ describe('review round 5', () => {
     expect(members.map((m) => [m.name, m.actual, m.budget, m.variance, m.favourable])).toEqual([['Fibertime', 150, null, null, null]]);
   });
 });
+
+describe('review round 6', () => {
+  it('F1: a member budgeted in some window years and not another leaves every member without a budget', () => {
+    const P1 = 'cccccccc-0000-4000-8000-0000000000c1';
+    const P2 = 'dddddddd-0000-4000-8000-0000000000d2';
+    const base = {
+      groupBy: 'cc2' as const, windowMonths: ['2027-04', '2027-05'],
+      windowYears: [{ fiscalYear: 2027, months: ['2027-04'] }, { fiscalYear: 2028, months: ['2027-05'] }],
+      actuals: [P1, P2].map((id) => ({ memberId: id, month: '2027-04', accountType: 'revenue' as const, amount: 10 })),
+      names: new Map([[P1, { code: 'P1', name: 'Project 1' }], [P2, { code: 'P2', name: 'Project 2' }]]),
+    };
+    const e2 = (cc2: string) => ({ cc1: null, cc2, bu: null });
+    // P1 in FY2027 only; P2 in both years.
+    const partial = buildTrackingMembers({ ...base, budgets: [
+      { eff: e2(P1), month: '2027-04', accountType: 'revenue', amount: 5 },
+      { eff: e2(P2), month: '2027-04', accountType: 'revenue', amount: 5 }, { eff: e2(P2), month: '2027-05', accountType: 'revenue', amount: 5 },
+    ] });
+    for (const m of partial) expect([m.name, m.budget, m.variance, m.favourable]).toEqual([m.name, null, null, null]);
+    // Both members whole: budgets stay.
+    const whole = buildTrackingMembers({ ...base, budgets: [
+      { eff: e2(P1), month: '2027-04', accountType: 'revenue', amount: 5 }, { eff: e2(P1), month: '2027-05', accountType: 'revenue', amount: 5 },
+      { eff: e2(P2), month: '2027-04', accountType: 'revenue', amount: 5 }, { eff: e2(P2), month: '2027-05', accountType: 'revenue', amount: 5 },
+    ] });
+    expect(whole.map((m) => m.budget)).toEqual([10, 10]);
+  });
+});
