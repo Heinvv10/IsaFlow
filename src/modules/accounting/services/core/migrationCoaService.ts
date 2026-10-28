@@ -169,19 +169,30 @@ export async function importChartOfAccounts(
               )
               ON CONFLICT (company_id, account_code) DO UPDATE SET
                 account_name      = EXCLUDED.account_name,
-                -- An existing system account keeps its type and classification:
-                -- its subtype is its ROLE, and a row that re-typed or
-                -- re-classified it emptied or mistyped the role. Only the role
-                -- map below places roles. is_active is never touched here.
-                account_type      = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_type
-                                         ELSE EXCLUDED.account_type END,
+                -- An existing account never changes type here. A system account
+                -- keeps its type and classification (its subtype is its ROLE;
+                -- only the role map below places roles) and still takes the
+                -- rest of the row. Any other account whose type the row would
+                -- change is not updated at all (the WHERE below): the row is
+                -- refused, because a re-typed parent can leave the balance sheet.
+                -- is_active is never touched here.
                 account_subtype   = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
                   ELSE COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype) END,
                 normal_balance    = EXCLUDED.normal_balance,
                 description       = COALESCE(EXCLUDED.description, gl_accounts.description),
                 is_system_account = EXCLUDED.is_system_account OR gl_accounts.is_system_account
+              WHERE gl_accounts.is_system_account OR gl_accounts.account_type = EXCLUDED.account_type
               RETURNING account_type, account_subtype
             `) as DbRow[])[0];
+            if (!written) {
+              const current = ((await sql`
+                SELECT account_type FROM gl_accounts WHERE account_code = ${acct.accountCode} AND company_id = ${companyId}::UUID
+              `) as DbRow[])[0];
+              errors.push({ step: 'coa', row, field: 'accountType',
+                message: `Account ${acct.accountCode} is an existing ${String(current?.account_type)} account; the file makes it ${acct.accountType}. An import never changes an account's type: change it in the chart of accounts, then re-import.` });
+              skipped++;
+              continue;
+            }
             const keptSubtype = written?.account_subtype == null ? null : String(written.account_subtype);
             if (written && !isSystem && (written.account_type !== acct.accountType
               || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
