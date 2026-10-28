@@ -92,8 +92,8 @@ async function executeUnderLock(
     return { ...acct, mappedSubtype: fallback };
   });
 
-  // Before ANY write: re-importing the same source re-types its own accounts
-  // (`account_type = EXCLUDED.account_type`, and fills a NULL subtype). One that
+  // Before ANY write: re-importing the same source fills a NULL subtype on its
+  // own accounts (it never re-types one; that row is refused). One that
   // would move a posted line inside a locked (filed) VAT period into a
   // different box refuses the WHOLE migration, naming account and period —
   // later steps post opening balances against these accounts.

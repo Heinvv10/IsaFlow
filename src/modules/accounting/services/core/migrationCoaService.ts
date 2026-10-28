@@ -178,7 +178,8 @@ export async function importChartOfAccounts(
                 -- is_active is never touched here.
                 account_subtype   = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
                   ELSE COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype) END,
-                normal_balance    = EXCLUDED.normal_balance,
+                normal_balance    = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.normal_balance
+                                         ELSE EXCLUDED.normal_balance END,
                 description       = COALESCE(EXCLUDED.description, gl_accounts.description),
                 is_system_account = EXCLUDED.is_system_account OR gl_accounts.is_system_account
               WHERE gl_accounts.is_system_account OR gl_accounts.account_type = EXCLUDED.account_type
