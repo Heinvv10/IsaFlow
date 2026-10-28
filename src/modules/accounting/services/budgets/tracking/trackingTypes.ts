@@ -194,6 +194,8 @@ export interface TrackingProjectionInfo {
   cutoff: string;
   actualMonths: string[];
   budgetMonths: string[];
+  /** An UNBUDGETED line's projection: its actuals over these FY* months (FY* start to the month holding today, capped at FY* end). */
+  unbudgetedMonths: string[];
 }
 
 export interface BudgetTrackingReport {

@@ -8,7 +8,8 @@
  *   2. the dimension filter, looked up under the company (404 on a miss);
  *   3. versions (primary per year unless one is named; 404 / 400 per §2.5);
  *   4. budget rows at their grain, the CC2 chains (loaded once), classified;
- *   5. actuals per account x month (FY* start .. window end, for the projection);
+ *   5. actuals per account x month (FY* start .. window end, or the month holding today when later,
+ *      for the projection of an unbudgeted line);
  *   6. lines, bands, notices, members; the in-progress month's posted-through date.
  *
  * Every figure is computed here or in the pure modules it calls, never by a
@@ -25,7 +26,7 @@ import { buildTrackingMembers } from './trackingByMember';
 import { classifyBudgetRow, effectiveDims } from './trackingDimRollup';
 import { readMemberOrder, resolveTrackingFilter } from './trackingFilter';
 import { buildTrackingLines, type AccountMeta } from './trackingLines';
-import { projectionPlan } from './trackingProjection';
+import { projectionPlan, readEndOf } from './trackingProjection';
 import { TrackingError, type BudgetTrackingReport, type TrackingParams } from './trackingTypes';
 import { mapRegistryMiss, readStartOf, resolveTrackingWindow } from './trackingWindow';
 
@@ -49,7 +50,7 @@ export async function buildBudgetTrackingReport(
   const chainIds = [...new Set([...filter.chainIds, ...budgetRows.map((r) => r.cc2Id).filter((v): v is string => v !== null)])];
   const nodes = await loadCostCentreChains(companyId, chainIds);
   const budgetFilter = filter.budgetFilter(nodes);
-  const actualRows = await readTrackingActuals(companyId, readStartOf(window), window.endDate, filter.actual, groupBy);
+  const actualRows = await readTrackingActuals(companyId, readStartOf(window), readEndOf(window, plan), filter.actual, groupBy);
 
   const accounts = new Map<string, AccountMeta>();
   for (const r of [...actualRows, ...budgetRows]) {
@@ -117,7 +118,10 @@ export async function buildBudgetTrackingReport(
     // FY*'s version that holds no budget in this window is marked, never presented as a budget (G2).
     version: versions.version && absentYears.includes(window.fy.fiscalYear) ? { ...versions.version, empty: true } : versions.version,
     filter: filter.members,
-    projection: { fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
+    projection: {
+      fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths,
+      unbudgetedMonths: plan.unbudgetedMonths,
+    },
     lines,
     bands: buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 }),
     notices: buildNotices(lines, {

@@ -96,11 +96,13 @@ describe('Projected FY on a line', () => {
     expect(line!.projected).toBe(7 * 100 + 7 * 120);
   });
 
-  it('an unbudgeted account projects its actuals alone; FY budget and variance are absent', () => {
+  it('an unbudgeted account projects its actuals alone, to the month holding today; FY budget and variance are absent', () => {
+    // Ruling (PR-B review r1, for Hein): with no budget to stand in for the in-progress month, the cutoff
+    // would drop real postings (Projected FY < YTD actual). October's actuals count.
     const plan = projectionPlan(FY2027, '2026-10-31', TODAY);
     const actuals = months('2026-03', 8).map((m) => actual('sales', m, 50));
     const [line] = buildTrackingLines({ accounts: ACCOUNTS, windowMonths: ['2026-10'], plan, actuals, budgets: [] });
-    expect([line!.projected, line!.fyBudget, line!.projVariance, line!.projFavourable]).toEqual([350, null, null, null]);
+    expect([line!.projected, line!.fyBudget, line!.projVariance, line!.projFavourable]).toEqual([400, null, null, null]);
   });
 
   it('FY* not started: the projection is all budget', () => {
@@ -144,5 +146,47 @@ describe('Projected FY on a line', () => {
     });
     expect(line!.fyBudget).toBe(1.4);
     expect(line!.projected).toBe(0.7);
+  });
+});
+
+describe('Projected FY of an UNBUDGETED line (review r1 ruling: actuals FY* start to min(today, FY* end))', () => {
+  const run = (fy: typeof FY2027, windowEnd: string, windowMonths: string[], actuals: ActualCell[]) =>
+    buildTrackingLines({ accounts: ACCOUNTS, windowMonths, plan: projectionPlan(fy, windowEnd, TODAY), actuals, budgets: [] })[0]!;
+
+  it('the plan names the months: FY* start through the month holding today', () => {
+    expect(projectionPlan(FY2027, '2026-06-30', TODAY).unbudgetedMonths).toEqual(months('2026-03', 8));
+    expect(projectionPlan(FY2026, '2025-06-30', TODAY).unbudgetedMonths).toEqual(months('2025-03', 12));
+    expect(projectionPlan(FY2028, '2028-02-29', TODAY).unbudgetedMonths).toEqual([]);
+  });
+
+  it('is never below the YTD actual: a forward-dated posting in the month holding today counts', () => {
+    const line = run(FY2027, '2026-10-31', months('2026-03', 8), [actual('rent', '2026-04', 100), actual('rent', '2026-10', 1000)]);
+    expect([line.actual, line.projected]).toEqual([1100, 1100]);
+  });
+
+  it('a past window still projects the year to today, not to the window end', () => {
+    const line = run(FY2027, '2026-06-30', ['2026-06'], [actual('rent', '2026-06', 5), actual('rent', '2026-09', 70)]);
+    expect([line.actual, line.projected]).toEqual([5, 75]);
+  });
+
+  it('a posting dated after the month holding today is not "to today"', () => {
+    const line = run(FY2027, '2026-10-31', ['2026-10'], [actual('rent', '2026-10', 3), actual('rent', '2026-12', 900)]);
+    expect(line.projected).toBe(3);
+  });
+
+  it('an ended year projects its full actual; a year not started projects nothing', () => {
+    const ended = run(FY2026, '2025-06-30', ['2025-06'], months('2025-03', 12).map((m) => actual('rent', m, 2)));
+    expect(ended.projected).toBe(24);
+    const future = run(FY2028, '2027-03-31', ['2027-03'], [actual('rent', '2027-03', 9)]);
+    expect([future.actual, future.projected]).toEqual([9, 0]);
+  });
+
+  it('a BUDGETED line keeps the cutoff rule (actuals to the cutoff + budget after)', () => {
+    const plan = projectionPlan(FY2027, '2026-10-31', TODAY);
+    const [line] = buildTrackingLines({
+      accounts: ACCOUNTS, windowMonths: ['2026-10'], plan,
+      actuals: [actual('rent', '2026-09', 10), actual('rent', '2026-10', 1000)], budgets: months('2026-03', 12).map((m) => budget('rent', m, 1)),
+    });
+    expect(line!.projected).toBe(10 + 5);
   });
 });

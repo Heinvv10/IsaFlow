@@ -12,11 +12,20 @@
  * November would drop the rest of October's budget and bias the projection
  * low; pro-rating a budget month invents a figure).
  *
+ * An UNBUDGETED line (no included budget anywhere in FY*) has no budget to
+ * stand in for the months after the cutoff, so the cutoff would only drop real
+ * postings (Projected FY below the YTD actual). Its projection is its posted
+ * actual from FY* start through the month holding min(today, FY* end), the
+ * in-progress month whole, forward-dated postings in it included, as the
+ * Actual column counts them (`unbudgetedMonths`; PR-B review r1 ruling, for
+ * Hein to confirm). Budgeted lines keep the cutoff rule; band and NP
+ * projections stay sums of lines.
+ *
  * Every window edge is a month end (`trackingWindow`), and so is the cutoff,
  * so "after the cutoff's month" is a comparison of 'YYYY-MM' keys.
  */
 import { addDaysISO } from '@/lib/dateUtils';
-import { budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
+import { budgetMonthKeysInWindow, monthEnd } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import type { TrackingProjectionInfo } from './trackingTypes';
 
 export interface ProjectionYear { fiscalYear: number; startDate: string; endDate: string }
@@ -50,7 +59,20 @@ export function projectionPlan(fy: ProjectionYear, windowEnd: string, today: str
     fyMonths,
     actualMonths: fyMonths.filter((m) => m <= cutoffMonth),
     budgetMonths: fyMonths.filter((m) => m > cutoffMonth),
+    unbudgetedMonths: fyMonths.filter((m) => m <= today.slice(0, 7)),
   };
+}
+
+/** The last day an unbudgeted line's projection reads actuals to (a month end); null when FY* has not started. */
+export function unbudgetedActualsTo(p: Pick<TrackingProjectionInfo, 'unbudgetedMonths'>): string | null {
+  const last = p.unbudgetedMonths[p.unbudgetedMonths.length - 1];
+  return last === undefined ? null : monthEnd(`${last}-01`);
+}
+
+/** The last day the actuals read must cover: the window end, or the end of the last unbudgeted month when later. */
+export function readEndOf(window: { endDate: string }, plan: Pick<ProjectionPlan, 'unbudgetedMonths'>): string {
+  const end = unbudgetedActualsTo(plan) ?? window.endDate;
+  return end > window.endDate ? end : window.endDate;
 }
 
 export interface ProjectedCents {
@@ -71,8 +93,8 @@ export function projectCents(
   plan: ProjectionPlan,
 ): ProjectedCents {
   const sum = (map: ReadonlyMap<string, number>, ms: readonly string[]) => ms.reduce((s, m) => s + (map.get(m) ?? 0), 0);
+  if (budgetByMonth === null) return { projected: sum(actualByMonth, plan.unbudgetedMonths), fyBudget: null, projVariance: null };
   const toDate = sum(actualByMonth, plan.actualMonths);
-  if (budgetByMonth === null) return { projected: toDate, fyBudget: null, projVariance: null };
   const projected = toDate + sum(budgetByMonth, plan.budgetMonths);
   const fyBudget = sum(budgetByMonth, plan.fyMonths);
   return { projected, fyBudget, projVariance: projected - fyBudget };
