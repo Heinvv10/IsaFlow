@@ -27,10 +27,14 @@ export async function reimportAttributeChanges(
     SELECT id, account_code, account_type, account_subtype, is_system_account FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
       AND account_code = ANY(${codes}::TEXT[])`) as DbRow[];
-  const byCode = new Map(accounts.map((a, i) => [codes[i]!, a]));
+  // Two rows can share a code (one derived from a name cut to 20 characters). The upsert runs
+  // them in file order and the subtype fill is COALESCE(existing, mapped), so the FIRST row of
+  // the account's own type is the one that writes; the others are refused or change nothing.
+  const firstSameType = (code: string, type: string) =>
+    accounts.find((a, i) => codes[i] === code && String(a.mappedType) === type);
   return rows.flatMap((r) => {
-    const acct = byCode.get(String(r.account_code));
-    if (!acct || r.is_system_account === true || String(r.account_type) !== String(acct.mappedType)) return [];
+    const acct = firstSameType(String(r.account_code), String(r.account_type));
+    if (!acct || r.is_system_account === true) return [];
     const subtype = r.account_subtype == null ? null : String(r.account_subtype);
     const from = { accountType: String(r.account_type), accountSubtype: subtype };
     return [{ accountId: String(r.id), accountCode: String(r.account_code), from,
