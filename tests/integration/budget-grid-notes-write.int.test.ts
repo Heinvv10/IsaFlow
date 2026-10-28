@@ -86,6 +86,8 @@ describe('PUT /api/accounting/budget-grid/note', () => {
     expect((await header(A, A.acct.sales, 2027)).map((h) => h.notes)).toEqual(['Price rise in August']);
     expect(await token(scenario)).toBe(before);
     expect((await noteAudits(scenario)).map((x) => x.changes.metadata?.noteAction)).toEqual(['set']);
+    // FY2027 has a locked version: the audit row names it (it shows the same note).
+    expect((await noteAudits(scenario))[0]!.changes.metadata?.alsoShownOnLocked).toBe(locked);
   });
 
   it('a version of another year writes that year only', async () => {
@@ -93,6 +95,8 @@ describe('PUT /api/accounting/budget-grid/note', () => {
     expect(r.status, dump(r)).toBe(200);
     expect((await header(A, A.acct.sales, 2028)).map((h) => h.notes)).toEqual(['FY28 only']);
     expect((await header(A, A.acct.sales, 2027)).map((h) => h.notes)).toEqual(['Price rise in August']);
+    // FY2028 has no locked version: nothing to name.
+    expect((await noteAudits(fy28))[0]!.changes.metadata).not.toHaveProperty('alsoShownOnLocked');
   });
 
   it('clearing deletes a row that holds nothing else; a blank note is a clear', async () => {
