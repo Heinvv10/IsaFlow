@@ -14,12 +14,12 @@ vi.mock('@/lib/auth/oauth', async () => {
   return { getOauthAppByClientId: vi.fn(), OAUTH_SCOPES: scopes.OAUTH_SCOPES };
 });
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getUserCompanies: vi.fn() }));
-vi.mock('@/modules/admin/services/featureFlagService', () => ({ hasFeature: vi.fn() }));
+vi.mock('@/modules/admin/services/featureFlagService', () => ({ companiesWithFeature: vi.fn() }));
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(), apiErrorMessage: vi.fn(), assertOk: vi.fn() }));
 
 import { getOauthAppByClientId } from '@/lib/auth/oauth';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
-import { hasFeature } from '@/modules/admin/services/featureFlagService';
+import { companiesWithFeature } from '@/modules/admin/services/featureFlagService';
 import { ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
 import { NO_CONNECTOR_COMPANY_MESSAGE } from '@/lib/auth/connectorCompanies';
 import { getServerSideProps } from '../../../pages/oauth/authorize';
@@ -57,7 +57,7 @@ beforeEach(() => {
     { companyId: DISABLED_CO, companyName: 'Velocity', isDefault: true },
     { companyId: ENABLED_CO, companyName: 'Velocity Fibre (Pty) Ltd', isDefault: false },
   ] as never);
-  vi.mocked(hasFeature).mockImplementation(async (companyId) => companyId === ENABLED_CO);
+  vi.mocked(companiesWithFeature).mockImplementation(async (ids) => new Set(ids.filter((id) => id === ENABLED_CO)));
 });
 
 describe('/oauth/authorize — connector-enabled companies only', () => {
@@ -73,7 +73,7 @@ describe('/oauth/authorize — connector-enabled companies only', () => {
   });
 
   it('refuses with a plain reason when no company has the connector', async () => {
-    vi.mocked(hasFeature).mockResolvedValue(false);
+    vi.mocked(companiesWithFeature).mockResolvedValue(new Set());
     expect(await propsFor()).toEqual({ ok: false, error: NO_CONNECTOR_COMPANY_MESSAGE });
   });
 
@@ -82,6 +82,6 @@ describe('/oauth/authorize — connector-enabled companies only', () => {
     const props = await propsFor();
     expect(props.ok).toBe(false);
     expect(props.error).toMatch(/not linked to a company/);
-    expect(hasFeature).not.toHaveBeenCalled();
+    expect(companiesWithFeature).not.toHaveBeenCalled();
   });
 });

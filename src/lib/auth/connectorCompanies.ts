@@ -10,7 +10,7 @@
  * tools/list. The consent screen now offers only enabled companies, and
  * consent.ts refuses any other (the picker is UX, consent.ts is the boundary).
  */
-import { hasFeature } from '@/modules/admin/services/featureFlagService';
+import { companiesWithFeature, hasFeature } from '@/modules/admin/services/featureFlagService';
 
 export const MCP_CONNECTOR_FEATURE = 'mcp_connector';
 
@@ -24,10 +24,10 @@ export async function isConnectorEnabled(companyId: string): Promise<boolean> {
   return hasFeature(companyId, MCP_CONNECTOR_FEATURE);
 }
 
-/** The memberships whose company has the connector on, in their original order. */
+/** The memberships whose company has the connector on, in their original order (one query). */
 export async function connectorEnabledMemberships<T extends { companyId: string }>(
   memberships: readonly T[],
 ): Promise<T[]> {
-  const enabled = await Promise.all(memberships.map((m) => isConnectorEnabled(m.companyId)));
-  return memberships.filter((_, i) => enabled[i]);
+  const enabled = await companiesWithFeature(memberships.map((m) => m.companyId), MCP_CONNECTOR_FEATURE);
+  return memberships.filter((m) => enabled.has(m.companyId));
 }
