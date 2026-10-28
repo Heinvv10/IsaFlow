@@ -4,6 +4,7 @@
  * B (change) -> H (settings) -> E (budget) -> D (AFS) -> C (year-end close).
  */
 import { test, expect, type Page } from '@playwright/test';
+import { accountRow, cellCents, pickYearAndVersion, rowCell, waitForGrid } from './helpers/budgetWorkspace';
 
 const SHOTS = process.env.FY_E2E_SHOTS
   || 'test-results/fiscal-year-end-change';
@@ -95,24 +96,35 @@ const MONTH_KEYS = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026
   '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02'];
 
 test('E: a budget for the 14-month year, then Budget vs Actual (full year)', async () => {
-  await go('/accounting/budgets', '[data-testid="budget-year"]');
-  await page.getByTestId('budget-year').selectOption('2026');
-  await expect(page.getByTestId('budget-year').locator('option:checked')).toContainText('14 months');
-  await page.getByRole('button', { name: /Add Budget/ }).click();
-  await page.waitForSelector('[data-testid="budget-month-2026-01"]');
-  await expect(page.locator('[data-testid^="budget-month-"]')).toHaveCount(14);
-  await page.locator('form select').first().selectOption({ label: '4000 — ' + (await page.locator('form select option', { hasText: '4000' }).first().innerText()).split('— ')[1] });
-  // MoneyFields parse on blur: the annual amount spreads when it is left, and each month resets it to the sum.
-  await page.getByLabel('Annual amount').fill('14000');
-  await page.getByLabel('Annual amount').blur();
-  for (const k of MONTH_KEYS) {
-    const month = page.getByTestId(`budget-month-${k}`).getByRole('textbox');
-    await month.fill('1000');
-    await month.blur();
-  }
-  await shot('E1-budget-form');
-  await page.getByTestId('budget-save').click();
-  await expect(page.getByTestId('budget-total-4000')).toContainText(/14[\s,]?000/);
+  // The budget workspace: a blank primary version for FY2026, R14 000 typed in 4000's FY cell spreads over the 14 months.
+  await go('/accounting/budgets', '[data-testid="workspace-year"]');
+  await expect(page.getByTestId('workspace-year')).toBeEnabled({ timeout: 30_000 });
+  await page.getByTestId('workspace-year').selectOption('2026');
+  await expect(page.getByTestId('workspace-year').locator('option:checked')).toContainText('14 months');
+  await page.getByTestId('empty-start-blank').click();
+  const wizard = page.getByRole('dialog', { name: 'New budget version' });
+  await wizard.getByLabel('Name').fill('FYE acceptance budget');
+  await wizard.getByLabel('Make primary').check();
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await expect(wizard.getByLabel('Blank')).toBeChecked();
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByRole('button', { name: 'Create' }).click();
+  await expect(wizard).toBeHidden({ timeout: 60_000 });
+  await waitForGrid(page);
+  await expect(page.getByRole('columnheader', { name: /^[A-Z][a-z]+ 20\d\d$/ })).toHaveCount(14);
+
+  const row = accountRow(page, await glId('4000'));
+  await rowCell(row, MONTH_KEYS.length).dblclick();
+  const editor = row.getByRole('textbox');
+  await editor.fill('14000');
+  await editor.press('Enter');
+  for (let c = 0; c < MONTH_KEYS.length; c++) expect(await cellCents(rowCell(row, c))).toBe(100_000);
+  await shot('E1-budget-workspace');
+  await page.getByTestId('save-bar-save').click();
+  await expect(page.getByTestId('save-bar-status')).toContainText('Saved: 14 cells changed', { timeout: 30_000 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await pickYearAndVersion(page, { fiscalYear: 2026 });
+  expect(await cellCents(rowCell(accountRow(page, await glId('4000')), MONTH_KEYS.length))).toBe(1_400_000);
   await shot('E2-budget-saved');
 
   await go('/accounting/reports/budget-vs-actual', 'select');

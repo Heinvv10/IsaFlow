@@ -25,7 +25,6 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { getPoolForTests, sql } from '@/lib/neon';
-import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
 import { requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import { addDaysISO } from '@/lib/dateUtils';
@@ -48,8 +47,6 @@ interface Fixture {
   bankAccountId: string;
 }
 
-// The accounts must be active leaves: the budget writers refuse a header (an account with
-// children) or an inactive account with no amounts yet (budgetAccount.ts).
 // FIXTURE INVARIANT — the fixture MUST keep a revenue account alongside the two
 // expense accounts. Sign normalisation is this service's core claim, and while
 // every test used an expense account, pointing the revenue branch at the expense
@@ -63,14 +60,15 @@ async function loadFixtureIds(): Promise<Fixture> {
            e2.id AS e2_id, e2.account_code AS e2_code,
            r.id AS r_id, r.account_code AS r_code
     FROM gl_accounts bank
-    JOIN gl_accounts e1 ON e1.company_id = bank.company_id AND e1.account_type = 'expense' AND e1.is_active
-                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = e1.company_id AND ch.parent_account_id = e1.id)
+    JOIN gl_accounts e1 ON e1.company_id = bank.company_id AND e1.account_type = 'expense'
     JOIN gl_accounts e2 ON e2.company_id = bank.company_id AND e2.account_type = 'expense'
-                        AND e2.id <> e1.id AND e2.is_active
-                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = e2.company_id AND ch.parent_account_id = e2.id)
-    JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue' AND r.is_active
-                        AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = r.company_id AND ch.parent_account_id = r.id)
-    WHERE bank.account_subtype = 'bank' AND bank.is_active
+                        AND e2.id <> e1.id
+    JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue'
+    WHERE bank.account_subtype = 'bank'
+      -- Budgetable accounts only: active leaves. writeBudget refuses a header (decision 18,
+      -- budgets/headerSql.ts), and the first expense account on dev is the 5000 header.
+      AND e1.is_active AND e2.is_active AND r.is_active
+      AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = bank.company_id AND ch.parent_account_id IN (e1.id, e2.id, r.id))
     ORDER BY bank.company_id, bank.account_code, e1.account_code, e2.account_code, r.account_code
     LIMIT 1
   `) as Array<Record<string, string>>;
@@ -159,6 +157,26 @@ async function inRequestTx(run: (f: Fixture) => Promise<void>): Promise<void> {
 // isaflow_dev's posted journals, which run to 2031-01 (a later posting would move postedThrough).
 const FY = 2033;
 
+/**
+ * The year's budget for an account on its primary version, `annual` spread evenly over the year's
+ * months with the cents on the last, written directly as the grid save stores amounts (the legacy
+ * upsertBudget that did this was removed in budgets P2 PR-D). When the year has no primary,
+ * budget_version_original makes an APPROVED 'Original' (as migration 947 converted legacy budgets).
+ */
+async function setBudget(f: Fixture, accountId: string, annual: number): Promise<void> {
+  const year = await requireFiscalYear(f.companyId, FY);
+  const keys = budgetMonthKeysInWindow(year.startDate, year.endDate);
+  const cents = Math.round(annual * 100);
+  const each = Math.trunc(cents / keys.length);
+  const amounts = keys.map((_, i) => (i === keys.length - 1 ? cents - each * (keys.length - 1) : each) / 100);
+  const [v] = (await sql`SELECT public.budget_version_original(${f.companyId}::uuid, ${FY}, ${f.userId}) AS id`) as Array<{ id: string }>;
+  await sql`
+    INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
+    SELECT ${f.companyId}::uuid, ${v!.id}::uuid, ${accountId}::uuid, (t.m || '-01')::date, t.a, ${f.userId}
+      FROM unnest(${keys}::text[], ${amounts}::numeric[]) AS t(m, a)
+  `;
+}
+
 /** The registry year's window, and a date `day` days into its month number `i` (0-based). */
 async function yearWindow(f: Fixture): Promise<{ start: string; end: string; at: (i: number, day: number) => string }> {
   const year = await requireFiscalYear(f.companyId, FY);
@@ -173,11 +191,7 @@ describe('getBudgetVariance against a real ledger', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
       // R120,000 a year, evenly spread — R10,000 a month over the year's twelve months.
-      await upsertBudget(
-        f.companyId,
-        { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 120000 },
-        f.userId,
-      );
+      await setBudget(f, f.expenseAccountId, 120000);
       await postJournal(f, w.at(1, 15), f.expenseAccountId, 25000);
       await postJournal(f, w.at(10, 10), f.expenseAccountId, 5000); // across the calendar-year boundary
 
@@ -202,9 +216,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('reports credited revenue as a positive actual, not a negative one', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.revenueAccountId, fiscalYear: FY, annualAmount: 120000 }, f.userId,
-      );
+      await setBudget(f, f.revenueAccountId, 120000);
       await postRevenueJournal(f, w.at(1, 15), f.revenueAccountId, 30000);
 
       const result = await getBudgetVariance(f.companyId, w.start, w.end);
@@ -220,9 +232,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('nets a debit against credited revenue', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.revenueAccountId, fiscalYear: FY, annualAmount: 120000 }, f.userId,
-      );
+      await setBudget(f, f.revenueAccountId, 120000);
       await postRevenueJournal(f, w.at(1, 15), f.revenueAccountId, 30000);
       await postJournal(f, w.at(2, 20), f.revenueAccountId, 5000); // DR revenue = a reversal
 
@@ -235,9 +245,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('excludes movement dated outside the window', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
-      );
+      await setBudget(f, f.expenseAccountId, 12000);
       await postJournal(f, addDaysISO(w.end, 1), f.expenseAccountId, 999999); // the day after the year ends
 
       const result = await getBudgetVariance(f.companyId, w.start, w.end);
@@ -249,9 +257,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('surfaces spend on an unbudgeted account instead of dropping it', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
-      );
+      await setBudget(f, f.expenseAccountId, 12000);
       await postJournal(f, w.at(3, 1), f.otherExpenseId, 44000);
 
       const result = await getBudgetVariance(f.companyId, w.start, w.end);
@@ -270,9 +276,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('ignores a draft journal', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
-      );
+      await setBudget(f, f.expenseAccountId, 12000);
       const je = (await sql`
         INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
         VALUES (${f.companyId}::uuid, ${w.at(2, 1)}::date, ${'draft'}, ${'manual'}, ${'draft'}, ${f.userId})
