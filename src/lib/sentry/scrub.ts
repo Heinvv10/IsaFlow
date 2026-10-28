@@ -62,13 +62,77 @@ function hashEmailLocalPart(email: string): string {
   return `${h}${domain}`;
 }
 
-// Sentry's ui.click / ui.input breadcrumbs describe the element as a selector that copies its aria-label,
-// title and alt verbatim. Grid controls are named after their row (date, payee, amount) and a note's title
-// is the note, so the values go; the selector stays for debugging. A value ends at the first `"]`.
-const UI_TEXT_ATTR_RE = /\[(aria-label|title|alt)="(?:(?!"\])[\s\S])*"\]/g;
+// Sentry's ui.click / ui.input breadcrumbs describe the element as a selector (@sentry/core _htmlElementAsString):
+// `tag#id.class` then `[aria-label="…"][type="…"][name="…"][title="…"][alt="…"]`, plus whatever `serializeAttribute`
+// names. Values are written UNESCAPED, so a value may hold `"]` or ` > ` and its end cannot be found by looking for
+// the first `"]`. Grid controls are named after their row (date, payee, amount) and a note's title is the note, so
+// every attribute value is customer data. The selector stays for debugging; each `[attr="value"]` keeps its name and
+// loses its value. A value runs to the next safe `[type="…"]` or the next element (` > ` then a tag name), else to
+// the end of the string: what follows a value that holds `"]` is part of that value, so the run swallows it.
+const SAFE_TYPE = '\\[type="(?:checkbox|radio|button|submit|reset|text|number|date|search|email|tel|url|file)"\\]';
+const SAFE_TYPE_RE = new RegExp(SAFE_TYPE, 'y');
+const RUN_END_RE = new RegExp(`${SAFE_TYPE}| > (?=[a-z][a-z0-9-]*(?:[.#[]| > |$))`, 'gi');
+const ATTR_START_RE = /\[([A-Za-z_:][\w:.-]*)="/y;
 
-function redactUiMessage(message: string): string {
-  return message.replace(UI_TEXT_ATTR_RE, (_m, attr: string) => `[${attr}="${REDACTED}"]`);
+function redactDomAttrs(selector: string): string {
+  let out = '';
+  let i = 0;
+  while (i < selector.length) {
+    const open = selector.indexOf('[', i);
+    if (open === -1) return out + selector.slice(i);
+    out += selector.slice(i, open);
+    SAFE_TYPE_RE.lastIndex = open;
+    const safe = SAFE_TYPE_RE.exec(selector);
+    if (safe) { out += safe[0]; i = open + safe[0].length; continue; }
+    ATTR_START_RE.lastIndex = open;
+    const attr = ATTR_START_RE.exec(selector);
+    if (!attr) { out += '['; i = open + 1; continue; }
+    RUN_END_RE.lastIndex = open + attr[0].length;
+    const end = RUN_END_RE.exec(selector);
+    out += `[${attr[1]}="${REDACTED}"]`;
+    i = end ? end.index : selector.length;
+  }
+  return out;
+}
+
+// Keep a URL's path and parameter NAMES, drop the values: the bank transactions list puts search text and amounts
+// in its query. A value redactShareToken already masked stays `[token]`.
+function redactUrlQueryValues(url: string): string {
+  const q = url.indexOf('?');
+  if (q === -1) return url;
+  const hash = url.indexOf('#', q);
+  const end = hash === -1 ? url.length : hash;
+  const query = url.slice(q + 1, end).split('&').map((pair) => {
+    const eq = pair.indexOf('=');
+    if (eq === -1 || pair.slice(eq + 1) === '[token]') return pair;
+    return `${pair.slice(0, eq)}=${REDACTED}`;
+  }).join('&');
+  return `${url.slice(0, q + 1)}${query}${url.slice(end)}`;
+}
+
+function scrubUrl(url: string): string {
+  return redactUrlQueryValues(redactShareToken(url));
+}
+
+type Crumb = NonNullable<Event['breadcrumbs']>[number];
+
+function scrubBreadcrumb(input: Crumb): Crumb {
+  let crumb = input;
+  if (typeof crumb.message === 'string') {
+    // console messages are whatever the app logged; every other message is scrubbed for a selector it carries.
+    const message = crumb.category === 'console' ? REDACTED : redactDomAttrs(crumb.message);
+    if (message !== crumb.message) crumb = { ...crumb, message };
+  }
+  if (crumb.data) {
+    const data: Record<string, unknown> = { ...crumb.data };
+    if (crumb.category === 'console') delete data.arguments;
+    for (const key of ['url', 'from', 'to']) {
+      const value = data[key];
+      if (typeof value === 'string') data[key] = scrubUrl(value);
+    }
+    crumb = { ...crumb, data };
+  }
+  return crumb;
 }
 
 export function scrubEvent<T extends Event>(event: T | null): T | null {
@@ -81,14 +145,7 @@ export function scrubEvent<T extends Event>(event: T | null): T | null {
     event.transaction = redactShareToken(event.transaction);
   }
   if (event.breadcrumbs) {
-    event.breadcrumbs = event.breadcrumbs.map((crumb) => {
-      if (crumb.category?.startsWith('ui.') && typeof crumb.message === 'string') {
-        crumb = { ...crumb, message: redactUiMessage(crumb.message) };
-      }
-      const url = crumb.data?.url;
-      if (typeof url !== 'string') return crumb;
-      return { ...crumb, data: { ...crumb.data, url: redactShareToken(url) } };
-    });
+    event.breadcrumbs = event.breadcrumbs.map(scrubBreadcrumb);
   }
 
   const req = event.request;

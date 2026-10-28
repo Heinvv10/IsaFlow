@@ -150,13 +150,98 @@ describe('scrubEvent', () => {
     };
     const [a, b, c] = scrubEvent(event)!.breadcrumbs!;
     expect(a!.message).toBe('td > input.accent-teal-500[aria-label="[REDACTED]"][type="checkbox"]');
-    expect(b!.message).toBe('td > button.text-xs[aria-label="[REDACTED]"][title="[REDACTED]"]');
-    expect(c!.message).toBe('div > img[alt="[REDACTED]"] > input[name="search"]');
+    // an unterminated-looking value cannot be told from one that holds `"]`, so the run swallows what follows it
+    expect(b!.message).toBe('td > button.text-xs[aria-label="[REDACTED]"]');
+    expect(c!.message).toBe('div > img[alt="[REDACTED]"] > input[name="[REDACTED]"]');
     expect(JSON.stringify(scrubEvent(event))).not.toMatch(/SMITH|Thabo/);
   });
 
-  it('leaves the message of a non-ui breadcrumb alone', () => {
-    const event: Event = { breadcrumbs: [{ category: 'console', message: 'x[title="kept"]' }] };
-    expect(scrubEvent(event)!.breadcrumbs![0]!.message).toBe('x[title="kept"]');
+  it('leaves a message that is not a selector alone, in any category', () => {
+    const event: Event = { breadcrumbs: [{ category: 'custom', message: 'checkout started' }, { category: 'ui.click', message: 'clicked button' }] };
+    expect(scrubEvent(event)!.breadcrumbs!.map(c => c.message)).toEqual(['checkout started', 'clicked button']);
+  });
+
+  it('redacts a selector in a breadcrumb of any category, not only ui.*', () => {
+    const event: Event = { breadcrumbs: [{ category: 'custom', message: 'saved via button[aria-label="Accept J SMITH"]' }] };
+    expect(scrubEvent(event)!.breadcrumbs![0]!.message).toBe('saved via button[aria-label="[REDACTED]"]');
+  });
+
+  // Sentry writes attribute values unescaped, so a value can hold `"]`. The first `"]` is not the end of it.
+  it('a value holding `"]` leaks nothing after it', () => {
+    const event: Event = {
+      breadcrumbs: [{ category: 'ui.click', message: 'div#root > button[aria-label="Accept, 01 Jun 2026 ACME"] J SMITH 0123456789 ref −R 1 234.50"][title="Accept"]' }],
+    };
+    const out = scrubEvent(event)!.breadcrumbs![0]!.message!;
+    expect(out).toBe('div#root > button[aria-label="[REDACTED]"]');
+    expect(out).not.toMatch(/SMITH|0123456789|1 234/);
+  });
+
+  it('a value holding " > " does not end the run early; the next element still shows', () => {
+    const event: Event = { breadcrumbs: [{ category: 'ui.click', message: 'div > button[aria-label="Pay > J SMITH 99"] > span.icon' }] };
+    expect(scrubEvent(event)!.breadcrumbs![0]!.message).toBe('div > button[aria-label="[REDACTED]"] > span.icon');
+  });
+
+  it('redacts every attribute value (name, serializeAttribute ones), keeping only a known input type', () => {
+    const event: Event = {
+      breadcrumbs: [
+        { category: 'ui.input', message: 'input[name="payee J SMITH"][type="text"]' },
+        { category: 'ui.click', message: 'tr[data-row-label="ACME 0123456789"]' },
+        { category: 'ui.click', message: 'input[type="J SMITH"]' },
+        { category: 'ui.click', message: 'input[aria-label="Select ACME"][type="checkbox"]' },
+      ],
+    };
+    expect(scrubEvent(event)!.breadcrumbs!.map(c => c.message)).toEqual([
+      'input[name="[REDACTED]"][type="text"]',
+      'tr[data-row-label="[REDACTED]"]',
+      'input[type="[REDACTED]"]',
+      'input[aria-label="[REDACTED]"][type="checkbox"]',
+    ]);
+  });
+
+  it('scrubbing a scrubbed selector changes nothing', () => {
+    const once = scrubEvent({ breadcrumbs: [{ category: 'ui.click', message: 'a > button[aria-label="x"][type="button"]' }] })!;
+    const twice = scrubEvent(JSON.parse(JSON.stringify(once)) as Event)!;
+    expect(twice.breadcrumbs![0]!.message).toBe(once.breadcrumbs![0]!.message);
+  });
+
+  // The bank transactions page puts search text and amounts in the query of its fetch calls.
+  it('redacts query VALUES in fetch/xhr breadcrumb urls, keeping the keys and the path', () => {
+    const event: Event = {
+      breadcrumbs: [
+        { category: 'fetch', data: { url: '/api/accounting/bank-transactions?bank_account_id=b1&search=J%20Smith&from_amount=1234.50&offset=0#top', method: 'GET' } },
+        { category: 'xhr', data: { url: 'https://app.isaflow.co.za/api/x?q=Thabo' } },
+      ],
+    };
+    const [f, x] = scrubEvent(event)!.breadcrumbs!;
+    expect(f!.data!.url).toBe('/api/accounting/bank-transactions?bank_account_id=[REDACTED]&search=[REDACTED]&from_amount=[REDACTED]&offset=[REDACTED]#top');
+    expect(f!.data!.method).toBe('GET');
+    expect(x!.data!.url).toBe('https://app.isaflow.co.za/api/x?q=[REDACTED]');
+  });
+
+  it('redacts query values in navigation breadcrumb from/to, and a share token in them still shows as [token]', () => {
+    const token = 'A'.repeat(43);
+    const event: Event = {
+      breadcrumbs: [{ category: 'navigation', data: { from: '/accounting/bank-transactions?search=Smith', to: `/share/${token}?share_token=${token}&x=1` } }],
+    };
+    const d = scrubEvent(event)!.breadcrumbs![0]!.data!;
+    expect(d.from).toBe('/accounting/bank-transactions?search=[REDACTED]');
+    expect(d.to).toBe('/share/[token]?share_token=[token]&x=[REDACTED]');
+    expect(JSON.stringify(d)).not.toContain(token);
+  });
+
+  it('leaves a url without a query alone', () => {
+    const event: Event = { breadcrumbs: [{ category: 'navigation', data: { from: '/a', to: '/b#c' } }] };
+    expect(scrubEvent(event)!.breadcrumbs![0]!.data).toEqual({ from: '/a', to: '/b#c' });
+  });
+
+  it('drops the text and arguments of console breadcrumbs: they hold whatever the app logged', () => {
+    const event: Event = {
+      breadcrumbs: [{ category: 'console', level: 'warning', message: 'Payment to J SMITH 0123456789 failed', data: { arguments: ['J SMITH', { acct: '0123456789' }], logger: 'console' } }],
+    };
+    const crumb = scrubEvent(event)!.breadcrumbs![0]!;
+    expect(crumb.message).toBe('[REDACTED]');
+    expect(crumb.data).toEqual({ logger: 'console' });
+    expect(crumb.level).toBe('warning');
+    expect(JSON.stringify(crumb)).not.toMatch(/SMITH|0123456789/);
   });
 });
