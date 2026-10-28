@@ -81,7 +81,7 @@ test('keyboard only: client, "t" and "+30", save a draft, the API holds ISO date
     expect(String(inv.invoice_date).slice(0, 10)).toBe(todayInSast());
     expect(String(inv.due_date).slice(0, 10)).toBe(plusDays(todayInSast(), 30));
   } finally {
-    // One draft per run on Demo: cancel it (a draft has no journal to reverse) so dev data does not grow unbounded.
+    // One draft per run in the sandbox company: cancel it (a draft has no journal to reverse) so dev data does not grow unbounded.
     await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
   }
 });
