@@ -207,11 +207,14 @@ export async function dropTrackingFixture(pool: Pool, f: TrackingFixture | undef
  * `company`'s) claims, under forced RLS. Always rolled back.
  */
 export async function asRequest<T>(
-  pool: Pool, company: string, user: string, fn: () => Promise<T>, opts: { appUser?: boolean } = {},
+  pool: Pool, company: string, user: string, fn: () => Promise<T>,
+  opts: { appUser?: boolean; before?: (client: PoolClient) => Promise<unknown> } = {},
 ): Promise<T> {
   const client: PoolClient = await pool.connect();
   try {
     await client.query('BEGIN');
+    // A change only this request sees: the transaction is always rolled back.
+    if (opts.before) await opts.before(client);
     if (opts.appUser) {
       await client.query('SET LOCAL ROLE app_user');
       await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user })]);

@@ -10,7 +10,8 @@
  *
  * A band's budget is Σ its lines' budgets with an unbudgeted line counting 0
  * (its actual then sits inside the band variance: the notice names it); a
- * band with NO budgeted line is absent (null), never zero. A profit total is
+ * band with NO budgeted line is absent (null), never zero. Unallocated budget
+ * on a profit total is netted by polarity the same way. A profit total is
  * absent only when every band under it is. The same rules hold for the
  * projection's FY budget. Favourable: income bands up, expense bands down,
  * profit totals up.
@@ -18,7 +19,7 @@
 import { fromCents, toCents } from '../grid/cents';
 import { BAND_LABEL, BAND_ORDER, BAND_SIGN } from '../grid/subtotals';
 import { isFavourable, pctOf } from './trackingLines';
-import type { TrackingBand, TrackingBandKey, TrackingLine, TrackingTotalKey } from './trackingTypes';
+import type { ByPolarity, TrackingBand, TrackingBandKey, TrackingLine, TrackingNotices, TrackingTotalKey } from './trackingTypes';
 
 /** The grid's bands (`budgets/grid/subtotals.ts`): one key set, label and sign for every budget surface. */
 const BANDS = BAND_ORDER.map((key) => ({ key, label: BAND_LABEL[key], polarity: BAND_SIGN[key] === 1 ? 'income' as const : 'expense' as const }));
@@ -47,8 +48,8 @@ function combine(x: Sums, y: Sums, op: 'plus' | 'minus'): Sums {
     budget: f(x.budget, y.budget),
     projected: op === 'plus' ? x.projected + y.projected : x.projected - y.projected,
     fyBudget: f(x.fyBudget, y.fyBudget),
-    // Unallocated budget is budget nobody split: it is listed, not netted, so it always adds.
-    unallocated: x.unallocated + y.unallocated,
+    // Netted by polarity like the budget (D1: never income + expense).
+    unallocated: op === 'plus' ? x.unallocated + y.unallocated : x.unallocated - y.unallocated,
   };
 }
 
@@ -94,4 +95,28 @@ export function buildBands(lines: readonly TrackingLine[]): TrackingBand[] {
     band('other_expense'),
     total('net_profit', 'Net Profit / (Loss)', 'grand', net),
   ];
+}
+
+/**
+ * The notices under the table. "Unbudgeted" is an account with posted movement, no included
+ * budget and no budget above the filter either (that one is the unallocated footer's). With the
+ * window budget absent (a year without a version) nothing is called unbudgeted: the no-version
+ * notice is the reason. Every figure is kept per polarity.
+ */
+export function buildNotices(
+  lines: readonly TrackingLine[],
+  v: { noVersion: boolean; noVersionYears: number[]; budgetAbsent: boolean },
+): TrackingNotices {
+  const unbudgeted = v.budgetAbsent ? [] : lines.filter((l) => l.budget === null && !l.budgetAboveFilter && l.actual !== 0);
+  const split = (ls: readonly TrackingLine[], pick: (l: TrackingLine) => number): ByPolarity => ({
+    income: fromCents(ls.filter((l) => l.accountType === 'revenue').reduce((s, l) => s + toCents(pick(l)), 0)),
+    expense: fromCents(ls.filter((l) => l.accountType === 'expense').reduce((s, l) => s + toCents(pick(l)), 0)),
+  });
+  return {
+    unbudgetedCount: unbudgeted.length,
+    unbudgetedActual: split(unbudgeted, (l) => l.actual),
+    unallocatedBudget: split(lines, (l) => l.unallocatedBudget),
+    noVersion: v.noVersion,
+    noVersionYears: v.noVersionYears,
+  };
 }

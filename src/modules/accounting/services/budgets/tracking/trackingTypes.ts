@@ -104,7 +104,8 @@ export interface TrackingFigures {
   /** projected − fyBudget; null with fyBudget. */
   projVariance: number | null;
   projFavourable: boolean | null;
-  /** Budget set ABOVE the filter (coarser grain) in the window: never in `budget`, never apportioned. */
+  /** Budget set ABOVE the filter (coarser grain) in the window: never in `budget`, never apportioned.
+   *  On a profit total (GP / OP / NP) it is netted by polarity, income − expense, like the budget. */
   unallocatedBudget: number;
 }
 
@@ -159,13 +160,16 @@ export interface TrackingMember {
   favourable: boolean | null;
 }
 
+/** A notice figure kept per polarity: income and expense are never summed together (D1). */
+export interface ByPolarity { income: number; expense: number }
+
 export interface TrackingNotices {
-  /** Accounts with posted movement and no included budget. */
+  /** Accounts with posted movement, no included budget, and none above the filter either. */
   unbudgetedCount: number;
-  /** Σ |actual| of those accounts. */
-  unbudgetedActual: number;
-  /** Σ unallocated (coarser) budget over every line. */
-  unallocatedBudget: number;
+  /** Σ actual of those accounts, per polarity (natural sign). */
+  unbudgetedActual: ByPolarity;
+  /** Σ unallocated (coarser) budget over every line, per polarity. */
+  unallocatedBudget: ByPolarity;
   /** FY* has no version at all. */
   noVersion: boolean;
   /** Every window year without a version (cross-FY windows can have a gap). */

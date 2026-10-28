@@ -7,7 +7,8 @@
  * expense total (D1).
  */
 import { describe, expect, it } from 'vitest';
-import { buildBands } from '@/modules/accounting/services/budgets/tracking/trackingBands';
+import { buildBands, buildNotices } from '@/modules/accounting/services/budgets/tracking/trackingBands';
+import { budgetBridgeSteps } from '@/modules/accounting/services/budgets/tracking/budgetBridgeSteps';
 import {
   buildTrackingLines,
   type AccountMeta,
@@ -114,11 +115,71 @@ describe('lines (D5)', () => {
     const l = c.line('rent')!;
     expect([l.budget, l.unallocatedBudget, l.budgetAboveFilter]).toEqual([null, 500, true]);
     expect(c.line('sales')).toBeUndefined();
-    expect(c.band('net_profit').unallocatedBudget).toBe(500);
+    // Netted by profit polarity like every profit figure (D1): an expense's unallocated budget lowers it.
+    expect(c.band('net_profit').unallocatedBudget).toBe(-500);
   });
 
   it('an account with neither actual nor budget is not printed', () => {
     expect(CASE.lines.map((l) => l.accountCode)).toEqual(['4000', '4900', '5000', '6000', '6100', '7000']);
     expect(build([a('sales', 0)], []).lines).toEqual([]);
+  });
+});
+
+describe('review round 1', () => {
+  const M2 = '2026-07';
+  const two = (budgets: ClassifiedBudgetCell[], noVersionMonths: string[]) => {
+    const lines = buildTrackingLines({
+      accounts: ACCOUNTS, windowMonths: [M, M2], plan: PLAN, noVersionMonths,
+      actuals: [a('sales', 1000), { accountId: 'sales', month: M2, amount: 700 }, a('rent', 200)],
+      budgets,
+    });
+    return { lines, bands: buildBands(lines) };
+  };
+
+  it('F1: a window month in a year with no version makes the window budget absent on every line and band', () => {
+    // June is budgeted; July lies in a year with no version.
+    const r = two([b('sales', 900), b('rent', 150)], [M2]);
+    for (const l of r.lines) expect([l.accountCode, l.budget, l.variance, l.variancePct, l.favourable]).toEqual([l.accountCode, null, null, null, null]);
+    for (const x of r.bands) expect([x.key, x.budget, x.variance, x.variancePct, x.favourable]).toEqual([x.key, null, null, null, null]);
+    // The per-month budget stays: June's is a real figure, July's absent.
+    const sales = r.lines.find((l) => l.accountId === 'sales')!;
+    expect(sales.monthly.map((m) => [m.month, m.budget])).toEqual([[M, 900], [M2, null]]);
+    // No budget base, no bridge.
+    expect(budgetBridgeSteps(r)).toEqual([]);
+    // The same budgets with July versioned keep their budget.
+    expect(two([b('sales', 900), b('rent', 150)], []).lines.find((l) => l.accountId === 'sales')!.budget).toBe(900);
+  });
+
+  it('F3: an account whose budget is set above the filter is not counted as unbudgeted', () => {
+    const lines = buildTrackingLines({
+      accounts: ACCOUNTS, windowMonths: [M], plan: PLAN,
+      actuals: [a('rent', 200), a('interest', 50)],
+      budgets: [b('rent', 500, 'coarser')],
+    });
+    const n = buildNotices(lines, { noVersion: false, noVersionYears: [], budgetAbsent: false });
+    expect(n.unbudgetedCount).toBe(1);
+    expect(n.unbudgetedActual).toEqual({ income: 50, expense: 0 });
+  });
+
+  it('F4: notices keep income and expense apart; profit rows net unallocated budget by polarity', () => {
+    const lines = buildTrackingLines({
+      accounts: ACCOUNTS, windowMonths: [M], plan: PLAN,
+      actuals: [a('interest', 50), a('wages', 30), a('sales', 10)],
+      budgets: [b('sales', 400, 'coarser'), b('rent', 120, 'coarser'), b('cos', 30, 'coarser')],
+    });
+    const n = buildNotices(lines, { noVersion: false, noVersionYears: [], budgetAbsent: false });
+    expect(n.unbudgetedActual).toEqual({ income: 50, expense: 30 });
+    expect(n.unbudgetedCount).toBe(2);
+    expect(n.unallocatedBudget).toEqual({ income: 400, expense: 150 });
+    const bands = buildBands(lines);
+    const un = (k: string) => bands.find((x) => x.key === k)!.unallocatedBudget;
+    expect([un('turnover'), un('cost_of_sales'), un('gross_profit'), un('operating_expense'), un('operating_profit'), un('net_profit')])
+      .toEqual([400, 30, 370, 120, 250, 250]);
+  });
+
+  it('F1: with the window budget absent nothing is called unbudgeted (the no-version notice says why)', () => {
+    const r = two([b('sales', 900)], [M2]);
+    const n = buildNotices(r.lines, { noVersion: true, noVersionYears: [2028], budgetAbsent: true });
+    expect([n.unbudgetedCount, n.unbudgetedActual, n.noVersionYears]).toEqual([0, { income: 0, expense: 0 }, [2028]]);
   });
 });
