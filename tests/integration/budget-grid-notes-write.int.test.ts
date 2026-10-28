@@ -16,7 +16,7 @@ import noteRoute from '../../pages/api/accounting/budget-grid/note';
 import { als } from '@/lib/als';
 import { setGridNote } from '@/modules/accounting/services/budgets/budgetNotes';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { budgetGridFixture, type GridCo } from './helpers/budgetGridFixture';
+import { budgetGridFixture, clearBudgetRateCounters, type GridCo } from './helpers/budgetGridFixture';
 import type { SetupUser } from './helpers/onboardingSetupFixture';
 
 assertDisposable();
@@ -164,6 +164,18 @@ describe('PUT /api/accounting/budget-grid/note', () => {
     expect([y.status, code(y)], dump(y)).toEqual([400, 'BUDGET_VERSION_INPUT']);
     expect(await header(A, A.acct.cos, 2027)).toEqual([]);
     expect(await header(B, A.acct.cos, 2027)).toEqual([]);
+  });
+
+  it('a user whose note bucket is full is 429, and nothing is written', async () => {
+    await pool.query(`INSERT INTO rate_limit_counters (key, count, window_start) VALUES ($1, 120, now())
+                      ON CONFLICT (key) DO UPDATE SET count = 120, window_start = now()`, [`budget-note:${A.owner.userId}`]);
+    try {
+      const r = await put(A, { versionId: primary, glAccountId: A.acct.cos, note: 'rate limited' });
+      expect([r.status, r.body.error?.code], dump(r)).toEqual([429, 'RATE_LIMIT']);
+      expect(await header(A, A.acct.cos, 2027)).toEqual([]);
+    } finally {
+      await clearBudgetRateCounters(pool, [A.owner.userId]);
+    }
   });
 
   it('answers 405 for anything but PUT', async () => {
