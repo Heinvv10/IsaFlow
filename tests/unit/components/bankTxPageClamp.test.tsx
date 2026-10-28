@@ -23,12 +23,12 @@ describe('lastPage', () => {
 
 let fetches: number[] = [];
 let setTotalOut: (n: number) => void = () => {};
-function Harness({ initialPage, initialTotal, loading = false }: { initialPage: number; initialTotal: number; loading?: boolean }) {
+function Harness({ initialPage, initialTotal, loading = false, failed = false }: { initialPage: number; initialTotal: number; loading?: boolean; failed?: boolean }) {
   const [page, setPage] = useState(initialPage);
   const [total, setTotal] = useState(initialTotal);
   setTotalOut = setTotal;
   useEffect(() => { fetches.push(page); }, [page]); // the page's loadTransactions is keyed on page the same way
-  usePageClamp({ page, total, pageSize: 25, isLoading: loading, setPage });
+  usePageClamp({ page, total, pageSize: 25, isLoading: loading, failed, setPage });
   return <div data-testid="page">{page}</div>;
 }
 
@@ -57,6 +57,13 @@ describe('usePageClamp', () => {
     expect(screen.getByTestId('page').textContent).toBe('3');
   });
 
+  it('a failed load (rows and total zeroed) leaves the page alone: the error shows where the user asked', () => {
+    fetches = [];
+    render(<Harness initialPage={3} initialTotal={0} failed />);
+    expect(screen.getByTestId('page').textContent).toBe('3');
+    expect(fetches).toEqual([3]);
+  });
+
   it('an empty account goes to page 1', () => {
     fetches = [];
     render(<Harness initialPage={4} initialTotal={0} />);
@@ -76,6 +83,16 @@ describe('BankTxListFrame', () => {
     frame(true, true);
     expect(screen.queryByTestId('bank-tx-empty')).toBeNull();
     expect(screen.getByTestId('list-skeleton')).toBeInTheDocument();
+  });
+
+  it('a failed load on a page that reads as past the end shows the error, not the skeleton', () => {
+    render(
+      <BankTxListFrame relinkFailed={false} aiPolling={0} isLoading={false} error="Could not load transactions - try again" empty pastEnd tab="new">
+        <div data-testid="rows" />
+      </BankTxListFrame>,
+    );
+    expect(screen.getByText('Could not load transactions - try again')).toBeInTheDocument();
+    expect(screen.queryByTestId('list-skeleton')).toBeNull();
   });
 
   it('no rows on a page that exists is empty', () => {

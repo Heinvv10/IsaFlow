@@ -56,7 +56,7 @@ export function BankTxDimensionCells({ tx, sel, rowType, isNew, label, table }: 
             <select
               value={sel?.vatCode || 'none'}
               onChange={e => onRowVatChange(tx.id, e.target.value as VatCode)}
-            aria-label={`VAT, ${label}`}
+              aria-label={`VAT, ${label}`}
               className={`text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] w-full ${
                 vatWarn
                   ? 'border border-amber-500 text-amber-500'
