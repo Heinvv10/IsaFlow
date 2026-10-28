@@ -50,7 +50,7 @@ export function heatmapAccounts(lines: readonly TrackingLine[], opts: { limit?: 
   return opts.showAll ? ranked : ranked.slice(0, opts.limit ?? HEATMAP_DEFAULT_LIMIT);
 }
 
-interface Cell { x: number; y: number; line: TrackingLine; month: string; actual: number; budget: number | null; variance: number | null; favourable: boolean | null }
+interface Cell { x: number; y: number; line: TrackingLine; month: string; actual: number; budget: number | null; above: boolean; variance: number | null; favourable: boolean | null }
 
 export function buildVarianceHeatmapOption(
   lines: readonly TrackingLine[],
@@ -65,7 +65,10 @@ export function buildVarianceHeatmapOption(
   rows.forEach((line, y) => {
     months.forEach((month, x) => {
       const m = line.monthly.find((v) => v.month === month);
-      cells.push({ x, y, line, month, actual: m?.actual ?? 0, budget: m?.budget ?? null, variance: m?.variance ?? null, favourable: m?.favourable ?? null });
+      cells.push({
+        x, y, line, month, actual: m?.actual ?? 0, budget: m?.budget ?? null, above: m?.budgetAboveFilter ?? false,
+        variance: m?.variance ?? null, favourable: m?.favourable ?? null,
+      });
     });
   });
   const max = Math.max(0, ...cells.map((c) => (c.variance === null ? 0 : Math.abs(c.variance))));
@@ -101,7 +104,10 @@ export function buildVarianceHeatmapOption(
         if (!c) return '';
         const head = `${escapeHtml(`${c.line.accountCode} ${c.line.accountName}`)}<br/>${monthLabel(c.month)}`;
         const actual = `Actual ${formatStatementFigure(c.actual, { symbol: true })}`;
-        if (c.budget === null || c.variance === null) return `${head}<br/>${actual}<br/>No budget for this month`;
+        if (c.budget === null || c.variance === null) {
+          // A month budgeted only above the filter has a budget, just not one this filter can split.
+          return `${head}<br/>${actual}<br/>${c.above ? 'Budgeted above this filter' : 'No budget for this month'}`;
+        }
         return `${head}<br/>${actual}<br/>Budget ${formatStatementFigure(c.budget, { symbol: true })}<br/>Var ${formatStatementFigure(c.variance, { symbol: true })}`;
       },
     },

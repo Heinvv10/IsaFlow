@@ -20,7 +20,7 @@ const MONTHS = ['2026-06', '2026-07', '2026-08'];
 
 function line(code: string, name: string, monthly: Array<[number, number | null, boolean | null]>, variance: number | null): TrackingLine {
   const months: TrackingMonth[] = monthly.map(([actual, budget, favourable], i) => ({
-    month: MONTHS[i]!, actual, budget, variance: budget === null ? null : Math.round((actual - budget) * 100) / 100, favourable,
+    month: MONTHS[i]!, actual, budget, variance: budget === null ? null : Math.round((actual - budget) * 100) / 100, favourable, budgetAboveFilter: false,
   }));
   return {
     accountId: `id-${code}`, accountCode: code, accountName: name, accountType: 'expense', band: 'operating_expense',
@@ -99,6 +99,19 @@ describe('buildVarianceHeatmapOption', () => {
     const rows = (buildVarianceHeatmapOption(many, MONTHS, PALETTE) as { yAxis: { data: string[] } }).yAxis.data;
     // ECharts draws category index 0 at the bottom: the largest is LAST.
     expect(rows.at(-1)).toBe('5019 A19');
+  });
+
+  it('R4: the tooltip tells a month budgeted above the filter from a month with no budget', () => {
+    const above = line('7000', 'Above', [[10, null, null], [20, null, null], [30, 25, false]], 5);
+    above.monthly[0]!.budgetAboveFilter = true;
+    const opt = buildVarianceHeatmapOption([above], MONTHS, PALETTE)!;
+    const fmt = (opt as { tooltip: { formatter: (p: { dataIndex: number }) => string } }).tooltip.formatter;
+    const data = (opt as { series: Array<{ data: number[][] }> }).series[0]!.data;
+    const tip = (month: number) => fmt({ dataIndex: data.findIndex(([x]) => x === month) });
+    expect(tip(0)).toContain('Budgeted above this filter');
+    expect(tip(0)).not.toContain('No budget for this month');
+    expect(tip(1)).toContain('No budget for this month');
+    expect(tip(2)).toContain('Budget');
   });
 
   it('nothing to draw is null', () => {
