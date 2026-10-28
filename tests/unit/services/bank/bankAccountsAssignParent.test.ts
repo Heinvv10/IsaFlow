@@ -8,8 +8,12 @@
  *      parent must not itself be a sub-account (two-level only), the account
  *      being grouped must not be an umbrella, and the parent must not carry
  *      its own bank transactions (it would vanish behind the leaf-only filter).
- *   2. `parentAccountId: null` clears the parent (explicit-null semantics —
- *      unlike the COALESCE fields, where null preserves).
+ *   2. `parentAccountId: null` clears a GROUP parent (explicit-null semantics —
+ *      unlike the COALESCE fields, where null preserves); null for an account
+ *      under a non-bank chart header, or the same group again, moves nothing.
+ *   2a. Only a bank account is moved; the move itself is reclassifyAccount
+ *      (level, subtree, chart rules — proven against Postgres in
+ *      tests/integration/header-account-import-seed-group.int.test.ts).
  *   3. Key absent → parent untouched, only the COALESCE UPDATE runs.
  *   4. Every assignParent query is scoped by company_id (multi-tenant rule).
  */
@@ -51,6 +55,10 @@ vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({
   lockSystemRoleWrites: vi.fn(async () => undefined), boundedRowWait: <T>(take: () => PromiseLike<T>) => take(),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clearSystemAccountCacheAfterCommit: vi.fn() }));
+const { reclassifyMock } = vi.hoisted(() => ({ reclassifyMock: vi.fn(async () => ({})) }));
+vi.mock('@/modules/accounting/services/gl/accountReclassifyService', () => ({
+  reclassifyAccount: reclassifyMock, ReclassifyError: class extends Error {},
+}));
 
 import { apiResponse } from '@/lib/apiResponse';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -83,7 +91,10 @@ function sqlText(n: number): string {
   return (sqlMock.mock.calls[n]![0] as string[]).join('?');
 }
 
-const PARENT_OK = { id: PARENT_ID, parent_account_id: null, account_subtype: 'bank', parent_subtype: null };
+// level 3: below the leaf rule, so no row lock or posted-lines read in these mocks.
+const PARENT_OK = { id: PARENT_ID, parent_account_id: null, account_subtype: 'bank', parent_subtype: null, account_type: 'asset', level: 3 };
+/** The account being grouped: a bank account, ungrouped. */
+const SELF = { account_subtype: 'bank', parent_account_id: null, parent_subtype: null };
 
 describe('PUT /api/accounting/bank-accounts — parentAccountId (group assignment)', () => {
   beforeEach(() => {
@@ -99,8 +110,16 @@ describe('PUT /api/accounting/bank-accounts — parentAccountId (group assignmen
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
+  it('refuses to move an account that is not a bank account', async () => {
+    sqlMock.mockResolvedValueOnce([{ ...SELF, account_subtype: null }]);
+    await (handler as unknown as Handler)(
+      makeReq({ id: ACCOUNT_ID, parentAccountId: PARENT_ID }), makeRes());
+    expect(apiResponse.badRequest).toHaveBeenCalledWith(expect.anything(), 'Only a bank account can be grouped here');
+    expect(reclassifyMock).not.toHaveBeenCalled();
+  });
+
   it('rejects a parent that is not a bank account in this company', async () => {
-    sqlMock.mockResolvedValueOnce([]); // parent lookup → not found
+    sqlMock.mockResolvedValueOnce([SELF]).mockResolvedValueOnce([]); // parent lookup → not found
     await (handler as unknown as Handler)(
       makeReq({ id: ACCOUNT_ID, parentAccountId: PARENT_ID }), makeRes());
     expect(apiResponse.badRequest).toHaveBeenCalledWith(
@@ -108,7 +127,7 @@ describe('PUT /api/accounting/bank-accounts — parentAccountId (group assignmen
   });
 
   it('rejects a parent that is itself a sub-account (two-level only)', async () => {
-    sqlMock.mockResolvedValueOnce([{ ...PARENT_OK, parent_subtype: 'bank' }]);
+    sqlMock.mockResolvedValueOnce([SELF]).mockResolvedValueOnce([{ ...PARENT_OK, parent_subtype: 'bank' }]);
     await (handler as unknown as Handler)(
       makeReq({ id: ACCOUNT_ID, parentAccountId: PARENT_ID }), makeRes());
     expect(apiResponse.badRequest).toHaveBeenCalledWith(
@@ -117,6 +136,7 @@ describe('PUT /api/accounting/bank-accounts — parentAccountId (group assignmen
 
   it('rejects grouping an account that is itself an umbrella', async () => {
     sqlMock
+      .mockResolvedValueOnce([SELF])
       .mockResolvedValueOnce([PARENT_OK]) // parent lookup OK
       .mockResolvedValueOnce([{ '?column?': 1 }]); // self has bank children
     await (handler as unknown as Handler)(
@@ -127,6 +147,7 @@ describe('PUT /api/accounting/bank-accounts — parentAccountId (group assignmen
 
   it('rejects a parent that has its own bank transactions', async () => {
     sqlMock
+      .mockResolvedValueOnce([SELF])
       .mockResolvedValueOnce([PARENT_OK]) // parent lookup OK
       .mockResolvedValueOnce([])          // self-children check clear
       .mockResolvedValueOnce([{ '?column?': 1 }]); // parent has transactions
@@ -137,31 +158,38 @@ describe('PUT /api/accounting/bank-accounts — parentAccountId (group assignmen
       'Group account has its own bank transactions — pick an account without transactions as the group');
   });
 
-  it('assigns a valid parent then runs the COALESCE update', async () => {
+  it('assigns a valid parent through reclassifyAccount, then runs the COALESCE update', async () => {
     sqlMock
+      .mockResolvedValueOnce([SELF])
       .mockResolvedValueOnce([PARENT_OK]) // parent lookup OK
       .mockResolvedValueOnce([])          // self-children clear
       .mockResolvedValueOnce([])          // parent-transactions clear
-      .mockResolvedValueOnce([])          // UPDATE parent
       .mockResolvedValueOnce([]);         // COALESCE UPDATE
     await (handler as unknown as Handler)(
       makeReq({ id: ACCOUNT_ID, parentAccountId: PARENT_ID }), makeRes());
     expect(apiResponse.badRequest).not.toHaveBeenCalled();
     expect(apiResponse.success).toHaveBeenCalledWith(expect.anything(), { updated: true });
+    expect(reclassifyMock).toHaveBeenCalledWith(COMPANY_ID, ACCOUNT_ID, { parentAccountId: PARENT_ID });
     expect(sqlMock).toHaveBeenCalledTimes(5);
-    expect(sqlText(3)).toContain('UPDATE gl_accounts SET parent_account_id =');
   });
 
-  it('explicit null clears the parent (no validation lookups)', async () => {
+  it('explicit null takes a grouped account out of its group (no parent validation)', async () => {
     sqlMock
-      .mockResolvedValueOnce([])  // UPDATE parent → null
+      .mockResolvedValueOnce([{ ...SELF, parent_account_id: PARENT_ID, parent_subtype: 'bank' }])
       .mockResolvedValueOnce([]); // COALESCE UPDATE
     await (handler as unknown as Handler)(
       makeReq({ id: ACCOUNT_ID, parentAccountId: null }), makeRes());
     expect(apiResponse.success).toHaveBeenCalledWith(expect.anything(), { updated: true });
-    expect(sqlMock).toHaveBeenCalledTimes(2);
-    expect(sqlText(0)).toContain('UPDATE gl_accounts SET parent_account_id =');
-    expect(sqlMock.mock.calls[0]!.slice(1)).toContain(null);
+    expect(reclassifyMock).toHaveBeenCalledWith(COMPANY_ID, ACCOUNT_ID, { parentAccountId: null });
+  });
+
+  it('null for an account under a non-bank chart header, or the same group again, moves nothing', async () => {
+    sqlMock.mockResolvedValueOnce([{ ...SELF, parent_account_id: PARENT_ID, parent_subtype: null }]);
+    await (handler as unknown as Handler)(makeReq({ id: ACCOUNT_ID, parentAccountId: null }), makeRes());
+    sqlMock.mockResolvedValueOnce([{ ...SELF, parent_account_id: PARENT_ID, parent_subtype: 'bank' }]);
+    await (handler as unknown as Handler)(makeReq({ id: ACCOUNT_ID, parentAccountId: PARENT_ID }), makeRes());
+    expect(reclassifyMock).not.toHaveBeenCalled();
+    expect(apiResponse.badRequest).not.toHaveBeenCalled();
   });
 
   it('leaves the parent untouched when the key is absent', async () => {
@@ -182,8 +210,8 @@ describe('PUT /api/accounting/bank-accounts — parentAccountId (group assignmen
 
   it('scopes every assignParent query by company_id (multi-tenant rule)', async () => {
     sqlMock
+      .mockResolvedValueOnce([SELF])
       .mockResolvedValueOnce([PARENT_OK])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
@@ -193,7 +221,8 @@ describe('PUT /api/accounting/bank-accounts — parentAccountId (group assignmen
       expect(sqlText(n)).toContain('company_id =');
       expect(sqlMock.mock.calls[n]!.slice(1)).toContain(COMPANY_ID);
     }
-    // The grandparent-subtype subquery must be tenant-scoped too.
+    // The parent-subtype subqueries (the account's own group, the group's group) are tenant-scoped too.
     expect(sqlText(0).match(/company_id =/g)!.length).toBeGreaterThanOrEqual(2);
+    expect(sqlText(1).match(/company_id =/g)!.length).toBeGreaterThanOrEqual(2);
   });
 });
