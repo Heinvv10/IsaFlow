@@ -179,14 +179,9 @@ export default function SupplierLedgerPage() {
             </button>
           </div>
 
-          {dates.blocked && (
-            <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4" /> {FIX_DATE}
-            </div>
-          )}
-          {error && (
+          {(dates.blocked ? FIX_DATE : error) && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4" /> {error}
+              <AlertCircle className="h-4 w-4" /> {dates.blocked ? FIX_DATE : error}
             </div>
           )}
 
