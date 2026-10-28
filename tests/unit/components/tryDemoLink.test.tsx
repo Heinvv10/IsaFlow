@@ -2,6 +2,7 @@
  * "Try the demo company": found by `isDemo` (never by name), shown only when the user
  * belongs to the demo tenant and is not already on it, and a refused switch keeps the offer.
  */
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
@@ -85,12 +86,12 @@ describe('<TryDemoLink>', () => {
 
   describe('busy overlay is modal, not just visual', () => {
     let refuse!: (e: Error) => void;
-    const start = async () => {
+    const start = async (strict = false) => {
       h.switchCompany.mockReturnValue(new Promise<void>((_, rej) => { refuse = rej; }));
       const page = document.createElement('div');
       page.id = 'app-root';
       document.body.appendChild(page);
-      const view = render(<TryDemoLink />, { container: page.appendChild(document.createElement('div')) });
+      const view = render(strict ? <StrictMode><TryDemoLink /></StrictMode> : <TryDemoLink />, { container: page.appendChild(document.createElement('div')) });
       const trigger = screen.getByRole('button', { name: 'Try the demo company' });
       trigger.focus();
       fireEvent.click(trigger);
@@ -113,6 +114,14 @@ describe('<TryDemoLink>', () => {
       refuse(new Error('no access'));
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
       expect(page.hasAttribute('inert')).toBe(false);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try the demo company' }));
+      page.remove();
+    });
+
+    it('under StrictMode (effects run twice) focus still returns to the trigger after a refused switch', async () => {
+      const { page } = await start(true);
+      refuse(new Error('no access'));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try the demo company' }));
       page.remove();
     });
