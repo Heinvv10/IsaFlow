@@ -22,6 +22,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { budgetMonthBounds, monthKeyToDate } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import { versionYear, type VersionScope } from '../budgetVersionScope';
+import { mapRegistryMiss } from './trackingWindow';
 import type { AccountMeta } from './trackingLines';
 import { TrackingError, type TrackingVersionRef, type TrackingWindow } from './trackingTypes';
 
@@ -77,7 +78,7 @@ export async function resolveTrackingVersions(companyId: string, window: Trackin
   const years = scopeYears(window);
   let scope: VersionScope[];
   if (versionId) {
-    const year = await versionYear(companyId, versionId);
+    const year = await mapRegistryMiss(() => versionYear(companyId, versionId));
     const reaches = years.map((y) => y.fiscalYear).filter((y) => y !== year.fiscalYear);
     if (reaches.length > 0) {
       throw new TrackingError(400, `version ${versionId} is FY${year.fiscalYear}; the window reaches FY${reaches[0]}`);

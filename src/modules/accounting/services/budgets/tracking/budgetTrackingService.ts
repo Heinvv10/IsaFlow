@@ -27,7 +27,7 @@ import { resolveTrackingFilter } from './trackingFilter';
 import { buildTrackingLines, type AccountMeta } from './trackingLines';
 import { projectionPlan } from './trackingProjection';
 import { TrackingError, type BudgetTrackingReport, type TrackingParams } from './trackingTypes';
-import { readStartOf, resolveTrackingWindow } from './trackingWindow';
+import { mapRegistryMiss, readStartOf, resolveTrackingWindow } from './trackingWindow';
 
 export async function buildBudgetTrackingReport(
   companyId: string,
@@ -49,7 +49,7 @@ export async function buildBudgetTrackingReport(
   const chainIds = [...new Set([...filter.chainIds, ...budgetRows.map((r) => r.cc2Id).filter((v): v is string => v !== null)])];
   const nodes = await loadCostCentreChains(companyId, chainIds);
   const budgetFilter = filter.budgetFilter(nodes);
-  const actualRows = await readTrackingActuals(companyId, readStartOf(window), window.endDate, filter.actual, groupBy);
+  const actualRows = await readTrackingActuals(companyId, readStartOf(window), window.endDate, filter.actual, groupBy, today);
 
   const accounts = new Map<string, AccountMeta>();
   for (const r of [...actualRows, ...budgetRows]) {
@@ -84,13 +84,17 @@ export async function buildBudgetTrackingReport(
       actuals: actualRows,
       budgets: budgetRows.map((r, i) => ({ eff: effs[i]!, month: r.month, accountType: r.accountType, amount: r.amount })),
       names: new Map([...named].map(([id, m]) => [id.toLowerCase(), { code: m.code, name: m.name }])),
+      noVersionMonths,
     });
   }
 
-  // "Actuals posted through" for the in-progress month runs from its 1st to TODAY; the window's
-  // own posted-through (P0's definition) is read over the whole window.
-  const inProgress = window.inProgressMonth
-    ? { month: window.inProgressMonth, actualsTo: await readPostedThrough(companyId, `${window.inProgressMonth}-01`, today) }
+  // "Actuals posted through" for the in-progress month: the latest posting the FILTERED actuals read
+  // consumed in that month, up to TODAY (review A4). The window's own posted-through is P0's
+  // company-wide figure over the whole window, any account (it can be forward-dated).
+  const progressMonth = window.inProgressMonth;
+  const consumed = actualRows.flatMap((r) => (r.month === progressMonth && r.lastPosted !== null ? [r.lastPosted] : []));
+  const inProgress = progressMonth
+    ? { month: progressMonth, actualsTo: consumed.length === 0 ? null : consumed.reduce((x, y) => (x > y ? x : y)) }
     : null;
   const postedThrough = await readPostedThrough(companyId, window.startDate, window.endDate);
 
@@ -105,7 +109,7 @@ export async function buildBudgetTrackingReport(
     lines,
     bands: buildBands(lines),
     notices: buildNotices(lines, { noVersion: versions.version === null, noVersionYears: versions.noVersionYears, budgetAbsent: noVersionMonths.length > 0 }),
-    years: await reportYearOptions(companyId, today),
+    years: await mapRegistryMiss(() => reportYearOptions(companyId, today)),
   };
   if (versions.versionsByFy) report.versionsByFy = versions.versionsByFy;
   if (members) report.members = members;
