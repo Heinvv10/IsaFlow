@@ -31,7 +31,7 @@ export function installNetwork() {
   const on = (match: Route['match'], reply: Reply) => { routes.unshift({ match, reply }); };
   on(() => true, (url) => { throw new Error(`unexpected ${url}`); });
   on((u) => u.startsWith('/api/auth/preferences'), () => ok({}));
-  on((u) => u === '/api/accounting/budgets', () => ok({ items: [], fiscalYear: 2027, year: year(2027), years: [year(2026), year(2027), year(2028)] }));
+  on((u) => u === '/api/accounting/budgets?years_only=1', () => ok({ items: [], fiscalYear: 2027, year: year(2027), years: [year(2026), year(2027), year(2028)] }));
   on((u) => u.startsWith('/api/accounting/budget-versions?fiscalYear='), (u) => {
     const fy = Number(u.split('=')[1]);
     const v = modelFor(fy).version!;

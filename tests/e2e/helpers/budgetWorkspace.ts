@@ -6,7 +6,7 @@
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 
-export const WORKSPACE = '/accounting/budgets/workspace';
+export const WORKSPACE = '/accounting/budgets';
 export const LINES = 'table[role="grid"] tr[data-kind="line"]';
 
 /** The legacy year route the workspace's year select is built from (`data.fiscalYear` = the year holding today). */
