@@ -108,7 +108,15 @@ describe('<TryDemoLink>', () => {
       page.remove();
     });
 
-    it('gives the page back, and focus, when the switch is refused', async () => {
+    it('the link keeps its full link colour (brand-700 / teal-300) in every state: no opacity fade', async () => {
+    render(<TryDemoLink />);
+    const link = screen.getByRole('button', { name: 'Try the demo company' });
+    expect(link.className).toContain('text-brand-700');
+    expect(link.className).toContain('dark:text-teal-300');
+    expect(link.className).not.toMatch(/opacity/);
+  });
+
+  it('gives the page back, and focus, when the switch is refused', async () => {
       const { page } = await start();
       expect(page.hasAttribute('inert')).toBe(true);
       refuse(new Error('no access'));
