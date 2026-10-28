@@ -696,8 +696,7 @@ All API routes follow the pattern `/api/accounting/*` and return standardised re
 | GET/POST | `/api/accounting/opening-balances` | Opening balance entry |
 | GET/POST | `/api/accounting/recurring-journals` | Recurring journal CRUD |
 | POST | `/api/accounting/recurring-journals-action` | Generate/pause/cancel |
-| GET/POST | `/api/accounting/budgets` | Budget CRUD |
-| POST | `/api/accounting/budgets-action` | Budget actions |
+| GET | `/api/accounting/budgets` | A year's budgets and the year list, read-only (`years_only=1`: the year list alone); the budget workspace writes through `budget-grid/save` and `budget-versions/*` |
 | POST | `/api/accounting/run-depreciation` | Execute depreciation |
 | GET/POST | `/api/accounting/year-end` | Year-end processing |
 | GET/POST | `/api/accounting/adjustments` | Period adjustments |
