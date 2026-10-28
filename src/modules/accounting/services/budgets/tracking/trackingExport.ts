@@ -8,6 +8,7 @@
  */
 import ExcelJS from 'exceljs';
 import { csvVal } from '@/lib/csv';
+import { neutralizeCsvCell } from '@/lib/csvSafe';
 import { toBudgetTrackingRows, type BudgetTrackingRow } from '@/modules/accounting/services/reports/statementRows/budgetTrackingRows';
 import { NON_FIGURE_KINDS } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { BudgetTrackingReport, TrackingMemberRef } from './trackingTypes';
@@ -101,7 +102,9 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
   // Lines budgeted for only part of the window print a blank Budget: say why (review r6 F3).
   const partial = report.notices.partialBudget ?? null;
   if (partial) {
-    head.push(['Notice', `${partial.count} line${partial.count === 1 ? ' has' : 's have'} a budget for only part of this window; their Budget is blank`]);
+    head.push(['Notice', partial.count === 1
+      ? '1 line has a budget for only part of this window; its Budget is blank'
+      : `${partial.count} lines have a budget for only part of this window; their Budget is blank`]);
   }
   return head;
 }
@@ -109,11 +112,11 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
 const money = (n: number | null): string => (n === null ? '' : n.toFixed(2));
 
 /**
- * The leading-character guard `csvVal` applies (`src/lib/csv.ts` keeps its copy private), for
- * XLSX text cells: ExcelJS stores a leading '=' as a string, but a spreadsheet app a user
- * re-saves or pastes from can still read it as a formula.
+ * XLSX text cells take the same leading-character guard as csvVal (`src/lib/csvSafe.ts`): ExcelJS
+ * stores a leading '=' as a string, but a spreadsheet app a user re-saves or pastes from can still
+ * read it as a formula.
  */
-const xlsxText = (v: string): string => (/^[=+\-@\t\r]/.test(v) ? `'${v}` : v);
+const xlsxText = neutralizeCsvCell;
 
 export function trackingCsv(report: BudgetTrackingReport, companyName: string): string {
   const out = trackingExportHeader(report, companyName).map(([k, v]) => `${csvVal(k)},${csvVal(v)}`);

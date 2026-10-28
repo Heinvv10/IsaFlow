@@ -13,7 +13,8 @@ import ExcelJS from 'exceljs';
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: vi.fn(async () => true) }));
+const checkReportRateLimit = vi.fn(async () => true);
+vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: (...a: unknown[]) => checkReportRateLimit(...(a as [])) }));
 const buildBudgetTrackingReport = vi.fn();
 vi.mock('@/modules/accounting/services/budgets/tracking/budgetTrackingService', () => ({
   buildBudgetTrackingReport: (...a: unknown[]) => buildBudgetTrackingReport(...a),
@@ -139,6 +140,14 @@ describe('budget-tracking-export', () => {
       Company: 'Acme (Pty) Ltd', Window: '2026-06 to 2026-07 (2026-06-01 to 2026-07-31)', Version: 'Reforecast 1 · draft',
       'Dimension filter': 'None (company total)', 'Projection cutoff': 'Actuals to 2026-07-31, budget after',
     });
+  });
+
+  it('honours the per-company report rate limit before any work (r7)', async () => {
+    checkReportRateLimit.mockResolvedValueOnce(false);
+    const res = await call(exportHandler, { ...query, format: 'csv' });
+    expect(res.statusCode).toBe(429);
+    expect(checkReportRateLimit).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'budget-tracking-export');
+    expect(buildBudgetTrackingReport).not.toHaveBeenCalled();
   });
 
   it('refuses an unknown format and a malformed query before any work', async () => {

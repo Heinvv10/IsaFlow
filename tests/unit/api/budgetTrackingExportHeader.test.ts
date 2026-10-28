@@ -117,4 +117,10 @@ describe('budget-tracking-export header', () => {
     const plain = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
     expect(plain.filter((r) => r[0] === 'Notice')).toEqual([]);
   });
+
+  it('F3/r7: one partial line reads in the singular', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => ({ ...fixture(), notices: { ...fixture().notices, partialBudget: { count: 1, actual: { income: 7, expense: 0 } } } }));
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.filter((r) => r[0] === 'Notice').map((r) => r[1])).toEqual(['1 line has a budget for only part of this window; its Budget is blank']);
+  });
 });
