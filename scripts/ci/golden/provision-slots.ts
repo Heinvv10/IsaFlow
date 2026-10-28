@@ -14,7 +14,7 @@
  *
  * Refuses any database but isaflow_dev (production is `isaflow` on the same host and port).
  */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import pg from 'pg';
 import { adminCreateUser, adminUpdateUser } from '../../../src/lib/auth/gotrue';
@@ -118,7 +118,9 @@ async function main(): Promise<void> {
     for (const n of GOLDEN_SLOTS) {
       const keys = slotEnvKeys(n);
       const password = get(keys.password) ?? randomBytes(24).toString('base64url');
-      const userId = dryRun ? `dry-run-user-${n}` : await ensureGoTrueUser(n, password);
+      // A dry run leaves GoTrue alone: it reuses the id public.users already has, or a throwaway one for a fresh user.
+      const existing = dryRun ? await db.query<{ id: string }>('SELECT id FROM users WHERE lower(email) = lower($1)', [slotEmail(n)]) : null;
+      const userId = dryRun ? existing!.rows[0]?.id ?? randomUUID() : await ensureGoTrueUser(n, password);
 
       await db.query('BEGIN');
       try {
