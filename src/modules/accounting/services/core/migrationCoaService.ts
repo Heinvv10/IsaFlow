@@ -23,22 +23,22 @@ import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemA
 import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
 import { resolveCoaImportRows, type RawCoaImportRow } from './accountTypeAliases';
 import { ParentAccountError, assertParentUsable } from '../gl/accountParentRules';
-import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES } from '../gl/isReportVisibleLeaf';
 
 export { validateSystemAccountMap };
 
 /**
- * Upsert condition: the row would re-type the existing account (`gl_accounts` in ON CONFLICT) into a level 1-2
- * balance-sheet header that has journal lines of its own: the balance sheet drops a level 1-2 account with
- * sub-accounts, so those lines would leave every statement. Any other re-type of an account in use is a
+ * Upsert condition: the row would re-type an existing account (`gl_accounts` in ON CONFLICT) that has
+ * sub-accounts. A parent and its sub-accounts share a type (assertParentUsable), and a re-typed parent is how a
+ * level 1-2 account becomes a balance-sheet header: its own lines, or the first line a journal posts to it
+ * while this import is in flight, would leave the balance sheet. The import is the only writer of account_type,
+ * so keeping it here closes that for every path. Re-typing an account without sub-accounts stays a
  * reclassification the import may make (the VAT-lock check below still judges it).
  */
-function retypeHides(companyId: string) {
+function retypesParent(companyId: string) {
   return sql`(gl_accounts.account_type <> EXCLUDED.account_type
-    AND EXCLUDED.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND COALESCE(gl_accounts.level, 0) < ${BALANCE_SHEET_LEAF_LEVEL}
-    AND EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = gl_accounts.id AND ch.company_id = ${companyId}::UUID)
-    AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = gl_accounts.id AND jl.company_id = ${companyId}::UUID))`;
+    AND EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = gl_accounts.id AND ch.company_id = ${companyId}::UUID))`;
 }
+
 
 
 export interface AccountImportRow {
@@ -111,8 +111,9 @@ export async function importChartOfAccounts(
         const before = await accountAttributes(companyId);
         // Every existing account the file names, as a row or as a parent, locked FOR UPDATE up front and in
         // ascending order before any row is judged: a journal line in flight to one of them (its insert
-        // holds KEY SHARE) commits first, so the re-type and parent checks below see it; and no per-row lock
-        // is taken out of order later (a posting to two of them cannot deadlock with the import).
+        // holds KEY SHARE) commits first, so the parent checks below see it. Named limit: a posting whose line
+        // FK locks run in another order can still deadlock with this; Postgres fails one side, and for the
+        // import that is the retryable lock error below, nothing written.
         const named = [...new Set(accounts.flatMap((a) => (a.parentCode ? [a.accountCode, a.parentCode] : [a.accountCode])))];
         const existing = (await sql`
           SELECT id FROM gl_accounts WHERE company_id = ${companyId}::UUID AND account_code = ANY(${named}::TEXT[])
@@ -194,14 +195,14 @@ export async function importChartOfAccounts(
                 -- its subtype is its ROLE, and a row that re-typed or
                 -- re-classified it emptied or mistyped the role. Only the role
                 -- map below places roles. is_active is never touched here.
-                -- So does an account the row would re-type into a balance-sheet header hiding its own
-                -- lines (retypeHides; ledger review, 2026-10-28).
-                account_type      = CASE WHEN gl_accounts.is_system_account OR ${retypeHides(companyId)}
+                -- So does an account with sub-accounts the row would re-type (retypesParent; ledger
+                -- review, 2026-10-28): a re-typed parent can become a header hiding its lines.
+                account_type      = CASE WHEN gl_accounts.is_system_account OR ${retypesParent(companyId)}
                                          THEN gl_accounts.account_type ELSE EXCLUDED.account_type END,
-                account_subtype   = CASE WHEN gl_accounts.is_system_account OR ${retypeHides(companyId)}
+                account_subtype   = CASE WHEN gl_accounts.is_system_account OR ${retypesParent(companyId)}
                                          THEN gl_accounts.account_subtype
                   ELSE COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype) END,
-                normal_balance    = CASE WHEN ${retypeHides(companyId)} THEN gl_accounts.normal_balance
+                normal_balance    = CASE WHEN ${retypesParent(companyId)} THEN gl_accounts.normal_balance
                                          ELSE EXCLUDED.normal_balance END,
                 description       = COALESCE(EXCLUDED.description, gl_accounts.description),
                 is_system_account = EXCLUDED.is_system_account OR gl_accounts.is_system_account
@@ -211,7 +212,7 @@ export async function importChartOfAccounts(
             if (written && !isSystem && (written.account_type !== acct.accountType
               || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
               const why = written.kept_as_system ? 'is a system account'
-                : 'has journal lines and sub-accounts, and as that type it would be a header hiding them from the balance sheet';
+                : 'has sub-accounts, which share its type (re-typing it could hide its balance behind them)';
               errors.push({ step: 'coa', row, field: 'accountType', severity: 'warning',
                 message: `Account ${acct.accountCode} ${why}: its name was updated, its type and subtype (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
             }
