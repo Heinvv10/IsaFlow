@@ -26,7 +26,7 @@ import { toCents } from './grid/cents';
 import { cellKey, type CellKey } from './grid/cellKey';
 import { accountGrains, type AccountGrain } from './grid/pivot';
 import { inputError, tokenSql } from './gridErrors';
-import { loadGridAccounts, loadGridDimensions } from './gridReadAccounts';
+import { loadGridAccounts, loadGridDimensions, loadGridNotes } from './gridReadAccounts';
 import { bandTotals, ownMonths } from './gridTotals';
 import type { GridCell, GridCellsOnly, GridReadModel, GridSelector } from './gridReadTypes';
 
@@ -106,7 +106,7 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector): P
   const monthCount = year.monthKeys.length;
   const emptyDims = { cc1: [], cc2: [], bu: [] };
   if (!found) {
-    const accounts = await loadGridAccounts(companyId, new Map(), new Map(), monthCount);
+    const accounts = await loadGridAccounts(companyId, new Map(), new Map(), monthCount, await loadGridNotes(companyId, year.fiscalYear));
     return {
       version: null, updatedAt: null, year, accounts, dimensions: await loadGridDimensions(companyId, emptyDims), cells: [], grains: {},
       totals: bandTotals(accounts, new Map(), monthCount),
@@ -126,7 +126,7 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector): P
   }
   const own = ownMonths(cents, year.monthKeys);
   const grains: Map<string, AccountGrain> = accountGrains(cents);
-  const accounts = await loadGridAccounts(companyId, own, grains, monthCount);
+  const accounts = await loadGridAccounts(companyId, own, grains, monthCount, await loadGridNotes(companyId, year.fiscalYear));
   const dimensions = await loadGridDimensions(companyId, { cc1: [...used.cc1], cc2: [...used.cc2], bu: [...used.bu] });
 
   return {
