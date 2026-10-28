@@ -29,9 +29,12 @@ export interface StatementGridProps {
   sticky?: boolean;
   /** The Projected FY header's tooltip, e.g. "Actuals to 30 Sep + budget Oct–Apr" (`columns.projection`). */
   projectionTitle?: string;
+  /** Budget vs Actual only: a budgeted zero prints 0.00 (absent stays "—"), Var % of a zero budget
+   *  prints "—", and a line's Var R cell opens its drill like the label. Off on every other surface. */
+  budgetTracking?: boolean;
 }
 
-export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false, sticky = false, projectionTitle }: StatementGridProps) {
+export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false, sticky = false, projectionTitle, budgetTracking = false }: StatementGridProps) {
   const active = COMPARATORS.filter(c => columns[c.key]);
   // One bar scale PER COMPARATOR. Sharing one scale across prior and budget
   // would draw a small budget movement at the size of a large prior one.
@@ -68,7 +71,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
               <>
                 <th title={projectionTitle} className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Projected FY</th>
                 <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>FY budget</th>
-                <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Δ FY budget</th>
+                <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Proj. var R</th>
               </>
             )}
           </tr>
@@ -79,6 +82,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
             return (
               <StatementRowView key={row.id} row={row} columns={columns} maxVariance={maxVariance} cents={cents}
                 stickyFirst={sticky}
+                tracking={budgetTracking}
                 expanded={expanded}
                 onToggle={onToggleAccount}
                 onEvidence={onEvidence}
