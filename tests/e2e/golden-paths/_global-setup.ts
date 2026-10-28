@@ -7,8 +7,10 @@
  * the whole window on a single run (and break post-deploy verification
  * against prod Demo).
  *
- * In CI the job sets GOLDEN_COMPANY_ID/_USER_EMAIL/_USER_PASSWORD (see helpers/goldenSlot.ts) and the login is the
- * slot user's, switched into the slot company. Without them nothing changes: E2E_ADMIN_*, that user's default company.
+ * In CI the job sets GOLDEN_COMPANY_ID/_USER_EMAIL/_USER_PASSWORD (see
+ * helpers/goldenSlot.ts) and the login is the slot user's, switched into the
+ * slot company. Without them nothing changes: E2E_ADMIN_*, that user's default
+ * company.
  */
 import { request as pwRequest, type FullConfig } from '@playwright/test';
 import { mkdirSync } from 'fs';

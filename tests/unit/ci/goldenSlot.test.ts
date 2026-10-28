@@ -3,7 +3,7 @@
 // as E2E_ADMIN_* to that user's own default company. A half-set slot must fail, never fall back to Demo.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { APIRequestContext } from '@playwright/test';
-import { readGoldenSlot } from '../../e2e/golden-paths/helpers/goldenSlot';
+import { describeGoldenCompany, readGoldenSlot } from '../../e2e/golden-paths/helpers/goldenSlot';
 import { loginGolden } from '../../e2e/golden-paths/helpers/goldenLogin';
 
 const SLOT_ID = '601d0000-0000-4000-8000-000000000002';
@@ -32,6 +32,26 @@ describe('readGoldenSlot', () => {
 
   it('refuses a company id that is not a uuid (it goes into a request body)', () => {
     expect(() => readGoldenSlot({ ...SLOT_ENV, GOLDEN_COMPANY_ID: 'demo' })).toThrow(/uuid/);
+  });
+});
+
+describe('describeGoldenCompany', () => {
+  it('names the Demo company when no slot is set', () => {
+    expect(describeGoldenCompany({})).toBe('the Demo company');
+  });
+
+  it('names the slot, its company and user, and the command that rebuilds it', () => {
+    const text = describeGoldenCompany(SLOT_ENV);
+    expect(text).toContain('GOLDEN SLOT 2');
+    expect(text).toContain(SLOT_ID);
+    expect(text).toContain('golden-slot-2@isaflow.dev');
+    expect(text).toContain('--reset-slot 2');
+  });
+
+  it('still names the company for a slot user whose email is not a slot email, without a rebuild hint', () => {
+    const text = describeGoldenCompany({ ...SLOT_ENV, GOLDEN_USER_EMAIL: 'someone@x.test' });
+    expect(text).toContain(SLOT_ID);
+    expect(text).not.toContain('--reset-slot');
   });
 });
 
