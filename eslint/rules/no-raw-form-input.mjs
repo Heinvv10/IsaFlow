@@ -3,10 +3,11 @@
  *
  * Reports, in files outside src/components/ui:
  *   1. <input type="date">  -> use <DateField> (typed shortcuts, dd MMM yyyy, ISO out).
- *   2. an <input> with no accessible name: none of aria-label, aria-labelledby, an `id` that a
- *      <label htmlFor> in the same file points at, or a wrapping <label>. Dynamic ids and
- *      {...spread} props are given the benefit of the doubt (the label may arrive through them).
- *      type="hidden" is exempt.
+ *   2. an <input> with no accessible name: none of aria-label, a non-empty title, aria-labelledby at an id written
+ *      in the same file, an `id` that a <label htmlFor> in the same file points at, or a wrapping <label> that
+ *      has text, an expression or a component in it (an empty `<label><input /></label>` names nothing).
+ *      Dynamic ids, dynamic aria-labelledby and {...spread} props are given the benefit of the doubt (the name
+ *      may arrive through them). type="hidden" is exempt.
  *
  * Scope: <input> only. Unlabelled <select> and <textarea> are isaflow/no-unnamed-control (./no-unnamed-control.mjs),
  * which shares the name helpers below and keeps its own allowlist.
@@ -86,6 +87,50 @@ export function hasValue(a) {
   return !isNothing(a);
 }
 
+export function isLabel(n) {
+  return n.type === 'JSXElement' && n.openingElement.name.type === 'JSXIdentifier' && n.openingElement.name.name === 'label';
+}
+
+const CONTROL_TAGS = new Set(['input', 'select', 'textarea']);
+
+/** True unless the expression is plainly empty: `{}`, `{''}`, `{null}`, `{undefined}`, `{false}`. Anything dynamic may render text. */
+function expressionMayRender(e) {
+  if (e.type === 'JSXEmptyExpression') return false;
+  if (e.type === 'Identifier') return e.name !== 'undefined';
+  if (e.type === 'Literal') return typeof e.value === 'number' || (typeof e.value === 'string' && e.value.trim() !== '');
+  if (e.type === 'TemplateLiteral' && e.expressions.length === 0) return (e.quasis[0]?.value.cooked ?? '').trim() !== '';
+  return true;
+}
+
+/**
+ * Whether a wrapping <label> can give its control a name: text, an expression that may render text, a component
+ * (which may render text) or {...spread} inside it, or an aria-label / aria-labelledby / title on the label itself.
+ * Controls inside the label are not looked into: a <select>'s <option> text is not the label's text. A label with
+ * none of these (`<label><select /></label>`) names nothing.
+ */
+export function labelNamesContent(label) {
+  const open = label.openingElement;
+  if (open.attributes.some((a) => a.type === 'JSXSpreadAttribute')) return true;
+  if (['aria-label', 'aria-labelledby', 'title'].some((n) => hasValue(attr(open, n)))) return true;
+  const visit = (c) => {
+    switch (c.type) {
+      case 'JSXText': return c.value.trim() !== '';
+      case 'JSXExpressionContainer': return expressionMayRender(c.expression);
+      case 'JSXSpreadChild': return true;
+      case 'JSXFragment': return c.children.some(visit);
+      case 'JSXElement': {
+        const n = c.openingElement.name;
+        if (n.type !== 'JSXIdentifier') return true;
+        if (CONTROL_TAGS.has(n.name)) return false;
+        if (/^[A-Z]/.test(n.name)) return true;
+        return c.children.some(visit);
+      }
+      default: return false;
+    }
+  };
+  return label.children.some(visit);
+}
+
 /** The message `overList` wraps: what the file has too many of, which file, and its allowed count. */
 export const OVER_LIST_MESSAGE =
   '{{what}} ({{file}} may have {{allowed}} by {{list}} and now has more. The report lands on the first control past the count in file order; the one you added or changed may be earlier in the file.)';
@@ -114,6 +159,8 @@ export const noRawFormInput = {
         'Use <DateField> from @/components/ui instead of <input type="date"> (typed shortcuts, dd MMM yyyy, ISO value out).',
       unlabelled:
         '<input> has no accessible name. Add aria-label or aria-labelledby, an id that a <label htmlFor> points at, or wrap it in a <label>. Prefer the kit: Input, MoneyField, DateField.',
+      danglingLabelledby:
+        '<input aria-labelledby="{{ids}}"> points at no id written in this file, so it has no name. Fix the id, or use aria-label.',
       orphanId:
         '<input id="{{id}}"> is not referenced by any <label htmlFor="{{id}}"> in this file. Add the label, or use aria-label.',
       overList: OVER_LIST_MESSAGE,
@@ -128,6 +175,8 @@ export const noRawFormInput = {
 
     const labelTargets = new Set();
     const idInputs = [];
+    const ids = new Set();
+    const labelledby = [];
     const found = [];
 
     return {
@@ -137,6 +186,8 @@ export const noRawFormInput = {
 
         const htmlFor = literal(attr(node, 'htmlFor') ?? attr(node, 'for'));
         if (htmlFor) labelTargets.add(htmlFor);
+        const ownId = literal(attr(node, 'id'));
+        if (ownId) ids.add(ownId);
         if (tag !== 'input') return;
 
         const types = typeCandidates(attr(node, 'type'));
@@ -144,11 +195,14 @@ export const noRawFormInput = {
         if (types.includes('date')) found.push({ node, messageId: 'rawDate' });
 
         if (node.attributes.some((a) => a.type === 'JSXSpreadAttribute')) return;
-        if (hasValue(attr(node, 'aria-label')) || hasValue(attr(node, 'aria-labelledby'))) return;
-        const inLabel = context.sourceCode
-          .getAncestors(node)
-          .some((a) => a.type === 'JSXElement' && a.openingElement.name.type === 'JSXIdentifier' && a.openingElement.name.name === 'label');
-        if (inLabel) return;
+        if (hasValue(attr(node, 'aria-label')) || hasValue(attr(node, 'title'))) return;
+        const by = attr(node, 'aria-labelledby');
+        if (hasValue(by)) {
+          const lit = literal(by);
+          if (lit !== undefined) labelledby.push({ node, ids: lit.trim().split(/\s+/) });
+          return;
+        }
+        if (context.sourceCode.getAncestors(node).some((a) => isLabel(a) && labelNamesContent(a))) return;
 
         const id = attr(node, 'id');
         if (!id || isNothing(id)) {
@@ -160,6 +214,9 @@ export const noRawFormInput = {
       'Program:exit'() {
         for (const { node, id } of idInputs) {
           if (!labelTargets.has(id)) found.push({ node, messageId: 'orphanId', data: { id } });
+        }
+        for (const { node, ids: refs } of labelledby) {
+          if (!refs.some((r) => ids.has(r))) found.push({ node, messageId: 'danglingLabelledby', data: { ids: refs.join(' ') } });
         }
         // The first `allowed` reports in file order are the ones the list already knows about.
         reportBeyondAllowlist(context, found, allowed, { rel, name: 'eslint/raw-input-allowlist.json', messages: noRawFormInput.meta.messages });
