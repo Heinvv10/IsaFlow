@@ -13,6 +13,10 @@
  * (exact: cents and dimensions kept, no rounding). Audit: createVersion/copyVersion write the
  * version's row; a seed that inserts amounts adds one more with the source and the totals.
  * `makePrimary` is owner/admin, checked before any write (P1's `setPrimary` checks it again).
+ * Lineage (D2): every version seed records `based_on_version_id` = the locked source, uplift or
+ * not, any year (PY and blank: null). Notes (D5): inside the savepoint, after the amounts and
+ * before `setPrimary`, a seed into another year carries the source year's notes of the seeded
+ * leaf accounts where the target year has none (`carryNotes`; PY's source year is the prior year).
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { getFiscalYear, priorFiscalYear } from '../gl/fiscalYearRegistry';

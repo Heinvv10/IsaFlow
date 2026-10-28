@@ -1,6 +1,6 @@
 /**
  * The phone / coarse-pointer editor (spec §12): a bottom sheet for ONE cell, opened by tapping it.
- * It names the account and month (and shows the account's budget note, read-only), takes the amount (`MoneyField`, the kit parser), and offers
+ * It names the account and month (and shows the account's budget note; "Edit note…" is among the row's actions), takes the amount (`MoneyField`, the kit parser), and offers
  * Save cell, Next month (saves, then moves on) and the row's actions. No range selection, clipboard or fill here.
  * A saved cell joins the normal dirty / undo / save-bar flow.
  */
@@ -14,7 +14,7 @@ export interface MobileCellTarget {
   accountLabel: string;
   /** "Mar 2026" / "Full year" */
   monthLabel: string;
-  /** The account's budget note for the year, shown read-only; null when none. */
+  /** The account's budget note for the year (shown as text; edited through the row's actions); null when none. */
   note: string | null;
   cents: number | null;
   editable: boolean;
