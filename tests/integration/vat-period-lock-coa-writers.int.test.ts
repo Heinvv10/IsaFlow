@@ -242,6 +242,21 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
     expect(await attrs(acct)).toMatchObject({ account_type: 'asset', account_subtype: null });
   });
 
+  // Two code-less rows derive one code from a 20-character name. The first (same type) fills the
+  // subtype and the second (a re-type) is refused, so the check must judge the FIRST, not the last.
+  it('executeMigration: judges the first same-type row of a shared derived code against the lock', async () => {
+    const name = 'VAT Control Account ';
+    const acct = await addAccount(name, 'asset', null, 'xero');
+    await lockedLine(acct, 'standard');
+    const row = (sourceName: string, mappedType: 'asset' | 'expense', mappedSubtype: string) => ({
+      sourceCode: '', sourceName, sourceType: 'X', openingBalance: 0, mappedType,
+      mappedNormalBalance: 'debit' as const, mappedSubtype });
+    const out = await inTx(fx, () => executeMigration(fx.companyId, fx.userId, 'xero',
+      [row(`${name}Input`, 'asset', 'vat_input'), row(`${name}Clearing`, 'expense', 'operating_expense')], [], []));
+    expect(out.errors.join(' ')).toMatch(/2026-05-01 to 2026-06-30/);
+    expect(await attrs(acct)).toMatchObject({ account_type: 'asset', account_subtype: null });
+  });
+
   /** Each of these re-types alone would leave the journal in the return (the other account still
    *  carries it); both together would take it out. Both rows are refused, so neither account moves. */
   it('executeMigration: refuses both rows of two same-source re-types that would take a journal out of the return together', async () => {
