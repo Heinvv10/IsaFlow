@@ -174,3 +174,24 @@ describe('review round 7', () => {
     expect(members.map((m) => [m.name, m.budget])).toEqual([['Fibertime', null]]);
   });
 });
+
+describe('review round 7 (fix check): the untagged member alone', () => {
+  it('only the untagged remainder (memberId null) is partial, every tagged member whole: every member is null', () => {
+    const years = [{ fiscalYear: 2027, months: ['2027-04'] }, { fiscalYear: 2028, months: ['2027-05'] }];
+    const members = buildTrackingMembers({
+      groupBy: 'cc1', windowMonths: ['2027-04', '2027-05'], windowYears: years,
+      actuals: [{ memberId: FT, month: '2027-04', accountType: 'revenue', amount: 10 }, { memberId: null, month: '2027-04', accountType: 'expense', amount: 3 }],
+      budgets: [
+        // FT: sales in both years (whole).
+        { eff: eff(FT), month: '2027-04', accountType: 'revenue', amount: 5, accountId: 'sales' },
+        { eff: eff(FT), month: '2027-05', accountType: 'revenue', amount: 5, accountId: 'sales' },
+        // Untagged: finance cost in FY2027 only (partial).
+        { eff: eff(null), month: '2027-04', accountType: 'expense', amount: 2, accountId: 'fin' },
+      ],
+      names: new Map([[FT, { code: 'FT', name: 'Fibertime' }]]),
+    });
+    expect(members.map((m) => [m.name, m.budget, m.variance, m.favourable])).toEqual([
+      ['Fibertime', null, null, null], [UNTAGGED_LABEL, null, null, null],
+    ]);
+  });
+});
