@@ -1,5 +1,5 @@
 /**
- * Golden path (v): the budget workspace (budgets P2 spec §14 E2E) at /accounting/budgets/workspace.
+ * Golden path (v): the budget workspace (budgets P2 spec §14 E2E) at /accounting/budgets.
  *
  * Wizard (prior-year actuals +10%, rounded to R1000, a non-primary scenario `GP-<runId>`) → one account's FY is
  * roundToUnit(PY × 1.1) → a one-row, 12-month TSV pasted on that account's first month → 12 dirty cells, GP and NP

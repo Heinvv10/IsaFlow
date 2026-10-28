@@ -124,7 +124,7 @@ export function BudgetWorkspace() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <Wallet className="h-6 w-6 shrink-0 text-[var(--ff-brand-eyebrow)]" aria-hidden="true" />
-            <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Budget workspace</h1>
+            <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Budget Management</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select aria-label="Financial year" data-testid="workspace-year" value={fiscalYear ?? ''} className={SELECT}

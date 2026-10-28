@@ -17,7 +17,6 @@ vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRe
 import { apiFetch } from '@/lib/apiFetch';
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import BankTransfersPage from '../../../pages/accounting/bank-transfers/index';
-import BudgetsPage from '../../../pages/accounting/budgets/index';
 import BusinessUnitsPage from '../../../pages/accounting/business-units/index';
 import DepreciationPage from '../../../pages/accounting/depreciation/index';
 import DrcVatPage from '../../../pages/accounting/drc-vat/index';
@@ -55,13 +54,6 @@ describe('D2 success envelope is honoured (group 1a)', () => {
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '50' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
     await sees('Transfer completed — journal entry created');
-  });
-
-  it('success: budgets renders the data it received', async () => {
-    answer({ '/api/accounting/budgets': { items: [{ id: 'b1', glAccountId: 'g1', accountCode: '5000', accountName: 'Quokka Rentals', accountType: 'expense',
-      fiscalYear: 2026, annualAmount: 1200, months: [], notes: '' }] } });
-    render(<BudgetsPage />);
-    await sees('Quokka Rentals');
   });
 
   it('success: business units renders the data it received', async () => {

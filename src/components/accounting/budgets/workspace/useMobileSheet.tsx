@@ -64,7 +64,7 @@ export function useMobileSheet({ store, layout, roundingUnit, view, canWrite, on
     <MobileCellSheet
       key={`${pos.r}:${pos.c}`}
       target={{
-        accountLabel, monthLabel: isTotal ? 'Full year' : monthLabel(months[pos.c] ?? ''), cents,
+        accountLabel, monthLabel: isTotal ? 'Full year' : monthLabel(months[pos.c] ?? ''), note: line.account.note ?? null, cents,
         editable: snap.editable, readReason: snap.readReason, isTotal, hasNext: pos.c < months.length - 1,
       }}
       onSave={v => save(v, false)}
