@@ -13,8 +13,14 @@ export interface DateGate {
    * (scan-fill, query param); without it the refusal lasts until the field reports a valid date.
    */
   bind: (key: string, set: (iso: string) => void, current?: string | null) => (iso: string | null, validity: FieldValidity) => void;
-  /** Forget one field's refusal, for a field that unmounts or is no longer part of the form. */
+  /**
+   * Forget one field's refusal and bump its `resetKey`: for a field that unmounts or is no longer part of the form,
+   * and for a scan-fill / form fill that sets a date the parent may ALREADY hold (a prop that did not change is not
+   * news to DateField, so the refused text would stay on screen). Pass `resetKey(key)` to that DateField.
+   */
   reset: (key: string) => void;
+  /** The DateField `resetKey` for one field; changes each time `reset(key)` is called. */
+  resetKey: (key: string) => number;
   /** True while any bound DateField shows a refused date. */
   blocked: boolean;
 }
@@ -22,6 +28,7 @@ export interface DateGate {
 export function useDateGate(): DateGate {
   // key -> the parent's value when the field was refused
   const [refused, setRefused] = useState<Record<string, string | null | undefined>>({});
+  const [resets, setResets] = useState<Record<string, number>>({});
   const latest = useRef<Record<string, string | null | undefined>>({});
   const bind = useCallback<DateGate['bind']>((key, set, current) => {
     latest.current[key] = current;
@@ -38,12 +45,14 @@ export function useDateGate(): DateGate {
     };
   }, []);
   const reset = useCallback((key: string) => {
+    setResets((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
     setRefused((prev) => {
       if (!(key in prev)) return prev;
       const { [key]: _gone, ...rest } = prev;
       return rest;
     });
   }, []);
+  const resetKey = useCallback((key: string) => resets[key] ?? 0, [resets]);
   // A getter, so a submit handler reads the values the last render bound, not those of the render that made `dates`.
-  return { bind, reset, get blocked() { return Object.entries(refused).some(([k, v]) => latest.current[k] === v); } };
+  return { bind, reset, resetKey, get blocked() { return Object.entries(refused).some(([k, v]) => latest.current[k] === v); } };
 }

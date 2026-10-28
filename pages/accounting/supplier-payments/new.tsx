@@ -66,7 +66,7 @@ export default function NewSupplierPaymentPage() {
   const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id })));
 
   function handleExtracted(data: ExtractedDocument) {
-    if (data.date) setForm(f => ({ ...f, paymentDate: data.date! }));
+    if (data.date) { dates.reset('paymentDate'); setForm(f => ({ ...f, paymentDate: data.date! })); }
     if (data.referenceNumber) setForm(f => ({ ...f, reference: data.referenceNumber! }));
     if (data.vendorName) {
       matchVendor(data.vendorName);
@@ -147,6 +147,7 @@ export default function NewSupplierPaymentPage() {
                   </div>
                   <div>
                     <DateField label="Payment Date" required name="paymentDate" value={form.paymentDate || null}
+                      resetKey={dates.resetKey('paymentDate')}
                       onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>
                   <div>
