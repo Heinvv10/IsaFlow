@@ -103,16 +103,17 @@ describe('review round 2', () => {
 
 describe('review round 3', () => {
   it("R5: members come in the ledger's order (ORDER BY code, id) when it is given, mixed case included", () => {
-    const a = 'aaaaaaaa-0000-4000-8000-0000000000aa';
-    const b = 'bbbbbbbb-0000-4000-8000-0000000000bb';
-    const c = 'cccccccc-0000-4000-8000-0000000000cc';
-    // Postgres en_US: 'bt-aa' < 'BT-FT' < 'bt-zz'; a code-unit comparison would put 'BT-FT' first.
+    // Ids chosen so that neither an id sort nor a code-unit sort gives the ledger's order (review r4).
+    const aa = 'cccccccc-0000-4000-8000-0000000000cc'; // 'bt-aa': first in en_US, last by id
+    const ft = 'bbbbbbbb-0000-4000-8000-0000000000bb'; // 'BT-FT'
+    const zz = 'aaaaaaaa-0000-4000-8000-0000000000aa'; // 'bt-zz': last in en_US, first by id
+    // Postgres en_US: 'bt-aa' < 'BT-FT' < 'bt-zz'; by id: zz, ft, aa; by code units: 'BT-FT', 'bt-aa', 'bt-zz'.
     const members = buildTrackingMembers({
       groupBy: 'cc1', windowMonths: [M],
-      actuals: [b, c, a].map((id) => ({ memberId: id, month: M, accountType: 'revenue' as const, amount: 1 })).concat([{ memberId: null as unknown as string, month: M, accountType: 'revenue' as const, amount: 1 }]),
+      actuals: [ft, zz, aa, null].map((id) => ({ memberId: id, month: M, accountType: 'revenue' as const, amount: 1 })),
       budgets: [],
-      names: new Map([[a, { code: 'bt-aa', name: 'A' }], [b, { code: 'BT-FT', name: 'B' }], [c, { code: 'bt-zz', name: 'C' }]]),
-      order: [a, b, c],
+      names: new Map([[aa, { code: 'bt-aa', name: 'A' }], [ft, { code: 'BT-FT', name: 'B' }], [zz, { code: 'bt-zz', name: 'C' }]]),
+      order: [aa, ft, zz],
     });
     expect(members.map((m) => m.code)).toEqual(['bt-aa', 'BT-FT', 'bt-zz', '']);
   });
