@@ -40,13 +40,13 @@ export function WhatIfEventRow({ event, position, gate, canRemove, onChange, onR
         gate={gate} gateKey={`event-date-${event.id}`} label={`Event ${position} date`}
         value={event.date || null} onValue={iso => onChange('date', iso)}
       />
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2 lg:contents">
+      <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2.25rem] gap-2 lg:contents">
         <div className="flex min-w-0 flex-col gap-1">
           <label htmlFor={kindId} className={LABEL}>Type</label>
           <select
             id={kindId} aria-label={`Event ${position} type`} value={event.kind}
             onChange={e => onChange('kind', e.target.value)}
-            className={cn(inputVariants(), 'text-sm')}
+            className={cn(inputVariants(), 'px-2 text-sm')}
           >
             <option value="LUMP">Lump Sum</option>
             <option value="SKIP">Skip</option>

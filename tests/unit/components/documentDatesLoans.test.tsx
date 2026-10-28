@@ -95,6 +95,9 @@ describe('LoanScheduleTab what-if events', () => {
       expect(el.className).toContain('rounded-md');
       expect(el.className).not.toMatch(/\bff-(select|input)\b/);
     }
+    // The select gets the wider share and tighter padding, so "Lump Sum" is not clipped by the arrow at 390.
+    expect(rest.className).toContain('grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2.25rem]');
+    expect(screen.getByLabelText('Event 1 type').className).toContain('px-2');
     expect(rest.contains(screen.getByLabelText('Event 1 type'))).toBe(true);
     expect(rest.contains(first)).toBe(false);
   });
