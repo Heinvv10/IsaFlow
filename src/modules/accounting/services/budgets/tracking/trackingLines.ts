@@ -112,7 +112,11 @@ export function buildTrackingLines(input: {
       const a = acc.actual.get(month) ?? 0;
       const bm = acc.budget.has(month) ? acc.budget.get(month)! : null;
       const v = bm === null ? null : a - bm;
-      return { month, actual: fromCents(a), budget: bm === null ? null : fromCents(bm), variance: v === null ? null : fromCents(v), favourable: v === null ? null : isFavourable(polarity, v) };
+      return {
+        month, actual: fromCents(a), budget: bm === null ? null : fromCents(bm),
+        budgetAboveFilter: bm === null && acc.coarser.has(month),
+        variance: v === null ? null : fromCents(v), favourable: v === null ? null : isFavourable(polarity, v),
+      };
     });
     lines.push({
       accountId,

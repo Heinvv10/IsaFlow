@@ -114,6 +114,8 @@ export interface TrackingMonth {
   month: string;
   actual: number;
   budget: number | null;
+  /** No included budget this month, but one set above the filter. */
+  budgetAboveFilter: boolean;
   variance: number | null;
   favourable: boolean | null;
 }
