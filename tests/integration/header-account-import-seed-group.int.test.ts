@@ -75,6 +75,7 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       const out = await importRows([row('HIS-C1', 'HIS-P1')]);
       expect(out.imported).toBe(0);
       expect(out.errors.map((e) => e.message).join(' ')).toContain('HIS-P1 is a level-1 asset account with journal lines');
+      expect(out.errors[0]!.field).toBe('parentCode');
       expect(await byCode('HIS-C1')).toBeUndefined();
       expect(await childCount(p)).toBe(0);
     });
@@ -102,6 +103,26 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       expect((await byCode('HIS-H2'))!.parent).toBe(p);
     });
 
+    it('a new account under the bank role holder is refused and not written', async () => {
+      const bankCode = String(((await sql`SELECT account_code FROM gl_accounts WHERE id = ${h.fx.bankAccountId}::UUID`) as Row[])[0]!.account_code);
+      const out = await importRows([row('HIS-UB', bankCode)]);
+      expect(out.imported).toBe(0);
+      expect(out.errors[0]).toMatchObject({ field: 'parentCode', message: expect.stringContaining('holds the bank role') });
+      expect(await byCode('HIS-UB')).toBeUndefined();
+    });
+
+    it('a parent row held by another request fails the whole import as retryable, not as a row error', async () => {
+      const p = await addAccount(h.fx, { code: 'HIS-L1', type: 'asset', level: 1 });
+      const holder = await h.fx.pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT 1 FROM gl_accounts WHERE id = $1 FOR UPDATE', [p]);
+        const err = await importRows([row('HIS-L2', 'HIS-L1')]).then(() => null, (e: unknown) => e as Error);
+        expect(err?.name, String(err)).toBe('GlAccountLockTimeoutError');
+      } finally { await holder.query('ROLLBACK'); holder.release(); }
+      expect(await byCode('HIS-L2')).toBeUndefined();
+    }, 30000);
+
     it('re-importing an EXISTING account with a parent code changes no parent and is not refused', async () => {
       const p = await addAccount(h.fx, { code: 'HIS-E1', type: 'asset', level: 1 });
       await post(p);
@@ -120,16 +141,24 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       await post(posted1200);
       const myHeader = await addAccount(h.fx, { code: 'HIS-MINE', type: 'asset', level: 1 });
       const mine1130 = await addAccount(h.fx, { code: '1130', type: 'asset', level: 2, parentId: myHeader });
+      // 2200 "Non-Current Liabilities" already exists here at level 3 with no lines: it takes its template children.
+      const mine2200 = await addAccount(h.fx, { code: '2200', type: 'liability', level: 3 });
       await inTx(h.fx, () => seedChartOfAccountsFromTemplate(h.fx.companyId, 'isaflow_standard'));
-      // 1210 "Equipment" is inserted, but not under the posted 1200.
-      expect(await byCode('1210')).toBeDefined();
+      // 1210 "Equipment" is inserted, but not under the posted 1200, and so at level 1.
+      expect(await byCode('1210')).toMatchObject({ parent: '', level: 1 });
       expect(await childCount(posted1200)).toBe(0);
       // The company's own 1130 keeps its parent.
       expect((await byId(mine1130)).parent).toBe(myHeader);
-      // Control: a template parent the seed itself inserted does get its children.
-      const t2200 = await byCode('2200');
-      expect(t2200).toBeDefined();
-      expect(await childCount(String(t2200!.id))).toBeGreaterThan(0);
+      // An existing parent with no lines gets its children, one level below it (4, not the template's 3).
+      const kids = (await sql`SELECT level FROM gl_accounts WHERE parent_account_id = ${mine2200}::UUID`) as Row[];
+      expect(kids.length).toBeGreaterThan(0);
+      expect(kids.every((k) => Number(k.level) === 4)).toBe(true);
+      // Every account in the company with a parent sits exactly one level below it.
+      const off = (await sql`
+        SELECT c.account_code FROM gl_accounts c JOIN gl_accounts p ON p.id = c.parent_account_id
+         WHERE c.company_id = ${h.fx.companyId}::UUID AND c.level <> p.level + 1
+           AND c.account_code !~ '^HIS-'`) as Row[];
+      expect(off.map((r) => r.account_code)).toEqual([]);
     });
   });
 
@@ -145,6 +174,33 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       const put2 = await putBankAccount({ id: member, parentAccountId: null });
       expect(put2.statusCode, JSON.stringify(put2.body)).toBe(200);
       expect(await byId(member)).toEqual({ level: 1, parent: '' });
+    });
+
+    it('a save that does not change the group moves nothing (same group, or "no group" under a chart header)', async () => {
+      const group = await bank('HIS-G3');
+      const member = await bank('HIS-G3M');
+      await putBankAccount({ id: member, parentAccountId: group });
+      await sql`UPDATE gl_accounts SET level = 3 WHERE id = ${member}::UUID`;   // a level the move would reset
+      const same = await putBankAccount({ id: member, bankAccountNumber: '111', parentAccountId: group });
+      expect(same.statusCode, JSON.stringify(same.body)).toBe(200);
+      expect(await byId(member)).toEqual({ level: 3, parent: group });
+      const header = await addAccount(h.fx, { code: 'HIS-HDR', type: 'asset', level: 1 });
+      const underHeader = await addAccount(h.fx, { code: 'HIS-HDR.1', type: 'asset', level: 2, subtype: 'bank', parentId: header });
+      const none = await putBankAccount({ id: underHeader, bankAccountNumber: '222', parentAccountId: null });
+      expect(none.statusCode, JSON.stringify(none.body)).toBe(200);
+      expect(await byId(underHeader)).toEqual({ level: 2, parent: header });
+    });
+
+    it('ungrouping is refused when it would lift a posted account with sub-accounts above level 3', async () => {
+      const top = await addAccount(h.fx, { code: 'HIS-U0', type: 'asset', level: 1 });
+      const group = await addAccount(h.fx, { code: 'HIS-U1', type: 'asset', level: 2, subtype: 'bank', parentId: top });
+      const member = await addAccount(h.fx, { code: 'HIS-U2', type: 'asset', level: 3, subtype: 'bank', parentId: group });
+      await post(member);
+      await addAccount(h.fx, { code: 'HIS-U3', type: 'asset', level: 4, parentId: member });
+      const out = await putBankAccount({ id: member, parentAccountId: null });
+      expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+      expect(JSON.stringify(out.body)).toContain('would put HIS-U2 above level 3');
+      expect(await byId(member)).toEqual({ level: 3, parent: group });
     });
 
     it('the grouping route will not move an account that is not a bank account', async () => {

@@ -15,13 +15,14 @@ import type { DbRow } from '@/types/db';
 import { subtypeErrorFor } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassification';
-import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
+import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites, SystemRoleLockTimeoutError } from '../gl/systemRoleWriteLock';
+import { GlAccountLockTimeoutError } from '../gl/glAccountLock';
 import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
 import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
 import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
 import { resolveCoaImportRows, type RawCoaImportRow } from './accountTypeAliases';
-import { assertParentUsable } from '../gl/accountParentRules';
+import { ParentAccountError, assertParentUsable } from '../gl/accountParentRules';
 
 export { validateSystemAccountMap };
 
@@ -188,9 +189,11 @@ export async function importChartOfAccounts(
             imported++;
           } catch (err) {
             // A lock timeout or deadlock aborted the savepoint: not a row to skip — the whole import retries.
-            if (isRetryableLockError(err)) throw err;
+            // The parent check's own lock helpers wrap 55P03/40P01 in their typed timeouts.
+            if (isRetryableLockError(err) || err instanceof GlAccountLockTimeoutError
+              || err instanceof SystemRoleLockTimeoutError) throw err;
             const msg = err instanceof Error ? err.message : String(err);
-            errors.push({ step: 'coa', row, field: 'accountCode', message: msg });
+            errors.push({ step: 'coa', row, field: err instanceof ParentAccountError ? 'parentCode' : 'accountCode', message: msg });
             skipped++;
           }
         }

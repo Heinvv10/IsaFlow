@@ -55,8 +55,16 @@ const PutBankAccountSchema = z.object({
  */
 async function assignParent(companyId: string, id: string, parentId: string | null): Promise<string | null> {
   if (parentId === id) return 'An account cannot be its own group';
-  const [self] = await sql`SELECT account_subtype FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;
+  const [self] = await sql`
+    SELECT g.account_subtype, g.parent_account_id,
+      (SELECT p.account_subtype FROM gl_accounts p WHERE p.id = g.parent_account_id AND p.company_id = ${companyId}) AS parent_subtype
+    FROM gl_accounts g WHERE g.id = ${id} AND g.company_id = ${companyId}`;
   if (!self || !isBankSubtype(self.account_subtype as string | null)) return 'Only a bank account can be grouped here';
+  // The edit dialog sends the group on every save, and null for "no group" when the account sits under a
+  // non-bank chart header (that is not a group). Neither changes the group, so neither moves the account.
+  const current = self.parent_account_id == null ? null : String(self.parent_account_id);
+  if (parentId === current) return null;
+  if (parentId === null && !isBankSubtype(self.parent_subtype as string | null)) return null;
   if (parentId) {
     const [parent] = await sql`
       SELECT id, parent_account_id, account_type, account_subtype, account_code, is_system_account, level,
