@@ -10,6 +10,10 @@
  * Each expectation below is the value the call site produced BEFORE the
  * convergence, so this file fails if any of the four moves again.
  *
+ * EXCEPT kpiDashboardService, deliberately changed in W2 H round 4: its tile is the
+ * income statement's Net Profit, so its margin now passes allowNegativeRevenue as
+ * incomeStatementService's net margin does (see the last describe).
+ *
  * EXCEPT reportPackService, deliberately changed 2026-09-06: it now carries
  * marginPct2dp's `null` instead of coercing it to 0. "Gross margin 0.0%" on a
  * loss period is a figure nothing else on the pack supports, and the pack is
@@ -67,7 +71,7 @@ describe('reportPackService — null, so no percentage is printed at all', () =>
   });
 });
 
-describe('kpiDashboardService — 0, as it always was', () => {
+describe('kpiDashboardService — net margin computed through a negative, as the income statement\'s', () => {
   /** The service fires its queries in one Promise.all, in a fixed order:
    * revenue, prior revenue, expenses, … Only the first and third matter here. */
   const withTotals = (revenue: number, expenses: number) => {
@@ -80,19 +84,20 @@ describe('kpiDashboardService — 0, as it always was', () => {
     });
   };
 
-  it('reports a 0 margin on negative revenue, not a computed one', async () => {
+  it('computes the net margin on negative revenue, as incomeStatementService does', async () => {
     withTotals(-100, 50);
     const kpis = await getDashboardKPIs('c-1', '2026-01-01', '2026-01-31');
-    // The predecessor guard was `totalRevenue > 0 ? … : 0`. Gross profit here
-    // is -150 over revenue of -100, which computes to a healthy-looking +150%.
-    expect(kpis.grossProfit.amount).toBe(-150);
-    expect(kpis.grossProfit.margin).toBe(0);
+    // CHANGED (W2 H round 4): this tile is the statement's Net Profit and used to pass
+    // no allowNegativeRevenue, so it printed 0 where the statement prints
+    // netMarginPct = -150 / -100 = +150% (incomeStatementService passes it).
+    expect(kpis.netProfit.amount).toBe(-150);
+    expect(kpis.netProfit.margin).toBe(150);
   });
 
   it('still computes on positive revenue', async () => {
     withTotals(200, 50);
     const kpis = await getDashboardKPIs('c-1', '2026-01-01', '2026-01-31');
-    expect(kpis.grossProfit.margin).toBeCloseTo(75, 10);
+    expect(kpis.netProfit.margin).toBeCloseTo(75, 10);
   });
 });
 

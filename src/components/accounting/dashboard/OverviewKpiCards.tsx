@@ -7,7 +7,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface OverviewKpis {
   revenue: { total: number; priorTotal: number; changePercent: number };
-  grossProfit: { amount: number; margin: number };
+  netProfit: { amount: number; margin: number };
   cash: { total: number; priorTotal: number; change: number };
   /** `overdueDisputed`: the disputed part of `overdue`, which the ageing donut shows as its own segment. */
   receivables: { total: number; overdue: number; overdueDisputed?: number; avgDebtorDays: number };
@@ -31,11 +31,11 @@ export function OverviewKpiCards({ kpis }: { kpis: OverviewKpis | undefined }) {
       </div>
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Gross Profit</span>
+          <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Net Profit</span>
           <DollarSign className="h-4 w-4 text-teal-500" />
         </div>
-        <p className="text-xl font-bold tabular-nums text-[var(--ff-text-primary)]">{fmtExact(kpis?.grossProfit.amount ?? 0)}</p>
-        <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Margin: {(kpis?.grossProfit.margin ?? 0).toFixed(1)}%</p>
+        <p className="text-xl font-bold tabular-nums text-[var(--ff-text-primary)]">{fmtExact(kpis?.netProfit.amount ?? 0)}</p>
+        <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: {(kpis?.netProfit.margin ?? 0).toFixed(1)}%</p>
       </div>
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
         <div className="flex items-center justify-between mb-1">

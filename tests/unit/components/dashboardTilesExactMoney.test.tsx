@@ -44,7 +44,7 @@ describe('dashboard tiles show exact amounts', () => {
   it('KPI cards', () => {
     const { container } = render(<OverviewKpiCards kpis={{
       revenue: { total: BIG, priorTotal: 0, changePercent: 3 },
-      grossProfit: { amount: 4321098.76, margin: 40 },
+      netProfit: { amount: 4321098.76, margin: 40 },
       cash: { total: 1234567.89, priorTotal: 0, change: 98765.43 },
       receivables: { total: 10686885.43, overdue: 10500000.01, avgDebtorDays: 40 },
     }} />);
@@ -54,10 +54,23 @@ describe('dashboard tiles show exact amounts', () => {
     expect(container.textContent).not.toMatch(COMPACT);
   });
 
+  it('the profit tile is labelled Net Profit with a Net margin: it is the statement\'s net profit, not a gross profit', () => {
+    render(<OverviewKpiCards kpis={{
+      revenue: { total: 0, priorTotal: 0, changePercent: 0 },
+      netProfit: { amount: -2189056.28, margin: -12.5 },
+      cash: { total: 0, priorTotal: 0, change: 0 },
+      receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
+    }} />);
+    expect(screen.getByText('Net Profit')).toBeTruthy();
+    expect(screen.getByText(exact(-2189056.28))).toBeTruthy();
+    expect(screen.getByText('Net margin: -12.5%')).toBeTruthy();
+    expect(screen.queryByText(/gross/i)).toBeNull();
+  });
+
   it('Outstanding AR shows the disputed share of the overdue figure, only when there is one', () => {
     const kpis = (overdueDisputed: number) => ({
       revenue: { total: 0, priorTotal: 0, changePercent: 0 },
-      grossProfit: { amount: 0, margin: 0 },
+      netProfit: { amount: 0, margin: 0 },
       cash: { total: 0, priorTotal: 0, change: 0 },
       receivables: { total: 1500, overdue: 1000, overdueDisputed, avgDebtorDays: 40 },
     });
