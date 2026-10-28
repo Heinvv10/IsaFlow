@@ -2,7 +2,7 @@
 // named by their labels.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import IncomeStatementPage from '@/../pages/accounting/reports/income-statement';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
@@ -45,6 +45,13 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+/** Let every queued microtask, effect and 0 ms timer run, inside act: after it, nothing already scheduled is pending. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+}
 
 it('"1 Sep 2026" in From and "eom" in To request 1 to 30 Sep 2026', async () => {
   render(<IncomeStatementPage />);
@@ -125,13 +132,15 @@ it('clearing To blocks the run and says so on To, not on From', async () => {
   const csv = () => screen.getByRole('button', { name: /Export CSV/ }) as HTMLButtonElement;
   await waitFor(() => expect(csv().disabled).toBe(false));
   const calls = () => vi.mocked(apiFetch).mock.calls.length;
+  await settle();
+  const before = calls();
   typeDate(screen.getByRole('textbox', { name: 'To' }), '');
   expect(await screen.findByText('Enter a To date.')).toBeTruthy();
   expect(screen.queryByText(/From must be on or before To/)).toBeNull();
   await waitFor(() => expect(csv().disabled).toBe(true));
-  const before = calls();
-  await new Promise((r) => setTimeout(r, 50));
+  await settle();
   expect(calls()).toBe(before);
+  expect(screen.queryByText(/Profit & Loss —/)).toBeNull();
   typeDate(screen.getByRole('textbox', { name: 'To' }), '30 Apr 2026');
   await waitFor(() => expect(csv().disabled).toBe(false));
   expect(screen.queryByText('Enter a To date.')).toBeNull();
