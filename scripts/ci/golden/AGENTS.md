@@ -73,6 +73,11 @@ post-deploy verify, local runs) it is the old E2E_ADMIN_* / default-company path
   the `GOLDEN_SLOT_*` keys are lost: the job then fails with "missing from ... isaflow-ci.env".
   Re-run `provision-slots.ts`: it reuses the existing passwords only if they are still in the
   file, otherwise it sets new ones in GoTrue and writes them back.
+- Local runs against a slot must not overlap CI on that slot's runner: both write the same slot
+  company. Before a local run check that no golden job of a slot-aware workflow (this PR's branch
+  or master after it merged) is on that runner (`gh api repos/Heinvv10/IsaFlow/actions/runners`,
+  `busy`, and the job's `runner_name` from `gh api .../actions/runs/<id>/jobs`), and abort if one
+  lands mid-run. Runners busy with a pre-slots workflow use Demo and do not matter.
 - Ad hoc work in a slot: log in as `golden-slot-n@isaflow.dev` with the password from the file
   and use the app; never use a slot company for anything else.
 
