@@ -26,8 +26,11 @@ export function useSetupProgress(companyId: string | undefined): SetupProgressSt
   const [state, setState] = useState<SetupProgressState>({ progress: null, loading: true });
 
   useEffect(() => {
-    let cancelled = false;
     setState({ progress: null, loading: true });
+    // No company yet (the context is still loading): nothing to ask, and asking
+    // now would only be repeated when the id arrives.
+    if (!companyId) return;
+    let cancelled = false;
     const giveUp = setTimeout(() => {
       if (!cancelled) setState((s) => (s.loading ? { progress: null, loading: false } : s));
     }, SETUP_WAIT_MS);
@@ -47,7 +50,19 @@ export function useSetupProgress(companyId: string | undefined): SetupProgressSt
   return state;
 }
 
-/** Setup still has open tasks — or is still loading, so "All caught up!" cannot flash first. */
-export function isSetupOpen({ progress, loading }: SetupProgressState): boolean {
-  return loading || (progress !== null && !progress.allComplete);
+/**
+ * The checklist has not resolved (loading, timed out, failed, or no company
+ * yet). Home still renders without it, but must not read that as "complete".
+ */
+export function isSetupUnknown({ progress }: SetupProgressState): boolean {
+  return progress === null;
+}
+
+/**
+ * Setup may still have open tasks. True while the checklist is unknown too, so
+ * "All caught up!" appears only once the checklist has said setup is complete:
+ * a slow or failed load must not tell a company with open setup that it is.
+ */
+export function isSetupOpen(state: SetupProgressState): boolean {
+  return isSetupUnknown(state) || !state.progress!.allComplete;
 }

@@ -13,7 +13,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import { apiFetch } from '@/lib/apiFetch';
 import { ModuleSetupChecklist } from '../../../src/components/accounting/dashboard/ModuleSetupChecklist';
-import { useSetupProgress, isSetupOpen, SETUP_WAIT_MS } from '../../../src/components/accounting/dashboard/useSetupProgress';
+import { useSetupProgress, isSetupOpen, isSetupUnknown, SETUP_WAIT_MS } from '../../../src/components/accounting/dashboard/useSetupProgress';
 import { buildSetupProgress, type SetupFacts } from '../../../src/modules/accounting/services/core/setupProgressService';
 import { NO_FACTS as NONE, ALL_FACTS } from '../helpers/setupFacts';
 
@@ -88,17 +88,46 @@ describe('useSetupProgress', () => {
       expect(result.current.loading).toBe(true);
       await act(async () => { vi.advanceTimersByTime(SETUP_WAIT_MS); });
       expect(result.current.loading).toBe(false);
+      // Not "All caught up!": the checklist is simply not known yet.
+      expect(isSetupOpen(result.current)).toBe(true);
+      expect(isSetupUnknown(result.current)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a failed load is unknown, not complete: a company with open setup must not read "All caught up!"', async () => {
+    vi.mocked(apiFetch).mockReset().mockResolvedValue(refuse());
+    const { result } = renderHook(() => useSetupProgress('co-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.progress).toBeNull();
+    expect(isSetupOpen(result.current)).toBe(true);
+    expect(isSetupUnknown(result.current)).toBe(true);
+  });
+
+  it('a checklist that answers after the wait resolves the unknown state', async () => {
+    vi.useFakeTimers();
+    try {
+      let answer!: (r: Response) => void;
+      vi.mocked(apiFetch).mockReset().mockReturnValue(new Promise<Response>((r) => { answer = r; }));
+      const { result } = renderHook(() => useSetupProgress('co-1'));
+      await act(async () => { vi.advanceTimersByTime(SETUP_WAIT_MS); });
+      expect(isSetupUnknown(result.current)).toBe(true);
+      await act(async () => { answer(ok(buildSetupProgress(ALL_FACTS))); });
+      expect(isSetupUnknown(result.current)).toBe(false);
       expect(isSetupOpen(result.current)).toBe(false);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('a failed load is not "open": the Todo list is not held hostage by a broken checklist', async () => {
-    vi.mocked(apiFetch).mockReset().mockResolvedValue(refuse());
-    const { result } = renderHook(() => useSetupProgress('co-1'));
+  it('asks nothing until there is a company id, then asks once', async () => {
+    vi.mocked(apiFetch).mockReset().mockResolvedValue(ok(buildSetupProgress(ALL_FACTS)));
+    const { result, rerender } = renderHook(({ id }: { id: string | undefined }) => useSetupProgress(id), { initialProps: { id: undefined as string | undefined } });
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe(true);
+    rerender({ id: 'co-1' });
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.progress).toBeNull();
-    expect(isSetupOpen(result.current)).toBe(false);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
   });
 });

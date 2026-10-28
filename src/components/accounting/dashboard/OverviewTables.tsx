@@ -14,6 +14,7 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.Respons
 const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e', '#9f1239', '#8b5cf6'];
 /** A zero Disputed segment is left out of the legend (AP has no disputes); a zero age bucket is not. */
 const shownInLegend = (b: AgingBucket): boolean => b.name !== 'Disputed' || b.value !== 0;
+const isDisputed = (b: AgingBucket): boolean => b.name === 'Disputed' && b.value > 0;
 /**
  * Each slice carries its own fill. Pie reads per-slice colour from <Cell>
  * children it recognises by type, and a next/dynamic-wrapped Cell is not one,
@@ -101,7 +102,7 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
 
       {/* AR / AP Aging Donuts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {([['arAging', arAging, 'AR Aging', 'No outstanding AR'], ['apAging', apAging, 'AP Aging', 'No outstanding AP']] as const).map(([key, buckets, title, emptyMsg]) => (
+        {([['arAging', arAging, 'AR Aging', 'No outstanding AR', 'AR Age Analysis'], ['apAging', apAging, 'AP Aging', 'No outstanding AP', 'AP Age Analysis']] as const).map(([key, buckets, title, emptyMsg, report]) => (
           <div key={key} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
             <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">{title}</h3>
             {buckets.some(b => b.value > 0) ? (
@@ -125,6 +126,12 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
                       <span className="text-xs tabular-nums text-[var(--ff-text-primary)]">{fmtCurrency(bucket.value)}</span>
                     </div>
                   ))}
+                  {buckets.some(isDisputed) && (
+                    // The report keeps a disputed amount in its age bucket; this donut takes it out.
+                    <p className="pt-1 text-xs text-[var(--ff-text-tertiary)]">
+                      Disputed amounts are shown separately here. On the {report} report they stay inside their age bucket.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (

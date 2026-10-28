@@ -42,6 +42,24 @@ describe('ageing legend', () => {
   });
 });
 
+describe('Disputed caption', () => {
+  const caption = (report: string) =>
+    `Disputed amounts are shown separately here. On the ${report} report they stay inside their age bucket.`;
+
+  it('says where the disputed amounts went when there is a dispute, naming the side\'s report', () => {
+    render(<OverviewTables topCustomers={[]} topExpenses={[]}
+      arAging={buckets([100, 0, 0, 0, 750, 250])} apAging={buckets([100, 0, 0, 0, 5, 40])} />);
+    expect(within(card('AR Aging')).getByText(caption('AR Age Analysis'))).toBeTruthy();
+    expect(within(card('AP Aging')).getByText(caption('AP Age Analysis'))).toBeTruthy();
+  });
+
+  it('is absent when nothing is disputed', () => {
+    render(<OverviewTables topCustomers={[]} topExpenses={[]}
+      arAging={buckets([100, 0, 0, 0, 750, 0])} apAging={buckets([100, 0, 0, 0, 5, 0])} />);
+    expect(screen.queryByText(/shown separately here/)).toBeNull();
+  });
+});
+
 describe('ageing slices', () => {
   it('each slice carries its own colour, none of them Pie\'s default grey', () => {
     const fills = agingSlices(buckets([1, 2, 3, 4, 5, 6])).map((s) => s.fill);

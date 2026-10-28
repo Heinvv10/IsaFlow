@@ -21,7 +21,7 @@ import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriod
 import { ReportsTab } from '@/components/accounting/dashboard/ReportsTab';
 import { DashboardHero, type DashboardHeroStats, type HeroTab } from '@/components/accounting/dashboard/DashboardHero';
 import { ModuleSetupChecklist } from '@/components/accounting/dashboard/ModuleSetupChecklist';
-import { useSetupProgress, isSetupOpen } from '@/components/accounting/dashboard/useSetupProgress';
+import { useSetupProgress, isSetupOpen, isSetupUnknown } from '@/components/accounting/dashboard/useSetupProgress';
 
 type AccountingTab = 'overview' | 'chart-of-accounts' | 'journal-entries' | 'fiscal-periods' | 'reports';
 
@@ -105,21 +105,25 @@ export default function AccountingPage() {
   }, [router]);
 
   // Load the dashboard figures once, for the hero and the Overview tab.
+  // `cancelled` drops an answer that lands after the company changed (or the
+  // page left): the old company's figures must not replace the new one's.
   useEffect(() => {
     if (!isMounted) return;
+    let cancelled = false;
     setKpiLoad({ data: null, error: '', loading: true });
     apiFetch('/api/accounting/kpi-dashboard')
       .then(async res => { await assertOk(res, 'Could not load the dashboard figures - try again'); return res.json(); })
-      .then((json: { data?: KPIData }) => setKpiLoad({ data: json.data ?? null, error: '', loading: false }))
+      .then((json: { data?: KPIData }) => { if (!cancelled) setKpiLoad({ data: json.data ?? null, error: '', loading: false }); })
       .catch(err => {
         log.error('Failed to load dashboard figures', { error: err }, 'accounting-page');
-        setKpiLoad({ data: null, error: apiErrorMessage(err, 'Could not load the dashboard figures - try again'), loading: false });
+        if (!cancelled) setKpiLoad({ data: null, error: apiErrorMessage(err, 'Could not load the dashboard figures - try again'), loading: false });
       });
+    return () => { cancelled = true; };
   }, [isMounted, activeCompany?.id]);
 
   const kpis = kpiLoad.data?.kpis;
   const heroStats: DashboardHeroStats | undefined = kpis && {
-    revenueMtd:          kpis.revenue?.total     ?? 0,
+    revenueMtd:          kpis.revenueMtd         ?? 0,
     outstandingInvoices: kpis.receivables?.total ?? 0,
     cashPosition:        kpis.cash?.total        ?? 0,
   };
@@ -127,7 +131,9 @@ export default function AccountingPage() {
 
   // The skeleton holds until the setup checklist is known: it renders ABOVE the
   // hero, so arriving later would push the whole page down (CLS).
-  if (!isMounted || setup.loading) {
+  // With no company at all (nothing will ever be asked) there is nothing to wait for.
+  const setupPending = setup.loading && (companiesLoading || !!activeCompany?.id);
+  if (!isMounted || setupPending) {
     return (
       <AppLayout>
         {/* Distinct keys: React must not reuse the skeleton's nodes for the content, or each reused node "moves" (CLS). */}
@@ -168,7 +174,7 @@ export default function AccountingPage() {
         {/* key={activeCompany?.id} forces full remount when company switches,
             so each tab's useEffect re-fires with the correct localStorage company */}
         <div className="p-6 pt-5" key={activeCompany?.id ?? 'loading'}>
-          {activeTab === 'overview'          && <OverviewTab setupOpen={isSetupOpen(setup)} kpiLoad={kpiLoad} />}
+          {activeTab === 'overview'          && <OverviewTab setupOpen={isSetupOpen(setup)} setupUnknown={isSetupUnknown(setup)} kpiLoad={kpiLoad} />}
           {activeTab === 'chart-of-accounts' && <ChartOfAccountsTab />}
           {activeTab === 'journal-entries'   && <JournalEntriesTab />}
           {activeTab === 'fiscal-periods'    && <FiscalPeriodsTab />}
