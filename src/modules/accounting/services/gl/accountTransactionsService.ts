@@ -8,6 +8,15 @@
  * (gl/fiscalYearCloseRows), so the closing balance is the trial balance's as at
  * periodEnd — the same figure the account-detail page (accountLedgerService)
  * and the GL report show. Balance-sheet accounts are cumulative from inception.
+ *
+ * Filters: `costCentreId` is EITHER level (cc1_id OR cc2_id, the statement
+ * pages' meaning); `dims.cc1Id` / `dims.cc2Id` are EXPLICIT levels (the Budget
+ * vs Actual drill, budgets P3 §2.6), ANDed with it and with `businessUnitId`,
+ * so a drill opened from a filtered BvA line foots to that line.
+ *
+ * Each posted row carries its journal id and, when the journal was posted from
+ * a document (customer invoice / credit note / payment, supplier invoice /
+ * payment), that document, so the drill can link to it (`lib/journalSourceHref`).
  */
 
 import { sql } from '@/lib/neon';
@@ -27,6 +36,10 @@ import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEn
 
 type Row = DbRow;
 
+/** The document a journal was posted from. */
+export type JournalDocumentKind = 'customer_invoice' | 'credit_note' | 'customer_payment' | 'supplier_invoice' | 'supplier_payment';
+export interface JournalDocumentRef { kind: JournalDocumentKind; id: string }
+
 interface TransactionRow {
   date: string;
   entryNumber: string;
@@ -35,6 +48,10 @@ interface TransactionRow {
   credit: number;
   balance: number;
   source: string;
+  /** Posted rows only (a derived year-end close row has none). */
+  journalId?: string;
+  /** The document the journal was posted from; null when none (posted rows only). */
+  document?: JournalDocumentRef | null;
   /** A year-end close row: derived, not posted. */
   derived?: boolean;
 }
@@ -59,10 +76,13 @@ export async function getAccountTransactions(
   periodEnd: string,
   costCentreId?: string,
   businessUnitId?: string,
+  dims: { cc1Id?: string; cc2Id?: string } = {},
 ): Promise<AccountTransactionsReport> {
   assertLedgerRange(periodStart, periodEnd);
   const cc = costCentreId ?? null;
   const bu = businessUnitId ?? null;
+  const cc1 = dims.cc1Id ?? null;
+  const cc2 = dims.cc2Id ?? null;
   try {
     const acctRows = (await sql`
       SELECT ga.account_name, ga.account_type, ga.normal_balance
@@ -87,6 +107,8 @@ export async function getAccountTransactions(
         AND jl.company_id = ${companyId}::UUID
         AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
+        AND (${cc1}::uuid IS NULL OR jl.cc1_id = ${cc1}::uuid)
+        AND (${cc2}::uuid IS NULL OR jl.cc2_id = ${cc2}::uuid)
         AND je.entry_date < ${periodStart}
         AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
         AND ga.account_code = ${accountCode}
@@ -98,29 +120,41 @@ export async function getAccountTransactions(
 
     const txnRows = (await sql`
       SELECT
-        je.entry_date, je.entry_number, je.description, je.source,
-        jl.debit, jl.credit
+        je.id::TEXT AS journal_id, je.entry_date, je.entry_number, je.description, je.source,
+        jl.debit, jl.credit, doc.kind AS doc_kind, doc.id::TEXT AS doc_id
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
+      LEFT JOIN LATERAL (
+        SELECT 'customer_invoice' AS kind, ci.id FROM customer_invoices ci WHERE ci.gl_journal_entry_id = je.id AND ci.company_id = ${companyId}::UUID
+        UNION ALL SELECT 'credit_note', cn.id FROM credit_notes cn WHERE cn.gl_journal_entry_id = je.id AND cn.company_id = ${companyId}::UUID
+        UNION ALL SELECT 'customer_payment', cp.id FROM customer_payments cp WHERE cp.gl_journal_entry_id = je.id AND cp.company_id = ${companyId}::UUID
+        UNION ALL SELECT 'supplier_invoice', si.id FROM supplier_invoices si WHERE si.gl_journal_entry_id = je.id AND si.company_id = ${companyId}::UUID
+        UNION ALL SELECT 'supplier_payment', sp.id FROM supplier_payments sp WHERE sp.gl_journal_entry_id = je.id AND sp.company_id = ${companyId}::UUID
+        LIMIT 1
+      ) doc ON TRUE
       WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
+        AND (${cc1}::uuid IS NULL OR jl.cc1_id = ${cc1}::uuid)
+        AND (${cc2}::uuid IS NULL OR jl.cc2_id = ${cc2}::uuid)
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${accountCode}
       ORDER BY je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
     `) as Row[];
 
-    const lines = txnRows.map((r: Row) => ({
+    const lines: Array<Omit<TransactionRow, 'balance'>> = txnRows.map((r: Row) => ({
       date: fmtDate(r.entry_date),
       entryNumber: String(r.entry_number),
       description: String(r.description || ''),
       debit: Number(r.debit || 0),
       credit: Number(r.credit || 0),
       source: String(r.source || 'manual'),
+      journalId: String(r.journal_id),
+      document: r.doc_kind == null || r.doc_id == null ? null : { kind: String(r.doc_kind) as JournalDocumentKind, id: String(r.doc_id) },
     }));
     const periodNet = lines.reduce(
       (sum, l) => sum + (normalBal === 'debit' ? l.debit - l.credit : l.credit - l.debit), 0,
