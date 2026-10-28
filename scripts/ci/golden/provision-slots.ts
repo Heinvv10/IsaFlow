@@ -2,7 +2,7 @@
  * Provision the Golden Paths slots on isaflow_dev: three companies (golden-slot-1..3), each a copy of the Demo
  * company's setup data (no transactions), each with its own golden user as sole owner.
  *
- *   bun scripts/ci/golden/provision-slots.ts [--dry-run] [--verify] [--reset-slot <n>] [--env-file <path>]
+ *   bun scripts/ci/golden/provision-slots.ts [--dry-run] [--verify] [--reset-slot <n>] [--seed-url <url>] [--env-file <path>]
  *
  * Idempotent. A slot company that exists is kept (its data is the suite's to grow); its user, membership, GoTrue
  * password and env keys are re-asserted. A company is created with its membership in ONE transaction, so a failure
@@ -10,6 +10,10 @@
  * the env file. --verify only reads and prints each slot's preconditions. --reset-slot n retires slot n's company (a
  * poisoned one: a payroll run stuck in the sandbox month, say) and builds a fresh generation under a new id, which
  * replaces GOLDEN_SLOT_n_COMPANY_ID in the env file; nothing is deleted.
+ *
+ * --seed-url <local dev server> then seeds each provisioned slot with transactions through the app's own routes
+ * (seedSlotData.ts): 80 approved supplier invoices, 10 posted journals, a 200-row bank statement, a migration session.
+ * Idempotent; the server must run from a checkout whose .env.local points at isaflow_dev.
  *
  * Writes GOLDEN_SLOT_n_COMPANY_ID / _EMAIL / _PASSWORD (n = 1..3) to the env file (default /home/hein/isaflow-ci.env,
  * which the golden-paths job reads the keys from). Passwords are never printed.
@@ -25,6 +29,7 @@ import {
   DEV_DATABASE, GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertGoTrueUrl, generationOf, parseEnvFile,
   slotCompanyId, slotEmail, slotEnvKeys, upsertEnvKeys,
 } from './slotConfig';
+import { seedSlotViaApp } from './seedSlotClient';
 import { writeEnvFileAtomic } from './slotEnvFile';
 import { ensureCompany, ensureGoTrueUser, ensureUser, retireSlotCompany } from './slotProvision';
 import { formatSlotReport, readSlotReport, slotProblems, slotWarnings } from './slotVerify';
@@ -43,6 +48,7 @@ async function main(): Promise<void> {
   const envFile = option('--env-file') ?? DEFAULT_ENV_FILE;
   const dryRun = flag('--dry-run');
   const verifyOnly = flag('--verify');
+  const seedUrl = option('--seed-url');
   const resetArg = option('--reset-slot');
   const resetSlot = resetArg === undefined ? undefined : Number(resetArg);
   if (resetSlot !== undefined && !(GOLDEN_SLOTS as readonly number[]).includes(resetSlot)) throw new Error(`--reset-slot takes one of ${GOLDEN_SLOTS.join(', ')}`);
@@ -112,6 +118,10 @@ async function main(): Promise<void> {
         envText = upsertEnvKeys(envText, { [keys.companyId]: companyId, [keys.email]: slotEmail(n), [keys.password]: password });
         writeEnvFileAtomic(envFile, envText);
         say(`slot ${n}: ${keys.companyId}, ${keys.email}, ${keys.password} written to ${envFile}`);
+        if (seedUrl) {
+          const report = await seedSlotViaApp(seedUrl, { companyId, email: slotEmail(n), password });
+          say(`slot ${n}: seeded ${JSON.stringify(report)}`);
+        }
       }
     }
   } finally {
