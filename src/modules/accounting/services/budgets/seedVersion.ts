@@ -15,10 +15,11 @@
  * `makePrimary` is owner/admin, checked before any write (P1's `setPrimary` checks it again).
  */
 import { sql, withSavepoint } from '@/lib/neon';
-import { getFiscalYear } from '../gl/fiscalYearRegistry';
+import { getFiscalYear, priorFiscalYear } from '../gl/fiscalYearRegistry';
 import { toBudgetYearInfo } from '../core/budgetYears';
 import { monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
+import { carryNotes } from './budgetNotes';
 import { copyVersion, createVersion, getVersion, parseVersionInput, setPrimary, type VersionActor } from './budgetVersions';
 import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
 import { inputError } from './gridErrors';
@@ -87,6 +88,8 @@ interface Plan {
   copyOf: string | null;
   skipped: number;
   months: string[];
+  /** The year whose notes the seeded accounts carry into the target (D5): the source version's, PY's prior year; null for blank. */
+  notesFrom: number | null;
 }
 
 /** One seed holds what one import may (the grid, the template and a chained commit are sized to it). */
@@ -104,7 +107,7 @@ async function plan(companyId: string, input: SeedInput, sourceYear: number | nu
   if (!year) throw inputError(`No financial year is labelled ${input.fiscalYear}`);
   const months = toBudgetYearInfo(year).monthKeys;
   const { source } = input;
-  if (source.type === 'blank') return { cells: [], copyOf: null, skipped: 0, months };
+  if (source.type === 'blank') return { cells: [], copyOf: null, skipped: 0, months, notesFrom: null };
   if (!Number.isFinite(source.upliftPct) || source.upliftPct < -100 || source.upliftPct > 1000) {
     throw inputError('The uplift must be between -100% and 1000%');
   }
@@ -114,7 +117,8 @@ async function plan(companyId: string, input: SeedInput, sourceYear: number | nu
     const { series, skipped } = await pySeries(companyId, input.fiscalYear, accounts, {
       grain: source.grain, unassigned: source.unassigned ?? 'company', includeNoActivity: input.includeNoActivity === true,
     });
-    return { cells: upliftAll(series, source.upliftPct, input.roundingUnit, labels), copyOf: null, skipped, months };
+    const notesFrom = (await priorFiscalYear(companyId, year)).fiscalYear;
+    return { cells: upliftAll(series, source.upliftPct, input.roundingUnit, labels), copyOf: null, skipped, months, notesFrom };
   }
   if (sourceYear === null) throw new Error('seedVersion: the source version was not locked');
   if (sourceYear === input.fiscalYear && source.upliftPct === 0) {
@@ -123,10 +127,10 @@ async function plan(companyId: string, input: SeedInput, sourceYear: number | nu
       SELECT COUNT(*)::int AS n FROM budget_month_amounts WHERE company_id = ${companyId}::UUID AND version_id = ${source.versionId}::UUID
     `) as Array<{ n: number }>;
     assertSeedSize(Number(rows[0]?.n ?? 0), true);
-    return { cells: null, copyOf: source.versionId, skipped: 0, months };
+    return { cells: null, copyOf: source.versionId, skipped: 0, months, notesFrom: sourceYear };
   }
   const series = await versionSeries(companyId, source.versionId, sourceYear, months.length);
-  return { cells: upliftAll(series, source.upliftPct, input.roundingUnit, labels), copyOf: null, skipped: 0, months };
+  return { cells: upliftAll(series, source.upliftPct, input.roundingUnit, labels), copyOf: null, skipped: 0, months, notesFrom: sourceYear };
 }
 
 const rand = (cents: number): string => (cents / 100).toFixed(2);
@@ -139,17 +143,21 @@ async function write(companyId: string, actor: VersionActor, input: SeedInput, p
     versionId = copy.id;
     cells = copy.amountCount;
   } else {
-    const version = await createVersion(companyId, { fiscalYear: input.fiscalYear, name, kind }, actor);
+    // Lineage (D2): a version seed records its source (locked by lockSeedVersions), uplift or not, any year.
+    const basedOn = input.source.type === 'version' ? input.source.versionId : null;
+    const version = await createVersion(companyId, { fiscalYear: input.fiscalYear, name, kind }, actor, basedOn);
     versionId = version.id;
     const planned = p.cells ?? [];
     await insertCells(companyId, versionId, actor.userId, p.months, planned);
     cells = planned.length;
+    const seeded = [...new Set(planned.map((c) => c.series.glAccountId))];
+    const notesCarried = p.notesFrom === null ? 0 : await carryNotes(companyId, actor.userId, p.notesFrom, input.fiscalYear, seeded);
     if (cells > 0) {
       const { source } = input;
       await auditBudgetWrite(companyId, actor.userId, 'update', versionId, input.fiscalYear, {
         seed: source.type, upliftPct: String(source.type === 'blank' ? 0 : source.upliftPct), roundingUnit: String(input.roundingUnit),
         grain: source.type === 'py_actuals' ? source.grain : 'copy', cells: String(cells),
-        accounts: String(new Set(planned.map((c) => c.series.glAccountId)).size), total: rand(planned.reduce((s, c) => s + c.cents, 0)),
+        accounts: String(seeded.length), total: rand(planned.reduce((s, c) => s + c.cents, 0)), notesCarried: String(notesCarried),
         ...(source.type === 'version' ? { copiedFrom: source.versionId } : {}),
       });
     }
