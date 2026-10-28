@@ -207,3 +207,35 @@ describe('/accept-invite on success', () => {
     expect(push).not.toHaveBeenCalledWith('/accounting/dashboard');
   });
 });
+
+// 2026-10-28 (prod): with no autocomplete hints Chrome treated "Last name" as the username
+// and filled a saved login of another account into the form (email + password).
+describe('/accept-invite autofill hints', () => {
+  function stubAccept(post?: { status: number; code: string }) {
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => (init?.method === 'POST'
+      ? new Response(JSON.stringify({ success: false, error: { code: post?.code, message: 'x' } }), { status: post?.status ?? 401 })
+      : new Response(JSON.stringify({ success: true, data: { email: 'i***@test.local', role: 'viewer', company_name: 'Probe Co' } }), { status: 200 }))));
+  }
+
+  it('names the fields so a saved login is not filled into them', async () => {
+    query = { token: 'tok-af' };
+    stubAccept();
+    const { findByText, container } = render(<AcceptInvitePage />);
+    await findByText(/Join Probe Co/);
+    expect(container.querySelector('input[autocomplete="given-name"]')).not.toBeNull();
+    expect(container.querySelector('input[autocomplete="family-name"]')).not.toBeNull();
+    expect(container.querySelector('input[type="password"]')!.getAttribute('autocomplete')).toBe('new-password');
+    // Every field says what it is: an input with no hint is what Chrome fills a saved username into.
+    expect([...container.querySelectorAll('input')].filter((i) => !i.getAttribute('autocomplete'))).toEqual([]);
+  });
+
+  it('an address that already has a login asks for the current password', async () => {
+    query = { token: 'tok-af2' };
+    stubAccept({ status: 401, code: 'SIGN_IN_REQUIRED' });
+    const { findByText, container } = render(<AcceptInvitePage />);
+    await findByText(/Join Probe Co/);
+    fireEvent.change(container.querySelector('input[type="password"]')!, { target: { value: 'existing-password-1' } });
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(container.querySelector('input[type="password"]')!.getAttribute('autocomplete')).toBe('current-password'));
+  });
+});

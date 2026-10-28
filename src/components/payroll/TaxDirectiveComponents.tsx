@@ -8,6 +8,8 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { X, Loader2, Calculator, Plus } from 'lucide-react';
 import { calculateLumpSumTax, type LumpSumCalculation } from '@/lib/taxCalculations';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui/DateField';
+import type { FieldValidity } from '@/components/ui/useParsedField';
 import { DirectiveEmployeeSelect, useDirectiveEmployees } from './TaxDirectiveEmployeeSelect';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -46,6 +48,13 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     notes: '',
   });
 
+  // A refused date arrives as null (valid=false). Saving it as "no date" would drop a date the user typed, so it blocks save.
+  const [refused, setRefused] = useState<Record<string, boolean>>({});
+  const setDate = (k: 'effective_date' | 'issued_date' | 'expiry_date') => (iso: string | null, v: FieldValidity) => {
+    setRefused(r => ({ ...r, [k]: !v.valid }));
+    if (v.valid) setForm(f => ({ ...f, [k]: iso ?? '' }));
+  };
+
   const set = (k: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(f => ({ ...f, [k]: e.target.value }));
@@ -67,6 +76,14 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     // The select is required, but a submit can get past the browser's check: never POST without the employee.
     if (!form.employee_id) {
       setError('Choose the employee the directive is paid to');
+      return;
+    }
+    if (Object.values(refused).some(Boolean)) {
+      setError('Fix the dates marked in red before saving');
+      return;
+    }
+    if (!form.effective_date) {
+      setError('Enter the effective date');
       return;
     }
     setSaving(true);
@@ -134,18 +151,9 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
               <label className={labelCls}>Directive Rate (%) — leave blank for SARS table</label>
               <input className={inputCls} type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} placeholder="e.g. 18.00" />
             </div>
-            <div>
-              <label htmlFor="td-effective" className={labelCls}>Effective Date *</label>
-              <input id="td-effective" className={inputCls} type="date" value={form.effective_date} onChange={set('effective_date')} required />
-            </div>
-            <div>
-              <label className={labelCls}>Issued Date (by SARS)</label>
-              <input className={inputCls} type="date" value={form.issued_date} onChange={set('issued_date')} aria-label="Issued Date" />
-            </div>
-            <div>
-              <label className={labelCls}>Expiry Date</label>
-              <input className={inputCls} type="date" value={form.expiry_date} onChange={set('expiry_date')} />
-            </div>
+            <DateField label="Effective Date" required value={form.effective_date || null} onChange={setDate('effective_date')} />
+            <DateField label="Issued Date (by SARS)" value={form.issued_date || null} onChange={setDate('issued_date')} />
+            <DateField label="Expiry Date" value={form.expiry_date || null} onChange={setDate('expiry_date')} />
             <div>
               <label className={labelCls}>Directive Number</label>
               <input className={inputCls} value={form.directive_number} onChange={set('directive_number')} placeholder="SARS directive number" />

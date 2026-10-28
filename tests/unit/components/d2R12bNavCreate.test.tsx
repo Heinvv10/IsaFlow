@@ -29,7 +29,7 @@ const EMP = { id: 'e1', employeeNumber: 'E1', firstName: 'Ann', lastName: 'Lee' 
 const text = (c: HTMLElement, i: number, v: string) => fireEvent.change(c.querySelectorAll('input')[i]!, { target: { value: v } });
 
 function fillRun() { /* defaults are valid */ }
-function fillEmployee(c: HTMLElement) { text(c, 0, 'Ann'); text(c, 1, 'Lee'); text(c, 2, 'E1'); }
+function fillEmployee() { for (const [l, v] of [['First name *', 'Ann'], ['Last name *', 'Lee'], ['Employee number *', 'E1']]) fireEvent.change(screen.getByLabelText(l), { target: { value: v } }); }
 function fillBatch(c: HTMLElement) { fireEvent.click(c.querySelectorAll('button[type="button"]')[1]!); text(c, 0, 'D2 batch'); }
 function fillLoan(c: HTMLElement) {
   fireEvent.change(c.querySelector('select')!, { target: { value: 'e1' } });
