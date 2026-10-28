@@ -1,14 +1,17 @@
 /**
- * The Budget vs Actual page's state: the controls, the tracking report they
- * load, and the pickers' lists (versions of FY*, cost centres, business
- * units). The report is the engine's (`/api/accounting/reports-budget-tracking`);
- * nothing here computes a figure.
+ * The Budget vs Actual page's state: the controls (read from and written to the
+ * page URL, so Back and a shared link reopen the same report), the tracking
+ * report they load, and the pickers' lists (versions of FY*, cost centres,
+ * business units). The report is the engine's
+ * (`/api/accounting/reports-budget-tracking`); nothing here computes a figure,
+ * and whether the window spans two years is the response's (`versionsByFy`).
  *
  * A response that arrives after a newer request is dropped, so a slow
  * earlier window never overwrites a later one. A failed load clears the
  * report, so the export buttons cannot export the previous window.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/router';
 import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { log } from '@/lib/logger';
@@ -16,11 +19,12 @@ import type { BudgetVersion } from '@/modules/accounting/services/budgets/budget
 import type { BudgetTrackingReport, TrackingPeriod } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import type { ReportYearOption } from '@/modules/accounting/services/reports/budgetReportYear';
 import {
-  controlsWindowYear, DEFAULT_CONTROLS, trackingSearch, versionApplies, yearOfMonth, type TrackingControls,
+  controlsFromQuery, controlsToQuery, DEFAULT_CONTROLS, trackingSearch, withPatch, type TrackingControls,
 } from './trackingControls';
 
 export interface DimensionOption { id: string; code: string; name: string; ccType?: string }
 
+export const BVA_PATH = '/accounting/reports/budget-vs-actual';
 const LOAD_FAILED = 'Could not load the budget report - try again';
 
 async function listOf(url: string, failure: string): Promise<DimensionOption[]> {
@@ -32,7 +36,10 @@ async function listOf(url: string, failure: string): Promise<DimensionOption[]> 
 }
 
 export function useBudgetTracking() {
+  const router = useRouter();
   const [controls, setControls] = useState<TrackingControls>(DEFAULT_CONTROLS);
+  // The URL is read once, when the router has it; nothing loads before that.
+  const [hydrated, setHydrated] = useState(false);
   const [report, setReport] = useState<BudgetTrackingReport | null>(null);
   const [years, setYears] = useState<ReportYearOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,12 +52,26 @@ export function useBudgetTracking() {
   const [today] = useState(() => localISODate().slice(0, 7));
   const latest = useRef(0);
 
-  const windowYear = controlsWindowYear(controls, years, today, yearOfMonth(today, years));
-  const sendVersion = versionApplies(controls, windowYear);
-  const query = trackingSearch(controls, { sendVersion, bullets: true }).toString();
-  const exportQuery = trackingSearch(controls, { sendVersion, bullets: false }).toString();
+  const query = trackingSearch(controls, { bullets: true }).toString();
+  const exportQuery = trackingSearch(controls, { bullets: false }).toString();
+  const urlQuery = new URLSearchParams(controlsToQuery(controls)).toString();
+  const returnTo = `${BVA_PATH}?${urlQuery}`;
 
   useEffect(() => {
+    if (hydrated || !router.isReady) return;
+    setControls(controlsFromQuery(router.query));
+    setHydrated(true);
+  }, [hydrated, router.isReady, router.query]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    void router.replace(`${BVA_PATH}?${urlQuery}`, undefined, { shallow: true, scroll: false });
+    // The router object changes identity per render; the URL follows the controls only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, urlQuery]);
+
+  useEffect(() => {
+    if (!hydrated) return;
     const request = ++latest.current;
     setIsLoading(true);
     setError('');
@@ -66,7 +87,7 @@ export function useBudgetTracking() {
         setError(apiErrorMessage(err, LOAD_FAILED));
       })
       .finally(() => { if (request === latest.current) setIsLoading(false); });
-  }, [query]);
+  }, [hydrated, query]);
 
   // The version picker lists FY*'s versions, primary first.
   const fy = report?.window.fiscalYear ?? null;
@@ -100,25 +121,21 @@ export function useBudgetTracking() {
       .then(setUnits).catch(fail('bu', 'Could not load the business units'));
   }, []);
 
-  const update = useCallback((patch: Partial<TrackingControls>) => setControls((c) => ({ ...c, ...patch })), []);
+  const update = useCallback((patch: Partial<TrackingControls>) => setControls((c) => withPatch(c, patch)), []);
 
   /** A custom window opens on the months on screen, so switching to it changes nothing until edited. */
   const setPeriod = useCallback((period: TrackingPeriod) => {
     setControls((c) => {
-      if (period !== 'custom' || (c.from && c.to)) return { ...c, period };
+      if (period !== 'custom' || (c.from && c.to)) return withPatch(c, { period });
       const months = report?.window.months ?? [];
-      return { ...c, period, from: months[0] ?? today, to: months[months.length - 1] ?? today };
+      return withPatch(c, { period, from: months[0] ?? today, to: months[months.length - 1] ?? today });
     });
   }, [report, today]);
-
-  const setVersion = useCallback((versionId: string) => {
-    setControls((c) => ({ ...c, versionId, versionFy: versionId ? fy : null }));
-  }, [fy]);
 
   const clearFilter = useCallback(() => update({ cc1Id: '', cc2Id: '', buId: '' }), [update]);
 
   return {
-    controls, update, setPeriod, setVersion, clearFilter, report, years, isLoading, error,
-    versions, versionsError, centres, units, refError, today, windowYear, sendVersion, exportQuery,
+    controls, update, setPeriod, clearFilter, report, years, isLoading, error,
+    versions, versionsError, centres, units, refError, today, exportQuery, returnTo,
   };
 }

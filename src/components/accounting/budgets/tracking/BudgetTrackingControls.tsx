@@ -2,16 +2,15 @@
  * Budget vs Actual controls (budgets P3 spec §1, §2.2, §2.5): period (Month |
  * Quarter | YTD | FY | Custom, month-granular), the financial year, the
  * version of FY* (primary by default; disabled, with the reason, when the
- * window spans two years), and the CC1 / CC2 / BU filter (explicit levels).
+ * report's window spans two years: `versionsByFy` on the response), and the
+ * CC1 / CC2 / BU filter (explicit levels).
  * The query string they make is `trackingControls.trackingSearch`'s.
  */
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
 import type { BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { TRACKING_PERIODS, type TrackingPeriod } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import type { ReportYearOption } from '@/modules/accounting/services/reports/budgetReportYear';
-import {
-  crossYearReason, PERIOD_LABEL, quarterOptions, yearOfMonth, type TrackingControls,
-} from './trackingControls';
+import { crossYearReason, PERIOD_LABEL, quarterOptions, type TrackingControls } from './trackingControls';
 import type { DimensionOption } from './useBudgetTracking';
 
 const LABEL = 'block text-xs text-[var(--ff-text-tertiary)] mb-1';
@@ -25,13 +24,12 @@ export interface BudgetTrackingControlsProps {
   today: string;
   versions: BudgetVersion[];
   versionsError: string;
-  sendVersion: boolean;
-  crossYear: boolean;
+  /** The years of a cross-year window (the response's `versionsByFy`); null for a one-year window. */
+  crossYears: number[] | null;
   centres: DimensionOption[];
   units: DimensionOption[];
   update: (patch: Partial<TrackingControls>) => void;
   setPeriod: (p: TrackingPeriod) => void;
-  setVersion: (id: string) => void;
 }
 
 function DimensionSelect({ label, testId, value, options, onChange }: {
@@ -54,9 +52,9 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
   const usesYear = c.period === 'quarter' || c.period === 'ytd' || c.period === 'fy';
   const yearValue = c.fiscalYear ?? p.shownYear;
   const year = p.years.find((y) => y.fiscalYear === yearValue);
-  const spanned = [yearOfMonth(c.from, p.years), yearOfMonth(c.to, p.years)].filter((y): y is number => y !== null);
   const primary = p.versions.find((v) => v.isPrimary);
-  const versionReason = p.crossYear ? crossYearReason(spanned) : p.versionsError || undefined;
+  const crossYear = p.crossYears !== null;
+  const versionReason = p.crossYears ? crossYearReason(p.crossYears) : p.versionsError || undefined;
 
   return (
     <div className="flex flex-wrap items-end gap-4">
@@ -113,15 +111,16 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
       )}
       <div>
         <label htmlFor="bva-version" className={LABEL}>Version</label>
-        <select id="bva-version" data-testid="bva-version" value={p.sendVersion ? c.versionId : ''}
-          disabled={p.crossYear} title={versionReason} aria-describedby={p.crossYear ? 'bva-version-reason' : undefined}
-          onChange={(e) => p.setVersion(e.target.value)} className={`${INPUT} min-w-[170px] disabled:opacity-60`}>
+        <select id="bva-version" data-testid="bva-version" value={c.versionId === primary?.id ? '' : c.versionId}
+          disabled={crossYear} title={versionReason} aria-describedby={crossYear ? 'bva-version-reason' : undefined}
+          onChange={(e) => update({ versionId: e.target.value })} className={`${INPUT} min-w-[170px] disabled:opacity-60`}>
           <option value="">{primary ? `Primary: ${primary.name}` : 'Primary version'}</option>
+          {c.versionId && !p.versions.some((v) => v.id === c.versionId) && <option value={c.versionId}>Selected version</option>}
           {p.versions.filter((v) => !v.isPrimary).map((v) => (
             <option key={v.id} value={v.id}>{`${v.name} · ${v.status}`}</option>
           ))}
         </select>
-        {p.crossYear && <p id="bva-version-reason" data-testid="bva-version-reason" className="mt-1 max-w-[260px] text-xs text-[var(--ff-text-secondary)]">{versionReason}</p>}
+        {crossYear && <p id="bva-version-reason" data-testid="bva-version-reason" className="mt-1 max-w-[260px] text-xs text-[var(--ff-text-secondary)]">{versionReason}</p>}
       </div>
       <DimensionSelect label="Cost centre 1" testId="bva-cc1" value={c.cc1Id}
         options={p.centres.filter((o) => o.ccType === 'cc1')} onChange={(id) => update({ cc1Id: id })} />

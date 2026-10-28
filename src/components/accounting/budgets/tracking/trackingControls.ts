@@ -1,6 +1,7 @@
 /**
- * The Budget vs Actual page's controls and the query string they send
- * (budgets P3 spec §2.2, §2.5, §4). Pure: no fetch, no Date read for a month.
+ * The Budget vs Actual page's controls, the query string they send (budgets P3
+ * spec §2.2, §2.5, §4), and the same controls in the page URL, so Back and a
+ * shared link land on the same report. Pure: no fetch, no Date read for a month.
  *
  * Only the parameters that apply to the period are sent; the route refuses
  * the others with a 400 (`trackingWindow.assertParamsApply`):
@@ -8,14 +9,15 @@
  *   quarter  → fiscal_year (when chosen) + quarter
  *   ytd, fy  → fiscal_year (when chosen)
  *   custom   → from + to
- * A version belongs to one financial year, so `version_id` is sent only while
- * the window lies in that year; a cross-year window reads each year's
- * primary, and the picker says why it is disabled. `group_by` (the bullets)
- * is sent only without a dimension filter: the route refuses the two
- * together.
+ * A version belongs to one financial year, so choosing another window returns
+ * to each year's primary (`withPatch`); whether the window spans two years is
+ * the engine's answer (`versionsByFy` on the response), never re-derived here.
+ * `group_by` (the bullets) is sent only without a dimension filter: the route
+ * refuses the two together.
  */
-import type { ReportYearOption } from '@/modules/accounting/services/reports/budgetReportYear';
+import { UUID_RE } from '@/lib/validation';
 import type { TrackingGroupBy, TrackingPeriod } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import type { ReportYearOption } from '@/modules/accounting/services/reports/budgetReportYear';
 
 export interface TrackingControls {
   period: TrackingPeriod;
@@ -29,8 +31,6 @@ export interface TrackingControls {
   to: string;
   /** '' = each year's primary version. */
   versionId: string;
-  /** The financial year the chosen version belongs to. */
-  versionFy: number | null;
   cc1Id: string;
   cc2Id: string;
   buId: string;
@@ -40,16 +40,26 @@ export interface TrackingControls {
 
 export const DEFAULT_CONTROLS: TrackingControls = {
   period: 'ytd', month: '', fiscalYear: null, quarter: 1, from: '', to: '',
-  versionId: '', versionFy: null, cc1Id: '', cc2Id: '', buId: '', groupBy: 'cc1',
+  versionId: '', cc1Id: '', cc2Id: '', buId: '', groupBy: 'cc1',
 };
 
 export const PERIOD_LABEL: Record<TrackingPeriod, string> = {
   month: 'Month', quarter: 'Quarter', ytd: 'Year to date', fy: 'Full year', custom: 'Custom',
 };
 
+const WINDOW_KEYS: ReadonlyArray<keyof TrackingControls> = ['period', 'month', 'fiscalYear', 'quarter', 'from', 'to'];
+const GROUPS: readonly TrackingGroupBy[] = ['cc1', 'cc2', 'bu'];
+
 const usesYear = (p: TrackingPeriod) => p === 'quarter' || p === 'ytd' || p === 'fy';
 
 export const hasDimensionFilter = (c: TrackingControls) => c.cc1Id !== '' || c.cc2Id !== '' || c.buId !== '';
+
+/** The controls after a change: another window drops the chosen version (it belongs to one year). */
+export function withPatch(c: TrackingControls, patch: Partial<TrackingControls>): TrackingControls {
+  const next = { ...c, ...patch };
+  const windowMoved = WINDOW_KEYS.some((k) => k in patch && patch[k] !== c[k]);
+  return windowMoved && !('versionId' in patch) ? { ...next, versionId: '' } : next;
+}
 
 const monthOrdinal = (key: string) => Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7)) - 1;
 
@@ -69,46 +79,50 @@ export function quarterOptions(y: Pick<ReportYearOption, 'startDate' | 'endDate'
   return out;
 }
 
-/** The label of the registry year holding the month ('YYYY-MM'), or null when no listed year holds it. */
-export function yearOfMonth(month: string, years: readonly ReportYearOption[]): number | null {
-  const hit = years.find((y) => y.startDate.slice(0, 7) <= month && month <= y.endDate.slice(0, 7));
-  return hit ? hit.fiscalYear : null;
-}
-
-/**
- * The financial years the window the controls describe would touch: FY* (the
- * year holding its end) and whether it reaches another year. `today` is the
- * month holding today ('YYYY-MM'); `currentFy` the year holding it. Null FY*
- * when the year list cannot tell.
- */
-export function controlsWindowYear(
-  c: TrackingControls, years: readonly ReportYearOption[], today: string, currentFy: number | null,
-): { fy: number | null; crossYear: boolean } {
-  if (usesYear(c.period)) return { fy: c.fiscalYear ?? currentFy, crossYear: false };
-  if (c.period === 'month') return { fy: yearOfMonth(c.month || today, years), crossYear: false };
-  const fy = yearOfMonth(c.to, years);
-  const first = yearOfMonth(c.from, years);
-  return { fy, crossYear: first !== fy };
-}
-
-/** The chosen version, when it may be sent for this window: the window lies in the version's year. */
-export function versionApplies(c: TrackingControls, w: { fy: number | null; crossYear: boolean }): boolean {
-  return c.versionId !== '' && !w.crossYear && w.fy !== null && w.fy === c.versionFy;
-}
-
-/** The report's query string: the period, its own parameters, the version when it applies, the filter. */
-export function trackingSearch(c: TrackingControls, opts: { sendVersion: boolean; bullets: boolean }): URLSearchParams {
+/** The report's query string: the period, its own parameters, the version, the filter, the bullets. */
+export function trackingSearch(c: TrackingControls, opts: { bullets: boolean }): URLSearchParams {
   const q = new URLSearchParams({ period: c.period });
   if (c.period === 'month' && c.month) q.set('month', c.month);
   if (usesYear(c.period) && c.fiscalYear !== null) q.set('fiscal_year', String(c.fiscalYear));
   if (c.period === 'quarter') q.set('quarter', String(c.quarter));
   if (c.period === 'custom') { q.set('from', c.from); q.set('to', c.to); }
-  if (opts.sendVersion) q.set('version_id', c.versionId);
+  if (c.versionId) q.set('version_id', c.versionId);
   if (c.cc1Id) q.set('cc1_id', c.cc1Id);
   if (c.cc2Id) q.set('cc2_id', c.cc2Id);
   if (c.buId) q.set('bu_id', c.buId);
   if (opts.bullets && !hasDimensionFilter(c)) q.set('group_by', c.groupBy);
   return q;
+}
+
+/** The page URL's query: the report's own parameters, and the bullets' dimension when not the default. */
+export function controlsToQuery(c: TrackingControls): Record<string, string> {
+  const q = Object.fromEntries(trackingSearch(c, { bullets: false }));
+  if (c.groupBy !== DEFAULT_CONTROLS.groupBy) q.group_by = c.groupBy;
+  return q;
+}
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : '');
+
+/** Controls from the page URL; anything malformed or not this period's is left at its default. */
+export function controlsFromQuery(query: Record<string, string | string[] | undefined>): TrackingControls {
+  const c: TrackingControls = { ...DEFAULT_CONTROLS };
+  const period = one(query.period) as TrackingPeriod;
+  if ((Object.keys(PERIOD_LABEL) as TrackingPeriod[]).includes(period)) c.period = period;
+  const month = one(query.month), from = one(query.from), to = one(query.to), fy = one(query.fiscal_year), q = one(query.quarter);
+  if (c.period === 'month' && MONTH_RE.test(month)) c.month = month;
+  if (usesYear(c.period) && /^\d{4}$/.test(fy)) c.fiscalYear = Number(fy);
+  if (c.period === 'quarter' && /^[1-5]$/.test(q)) c.quarter = Number(q);
+  if (c.period === 'custom') {
+    if (!MONTH_RE.test(from) || !MONTH_RE.test(to)) c.period = DEFAULT_CONTROLS.period;
+    else { c.from = from; c.to = to; }
+  }
+  for (const [param, key] of [['version_id', 'versionId'], ['cc1_id', 'cc1Id'], ['cc2_id', 'cc2Id'], ['bu_id', 'buId']] as const) {
+    if (UUID_RE.test(one(query[param]))) c[key] = one(query[param]);
+  }
+  const group = one(query.group_by) as TrackingGroupBy;
+  if (GROUPS.includes(group)) c.groupBy = group;
+  return c;
 }
 
 /** The sentence a cross-year window gives the disabled version picker. */

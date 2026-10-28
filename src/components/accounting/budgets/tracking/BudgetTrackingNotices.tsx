@@ -9,6 +9,7 @@
 import { longDate, monthLabel } from '@/components/accounting/budgets/budgetClient';
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { BudgetTrackingReport, ByPolarity, TrackingProjectionInfo } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import { unbudgetedActualsTo } from '@/modules/accounting/services/budgets/tracking/trackingProjection';
 
 const NOTE = 'text-xs text-[var(--ff-text-secondary)]';
 const BOX = 'rounded-lg border px-3 py-2 text-sm';
@@ -26,8 +27,14 @@ function byPolarity(v: ByPolarity, noun: string): string {
   return parts.join(' and ');
 }
 
-/** The Projected FY header's tooltip: which months are actuals and which are budget (from the response). */
+/** The Projected FY header's tooltip: which months are actuals and which are budget, and the rule for a
+ *  line with no budget (actuals to the month holding today), all from the response. */
 export function projectionHeading(p: TrackingProjectionInfo): string {
+  const to = unbudgetedActualsTo(p);
+  return `${budgetedHeading(p)}; a line with no budget: ${to ? `actuals to ${longDate(to)}` : 'no actuals yet'}`;
+}
+
+function budgetedHeading(p: TrackingProjectionInfo): string {
   const fy = `Projected FY${p.fiscalYear}`;
   const budget = p.budgetMonths.length === 0 ? ''
     : p.budgetMonths.length === 1 ? `budget ${monthLabel(p.budgetMonths[0]!)}`
@@ -75,12 +82,12 @@ export function BudgetTrackingNotices({ report, filtered, onViewUnfiltered }: {
     <div className="space-y-2">
       {n.noVersionYears.map((fy) => (
         <p key={fy} role="status" data-testid={`bva-no-budget-${fy}`} className={AMBER}>
-          {`No budget for FY${fy} in this window: its Budget and variance columns are left blank, never shown as zero.`}
+          {`No budget for FY${fy} in this window: its Budget and variance columns are shown as —, never as zero.`}
         </p>
       ))}
       {n.partialBudget && (
         <p role="status" data-testid="bva-partial-budget" className={AMBER}>
-          {`${accounts(n.partialBudget.count)} ${n.partialBudget.count === 1 ? 'is' : 'are'} budgeted for only part of this window (marked ½): their Budget and variance are left blank.`}
+          {`${accounts(n.partialBudget.count)} ${n.partialBudget.count === 1 ? 'is' : 'are'} budgeted for only part of this window (marked ½): their Budget and variance are shown as —.`}
         </p>
       )}
       {n.unbudgetedCount > 0 && (
@@ -94,7 +101,7 @@ export function BudgetTrackingNotices({ report, filtered, onViewUnfiltered }: {
             {`${byPolarity(unallocated, 'budget')} on these accounts is set above this filter (company level or a coarser cost centre) and is not split.`}
           </span>
           {filtered && (
-            <button type="button" onClick={onViewUnfiltered} className="text-sm font-medium text-teal-700 dark:text-teal-400 hover:underline">
+            <button type="button" onClick={onViewUnfiltered} className="text-sm font-medium text-[var(--ff-brand-eyebrow)] hover:underline">
               View unfiltered →
             </button>
           )}
