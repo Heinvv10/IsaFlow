@@ -60,22 +60,35 @@ function AbsentCell({ reason }: { reason?: Comparison['absentReason'] }) {
   );
 }
 
-function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey }: {
+/**
+ * Budget vs Actual (`tracking`) prints a budgeted ZERO as the figure 0.00 (spec §2.1 D5), so it
+ * reads apart from an absent budget's "—"; every other surface keeps the statement zero dash.
+ */
+const trackedFigure = (n: number, cents: boolean, tracking: boolean) =>
+  tracking && n === 0 ? (cents ? '0.00' : '0') : formatStatementFigure(n, { cents });
+
+function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey, tracking, onVariance }: {
   c: Comparison | undefined; blank: boolean; columns: StatementColumns;
   maxVariance: Record<ComparatorKey, number>; cents: boolean; comparatorKey: ComparatorKey;
+  /** Budget vs Actual: zero budget as 0.00, Var % of a zero budget "—", Var R opens the drill. */
+  tracking: boolean; onVariance?: { open: () => void; label: string };
 }) {
   const show = !blank && c !== undefined;
   // An absent comparator prints "—" in every cell, with no bar and no colour.
   const absent = show && c.absent === true;
+  const figure = show && !absent && c.variance !== undefined ? varianceAmount(c.variance, cents) : '';
   return (
     <>
       <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
-        {absent ? <AbsentCell reason={c.absentReason} /> : show ? formatStatementFigure(c.value, { cents }) : ''}
+        {absent ? <AbsentCell reason={c.absentReason} /> : show ? trackedFigure(c.value, cents, tracking && comparatorKey === 'budget') : ''}
       </td>
       {columns.variance && (
         <>
           <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent ? undefined : favColour(c?.favourable) }}>
-            {absent ? ABSENT : show && c.variance !== undefined ? varianceAmount(c.variance, cents) : ''}
+            {absent ? ABSENT : figure && onVariance
+              ? <button type="button" onClick={onVariance.open} aria-label={onVariance.label}
+                  className={`hover:underline ${FOCUS_RING}`}>{figure}</button>
+              : figure}
           </td>
           <td className="w-36 px-2">
             {show && !absent && c.variance !== undefined && (
@@ -83,7 +96,8 @@ function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey 
             )}
           </td>
           <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent ? undefined : favColour(c?.favourable) }}>
-            {absent ? ABSENT : show && c.variancePct !== undefined ? formatPct(c.variancePct) : ''}
+            {absent ? ABSENT : show && c.variancePct !== undefined ? formatPct(c.variancePct)
+              : tracking && show && c.value === 0 && c.variance !== undefined ? ABSENT : ''}
           </td>
         </>
       )}
@@ -92,14 +106,14 @@ function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey 
 }
 
 /** Projected FY / FY budget / Δ, Budget vs Actual only (`columns.projection`). */
-function ProjectionCells({ row, blank, cents }: { row: StatementRow; blank: boolean; cents: boolean }) {
+function ProjectionCells({ row, blank, cents, tracking }: { row: StatementRow; blank: boolean; cents: boolean; tracking: boolean }) {
   const p = blank ? undefined : row.projection;
   const none = p === undefined;
   return (
     <>
-      <td data-col="projected" className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{none ? '' : formatStatementFigure(p.projected, { cents })}</td>
+      <td data-col="projected" className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{none ? '' : trackedFigure(p.projected, cents, tracking)}</td>
       <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
-        {none ? '' : p.absent || p.fyBudget === undefined ? <span title="No FY budget">{ABSENT}</span> : formatStatementFigure(p.fyBudget, { cents })}
+        {none ? '' : p.absent || p.fyBudget === undefined ? <span title="No FY budget">{ABSENT}</span> : trackedFigure(p.fyBudget, cents, tracking)}
       </td>
       <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: none || p.absent ? undefined : favColour(p.favourable) }}>
         {none ? '' : p.absent || p.variance === undefined ? ABSENT : varianceAmount(p.variance, cents)}
@@ -147,12 +161,14 @@ function RowLabel({ row, expanded, onToggle }: {
   return <>{row.label}</>;
 }
 
-export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst = false, expanded, onToggle, onEvidence, onOpenNote, drill }: {
+export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst = false, expanded, onToggle, onEvidence, onOpenNote, drill, tracking = false }: {
   row: StatementRow; columns: StatementColumns; maxVariance: Record<ComparatorKey, number>; cents: boolean;
   /** Pin the label column on horizontal scroll (see StatementGrid `sticky`). */
   stickyFirst?: boolean;
   expanded: boolean; onToggle?: (code: string) => void; onEvidence?: (code: string) => void;
   onOpenNote?: (rowId: string) => void; drill?: ReactNode;
+  /** Budget vs Actual cells (StatementGrid `budgetTracking`). */
+  tracking?: boolean;
 }) {
   // A band header repeats its subtotal's figure and the placeholder has none:
   // neither prints a number.
@@ -160,6 +176,10 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
   const pad = row.depth === 1 ? 'pl-8' : 'pl-3';
   const code = row.accountCode;
   const active = COMPARATORS.filter(c => columns[c.key]);
+  // Budget vs Actual: the Var R cell of a line opens the same drill as its label (spec §2.6).
+  const onVariance = tracking && onToggle && code !== undefined && row.kind === 'line'
+    ? { open: () => onToggle(code), label: `Show the transactions behind the ${code} variance` }
+    : undefined;
   const colSpan = 2 + active.length * (1 + (columns.variance ? 3 : 0)) + (columns.trend ? 1 : 0) + (columns.projection ? 3 : 0);
   return (
     <>
@@ -176,11 +196,12 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
         {active.map(c => (
           <Fragment key={c.key}>
             <ComparatorCells c={row[c.key]} blank={blank} columns={columns}
-              maxVariance={maxVariance} cents={cents} comparatorKey={c.key} />
+              maxVariance={maxVariance} cents={cents} comparatorKey={c.key}
+              tracking={tracking} onVariance={c.key === 'budget' ? onVariance : undefined} />
           </Fragment>
         ))}
         {columns.trend && <td className="px-2 text-[var(--ff-text-secondary)]">{row.trend && <Sparkline points={row.trend} />}</td>}
-        {columns.projection && <ProjectionCells row={row} blank={blank} cents={cents} />}
+        {columns.projection && <ProjectionCells row={row} blank={blank} cents={cents} tracking={tracking} />}
       </tr>
       {expanded && code !== undefined && (drill || onEvidence) && (
         <tr data-kind="drill">
