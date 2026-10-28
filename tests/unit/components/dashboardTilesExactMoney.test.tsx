@@ -75,11 +75,14 @@ describe('dashboard tiles show exact amounts', () => {
       receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
     }} />);
     const margin = screen.getByText('Net margin: —', { exact: false });
-    expect(margin.getAttribute('title')).toBe('Not meaningful: no positive revenue in this period');
-    // The accessible description: an element the tile points at, not an aria-label on a role-less <p>.
+    expect(margin.hasAttribute('title')).toBe(false);
+    // Visible text (touch users cannot hover), not sr-only, and the element the tile points at.
     expect(margin.hasAttribute('aria-label')).toBe(false);
     const described = document.getElementById(margin.getAttribute('aria-describedby') ?? 'none');
     expect(described?.textContent).toBe('Not meaningful: no positive revenue in this period');
+    expect(described?.className ?? '').not.toMatch(/sr-only/);
+    expect(screen.getByText('Not meaningful: no positive revenue in this period')).toBe(described);
+    expect(document.body.querySelectorAll('.sr-only').length).toBe(0);
     expect(document.body.textContent).not.toMatch(/Net margin: -?\d/);
   });
 
