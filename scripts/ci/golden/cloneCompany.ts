@@ -85,7 +85,7 @@ export function planTableClone(
 
 /** Setup tables copied from the source company, parents before children. */
 export const COPIED_TABLES = [
-  'business_units', 'cost_centres', 'gl_accounts', 'cost_centre_gl_mappings', 'account_reporting_groups',
+  'business_units', 'cost_centres', 'gl_accounts', 'cost_centre_gl_mappings', 'account_reporting_groups', 'customers', 'suppliers',
   'accounting_settings', 'currencies', 'company_document_numbers', 'fiscal_years', 'fiscal_periods',
   'payroll_leave_types', 'pay_scales', 'payroll_components', 'payroll_employees', 'payroll_leave_balances',
   'payroll_employee_components', 'dunning_templates',

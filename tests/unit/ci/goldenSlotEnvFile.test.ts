@@ -30,6 +30,16 @@ describe('writeEnvFileAtomic', () => {
     expect(readdirSync(dir).sort()).toEqual(['isaflow-ci.env', 'main.env.local']);
   });
 
+  it('keeps owner and group of the file it replaces', () => {
+    const dir = scratch();
+    const real = join(dir, 'main.env.local');
+    writeFileSync(real, 'A=1\n');
+    const before = statSync(real);
+    writeEnvFileAtomic(real, 'A=2\n');
+    const after = statSync(real);
+    expect([after.uid, after.gid]).toEqual([before.uid, before.gid]);
+  });
+
   it('fails on a path that does not exist instead of creating a file nobody reads', () => {
     expect(() => writeEnvFileAtomic(join(scratch(), 'missing.env'), 'A=1\n')).toThrow();
   });

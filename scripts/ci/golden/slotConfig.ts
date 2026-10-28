@@ -27,7 +27,11 @@ export const EXPECTED_GOTRUE_URL = 'http://100.96.203.105:7770/auth/v1';
  */
 export const MAX_SLOT_GENERATION = 9;
 export const slotCompanyId = (n: number, generation = 0): string => `601d000${generation}-0000-4000-8000-00000000000${n}`;
-export const slotCompanyName = (n: number, generation = 0): string => `Golden Slot ${n} (CI fixture${generation ? ` gen ${generation}` : ''})`;
+/**
+ * No longer than the Demo company's name (22 characters): the shell header is one row tall at 768 and 1024 px only while
+ * the company name fits it, and a 26-character slot name made it wrap (s-shell-cls-mobile, 83 px against 56).
+ */
+export const slotCompanyName = (n: number, generation = 0): string => `Golden Slot ${n}${generation ? ` g${generation}` : ''}`;
 export const slotRegistrationNumber = (n: number, generation = 0): string => `GOLDEN/SLOT/${n}${generation ? `/${generation}` : ''}`;
 /** 0 for a slot's first company, the generation a `--reset-slot` replacement carries; 0 for an id that is not a slot's. */
 export const generationOf = (companyId: string): number => Number(/^601d000(\d)-0000-4000-8000-00000000000\d$/.exec(companyId)?.[1] ?? 0);

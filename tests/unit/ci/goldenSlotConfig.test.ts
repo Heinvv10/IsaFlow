@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EXPECTED_GOTRUE_URL, GOLDEN_SLOTS, MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertGoTrueUrl, generationOf,
-  parseEnvFile, slotCompanyId, slotEnvKeys, upsertEnvKeys,
+  parseEnvFile, slotCompanyId, slotCompanyName, slotEnvKeys, upsertEnvKeys,
 } from '../../../scripts/ci/golden/slotConfig';
 
 describe('assertDevDatabaseUrl', () => {
@@ -59,6 +59,12 @@ describe('slots', () => {
     expect([0, 1, 9].map((g) => generationOf(slotCompanyId(3, g)))).toEqual([0, 1, 9]);
     expect(generationOf(SOURCE_COMPANY_ID)).toBe(0);
     expect(generationOf('not an id')).toBe(0);
+  });
+
+  it('are named no longer than the Demo company, whose 22 characters are what the shell header is sized for', () => {
+    const names = GOLDEN_SLOTS.flatMap((n) => Array.from({ length: MAX_SLOT_GENERATION + 1 }, (_, g) => slotCompanyName(n, g)));
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of names) expect(name.length).toBeLessThanOrEqual('ISAFlow Demo (Pty) Ltd'.length);
   });
 
   it('use the key names ci.yml reads', () => {
