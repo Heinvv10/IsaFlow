@@ -1,7 +1,8 @@
 // pages/accept-invite.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import { log } from '@/lib/logger';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 export default function AcceptInvitePage() {
   const router = useRouter();
@@ -75,44 +76,97 @@ export default function AcceptInvitePage() {
     setSubmitting(false);
   }
 
-  if (loading) return <div className="p-8">Loading invitation…</div>;
-  if (!invite) return <div className="p-8 text-red-600">{error ?? 'Invitation invalid or expired.'}</div>;
+  if (loading) {
+    return (
+      <AcceptInviteShell>
+        <div className="flex items-center justify-center py-16"><LoadingSpinner size="lg" /></div>
+      </AcceptInviteShell>
+    );
+  }
+  if (!invite) {
+    return (
+      <AcceptInviteShell>
+        <div className={CARD_CLASS + ' p-8 text-center'}>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Invitation Not Available</h1>
+          <p className="text-sm text-slate-600 dark:text-gray-400">{error ?? 'This invitation is invalid, has already been used, or has expired.'}</p>
+        </div>
+      </AcceptInviteShell>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
-      <div className="w-full max-w-md bg-white rounded-lg shadow p-8">
-        <h1 className="text-2xl font-semibold mb-2">Join {invite.company_name}</h1>
-        <p className="text-gray-600 mb-6">
-          Invited as <strong>{invite.role}</strong> with email <strong>{invite.email}</strong>.{' '}
-          {needsExistingPassword
-            ? 'This address already has an IsaFlow account. Enter that account\u2019s password to accept.'
-            : 'Set your password to accept.'}
-        </p>
-        <form onSubmit={onSubmit} className="space-y-4">
+    <AcceptInviteShell>
+      <div className={CARD_CLASS + ' overflow-hidden'}>
+        <div className="bg-teal-900/30 border-b border-teal-800/50 px-6 py-5 text-center">
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Join {invite.company_name}</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-gray-400">
+            as <span className="font-medium text-teal-600 dark:text-teal-300">{invite.role}</span>
+          </p>
+        </div>
+        {/* autoComplete on every field: without it Chrome took "Last name" for the
+            username and filled a saved login (email + password) of another site account. */}
+        <form onSubmit={onSubmit} className="space-y-4 px-6 py-6">
+          <p className="text-sm text-slate-600 dark:text-gray-400">
+            {needsExistingPassword
+              ? 'This address already has an IsaFlow account. Enter that account\u2019s password to accept.'
+              : 'Set a password for your new IsaFlow login.'}
+          </p>
+          <label className="block">
+            <span className={LABEL_CLASS}>Invited email</span>
+            <input className={INPUT_CLASS + ' opacity-80'} value={invite.email} readOnly aria-readonly="true" autoComplete="off" />
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="text-sm">First name</span>
-              <input className="w-full border rounded p-2" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+              <span className={LABEL_CLASS}>First name</span>
+              <input name="given-name" autoComplete="given-name" className={INPUT_CLASS} value={firstName} onChange={(e) => setFirstName(e.target.value)} />
             </label>
             <label className="block">
-              <span className="text-sm">Last name</span>
-              <input className="w-full border rounded p-2" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+              <span className={LABEL_CLASS}>Last name</span>
+              <input name="family-name" autoComplete="family-name" className={INPUT_CLASS} value={lastName} onChange={(e) => setLastName(e.target.value)} />
             </label>
           </div>
           <label className="block">
-            <span className="text-sm">
+            <span className={LABEL_CLASS}>
               {needsExistingPassword ? 'Your existing IsaFlow password' : 'Password (at least 10 characters)'}
             </span>
             {/* No minLength once the server has told us this address already has
                 a login: that password was set elsewhere and may predate the
                 10-character floor, which is a rule about setting one. */}
-            <input type="password" className="w-full border rounded p-2" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={needsExistingPassword ? undefined : 10} />
+            <input
+              type="password" name="password" className={INPUT_CLASS}
+              autoComplete={needsExistingPassword ? 'current-password' : 'new-password'}
+              value={password} onChange={(e) => setPassword(e.target.value)}
+              required minLength={needsExistingPassword ? undefined : 10}
+            />
           </label>
-          {error && <div className="text-red-600 text-sm">{error}</div>}
-          <button type="submit" disabled={submitting} className="w-full bg-indigo-600 text-white rounded p-2 disabled:opacity-50">
+          {error && <div role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</div>}
+          <button
+            type="submit" disabled={submitting}
+            className="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60 transition-colors"
+          >
             {submitting ? 'Accepting…' : 'Accept invitation'}
           </button>
         </form>
+      </div>
+    </AcceptInviteShell>
+  );
+}
+
+const CARD_CLASS = 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl';
+const LABEL_CLASS = 'mb-1 block text-sm font-medium text-slate-700 dark:text-gray-300';
+const INPUT_CLASS =
+  'w-full rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2.5 text-sm ' +
+  'text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500';
+
+/** Same frame as /invite/[token], so the two steps of one invitation look like one flow. */
+function AcceptInviteShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <div className="flex flex-col items-center mb-8">
+          <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto dark:brightness-0 dark:invert" />
+        </div>
+        {children}
       </div>
     </div>
   );
