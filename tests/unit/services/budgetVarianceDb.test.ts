@@ -65,11 +65,15 @@ async function loadFixtureIds(): Promise<Fixture> {
                         AND e2.id <> e1.id
     JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue'
     WHERE bank.account_subtype = 'bank'
+      -- Budgetable accounts only: active leaves. writeBudget refuses a header (decision 18,
+      -- budgets/headerSql.ts), and the first expense account on dev is the 5000 header.
+      AND e1.is_active AND e2.is_active AND r.is_active
+      AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.company_id = bank.company_id AND ch.parent_account_id IN (e1.id, e2.id, r.id))
     ORDER BY bank.company_id, bank.account_code, e1.account_code, e2.account_code, r.account_code
     LIMIT 1
   `) as Array<Record<string, string>>;
   const row = rows[0];
-  if (!row) throw new Error('no company in isaflow_dev has a bank account, two expense accounts and a revenue account');
+  if (!row) throw new Error('no company in isaflow_dev has a bank account, two active leaf expense accounts and an active leaf revenue account');
 
   const users = (await sql`
     SELECT e.created_by FROM gl_journal_entries e JOIN users u ON u.id = e.created_by::text
