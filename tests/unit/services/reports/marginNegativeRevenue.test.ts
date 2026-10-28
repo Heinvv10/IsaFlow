@@ -71,7 +71,7 @@ describe('reportPackService — null, so no percentage is printed at all', () =>
   });
 });
 
-describe('kpiDashboardService — net margin computed through a negative, as the income statement\'s', () => {
+describe('kpiDashboardService — no net margin without positive turnover', () => {
   /** The service fires its queries in one Promise.all, in a fixed order:
    * revenue, prior revenue, expenses, … Only the first and third matter here. */
   const withTotals = (revenue: number, expenses: number) => {
@@ -84,14 +84,23 @@ describe('kpiDashboardService — net margin computed through a negative, as the
     });
   };
 
-  it('computes the net margin on negative revenue, as incomeStatementService does', async () => {
+  it('is null on negative revenue (the amount is still stated)', async () => {
     withTotals(-100, 50);
     const kpis = await getDashboardKPIs('c-1', '2026-01-01', '2026-01-31');
-    // CHANGED (W2 H round 4): this tile is the statement's Net Profit and used to pass
-    // no allowNegativeRevenue, so it printed 0 where the statement prints
-    // netMarginPct = -150 / -100 = +150% (incomeStatementService passes it).
+    // CHANGED (W2 H round 4): this tile is the statement's Net Profit, but Home
+    // deliberately differs from incomeStatementService on NEGATIVE turnover. The
+    // statement passes allowNegativeRevenue and prints -150 / -100 = +150%, beside
+    // a loss of R150; on a dashboard tile that reads as a healthy margin. Home
+    // states no margin there (null, drawn as a dash), as marginPct's default does.
     expect(kpis.netProfit.amount).toBe(-150);
-    expect(kpis.netProfit.margin).toBe(150);
+    expect(kpis.netProfit.margin).toBeNull();
+  });
+
+  it('is null on zero revenue, not 0.0% (the statement prints a dash too)', async () => {
+    withTotals(0, 50);
+    const kpis = await getDashboardKPIs('c-1', '2026-01-01', '2026-01-31');
+    expect(kpis.netProfit.amount).toBe(-50);
+    expect(kpis.netProfit.margin).toBeNull();
   });
 
   it('still computes on positive revenue', async () => {
