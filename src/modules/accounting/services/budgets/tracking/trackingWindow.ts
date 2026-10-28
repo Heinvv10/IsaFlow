@@ -48,7 +48,8 @@ function registryMiss(err: unknown): TrackingError | null {
   return null;
 }
 
-async function mapMiss<T>(read: () => Promise<T>): Promise<T> {
+/** Runs a registry read, turning a registry miss into its TrackingError (everything else rethrown). */
+export async function mapRegistryMiss<T>(read: () => Promise<T>): Promise<T> {
   try {
     return await read();
   } catch (err) {
@@ -58,8 +59,8 @@ async function mapMiss<T>(read: () => Promise<T>): Promise<T> {
 
 export function registryYears(companyId: string): YearSource {
   return {
-    byLabel: (label) => mapMiss(() => getFiscalYear(companyId, label)),
-    forDate: (date) => mapMiss(() => fiscalYearForDate(companyId, date)),
+    byLabel: (label) => mapRegistryMiss(() => getFiscalYear(companyId, label)),
+    forDate: (date) => mapRegistryMiss(() => fiscalYearForDate(companyId, date)),
   };
 }
 

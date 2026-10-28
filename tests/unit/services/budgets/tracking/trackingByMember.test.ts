@@ -68,3 +68,35 @@ describe('toBulletLines', () => {
     expect([...option.yAxis.data].sort()).toEqual(['FT Fibertime', 'HT Hometech']);
   });
 });
+
+describe('review round 2', () => {
+  it('A1: a window month in a year with no version leaves every member without a budget; no bullet is drawn', () => {
+    const members = buildTrackingMembers({
+      groupBy: 'cc1', windowMonths: [M, '2026-07'], noVersionMonths: ['2026-07'],
+      actuals: [{ memberId: FT, month: M, accountType: 'revenue', amount: 150 }, { memberId: null, month: '2026-07', accountType: 'expense', amount: 5 }],
+      budgets: [{ eff: eff(FT), month: M, accountType: 'revenue', amount: 120 }],
+      names: new Map([[FT, { code: 'FT', name: 'Fibertime' }]]),
+    });
+    expect(members.map((m) => [m.name, m.actual, m.budget, m.variance, m.favourable])).toEqual([
+      ['Fibertime', 150, null, null, null], [UNTAGGED_LABEL, -5, null, null, null],
+    ]);
+    const lines = toBulletLines(members);
+    expect(lines.every((l) => !l.budgeted)).toBe(true);
+    const option = buildBudgetBulletOption(lines, DEFAULT_PALETTE) as { yAxis: { data: string[] }; series: Array<{ data: unknown[] }> };
+    expect(option.yAxis.data).toEqual([]);
+    for (const series of option.series) expect(series.data).toEqual([]);
+  });
+
+  it('L2: members with the same code are ordered by id, whatever order they arrive in', () => {
+    const Z = 'ffffffff-0000-4000-8000-00000000000f';
+    const A0 = '00000000-0000-4000-8000-000000000001';
+    const run = (ids: string[]) => buildTrackingMembers({
+      groupBy: 'cc1', windowMonths: [M],
+      actuals: ids.map((id) => ({ memberId: id, month: M, accountType: 'revenue' as const, amount: 1 })),
+      budgets: [],
+      names: new Map([[Z, { code: 'DUP', name: 'Z' }], [A0, { code: 'DUP', name: 'A' }]]),
+    }).map((m) => m.memberId);
+    expect(run([Z, A0])).toEqual([A0, Z]);
+    expect(run([A0, Z])).toEqual([A0, Z]);
+  });
+});

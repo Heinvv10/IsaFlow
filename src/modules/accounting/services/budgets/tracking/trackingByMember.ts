@@ -8,6 +8,9 @@
  * grain, a CC2 with no FNO under CC1) — the same rule as `dimensionPnlService`'s
  * UNTAGGED column. The members therefore PARTITION the company figure.
  *
+ * Over a window with a month in a year with no version the members carry no
+ * budget at all (the lines' F1 rule): a partial-window budget is not one.
+ *
  * The figure is each member's NET PROFIT contribution (revenue − expense, so
  * favourable when ≥ 0, like every profit total): a cost centre holds both
  * income and cost, and only their net partitions the company's net profit.
@@ -34,8 +37,11 @@ export function buildTrackingMembers(input: {
   actuals: readonly MemberActual[];
   budgets: readonly MemberBudget[];
   names: ReadonlyMap<string, { code: string; name: string }>;
+  /** Window months in a year with no version: any of them leaves every member without a budget (as the lines). */
+  noVersionMonths?: readonly string[];
 }): TrackingMember[] {
   const inWindow = new Set(input.windowMonths);
+  const budgetAbsent = input.windowMonths.some((m) => input.noVersionMonths?.includes(m));
   const acc = new Map<string | null, { actual: number; budget: number | null }>();
   const slot = (id: string | null) => {
     let s = acc.get(id);
@@ -47,7 +53,7 @@ export function buildTrackingMembers(input: {
     if (inWindow.has(a.month)) slot(a.memberId).actual += signed(a.accountType, a.amount);
   }
   for (const b of input.budgets) {
-    if (!inWindow.has(b.month)) continue;
+    if (budgetAbsent || !inWindow.has(b.month)) continue;
     const s = slot(b.eff[input.groupBy]);
     s.budget = (s.budget ?? 0) + signed(b.accountType, b.amount);
   }
@@ -66,8 +72,15 @@ export function buildTrackingMembers(input: {
       favourable: variance === null ? null : isFavourable('income', variance),
     });
   }
-  // Members by code, the untagged remainder last.
-  return members.sort((x, y) => (x.memberId === null ? 1 : y.memberId === null ? -1 : x.code < y.code ? -1 : x.code > y.code ? 1 : 0));
+  // A total order: members by code, then id (two masters can share a code); the untagged remainder last.
+  const key = (m: TrackingMember) => [m.code, m.memberId ?? ''] as const;
+  return members.sort((x, y) => {
+    if (x.memberId === null || y.memberId === null) return x.memberId === null ? (y.memberId === null ? 0 : 1) : -1;
+    const [xc, xi] = key(x);
+    const [yc, yi] = key(y);
+    if (xc !== yc) return xc < yc ? -1 : 1;
+    return xi < yi ? -1 : xi > yi ? 1 : 0;
+  });
 }
 
 /** The members as P0 row-model lines, for `BudgetBulletRow`. */

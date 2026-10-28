@@ -85,6 +85,27 @@ describe('Projected FY on a 14-month year, November in progress', () => {
     expect(past.window.postedThrough).toBe('2026-08-31');
   });
 
+  it('A4: "actuals posted through" follows the filter and the P&L; window.postedThrough stays company-wide', async () => {
+    const at = new Date('2026-11-20T10:00:00+02:00');
+    // A bank-only transfer on 18 Nov: no income-statement line.
+    const transfer = async (c: import('pg').PoolClient) => {
+      const eid = crypto.randomUUID();
+      await c.query(`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, status, created_by, description, source, created_at)
+                     VALUES ($1, $2, 'BT-A4', '2026-11-18', 'posted', $3, 'bank transfer', 'manual', NOW())`, [eid, f.a, f.userA]);
+      await c.query(`INSERT INTO gl_journal_lines (id, journal_entry_id, company_id, gl_account_id, debit, credit, description)
+                     VALUES ($1, $2, $3, $4, 10, 0, 'x'), ($5, $2, $3, $4, 0, 10, 'x')`, [crypto.randomUUID(), eid, f.a, f.acc.bank, crypto.randomUUID()]);
+    };
+    const go = (p: TrackingParams) => asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, p, at), { before: transfer });
+    // The orphan project has no posting: nothing is posted through, whatever the company posted.
+    const orphan = await go({ period: 'month', month: '2026-11', cc2Id: f.cc.PN });
+    expect(orphan.window.inProgress).toEqual({ month: '2026-11', actualsTo: null });
+    // Unfiltered: the 15th's P&L journal, not the bank-only 18th, nor the forward-dated 30th.
+    const all = await go({ period: 'month', month: '2026-11' });
+    expect(all.window.inProgress).toEqual({ month: '2026-11', actualsTo: '2026-11-15' });
+    // window.postedThrough is P0's figure: any posted entry in the window, so the forward-dated 30th.
+    expect([orphan.window.postedThrough, all.window.postedThrough]).toEqual(['2026-11-30', '2026-11-30']);
+  });
+
   it('a window ending in a year that has not started projects budget only', async () => {
     const r = await run({ period: 'custom', from: '2027-03', to: '2027-07' });
     expect([r.projection.fiscalYear, r.projection.cutoff, r.projection.actualMonths]).toEqual([2028, '2027-04-30', []]);

@@ -16,6 +16,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asRequest, dropTrackingFixture, FY2027_MONTHS, seedTrackingFixture, type TrackingFixture } from './helpers/budgetTrackingFixture';
 import { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import { TrackingError, type BudgetTrackingReport, type TrackingParams } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -118,6 +119,74 @@ describe('bullets per member (group_by, unfiltered)', () => {
   it('a filter with group_by is refused: the members would not partition anything', async () => {
     const err = await run({ ...FY, groupBy: 'cc1', buId: f.bu.B1 }).catch((e: unknown) => e);
     expect((err as TrackingError).status).toBe(400);
+  });
+});
+
+describe('review round 2: the no-version gap and a grain change across years', () => {
+  // Jan - Feb 2026 lie in FY2026, which has no version; Mar - Jun in FY2027.
+  const GAP: TrackingParams = { period: 'custom', from: '2026-01', to: '2026-06' };
+
+  it('A1: under the gap every member bullet has no budget (no partial-window figure)', async () => {
+    const r = await run({ ...GAP, groupBy: 'cc1' });
+    expect(r.bands.find((b) => b.key === 'net_profit')!.budget).toBeNull();
+    const members = r.members!;
+    expect(members.length).toBeGreaterThan(1);
+    for (const m of members) expect([m.name, m.budget, m.variance, m.favourable]).toEqual([m.name, null, null, null]);
+  });
+
+  it('A2: under the gap unallocated budget is absent too, on lines, bands and the footer', async () => {
+    const r = await run({ ...GAP, cc1Id: f.cc.FT });
+    const opex = line(r, f.acc.opex);
+    expect([opex.budget, opex.unallocatedBudget]).toEqual([null, null]);
+    for (const b of r.bands) expect([b.key, b.unallocatedBudget]).toEqual([b.key, null]);
+    expect(r.notices.unallocatedBudget).toBeNull();
+  });
+
+  it('A3: an account at the included grain in one version and only above the filter in another has no window budget', async () => {
+    // FY2028's primary budgets sales at company level: one grain per account per VERSION still holds.
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2027-03', to: '2027-06', cc2Id: f.cc.P1 }, NOW), {
+      before: (c) => c.query(
+        `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+         SELECT $1, $2, $3, (m || '-01')::DATE, 300 FROM unnest($4::TEXT[]) AS m`,
+        [f.a, f.v.primary28, f.acc.sales, ['2027-05', '2027-06', '2027-07', '2027-08']]),
+    });
+    const sales = line(r, f.acc.sales);
+    expect([sales.budget, sales.variance, sales.variancePct, sales.favourable]).toEqual([null, null, null, null]);
+    expect([sales.budgetAboveFilter, sales.unallocatedBudget]).toEqual([true, 600]);
+    // The monthly figures keep what each version says.
+    expect(sales.monthly.map((m) => [m.month, m.budget])).toEqual([['2027-03', 100], ['2027-04', 100], ['2027-05', null], ['2027-06', null]]);
+    // It is not "unbudgeted" either: its budget is set above the filter.
+    expect(r.notices.unbudgetedCount).toBe(0);
+  });
+});
+
+describe('review round 2: registry failures on the way are a 4xx (L3)', () => {
+  // With no usable start month the registry chains 12-month steps from the last stored year and
+  // refuses a date more than 500 steps away (P0001 'fiscal_year_template: ... too far').
+  const noStartMonth = (c: import('pg').PoolClient) => c.query('UPDATE companies SET financial_year_start = NULL WHERE id = $1', [f.a]);
+
+  it("a 'today' the registry cannot place (year options) is a 400, not a 500", async () => {
+    const err = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, FY, new Date('2531-01-15T10:00:00+02:00')), {
+      before: noStartMonth,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TrackingError);
+    expect((err as TrackingError).status).toBe(400);
+  });
+
+  it("a named version whose year the registry cannot place is a typed 4xx, not a 500", async () => {
+    const vid = crypto.randomUUID();
+    const err = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { ...FY, versionId: vid }, NOW), {
+      before: async (c) => {
+        await noStartMonth(c);
+        await c.query(
+          `INSERT INTO budget_versions (id, company_id, fiscal_year, name, kind, created_by) VALUES ($1, $2, 2700, 'Far', 'scenario', $3)`,
+          [vid, f.a, f.userA]);
+      },
+    }).catch((e: unknown) => e);
+    // The registry answers "no such label" here (P1's BudgetVersionError, 409); a raise on that path is
+    // mapped too (unit: trackingBudgetReadRegistry.test.ts).
+    expect(err instanceof TrackingError || err instanceof BudgetVersionError, String(err)).toBe(true);
+    expect([400, 404, 409]).toContain((err as { status: number }).status);
   });
 });
 
