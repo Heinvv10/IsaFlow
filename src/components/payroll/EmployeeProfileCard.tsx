@@ -77,9 +77,9 @@ export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Prop
             onChange={e => onChange({ ...employee, idNumber: e.target.value })} />
         </div>
         <DateField label="Date of birth" value={employee.dateOfBirth?.slice(0, 10) || null} maxDate={todayInSast()}
-          maxMessage="Date of birth cannot be in the future."
+          maxMessage="Date of birth cannot be in the future." resetKey={employee.id}
           onChange={(iso, v) => { track('dateOfBirth')(v.valid); if (v.valid) onChange({ ...employee, dateOfBirth: iso ?? '' }); }} />
-        <DateField label="End date" value={employee.endDate?.slice(0, 10) || null}
+        <DateField label="End date" resetKey={employee.id} value={employee.endDate?.slice(0, 10) || null}
           onChange={(iso, v) => { track('endDate')(v.valid); if (v.valid) onChange({ ...employee, endDate: iso ?? undefined }); }} />
         <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
           <input type="checkbox" checked={employee.uifExcluded}

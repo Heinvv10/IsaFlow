@@ -53,6 +53,13 @@ describe('tax directive dates', () => {
     expect(await screen.findByText('Fix the dates marked in red before saving')).toBeTruthy();
     expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('tax-directives'))).toHaveLength(0);
   });
+  it('an effective date never touched is refused with its own message and nothing is posted', async () => {
+    render(<CreateTaxDirectiveModal onClose={vi.fn()} onCreated={vi.fn()} />);
+    fill();
+    fireEvent.submit(screen.getByRole('button', { name: /create directive/i }).closest('form')!);
+    expect(await screen.findByText('Enter the effective date')).toBeTruthy();
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('tax-directives'))).toHaveLength(0);
+  });
   it('a refused optional date also blocks, instead of posting without it', async () => {
     render(<CreateTaxDirectiveModal onClose={vi.fn()} onCreated={vi.fn()} />);
     fill();
