@@ -19,8 +19,10 @@ export interface DashboardKPIs {
   /** Posted revenue from the 1st of the current SAST month to `todayStr`: the hero's "Revenue MTD". */
   revenueMtd: number;
   expenses: { total: number; priorTotal: number };
-  /** Every revenue-type account less every expense: the income statement's Net Profit, and its margin over turnover. */
-  /** `margin` is null with no positive turnover: a dash, not 0.0% and not a ratio of two negatives. */
+  /**
+   * Every revenue-type account less every expense: the income statement's Net Profit. `margin` is over
+   * turnover and null with no positive turnover: a dash, not 0.0% and not a ratio of two negatives.
+   */
   netProfit: { amount: number; margin: number | null };
   cash: { total: number; priorTotal: number; change: number };
   receivables: { total: number; overdue: number; overdueDisputed: number; avgDebtorDays: number };
