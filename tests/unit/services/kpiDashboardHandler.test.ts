@@ -19,11 +19,21 @@ import { mockUnsafe } from '../helpers/sqlFragmentMock';
 
 const h = vi.hoisted(() => ({
   queries: [] as { text: string; values: unknown[] }[],
-  revenue: [] as { date: string; amount: number }[],
+  revenue: [] as { date: string; amount: number; subtype?: string }[],
   ar: [] as unknown[],
   ap: [] as unknown[],
   arCalls: 0,
   apCalls: 0,
+  inFlight: 0,
+  maxInFlight: 0,
+  /** Holds a fetch open for a few ticks, counting how many are open at once. */
+  slow: async <T,>(rows: T): Promise<T> => {
+    h.inFlight += 1;
+    h.maxInFlight = Math.max(h.maxInFlight, h.inFlight);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    h.inFlight -= 1;
+    return rows;
+  },
 }));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -38,21 +48,24 @@ vi.mock('@/lib/apiResponse', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/hasBankAccountService', () => ({ hasBankAccount: async () => true }));
 vi.mock('@/modules/accounting/services/ar/arAgingInvoices', () => ({
-  fetchARAgingInvoices: async () => { h.arCalls += 1; return h.ar; },
+  fetchARAgingInvoices: async () => { h.arCalls += 1; return h.slow(h.ar); },
 }));
 vi.mock('@/modules/accounting/services/ap/apAgingInvoices', () => ({
-  fetchAPAgingInvoices: async () => { h.apCalls += 1; return h.ap; },
+  fetchAPAgingInvoices: async () => { h.apCalls += 1; return h.slow(h.ap); },
 }));
 vi.mock('@/lib/neon', () => {
   const ISO = /^\d{4}-\d{2}-\d{2}$/;
   const fake = (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
     h.queries.push({ text, values });
-    // Posted revenue between the two dates the query is bound with.
+    // Posted revenue between the two dates the query is bound with, one row per subtype.
     if (text.includes("account_type = 'revenue'")) {
       const [from, to] = values.filter((v): v is string => typeof v === 'string' && ISO.test(v));
-      const total = h.revenue.filter((r) => r.date >= from! && r.date <= to!).reduce((s, r) => s + r.amount, 0);
-      return Promise.resolve([{ total }]);
+      const bySubtype = new Map<string | null, number>();
+      for (const r of h.revenue.filter((x) => x.date >= from! && x.date <= to!)) {
+        bySubtype.set(r.subtype ?? 'sales', (bySubtype.get(r.subtype ?? 'sales') ?? 0) + r.amount);
+      }
+      return Promise.resolve([...bySubtype].map(([account_subtype, total]) => ({ account_subtype, total })));
     }
     return Promise.resolve([]);
   };
@@ -84,11 +97,15 @@ beforeEach(() => {
   h.queries.length = 0;
   h.arCalls = 0;
   h.apCalls = 0;
+  h.maxInFlight = 0;
   h.revenue = [
     { date: '2025-12-15', amount: 1000 },
     { date: '2026-09-30', amount: 200 },
     { date: '2026-10-02', amount: 300 },
     { date: '2026-10-27', amount: 50 },
+    // Other income: inside revenue-type accounts, outside the P&L's Revenue line.
+    { date: '2026-10-05', amount: 40, subtype: 'other_income' },
+    { date: '2026-02-01', amount: 7, subtype: 'Other Income' },
   ];
   // 57 days overdue with R250 disputed, and not yet due with R100 disputed.
   h.ar = [inv('a', '2026-09-01', 1000, 250), inv('b', '2026-11-30', 500, 100)];
@@ -97,7 +114,8 @@ beforeEach(() => {
 
 type Out = {
   kpis: {
-    revenue: { total: number }; revenueMtd: number;
+    revenue: { total: number; changePercent: number }; revenueMtd: number;
+    grossProfit: { amount: number };
     receivables: { total: number; overdue: number; overdueDisputed: number };
     payables: { total: number; overdue: number };
   };
@@ -132,6 +150,19 @@ describe('kpi-dashboard handler', () => {
     } finally {
       vi.setSystemTime(NOW);
     }
+  });
+
+  it('other income is in neither Revenue nor Revenue MTD, but stays in profit (aliases included)', async () => {
+    const out = await call();
+    expect(out.kpis.revenue.total).toBe(1550);
+    expect(out.kpis.revenueMtd).toBe(350);
+    // No expenses in the fixture: profit is every revenue-type account, 1550 + 40 + 7.
+    expect(out.kpis.grossProfit.amount).toBe(1597);
+  });
+
+  it('reads the AR and AP books in parallel', async () => {
+    await call();
+    expect(h.maxInFlight).toBe(2);
   });
 
   it('fetches each side of the open book once per request', async () => {
