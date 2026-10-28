@@ -111,7 +111,7 @@ describe('BudgetWorkspace states', () => {
 
 describe('years exist but none holds today', () => {
   it('asks to pick a year from the select (no "no financial year" panel); picking one loads it', async () => {
-    net.on((u) => u === '/api/accounting/budgets', () => ok({ items: [], fiscalYear: null, year: null,
+    net.on((u) => u === '/api/accounting/budgets?years_only=1', () => ok({ items: [], fiscalYear: null, year: null,
       years: [{ fiscalYear: 2026, startDate: '2025-03-01', endDate: '2026-02-28', kind: 'normal', monthKeys: [] },
         { fiscalYear: 2027, startDate: '2026-03-01', endDate: '2027-02-28', kind: 'normal', monthKeys: [] }] }));
     render(<BudgetWorkspace />);

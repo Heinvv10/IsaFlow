@@ -52,6 +52,17 @@ describe('Trial Balance belongs to Reports', () => {
   });
 });
 
+describe('Budgets belongs to Library (Accounting module, Management Accounting)', () => {
+  // The nav links /accounting/budgets from navSections/accounting.ts; /accounting/budgets/workspace
+  // is the old preview URL, a permanent redirect (next.config.js) that must light the same tab.
+  it.each(['/accounting/budgets', '/accounting/budgets/workspace'])('%s lights Library and the Budgets link', (path) => {
+    expect(getActiveModuleId(path, q)).toBe('accounting');
+    expect(getActiveTabId(path, q)).toBe('library');
+    expect(mostSpecificActiveHref(['/accounting/cost-centres', '/accounting/budgets', '/accounting/reports/budget-vs-actual'], path))
+      .toBe('/accounting/budgets');
+  });
+});
+
 describe('mostSpecificActiveHref', () => {
   it('prefers the deeper path whatever the order', () => {
     const a = '/accounting/bank-reconciliation';
