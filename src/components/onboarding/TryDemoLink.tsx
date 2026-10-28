@@ -6,8 +6,13 @@
  * company lives in a cookie every request reads), so the old, empty page used
  * to sit there, clickable, until the reload landed. A busy overlay now covers
  * it from the click until the page is gone; only a refused switch removes it.
+ *
+ * The overlay is modal, not only visual: everything else in <body> is inert
+ * while it is up (no clicks, no Tab into the page behind), focus moves onto it,
+ * and its live region is mounted empty and filled afterwards, because a
+ * role=status inserted with its text already in place is not announced.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Sparkles } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -18,6 +23,37 @@ import { findDemoMembership } from './demoMembership';
 interface TryDemoLinkProps {
   /** Called after a good switch (the banner dismisses itself here). */
   onSwitched?: () => void;
+}
+
+const OPENING = 'Opening the demo company…';
+
+function BusyOverlay() {
+  const overlay = useRef<HTMLDivElement>(null);
+  const [announce, setAnnounce] = useState(false);
+
+  useEffect(() => {
+    const el = overlay.current;
+    if (!el) return;
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const behind = Array.from(document.body.children).filter((c) => c !== el && !c.hasAttribute('inert'));
+    behind.forEach((c) => c.setAttribute('inert', ''));
+    el.focus();
+    setAnnounce(true);
+    return () => {
+      behind.forEach((c) => c.removeAttribute('inert'));
+      before?.focus();
+    };
+  }, []);
+
+  return (
+    <div ref={overlay} role="dialog" aria-modal="true" aria-label="Opening the demo company" tabIndex={-1}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 outline-none">
+      <div className="flex items-center gap-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-5 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
+        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+        <p role="status" aria-live="polite">{announce ? OPENING : ''}</p>
+      </div>
+    </div>
+  );
 }
 
 export function TryDemoLink({ onSwitched }: TryDemoLinkProps) {
@@ -44,15 +80,7 @@ export function TryDemoLink({ onSwitched }: TryDemoLinkProps) {
 
   return (
     <>
-    {busy && typeof document !== 'undefined' && createPortal(
-      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60">
-        <p role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-5 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
-          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-          Opening the demo company…
-        </p>
-      </div>,
-      document.body,
-    )}
+    {busy && typeof document !== 'undefined' && createPortal(<BusyOverlay />, document.body)}
     <button
       type="button"
       onClick={() => void go()}
