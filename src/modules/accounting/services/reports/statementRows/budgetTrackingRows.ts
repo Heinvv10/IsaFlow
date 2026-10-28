@@ -36,8 +36,8 @@ export interface TrackingProjectionCells {
 export interface BudgetTrackingRow extends StatementRow {
   budget: TrackingComparison;
   projection: TrackingProjectionCells;
-  /** Budget set above the filter, never in `budget` (spec §2.4). */
-  unallocatedBudget: number;
+  /** Budget set above the filter, never in `budget` (spec §2.4); null while the window budget is absent. */
+  unallocatedBudget: number | null;
 }
 
 function budgetOf(f: TrackingFigures): TrackingComparison {

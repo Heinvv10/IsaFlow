@@ -6,10 +6,14 @@
  * "Unbudgeted" (no row) is not "budgeted at zero" (D5); there is no revenue +
  * expense total (D1).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+const logError = vi.fn();
+vi.mock('@/lib/logger', () => ({ log: { error: (...a: unknown[]) => logError(...a), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 import { buildBands, buildNotices } from '@/modules/accounting/services/budgets/tracking/trackingBands';
 import { budgetBridgeSteps } from '@/modules/accounting/services/budgets/tracking/budgetBridgeSteps';
 import {
+  TrackingOrderError,
   buildTrackingLines,
   type AccountMeta,
   type ActualCell,
@@ -192,5 +196,48 @@ describe('line order (review Q5)', () => {
     expect(lines.map((l) => l.accountId)).toEqual(order);
     expect(() => buildTrackingLines({ accounts: ACCOUNTS, windowMonths: [M], plan: PLAN, actuals, budgets: [], order: ['rent'] }))
       .toThrow(/missing from the print order/);
+  });
+});
+
+describe('review round 2', () => {
+  const M2 = '2026-07';
+  const lines2 = (budgets: ClassifiedBudgetCell[], noVersionMonths: string[] = []) => buildTrackingLines({
+    accounts: ACCOUNTS, windowMonths: [M, M2], plan: PLAN, noVersionMonths,
+    actuals: [a('sales', 1000), { accountId: 'sales', month: M2, amount: 700 }, a('rent', 200)],
+    budgets,
+  });
+
+  it('A2: under the no-version gap unallocated budget is absent on lines, bands and the footer', () => {
+    const lines = lines2([b('rent', 150, 'coarser'), b('sales', 900)], [M2]);
+    for (const l of lines) expect([l.accountId, l.unallocatedBudget]).toEqual([l.accountId, null]);
+    for (const x of buildBands(lines)) expect([x.key, x.unallocatedBudget]).toEqual([x.key, null]);
+    expect(buildNotices(lines, { noVersion: false, noVersionYears: [2028], budgetAbsent: true }).unallocatedBudget).toBeNull();
+  });
+
+  it('A3: included in one versioned month and only above the filter in another: no window budget, above the filter', () => {
+    // Sales: June at the included grain, July only coarser (another version budgeted it at company level).
+    const lines = lines2([b('sales', 900), { accountId: 'sales', month: M2, amount: 300, cls: 'coarser' }, b('rent', 150), { accountId: 'rent', month: M2, amount: 150, cls: 'included' }]);
+    const sales = lines.find((l) => l.accountId === 'sales')!;
+    expect([sales.budget, sales.variance, sales.variancePct, sales.favourable]).toEqual([null, null, null, null]);
+    expect([sales.budgetAboveFilter, sales.unallocatedBudget]).toEqual([true, 300]);
+    expect(sales.monthly.map((m) => m.budget)).toEqual([900, null]);
+    // Rent, included in both months, keeps its budget; the band treats sales as unbudgeted (0).
+    expect(lines.find((l) => l.accountId === 'rent')!.budget).toBe(300);
+    const bands = buildBands(lines);
+    expect(bands.find((x) => x.key === 'turnover')!.budget).toBeNull();
+    expect(bands.find((x) => x.key === 'net_profit')!.budget).toBe(-300);
+    expect(buildNotices(lines, { noVersion: false, noVersionYears: [], budgetAbsent: false }).unbudgetedCount).toBe(0);
+  });
+
+  it('A3: a month with neither is not a grain change (a budget set for part of the window stays a budget)', () => {
+    const lines = lines2([b('sales', 900)]);
+    expect(lines.find((l) => l.accountId === 'sales')!.budget).toBe(900);
+  });
+
+  it('L1: an account missing from the print order is a typed, logged error', () => {
+    logError.mockClear();
+    expect(() => buildTrackingLines({ accounts: ACCOUNTS, windowMonths: [M], plan: PLAN, actuals: [a('sales', 1), a('rent', 2)], budgets: [], order: ['rent'] }))
+      .toThrow(TrackingOrderError);
+    expect(logError).toHaveBeenCalledWith(expect.stringMatching(/print order/), expect.objectContaining({ accountId: 'sales' }), 'budgets');
   });
 });

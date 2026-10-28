@@ -25,19 +25,19 @@ import type { ByPolarity, TrackingBand, TrackingBandKey, TrackingLine, TrackingN
 const BANDS = BAND_ORDER.map((key) => ({ key, label: BAND_LABEL[key], polarity: BAND_SIGN[key] === 1 ? 'income' as const : 'expense' as const }));
 
 /** Cents, with null = absent. */
-interface Sums { actual: number; budget: number | null; projected: number; fyBudget: number | null; unallocated: number }
+interface Sums { actual: number; budget: number | null; projected: number; fyBudget: number | null; unallocated: number | null }
 
 const plus = (x: number | null, y: number | null): number | null => (x === null && y === null ? null : (x ?? 0) + (y ?? 0));
 const minus = (x: number | null, y: number | null): number | null => (x === null && y === null ? null : (x ?? 0) - (y ?? 0));
 
-function sumLines(lines: readonly TrackingLine[]): Sums {
+function sumLines(lines: readonly TrackingLine[], unallocatedAbsent: boolean): Sums {
   const cents = (v: number | null) => (v === null ? 0 : toCents(v));
   return {
     actual: lines.reduce((s, l) => s + toCents(l.actual), 0),
     budget: lines.some((l) => l.budget !== null) ? lines.reduce((s, l) => s + cents(l.budget), 0) : null,
     projected: lines.reduce((s, l) => s + toCents(l.projected), 0),
     fyBudget: lines.some((l) => l.fyBudget !== null) ? lines.reduce((s, l) => s + cents(l.fyBudget), 0) : null,
-    unallocated: lines.reduce((s, l) => s + toCents(l.unallocatedBudget), 0),
+    unallocated: unallocatedAbsent ? null : lines.reduce((s, l) => s + cents(l.unallocatedBudget), 0),
   };
 }
 
@@ -49,7 +49,7 @@ function combine(x: Sums, y: Sums, op: 'plus' | 'minus'): Sums {
     projected: op === 'plus' ? x.projected + y.projected : x.projected - y.projected,
     fyBudget: f(x.fyBudget, y.fyBudget),
     // Netted by polarity like the budget (D1: never income + expense).
-    unallocated: op === 'plus' ? x.unallocated + y.unallocated : x.unallocated - y.unallocated,
+    unallocated: f(x.unallocated, y.unallocated),
   };
 }
 
@@ -69,13 +69,15 @@ function figures(
     fyBudget: s.fyBudget === null ? null : fromCents(s.fyBudget),
     projVariance: projVariance === null ? null : fromCents(projVariance),
     projFavourable: projVariance === null ? null : isFavourable(polarity, projVariance),
-    unallocatedBudget: fromCents(s.unallocated),
+    unallocatedBudget: s.unallocated === null ? null : fromCents(s.unallocated),
   };
 }
 
 /** The eight bands and totals, in statement order. */
 export function buildBands(lines: readonly TrackingLine[]): TrackingBand[] {
-  const sums = new Map(BANDS.map((b) => [b.key, sumLines(lines.filter((l) => l.band === b.key))]));
+  // Unallocated budget is absent on EVERY band once the window budget is (lines carry null then, A2).
+  const unallocatedAbsent = lines.some((l) => l.unallocatedBudget === null);
+  const sums = new Map(BANDS.map((b) => [b.key, sumLines(lines.filter((l) => l.band === b.key), unallocatedAbsent)]));
   const band = (key: TrackingBandKey) => {
     const def = BANDS.find((b) => b.key === key)!;
     return figures(key, def.label, 'band', def.polarity, sums.get(key)!);
@@ -115,7 +117,7 @@ export function buildNotices(
   return {
     unbudgetedCount: unbudgeted.length,
     unbudgetedActual: split(unbudgeted, (l) => l.actual),
-    unallocatedBudget: split(lines, (l) => l.unallocatedBudget),
+    unallocatedBudget: v.budgetAbsent ? null : split(lines, (l) => l.unallocatedBudget ?? 0),
     noVersion: v.noVersion,
     noVersionYears: v.noVersionYears,
   };
