@@ -1,0 +1,70 @@
+/**
+ * Budgets P3 §2.7 bullets (review Q9): per-member net profit, the untagged /
+ * company-level member last, and the mapping onto P0's BudgetVsActualLine that
+ * the unchanged BudgetBulletRow / bulletOption reads: `variance` favourably
+ * signed (for a profit figure it equals the movement), `budgeted` from the
+ * presence of a budget, never from its amount.
+ */
+import { describe, expect, it } from 'vitest';
+import { buildTrackingMembers, toBulletLines, UNTAGGED_LABEL } from '@/modules/accounting/services/budgets/tracking/trackingByMember';
+import { buildBudgetBulletOption } from '@/components/accounting/charts/bulletOption';
+import { DEFAULT_PALETTE } from '@/components/accounting/charts/chartTypes';
+
+const FT = 'aaaaaaaa-0000-4000-8000-00000000000a';
+const HT = 'bbbbbbbb-0000-4000-8000-00000000000b';
+const M = '2026-06';
+const eff = (cc1: string | null) => ({ cc1, cc2: null, bu: null });
+
+const MEMBERS = buildTrackingMembers({
+  groupBy: 'cc1',
+  windowMonths: [M],
+  actuals: [
+    { memberId: FT, month: M, accountType: 'revenue', amount: 150 },
+    { memberId: FT, month: M, accountType: 'expense', amount: 50 },
+    { memberId: null, month: M, accountType: 'expense', amount: 50 },
+    { memberId: HT, month: M, accountType: 'expense', amount: 10 },
+    // Outside the window: ignored.
+    { memberId: FT, month: '2026-07', accountType: 'revenue', amount: 9999 },
+  ],
+  budgets: [
+    { eff: eff(FT), month: M, accountType: 'revenue', amount: 120 },
+    { eff: eff(FT), month: M, accountType: 'expense', amount: 40 },
+    { eff: eff(HT), month: M, accountType: 'expense', amount: 0 },
+  ],
+  names: new Map([[FT, { code: 'FT', name: 'Fibertime' }], [HT, { code: 'HT', name: 'Hometech' }]]),
+});
+
+describe('buildTrackingMembers', () => {
+  it("is each member's net profit, the untagged remainder last", () => {
+    expect(MEMBERS).toEqual([
+      { memberId: FT, code: 'FT', name: 'Fibertime', actual: 100, budget: 80, variance: 20, favourable: true },
+      { memberId: HT, code: 'HT', name: 'Hometech', actual: -10, budget: 0, variance: -10, favourable: false },
+      { memberId: null, code: '', name: UNTAGGED_LABEL, actual: -50, budget: null, variance: null, favourable: null },
+    ]);
+  });
+});
+
+describe('toBulletLines', () => {
+  const lines = toBulletLines(MEMBERS);
+
+  it('maps a budgeted member onto the row model, variance favourably signed = the movement', () => {
+    expect(lines[0]).toEqual({
+      account_id: FT, account_code: 'FT', account_name: 'FT Fibertime', account_type: 'revenue',
+      budgeted: true, budget_amount: 80, actual_amount: 100, variance: 20, movement: 20,
+      variance_pct: 25, movement_pct: 25, favourable: true,
+    });
+  });
+
+  it('a budget of zero is budgeted (no %); no budget is unbudgeted and unjudged', () => {
+    expect(lines[1]).toMatchObject({ budgeted: true, budget_amount: 0, variance: -10, movement: -10, variance_pct: null, favourable: false });
+    expect(lines[2]).toMatchObject({
+      account_id: 'untagged', account_name: UNTAGGED_LABEL, budgeted: false, budget_amount: 0,
+      variance: -50, movement: -50, variance_pct: null, movement_pct: null, favourable: null,
+    });
+  });
+
+  it('the bullet chart draws the budgeted members only, by their labels', () => {
+    const option = buildBudgetBulletOption(lines, DEFAULT_PALETTE) as { yAxis: { data: string[] } };
+    expect([...option.yAxis.data].sort()).toEqual(['FT Fibertime', 'HT Hometech']);
+  });
+});
