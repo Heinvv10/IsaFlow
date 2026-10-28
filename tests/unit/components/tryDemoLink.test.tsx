@@ -82,4 +82,57 @@ describe('<TryDemoLink>', () => {
     expect(screen.getByRole('status').textContent).toContain('Opening the demo company…');
     expect(screen.getByRole('button', { name: 'Try the demo company' }).hasAttribute('disabled')).toBe(true);
   });
+
+  describe('busy overlay is modal, not just visual', () => {
+    let refuse!: (e: Error) => void;
+    const start = async () => {
+      h.switchCompany.mockReturnValue(new Promise<void>((_, rej) => { refuse = rej; }));
+      const page = document.createElement('div');
+      page.id = 'app-root';
+      document.body.appendChild(page);
+      const view = render(<TryDemoLink />, { container: page.appendChild(document.createElement('div')) });
+      const trigger = screen.getByRole('button', { name: 'Try the demo company' });
+      trigger.focus();
+      fireEvent.click(trigger);
+      const dialog = await screen.findByRole('dialog');
+      return { page, dialog, view };
+    };
+
+    it('makes everything behind it inert and takes focus', async () => {
+      const { page, dialog } = await start();
+      expect(dialog.getAttribute('aria-modal')).toBe('true');
+      expect(page.hasAttribute('inert')).toBe(true);
+      expect(dialog.hasAttribute('inert')).toBe(false);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      page.remove();
+    });
+
+    it('gives the page back, and focus, when the switch is refused', async () => {
+      const { page } = await start();
+      expect(page.hasAttribute('inert')).toBe(true);
+      refuse(new Error('no access'));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(page.hasAttribute('inert')).toBe(false);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try the demo company' }));
+      page.remove();
+    });
+
+    it('mounts the live region empty and fills it afterwards, so the text is announced', async () => {
+      const seen: string[] = [];
+      const append = document.body.appendChild.bind(document.body);
+      const spy = vi.spyOn(document.body, 'appendChild').mockImplementation(((node: Node) => {
+        const status = (node as Element).querySelector?.('[role="status"]');
+        if (status) seen.push(status.textContent ?? '');
+        return append(node);
+      }) as typeof document.body.appendChild);
+      try {
+        const { page } = await start();
+        await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Opening the demo company…'));
+        page.remove();
+      } finally {
+        spy.mockRestore();
+      }
+      expect(seen).toEqual(['']);
+    });
+  });
 });

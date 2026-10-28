@@ -6,10 +6,20 @@
 import { useState, useEffect } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
+import { log } from '@/lib/logger';
 import { findDemoMembership } from './demoMembership';
 import { TryDemoLink } from './TryDemoLink';
 
 const DISMISSED_KEY = 'isaflow_demo_cta_dismissed';
+
+/** Storage can refuse a write (blocked, full): the banner is then dismissed for this visit only. */
+function rememberDismissed(): void {
+  try {
+    localStorage.setItem(DISMISSED_KEY, '1');
+  } catch (err) {
+    log.error('Could not remember that the demo banner was dismissed', { error: err }, 'demo-company-cta');
+  }
+}
 
 interface DemoCompanyCTAProps {
   /** Optional override text. Defaults to the standard copy. */
@@ -27,7 +37,7 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
   }, []);
 
   const handleDismiss = () => {
-    localStorage.setItem(DISMISSED_KEY, '1');
+    rememberDismissed();
     setDismissed(true);
   };
 
@@ -40,7 +50,7 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
         {message ?? 'New here? Explore our demo company to see ISAFlow in action.'}
       </p>
       {/* Persist only: unmounting the banner would take TryDemoLink's busy overlay with it before the reload lands. */}
-      <TryDemoLink onSwitched={() => localStorage.setItem(DISMISSED_KEY, '1')} />
+      <TryDemoLink onSwitched={rememberDismissed} />
       <button
         onClick={handleDismiss}
         aria-label="Dismiss"

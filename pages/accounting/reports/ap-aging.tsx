@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
-import { localISODate } from '@/lib/dateUtils';
+import { todayInSast } from '@/lib/saDateParser';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDateISO, formatDisplayDate } from '@/utils/dateFormat';
 
@@ -76,7 +76,7 @@ const fmtDate = (s: string) => {
 const BUCKETS: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];
 
 export default function APAgingPage() {
-  const [asAtDate, setAsAtDate] = useState(() => localISODate());
+  const [asAtDate, setAsAtDate] = useState(() => todayInSast());
   const [hasMore, setHasMore] = useState(false);
   const [data, setData] = useState<APAgingData | null>(null);
   const [loading, setLoading] = useState(false);
