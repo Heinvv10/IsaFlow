@@ -88,7 +88,7 @@ describe('scrubEvent', () => {
     let out: Event | null;
     expect(() => { out = scrubEvent(event); }).not.toThrow();
     const data = out!.request!.data as Record<string, unknown>;
-    expect(data.safe).toBe('ok');
+    expect(data.safe).toBe('[REDACTED]');
     expect(data.self).toBe('[CIRCULAR]');
   });
 

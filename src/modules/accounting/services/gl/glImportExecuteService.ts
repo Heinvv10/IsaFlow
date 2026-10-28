@@ -45,7 +45,7 @@ export class ImportValidationError extends Error {
  * is refused here too, for the same reason: createJournalEntry would refuse it
  * inside the write loop, after earlier groups were written.
  */
-async function placeRowCentres(companyId: string, lines: JournalLineInput[], rows: ImportRow[]): Promise<JournalLineInput[]> {
+async function placeRowCentres(companyId: string, lines: JournalLineInput[], rows: ImportRow[], rowNos: Map<ImportRow, number>): Promise<JournalLineInput[]> {
   try {
     const placed = (await placeCostCentres(companyId, lines)).lines;
     await assertNewJournalDimensions(companyId, 'auto_gl_import', placed); // e.g. a project under an inactive FNO
@@ -56,7 +56,7 @@ async function placeRowCentres(companyId: string, lines: JournalLineInput[], row
     const row = err.lineIndex === undefined ? undefined : rows[err.lineIndex];
     const first = rows[0]!;
     const where = row
-      ? `Import row "${row.description}" (${row.date})`
+      ? `Import row ${rowNos.get(row)} (${row.date})`
       : `Import group ${first.reference ? `"${first.reference}" ` : ''}(${first.date})`;
     // Only a pick that could not be placed is about the row's cost-centre code as such.
     const what = row && err instanceof CostCentrePickRefusal
@@ -94,7 +94,9 @@ export async function importJournalEntries(
   postImmediately: boolean,
 ): Promise<ImportResult> {
   // Day-first ISO before grouping and before Postgres reads it (its default DateStyle is month-first).
-  const rows = inputRows.map(normaliseImportRowDate);
+  const rows = inputRows.map((r) => ({ ...normaliseImportRowDate(r) })); // copies: each is a distinct key of rowNos
+  // A row is named by its spreadsheet row (header = 1, as the preview numbers it), never its description: the message reaches error capture.
+  const rowNos = new Map(rows.map((r, i) => [r, i + 2] as const));
   try {
     const accountRows = (await sql`
       SELECT account_code, id
@@ -145,7 +147,7 @@ export async function importJournalEntries(
           // Was `continue`. The preview endpoint validates codes, but nothing
           // obliges the execute caller to have run it, so enforce it here.
           throw new ImportValidationError(
-            `Import row "${row.description}" (${row.date}) references account code ${code}, which does not exist or is inactive for this company`,
+            `Import row ${rowNos.get(row)} (${row.date}) references account code ${code}, which does not exist or is inactive for this company`,
           );
         }
 
@@ -190,7 +192,7 @@ export async function importJournalEntries(
           ? `${firstRow.reference}: ${firstRow.description}`
           : firstRow.description,
         ...(firstRow.reference ? { reference: firstRow.reference } : {}),
-        lines: await placeRowCentres(companyId, lines, groupRows), // each row's centre in its slot, before any write
+        lines: await placeRowCentres(companyId, lines, groupRows, rowNos), // each row's centre in its slot, before any write
         totalDebit,
       });
     }

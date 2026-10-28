@@ -90,7 +90,7 @@ export async function planLines(
         && l.vat_classification !== defaultVatClassification(Number(l.tax_rate ?? 0))));
   if (lost) {
     throw new SupplierInvoiceDraftUpdateRefusal(
-      `Supplier invoice ${number}'s line "${String(lost.description)}" carries a purchase-order link, `
+      `Supplier invoice ${number} has a stored line of R${Number(lost.line_total).toFixed(2)} that carries a purchase-order link, `
       + 'project, cost centre or VAT classification that replacing the lines would drop. '
       + 'Edit it in the app instead, or cancel and re-enter it.',
     );
