@@ -45,6 +45,8 @@ export default function NewLeaveRequestPage() {
   const [reason, setReason] = useState('');
 
   const days = calcBusinessDays(startDate, endDate);
+  // minDate on the End field only judges text as it is committed; changing the start afterwards needs this.
+  const endBeforeStart = Boolean(startDate && endDate && endDate < startDate);
 
   const loadOptions = useCallback(async () => {
     setIsLoading(true);
@@ -73,6 +75,10 @@ export default function NewLeaveRequestPage() {
     e.preventDefault();
     if (!employeeId || !leaveTypeId || !startDate || !endDate) {
       setError('All fields are required');
+      return;
+    }
+    if (endBeforeStart) {
+      setError('End date must be on or after the start date');
       return;
     }
     if (days <= 0) {
@@ -169,7 +175,7 @@ export default function NewLeaveRequestPage() {
                   <GatedDateField gate={dateGate} gateKey="start-date" label="Start Date" required value={startDate || null} onValue={iso => setStartDate(iso)} />
                 </div>
                 <div>
-                  <GatedDateField gate={dateGate} gateKey="end-date" label="End Date" required minDate={startDate || undefined} value={endDate || null} onValue={iso => setEndDate(iso)} />
+                  <GatedDateField gate={dateGate} gateKey="end-date" label="End Date" required minDate={startDate || undefined} value={endDate || null} onValue={iso => setEndDate(iso)} error={endBeforeStart ? 'End date must be on or after the start date.' : undefined} />
                 </div>
               </div>
 
