@@ -74,10 +74,21 @@ describe('dashboard tiles show exact amounts', () => {
       cash: { total: 0, priorTotal: 0, change: 0 },
       receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
     }} />);
-    const margin = screen.getByText('Net margin: —');
+    const margin = screen.getByText('Net margin: —', { exact: false });
     expect(margin.getAttribute('title')).toBe('Not meaningful: no positive revenue in this period');
-    expect(margin.getAttribute('aria-label')).toBe('Net margin: not meaningful, no positive revenue in this period');
+    // The accessible description: an element the tile points at, not an aria-label on a role-less <p>.
+    expect(margin.hasAttribute('aria-label')).toBe(false);
+    const described = document.getElementById(margin.getAttribute('aria-describedby') ?? 'none');
+    expect(described?.textContent).toBe('Not meaningful: no positive revenue in this period');
     expect(document.body.textContent).not.toMatch(/Net margin: -?\d/);
+  });
+
+  it('while the figures have not loaded the margin is a plain dash, with no reason it cannot know', () => {
+    render(<OverviewKpiCards kpis={undefined} />);
+    const margin = screen.getByText('Net margin: —');
+    expect(margin.hasAttribute('title')).toBe(false);
+    expect(margin.hasAttribute('aria-describedby')).toBe(false);
+    expect(document.body.textContent).not.toMatch(/no positive revenue/);
   });
 
   it('Outstanding AR shows the disputed share of the overdue figure, only when there is one', () => {

@@ -2,6 +2,7 @@
  * OverviewKpiCards — the four headline KPI cards on the Home overview.
  */
 
+import { useId } from 'react';
 import { TrendingUp, Landmark, CreditCard, DollarSign, ArrowDown } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 
@@ -13,13 +14,13 @@ export interface OverviewKpis {
   receivables: { total: number; overdue: number; overdueDisputed?: number; avgDebtorDays: number };
 }
 
-const NO_MARGIN_TITLE = 'Not meaningful: no positive revenue in this period';
-const NO_MARGIN_LABEL = 'Net margin: not meaningful, no positive revenue in this period';
+const NO_MARGIN_REASON = 'Not meaningful: no positive revenue in this period';
 
 // Exact, never abbreviated: a tile is a figure someone reconciles (principle 1).
 const fmtExact = (n: number): string => formatMoney(n);
 
 export function OverviewKpiCards({ kpis }: { kpis: OverviewKpis | undefined }) {
+  const marginReason = useId();
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
@@ -38,9 +39,16 @@ export function OverviewKpiCards({ kpis }: { kpis: OverviewKpis | undefined }) {
           <DollarSign className="h-4 w-4 text-teal-500" />
         </div>
         <p className="text-xl font-bold tabular-nums text-[var(--ff-text-primary)]">{fmtExact(kpis?.netProfit.amount ?? 0)}</p>
-        {kpis?.netProfit.margin == null
-          ? <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]" title={NO_MARGIN_TITLE} aria-label={NO_MARGIN_LABEL}>Net margin: —</p>
-          : <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: {kpis.netProfit.margin.toFixed(1)}%</p>}
+        {!kpis
+          // Not loaded: a dash, and no reason (a failed load says nothing about revenue).
+          ? <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: —</p>
+          : kpis.netProfit.margin == null
+            ? (
+              <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]" title={NO_MARGIN_REASON} aria-describedby={marginReason}>
+                Net margin: —<span id={marginReason} className="sr-only">{NO_MARGIN_REASON}</span>
+              </p>
+            )
+            : <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: {kpis.netProfit.margin.toFixed(1)}%</p>}
       </div>
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
         <div className="flex items-center justify-between mb-1">
