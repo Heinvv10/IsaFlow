@@ -7,11 +7,14 @@ import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface OverviewKpis {
   revenue: { total: number; priorTotal: number; changePercent: number };
-  netProfit: { amount: number; margin: number };
+  netProfit: { amount: number; margin: number | null };
   cash: { total: number; priorTotal: number; change: number };
   /** `overdueDisputed`: the disputed part of `overdue`, which the ageing donut shows as its own segment. */
   receivables: { total: number; overdue: number; overdueDisputed?: number; avgDebtorDays: number };
 }
+
+const NO_MARGIN_TITLE = 'Not meaningful: no positive revenue in this period';
+const NO_MARGIN_LABEL = 'Net margin: not meaningful, no positive revenue in this period';
 
 // Exact, never abbreviated: a tile is a figure someone reconciles (principle 1).
 const fmtExact = (n: number): string => formatMoney(n);
@@ -35,7 +38,9 @@ export function OverviewKpiCards({ kpis }: { kpis: OverviewKpis | undefined }) {
           <DollarSign className="h-4 w-4 text-teal-500" />
         </div>
         <p className="text-xl font-bold tabular-nums text-[var(--ff-text-primary)]">{fmtExact(kpis?.netProfit.amount ?? 0)}</p>
-        <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: {(kpis?.netProfit.margin ?? 0).toFixed(1)}%</p>
+        {kpis?.netProfit.margin == null
+          ? <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]" title={NO_MARGIN_TITLE} aria-label={NO_MARGIN_LABEL}>Net margin: —</p>
+          : <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: {kpis.netProfit.margin.toFixed(1)}%</p>}
       </div>
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
         <div className="flex items-center justify-between mb-1">

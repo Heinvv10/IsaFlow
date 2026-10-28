@@ -20,7 +20,8 @@ export interface DashboardKPIs {
   revenueMtd: number;
   expenses: { total: number; priorTotal: number };
   /** Every revenue-type account less every expense: the income statement's Net Profit, and its margin over turnover. */
-  netProfit: { amount: number; margin: number };
+  /** `margin` is null with no positive turnover: a dash, not 0.0% and not a ratio of two negatives. */
+  netProfit: { amount: number; margin: number | null };
   cash: { total: number; priorTotal: number; change: number };
   receivables: { total: number; overdue: number; overdueDisputed: number; avgDebtorDays: number };
   payables: { total: number; overdue: number; avgCreditorDays: number };
@@ -203,8 +204,10 @@ export async function getDashboardKPIs(companyId: string,
     const cashTotal = Number((cashRows as DbRow[])[0]?.total || 0);
     const priorCash = Number((priorCashRows as DbRow[])[0]?.total || 0);
     const netProfit = allRevenue - totalExpenses;
-    // allowNegativeRevenue, as the income statement's net margin.
-    const netMargin = marginPct(netProfit, totalRevenue, { allowNegativeRevenue: true }) ?? 0;
+    // Null unless turnover is positive. Zero turnover is no margin (the statement prints a dash
+    // too); negative turnover differs from the statement on purpose: its allowNegativeRevenue
+    // would print +150% beside a loss.
+    const netMargin = marginPct(netProfit, totalRevenue);
     const revenueChange = priorRevenue > 0
       ? ((totalRevenue - priorRevenue) / priorRevenue) * 100
       : totalRevenue > 0 ? 100 : 0;

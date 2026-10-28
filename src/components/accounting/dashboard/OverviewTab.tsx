@@ -37,7 +37,7 @@ export interface KPIData {
     revenue: { total: number; priorTotal: number; changePercent: number };
     revenueMtd: number;
     expenses: { total: number; priorTotal: number };
-    netProfit: { amount: number; margin: number };
+    netProfit: { amount: number; margin: number | null };
     cash: { total: number; priorTotal: number; change: number };
     receivables: { total: number; overdue: number; overdueDisputed: number; avgDebtorDays: number };
     payables: { total: number; overdue: number; avgCreditorDays: number };

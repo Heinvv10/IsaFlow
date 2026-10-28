@@ -67,6 +67,19 @@ describe('dashboard tiles show exact amounts', () => {
     expect(screen.queryByText(/gross/i)).toBeNull();
   });
 
+  it('Net margin is a dash with a reason when the API states none (no positive turnover), never 0.0%', () => {
+    render(<OverviewKpiCards kpis={{
+      revenue: { total: 0, priorTotal: 0, changePercent: 0 },
+      netProfit: { amount: -150, margin: null },
+      cash: { total: 0, priorTotal: 0, change: 0 },
+      receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
+    }} />);
+    const margin = screen.getByText('Net margin: —');
+    expect(margin.getAttribute('title')).toBe('Not meaningful: no positive revenue in this period');
+    expect(margin.getAttribute('aria-label')).toBe('Net margin: not meaningful, no positive revenue in this period');
+    expect(document.body.textContent).not.toMatch(/Net margin: -?\d/);
+  });
+
   it('Outstanding AR shows the disputed share of the overdue figure, only when there is one', () => {
     const kpis = (overdueDisputed: number) => ({
       revenue: { total: 0, priorTotal: 0, changePercent: 0 },
