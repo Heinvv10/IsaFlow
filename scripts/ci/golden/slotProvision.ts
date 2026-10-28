@@ -21,6 +21,8 @@ export async function ensureCompany(db: ClientBase, n: number, id: string, gener
       email: slotEmail(n), is_demo: true, onboarding_request_key: null,
     },
   });
+  // A slot made under an earlier name keeps its id, so its name is re-asserted (the retired ones have other ids).
+  await db.query('UPDATE companies SET name = $2, registered_name = $2, trading_name = $2 WHERE id = $1::uuid AND name <> $2', [id, name]);
   const rows = Object.entries(copied).map(([t, c]) => `${t}=${c}`).join(' ');
   say(`slot ${n}: company ${id} ${created ? 'created' : 'exists, kept'}${rows ? `; rows copied ${rows}` : ''}`);
   if (skippedChildren.length) say(`slot ${n}: not topped up, a parent table already held rows: ${skippedChildren.join(', ')} (use --reset-slot ${n} to rebuild)`);
@@ -50,6 +52,12 @@ export async function ensureUser(db: ClientBase, n: number, id: string, userId: 
   await db.query(
     `INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES ($1, 'setup-guide-first-seen', '2026-01-01T00:00:00.000Z', NOW())
      ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW() WHERE user_preferences.value > EXCLUDED.value`,
+    [userId]);
+  // The onboarding tour auto-starts for a user without this preference and its full-screen mask intercepts every click
+  // (q-top-nav-hover, r-command-palette, s-shell-cls-mobile). The Demo user finished it long ago.
+  await db.query(
+    `INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES ($1, 'onboarding_tour_completed', 'true', NOW())
+     ON CONFLICT (user_id, key) DO UPDATE SET value = 'true', updated_at = NOW() WHERE user_preferences.value IS DISTINCT FROM 'true'`,
     [userId]);
 }
 

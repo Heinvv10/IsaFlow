@@ -20,7 +20,7 @@ Tests: `tests/unit/ci/goldenSlot*.test.ts`, `goldenCloneCompany.test.ts`.
 creates companies `601d0000-0000-4000-8000-00000000000{1,2,3}`, one golden user
 each (GoTrue + `users` + owner `company_users`), and writes
 `GOLDEN_SLOT_n_{COMPANY_ID,EMAIL,PASSWORD}` to `/home/hein/isaflow-ci.env`
-(a symlink to the main checkout's `.env.local`; written atomically through the symlink).
+(a symlink to the main checkout's `.env.local`; written through the symlink, keeping its mode, owner and group `gha-isaflow`: a replacement owned `hein:hein` locks the runners out).
 ci.yml maps `$RUNNER_NAME` (velo-server-u 1, velo-isaflow-u2 2, velo-isaflow-u3 3)
 to a slot, prints `GOLDEN SLOT n (company ...)`, and an unknown runner fails. Only the
 Playwright command sees the slot's login (`GOLDEN_COMPANY_ID`, `GOLDEN_USER_EMAIL`,
