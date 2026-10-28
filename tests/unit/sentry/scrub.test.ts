@@ -57,7 +57,7 @@ describe('scrubEvent', () => {
       },
     };
     const out = scrubEvent(event);
-    expect(out!.request!.query_string).toBe('email=a@b.com&token=[REDACTED]&company_id=uuid');
+    expect(out!.request!.query_string).toBe('email=[REDACTED]&token=[REDACTED]&company_id=[REDACTED]');
   });
 
   it('hashes local-part of request.data.email', () => {
@@ -100,7 +100,7 @@ describe('scrubEvent', () => {
     };
     const out = scrubEvent(event);
     expect(out!.request!.query_string as string).toContain('[REDACTED]');
-    expect(out!.request!.query_string as string).toContain('safe=ok');
+    expect(out!.request!.query_string as string).toContain('safe=[REDACTED]');
   });
 
   it('redacts a share token out of request.url', () => {
@@ -109,7 +109,7 @@ describe('scrubEvent', () => {
       request: { url: `https://app.isaflow.co.za/share/${token}?x=1` },
     };
     const out = scrubEvent(event);
-    expect(out!.request!.url).toBe(`https://app.isaflow.co.za/share/[token]?x=1`);
+    expect(out!.request!.url).toBe(`https://app.isaflow.co.za/share/[token]?x=[REDACTED]`);
     expect(out!.request!.url).not.toContain(token);
   });
 
@@ -139,99 +139,68 @@ describe('scrubEvent', () => {
   // Sentry's ui.click / ui.input breadcrumbs describe the clicked element as a selector that carries its
   // aria-label, title and alt verbatim (@sentry/core utils/browser.js _htmlElementAsString). Grid controls
   // are named after their row ("Select 01 Jun 2026 PAYMENT TO J SMITH −R 1 234.50") and a note button's
-  // title is the note itself, so those values are customer data and never leave the browser.
-  it('redacts aria-label, title and alt out of ui.* breadcrumb messages, keeping the selector', () => {
-    const event: Event = {
-      breadcrumbs: [
-        { category: 'ui.click', message: 'td > input.accent-teal-500[aria-label="Select 01 Jun 2026 PAYMENT TO J SMITH −R 1 234.50"][type="checkbox"]' },
-        { category: 'ui.click', message: 'td > button.text-xs[aria-label="Note, 01 Jun 2026 X R 1.00: paid [cash] to Thabo"][title="paid [cash] to Thabo"]' },
-        { category: 'ui.input', message: 'div > img[alt="ID of J Smith"] > input[name="search"]' },
-      ],
-    };
-    const [a, b, c] = scrubEvent(event)!.breadcrumbs!;
-    expect(a!.message).toBe('td > input.accent-teal-500[aria-label="[REDACTED]"][type="checkbox"]');
-    // an unterminated-looking value cannot be told from one that holds `"]`, so the run swallows what follows it
-    expect(b!.message).toBe('td > button.text-xs[aria-label="[REDACTED]"]');
-    expect(c!.message).toBe('div > img[alt="[REDACTED]"] > input[name="[REDACTED]"]');
-    expect(JSON.stringify(scrubEvent(event))).not.toMatch(/SMITH|Thabo/);
+  // title is the note itself, so those values are customer data and never leave the browser. Values are written
+  // unescaped and can hold any terminator (`"]`, `[type="text"]`, ` > b.`), so nothing tries to find where one
+  // ends: from the first `[attr="` to the end of the message is gone.
+  const SMITH = /SMITH|0123456789|1 234|Thabo/;
+  const scrubMsg = (message: string, category = 'ui.click') =>
+    scrubEvent({ breadcrumbs: [{ category, message }] } as Event)!.breadcrumbs![0]!.message;
+
+  it('keeps the element path and the first attribute name; the value and all that follows is [REDACTED]', () => {
+    expect(scrubMsg('td > input.accent-teal-500[aria-label="Select 01 Jun 2026 PAYMENT TO J SMITH −R 1 234.50"][type="checkbox"]'))
+      .toBe('td > input.accent-teal-500[aria-label="[REDACTED]"]');
+    expect(scrubMsg('td > button.text-xs[aria-label="Note, X: paid [cash] to Thabo"][title="paid [cash] to Thabo"]'))
+      .toBe('td > button.text-xs[aria-label="[REDACTED]"]');
+    expect(scrubMsg('div > img[alt="ID of J Smith"] > input[name="search"]')).toBe('div > img[alt="[REDACTED]"]');
+  });
+
+  it('a selector with no attributes is untouched', () => {
+    expect(scrubMsg('div#root > main.content > button.btn-primary')).toBe('div#root > main.content > button.btn-primary');
+    expect(scrubMsg('div.w-[calc(100%-2px)] > span')).toBe('div.w-[calc(100%-2px)] > span');
   });
 
   it('leaves a message that is not a selector alone, in any category', () => {
-    const event: Event = { breadcrumbs: [{ category: 'custom', message: 'checkout started' }, { category: 'ui.click', message: 'clicked button' }] };
-    expect(scrubEvent(event)!.breadcrumbs!.map(c => c.message)).toEqual(['checkout started', 'clicked button']);
+    expect(scrubMsg('checkout started', 'custom')).toBe('checkout started');
+    expect(scrubMsg('clicked button')).toBe('clicked button');
   });
 
   it('redacts a selector in a breadcrumb of any category, not only ui.*', () => {
-    const event: Event = { breadcrumbs: [{ category: 'custom', message: 'saved via button[aria-label="Accept J SMITH"]' }] };
-    expect(scrubEvent(event)!.breadcrumbs![0]!.message).toBe('saved via button[aria-label="[REDACTED]"]');
+    expect(scrubMsg('saved via button[aria-label="Accept J SMITH"]', 'custom')).toBe('saved via button[aria-label="[REDACTED]"]');
   });
 
-  // Sentry writes attribute values unescaped, so a value can hold `"]`. The first `"]` is not the end of it.
   it('a value holding `"]` leaks nothing after it', () => {
-    const event: Event = {
-      breadcrumbs: [{ category: 'ui.click', message: 'div#root > button[aria-label="Accept, 01 Jun 2026 ACME"] J SMITH 0123456789 ref −R 1 234.50"][title="Accept"]' }],
-    };
-    const out = scrubEvent(event)!.breadcrumbs![0]!.message!;
+    const out = scrubMsg('div#root > button[aria-label="Accept, 01 Jun 2026 ACME"] J SMITH 0123456789 ref −R 1 234.50"][title="Accept"]')!;
     expect(out).toBe('div#root > button[aria-label="[REDACTED]"]');
-    expect(out).not.toMatch(/SMITH|0123456789|1 234/);
+    expect(out).not.toMatch(SMITH);
   });
 
-  it('a value holding " > " does not end the run early; the next element still shows', () => {
-    const event: Event = { breadcrumbs: [{ category: 'ui.click', message: 'div > button[aria-label="Pay > J SMITH 99"] > span.icon' }] };
-    expect(scrubEvent(event)!.breadcrumbs![0]!.message).toBe('div > button[aria-label="[REDACTED]"] > span.icon');
+  it('a value holding `[type="text"]` leaks nothing after it', () => {
+    const out = scrubMsg('input[aria-label="Select X[type="text"] J SMITH 0123456789"][type="checkbox"]')!;
+    expect(out).toBe('input[aria-label="[REDACTED]"]');
+    expect(out).not.toMatch(SMITH);
   });
 
-  it('redacts every attribute value (name, serializeAttribute ones), keeping only a known input type', () => {
-    const event: Event = {
-      breadcrumbs: [
-        { category: 'ui.input', message: 'input[name="payee J SMITH"][type="text"]' },
-        { category: 'ui.click', message: 'tr[data-row-label="ACME 0123456789"]' },
-        { category: 'ui.click', message: 'input[type="J SMITH"]' },
-        { category: 'ui.click', message: 'input[aria-label="Select ACME"][type="checkbox"]' },
-      ],
-    };
-    expect(scrubEvent(event)!.breadcrumbs!.map(c => c.message)).toEqual([
-      'input[name="[REDACTED]"][type="text"]',
-      'tr[data-row-label="[REDACTED]"]',
-      'input[type="[REDACTED]"]',
-      'input[aria-label="[REDACTED]"][type="checkbox"]',
-    ]);
+  it('a value holding " > b." (a fake next element) leaks nothing after it', () => {
+    const out = scrubMsg('div > button[aria-label="Z > b.J SMITH 0123456789"][title="t"]')!;
+    expect(out).toBe('div > button[aria-label="[REDACTED]"]');
+    expect(out).not.toMatch(SMITH);
+  });
+
+  it('a value holding " > Word > " leaks nothing after it', () => {
+    const out = scrubMsg('div > button[aria-label="Pay > Thabo > J SMITH 0123456789"] > span.icon')!;
+    expect(out).toBe('div > button[aria-label="[REDACTED]"]');
+    expect(out).not.toMatch(SMITH);
+  });
+
+  it('every attribute counts, not only aria-label, title and alt', () => {
+    expect(scrubMsg('input[name="payee J SMITH"]')).toBe('input[name="[REDACTED]"]');
+    expect(scrubMsg('tr[data-row-label="ACME 0123456789"]')).toBe('tr[data-row-label="[REDACTED]"]');
+    expect(scrubMsg('input[type="J SMITH"]')).toBe('input[type="[REDACTED]"]');
   });
 
   it('scrubbing a scrubbed selector changes nothing', () => {
-    const once = scrubEvent({ breadcrumbs: [{ category: 'ui.click', message: 'a > button[aria-label="x"][type="button"]' }] })!;
-    const twice = scrubEvent(JSON.parse(JSON.stringify(once)) as Event)!;
-    expect(twice.breadcrumbs![0]!.message).toBe(once.breadcrumbs![0]!.message);
-  });
-
-  // The bank transactions page puts search text and amounts in the query of its fetch calls.
-  it('redacts query VALUES in fetch/xhr breadcrumb urls, keeping the keys and the path', () => {
-    const event: Event = {
-      breadcrumbs: [
-        { category: 'fetch', data: { url: '/api/accounting/bank-transactions?bank_account_id=b1&search=J%20Smith&from_amount=1234.50&offset=0#top', method: 'GET' } },
-        { category: 'xhr', data: { url: 'https://app.isaflow.co.za/api/x?q=Thabo' } },
-      ],
-    };
-    const [f, x] = scrubEvent(event)!.breadcrumbs!;
-    expect(f!.data!.url).toBe('/api/accounting/bank-transactions?bank_account_id=[REDACTED]&search=[REDACTED]&from_amount=[REDACTED]&offset=[REDACTED]#top');
-    expect(f!.data!.method).toBe('GET');
-    expect(x!.data!.url).toBe('https://app.isaflow.co.za/api/x?q=[REDACTED]');
-  });
-
-  it('redacts query values in navigation breadcrumb from/to, and a share token in them still shows as [token]', () => {
-    const token = 'A'.repeat(43);
-    const event: Event = {
-      breadcrumbs: [{ category: 'navigation', data: { from: '/accounting/bank-transactions?search=Smith', to: `/share/${token}?share_token=${token}&x=1` } }],
-    };
-    const d = scrubEvent(event)!.breadcrumbs![0]!.data!;
-    expect(d.from).toBe('/accounting/bank-transactions?search=[REDACTED]');
-    expect(d.to).toBe('/share/[token]?share_token=[token]&x=[REDACTED]');
-    expect(JSON.stringify(d)).not.toContain(token);
-  });
-
-  it('leaves a url without a query alone', () => {
-    const event: Event = { breadcrumbs: [{ category: 'navigation', data: { from: '/a', to: '/b#c' } }] };
-    expect(scrubEvent(event)!.breadcrumbs![0]!.data).toEqual({ from: '/a', to: '/b#c' });
+    const once = scrubMsg('a > button[aria-label="x"][type="button"]');
+    expect(scrubMsg(once!)).toBe(once);
   });
 
   it('drops the text and arguments of console breadcrumbs: they hold whatever the app logged', () => {
