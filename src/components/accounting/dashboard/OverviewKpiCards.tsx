@@ -2,7 +2,6 @@
  * OverviewKpiCards — the four headline KPI cards on the Home overview.
  */
 
-import { useId } from 'react';
 import { TrendingUp, Landmark, CreditCard, DollarSign, ArrowDown } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
 
@@ -20,7 +19,6 @@ const NO_MARGIN_REASON = 'Not meaningful: no positive revenue in this period';
 const fmtExact = (n: number): string => formatMoney(n);
 
 export function OverviewKpiCards({ kpis }: { kpis: OverviewKpis | undefined }) {
-  const marginReason = useId();
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
@@ -44,10 +42,10 @@ export function OverviewKpiCards({ kpis }: { kpis: OverviewKpis | undefined }) {
           ? <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: —</p>
           : kpis.netProfit.margin == null
             ? (
-              <>
-                <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]" aria-describedby={marginReason}>Net margin: —</p>
-                <p id={marginReason} className="text-xs text-[var(--ff-text-secondary)]">{NO_MARGIN_REASON}</p>
-              </>
+              <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">
+                Net margin: <span aria-hidden="true">—</span>{' '}
+                <span className="text-[var(--ff-text-secondary)]">{NO_MARGIN_REASON}</span>
+              </p>
             )
             : <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">Net margin: {kpis.netProfit.margin.toFixed(1)}%</p>}
       </div>

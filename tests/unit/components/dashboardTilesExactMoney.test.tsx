@@ -68,21 +68,19 @@ describe('dashboard tiles show exact amounts', () => {
   });
 
   it('Net margin is a dash with a reason when the API states none (no positive turnover), never 0.0%', () => {
-    render(<OverviewKpiCards kpis={{
+    const { container } = render(<OverviewKpiCards kpis={{
       revenue: { total: 0, priorTotal: 0, changePercent: 0 },
       netProfit: { amount: -150, margin: null },
       cash: { total: 0, priorTotal: 0, change: 0 },
       receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
     }} />);
-    const margin = screen.getByText('Net margin: —', { exact: false });
+    const margin = screen.getByText(/Net margin:/);
     expect(margin.hasAttribute('title')).toBe(false);
-    // Visible text (touch users cannot hover), not sr-only, and the element the tile points at.
-    expect(margin.hasAttribute('aria-label')).toBe(false);
-    const described = document.getElementById(margin.getAttribute('aria-describedby') ?? 'none');
-    expect(described?.textContent).toBe('Not meaningful: no positive revenue in this period');
-    expect(described?.className ?? '').not.toMatch(/sr-only/);
-    expect(screen.getByText('Not meaningful: no positive revenue in this period')).toBe(described);
-    expect(document.body.querySelectorAll('.sr-only').length).toBe(0);
+    // Visible text (touch users cannot hover), inside the same element as the label, not sr-only.
+    const reason = screen.getByText('Not meaningful: no positive revenue in this period');
+    expect(margin.contains(reason)).toBe(true);
+    expect(reason.className).not.toMatch(/sr-only/);
+    expect(container.querySelectorAll('.sr-only').length).toBe(0);
     expect(document.body.textContent).not.toMatch(/Net margin: -?\d/);
   });
 
