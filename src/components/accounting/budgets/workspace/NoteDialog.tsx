@@ -39,9 +39,15 @@ export function NoteDialog({ target, fiscalYear, onSave, onClose }: NoteDialogPr
   const save = async () => {
     setBusy(true);
     setError(null);
-    const message = await onSave(text);
-    setBusy(false);
-    if (message !== null) setError(message);
+    try {
+      const message = await onSave(text);
+      if (message !== null) setError(message);
+    } catch (err) {
+      // onSave's fetchers return results, never throw; if one ever does, the dialog must not stay stuck.
+      setError(err instanceof Error ? err.message : 'Could not save the note.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

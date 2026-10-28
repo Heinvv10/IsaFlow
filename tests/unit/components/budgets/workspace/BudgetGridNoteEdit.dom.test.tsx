@@ -109,6 +109,17 @@ describe('editing a budget note from the grid', () => {
     expect(within(rowOf(accountRowKey(ID.rev2))).getByRole('img', { name: `Note: ${NOTE}` })).toBeInTheDocument();
   });
 
+  it('a save that throws (it never should) shows a message and leaves the dialog usable', async () => {
+    mount({ onSaveNote: vi.fn<SaveNote>(() => Promise.reject(new Error('socket hang up'))) });
+    openMenu('1010 Account 1010');
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit note…' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save note' })); });
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent('socket hang up');
+    expect(screen.getByRole('button', { name: 'Save note' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('over 2 000 characters (after trimming) cannot be saved', async () => {
     const onSaveNote = mount();
     openMenu('1010 Account 1010');
