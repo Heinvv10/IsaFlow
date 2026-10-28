@@ -23,8 +23,22 @@ import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemA
 import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
 import { resolveCoaImportRows, type RawCoaImportRow } from './accountTypeAliases';
 import { ParentAccountError, assertParentUsable } from '../gl/accountParentRules';
+import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES } from '../gl/isReportVisibleLeaf';
 
 export { validateSystemAccountMap };
+
+/**
+ * Upsert condition: the row would re-type the existing account (`gl_accounts` in ON CONFLICT) into a level 1-2
+ * balance-sheet header that has journal lines of its own: the balance sheet drops a level 1-2 account with
+ * sub-accounts, so those lines would leave every statement. Any other re-type of an account in use is a
+ * reclassification the import may make (the VAT-lock check below still judges it).
+ */
+function retypeHides(companyId: string) {
+  return sql`(gl_accounts.account_type <> EXCLUDED.account_type
+    AND EXCLUDED.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND gl_accounts.level < ${BALANCE_SHEET_LEAF_LEVEL}
+    AND EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = gl_accounts.id AND ch.company_id = ${companyId}::UUID)
+    AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = gl_accounts.id AND jl.company_id = ${companyId}::UUID))`;
+}
 
 
 export interface AccountImportRow {
@@ -120,6 +134,8 @@ export async function importChartOfAccounts(
             // account, which would drop its balance from the balance sheet), and takes the level below
             // its parent. An existing account's parent is never changed here (the upsert keeps it), so
             // its row is not judged. A refusal is a ParentAccountError: the catch below records the row.
+            // Named limit: parents are locked in file order, not ascending, so a journal posting to two of
+            // them in the other order can deadlock with the import; that fails it whole as retryable (below).
             let level = 1;
             if (parentAccountId) {
               const exists = ((await sql`
@@ -171,20 +187,26 @@ export async function importChartOfAccounts(
                 -- its subtype is its ROLE, and a row that re-typed or
                 -- re-classified it emptied or mistyped the role. Only the role
                 -- map below places roles. is_active is never touched here.
-                account_type      = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_type
-                                         ELSE EXCLUDED.account_type END,
-                account_subtype   = CASE WHEN gl_accounts.is_system_account THEN gl_accounts.account_subtype
+                -- So does an account the row would re-type into a balance-sheet header hiding its own
+                -- lines (retypeHides; ledger review, 2026-10-28).
+                account_type      = CASE WHEN gl_accounts.is_system_account OR ${retypeHides(companyId)}
+                                         THEN gl_accounts.account_type ELSE EXCLUDED.account_type END,
+                account_subtype   = CASE WHEN gl_accounts.is_system_account OR ${retypeHides(companyId)}
+                                         THEN gl_accounts.account_subtype
                   ELSE COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype) END,
-                normal_balance    = EXCLUDED.normal_balance,
+                normal_balance    = CASE WHEN ${retypeHides(companyId)} THEN gl_accounts.normal_balance
+                                         ELSE EXCLUDED.normal_balance END,
                 description       = COALESCE(EXCLUDED.description, gl_accounts.description),
                 is_system_account = EXCLUDED.is_system_account OR gl_accounts.is_system_account
-              RETURNING account_type, account_subtype
+              RETURNING account_type, account_subtype, is_system_account AS kept_as_system
             `) as DbRow[])[0];
             const keptSubtype = written?.account_subtype == null ? null : String(written.account_subtype);
             if (written && !isSystem && (written.account_type !== acct.accountType
               || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
+              const why = written.kept_as_system ? 'is a system account'
+                : 'has journal lines and sub-accounts, and as that type it would be a header hiding them from the balance sheet';
               errors.push({ step: 'coa', row, field: 'accountType', severity: 'warning',
-                message: `Account ${acct.accountCode} is a system account: its name was updated, its type and subtype (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
+                message: `Account ${acct.accountCode} ${why}: its name was updated, its type and subtype (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
             }
             imported++;
           } catch (err) {

@@ -123,6 +123,33 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       expect(await byCode('HIS-L2')).toBeUndefined();
     }, 30000);
 
+    it('a row that would re-type an account with lines and sub-accounts keeps its type, with a warning', async () => {
+      const x = await addAccount(h.fx, { code: 'HIS-X1', type: 'expense', level: 1, subtype: 'operating_expense' });
+      await post(x);
+      await addAccount(h.fx, { code: 'HIS-X1.1', type: 'expense', level: 2, parentId: x, subtype: 'operating_expense' });
+      const out = await importRows([row('HIS-X1')]);
+      const after = ((await sql`SELECT account_type, account_subtype, normal_balance, account_name FROM gl_accounts
+        WHERE id = ${x}::UUID`) as Row[])[0]!;
+      expect(after).toMatchObject({ account_type: 'expense', account_subtype: 'operating_expense', normal_balance: 'debit',
+        account_name: 'Imported HIS-X1' });
+      expect(out.errors[0]).toMatchObject({ severity: 'warning', message: expect.stringContaining('header hiding them') });
+    });
+
+    it('control: re-typing an account in use that would not hide anything is a reclassification and goes through', async () => {
+      const r = await addAccount(h.fx, { code: 'HIS-X3', type: 'expense', level: 1, subtype: 'operating_expense' });
+      await post(r);
+      const out = await importRows([row('HIS-X3')]);
+      expect(out.errors).toEqual([]);
+      expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${r}::UUID`) as Row[])[0]!.account_type).toBe('asset');
+    });
+
+    it('control: an unused account is re-typed by the import as before', async () => {
+      const u = await addAccount(h.fx, { code: 'HIS-X2', type: 'expense', level: 1, subtype: 'operating_expense' });
+      const out = await importRows([row('HIS-X2')]);
+      expect(out.errors).toEqual([]);
+      expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${u}::UUID`) as Row[])[0]!.account_type).toBe('asset');
+    });
+
     it('re-importing an EXISTING account with a parent code changes no parent and is not refused', async () => {
       const p = await addAccount(h.fx, { code: 'HIS-E1', type: 'asset', level: 1 });
       await post(p);
@@ -141,12 +168,16 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       await post(posted1200);
       const myHeader = await addAccount(h.fx, { code: 'HIS-MINE', type: 'asset', level: 1 });
       const mine1130 = await addAccount(h.fx, { code: '1130', type: 'asset', level: 2, parentId: myHeader });
+      // The company's own 5000 is a REVENUE account; the template's 5000 children are expenses.
+      const rev5000 = await addAccount(h.fx, { code: '5000', type: 'revenue', level: 1, subtype: 'revenue' });
       // 2200 "Non-Current Liabilities" already exists here at level 3 with no lines: it takes its template children.
       const mine2200 = await addAccount(h.fx, { code: '2200', type: 'liability', level: 3 });
       await inTx(h.fx, () => seedChartOfAccountsFromTemplate(h.fx.companyId, 'isaflow_standard'));
       // 1210 "Equipment" is inserted, but not under the posted 1200, and so at level 1.
       expect(await byCode('1210')).toMatchObject({ parent: '', level: 1 });
       expect(await childCount(posted1200)).toBe(0);
+      // No template expense goes under the company's revenue 5000.
+      expect(await childCount(rev5000)).toBe(0);
       // The company's own 1130 keeps its parent.
       expect((await byId(mine1130)).parent).toBe(myHeader);
       // An existing parent with no lines gets its children, one level below it (4, not the template's 3).
