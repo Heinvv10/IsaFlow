@@ -13,7 +13,7 @@ import type { TrackingBand, TrackingLine } from '@/modules/accounting/services/b
 const fig = (o: Partial<TrackingLine>): Omit<TrackingLine, 'accountId' | 'accountCode' | 'accountName' | 'accountType' | 'band'> => ({
   actual: 0, budget: null, variance: null, variancePct: null, favourable: null,
   projected: 0, fyBudget: null, projVariance: null, projFavourable: null, unallocatedBudget: 0,
-  budgetAboveFilter: false, monthly: [], ...o,
+  budgetAboveFilter: false, partialBudget: false, monthly: [], ...o,
 });
 const line = (accountCode: string, band: TrackingLine['band'], o: Partial<TrackingLine>): TrackingLine => ({
   accountId: `id-${accountCode}`, accountCode, accountName: `Name ${accountCode}`,
@@ -61,6 +61,12 @@ describe('toBudgetTrackingRows', () => {
       budget: { value: 90, variance: 10, variancePct: 11.11, favourable: true },
       projection: { projected: 1000, fyBudget: 1080, variance: -80, favourable: false },
     });
+  });
+
+  it('F3: a partial line carries partialBudget for PR-B to render; a whole line carries false', () => {
+    const rows = toBudgetTrackingRows({ lines: [{ ...LINES[1]!, partialBudget: true }, LINES[0]!], bands: BANDS });
+    expect(rows.find((r) => r.id === 'acc:4100')!.partialBudget).toBe(true);
+    expect(rows.find((r) => r.id === 'acc:4000')!.partialBudget).toBe(false);
   });
 
   it('an unbudgeted line is absent (no value printed, no colour); a zero budget is a 0', () => {

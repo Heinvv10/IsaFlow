@@ -98,6 +98,11 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
   if (missing.length > 0) {
     head.push(['Notice', `No budget for ${missing.map((y) => `FY${y}`).join(', ')} in this window`]);
   }
+  // Lines budgeted for only part of the window print a blank Budget: say why (review r6 F3).
+  const partial = report.notices.partialBudget ?? null;
+  if (partial) {
+    head.push(['Notice', `${partial.count} line${partial.count === 1 ? ' has' : 's have'} a budget for only part of this window; their Budget is blank`]);
+  }
   return head;
 }
 

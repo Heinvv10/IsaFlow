@@ -82,9 +82,12 @@ export function buildBands(lines: readonly TrackingLine[], opts: { budgetAbsent?
   // From the window too (review r3 R1): a gap window with no lines has nothing to read it from.
   const unallocatedAbsent = opts.budgetAbsent === true || lines.some((l) => l.unallocatedBudget === null);
   const sums = new Map(BANDS.map((b) => [b.key, sumLines(lines.filter((l) => l.band === b.key), unallocatedAbsent)]));
+  // A band holding a line that budgets only part of the window has a partial-window budget too:
+  // absent, like the totals above it (review r6 F2). A band whose lines are whole keeps its own.
+  const whole = (x: Sums): Sums => (x.partial ? { ...x, budget: null } : x);
   const band = (key: TrackingBandKey) => {
     const def = BANDS.find((b) => b.key === key)!;
-    return figures(key, def.label, 'band', def.polarity, sums.get(key)!);
+    return figures(key, def.label, 'band', def.polarity, whole(sums.get(key)!));
   };
   const s = (key: TrackingBandKey) => sums.get(key)!;
   const gross = combine(s('turnover'), s('cost_of_sales'), 'minus');
@@ -93,7 +96,7 @@ export function buildBands(lines: readonly TrackingLine[], opts: { budgetAbsent?
   // A profit total over a line that budgets only part of the window is a partial-window figure: its
   // budget is absent (review r5 G1), so no bridge is drawn from it.
   const total = (key: TrackingTotalKey, label: string, kind: 'total' | 'grand', x: Sums) =>
-    figures(key, label, kind, 'income', x.partial ? { ...x, budget: null } : x);
+    figures(key, label, kind, 'income', whole(x));
   return [
     band('turnover'),
     band('cost_of_sales'),
@@ -110,7 +113,9 @@ export function buildBands(lines: readonly TrackingLine[], opts: { budgetAbsent?
  * The notices under the table. "Unbudgeted" is an account with posted movement, no included
  * budget and no budget above the filter either (that one is the unallocated footer's). With the
  * window budget absent (a year without a version) nothing is called unbudgeted: the no-version
- * notice is the reason. Every figure is kept per polarity.
+ * notice is the reason. The lines whose budget covers only part of the window are counted in
+ * `partialBudget` (their actual per polarity), so a blank Budget is explained. Every figure is kept
+ * per polarity.
  */
 export function buildNotices(
   lines: readonly TrackingLine[],
@@ -121,11 +126,13 @@ export function buildNotices(
     income: fromCents(ls.filter((l) => l.accountType === 'revenue').reduce((s, l) => s + toCents(pick(l)), 0)),
     expense: fromCents(ls.filter((l) => l.accountType === 'expense').reduce((s, l) => s + toCents(pick(l)), 0)),
   });
+  const partial = lines.filter((l) => l.partialBudget);
   return {
     unbudgetedCount: unbudgeted.length,
     unbudgetedActual: split(unbudgeted, (l) => l.actual),
     unallocatedBudget: v.budgetAbsent ? null : split(lines, (l) => l.unallocatedBudget ?? 0),
     noVersion: v.noVersion,
     noVersionYears: v.noVersionYears,
+    partialBudget: partial.length === 0 ? null : { count: partial.length, actual: split(partial, (l) => l.actual) },
   };
 }
