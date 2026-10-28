@@ -76,6 +76,24 @@ describe('leave new', () => {
     expect(posts()[0]).toMatchObject({ startDate: '2026-10-06', endDate: '2026-10-07', days: 2 });
   });
 
+  it('an end typed before the start is flagged, and moving the start earlier lets it post', async () => {
+    const { container, posts } = await open();
+    const [start, end] = dateInputs(container);
+    typeDate(start!, '5 Oct 2026');
+    typeDate(end!, '7 Sep 2026');
+    expect(end!.getAttribute('aria-invalid')).toBe('true');
+    const submit = screen.getByRole('button', { name: /submit request/i }) as HTMLButtonElement;
+    fireEvent.click(submit);
+    expect(await screen.findByText('End date must be on or after the start date')).toBeTruthy();
+    expect(posts()).toHaveLength(0);
+    typeDate(start!, '1 Sep 2026');
+    expect(end!.getAttribute('aria-invalid')).toBe('false');
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]).toMatchObject({ startDate: '2026-09-01', endDate: '2026-09-07', days: 5 });
+  });
+
   it('an untouched start date is not posted: Submit says all fields are required', async () => {
     const { container, posts } = await open();
     typeDate(dateInputs(container)[1]!, '2026-10-07');
