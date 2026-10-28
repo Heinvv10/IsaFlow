@@ -185,7 +185,7 @@ export default function RecurringJournalsPage() {
           {held && <div className="p-3 rounded-lg bg-amber-500/10 text-amber-500 text-sm">{held}</div>}
 
           <div className="flex items-center gap-3">
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm">
+            <select aria-label="Filter by status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm">
               <option value="">All Statuses</option>
               <option value="active">Active</option>
               <option value="paused">Paused</option>
@@ -201,7 +201,7 @@ export default function RecurringJournalsPage() {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <input value={form.templateName} onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))} className="ff-input" placeholder="Template Name *" required />
                 <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="ff-input" placeholder="Description" />
-                <select value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))} className="ff-select">
+                <select aria-label="Frequency" value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))} className="ff-select">
                   <option value="weekly">Weekly</option><option value="monthly">Monthly</option>
                   <option value="quarterly">Quarterly</option><option value="annually">Annually</option>
                 </select>
@@ -216,7 +216,7 @@ export default function RecurringJournalsPage() {
                   </div>
                   {formLines.map(line => (
                     <div key={line.key} className="flex items-center gap-2">
-                      <select value={line.glAccountId} onChange={e => setFormLines(p => p.map(l => l.key === line.key ? { ...l, glAccountId: e.target.value } : l))} className="ff-select flex-1">
+                      <select aria-label="Account" value={line.glAccountId} onChange={e => setFormLines(p => p.map(l => l.key === line.key ? { ...l, glAccountId: e.target.value } : l))} className="ff-select flex-1">
                         <option value="">Account *</option>
                         {accounts.map(a => <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>)}
                       </select>
