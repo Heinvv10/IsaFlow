@@ -107,6 +107,9 @@ function expressionMayRender(e) {
  * (which may render text) or {...spread} inside it, or an aria-label / aria-labelledby / title on the label itself.
  * Controls inside the label are not looked into: a <select>'s <option> text is not the label's text. A label with
  * none of these (`<label><select /></label>`) names nothing.
+ *
+ * Accepted limit: a capitalised component or an expression inside the label is given the benefit of the doubt
+ * (`<label><Icon /><input /></label>` passes); an icon-only label is axe's job through n-a11y, not this rule's.
  */
 export function labelNamesContent(label) {
   const open = label.openingElement;
@@ -215,6 +218,8 @@ export const noRawFormInput = {
         for (const { node, id } of idInputs) {
           if (!labelTargets.has(id)) found.push({ node, messageId: 'orphanId', data: { id } });
         }
+        // Accepted limit: only literal `id`s written in THIS file count. An id rendered by a child component is
+        // invisible here and reports as dangling; name that input with aria-label instead.
         for (const { node, ids: refs } of labelledby) {
           if (!refs.some((r) => ids.has(r))) found.push({ node, messageId: 'danglingLabelledby', data: { ids: refs.join(' ') } });
         }
