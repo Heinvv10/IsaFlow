@@ -120,6 +120,8 @@ export async function importChartOfAccounts(
             // account, which would drop its balance from the balance sheet), and takes the level below
             // its parent. An existing account's parent is never changed here (the upsert keeps it), so
             // its row is not judged. A refusal is a ParentAccountError: the catch below records the row.
+            // Named limit: parents are locked row by row in file order, so a posting whose line FK locks run in
+            // another order can deadlock with the import; its side fails as the retryable lock error below.
             let level = 1;
             if (parentAccountId) {
               const exists = ((await sql`
