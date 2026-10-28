@@ -98,6 +98,12 @@ for (const theme of THEMES) {
     expect(summary && notes).toBeTruthy();
     expect(summary!.y, 'summary starts below the last form card').toBeGreaterThanOrEqual(notes!.y + notes!.height - 1);
     expect(summary!.x + summary!.width).toBeLessThanOrEqual(390);
+    // The Line Items header wraps instead of pushing "Add Line" past the card (it stuck out ~5 px and clipped its label).
+    const add = await page.getByRole('button', { name: 'Add Line' }).boundingBox();
+    const lines = await page.getByRole('button', { name: 'Add Line' }).locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]').boundingBox();
+    expect(add && lines).toBeTruthy();
+    expect(add!.x + add!.width, 'Add Line stays inside the Line Items card').toBeLessThanOrEqual(lines!.x + lines!.width);
+    expect(add!.x).toBeGreaterThanOrEqual(lines!.x);
     if (EVIDENCE) { mkdirSync(EVIDENCE, { recursive: true }); await page.screenshot({ path: join(EVIDENCE, `invoice-new-390-${theme}.png`), fullPage: true }); }
   });
 
