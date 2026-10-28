@@ -108,8 +108,14 @@ export async function setGridNote(companyId: string, actor: { userId: string }, 
     }
     // A save that changes nothing (the same text again, clearing no note) leaves no audit row.
     if (changed.length === 0) return;
+    // The note also shows on the year's locked versions (D4): name them, so their history finds it.
+    const locked = (await sql`
+      SELECT id FROM budget_versions
+       WHERE company_id = ${companyId}::UUID AND fiscal_year = ${fiscalYear} AND status = 'locked' ORDER BY id
+    `) as DbRow[];
     await auditBudgetWrite(companyId, actor.userId, 'update', input.versionId, fiscalYear, {
       glAccountId: input.glAccountId, noteAction: note === null ? 'cleared' : 'set',
+      ...(locked.length > 0 ? { alsoShownOnLocked: locked.map((r) => String(r.id)).join(',') } : {}),
     });
   });
   return { note };
