@@ -192,8 +192,8 @@ describe('dates', () => {
     await fillNew();
     typeDate(field('Invoice date'), '');
     submitNew();
-    await waitFor(() => expect(calls('POST')).toBe(0));
-    expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
+    expect(await screen.findByText('Fix the dates marked in red before saving')).toBeTruthy(); // the page's refusal, shown after the click settled
+    expect(calls('POST')).toBe(0);
   });
 
   it('a loaded invoice with no invoice date (empty, never refused) blocks save', async () => {

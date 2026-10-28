@@ -11,7 +11,7 @@ import { DateField } from '@/components/ui/DateField';
 import type { FieldValidity } from '@/components/ui/useParsedField';
 import { CodingPicker } from './InvoiceLineItemsTable';
 import type { InvoiceLineCodingOptions } from './useInvoiceLineCodingOptions';
-import type { InvoiceDateKey, InvoiceHeaderForm } from './invoiceHeaderForm';
+import { dueBeforeInvoice, isoOrEmpty, type InvoiceDateKey, type InvoiceHeaderForm } from './invoiceHeaderForm';
 
 export interface InvoiceCurrency { code: string; name: string }
 
@@ -53,7 +53,7 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
     onDateValidity('dueDate', { valid: true, reason: null });
     setDueRevalidate((k) => k + 1);
   }, [form.invoiceDate, onDateValidity]);
-  const date = (key: InvoiceDateKey, label: string, extra: { required?: boolean; minDate?: string } = {}) => (
+  const date = (key: InvoiceDateKey, label: string, extra: { required?: boolean; minDate?: string; error?: string } = {}) => (
     <DateField label={label} value={form[key] || null} resetKey={key === 'dueDate' ? `${resetKey ?? 0}:${dueRevalidate}` : resetKey} {...extra}
       onChange={(iso, v) => { onDateValidity(key, v); if (v.valid) onChange({ [key]: iso ?? '' }); }} />
   );
@@ -80,7 +80,12 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
       <InvoiceCard n={2} title="Dates & Period">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {date('invoiceDate', 'Invoice date', { required: true })}
-          {date('dueDate', 'Due date', form.invoiceDate ? { minDate: form.invoiceDate } : {})}
+          {date('dueDate', 'Due date', {
+            // The floor is only ever a real ISO date (DateField throws on any other); the field cannot re-check a value it
+            // already holds when the floor moves, so a due date now before the invoice date is shown red from here.
+            ...(isoOrEmpty(form.invoiceDate) ? { minDate: form.invoiceDate } : {}),
+            ...(dueBeforeInvoice(form) ? { error: 'The due date is before the invoice date' } : {}),
+          })}
           {date('billingPeriodStart', 'Period start')}
           {date('billingPeriodEnd', 'Period end')}
         </div>

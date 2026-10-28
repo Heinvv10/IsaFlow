@@ -18,7 +18,7 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
-import { invoiceDateProblem, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
+import { invoiceDateProblem, isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 
 interface Client { id: string; name: string }
@@ -27,7 +27,7 @@ const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 
 export default function NewCustomerInvoicePage() {
   const router = useRouter();
-  const [clients, setClients] = useState<Client[]>([]);
+  const [scanned, setScanned] = useState<Client | null>(null); // the client a scan matched, so the picker need not look it up
   const [currencies, setCurrencies] = useState<InvoiceCurrency[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [saveAndNew, setSaveAndNew] = useState(false);
@@ -41,9 +41,6 @@ export default function NewCustomerInvoicePage() {
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
 
   useEffect(() => {
-    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(json => {
-      const d = json.data || json; setClients(Array.isArray(d) ? d : d.clients || []);
-    }).catch(err => setError(apiErrorMessage(err, 'Could not load clients - try again')));
     apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }).then(json => {
       const d = json.data || json; setCurrencies(Array.isArray(d) ? d : []);
     }).catch(err => setError(apiErrorMessage(err, 'Could not load currencies - try again')));
@@ -68,17 +65,29 @@ export default function NewCustomerInvoicePage() {
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
 
+  // The picker searches for itself; the full list is only needed here, to match a scanned name, so it is fetched on demand.
+  async function matchScannedClient(name: string) {
+    try {
+      const res = await apiFetch('/api/accounting/customers', { credentials: 'include' });
+      await assertOk(res, 'Could not load clients - try again');
+      const json = await res.json();
+      const d = json.data || json;
+      const clients: Client[] = Array.isArray(d) ? d : d.clients || [];
+      const match = fuzzyMatchClient(name, clients);
+      const hit = match ? clients.find(c => String(c.id) === String(match.id)) : undefined;
+      if (hit) { setForm(f => ({ ...f, clientId: String(hit.id) })); setScanned({ id: String(hit.id), name: hit.name }); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not load clients - try again')); }
+  }
+
   function handleExtracted(data: ExtractedDocument) {
+    // A scan is OCR output: only a real YYYY-MM-DD goes in (anything else would make DateField's minDate throw); else the field is left empty.
     const updates: Partial<InvoiceHeaderForm> = {};
-    if (data.date) updates.invoiceDate = data.date;
-    if (data.dueDate) updates.dueDate = data.dueDate;
+    if (data.date) updates.invoiceDate = isoOrEmpty(data.date);
+    if (data.dueDate) updates.dueDate = isoOrEmpty(data.dueDate);
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
     setForm(f => ({ ...f, ...updates }));
     dates.clear(); setResetKey(k => k + 1);
-    if (data.customerName && clients.length > 0) {
-      const match = fuzzyMatchClient(data.customerName, clients);
-      if (match) setForm(f => ({ ...f, clientId: String(match.id) }));
-    }
+    if (data.customerName) void matchScannedClient(data.customerName);
     if (data.lineItems.length > 0) {
       setLines(data.lineItems.map(li => ({ key: String(Date.now() + Math.random()), description: li.description, quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId })));
     }
@@ -137,7 +146,7 @@ export default function NewCustomerInvoicePage() {
               {error && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>}
 
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={pickProject} onDateValidity={dates.report} resetKey={resetKey} clientLabel={clients.find(c => c.id === form.clientId)?.name} />
+                onProjectChange={pickProject} onDateValidity={dates.report} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}

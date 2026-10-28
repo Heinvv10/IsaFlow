@@ -6,6 +6,7 @@
  */
 import { useCallback, useState } from 'react';
 import type { FieldValidity } from '@/components/ui/useParsedField';
+import { localDateFromISO } from '@/lib/dateUtils';
 
 export interface InvoiceHeaderForm {
   clientId: string;
@@ -37,10 +38,20 @@ export function useInvoiceDateValidity() {
   return { refused, report, clear };
 }
 
+/** `value` when it is a real 'YYYY-MM-DD' (2026-02-30 and "1 Oct 2026" are not), else ''. DateField throws on any other bound. */
+export function isoOrEmpty(value: string | null | undefined): string {
+  return value && localDateFromISO(value) !== null ? value : '';
+}
+
+/** True when both dates are set and the due date falls before the invoice date (a legacy draft, or an edit of the invoice date). */
+export function dueBeforeInvoice(form: Pick<InvoiceHeaderForm, 'invoiceDate' | 'dueDate'>): boolean {
+  return Boolean(form.invoiceDate && form.dueDate && form.dueDate < form.invoiceDate);
+}
+
 /** Why the dates cannot be saved, or null. Shown on screen, never swallowed. */
 export function invoiceDateProblem(form: Pick<InvoiceHeaderForm, 'invoiceDate' | 'dueDate'>, refused: Refused): string | null {
   if (Object.keys(refused).length > 0) return 'Fix the dates marked in red before saving';
   if (!form.invoiceDate) return 'Enter the invoice date';
-  if (form.dueDate && form.dueDate < form.invoiceDate) return 'The due date must be on or after the invoice date';
+  if (dueBeforeInvoice(form)) return 'The due date must be on or after the invoice date';
   return null;
 }
