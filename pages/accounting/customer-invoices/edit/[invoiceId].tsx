@@ -205,7 +205,7 @@ export default function EditCustomerInvoicePage() {
               {error && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</div>}
 
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} />
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}

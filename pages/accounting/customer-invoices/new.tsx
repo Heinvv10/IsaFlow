@@ -1,7 +1,7 @@
 /**
  * Create Customer Invoice — two-column document editor layout
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -66,17 +66,20 @@ export default function NewCustomerInvoicePage() {
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
 
   // The picker searches for itself; the full list is only needed here, to match a scanned name, so it is fetched on demand.
-  async function matchScannedClient(name: string) {
+  // Bumped by every scan, every client the user picks and every form reset: a lookup answers only if none of them happened since.
+  const lookupSeq = useRef(0);
+  async function matchScannedClient(name: string, seq: number) {
     try {
       const res = await apiFetch('/api/accounting/customers', { credentials: 'include' });
       await assertOk(res, 'Could not load clients - try again');
       const json = await res.json();
+      if (lookupSeq.current !== seq) return;
       const d = json.data || json;
       const clients: Client[] = Array.isArray(d) ? d : d.clients || [];
       const match = fuzzyMatchClient(name, clients);
       const hit = match ? clients.find(c => String(c.id) === String(match.id)) : undefined;
       if (hit) { setForm(f => ({ ...f, clientId: String(hit.id) })); setScanned({ id: String(hit.id), name: hit.name }); }
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load clients - try again')); }
+    } catch (err) { if (lookupSeq.current === seq) setError(apiErrorMessage(err, 'Could not load clients - try again')); }
   }
 
   function handleExtracted(data: ExtractedDocument) {
@@ -87,7 +90,8 @@ export default function NewCustomerInvoicePage() {
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
     setForm(f => ({ ...f, ...updates }));
     dates.clear(); setResetKey(k => k + 1);
-    if (data.customerName) void matchScannedClient(data.customerName);
+    const seq = ++lookupSeq.current;
+    if (data.customerName) void matchScannedClient(data.customerName, seq);
     if (data.lineItems.length > 0) {
       setLines(data.lineItems.map(li => ({ key: String(Date.now() + Math.random()), description: li.description, quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId })));
     }
@@ -112,7 +116,7 @@ export default function NewCustomerInvoicePage() {
         const today = localISODate();
         setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
         setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
-        dates.clear(); setResetKey(k => k + 1);
+        dates.clear(); setResetKey(k => k + 1); lookupSeq.current++;
         try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       } else {
         if (!d.id) throw new ApiEnvelopeError('The invoice could not be opened - check the invoice list before creating it again');
@@ -145,8 +149,8 @@ export default function NewCustomerInvoicePage() {
               )}
               {error && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>}
 
-              <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={pickProject} onDateValidity={dates.report} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined} />
+              <InvoiceHeaderFields form={form} onChange={patch => { if ('clientId' in patch) lookupSeq.current++; setForm(p => ({ ...p, ...patch })); }} currencies={currencies} options={codingOptions}
+                onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
