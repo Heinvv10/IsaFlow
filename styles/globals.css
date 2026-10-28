@@ -381,3 +381,40 @@ html[data-admin-host] [data-shell-top-nav] {
 html[data-sidebar-collapsed="true"] [data-shell-side] {
   width: 4rem;
 }
+
+/*
+ * BLOG TABLES (src/components/landing/blog/mdx/mdxComponents.tsx). A table too wide for a phone scrolls
+ * sideways in .blog-table; while columns are hidden to the right, a fade marks the edge. Pure CSS: the
+ * fade (::after) is sticky at the scrollport's right edge, so it overlays the cells, the dark header row
+ * included. Its natural place is over the last column, which sits above it (z-index 1, opaque background),
+ * so the fade is hidden whenever the table fits or is scrolled to the end.
+ */
+.blog-table {
+  display: flex;
+  isolation: isolate;
+}
+.blog-table > table {
+  flex: none;
+}
+.blog-table::after {
+  content: '';
+  position: sticky;
+  right: 0;
+  flex: none;
+  width: 1.5rem;
+  margin-left: -1.5rem;
+  pointer-events: none;
+  background: linear-gradient(to left, rgba(100, 116, 139, 0.45), rgba(100, 116, 139, 0));
+}
+.blog-table :is(th, td):last-child {
+  position: relative;
+  z-index: 1;
+}
+.blog-table th:last-child {
+  background-color: #0f172a;
+}
+/* The row hover tint is translucent: lay it over white so the last cell still covers the fade. */
+.blog-table tbody tr:hover > td:last-child {
+  background-color: #fff;
+  background-image: linear-gradient(rgb(240 253 250 / 0.6), rgb(240 253 250 / 0.6));
+}
