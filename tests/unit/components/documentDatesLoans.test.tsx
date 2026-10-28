@@ -69,6 +69,36 @@ describe('LoanScheduleTab what-if events', () => {
     expect(dateInputs()[0]!.value).toBe('01 Oct 2026');
   });
 
+  it('every control is named per row, so two rows are not three anonymous controls each', () => {
+    const { first } = open();
+    expect(first).toBeTruthy();
+    for (const n of [1, 2]) {
+      expect(screen.getByLabelText(`Event ${n} date`)).toBeTruthy();
+      expect((screen.getByLabelText(`Event ${n} type`) as HTMLSelectElement).tagName).toBe('SELECT');
+      expect((screen.getByLabelText(`Event ${n} amount`) as HTMLInputElement).type).toBe('number');
+      expect(screen.getByRole('button', { name: `Remove event ${n}` })).toBeTruthy();
+    }
+    fireEvent.change(screen.getByLabelText('Event 2 type'), { target: { value: 'SKIP' } });
+    expect(screen.queryByLabelText('Event 2 amount')).toBeNull();
+    expect(screen.getByLabelText('Event 1 amount')).toBeTruthy();
+  });
+
+  it('a row stacks below lg (date on its own line) and its select and amount use the kit input styling', () => {
+    const { first } = open();
+    const row = first.closest('div.grid.grid-cols-1') as HTMLElement;
+    expect(row.className).toContain('grid-cols-1');
+    expect(row.className).toContain('lg:grid-cols-[');
+    const rest = row.querySelector('div.grid') as HTMLElement;
+    expect(rest.className).toContain('lg:contents');
+    for (const el of [screen.getByLabelText('Event 1 type'), screen.getByLabelText('Event 1 amount')]) {
+      expect(el.className).toContain('h-9');
+      expect(el.className).toContain('rounded-md');
+      expect(el.className).not.toMatch(/\bff-(select|input)\b/);
+    }
+    expect(rest.contains(screen.getByLabelText('Event 1 type'))).toBe(true);
+    expect(rest.contains(first)).toBe(false);
+  });
+
   it('typed dates are previewed as ISO', async () => {
     const { first, second, run } = open();
     typeDate(first, '5 Oct 2026');
