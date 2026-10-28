@@ -10,6 +10,7 @@ import { marginPct } from './marginPct';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { todayInSast } from '@/lib/saDateParser';
 import { getOpenBook, type OpenBook } from './dashboardOpenBook';
+import { revenueBand } from '../gl/accountClassification';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
@@ -25,6 +26,12 @@ export interface DashboardKPIs {
   payables: { total: number; overdue: number; avgCreditorDays: number };
   activity: { invoicesIssued: number; paymentsReceived: number; journalsPosted: number };
 }
+
+/** One row per revenue-account subtype: the P&L bands by subtype, so the KPIs do too. */
+type RevenueRow = { account_subtype?: string | null; total?: unknown };
+const sumRevenue = (rows: RevenueRow[]): number => rows.reduce((s, r) => s + Number(r.total || 0), 0);
+const turnover = (rows: RevenueRow[]): number =>
+  sumRevenue(rows.filter((r) => revenueBand(r.account_subtype) === 'turnover'));
 
 /** Both sides of the open book, already read: a caller that also draws the ageing donuts reads each once. */
 export interface OpenBooks { ar: OpenBook; ap: OpenBook }
@@ -59,22 +66,24 @@ export async function getDashboardKPIs(companyId: string,
       mtdRevenueRows,
     ] = await Promise.all([
       sql`
-        SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS total
+        SELECT ga.account_subtype, COALESCE(SUM(jl.credit - jl.debit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
+        GROUP BY ga.account_subtype
       `,
       sql`
-        SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS total
+        SELECT ga.account_subtype, COALESCE(SUM(jl.credit - jl.debit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
+        GROUP BY ga.account_subtype
       `,
       sql`
         SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS total
@@ -169,26 +178,31 @@ export async function getDashboardKPIs(companyId: string,
           AND status = 'posted' AND source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND entry_date >= ${fromDate} AND entry_date <= ${toDate}
       `,
-      // The first query's own rule, over the SAST month so far (the revenue
-      // tile spans the whole window and is not a month-to-date figure).
+      // The revenue tile's own rule, over the SAST month so far (the tile
+      // spans the whole window and is not a month-to-date figure).
       sql`
-        SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS total
+        SELECT ga.account_subtype, COALESCE(SUM(jl.credit - jl.debit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${`${todayStr.slice(0, 8)}01`} AND je.entry_date <= ${todayStr}
+        GROUP BY ga.account_subtype
       `,
     ]);
 
-    const totalRevenue = Number((revenueRows as DbRow[])[0]?.total || 0);
-    const priorRevenue = Number((priorRevenueRows as DbRow[])[0]?.total || 0);
+    // Revenue is TURNOVER, as the income statement's Revenue line: the other-income
+    // band (revenueBand) is left out of it. Profit still counts every revenue-type
+    // account, as the statement's net profit does.
+    const totalRevenue = turnover(revenueRows as RevenueRow[]);
+    const priorRevenue = turnover(priorRevenueRows as RevenueRow[]);
+    const allRevenue = sumRevenue(revenueRows as RevenueRow[]);
     const totalExpenses = Number((expenseRows as DbRow[])[0]?.total || 0);
     const priorExpenses = Number((priorExpenseRows as DbRow[])[0]?.total || 0);
     const cashTotal = Number((cashRows as DbRow[])[0]?.total || 0);
     const priorCash = Number((priorCashRows as DbRow[])[0]?.total || 0);
-    const grossProfit = totalRevenue - totalExpenses;
+    const grossProfit = allRevenue - totalExpenses;
     const grossMargin = marginPct(grossProfit, totalRevenue) ?? 0;
     const revenueChange = priorRevenue > 0
       ? ((totalRevenue - priorRevenue) / priorRevenue) * 100
@@ -196,7 +210,7 @@ export async function getDashboardKPIs(companyId: string,
 
     return {
       revenue: { total: totalRevenue, priorTotal: priorRevenue, changePercent: revenueChange },
-      revenueMtd: Number((mtdRevenueRows as DbRow[])[0]?.total || 0),
+      revenueMtd: turnover(mtdRevenueRows as RevenueRow[]),
       expenses: { total: totalExpenses, priorTotal: priorExpenses },
       grossProfit: { amount: grossProfit, margin: grossMargin },
       netProfit: { amount: grossProfit, margin: grossMargin },
