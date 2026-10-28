@@ -29,3 +29,16 @@ export function readGoldenSlot(env: Record<string, string | undefined>): GoldenS
   if (!UUID.test(companyId)) throw new Error(`GOLDEN_COMPANY_ID must be a uuid, got "${companyId}"`);
   return { companyId, email, password };
 }
+
+/**
+ * Where a failure's remedy has to be applied: the slot company and user, and the command that rebuilds the slot, or
+ * the default Demo company when no slot is set. Used in messages that tell a human which company to fix.
+ */
+export function describeGoldenCompany(env: Record<string, string | undefined>): string {
+  const companyId = env.GOLDEN_COMPANY_ID;
+  if (!companyId) return 'the Demo company';
+  const email = env.GOLDEN_USER_EMAIL ?? 'unknown';
+  const n = /^golden-slot-(\d)@/.exec(email)?.[1];
+  const rebuild = n ? `, or rebuild the slot with: bun scripts/ci/golden/provision-slots.ts --reset-slot ${n}` : '';
+  return `GOLDEN SLOT${n ? ` ${n}` : ''} company ${companyId} (user ${email})${rebuild}`;
+}
