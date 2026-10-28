@@ -2,7 +2,8 @@
  * usePageClamp: keep the bank transactions page inside the list. Accepting, excluding or undoing the
  * last row of the last page reloads a page that is now past the end: no rows, and a total above zero.
  * Once that load settles, move to the last page that exists; the page change is what refetches, so it
- * happens once.
+ * happens once. A load that failed says nothing about the total (the page zeroes it), so a failure never clamps:
+ * the error shows on the page the user asked for.
  */
 import { useEffect } from 'react';
 
@@ -21,13 +22,15 @@ interface Args {
   pageSize: number;
   /** The total belongs to the last finished load; judge it only once that load has settled. */
   isLoading: boolean;
+  /** The last load failed: its empty rows and zero total are not evidence that the page is past the end. */
+  failed?: boolean;
   setPage: (page: number) => void;
 }
 
-export function usePageClamp({ page, total, pageSize, isLoading, setPage }: Args): void {
+export function usePageClamp({ page, total, pageSize, isLoading, failed = false, setPage }: Args): void {
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || failed) return;
     const last = lastPage(total, pageSize);
     if (page > last) setPage(last);
-  }, [page, total, pageSize, isLoading, setPage]);
+  }, [page, total, pageSize, isLoading, failed, setPage]);
 }

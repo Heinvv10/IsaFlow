@@ -7,7 +7,8 @@
  * pager.
  * No rows on a page past the end (bankTxPastEnd) is a page usePageClamp is
  * about to leave: it shows the skeleton, never "No new transactions". Any
- * other empty page says empty, so nothing can leave the skeleton stuck.
+ * other empty page says empty, so nothing can leave the skeleton stuck. A failed load also
+ * has no rows and a zero total, but usePageClamp skips it: it shows the error, never the skeleton.
  */
 
 import type { ReactNode } from 'react';
@@ -30,7 +31,7 @@ interface Props {
 }
 
 export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, pastEnd, tab, children }: Props) {
-  const loading = isLoading || (empty && pastEnd);
+  const loading = isLoading || (!error && empty && pastEnd);
   return (
     <>
       {relinkFailed && (

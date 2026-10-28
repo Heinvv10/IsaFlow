@@ -116,8 +116,10 @@ export default function BankTransactionsPage() {
     debounceTimer.current = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 500);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
   }, [searchTerm]);
-  // Load transactions
+  // Load transactions. Only the latest request writes state: a slow older response must not overwrite a newer one.
+  const loadSeq = useRef(0);
   const loadTransactions = useCallback(async () => {
+    const seq = ++loadSeq.current, latest = () => seq === loadSeq.current;
     if (!selectedBank) { setIsLoading(false); setTransactions([]); setTotal(0); return; }
     setIsLoading(true); setError('');
     try {
@@ -125,14 +127,15 @@ export default function BankTransactionsPage() {
         search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion });
       const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
       const json = await res.json();
+      if (!latest()) return;
       const data = json.data || json;
       setTransactions(data.transactions || []); setTotal(data.total || 0);
-    } catch (err) { setTransactions([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
-    finally { setIsLoading(false); }
+    } catch (err) { if (latest()) { setTransactions([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load transactions - try again')); } }
+    finally { if (latest()) setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
-  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, setPage });
+  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, failed: error !== '', setPage });
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, loadTransactions);
