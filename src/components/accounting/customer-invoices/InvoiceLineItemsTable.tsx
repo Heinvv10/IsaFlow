@@ -49,7 +49,7 @@ interface Props {
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const th = 'px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400';
-const toggle = (on: boolean) => `inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${on ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`;
+const toggle = (on: boolean) => `inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${on ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`;
 
 const UNOFFERED: Record<InvoiceLineCodingOptions['status'], string> = {
   loading: 'Loading…',
@@ -85,16 +85,16 @@ export function InvoiceLineItemsTable({
 
   return (
     <>
-      <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">3</span>Line Items</h3>
-        <div className="flex items-center gap-2">
+      <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 whitespace-nowrap"><span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">3</span>Line Items</h3>
+        <div className="flex flex-wrap items-center gap-2">
           <button type="button" aria-expanded={showDimensions} onClick={() => setDimensionsToggled(!showDimensions)} className={toggle(showDimensions)}>
             <Tags className="h-3 w-3" />{showDimensions ? 'Hide Dimensions' : 'Dimensions'}
           </button>
           <button type="button" aria-expanded={showDiscount} onClick={() => setShowDiscount((v) => !v)} className={toggle(showDiscount)}>
             <SlidersHorizontal className="h-3 w-3" />{showDiscount ? 'Hide Disc.' : 'Disc. %'}
           </button>
-          <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
+          <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
         </div>
       </div>
       {options.error && (
