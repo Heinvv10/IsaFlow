@@ -84,6 +84,8 @@ export interface GridRowSnapshot {
   selected: { left: number; right: number } | null;
   /** Edit mode on this row: the column and the draft text. */
   editing: { col: number; draft: string } | null;
+  /** The account's budget note for the year (year-scoped, every version shows it); null when none. */
+  note: string | null;
 }
 
 export interface GridTotalSnapshot {

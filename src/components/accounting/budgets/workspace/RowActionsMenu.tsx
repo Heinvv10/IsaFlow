@@ -6,6 +6,7 @@
  * - An account at another grain than the view: "Budget by CC1…" / "Budget at company level…".
  * - A header's roll-up: spread across sub-accounts.
  * - A legacy header's own amounts: move to a sub-account, spread across sub-accounts.
+ * - An active leaf account, at any grain: add or edit its note for the year (year-scoped).
  */
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/ActionMenu';
 import type { AccountGrain, View } from '@/modules/accounting/services/budgets/grid/pivot';
@@ -17,7 +18,8 @@ export type RowAction =
   | { type: 'clear' }
   | { type: 'spreadChildren' }
   | { type: 'moveOwn' }
-  | { type: 'grain'; to: View['kind'] };
+  | { type: 'grain'; to: View['kind'] }
+  | { type: 'note' };
 
 const DIM_LABEL = { cc1: 'CC1', cc2: 'CC2', bu: 'BU' } as const;
 
@@ -53,14 +55,17 @@ export function rowActionItems({ row, snap, canChange, grain, view, onAction }: 
     if (!hasKids) return [];
     return [item('Move to a sub-account…', { type: 'moveOwn' }), item('Spread across sub-accounts…', { type: 'spreadChildren' })];
   }
+  // The server takes a note on an active leaf only (a header's own row and roll-up are above).
+  const note = row.account.isActive ? [item(snap.note ? 'Edit note…' : 'Add note…', { type: 'note' })] : [];
   if (!snap.editable) {
     const to = grainChangeFor(grain, view);
-    return to === null ? [] : [item(grainActionLabel(to), { type: 'grain', to })];
+    return [...(to === null ? [] : [item(grainActionLabel(to), { type: 'grain', to })]), ...note];
   }
   const hasValues = snap.values.some(v => v !== null);
   return [
     item('Spread across months…', { type: 'spread' }),
     item('Copy PY actuals', { type: 'copyPy' }, { disabled: snap.py === null }),
+    ...note,
     item('Clear row', { type: 'clear' }, { disabled: !hasValues, tone: 'destructive' }),
   ];
 }

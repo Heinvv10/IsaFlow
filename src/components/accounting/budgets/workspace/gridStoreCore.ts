@@ -27,7 +27,7 @@ export const ROLLUP_REASON = 'Sub-account roll-up';
 const EMPTY_LAYOUT: GridLayout = { rows: [], months: [], rowKinds: [], cols: 1 };
 const EMPTY_ROW: GridRowSnapshot = Object.freeze({
   values: [], fy: null, editable: false, readReason: null, dirty: [], conflict: [], py: null, pyFy: null,
-  compareFy: null, focusCol: null, selected: null, editing: null,
+  compareFy: null, focusCol: null, selected: null, editing: null, note: null,
 });
 const EMPTY_TOTAL: GridTotalSnapshot = Object.freeze({ months: [], fy: 0, pyFy: null, compareFy: null });
 export const METRICS: readonly Metric[] = ['turnover', 'costOfSales', 'grossProfit', 'otherIncome', 'operatingExpenses', 'operatingProfit', 'otherExpenses', 'netProfit'];
@@ -169,7 +169,8 @@ export class GridStoreCore {
     const pySeries = ex.py ? (rollup ? ex.pyRollup.get(id) : ex.py.get(id)) ?? [] : null;
     const py = pySeries ? this.layout.months.map((_, m) => pySeries[m] ?? 0) : null;
     const cmp = ex.compare ? (rollup ? ex.compareRollup.get(id) : ex.compare.get(id))?.[0] ?? null : null;
-    const common = { values, fy: sumOf(values), py, pyFy: py ? sumOf(py) : null, compareFy: cmp, ...sel };
+    const note = this.accounts.get(id)?.note ?? null;
+    const common = { values, fy: sumOf(values), py, pyFy: py ? sumOf(py) : null, compareFy: cmp, note, ...sel };
     if (rollup) {
       const none = values.map(() => false);
       return { ...common, editable: false, readReason: ROLLUP_REASON, dirty: none, conflict: none };
