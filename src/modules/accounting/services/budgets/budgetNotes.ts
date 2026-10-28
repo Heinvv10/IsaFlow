@@ -8,8 +8,9 @@
  *
  * - `setGridNote`: the grid's edit (D6). The year is the viewed version's, never the caller's; a
  *   locked version refuses (409), as its amounts do; the account must be the company's active leaf
- *   revenue/expense account. Trimmed, at most MAX_NOTE_LENGTH; blank clears (the row is deleted when
- *   it holds nothing else). One audit row (entity `budget`, the viewed version), never the text.
+ *   revenue/expense account. Trimmed, at most MAX_NOTE_LENGTH; blank clears (a row this module made
+ *   and holding no legacy amounts is deleted; any other keeps its row). One audit row (entity
+ *   `budget`, the viewed version) when something changed, never the text.
  *   Two writers of one note: last write wins (the upsert never raises 23505).
  * - `carryNotes`: a wizard seed into another year (D5) copies the source year's notes for the
  *   seeded leaf accounts, only where the target year has no non-blank note. Runs in the seed's
@@ -32,9 +33,10 @@ const NOTE_ROW_NAME = 'Notes';
 
 export interface GridNoteInput { versionId: string; glAccountId: string; note: string | null }
 
-/** The note as stored: trimmed, null when blank. */
+/** The note as stored: trimmed, null when blank. A NUL character (Postgres text refuses it, 22021) is a 400. */
 export function normaliseNote(note: string | null): string | null {
   const text = (note ?? '').trim();
+  if (text.includes('\u0000')) throw inputError('A note cannot contain a NUL character');
   if (text.length > MAX_NOTE_LENGTH) throw inputError(`A note can be at most ${MAX_NOTE_LENGTH} characters`);
   return text === '' ? null : text;
 }
@@ -76,26 +78,36 @@ export async function setGridNote(companyId: string, actor: { userId: string }, 
   const fiscalYear = await noteYear(companyId, input.versionId);
   await assertNoteAccount(companyId, input.glAccountId);
   await withSavepoint('budget_grid_note', async () => {
+    let changed: DbRow[];
     if (note === null) {
-      // A legacy header with amounts keeps its row (notes only cleared); one holding nothing else goes.
-      await sql`
+      // Only a row this module made (or a seed carried) and holding no legacy amounts is deleted;
+      // any other header (a legacy one keeps its name, status and author) only has its notes cleared.
+      const gone = (await sql`
         DELETE FROM accounting_budgets
          WHERE company_id = ${companyId}::UUID AND gl_account_id = ${input.glAccountId}::UUID AND fiscal_year = ${fiscalYear}
+           AND budget_name = ${NOTE_ROW_NAME}
            AND COALESCE(period_amounts, '{}'::jsonb) = '{}'::jsonb AND COALESCE(total_amount, 0) = 0 AND COALESCE(annual_amount, 0) = 0
-      `;
-      await sql`
+        RETURNING id
+      `) as DbRow[];
+      const cleared = (await sql`
         UPDATE accounting_budgets SET notes = NULL, updated_at = now()
          WHERE company_id = ${companyId}::UUID AND gl_account_id = ${input.glAccountId}::UUID AND fiscal_year = ${fiscalYear}
            AND notes IS NOT NULL
-      `;
+        RETURNING id
+      `) as DbRow[];
+      changed = [...gone, ...cleared];
     } else {
-      await sql`
+      changed = (await sql`
         INSERT INTO accounting_budgets (company_id, gl_account_id, fiscal_year, budget_name, notes, created_by)
         VALUES (${companyId}::UUID, ${input.glAccountId}::UUID, ${fiscalYear}, ${NOTE_ROW_NAME}, ${note}, ${actor.userId})
         ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL
         DO UPDATE SET notes = EXCLUDED.notes, updated_at = now()
-      `;
+         WHERE accounting_budgets.notes IS DISTINCT FROM EXCLUDED.notes
+        RETURNING id
+      `) as DbRow[];
     }
+    // A save that changes nothing (the same text again, clearing no note) leaves no audit row.
+    if (changed.length === 0) return;
     await auditBudgetWrite(companyId, actor.userId, 'update', input.versionId, fiscalYear, {
       glAccountId: input.glAccountId, noteAction: note === null ? 'cleared' : 'set',
     });
@@ -119,6 +131,8 @@ export async function carryNotes(companyId: string, userId: string, fromYear: nu
        AND s.gl_account_id = ANY(${[...accountIds]}::UUID[])
        AND NULLIF(BTRIM(s.notes), '') IS NOT NULL
        AND ga.is_active IS NOT FALSE AND NOT ${isHeaderSql()}
+     -- One order for every carry, so two seeds into the same year take the note rows' locks alike.
+     ORDER BY s.gl_account_id
     ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL
     DO UPDATE SET notes = EXCLUDED.notes, updated_at = now()
      WHERE NULLIF(BTRIM(t.notes), '') IS NULL

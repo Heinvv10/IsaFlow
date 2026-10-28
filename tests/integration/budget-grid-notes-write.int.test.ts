@@ -122,10 +122,37 @@ describe('PUT /api/accounting/budget-grid/note', () => {
     ]);
   });
 
-  it('clearing a note that does not exist writes nothing but the audit row', async () => {
+  it('a save that changes nothing (clearing no note, the same text again) writes no row and no audit row', async () => {
+    const before = (await audits(primary)).length;
     const r = await put(A, { versionId: primary, glAccountId: A.acct.cos, note: '' });
     expect(r.status, dump(r)).toBe(200);
     expect(await header(A, A.acct.cos, 2027)).toEqual([]);
+    expect((await audits(primary)).length).toBe(before);
+    const set = await put(A, { versionId: primary, glAccountId: A.acct.cos, note: 'Same text' });
+    expect(set.status, dump(set)).toBe(200);
+    expect((await audits(primary)).length).toBe(before + 1);
+    const again = await put(A, { versionId: primary, glAccountId: A.acct.cos, note: '  Same text ' });
+    expect([again.status, again.body.data], dump(again)).toEqual([200, { note: 'Same text' }]);
+    expect((await audits(primary)).length).toBe(before + 1);
+    await put(A, { versionId: primary, glAccountId: A.acct.cos, note: null });
+    expect(await header(A, A.acct.cos, 2027)).toEqual([]);
+  });
+
+  it('clearing a legacy header row with no amounts keeps the row (its name, status and author), notes NULL', async () => {
+    await pool.query(
+      `INSERT INTO accounting_budgets (company_id, gl_account_id, fiscal_year, budget_name, notes, status, created_by)
+       VALUES ($1, $2, 2028, 'FY2028 Budget', 'Legacy note', 'approved', 'legacy-user')`, [A.id, A.acct.rent]);
+    const r = await put(A, { versionId: fy28, glAccountId: A.acct.rent, note: '' });
+    expect(r.status, dump(r)).toBe(200);
+    expect(await header(A, A.acct.rent, 2028)).toEqual([
+      { budget_name: 'FY2028 Budget', notes: null, period_amounts: {}, total: '0.00', annual: '0.00', status: 'approved' },
+    ]);
+  });
+
+  it('a NUL character is a 400 (never a 500), with nothing written', async () => {
+    const r = await put(A, { versionId: primary, glAccountId: A.acct.childB, note: 'bad\u0000note' });
+    expect([r.status, code(r)], dump(r)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+    expect(await header(A, A.acct.childB, 2027)).toEqual([]);
   });
 
   it('a note of 2 000 characters is kept; 2 001 is a 400 with nothing written', async () => {
