@@ -122,6 +122,19 @@ describe('Projected FY on a line', () => {
     expect([line!.actual, line!.projected, line!.fyBudget, line!.projVariance, line!.projFavourable]).toEqual([84, 84, 60, 24, false]);
   });
 
+  it('F5: a past month of an ENDED year projects as at the window end (the §2.3 formula), not the FY actual', () => {
+    // Spec §2.3 says both "cutoff = min(window end, ...)" and "FY* ended: the projection equals the FY actual".
+    // For a June window of the ended FY2026 the formula wins: actuals Mar - Jun, budget Jul - Feb.
+    const plan = projectionPlan(FY2026, '2025-06-30', TODAY);
+    expect(plan.cutoff).toBe('2025-06-30');
+    const ms = months('2025-03', 12);
+    const [line] = buildTrackingLines({
+      accounts: ACCOUNTS, windowMonths: ['2025-06'], plan,
+      actuals: ms.map((m) => actual('rent', m, 7)), budgets: ms.map((m) => budget('rent', m, 5)),
+    });
+    expect([line!.actual, line!.projected, line!.fyBudget]).toEqual([7, 4 * 7 + 8 * 5, 60]);
+  });
+
   it('works in cents: no IEEE-754 drift across 14 months of 0.1', () => {
     const plan = projectionPlan(FY14, '2027-04-30', TODAY);
     const ms = plan.fyMonths;
