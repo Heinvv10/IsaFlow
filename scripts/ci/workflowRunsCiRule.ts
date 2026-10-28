@@ -74,8 +74,9 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * golden-paths' group is per ref, not one group for every ref: the suite writes
  * to a Golden Paths slot company (ci.yml maps the runner to one, and a runner
  * runs one job at a time), so runs of different refs may overlap on different
- * runners. The group only keeps one ref's runs in order. It must stay clear of
- * the `ci-` prefix (quality's group, which cancels) and must never cancel.
+ * runners. The group only stops two golden runs of one ref from running at once
+ * (it is not what keeps slots apart). It must stay clear of the `ci-` prefix
+ * (quality's group, which cancels) and must never cancel.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
 const JOBS = ['quality', 'golden-paths'];

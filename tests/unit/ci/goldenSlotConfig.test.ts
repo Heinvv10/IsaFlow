@@ -2,7 +2,8 @@
 // numbers its runners, and it adds keys to the shared env file without touching anything else in it.
 import { describe, expect, it } from 'vitest';
 import {
-  GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertDevDatabaseUrl, parseEnvFile, slotCompanyId, slotEnvKeys, upsertEnvKeys,
+  EXPECTED_GOTRUE_URL, GOLDEN_SLOTS, MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertGoTrueUrl, generationOf,
+  parseEnvFile, slotCompanyId, slotEnvKeys, upsertEnvKeys,
 } from '../../../scripts/ci/golden/slotConfig';
 
 describe('assertDevDatabaseUrl', () => {
@@ -21,6 +22,8 @@ describe('assertDevDatabaseUrl', () => {
     ['no database name', 'postgresql://u:p@h:7772'],
     ['a url that does not parse', 'not a url'],
     ['an empty url', ''],
+    ['a database named in the query string over the path (a driver may honour it)', 'postgresql://u:p@h:7772/isaflow_dev?database=isaflow'],
+    ['dbname in the query string', 'postgresql://u:p@h:7772/isaflow_dev?dbname=isaflow'],
   ])('refuses %s', (_label, url) => {
     expect(() => assertDevDatabaseUrl(url)).toThrow(/isaflow_dev/);
   });
@@ -49,8 +52,34 @@ describe('slots', () => {
     }
   });
 
+  it('a reset starts the next generation under a new id, and the generation can be read back from the id', () => {
+    const ids = [0, 1, MAX_SLOT_GENERATION].map((g) => slotCompanyId(2, g));
+    expect(new Set(ids).size).toBe(3);
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect([0, 1, 9].map((g) => generationOf(slotCompanyId(3, g)))).toEqual([0, 1, 9]);
+    expect(generationOf(SOURCE_COMPANY_ID)).toBe(0);
+    expect(generationOf('not an id')).toBe(0);
+  });
+
   it('use the key names ci.yml reads', () => {
     expect(slotEnvKeys(2)).toEqual({ companyId: 'GOLDEN_SLOT_2_COMPANY_ID', email: 'GOLDEN_SLOT_2_EMAIL', password: 'GOLDEN_SLOT_2_PASSWORD' });
+  });
+});
+
+describe('assertGoTrueUrl', () => {
+  it('accepts the pinned instance, with or without a trailing slash', () => {
+    expect(() => assertGoTrueUrl(EXPECTED_GOTRUE_URL)).not.toThrow();
+    expect(() => assertGoTrueUrl(`${EXPECTED_GOTRUE_URL}/`)).not.toThrow();
+  });
+
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+    ['another host', 'http://10.0.0.5:7770/auth/v1'],
+    ['another port (another stack)', 'http://100.96.203.105:7771/auth/v1'],
+    ['a url that merely starts with it', `${EXPECTED_GOTRUE_URL}.evil.test`],
+  ])('refuses %s', (_label, url) => {
+    expect(() => assertGoTrueUrl(url)).toThrow(/GOTRUE_URL/);
   });
 });
 

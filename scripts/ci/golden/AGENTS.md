@@ -9,34 +9,72 @@ sharing the one Demo company. Before slots every run wrote to Demo (payroll
 sandbox month 2027-02, find-or-create fixtures, per-month depreciation, a FIFO
 over the oldest documents), which forced a single concurrency group.
 
-**Files:** `provision-slots.ts` (CLI), `cloneCompany.ts` (copies setup data from
-Demo from the catalog's foreign keys), `slotVerify.ts` (what a slot must hold),
-`slotConfig.ts` (ids, dev-database guard, env-file helpers). Tests:
-`tests/unit/ci/goldenSlot*.test.ts`, `goldenCloneCompany.test.ts`.
+**Files:** `provision-slots.ts` (CLI), `slotProvision.ts` (company, user, GoTrue
+and retire steps), `cloneCompany.ts` (copies setup data from Demo from the
+catalog's foreign keys, then checks nothing still points at Demo),
+`slotVerify.ts` (what a slot must hold), `slotConfig.ts` (ids, the dev-database
+and GoTrue guards, env-file text helpers), `slotEnvFile.ts` (atomic write).
+Tests: `tests/unit/ci/goldenSlot*.test.ts`, `goldenCloneCompany.test.ts`.
 
-**Contract:** `bun scripts/ci/golden/provision-slots.ts [--dry-run|--verify]`
+**Contract:** `bun scripts/ci/golden/provision-slots.ts [--dry-run|--verify|--reset-slot n]`
 creates companies `601d0000-0000-4000-8000-00000000000{1,2,3}`, one golden user
 each (GoTrue + `users` + owner `company_users`), and writes
 `GOLDEN_SLOT_n_{COMPANY_ID,EMAIL,PASSWORD}` to `/home/hein/isaflow-ci.env`
-(a symlink to the main checkout's `.env.local`; written through, never replaced).
+(a symlink to the main checkout's `.env.local`; written atomically through the symlink).
 ci.yml maps `$RUNNER_NAME` (velo-server-u 1, velo-isaflow-u2 2, velo-isaflow-u3 3)
-to a slot; an unknown runner fails. The suite reads `GOLDEN_COMPANY_ID`,
-`GOLDEN_USER_EMAIL`, `GOLDEN_USER_PASSWORD` (`tests/e2e/golden-paths/helpers/goldenSlot.ts`)
-and switches into the slot through `/api/auth/switch-company`; with none set
-(prod post-deploy verify, local runs) it is the old E2E_ADMIN_* / default-company path.
+to a slot, prints `GOLDEN SLOT n (company ...)`, and an unknown runner fails. Only the
+Playwright command sees the slot's login (`GOLDEN_COMPANY_ID`, `GOLDEN_USER_EMAIL`,
+`GOLDEN_USER_PASSWORD`, read by `tests/e2e/golden-paths/helpers/goldenSlot.ts`); the
+suite switches into the slot through `/api/auth/switch-company`. With none set (prod
+post-deploy verify, local runs) it is the old E2E_ADMIN_* / default-company path.
 
 **Rules:**
 - Idempotent; an existing slot company is kept (its data is the suite's to grow).
-  A company and its membership are created in one transaction.
-- Refuses any database but `isaflow_dev` (prod is `isaflow` on the same host:port),
-  by URL and again by `current_database()`. GoTrue is shared with prod: the slot
-  users exist there but are members of nothing in prod.
+  A company and its membership are created in one transaction. A table the slot already
+  holds rows in is not topped up, and neither is a child of such a table.
+- Refuses any database but `isaflow_dev` (prod is `isaflow` on the same host:port), by URL
+  (path only, no `database`/`dbname` query) and again by `current_database()`, which is the
+  real guard.
+- GoTrue is ONE instance for dev and prod (port 7770), pinned as `EXPECTED_GOTRUE_URL`; the
+  provisioner refuses any other. Slot users therefore exist in prod auth, with no prod
+  company: they can sign in there and see nothing.
 - Setup data only, never transactions: the payroll spec needs 2027-02 empty.
 - Not copied on purpose: `bank_categorisation_rules`, `bank_auto_post_settings`
   (forensic controls). A key into a table that is not copied is nulled or refused,
-  never left pointing at Demo. A key into a global table keeps only ids that exist.
+  never left pointing at Demo; after the copy every uuid/text column is scanned for ids of
+  Demo's rows (json columns are not).
+- Slot companies carry `is_demo = true` (copied from Demo; demo-only screens and the specs'
+  fixtures expect it). Specs create their own sandbox companies (`0GP Golden ...`) and add
+  the slot's golden user to them, so a slot user is a member of more than its slot company;
+  login opens the slot company (default), the suite switches explicitly anyway.
 - A new runner means a new case in ci.yml, a new slot number in `slotConfig.ts`,
   and `provision-slots.ts` run once.
-- One golden user per slot: login limits are 10 per email and 20 per IP per 15 min.
 
-**Recent:** created 2026-10-27 (3-slot fast path).
+**Shared budgets and caches:**
+- Login limits are 10 per email and 20 per IP per 15 min. One golden user per slot keeps the
+  email budget separate; the IP budget is shared (all three runners log in from localhost), so
+  three runs in the same 15 minutes spend 3 logins of 20. Do not add per-spec logins.
+- The Playwright browser cache (`/home/gha-isaflow/.cache/ms-playwright`) is shared by all three
+  runners (one runner user), so their `playwright install` steps can overlap on it; a version bump
+  in the lockfile is when a first install downloads while another job reads the old one.
+- Dev-server ports: each slot draws from its own 166-port window inside 3300-3799 (the specs
+  accept only that range) and skips any bound port.
+
+**Operating a slot (humans):**
+- `--verify` prints each slot's preconditions (read-only). `--dry-run` runs everything in a
+  rolled-back transaction.
+- A slot is poisoned when the h-payroll spec reports the sandbox payroll run is not reusable,
+  or its data is otherwise stuck. `--reset-slot n` retires slot n's company (renamed
+  `RETIRED <date> ...`, nothing deleted: 111 NO ACTION foreign keys into companies and
+  append-only ledger tables make a hard delete unsafe), builds the next generation
+  (`601d000<g>-...`, g 1..9) from Demo and rewrites `GOLDEN_SLOT_n_COMPANY_ID`. Run it on the
+  runner box while no job is using that slot.
+- If `/home/hein/Workspace/IsaFlow/.env.local` (the file the symlink points at) is regenerated,
+  the `GOLDEN_SLOT_*` keys are lost: the job then fails with "missing from ... isaflow-ci.env".
+  Re-run `provision-slots.ts`: it reuses the existing passwords only if they are still in the
+  file, otherwise it sets new ones in GoTrue and writes them back.
+- Ad hoc work in a slot: log in as `golden-slot-n@isaflow.dev` with the password from the file
+  and use the app; never use a slot company for anything else.
+
+**Recent:** created 2026-10-27 (3-slot fast path); review round 2026-10-28 (GoTrue guard,
+reset, source-reference scan).

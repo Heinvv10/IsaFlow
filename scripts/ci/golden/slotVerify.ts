@@ -39,7 +39,7 @@ export async function readSlotReport(db: ClientBase, companyId: string): Promise
 /**
  * One message per precondition the suite would trip over; empty means the slot is usable.
  * @param fresh the company was created by this run: only then must the sandbox month hold no payroll run (a slot the
- *   suite has used keeps its reopened run there, and the spec reuses it)
+ *   suite has used keeps its reopened run there, and the spec reuses it) and the golden user be its only member
  */
 export function slotProblems(r: SlotReport, fresh: boolean): string[] {
   const out: string[] = [];
@@ -50,8 +50,14 @@ export function slotProblems(r: SlotReport, fresh: boolean): string[] {
   if (!r.sandboxPeriodOpen) out.push('the payroll sandbox period 2027-02 is not open');
   if (r.open2027Periods < 2) out.push('fewer than two open 2027 periods (the sandbox month is reserved; the close specs need another)');
   if (fresh && r.payrollRunsInSandboxMonth > 0) out.push(`${r.payrollRunsInSandboxMonth} payroll run(s) already in the sandbox month 2027-02, which must start empty`);
-  if (r.members !== 1) out.push(`${r.members} members; a slot has exactly one, its golden user`);
+  if (r.members < 1) out.push('no member (nobody could log in)');
+  if (fresh && r.members > 1) out.push(`${r.members} members; a new slot has exactly one, its golden user`);
   return out;
+}
+
+/** What a re-run notes but does not fail on: someone added a member to a slot that exists. */
+export function slotWarnings(r: SlotReport, fresh: boolean): string[] {
+  return !fresh && r.members > 1 ? [`${r.members} members; a slot is meant to have one, its golden user (kept as is)`] : [];
 }
 
 export function formatSlotReport(label: string, r: SlotReport): string {

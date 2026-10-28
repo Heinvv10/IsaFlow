@@ -178,8 +178,9 @@ describe('planTableClone', () => {
 
 describe('cloneCompany', () => {
   /** A database that knows two tables' shape and which tables the target already holds rows in. */
-  function fakeDb(opts: { targetExists: boolean; heldTables: string[]; sourceExists?: boolean }) {
+  function fakeDb(opts: { targetExists: boolean; heldTables: string[]; sourceExists?: boolean; childOf?: Record<string, string>; leaks?: string[] }) {
     const inserts: string[] = [];
+    const scans: string[] = [];
     const db = {
       query: async (text: string, params: unknown[] = []) => {
         if (text.startsWith('SELECT 1 FROM companies WHERE id = $1::uuid')) {
@@ -190,17 +191,29 @@ describe('cloneCompany', () => {
           return { rowCount: 2, rows: [{ name: 'id', type: 'uuid', not_null: true, generated: false }, { name: 'company_id', type: 'uuid', not_null: true, generated: false }] };
         }
         if (text.includes('i.indisprimary')) return { rowCount: 1, rows: [{ name: 'id' }] };
-        if (text.includes('pg_constraint')) return { rowCount: 1, rows: [{ ref_table: 'companies', cols: ['company_id'], ref_cols: ['id'] }] };
+        if (text.includes('pg_constraint')) {
+          const rows = [{ ref_table: 'companies', cols: ['company_id'], ref_cols: ['id'] }];
+          const parent = opts.childOf?.[String(params[0]).replace('public.', '')];
+          if (parent) rows.push({ ref_table: parent, cols: ['parent_id'], ref_cols: ['id'] });
+          return { rowCount: rows.length, rows };
+        }
         if (text.includes('information_schema.columns')) return { rowCount: 0, rows: [] };
         const held = /^SELECT 1 FROM "(\w+)" WHERE/.exec(text);
         if (held) return { rowCount: opts.heldTables.includes(held[1]!) ? 1 : 0, rows: [] };
+        const source = /^SELECT "id"::text AS v FROM "(\w+)"/.exec(text);
+        if (source) return { rowCount: 1, rows: [{ v: `source-${source[1]}-row` }] };
+        const scan = /^SELECT count\(\*\)::int AS n FROM "(\w+)" WHERE .* AND "(\w+)"::text = ANY/.exec(text);
+        if (scan) {
+          scans.push(`${scan[1]}.${scan[2]}`);
+          return { rowCount: 1, rows: [{ n: opts.leaks?.includes(`${scan[1]}.${scan[2]}`) ? 2 : 0 }] };
+        }
         if (text.startsWith('INSERT INTO companies')) { inserts.push('companies'); return { rowCount: 1, rows: [] }; }
         const ins = /^INSERT INTO "(\w+)"/.exec(text);
         if (ins) { inserts.push(ins[1]!); return { rowCount: 3, rows: [] }; }
         throw new Error(`unexpected query: ${text}`);
       },
     };
-    return { db: db as unknown as ClientBase, inserts };
+    return { db: db as unknown as ClientBase, inserts, scans };
   }
   const opts = { sourceId: 'source', targetId: 'target', company: { name: 'Slot' } };
 
@@ -230,5 +243,32 @@ describe('cloneCompany', () => {
     const { db, inserts } = fakeDb({ targetExists: false, heldTables: [], sourceExists: false });
     await expect(cloneCompany(db, opts)).rejects.toThrow(/source company source does not exist/);
     expect(inserts).toEqual([]);
+  });
+
+  it('leaves a child table alone when its parent table already held rows (its keys would match no existing parent)', async () => {
+    const held = COPIED_TABLES.filter((t) => t !== 'payroll_employee_components' && t !== 'dunning_templates');
+    const { db, inserts } = fakeDb({ targetExists: true, heldTables: [...held], childOf: { payroll_employee_components: 'payroll_employees' } });
+    const result = await cloneCompany(db, opts);
+    expect(inserts).toEqual(['dunning_templates']);
+    expect(result.skippedChildren).toEqual(['payroll_employee_components']);
+    expect(result.copied).toEqual({ dunning_templates: 3 });
+  });
+
+  it('still copies a child whose parent was copied by this same run', async () => {
+    const { db, inserts } = fakeDb({ targetExists: false, heldTables: [], childOf: { payroll_employee_components: 'payroll_employees' } });
+    const result = await cloneCompany(db, opts);
+    expect(inserts).toContain('payroll_employee_components');
+    expect(result.skippedChildren).toEqual([]);
+  });
+
+  it('scans every uuid and text column of every copied table for ids of the source company', async () => {
+    const { db, scans } = fakeDb({ targetExists: true, heldTables: [...COPIED_TABLES] });
+    await cloneCompany(db, opts);
+    expect(scans).toEqual(COPIED_TABLES.flatMap((t) => [`${t}.id`, `${t}.company_id`]));
+  });
+
+  it('fails, naming table and column, when a copied row still holds a source id (a reference the catalog cannot see)', async () => {
+    const { db } = fakeDb({ targetExists: false, heldTables: [], leaks: ['pay_scales.id', 'payroll_employees.company_id'] });
+    await expect(cloneCompany(db, opts)).rejects.toThrow(/pay_scales\.id \(2 rows\), payroll_employees\.company_id \(2 rows\)/);
   });
 });

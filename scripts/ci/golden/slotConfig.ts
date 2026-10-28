@@ -15,9 +15,22 @@ export const SOURCE_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 /** The only database the provisioner writes to. Production is `isaflow` on the same host and port. */
 export const DEV_DATABASE = 'isaflow_dev';
 
-/** Version-4 ids ("601d" for golden), so zod's strict uuid() accepts them, unlike the seeded Demo id. */
-export const slotCompanyId = (n: number): string => `601d0000-0000-4000-8000-00000000000${n}`;
-export const slotCompanyName = (n: number): string => `Golden Slot ${n} (CI fixture)`;
+/**
+ * The only GoTrue the provisioner writes users to. It is ONE instance for dev and production (port 7770): a slot user
+ * created here exists for production's login too, with no company there, so it can sign in to prod and see nothing.
+ */
+export const EXPECTED_GOTRUE_URL = 'http://100.96.203.105:7770/auth/v1';
+
+/**
+ * Version-4 ids ("601d" for golden), so zod's strict uuid() accepts them, unlike the seeded Demo id. Generation 0 is the
+ * slot's first company; `--reset-slot n` retires it and starts the next generation (1..9) under a new id.
+ */
+export const MAX_SLOT_GENERATION = 9;
+export const slotCompanyId = (n: number, generation = 0): string => `601d000${generation}-0000-4000-8000-00000000000${n}`;
+export const slotCompanyName = (n: number, generation = 0): string => `Golden Slot ${n} (CI fixture${generation ? ` gen ${generation}` : ''})`;
+export const slotRegistrationNumber = (n: number, generation = 0): string => `GOLDEN/SLOT/${n}${generation ? `/${generation}` : ''}`;
+/** 0 for a slot's first company, the generation a `--reset-slot` replacement carries; 0 for an id that is not a slot's. */
+export const generationOf = (companyId: string): number => Number(/^601d000(\d)-0000-4000-8000-00000000000\d$/.exec(companyId)?.[1] ?? 0);
 export const slotEmail = (n: number): string => `golden-slot-${n}@isaflow.dev`;
 
 export interface SlotEnvKeys { companyId: string; email: string; password: string }
@@ -28,19 +41,31 @@ export const slotEnvKeys = (n: number): SlotEnvKeys => ({
 });
 
 /**
- * Throws unless `url` names database `allowed` (default isaflow_dev) as its path. Only the path counts: the same host
- * and port serve production, a query string cannot select a database, and the message never echoes the url (it
- * carries a password).
+ * Throws unless `url` names database `allowed` (default isaflow_dev) as its path, and carries no query parameter that
+ * could name another one. This is the first of two guards: the same host and port serve production, and a driver may
+ * honour query parameters over the path, so the real guard is `current_database()` after connecting
+ * (provision-slots.ts). The message never echoes the url (it carries a password).
  */
 export function assertDevDatabaseUrl(url: string, allowed: string = DEV_DATABASE): void {
   let name = '';
+  let overrides: string[] = [];
   try {
-    name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ''));
+    const parsed = new URL(url);
+    name = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+    overrides = ['database', 'dbname', 'db'].filter((k) => parsed.searchParams.has(k));
   } catch {
     throw new Error(`the database url does not parse; the provisioner only runs against ${allowed}`);
   }
+  if (overrides.length) throw new Error(`refusing to provision: the database url carries ${overrides.join(', ')} in its query string; name the database in the path only (${allowed})`);
   if (name !== allowed) {
     throw new Error(`refusing to provision: the database url names "${name || '(none)'}", the provisioner only runs against ${allowed}`);
+  }
+}
+
+/** Throws unless `url` is the GoTrue instance slot users are created in (EXPECTED_GOTRUE_URL), trailing slash aside. */
+export function assertGoTrueUrl(url: string | undefined, expected: string = EXPECTED_GOTRUE_URL): void {
+  if ((url ?? '').replace(/\/+$/, '') !== expected) {
+    throw new Error(`refusing to create users: GOTRUE_URL is not the expected instance ${expected} (slot users live in the GoTrue shared with production)`);
   }
 }
 

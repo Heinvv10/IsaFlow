@@ -109,13 +109,14 @@ jobs:
     # slots every run wrote to the ONE Demo company (payroll sandbox month,
     # find-or-create fixtures, per-month depreciation, a FIFO over the oldest
     # documents), which is why this was a single group for all refs.
-    # The group is per ref and never cancels: it keeps one ref's runs in order,
-    # and (as before) GitHub keeps one PENDING job per group and cancels an older
-    # pending one, which the merge queue re-runs up to twice per head. A master
-    # push that skips (the step below) still enters its ref's group, but holds
-    # it for seconds. It cannot take a per-sha group instead: the group is fixed
-    # before the step decides, and a push that falls back to the full suite must
-    # stay in order with the PR runs of that ref.
+    # The group is per ref and never cancels. It is NOT what keeps slots apart
+    # (runner exclusivity does that): it only stops two golden runs of one ref
+    # from running at once. GitHub keeps one running and one PENDING job per
+    # group and cancels an older pending one, which the merge queue re-runs up
+    # to twice per head. A master push that skips (the step below) still enters
+    # its ref's group, but holds it for seconds. It cannot take a per-sha group
+    # instead: the group is fixed before the step decides, and a push that falls
+    # back to the full suite must not overlap the PR runs of that ref.
     concurrency:
       group: golden-paths-${{ github.ref }}
       cancel-in-progress: false
@@ -188,15 +189,24 @@ jobs:
           fi
           # GitHub redacts only registered secrets; this one is runner-local.
           echo "::add-mask::$GOLDEN_USER_PASSWORD"
-          export GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD
-          cp /home/hein/isaflow-ci.env .env.local
+          echo "GOLDEN SLOT $slot (company $GOLDEN_COMPANY_ID, user $GOLDEN_USER_EMAIL) on runner $RUNNER_NAME"
+          # The app and the dev server get the shared env file WITHOUT the slots'
+          # keys: only the Playwright command below sees one slot's password.
+          grep -v '^GOLDEN_SLOT_' /home/hein/isaflow-ci.env > .env.local
           bunx playwright install chromium
-          # Ephemeral port: avoids collisions with stale servers from earlier
-          # cancelled runs on this long-lived runner (a stale next dev on a
-          # fixed port would pass the health check and test OLD code). A range
-          # per slot, so two runners never draw the same port (the specs that
-          # check the host allow 3300-3799).
-          GOLDEN_PORT=$((3300 + slot * 100 + RANDOM % 100))
+          # Ephemeral port, never one that is already bound: a stale or foreign
+          # server (docker-proxy answers on 3400/3420/3430) would pass the health
+          # check and the suite would test OLD code or someone else's service.
+          # The specs that check the host allow 3300-3799; each slot draws from a
+          # window of its own inside it (166 ports), so two runners never pick the
+          # same port. Disjoint windows rule out a check-then-bind race, which a
+          # wider shared window would leave open.
+          GOLDEN_PORT=""
+          for _ in $(seq 1 50); do
+            candidate=$((3300 + (slot - 1) * 166 + RANDOM % 166))
+            if ! ss -ltn | awk '{print $4}' | grep -qE ":${candidate}\$"; then GOLDEN_PORT=$candidate; break; fi
+          done
+          if [ -z "$GOLDEN_PORT" ]; then echo "::error::no free port in the window of slot $slot"; exit 1; fi
           bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
           DEVPID=$!
           trap 'kill $DEVPID 2>/dev/null || true' EXIT
@@ -208,4 +218,8 @@ jobs:
           # from .env.local, and GitHub only redacts registered secrets —
           # runner-local env values would land in the public job log.
           curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
-          BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden
+          # The health answer must come from OUR server: if it died (port taken
+          # after the check), whatever answers is not what this job is testing.
+          kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
+          # Only this command sees the slot's login, in its own subshell.
+          ( export GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden )
