@@ -26,7 +26,7 @@ export function BankGroupCard({ group, containsSelection, expanded, onToggle, re
   const hasGap = Math.abs(group.unreconciledBalance) >= 0.01;
   return (
     <div data-testid="bank-group-card"
-      className={`w-[280px] shrink-0 rounded-lg border-2 transition-all ${
+      className={`h-full w-[280px] shrink-0 rounded-lg border-2 transition-all ${
         active
           ? 'border-teal-500 bg-teal-500/10 shadow-lg shadow-teal-500/10'
           : 'border-dashed border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] hover:border-[var(--ff-text-tertiary)]'
