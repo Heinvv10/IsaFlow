@@ -21,6 +21,7 @@ import { importRowSubtype } from './migrationCoaSubtype';
 import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
 import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
 import { resolveCoaImportRows, type RawCoaImportRow } from './accountTypeAliases';
+import { assertParentUsable } from '../gl/accountParentRules';
 
 export { validateSystemAccountMap };
 
@@ -113,6 +114,18 @@ export async function importChartOfAccounts(
               }
               parentAccountId = String(parentRows[0]!.id);
             }
+            // A NEW account under an existing parent passes the rules every other chart write does
+            // (assertParentUsable: type, role holder, depth, and no first child for a posted level 1-2
+            // account, which would drop its balance from the balance sheet), and takes the level below
+            // its parent. An existing account's parent is never changed here (the upsert keeps it), so
+            // its row is not judged. A refusal is a ParentAccountError: the catch below records the row.
+            let level = 1;
+            if (parentAccountId) {
+              const exists = ((await sql`
+                SELECT 1 FROM gl_accounts WHERE account_code = ${acct.accountCode} AND company_id = ${companyId}::UUID
+              `) as DbRow[]).length > 0;
+              if (!exists) level = (await assertParentUsable(companyId, parentAccountId, acct.accountType)).childLevel;
+            }
 
             const { isSystem, explicitSubtype, accountSubtype, defaulted } = importRowSubtype(acct, systemAccountMap);
             if (defaulted) {
@@ -148,7 +161,7 @@ export async function importChartOfAccounts(
                 ${parentAccountId}::UUID,
                 ${acct.description ?? null},
                 ${isSystem},
-                ${parentAccountId ? 2 : 1},
+                ${level},
                 0
               )
               ON CONFLICT (company_id, account_code) DO UPDATE SET

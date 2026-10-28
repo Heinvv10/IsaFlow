@@ -10,6 +10,8 @@ import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { isSystemAccountKey, SYSTEM_ACCOUNT_KEYS } from './systemAccountKeys';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import { HOLDER_NO_CHILDREN_TYPES } from './roleTargetRules';
+import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES } from './isReportVisibleLeaf';
+import { lockGlAccountsForUpdate } from './glAccountLock';
 import type { GLAccountType } from '../../types/gl.types';
 
 export type CoaTemplate = 'isaflow_standard' | 'xero_compatible' | 'sage_compatible' | 'blank';
@@ -179,8 +181,8 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
     is_system: acc.isSystem ?? false, is_role: isRoleRow(acc), parent_code: acc.parentCode ?? null,
   })));
 
-  // Pass 1: insert all accounts (no parent yet)
-  await sql`
+  // Pass 1: insert all accounts (no parent yet). The codes it inserted are the only accounts pass 2 wires.
+  const inserted = ((await sql`
     INSERT INTO gl_accounts (
       company_id, account_code, account_name, account_type, account_subtype,
       normal_balance, level, display_order, is_system_account
@@ -199,12 +201,26 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
        OR NOT EXISTS (SELECT 1 FROM gl_accounts WHERE company_id = ${companyId}::UUID
                         AND account_subtype = t.subtype AND is_system_account AND is_active))
     ON CONFLICT (company_id, account_code) DO NOTHING
-  `;
+    RETURNING account_code
+  `) as { account_code: string }[]).map((r) => r.account_code);
+  if (inserted.length === 0) { clearSystemAccountCacheAfterCommit(companyId); return; }
 
-  // Pass 2: wire up parent_account_id (NULL when the parent's code is absent —
-  // or is held by a balance-sheet account with a system role: the company's own
-  // bank on the template's "Current Assets" code must not become a header with
-  // sub-accounts. An income-statement holder may: `roleBarringChildren`).
+  // A template parent the company already had, at level 1-2 of a balance-sheet type, would lose its own
+  // balance from the balance sheet on its first child (the rule assertParentUsable applies to every other
+  // chart write). Locked FOR UPDATE before pass 2 reads it, so a journal posting its first line waits.
+  const parentCodes = [...new Set(lines.filter((l) => l.parentCode && inserted.includes(l.code)).map((l) => l.parentCode!))];
+  const atRisk = (await sql`
+    SELECT id FROM gl_accounts
+     WHERE company_id = ${companyId}::UUID AND account_code = ANY(${parentCodes}::TEXT[])
+       AND account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND level < ${BALANCE_SHEET_LEAF_LEVEL}
+  `) as { id: string }[];
+  if (atRisk.length > 0) await lockGlAccountsForUpdate(companyId, atRisk.map((r) => String(r.id)));
+
+  // Pass 2: wire up parent_account_id of the accounts pass 1 inserted (an existing account keeps the
+  // parent the company gave it). NULL when the parent's code is absent — or is held by a balance-sheet
+  // account with a system role: the company's own bank on the template's "Current Assets" code must not
+  // become a header with sub-accounts (an income-statement holder may: `roleBarringChildren`) — or is a
+  // level 1-2 balance-sheet account with lines and no children yet, which the child would hide.
   await sql`
     UPDATE gl_accounts c
     SET parent_account_id = (
@@ -214,9 +230,13 @@ async function seedUnderLock(companyId: string, template: CoaTemplate): Promise<
         -- every sub-account of an unclassified system header lost its parent.
         AND NOT COALESCE(p.is_system_account AND p.account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
                          AND p.account_type = ANY(${[...HOLDER_NO_CHILDREN_TYPES]}::TEXT[]), false)
+        AND NOT (p.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND p.level < ${BALANCE_SHEET_LEAF_LEVEL}
+          AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = p.id AND ch.company_id = ${companyId}::UUID)
+          AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = p.id AND jl.company_id = ${companyId}::UUID))
     )
     FROM jsonb_to_recordset(${rows}::jsonb) AS t(code TEXT, parent_code TEXT)
     WHERE c.company_id = ${companyId}::UUID AND c.account_code = t.code AND t.parent_code IS NOT NULL
+      AND c.account_code = ANY(${inserted}::TEXT[])
   `;
 
   clearSystemAccountCacheAfterCommit(companyId);

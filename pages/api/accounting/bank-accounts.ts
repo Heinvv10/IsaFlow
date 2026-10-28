@@ -20,7 +20,7 @@ import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl
 import { holderAsParentRefusal, roleBarringChildren } from '@/modules/accounting/services/gl/roleTargetRules';
 import { hasChildAccounts, isSubjectToLeafRule } from '@/modules/accounting/services/gl/isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from '@/modules/accounting/services/gl/glAccountLock';
-import { warnIfHeaderHoldsMoney } from '@/modules/accounting/services/gl/accountParentRules';
+import { ReclassifyError, reclassifyAccount } from '@/modules/accounting/services/gl/accountReclassifyService';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { lockPaymentsFromAccount, recordPayingAccountEdit } from '@/modules/accounting/services/ap/payingAccountAuthors';
 
@@ -55,6 +55,8 @@ const PutBankAccountSchema = z.object({
  */
 async function assignParent(companyId: string, id: string, parentId: string | null): Promise<string | null> {
   if (parentId === id) return 'An account cannot be its own group';
+  const [self] = await sql`SELECT account_subtype FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;
+  if (!self || !isBankSubtype(self.account_subtype as string | null)) return 'Only a bank account can be grouped here';
   if (parentId) {
     const [parent] = await sql`
       SELECT id, parent_account_id, account_type, account_subtype, account_code, is_system_account, level,
@@ -68,13 +70,13 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
     const heldRole = roleBarringChildren(parent);
     if (heldRole) return holderAsParentRefusal(String(parent.account_code), heldRole);
     if (isBankSubtype(parent.parent_subtype as string | null)) return 'Group account is already a sub-account of another group';
-    const [self] = await sql`
+    const [members] = await sql`
       SELECT 1 FROM gl_accounts
       WHERE parent_account_id = ${id} AND company_id = ${companyId}
         AND account_subtype = ANY(${BANK_SUBTYPES as string[]})
       LIMIT 1
     `;
-    if (self) return 'This account is a group itself — move its sub-accounts first';
+    if (members) return 'This account is a group itself — move its sub-accounts first';
     // A group parent becomes invisible on the Bank Transactions page (the list
     // shows leaves only), so an account with its own imported transactions
     // must not be promoted to umbrella — its transactions would be unreachable.
@@ -84,31 +86,27 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
       LIMIT 1
     `;
     if (parentTx) return 'Group account has its own bank transactions — pick an account without transactions as the group';
-    // A posted level 1-2 parent would become a header the balance sheet drops — the rule assertParentUsable
-    // applies to every other chart edit, with its lock taken before the read for the same reason, and the same
-    // exemption: a group that already has a member is already a header, so another member hides nothing new.
+    // A posted level 1-2 group with no member yet would become a header the balance sheet drops. Said here in
+    // grouping terms; reclassifyAccount below applies the same rule (assertParentUsable, lock before read, a
+    // group that already has a member is already a header) to everything else it moves.
     if (isSubjectToLeafRule(Number(parent.level), String(parent.account_type))) {
       await lockGlAccountsForUpdate(companyId, [parentId]);
-      if (await hasChildAccounts(companyId, parentId)) {
-        await warnIfHeaderHoldsMoney(companyId, { id: parentId, account_code: String(parent.account_code) });
-        return setParent(companyId, id, parentId);
-      }
       const [posted] = await sql`
         SELECT 1 FROM gl_journal_lines WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID LIMIT 1`;
-      if (posted) {
+      if (posted && !(await hasChildAccounts(companyId, parentId))) {
         return `Group account ${String(parent.account_code)} has journal lines posted to it — as a group it would become `
           + 'a header and its balance would leave the balance sheet. Pick an account with no postings as the group';
       }
     }
   }
-  return setParent(companyId, id, parentId);
-}
-
-async function setParent(companyId: string, id: string, parentId: string | null): Promise<null> {
-  await boundedRowWait(() => sql`
-    UPDATE gl_accounts SET parent_account_id = ${parentId}, updated_at = NOW()
-    WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
-  `);
+  // The move itself is the chart's own: the member takes the level below its group (level 1 when ungrouped), its
+  // subtree shifts with it, and every chart rule runs (type, depth, cycle, a posted account hidden by a move up).
+  try {
+    await reclassifyAccount(companyId, id, { parentAccountId: parentId });
+  } catch (err) {
+    if (err instanceof ReclassifyError) return err.message;
+    throw err;
+  }
   return null;
 }
 
