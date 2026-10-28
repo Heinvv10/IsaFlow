@@ -76,6 +76,7 @@ const KNOWN_WRITERS = [
   'pages/api/invite/[token].ts: locks', // W10's invitation row, FOR UPDATE inside the accept transaction (S-07b review)
   'pages/api/invite/[token].ts: writes', // W10 /invite accept — migration_admin pool since S-07b (916), invitation's role
   'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
+  'scripts/ci/golden/provision-slots.ts: writes', // Golden Paths slot owner membership — isaflow_dev only (refuses any other database), one golden user per slot
   'scripts/acceptance/entity-onboarding-admin.ts: writes', // browser acceptance admin scenarios — throwaway DB via psql
   'scripts/acceptance/entity-onboarding-seed.ts: writes', // browser acceptance seed — throwaway DB via psql
   'scripts/acceptance/entity-onboarding-server.ts: names as a string', // browser acceptance: counts the four setup tables before and after a refused request (SELECT only, throwaway DB)

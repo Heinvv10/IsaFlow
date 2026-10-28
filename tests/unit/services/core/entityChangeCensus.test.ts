@@ -68,6 +68,7 @@ const WRITERS: Record<string, string[]> = {
   ],
   company_users: [
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invite/[token].ts', 'scripts/large-scale-seed.ts',
+    'scripts/ci/golden/provision-slots.ts', // Golden Paths slot owner membership (isaflow_dev only, refuses any other database)
     'scripts/acceptance/entity-onboarding-admin.ts', // acceptance admin scenarios on the throwaway DB (psql)
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
     'scripts/provision-isademo2.ts',
@@ -87,6 +88,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/accounting/company-logo.ts', 'pages/api/admin/billing/payg/[companyId]/eligibility.ts',
     'pages/api/admin/companies/bulk-action.ts', 'scripts/large-scale-seed.ts', 'scripts/provision-isademo2.ts',
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
+    'scripts/ci/golden/cloneCompany.ts', // the Golden Paths slot company row, copied from Demo (isaflow_dev only, via provision-slots.ts)
     'scripts/qa-cleanup-run.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
     'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,

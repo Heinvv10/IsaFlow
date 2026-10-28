@@ -18,6 +18,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import pg from 'pg';
 import { adminCreateUser, adminUpdateUser } from '../../../src/lib/auth/gotrue';
+import { rollbackFailed } from '../../../src/lib/rollbackFailed';
 import { cloneCompany } from './cloneCompany';
 import {
   DEV_DATABASE, GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertDevDatabaseUrl, parseEnvFile, slotCompanyId, slotCompanyName,
@@ -123,6 +124,7 @@ async function main(): Promise<void> {
       const userId = dryRun ? existing!.rows[0]?.id ?? randomUUID() : await ensureGoTrueUser(n, password);
 
       await db.query('BEGIN');
+      let committed = false;
       try {
         const fresh = await ensureCompany(db, n);
         await ensureUser(db, n, userId);
@@ -130,10 +132,12 @@ async function main(): Promise<void> {
         say(formatSlotReport(`slot ${n}`, report));
         const problems = slotProblems(report, fresh);
         if (problems.length) throw new Error(`slot ${n} is not usable: ${problems.join('; ')}`);
-        await db.query(dryRun ? 'ROLLBACK' : 'COMMIT');
-      } catch (err) {
-        await db.query('ROLLBACK');
-        throw err;
+        if (!dryRun) {
+          await db.query('COMMIT');
+          committed = true;
+        }
+      } finally {
+        if (!committed) await rollbackFailed(db, 'provision-slots');
       }
 
       if (!dryRun) {
