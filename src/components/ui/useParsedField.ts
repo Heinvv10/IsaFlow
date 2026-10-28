@@ -22,8 +22,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /** A refusal carries a machine `code` (map on it) and a human `reason` (show it; the wording may change). */
-export type ParseOutcome<T, C extends string = string> = { ok: true; value: T | null } | { ok: false; code: C; reason: string };
+export type ParseOutcome<T, C extends string> = { ok: true; value: T | null } | { ok: false; code: C; reason: string };
 
+/**
+ * `FieldValidity` with no argument means "any refusal code" (a form that handles DateField and MoneyField alike,
+ * e.g. BudgetForm); a field's own `FieldValidity<DateFieldCode>` is assignable to it. ParseOutcome and the hook have
+ * no default: each field must name its own code union, so a typo in a `code` is a compile error.
+ */
 export interface FieldValidity<C extends string = string> {
   valid: boolean;
   /** Which refusal it was, e.g. DateField's 'empty' | 'unreadable' | 'before-min' | 'after-max'; null when valid. */
@@ -52,7 +57,7 @@ export interface ParsedField {
   commit: (override?: string) => void;
 }
 
-export function useParsedField<T, C extends string = string>({ value, format, parse, onChange, resetKey }: Options<T, C>): ParsedField {
+export function useParsedField<T, C extends string>({ value, format, parse, onChange, resetKey }: Options<T, C>): ParsedField {
   const [text, setText] = useState(value === null ? '' : format(value));
   const [error, setError] = useState<string | null>(null);
   const emitted = useRef<T | null>(value);
