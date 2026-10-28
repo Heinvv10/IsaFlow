@@ -16,7 +16,7 @@ import { subtypeErrorFor } from '../gl/accountSubtypeRules';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks } from '../gl/vatLockLineClassification';
 import { boundedRowWait, isRetryableLockError, lockSystemRoleWrites, SystemRoleLockTimeoutError } from '../gl/systemRoleWriteLock';
-import { GlAccountLockTimeoutError } from '../gl/glAccountLock';
+import { GlAccountLockTimeoutError, lockGlAccountsForUpdate } from '../gl/glAccountLock';
 import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
 import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
@@ -35,7 +35,7 @@ export { validateSystemAccountMap };
  */
 function retypeHides(companyId: string) {
   return sql`(gl_accounts.account_type <> EXCLUDED.account_type
-    AND EXCLUDED.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND gl_accounts.level < ${BALANCE_SHEET_LEAF_LEVEL}
+    AND EXCLUDED.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND COALESCE(gl_accounts.level, 0) < ${BALANCE_SHEET_LEAF_LEVEL}
     AND EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = gl_accounts.id AND ch.company_id = ${companyId}::UUID)
     AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = gl_accounts.id AND jl.company_id = ${companyId}::UUID))`;
 }
@@ -109,6 +109,15 @@ export async function importChartOfAccounts(
       // Bounded: every statement below waits at most 5s for any lock while this import holds the role lock.
       await boundedRowWait(() => withSavepoint('coa_import_vat_lock', async () => {
         const before = await accountAttributes(companyId);
+        // Every existing account the file names, as a row or as a parent, locked FOR UPDATE up front and in
+        // ascending order before any row is judged: a journal line in flight to one of them (its insert
+        // holds KEY SHARE) commits first, so the re-type and parent checks below see it; and no per-row lock
+        // is taken out of order later (a posting to two of them cannot deadlock with the import).
+        const named = [...new Set(accounts.flatMap((a) => (a.parentCode ? [a.accountCode, a.parentCode] : [a.accountCode])))];
+        const existing = (await sql`
+          SELECT id FROM gl_accounts WHERE company_id = ${companyId}::UUID AND account_code = ANY(${named}::TEXT[])
+        `) as DbRow[];
+        if (existing.length > 0) await lockGlAccountsForUpdate(companyId, existing.map((r) => String(r.id)));
         // Sort: accounts without parents first, then those with parents (preserves hierarchy).
         // Each keeps its input position, so a row error names the row the operator uploaded.
         const rows = accounts.map((acct, k) => ({ acct, row: resolved.sourceRows[k]! }));
@@ -134,8 +143,6 @@ export async function importChartOfAccounts(
             // account, which would drop its balance from the balance sheet), and takes the level below
             // its parent. An existing account's parent is never changed here (the upsert keeps it), so
             // its row is not judged. A refusal is a ParentAccountError: the catch below records the row.
-            // Named limit: parents are locked in file order, not ascending, so a journal posting to two of
-            // them in the other order can deadlock with the import; that fails it whole as retryable (below).
             let level = 1;
             if (parentAccountId) {
               const exists = ((await sql`

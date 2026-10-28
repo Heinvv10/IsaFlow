@@ -17,7 +17,7 @@ import { importChartOfAccounts, type AccountImportRow } from '@/modules/accounti
 import { createSession } from '@/modules/accounting/services/core/migrationService';
 import { seedChartOfAccountsFromTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
-import { inTx } from './helpers/l1FifoFixture';
+import { inTx, runOn } from './helpers/l1FifoFixture';
 import { request, response } from './mfa-impersonation-postgres.helpers';
 import { addAccount, dropHeaderFixture, seedHeaderFixture, type HeaderFixture } from './helpers/headerGuardFixture';
 import bankAccounts from '../../pages/api/accounting/bank-accounts';
@@ -142,6 +142,39 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       expect(out.errors).toEqual([]);
       expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${r}::UUID`) as Row[])[0]!.account_type).toBe('asset');
     });
+
+    it('a NULL level counts as below 3: that header keeps its type too', async () => {
+      const x = await addAccount(h.fx, { code: 'HIS-NL1', type: 'expense', level: 1, subtype: 'operating_expense' });
+      await post(x);
+      await addAccount(h.fx, { code: 'HIS-NL1.1', type: 'expense', level: 2, parentId: x, subtype: 'operating_expense' });
+      await sql`UPDATE gl_accounts SET level = NULL WHERE id = ${x}::UUID`;
+      const out = await importRows([row('HIS-NL1')]);
+      expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${x}::UUID`) as Row[])[0]!.account_type).toBe('expense');
+      expect(out.errors[0]).toMatchObject({ severity: 'warning' });
+    });
+
+    it('an import waits for a posting in flight to an account it names, then sees its line', async () => {
+      const x = await addAccount(h.fx, { code: 'HIS-R1', type: 'expense', level: 1, subtype: 'operating_expense' });
+      await addAccount(h.fx, { code: 'HIS-R1.1', type: 'expense', level: 2, parentId: x, subtype: 'operating_expense' });
+      const a = await h.fx.pool.connect();
+      try {
+        await a.query('BEGIN');
+        // The header's first line (an expense header may be posted to), not yet committed.
+        await runOn(h.fx, a, async () => {
+          const e = await createJournalEntry(h.fx.companyId, { entryDate: DATE, description: 'HIS race', source: 'manual',
+            lines: [{ glAccountId: x, debit: 100, credit: 0 }, { glAccountId: h.fx.bankAccountId, debit: 0, credit: 100 }] }, h.fx.userId);
+          await postJournalEntry(h.fx.companyId, e.id, h.fx.userId);
+        });
+        const state = { settled: false };
+        const imported = importRows([row('HIS-R1')]).finally(() => { state.settled = true; });
+        await new Promise((r) => setTimeout(r, 1500));
+        expect(state.settled, 'the import did not wait for the posting').toBe(false);
+        await a.query('COMMIT');
+        const out = await imported;
+        expect(((await sql`SELECT account_type FROM gl_accounts WHERE id = ${x}::UUID`) as Row[])[0]!.account_type).toBe('expense');
+        expect(out.errors[0]).toMatchObject({ severity: 'warning' });
+      } finally { await a.query('ROLLBACK').catch(() => undefined); a.release(); }
+    }, 30000);
 
     it('control: an unused account is re-typed by the import as before', async () => {
       const u = await addAccount(h.fx, { code: 'HIS-X2', type: 'expense', level: 1, subtype: 'operating_expense' });
