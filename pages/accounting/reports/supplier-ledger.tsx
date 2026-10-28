@@ -159,10 +159,10 @@ export default function SupplierLedgerPage() {
 
         <div className="p-6 max-w-5xl space-y-4">
           {/* Filters */}
-          <div className="flex flex-wrap items-start gap-4">
-            <div className="flex-1 min-w-[200px] flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
-              <SupplierSelect value={supplierId} onChange={setSupplierId} inputClassName={inputVariants()} />
+          <div className="grid grid-cols-2 items-start gap-4 lg:grid-cols-[minmax(200px,1fr)_auto_auto_auto]">
+            <div className="col-span-2 flex flex-col gap-1 lg:col-span-1">
+              <label htmlFor="supplier-ledger-supplier" className="text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+              <SupplierSelect id="supplier-ledger-supplier" value={supplierId} onChange={setSupplierId} inputClassName={inputVariants()} />
             </div>
             <div>
               <DateField label="From" value={dateFrom || null} onChange={onFromChange} />
@@ -173,7 +173,7 @@ export default function SupplierLedgerPage() {
             <button
               onClick={runReport}
               disabled={loading || !supplierId || dates.blocked}
-              className="mt-6 inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
+              className="col-span-2 justify-self-start lg:col-span-1 lg:mt-6 inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Run Report
