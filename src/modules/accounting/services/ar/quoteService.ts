@@ -11,6 +11,7 @@ import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { withSourceEditorStamp } from './sourceContentEditor';
 import { assertLineAccountIds } from './invoiceLineCodingGuard';
+import { shownPosition } from '@/lib/lineNumbers';
 
 type Row = DbRow;
 
@@ -59,7 +60,7 @@ interface QuoteInput {
   expiryDate?: string;
   notes?: string;
   terms?: string;
-  lines: { description: string; quantity: number; unitPrice: number; taxRate?: number; accountId?: string }[];
+  lines: { description: string; quantity: number; unitPrice: number; taxRate?: number; accountId?: string; lineNo?: number }[];
 }
 
 function mapQuote(r: Row): Quote {
@@ -120,12 +121,9 @@ export class LineValidationError extends Error {
  */
 export async function assertValidLines(companyId: string, lines: QuoteInput['lines']): Promise<void> {
   for (const [i, l] of (lines || []).entries()) {
-    if (!(Number(l.quantity) > 0)) {
-      throw new LineValidationError(`Line ${i + 1}: quantity must be positive`);
-    }
-    if (Number(l.unitPrice) < 0) {
-      throw new LineValidationError(`Line ${i + 1}: unit price cannot be negative`);
-    }
+    const n = shownPosition(l.lineNo, i + 1); // the number on the form, which may have dropped blank lines
+    if (!(Number(l.quantity) > 0)) throw new LineValidationError(`Line ${n}: quantity must be positive`);
+    if (Number(l.unitPrice) < 0) throw new LineValidationError(`Line ${n}: unit price cannot be negative`);
   }
   await assertLineAccountIds(companyId, (lines || []).map((l) => l.accountId)); // conversion posts to them (mig 874)
 }

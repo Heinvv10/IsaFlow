@@ -53,6 +53,21 @@ describe('quote lines', () => {
   });
 });
 
+describe('a form that drops blank lines before sending keeps the numbers the user saw', () => {
+  it('quote: lineNo wins over the array position; an unusable lineNo falls back to it', async () => {
+    const bad = { description: PAYEE, quantity: 0, unitPrice: 5 };
+    expect(await messageAsync(() => assertValidLines('co', [{ ...bad, lineNo: 4 }] as never))).toBe('Line 4: quantity must be positive');
+    expect(await messageAsync(() => assertValidLines('co', [{ ...bad, unitPrice: -5, quantity: 1, lineNo: 3 }] as never))).toBe('Line 3: unit price cannot be negative');
+    expect(await messageAsync(() => assertValidLines('co', [{ ...bad, lineNo: '4' }] as never))).toBe('Line 1: quantity must be positive');
+  });
+  it('sales order: lineNo wins over the array position; an unusable lineNo falls back to it', () => {
+    const bad = { description: PAYEE, quantity: 0, unit_price: 5 };
+    expect(message(() => calcTotals([{ ...bad, lineNo: 4 }] as never))).toBe('Line 4: quantity must be positive');
+    expect(message(() => calcTotals([{ ...bad, quantity: 1, unit_price: -5, lineNo: 3 }] as never))).toBe('Line 3: unit price cannot be negative');
+    expect(message(() => calcTotals([{ ...bad, lineNo: 0 }] as never))).toBe('Line 1: quantity must be positive');
+  });
+});
+
 describe('sales order lines', () => {
   it.each([
     [{ quantity: 0, unit_price: 5 }, 'Line 2: quantity must be positive'],
@@ -81,14 +96,15 @@ describe('recurring invoice lines', () => {
 
 describe('WIP time entries', () => {
   const entry = (over: object) => ({ id: 'te', entry_date: '2026-01-05', task_description: PAYEE, hours: 4, applied_rate: 250, line_total: 1000, ...over });
-  it('a negative rate names the entry by position and date', () => {
+  // The Approvals and WIP pages show date, hours, rate and total, so that is how the entry is named.
+  it('a negative rate names the entry by its date and hours', () => {
     const m = message(() => assertWipEntryLines([entry({ task_description: 'ok' }), entry({ applied_rate: -1, line_total: -4 })]));
-    expect(m).toMatch(/^time entry 2 \(2026-01-05\) has a negative or non-numeric amount/);
+    expect(m).toMatch(/^time entry of 2026-01-05, 4\.00h has a negative or non-numeric amount \(rate -1, line -4\)/);
     expect(m).not.toContain('J SMITH');
   });
-  it('a line that is not hours x rate names the entry by position and date', () => {
+  it('a line that is not hours x rate names the entry by its date and hours', () => {
     const m = message(() => assertWipEntryLines([entry({ line_total: 5000 })]));
-    expect(m).toMatch(/^time entry 1 \(2026-01-05\) has a line of 5000/);
+    expect(m).toMatch(/^time entry of 2026-01-05, 4\.00h has a line of 5000 that is not its 4h × 250/);
     expect(m).not.toContain('J SMITH');
   });
 });
