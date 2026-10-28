@@ -129,6 +129,21 @@ describeIfDb('a re-import refuses to change an existing account\'s type', () => 
         .toEqual({ imported: 1, x6: { account_type: 'asset', account_name: 'System via xero', account_subtype: 'petty_cash' } });
     });
 
+    it('a system account the file types differently refuses the opening balances, naming it; nothing posts', async () => {
+      await addAccount(h.fx, { code: 'IRT-X7', type: 'asset', level: 3, subtype: 'petty_cash', system: true });
+      await addAccount(h.fx, { code: 'IRT-X8', type: 'liability', level: 3 });
+      await sql`UPDATE gl_accounts SET imported_from = 'xero'
+                 WHERE company_id = ${h.fx.companyId}::UUID AND account_code IN ('IRT-X7', 'IRT-X8')`;
+      const out = await rerun([{ ...xeroRow('IRT-X7', 'liability', 'Cash'), openingBalance: 500 },
+        { ...xeroRow('IRT-X8', 'liability', 'Owed'), openingBalance: -500 }]);
+      const lines = Number(((await sql`
+        SELECT COUNT(*)::INT AS n FROM gl_journal_lines jl JOIN gl_accounts a ON a.id = jl.gl_account_id
+         WHERE a.company_id = ${h.fx.companyId}::UUID AND a.account_code IN ('IRT-X7', 'IRT-X8')`) as Row[])[0]!.n);
+      expect({ set: out.openingBalancesSet, lines,
+        named: out.errors.some((e) => /IRT-X7 Cash \(asset here, liability in the file\)/.test(e)) })
+        .toEqual({ set: 0, lines: 0, named: true });
+    });
+
     it('a row whose code comes from its name is refused the same way', async () => {
       await addAccount(h.fx, { code: 'IRT Named', type: 'asset', level: 3 });
       await sql`UPDATE gl_accounts SET imported_from = 'xero' WHERE company_id = ${h.fx.companyId}::UUID AND account_code = 'IRT Named'`;
