@@ -135,15 +135,25 @@ describe('Invariant 1: BvA actual = income statement, per account and band, to t
     }
   });
 
+  /** Windows in which a filter's net profit is non-zero on BOTH sides: no filter cell is vacuous (review T1). */
+  const live = new Map<FilterName, string[]>(FILTERS.map((n) => [n, []]));
+
   for (const [label, params, start, end] of WINDOWS) {
     it(`${label}: every filter`, async () => {
       const mismatches: string[] = [];
       for (const name of FILTERS) {
         const report = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { ...params, ...paramsOf(name) }, NOW));
         expect([report.window.startDate, report.window.endDate], `${label} window`).toEqual([start, end]);
-        mismatches.push(...compare(`${label} / ${name}`, report, await oracle(name, start, end)));
+        const o = await oracle(name, start, end);
+        mismatches.push(...compare(`${label} / ${name}`, report, o));
+        const np = report.bands.find((b) => b.key === 'net_profit')!.actual;
+        if (cents(o.bands.net_profit!) !== 0 && cents(np) !== 0) live.get(name)!.push(label);
       }
       expect(mismatches).toEqual([]);
     });
   }
+
+  it('every filter compared a non-zero net profit in every window (no vacuous cell)', () => {
+    for (const name of FILTERS) expect(live.get(name), name).toEqual(WINDOWS.map(([label]) => label));
+  });
 });
