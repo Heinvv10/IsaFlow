@@ -181,6 +181,8 @@ export interface TrackingNotices {
   unallocatedBudget: ByPolarity | null;
   /** FY* is budget-absent for this window (no version, or no budget row in its window months). */
   noVersion: boolean;
+  /** Lines whose budget covers only part of the window (`TrackingLine.partialBudget`); null when none. */
+  partialBudget: { count: number; actual: ByPolarity } | null;
   /** Every year with NO BUDGET IN THIS WINDOW: no version, or a version contributing no income-statement
    *  row in that year's window months (it may hold budget outside the window). Name kept for the wire. */
   noVersionYears: number[];

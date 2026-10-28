@@ -38,6 +38,8 @@ export interface BudgetTrackingRow extends StatementRow {
   projection: TrackingProjectionCells;
   /** Budget set above the filter, never in `budget` (spec §2.4); null while the window budget is absent. */
   unallocatedBudget: number | null;
+  /** Line rows only: the account's budget covers part of the window (copied from the engine's line). */
+  partialBudget?: boolean;
 }
 
 function budgetOf(f: TrackingFigures): TrackingComparison {
@@ -60,7 +62,7 @@ function figureRow(id: string, kind: StatementRow['kind'], label: string, depth:
 }
 
 const lineRow = (l: TrackingLine): BudgetTrackingRow => ({
-  ...figureRow(`acc:${l.accountCode}`, 'line', l.accountName, 1, l), accountCode: l.accountCode,
+  ...figureRow(`acc:${l.accountCode}`, 'line', l.accountName, 1, l), accountCode: l.accountCode, partialBudget: l.partialBudget,
 });
 
 export function toBudgetTrackingRows(report: Pick<BudgetTrackingReport, 'lines' | 'bands'>): BudgetTrackingRow[] {
