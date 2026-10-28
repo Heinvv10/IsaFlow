@@ -43,6 +43,8 @@ export default function VATAdjustmentsPage() {
   });
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const onFromChange = dates.bind('dateFrom', setDateFrom, dateFrom);
+  const onToChange = dates.bind('dateTo', setDateTo, dateTo);
 
   const load = useCallback(async () => {
     try {
@@ -137,13 +139,19 @@ export default function VATAdjustmentsPage() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
 
           <div className="flex items-center gap-4">
-            <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
-            <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
+            <DateField label="From" value={dateFrom || null} onChange={onFromChange} />
+            <DateField label="To" value={dateTo || null} onChange={onToChange} />
             {(dateFrom || dateTo) && (
               <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
             )}
             <span className="mt-4 text-sm text-[var(--ff-text-secondary)] ml-auto">{filteredItems.length} adjustments</span>
           </div>
+
+          {dates.blocked && (
+            <div role="alert" className="p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
+              Fix the date marked in red: the list below still uses the previous dates.
+            </div>
+          )}
 
           {showForm && (
             <form onSubmit={handleSubmit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
