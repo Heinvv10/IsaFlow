@@ -16,7 +16,7 @@ const scope = [
   { fiscalYear: 2026, versionId: 'v26', first: '2026-01-01', last: '2026-02-01' },
   { fiscalYear: 2027, versionId: 'v27', first: '2026-03-01', last: '2027-04-01' },
 ];
-const rows = (...months: string[]) => months.map((month) => ({ month }));
+const rows = (...months: string[]) => months.map((month) => ({ month, cls: 'included' as const }));
 
 describe('budgetAbsentYears', () => {
   it('a year with rows in its window months is budgeted; one without is absent', () => {
@@ -38,5 +38,12 @@ describe('budgetAbsentYears', () => {
     const s28 = [{ fiscalYear: 2028, versionId: 'v28', first: '2027-05-01', last: '2028-04-01' }];
     expect(budgetAbsentYears(notStarted, s28, rows('2028-01'))).toEqual([]);
     expect(budgetAbsentYears(notStarted, s28, [])).toEqual([2028]);
+  });
+});
+
+describe('budgetAbsentYears under a filter (review r5 G1)', () => {
+  it("rows the filter classes as other never budget a year; coarser rows keep it present (its unallocated footer)", () => {
+    expect(budgetAbsentYears(window, scope, [{ month: '2026-01', cls: 'other' }, { month: '2026-03', cls: 'included' }])).toEqual([2026]);
+    expect(budgetAbsentYears(window, scope, [{ month: '2026-01', cls: 'coarser' }, { month: '2026-03', cls: 'included' }])).toEqual([]);
   });
 });

@@ -25,7 +25,8 @@ import type { ByPolarity, TrackingBand, TrackingBandKey, TrackingLine, TrackingN
 const BANDS = BAND_ORDER.map((key) => ({ key, label: BAND_LABEL[key], polarity: BAND_SIGN[key] === 1 ? 'income' as const : 'expense' as const }));
 
 /** Cents, with null = absent. */
-interface Sums { actual: number; budget: number | null; projected: number; fyBudget: number | null; unallocated: number | null }
+/** Cents, with null = absent. `partial`: a line under it budgets only part of the window (G1). */
+interface Sums { actual: number; budget: number | null; projected: number; fyBudget: number | null; unallocated: number | null; partial: boolean }
 
 const plus = (x: number | null, y: number | null): number | null => (x === null && y === null ? null : (x ?? 0) + (y ?? 0));
 const minus = (x: number | null, y: number | null): number | null => (x === null && y === null ? null : (x ?? 0) - (y ?? 0));
@@ -38,6 +39,7 @@ function sumLines(lines: readonly TrackingLine[], unallocatedAbsent: boolean): S
     projected: lines.reduce((s, l) => s + toCents(l.projected), 0),
     fyBudget: lines.some((l) => l.fyBudget !== null) ? lines.reduce((s, l) => s + cents(l.fyBudget), 0) : null,
     unallocated: unallocatedAbsent ? null : lines.reduce((s, l) => s + cents(l.unallocatedBudget), 0),
+    partial: lines.some((l) => l.partialBudget),
   };
 }
 
@@ -50,6 +52,7 @@ function combine(x: Sums, y: Sums, op: 'plus' | 'minus'): Sums {
     fyBudget: f(x.fyBudget, y.fyBudget),
     // Netted by polarity like the budget (D1: never income + expense).
     unallocated: f(x.unallocated, y.unallocated),
+    partial: x.partial || y.partial,
   };
 }
 
@@ -87,7 +90,10 @@ export function buildBands(lines: readonly TrackingLine[], opts: { budgetAbsent?
   const gross = combine(s('turnover'), s('cost_of_sales'), 'minus');
   const operating = combine(combine(gross, s('other_income'), 'plus'), s('operating_expense'), 'minus');
   const net = combine(operating, s('other_expense'), 'minus');
-  const total = (key: TrackingTotalKey, label: string, kind: 'total' | 'grand', x: Sums) => figures(key, label, kind, 'income', x);
+  // A profit total over a line that budgets only part of the window is a partial-window figure: its
+  // budget is absent (review r5 G1), so no bridge is drawn from it.
+  const total = (key: TrackingTotalKey, label: string, kind: 'total' | 'grand', x: Sums) =>
+    figures(key, label, kind, 'income', x.partial ? { ...x, budget: null } : x);
   return [
     band('turnover'),
     band('cost_of_sales'),
@@ -110,7 +116,7 @@ export function buildNotices(
   lines: readonly TrackingLine[],
   v: { noVersion: boolean; noVersionYears: number[]; budgetAbsent: boolean },
 ): TrackingNotices {
-  const unbudgeted = v.budgetAbsent ? [] : lines.filter((l) => l.budget === null && !l.budgetAboveFilter && l.actual !== 0);
+  const unbudgeted = v.budgetAbsent ? [] : lines.filter((l) => l.budget === null && !l.budgetAboveFilter && !l.partialBudget && l.actual !== 0);
   const split = (ls: readonly TrackingLine[], pick: (l: TrackingLine) => number): ByPolarity => ({
     income: fromCents(ls.filter((l) => l.accountType === 'revenue').reduce((s, l) => s + toCents(pick(l)), 0)),
     expense: fromCents(ls.filter((l) => l.accountType === 'expense').reduce((s, l) => s + toCents(pick(l)), 0)),

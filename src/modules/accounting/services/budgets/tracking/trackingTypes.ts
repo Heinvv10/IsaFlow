@@ -128,6 +128,10 @@ export interface TrackingLine extends TrackingFigures {
   band: TrackingBandKey;
   /** The account's only budget in the window is set above this filter ("budget set above this filter"). */
   budgetAboveFilter: boolean;
+  /** The account's budget covers PART of the window (a cross-year window budgeted in some years only,
+   *  or a grain change between versions): the window Budget / Var R / Var % are absent, and so are the
+   *  profit totals above it. Not "unbudgeted". */
+  partialBudget: boolean;
   monthly: TrackingMonth[];
 }
 
@@ -150,6 +154,8 @@ export interface TrackingVersionRef {
   kind: string;
   status: string;
   isPrimary: boolean;
+  /** FY*'s version contributes no budget in this window (it may hold budget outside it). */
+  empty?: true;
 }
 
 /** One bullet: a member's net profit, or the untagged / company-level remainder (memberId null). */

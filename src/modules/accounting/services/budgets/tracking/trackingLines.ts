@@ -27,7 +27,7 @@ import { fromCents, toCents } from '../grid/cents';
 import { bandOf } from '../grid/subtotals';
 import type { BudgetRowClass } from './trackingDimRollup';
 import { projectCents, type ProjectionPlan } from './trackingProjection';
-import type { TrackingLine, TrackingMonth } from './trackingTypes';
+import type { TrackingLine, TrackingMonth, WindowYear } from './trackingTypes';
 
 /** An account the print order does not list: a read the service did not make consistently (a 500 after it is logged). */
 export class TrackingOrderError extends Error {
@@ -74,6 +74,8 @@ export function buildTrackingLines(input: {
   noVersionMonths?: readonly string[];
   /** Account ids in the order to print them (Postgres' `ORDER BY account_code`); absent, the order the cells arrive in. */
   order?: readonly string[];
+  /** The window's financial years with their window months, for the cross-year rule (review r5 G1). */
+  windowYears?: readonly WindowYear[];
 }): TrackingLine[] {
   // A month nobody budgeted for (no version) is not a zero budget: a window total that silently
   // counted it as 0 would print a variance against part of the window.
@@ -101,7 +103,13 @@ export function buildTrackingLines(input: {
     // coarser ones in others is a budget for PART of the window, not the window's: absent, above
     // the filter. (A version holds one grain per account, so a month never has both.)
     const grainChanged = anyIn(acc.budget, ms) && ms.some((m) => acc.coarser.has(m) && !acc.budget.has(m));
-    const budget = !windowBudgetAbsent && !grainChanged && anyIn(acc.budget, ms) ? sumOver(acc.budget, ms) : null;
+    // The cross-year rule (review r5 G1, the same principle per line): over a window touching more
+    // than one financial year, included rows in some years' window months and none in another's is a
+    // budget for part of the window. Within one year the D5 per-month rule stands.
+    const years = (input.windowYears ?? []).filter((y) => y.months.length > 0);
+    const crossYearPartial = years.length > 1 && anyIn(acc.budget, ms) && years.some((y) => !anyIn(acc.budget, y.months));
+    const partial = !windowBudgetAbsent && (grainChanged || crossYearPartial);
+    const budget = !windowBudgetAbsent && !partial && anyIn(acc.budget, ms) ? sumOver(acc.budget, ms) : null;
     // Unallocated budget over a window with a no-version month is a partial-window sum too (A2): absent.
     const unallocated = windowBudgetAbsent ? null : sumOver(acc.coarser, ms);
     const variance = budget === null ? null : actual - budget;
@@ -134,7 +142,8 @@ export function buildTrackingLines(input: {
       projVariance: proj.projVariance === null ? null : fromCents(proj.projVariance),
       projFavourable: proj.projVariance === null ? null : isFavourable(polarity, proj.projVariance),
       unallocatedBudget: unallocated === null ? null : fromCents(unallocated),
-      budgetAboveFilter: (grainChanged || !anyIn(acc.budget, ms)) && anyIn(acc.coarser, ms),
+      budgetAboveFilter: (partial || !anyIn(acc.budget, ms)) && anyIn(acc.coarser, ms),
+      partialBudget: partial,
       monthly,
     });
   }

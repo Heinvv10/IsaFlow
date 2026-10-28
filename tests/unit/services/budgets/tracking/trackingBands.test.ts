@@ -225,7 +225,9 @@ describe('review round 2', () => {
     expect(lines.find((l) => l.accountId === 'rent')!.budget).toBe(300);
     const bands = buildBands(lines);
     expect(bands.find((x) => x.key === 'turnover')!.budget).toBeNull();
-    expect(bands.find((x) => x.key === 'net_profit')!.budget).toBe(-300);
+    // Review r5: a line whose budget covers part of the window makes the profit totals partial: absent.
+    expect(bands.find((x) => x.key === 'net_profit')!.budget).toBeNull();
+    expect(bands.find((x) => x.key === 'operating_expense')!.budget).toBe(300);
     expect(buildNotices(lines, { noVersion: false, noVersionYears: [], budgetAbsent: false }).unbudgetedCount).toBe(0);
   });
 
@@ -248,5 +250,45 @@ describe('review round 3', () => {
     for (const x of bands) expect([x.key, x.budget, x.unallocatedBudget]).toEqual([x.key, null, null]);
     // Without the gap an empty window is a real zero.
     expect(buildBands([]).find((x) => x.key === 'net_profit')!.unallocatedBudget).toBe(0);
+  });
+});
+
+describe('review round 5 (G1): a cross-year window, budgeted in some years only', () => {
+  const M26 = '2026-02';
+  const M27 = '2026-03';
+  const YEARS = [{ fiscalYear: 2026, months: [M26] }, { fiscalYear: 2027, months: [M27] }];
+  const build2 = (budgets: ClassifiedBudgetCell[], windowYears = YEARS) => buildTrackingLines({
+    accounts: ACCOUNTS, windowMonths: [M26, M27], plan: PLAN, windowYears,
+    actuals: [{ accountId: 'sales', month: M26, amount: 100 }, { accountId: 'sales', month: M27, amount: 100 }, { accountId: 'rent', month: M27, amount: 40 }],
+    budgets,
+  });
+  const cell = (accountId: string, month: string, amount: number, cls: ClassifiedBudgetCell['cls'] = 'included'): ClassifiedBudgetCell => ({ accountId, month, amount, cls });
+
+  it('a line included in one year and not the other has no window budget; it is partial, not unbudgeted', () => {
+    const lines = build2([cell('sales', M27, 90), cell('rent', M26, 20), cell('rent', M27, 20)]);
+    const sales = lines.find((l) => l.accountId === 'sales')!;
+    expect([sales.budget, sales.variance, sales.variancePct, sales.favourable, sales.partialBudget, sales.budgetAboveFilter]).toEqual([null, null, null, null, true, false]);
+    expect(sales.monthly.map((m) => m.budget)).toEqual([null, 90]);
+    const rent = lines.find((l) => l.accountId === 'rent')!;
+    expect([rent.budget, rent.partialBudget]).toEqual([40, false]);
+    expect(buildNotices(lines, { noVersion: false, noVersionYears: [], budgetAbsent: false }).unbudgetedCount).toBe(0);
+    // Profit totals over a partial line are partial-window figures: absent, so no bridge.
+    const bands = buildBands(lines);
+    expect(['gross_profit', 'operating_profit', 'net_profit'].map((k) => bands.find((x) => x.key === k)!.budget)).toEqual([null, null, null]);
+    expect(budgetBridgeSteps({ bands })).toEqual([]);
+  });
+
+  it('coarser rows in the other year set budgetAboveFilter; other-class rows never count as budget', () => {
+    const lines = build2([cell('sales', M27, 90), cell('sales', M26, 300, 'coarser'), cell('rent', M26, 5, 'other'), cell('rent', M27, 20)]);
+    const sales = lines.find((l) => l.accountId === 'sales')!;
+    expect([sales.budget, sales.partialBudget, sales.budgetAboveFilter, sales.unallocatedBudget]).toEqual([null, true, true, 300]);
+    const rent = lines.find((l) => l.accountId === 'rent')!;
+    expect([rent.budget, rent.partialBudget]).toEqual([null, true]);
+  });
+
+  it('within one fiscal year the D5 per-month rule stays: a budget for some months is the budget', () => {
+    const lines = build2([cell('sales', M27, 90)], [{ fiscalYear: 2027, months: [M26, M27] }]);
+    expect([lines[0]!.budget, lines[0]!.partialBudget]).toEqual([90, false]);
+    expect(buildBands(lines).find((x) => x.key === 'net_profit')!.budget).toBe(90);
   });
 });

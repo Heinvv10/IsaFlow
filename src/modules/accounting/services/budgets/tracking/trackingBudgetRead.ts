@@ -76,16 +76,18 @@ function scopeYears(window: TrackingWindow): Array<{ fiscalYear: number; first: 
  * Pure (review r3 R9, r4 E1-E3): the years the WINDOW has no budget for. A year is budget-absent
  * when it has no version, or when its version contributes no row to the scoped budget read
  * (`readTrackingBudgets`: income-statement accounts, the version's own months) within that year's
- * window months. An "any row" check would be fooled by a row outside the window, on a
+ * window months, counting only rows the filter classes included or coarser. An "any row" check would be fooled by a row outside the window, on a
  * balance-sheet account, or dated in another year's month. FY* outside the window (a year to date
  * that has not started) is judged over its whole year, as the projection reads it.
  */
 export function budgetAbsentYears(
   window: { years: readonly WindowYear[]; fy: { fiscalYear: number; startDate: string; endDate: string } },
   scope: readonly VersionScope[],
-  rows: ReadonlyArray<{ month: string }>,
+  rows: ReadonlyArray<{ month: string; cls: 'included' | 'coarser' | 'other' }>,
 ): number[] {
-  const budgeted = new Set(rows.map((r) => r.month));
+  // Under a filter (review r5 G1): rows the filter classes as other never budget a year; coarser rows
+  // do (they are the year's unallocated footer), included ones of course.
+  const budgeted = new Set(rows.filter((r) => r.cls !== 'other').map((r) => r.month));
   const judged = window.years.some((y) => y.fiscalYear === window.fy.fiscalYear)
     ? window.years
     : [...window.years, { fiscalYear: window.fy.fiscalYear, months: budgetMonthKeysInWindow(window.fy.startDate, window.fy.endDate) }];
