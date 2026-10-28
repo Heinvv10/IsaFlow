@@ -29,7 +29,7 @@ export interface TrackingExportRow {
   projected: number;
   fyBudget: number | null;
   projVariance: number | null;
-  unallocated: number;
+  unallocated: number | null;
 }
 
 const pct2 = (n: number | undefined): number | null => (n === undefined ? null : Math.round(n * 100) / 100);
@@ -67,19 +67,26 @@ export function trackingExportRows(report: Pick<BudgetTrackingReport, 'lines' | 
 
 const member = (m: TrackingMemberRef | undefined, level: string) => (m ? `${level} ${m.code} ${m.name}` : null);
 
-/** The leading label / value lines: company, window, version, filter, projection cutoff. */
+/** The leading label / value lines: company, window, version, filter, projection cutoff, and a no-version notice. */
 export function trackingExportHeader(report: BudgetTrackingReport, companyName: string): Array<[string, string]> {
   const w = report.window;
   const f = report.filter;
   const filter = [member(f.cc1, 'CC1'), member(f.cc2, 'CC2'), member(f.bu, 'BU'), member(f.costCentre, 'Cost centre')].filter(Boolean).join('; ');
   const version = report.version ? `${report.version.name} · ${report.version.status}` : `None (no budget for FY${w.fiscalYear})`;
-  return [
+  const head: Array<[string, string]> = [
     ['Company', companyName],
     ['Window', w.notStarted ? `${w.label} (not started)` : `${w.label} (${w.startDate} to ${w.endDate})`],
     ['Version', version],
     ['Dimension filter', filter === '' ? 'None (company total)' : filter],
     ['Projection cutoff', `Actuals to ${report.projection.cutoff}, budget after`],
   ];
+  // A window reaching a year with no version prints no budget at all (F1): say why, or the blank
+  // Budget column beside a named version reads as an export fault.
+  const missing = report.notices.noVersionYears;
+  if (missing.length > 0) {
+    head.push(['Notice', `No budget for ${missing.map((y) => `FY${y}`).join(', ')}: the Budget columns are blank for this window`]);
+  }
+  return head;
 }
 
 const money = (n: number | null): string => (n === null ? '' : n.toFixed(2));
