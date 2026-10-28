@@ -173,3 +173,27 @@ describe('calendar-month assumption', () => {
     expect((await refusal(resolveTrackingWindowFrom(odd, { period: 'fy', fiscalYear: 2027 }, TODAY))).status).toBe(409);
   });
 });
+
+describe('a parameter that does not apply to the period is a 400 (review Q8)', () => {
+  const CASES: Array<[string, Parameters<typeof resolveTrackingWindowFrom>[1]]> = [
+    ['fiscal_year with month', { period: 'month', month: '2026-10', fiscalYear: 2027 }],
+    ['quarter without period=quarter', { period: 'fy', fiscalYear: 2027, quarter: 2 }],
+    ['from outside custom', { period: 'ytd', from: '2026-01' }],
+    ['to outside custom', { period: 'quarter', fiscalYear: 2027, quarter: 1, to: '2026-05' }],
+    ['month outside month', { period: 'custom', from: '2026-01', to: '2026-03', month: '2026-02' }],
+    ['fiscal_year with custom', { period: 'custom', from: '2026-01', to: '2026-03', fiscalYear: 2027 }],
+  ];
+  for (const [name, params] of CASES) {
+    it(name, async () => {
+      expect((await refusal(resolveTrackingWindowFrom(TWELVE, params, TODAY))).status).toBe(400);
+    });
+  }
+});
+
+describe('years outside 1900-2200 are a 400 (review S2)', () => {
+  it('refuses a month or a custom bound outside the range', async () => {
+    expect((await refusal(resolveTrackingWindowFrom(TWELVE, { period: 'month', month: '0001-01' }, TODAY))).status).toBe(400);
+    expect((await refusal(resolveTrackingWindowFrom(TWELVE, { period: 'custom', from: '2201-01', to: '2201-02' }, TODAY))).status).toBe(400);
+    expect((await refusal(resolveTrackingWindowFrom(TWELVE, { period: 'fy', fiscalYear: 1899 }, TODAY))).status).toBe(400);
+  });
+});
