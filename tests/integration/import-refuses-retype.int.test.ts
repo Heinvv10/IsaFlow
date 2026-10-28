@@ -62,15 +62,29 @@ describeIfDb('a re-import refuses to change an existing account\'s type', () => 
       });
     });
 
-    it('a system account is not refused: its name updates and its type is kept, with a warning (unchanged)', async () => {
+    it('a system account is not refused: its name updates, its type and normal side are kept, with a warning', async () => {
       await addAccount(h.fx, { code: 'IRT-S1', type: 'asset', level: 3, subtype: 'petty_cash', system: true });
-      const out = await importRows([coaRow('IRT-S1', 'expense', 'System renamed')]);
+      const out = await importRows([{ ...coaRow('IRT-S1', 'expense', 'System renamed'), normalBalance: 'credit' } as AccountImportRow]);
       expect({
         imported: out.imported,
         warned: out.errors.some((e) => e.severity === 'warning' && /IRT-S1 is a system account/.test(e.message)),
         refused: out.errors.some((e) => e.severity !== 'warning'),
         s1: await account('IRT-S1'),
-      }).toEqual({ imported: 1, warned: true, refused: false, s1: { account_type: 'asset', account_name: 'System renamed', account_subtype: 'petty_cash' } });
+        side: ((await sql`SELECT normal_balance FROM gl_accounts WHERE company_id = ${h.fx.companyId}::UUID AND account_code = 'IRT-S1'`) as Row[])[0]!.normal_balance,
+      }).toEqual({ imported: 1, warned: true, refused: false, s1: { account_type: 'asset', account_name: 'System renamed', account_subtype: 'petty_cash' }, side: 'debit' });
+    });
+
+    it('a role mapped onto a row that would be re-typed is refused by name, judged by the account\'s real type', async () => {
+      await addAccount(h.fx, { code: 'IRT-R1', type: 'asset', level: 3 });
+      const out = await inTx(h.fx, async () => {
+        const session = await createSession(h.fx.companyId, 'sage', h.fx.userId);
+        return importChartOfAccounts(h.fx.companyId, session.id, [coaRow('IRT-R1', 'expense', 'Admin')], { admin_expense: 'IRT-R1' } as never);
+      });
+      expect({ imported: out.imported, refusal: out.errors.map((e) => ({ field: e.field, typed: /type 'expense'.*got 'asset'/.test(e.message) })),
+        r1: await account('IRT-R1') }).toEqual({
+        imported: 0, refusal: [{ field: 'systemAccountMap.admin_expense', typed: true }],
+        r1: { account_type: 'asset', account_name: `IRT-R1 name ${h.fx.tag}`, account_subtype: null },
+      });
     });
   });
 
@@ -90,6 +104,37 @@ describeIfDb('a re-import refuses to change an existing account\'s type', () => 
         x1: { account_type: 'asset', account_name: `IRT-X1 name ${h.fx.tag}`, account_subtype: null },
         x2: 'Xero asset',
       });
+    });
+
+    it('a refused row with an opening balance refuses the opening balances whole, naming it; nothing posts', async () => {
+      await addAccount(h.fx, { code: 'IRT-X4', type: 'asset', level: 3 });
+      await addAccount(h.fx, { code: 'IRT-X5', type: 'liability', level: 3 });
+      await sql`UPDATE gl_accounts SET imported_from = 'xero'
+                 WHERE company_id = ${h.fx.companyId}::UUID AND account_code IN ('IRT-X4', 'IRT-X5')`;
+      const out = await rerun([{ ...xeroRow('IRT-X4', 'liability', 'Was an asset'), openingBalance: 1000 },
+        { ...xeroRow('IRT-X5', 'liability', 'Payable'), openingBalance: -1000 }]);
+      const lines = Number(((await sql`
+        SELECT COUNT(*)::INT AS n FROM gl_journal_lines jl JOIN gl_accounts a ON a.id = jl.gl_account_id
+         WHERE a.company_id = ${h.fx.companyId}::UUID AND a.account_code IN ('IRT-X4', 'IRT-X5')`) as Row[])[0]!.n);
+      expect({ set: out.openingBalancesSet, lines,
+        named: out.errors.some((e) => /^Opening balances: .*IRT-X4 Was an asset \(asset here, liability in the file\)/.test(e)),
+        x4: (await account('IRT-X4'))!.account_type }).toEqual({ set: 0, lines: 0, named: true, x4: 'asset' });
+    });
+
+    it('a system account the source imported keeps its type and takes the name (not refused)', async () => {
+      await addAccount(h.fx, { code: 'IRT-X6', type: 'asset', level: 3, subtype: 'petty_cash', system: true });
+      await sql`UPDATE gl_accounts SET imported_from = 'xero' WHERE company_id = ${h.fx.companyId}::UUID AND account_code = 'IRT-X6'`;
+      const out = await rerun([xeroRow('IRT-X6', 'expense', 'System via xero')]);
+      expect({ imported: out.accountsImported, x6: await account('IRT-X6') })
+        .toEqual({ imported: 1, x6: { account_type: 'asset', account_name: 'System via xero', account_subtype: 'petty_cash' } });
+    });
+
+    it('a row whose code comes from its name is refused the same way', async () => {
+      await addAccount(h.fx, { code: 'IRT Named', type: 'asset', level: 3 });
+      await sql`UPDATE gl_accounts SET imported_from = 'xero' WHERE company_id = ${h.fx.companyId}::UUID AND account_code = 'IRT Named'`;
+      const out = await rerun([xeroRow('', 'expense', 'IRT Named')]);
+      expect({ imported: out.accountsImported, named: out.errors.some((e) => /IRT Named": is an existing asset account/.test(e)),
+        t: (await account('IRT Named'))!.account_type }).toEqual({ imported: 0, named: true, t: 'asset' });
     });
 
     it('an account another source owns keeps the existing "not owned" report', async () => {
