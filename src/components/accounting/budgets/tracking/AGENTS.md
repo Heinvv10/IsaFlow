@@ -8,16 +8,17 @@ The Budget vs Actual page's parts (budgets P3 PR-B, spec `docs/plans/budgets/P3-
 ## Caller contract
 - Render, never compute: rows come from `statementRows/budgetTrackingRows`, the bridge from `budgetBridgeSteps`, the bullets from `trackingByMember.toBulletLines`. No figure is added up here.
 - Only the parameters the period takes are sent (`trackingControls.trackingSearch`); the route answers anything else with a 400.
-- `version_id` is sent only while the window lies in the version's year (`versionApplies`); a cross-year custom window disables the picker and says why (`crossYearReason`). `group_by` (bullets) is sent only without a filter; the export never sends it.
+- A version belongs to one year: choosing another window returns to each year's primary (`withPatch`). Whether a window spans two years is the response's answer (`versionsByFy`), never re-derived here; then the picker is disabled and says why (`crossYearReason`). `group_by` (bullets) is sent only without a filter; the export never sends it.
+- The controls live in the page URL (`controlsFromQuery` once the router is ready, `controlsToQuery` written back with a shallow replace): Back and a shared link reopen the same report; an off-period parameter or a malformed id in the URL is dropped. The drill's entry links carry that URL as `return_to`.
 - A response that arrives after a newer request is dropped; a failed load clears the report, so the exports are disabled rather than exporting the last window.
-- The drill reads the filter from the REPORT (`report.filter`), not the controls, so it foots to the lines on screen.
+- The drill reads the filter from the REPORT (`report.filter`), not the controls, so it foots to the lines on screen, and runs with `budgetTracking` (source documents, sign by account type). The grid runs with `budgetTracking` too (zero budget 0.00, Var R opens the drill).
 
 ## Files
-- `trackingControls.ts` — pure: `TrackingControls`, `trackingSearch`, `controlsWindowYear`, `versionApplies`, `quarterOptions` (Q5 of 2 in a 14-month year), `yearOfMonth`.
+- `trackingControls.ts` — pure: `TrackingControls`, `trackingSearch`, `withPatch`, `controlsFromQuery` / `controlsToQuery`, `quarterOptions` (Q5 of 2 in a 14-month year), `crossYearReason`.
 - `useBudgetTracking.ts` — state, the report fetch (`apiJson`, registered in `lib/apiRoutes.ts`), versions of FY* (`budget-versions?fiscalYear=`, primary first), cost centres (CC1 / CC2 by `ccType`) and business units.
 - `BudgetTrackingControls.tsx` — period, month, financial year, quarter, from/to, version, CC1 / CC2 / BU.
 - `BudgetTrackingNotices.tsx` — header (window, version read, in progress / posted through), `projectionHeading`, and the notices: no budget for FYxxxx in this window, partial budget, unbudgeted, unallocated footer with "View unfiltered".
 - `BudgetTrackingVisuals.tsx` — profit bridge, bullets by CC1 / CC2 / BU (unfiltered only), heatmap.
 
 ## Recent changes
-- 2026-10-29: created (P3 PR-B). Tests: `tests/unit/components/budgetVsActualTrackingPage.test.tsx`, `budgetVsActual{Sections,Range,DrillOnce}.test.tsx`.
+- 2026-10-29: created (P3 PR-B); review r1: URL state, cross-year from the response, the grid/drill opt-ins. Tests: `budgetVsActualTrackingPage.test.tsx`, `budgetVsActualTrackingState.test.tsx`, `budgets/trackingControls.test.ts`, `budgetVsActual{Sections,Range,DrillOnce}.test.tsx`.
