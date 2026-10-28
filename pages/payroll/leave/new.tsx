@@ -45,7 +45,8 @@ export default function NewLeaveRequestPage() {
   const [reason, setReason] = useState('');
 
   const days = calcBusinessDays(startDate, endDate);
-  // minDate on the End field only judges text as it is committed; changing the start afterwards needs this.
+  // Judged here, not by the End field's minDate: that refusal is only re-run when the End text is retyped, so it
+  // would stay refused after the start moves. This clears by itself when either date changes.
   const endBeforeStart = Boolean(startDate && endDate && endDate < startDate);
 
   const loadOptions = useCallback(async () => {
@@ -175,7 +176,7 @@ export default function NewLeaveRequestPage() {
                   <GatedDateField gate={dateGate} gateKey="start-date" label="Start Date" required value={startDate || null} onValue={iso => setStartDate(iso)} />
                 </div>
                 <div>
-                  <GatedDateField gate={dateGate} gateKey="end-date" label="End Date" required minDate={startDate || undefined} value={endDate || null} onValue={iso => setEndDate(iso)} error={endBeforeStart ? 'End date must be on or after the start date.' : undefined} />
+                  <GatedDateField gate={dateGate} gateKey="end-date" label="End Date" required value={endDate || null} onValue={iso => setEndDate(iso)} error={endBeforeStart ? 'End date must be on or after the start date.' : undefined} />
                 </div>
               </div>
 
