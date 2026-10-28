@@ -22,7 +22,7 @@ import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shar
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
 /** Shown for an invoice whose customer row is missing, so the invoice stays in every total. */
-const UNKNOWN_CUSTOMER = 'Unknown customer';
+export const UNKNOWN_CUSTOMER = 'Unknown customer';
 
 /**
  * Open customer invoices as at `asAtStr`, oldest due first. `clientId` narrows

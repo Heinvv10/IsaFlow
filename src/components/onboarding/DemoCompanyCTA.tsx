@@ -32,7 +32,13 @@ export function DemoCompanyCTA({ message }: DemoCompanyCTAProps) {
   const demoCompanyId = findDemoMembership(companies, activeCompany?.id)?.companyId ?? null;
 
   useEffect(() => {
-    const stored = localStorage.getItem(DISMISSED_KEY);
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(DISMISSED_KEY);
+    } catch (err) {
+      // Unreadable storage: nothing is known to be dismissed, so the offer shows.
+      log.error('Could not read whether the demo banner was dismissed', { error: err }, 'demo-company-cta');
+    }
     if (!stored) setDismissed(false);
   }, []);
 
