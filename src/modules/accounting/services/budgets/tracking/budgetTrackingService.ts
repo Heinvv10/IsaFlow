@@ -23,7 +23,7 @@ import { readTrackingBudgets, resolveTrackingVersions } from './trackingBudgetRe
 import { readAccountOrder, readPostedThrough, readTrackingActuals } from './trackingActualRead';
 import { buildTrackingMembers } from './trackingByMember';
 import { classifyBudgetRow, effectiveDims } from './trackingDimRollup';
-import { resolveTrackingFilter } from './trackingFilter';
+import { readMemberOrder, resolveTrackingFilter } from './trackingFilter';
 import { buildTrackingLines, type AccountMeta } from './trackingLines';
 import { projectionPlan } from './trackingProjection';
 import { TrackingError, type BudgetTrackingReport, type TrackingParams } from './trackingTypes';
@@ -49,7 +49,7 @@ export async function buildBudgetTrackingReport(
   const chainIds = [...new Set([...filter.chainIds, ...budgetRows.map((r) => r.cc2Id).filter((v): v is string => v !== null)])];
   const nodes = await loadCostCentreChains(companyId, chainIds);
   const budgetFilter = filter.budgetFilter(nodes);
-  const actualRows = await readTrackingActuals(companyId, readStartOf(window), window.endDate, filter.actual, groupBy, today);
+  const actualRows = await readTrackingActuals(companyId, readStartOf(window), window.endDate, filter.actual, groupBy);
 
   const accounts = new Map<string, AccountMeta>();
   for (const r of [...actualRows, ...budgetRows]) {
@@ -78,6 +78,7 @@ export async function buildBudgetTrackingReport(
       ...effs.map((e) => e[groupBy]),
     ].filter((v): v is string => v !== null))];
     const named = await resolveDimensionMembers(companyId, groupBy, ids);
+    const memberOrder = await readMemberOrder(companyId, groupBy, ids);
     members = buildTrackingMembers({
       groupBy,
       windowMonths: window.months,
@@ -85,12 +86,14 @@ export async function buildBudgetTrackingReport(
       budgets: budgetRows.map((r, i) => ({ eff: effs[i]!, month: r.month, accountType: r.accountType, amount: r.amount })),
       names: new Map([...named].map(([id, m]) => [id.toLowerCase(), { code: m.code, name: m.name }])),
       noVersionMonths,
+      order: memberOrder,
     });
   }
 
   // "Actuals posted through" for the in-progress month: the latest posting the FILTERED actuals read
-  // consumed in that month, up to TODAY (review A4). The window's own posted-through is P0's
-  // company-wide figure over the whole window, any account (it can be forward-dated).
+  // consumed IN that month (review A4, r3 R3: a forward-dated posting Actual includes is named, so
+  // the date never contradicts the figure). The window's own posted-through is P0's company-wide
+  // figure over the whole window, any account (it can be forward-dated).
   const progressMonth = window.inProgressMonth;
   const consumed = actualRows.flatMap((r) => (r.month === progressMonth && r.lastPosted !== null ? [r.lastPosted] : []));
   const inProgress = progressMonth
@@ -107,8 +110,10 @@ export async function buildBudgetTrackingReport(
     filter: filter.members,
     projection: { fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
     lines,
-    bands: buildBands(lines),
-    notices: buildNotices(lines, { noVersion: versions.version === null, noVersionYears: versions.noVersionYears, budgetAbsent: noVersionMonths.length > 0 }),
+    bands: buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 }),
+    notices: buildNotices(lines, {
+      noVersion: versions.noVersionYears.includes(window.fy.fiscalYear), noVersionYears: versions.noVersionYears, budgetAbsent: noVersionMonths.length > 0,
+    }),
     years: await mapRegistryMiss(() => reportYearOptions(companyId, today)),
   };
   if (versions.versionsByFy) report.versionsByFy = versions.versionsByFy;

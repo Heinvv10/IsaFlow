@@ -40,8 +40,8 @@ export interface TrackingVersions {
   /** FY*'s version; null when FY* has none. */
   version: TrackingVersionRef | null;
   /** Every year of a cross-FY window that has a version. */
-  versionsByFy?: Record<number, { id: string; name: string }>;
-  /** Window years (and FY*) without a version. */
+  versionsByFy?: Record<number, { id: string; name: string; kind: string; status: string }>;
+  /** Window years (and FY*) without a version, or whose version holds no rows at all. */
   noVersionYears: number[];
 }
 
@@ -72,6 +72,25 @@ function scopeYears(window: TrackingWindow): Array<{ fiscalYear: number; first: 
   return out;
 }
 
+/**
+ * Pure (review r3 R9): the years that have no budget, those with no version AND those whose
+ * version holds no rows at all (an empty version, as `resolvePrimaryVersion({ create: true })`
+ * leaves one). Both are "no budget" for the gap rule; an empty version is not a budget of zero.
+ */
+export function noVersionYearsOf(scope: readonly VersionScope[], withRows: ReadonlySet<string>): number[] {
+  return scope.filter((s) => s.versionId === null || !withRows.has(s.versionId)).map((s) => s.fiscalYear);
+}
+
+/** The versions among `ids` holding at least one amount row (any grain, any month). */
+async function versionsWithRows(companyId: string, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = (await sql`
+    SELECT v::TEXT AS id FROM unnest(${[...ids]}::UUID[]) AS v
+     WHERE EXISTS (SELECT 1 FROM budget_month_amounts bm WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = v)
+  `) as DbRow[];
+  return new Set(rows.map((r) => String(r.id)));
+}
+
 /** The versions a window reads; `versionId` is looked up under the company (404 when it is not its own). */
 export async function resolveTrackingVersions(companyId: string, window: TrackingWindow, versionId?: string): Promise<TrackingVersions> {
   const fy = window.fy;
@@ -95,19 +114,20 @@ export async function resolveTrackingVersions(companyId: string, window: Trackin
   }
   const ids = [...new Set(scope.map((s) => s.versionId).filter((v): v is string => v !== null))];
   const heads = await versionHeads(companyId, ids);
+  const withRows = await versionsWithRows(companyId, ids);
   const byYear = new Map(scope.map((s) => [s.fiscalYear, s.versionId]));
   const fyVersion = byYear.get(fy.fiscalYear) ?? null;
   const out: TrackingVersions = {
     scope,
     version: fyVersion === null ? null : heads.get(fyVersion) ?? null,
-    noVersionYears: scope.filter((s) => s.versionId === null).map((s) => s.fiscalYear),
+    noVersionYears: noVersionYearsOf(scope, withRows),
   };
   if (window.years.length > 1) {
     out.versionsByFy = {};
     for (const y of window.years) {
       const vid = byYear.get(y.fiscalYear) ?? null;
       const head = vid === null ? undefined : heads.get(vid);
-      if (head) out.versionsByFy[y.fiscalYear] = { id: head.id, name: head.name };
+      if (head) out.versionsByFy[y.fiscalYear] = { id: head.id, name: head.name, kind: head.kind, status: head.status };
     }
   }
   return out;

@@ -75,35 +75,55 @@ describe('Projected FY on a 14-month year, November in progress', () => {
     expect(band('net_profit').projected).toBe(Math.round(np * 100) / 100);
   });
 
-  it('F2: "actuals posted through" is bounded by today; the window posted-through is always returned', async () => {
-    // The fixture posts on the 15th AND on the last day of every month through Jul 2027: forward-dated from 15 Nov 2026.
+  // R3 (round 3): "actuals posted through" is the latest posting the filtered Actual consumed IN the
+  // in-progress month, forward-dated or not: it never names a posting Actual leaves out, nor omits one it holds.
+  const journal = async (c: import('pg').PoolClient, date: string, lines: Array<[string, number, number, { cc1?: string; cc2?: string }]>) => {
+    const eid = crypto.randomUUID();
+    await c.query(`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, status, created_by, description, source, created_at)
+                   VALUES ($1, $2, $3, $4::DATE, 'posted', $5, 'r3', 'manual', NOW())`, [eid, f.a, `BT-R3-${date}`, date, f.userA]);
+    for (const [acct, dr, cr, t] of lines) {
+      await c.query(`INSERT INTO gl_journal_lines (id, journal_entry_id, company_id, gl_account_id, debit, credit, cc1_id, cc2_id, description)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'x')`, [crypto.randomUUID(), eid, f.a, acct, dr, cr, t.cc1 ?? null, t.cc2 ?? null]);
+    }
+  };
+  const at = new Date('2026-11-20T10:00:00+02:00');
+
+  it('F2/R3: the in-progress month names its own latest posting in Actual; the window posted-through is always returned', async () => {
+    // The fixture posts on the 15th AND on the last day of every month: the 30 Nov opex is in November's Actual.
     const year = await run({ period: 'fy', fiscalYear: 2027 });
-    expect(year.window.inProgress).toEqual({ month: '2026-11', actualsTo: '2026-11-15' });
+    expect(year.window.inProgress).toEqual({ month: '2026-11', actualsTo: '2026-11-30' });
     expect(year.window.postedThrough).toBe('2027-04-30');
     const past = await run({ period: 'quarter', fiscalYear: 2027, quarter: 2 });
     expect(past.window.inProgress).toBeNull();
     expect(past.window.postedThrough).toBe('2026-08-31');
   });
 
-  it('A4: "actuals posted through" follows the filter and the P&L; window.postedThrough stays company-wide', async () => {
-    const at = new Date('2026-11-20T10:00:00+02:00');
-    // A bank-only transfer on 18 Nov: no income-statement line.
-    const transfer = async (c: import('pg').PoolClient) => {
-      const eid = crypto.randomUUID();
-      await c.query(`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, status, created_by, description, source, created_at)
-                     VALUES ($1, $2, 'BT-A4', '2026-11-18', 'posted', $3, 'bank transfer', 'manual', NOW())`, [eid, f.a, f.userA]);
-      await c.query(`INSERT INTO gl_journal_lines (id, journal_entry_id, company_id, gl_account_id, debit, credit, description)
-                     VALUES ($1, $2, $3, $4, 10, 0, 'x'), ($5, $2, $3, $4, 0, 10, 'x')`, [crypto.randomUUID(), eid, f.a, f.acc.bank, crypto.randomUUID()]);
-    };
-    const go = (p: TrackingParams) => asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, p, at), { before: transfer });
-    // The orphan project has no posting: nothing is posted through, whatever the company posted.
-    const orphan = await go({ period: 'month', month: '2026-11', cc2Id: f.cc.PN });
+  it('A4/R3: actualsTo follows the filter and the P&L; a forward-dated posting in Actual is named; postedThrough stays company-wide', async () => {
+    const go = (p: TrackingParams, before: (c: import('pg').PoolClient) => Promise<unknown>) =>
+      asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, p, at), { before });
+    // A bank-only transfer on 18 Nov: no income-statement line, never "posted through".
+    const transfer = (c: import('pg').PoolClient) => journal(c, '2026-11-18', [[f.acc.bank, 10, 0, {}], [f.acc.bank, 0, 10, {}]]);
+    const orphan = await go({ period: 'month', month: '2026-11', cc2Id: f.cc.PN }, transfer);
     expect(orphan.window.inProgress).toEqual({ month: '2026-11', actualsTo: null });
-    // Unfiltered: the 15th's P&L journal, not the bank-only 18th, nor the forward-dated 30th.
-    const all = await go({ period: 'month', month: '2026-11' });
-    expect(all.window.inProgress).toEqual({ month: '2026-11', actualsTo: '2026-11-15' });
+    // P1's only November posting is the 15th's: not the bank-only 18th, not the untagged 30th.
+    const p1 = await go({ period: 'month', month: '2026-11', cc2Id: f.cc.P1 }, transfer);
+    expect(p1.window.inProgress).toEqual({ month: '2026-11', actualsTo: '2026-11-15' });
+    // A P1 sale dated 27 Nov (after today, the 20th) is in Actual, so it is what Actual is posted through.
+    const sale = (c: import('pg').PoolClient) => journal(c, '2026-11-27', [[f.acc.sales, 0, 5000, { cc1: f.cc.FT, cc2: f.cc.P1 }], [f.acc.bank, 5000, 0, {}]]);
+    const fwd = await go({ period: 'month', month: '2026-11', cc2Id: f.cc.P1 }, sale);
+    const sales = (r: BudgetTrackingReport) => r.lines.find((l) => l.accountId === f.acc.sales)!.actual;
+    expect(Math.round((sales(fwd) - sales(p1)) * 100)).toBe(500000);
+    expect(fwd.window.inProgress).toEqual({ month: '2026-11', actualsTo: '2026-11-27' });
     // window.postedThrough is P0's figure: any posted entry in the window, so the forward-dated 30th.
-    expect([orphan.window.postedThrough, all.window.postedThrough]).toEqual(['2026-11-30', '2026-11-30']);
+    expect([orphan.window.postedThrough, p1.window.postedThrough]).toEqual(['2026-11-30', '2026-11-30']);
+  });
+
+  it('R3: an in-progress month with no posting is null, never an earlier month of the window', async () => {
+    // The ledger stops in July 2027; "today" is 20 Aug 2027, inside a May - Aug window with postings May - Jul.
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2027-05', to: '2027-08' }, new Date('2027-08-20T10:00:00+02:00')));
+    expect(r.lines.some((l) => l.actual !== 0)).toBe(true);
+    expect(r.window.inProgress).toEqual({ month: '2027-08', actualsTo: null });
+    expect(r.window.postedThrough).toBe('2027-07-31');
   });
 
   it('a window ending in a year that has not started projects budget only', async () => {

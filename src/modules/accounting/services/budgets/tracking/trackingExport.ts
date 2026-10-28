@@ -72,7 +72,17 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
   const w = report.window;
   const f = report.filter;
   const filter = [member(f.cc1, 'CC1'), member(f.cc2, 'CC2'), member(f.bu, 'BU'), member(f.costCentre, 'Cost centre')].filter(Boolean).join('; ');
-  const version = report.version ? `${report.version.name} · ${report.version.status}` : `None (no budget for FY${w.fiscalYear})`;
+  // A cross-FY window reads one version per year: name each (review r3 R2), a year without one too.
+  const byFy = report.versionsByFy;
+  const version = byFy
+    ? [...new Set([...Object.keys(byFy).map(Number), ...report.notices.noVersionYears])]
+      .sort((x, y) => x - y)
+      .map((y) => {
+        const v = byFy[y];
+        return v && !report.notices.noVersionYears.includes(y) ? `FY${y}: ${v.name} · ${v.status}` : `FY${y}: no budget`;
+      })
+      .join('; ')
+    : report.version ? `${report.version.name} · ${report.version.status}` : `None (no budget for FY${w.fiscalYear})`;
   const head: Array<[string, string]> = [
     ['Company', companyName],
     ['Window', w.notStarted ? `${w.label} (not started)` : `${w.label} (${w.startDate} to ${w.endDate})`],
