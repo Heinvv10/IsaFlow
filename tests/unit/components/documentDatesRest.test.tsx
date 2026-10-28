@@ -57,30 +57,67 @@ describe('leave new', () => {
     expect(posts()[0]).toMatchObject({ startDate: '2026-10-05', endDate: '2026-10-07', days: 3 });
   });
 
-  it('"zz" is refused and blocks the submit', async () => {
+  it('after a good date, "zz" disables Submit and a click posts nothing; the good date posts again', async () => {
     const { container, posts } = await open();
     const [start, end] = dateInputs(container);
-    typeDate(start!, 'zz');
+    typeDate(start!, '5 Oct 2026');
     typeDate(end!, '2026-10-07');
-    fireEvent.submit(container.querySelector('form')!);
-    expect(await screen.findByText('All fields are required')).toBeTruthy();
+    typeDate(start!, 'zz');
     expect(start!.getAttribute('aria-invalid')).toBe('true');
+    const submit = screen.getByRole('button', { name: /submit request/i }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.click(submit);
+    await Promise.resolve();
     expect(posts()).toHaveLength(0);
+    typeDate(start!, '6 Oct 2026');
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]).toMatchObject({ startDate: '2026-10-06', endDate: '2026-10-07', days: 2 });
+  });
+
+  it('an untouched start date is not posted: Submit says all fields are required', async () => {
+    const { container, posts } = await open();
+    typeDate(dateInputs(container)[1]!, '2026-10-07');
+    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
+    expect(await screen.findByText('All fields are required')).toBeTruthy();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it('moving the start date past an already-accepted end date flags the end and refuses the submit', async () => {
+    const { container, posts } = await open();
+    const [start, end] = dateInputs(container);
+    typeDate(start!, '5 Oct 2026');
+    typeDate(end!, '7 Oct 2026');
+    typeDate(start!, '10 Oct 2026');
+    expect(end!.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText('End date must be on or after the start date.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
+    expect(await screen.findByText('End date must be on or after the start date')).toBeTruthy();
+    expect(posts()).toHaveLength(0);
+    typeDate(start!, '6 Oct 2026');
+    expect(end!.getAttribute('aria-invalid')).toBe('false');
+    expect(screen.queryByText('End date must be on or after the start date.')).toBeNull();
   });
 });
 
 describe('VatPeriodLockForm dates', () => {
-  it('a refused date does not lock the period; a good one does', async () => {
+  it('a refused date disables Lock period and a click locks nothing; a good one then locks', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => ok({ totalExceptions: 0 }));
     const onLock = vi.fn().mockResolvedValue(null);
     const { container } = render(<VatPeriodLockForm onLock={onLock} />);
-    typeDate(container.querySelector('#vat-lock-periodStart')!, 'zz');
-    typeDate(container.querySelector('#vat-lock-periodEnd')!, '2026-04-30');
-    fireEvent.submit(container.querySelector('form')!);
+    const start = container.querySelector('#vat-lock-periodStart')!;
+    typeDate(start, '1 Mar 2026');
+    typeDate(container.querySelector('#vat-lock-periodEnd')!, '2026-03-31');
+    typeDate(start, 'zz');
+    const lock = screen.getByRole('button', { name: /lock period/i }) as HTMLButtonElement;
+    expect(lock.disabled).toBe(true);
+    fireEvent.click(lock);
     await Promise.resolve();
     expect(onLock).not.toHaveBeenCalled();
-    typeDate(container.querySelector('#vat-lock-periodStart')!, '1 Mar 2026');
-    fireEvent.submit(container.querySelector('form')!);
-    await waitFor(() => expect(onLock).toHaveBeenCalledWith('2026-03-01', '2026-04-30', '', ''));
+    typeDate(start, '1 Feb 2026');
+    expect(lock.disabled).toBe(false);
+    fireEvent.click(lock);
+    await waitFor(() => expect(onLock).toHaveBeenCalledWith('2026-02-01', '2026-03-31', '', ''));
   });
 });
