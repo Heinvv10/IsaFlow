@@ -180,10 +180,9 @@ describe('budget-versions routes', () => {
   it('moving the primary away from a LOCKED primary is owner-only; an admin may still switch an unlocked one', async () => {
     const x = await budgets.owner();
     const xAdmin = await member(x.u.homeCompanyId, 'admin');
-    await budgets.call(x.u, 'POST', { glAccountId: x.account, fiscalYear: x.label, annualAmount: 1200 });
-    const prim = (await pool.query('SELECT id FROM budget_versions WHERE company_id = $1 AND is_primary', [x.u.homeCompanyId])).rows[0].id;
+    // An APPROVED primary 'Original' (budget_version_original), as migration 947 converted legacy budgets.
+    const prim = await budgets.seedPrimary(x.u, x.account, x.label, x.months.map((month) => ({ month, amount: 100 })));
     const alt = data(await create(x.u, 'Reforecast', 'reforecast', x.label));
-    expect((await move(x.u, prim, { action: 'approve' })).status).toBe(200);
     expect((await move(x.u, prim, { action: 'lock' })).status).toBe(200);
     const byAdmin = await primary.call(xAdmin, 'POST', undefined, { id: alt.id });
     expect([byAdmin.status, errCode(byAdmin)]).toEqual([403, 'BUDGET_VERSION_FORBIDDEN']);
