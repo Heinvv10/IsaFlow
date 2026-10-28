@@ -52,8 +52,7 @@ export default function NewLoanPage() {
   const [form, setForm] = useState<LoanForm>(INITIAL);
   const [curves, setCurves] = useState<RateCurve[]>([]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [startMissing, setStartMissing] = useState(false);
+  const [error, setError] = useState(''); const [startMissing, setStartMissing] = useState(false);
 
   useEffect(() => {
     apiFetch('/api/accounting/loan-rate-curves')
@@ -75,8 +74,7 @@ export default function NewLoanPage() {
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError('');
+    e.preventDefault(); setError('');
     if (!form.startDate) { setStartMissing(true); return; }
     setBusy(true);
     try {
