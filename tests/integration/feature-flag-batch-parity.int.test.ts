@@ -12,6 +12,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { getPoolForTests } from '@/lib/neon';
 import { companiesWithFeature, hasFeature } from '@/modules/admin/services/featureFlagService';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { fixture, loginUrl } from './s07b-app-pool-login-role.helpers';
@@ -65,6 +66,7 @@ describe.skipIf(!process.env.DATABASE_URL)('companiesWithFeature matches hasFeat
     await q('DELETE FROM plans WHERE id = $1', [plan]);
     await q('DELETE FROM users WHERE id = $1', [admin]);
     vi.unstubAllEnvs();
+    await getPoolForTests().end();
     await fixture.end();
   });
 
