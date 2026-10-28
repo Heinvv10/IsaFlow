@@ -25,6 +25,7 @@
  * coarser only when BOTH are NULL, otherwise other (so a chainless project's
  * row is excluded under an FNO, not unallocated).
  */
+import { log } from '@/lib/logger';
 import { deriveFnoId, type CostCentreNode } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 
 export type BudgetRowClass = 'included' | 'coarser' | 'other';
@@ -45,6 +46,14 @@ export interface BudgetFilter {
   costCentre?: { id: string };
 }
 
+/** A stored budget row whose CC1 is not the FNO its CC2 rolls up to: corrupt data, a 500 after it is logged. */
+export class BudgetGrainContradictionError extends Error {
+  constructor(readonly cc1: string, readonly cc2: string, readonly fno: string) {
+    super(`budget row cc1 ${cc1} contradicts the FNO ${fno} its cc2 ${cc2} rolls up to`);
+    this.name = 'BudgetGrainContradictionError';
+  }
+}
+
 const lower = (id: string | null): string | null => (id ? id.toLowerCase() : null);
 
 /** A row's effective dimensions; a stored CC1 that contradicts its CC2's chain is a data error and throws. */
@@ -55,8 +64,10 @@ export function effectiveDims(
   const cc1 = lower(row.cc1Id);
   const cc2 = lower(row.cc2Id);
   const derived = cc2 ? deriveFnoId(cc2, nodes) : null;
-  if (cc1 && derived && cc1 !== derived) {
-    throw new Error(`budget row cc1 ${cc1} contradicts the FNO ${derived} its cc2 ${cc2} rolls up to`);
+  if (cc1 && cc2 && derived && cc1 !== derived) {
+    const err = new BudgetGrainContradictionError(cc1, cc2, derived);
+    log.error(err.message, { cc1, cc2, fno: derived }, 'budgets');
+    throw err;
   }
   return { cc1: cc1 ?? derived, cc2, bu: lower(row.buId) };
 }

@@ -4,8 +4,12 @@
  * filter: reported as unallocated, never apportioned) or other (excluded).
  * A CC2-grain row rolls up to its FNO by the parent walk postings use.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+const logError = vi.fn();
+vi.mock('@/lib/logger', () => ({ log: { error: (...a: unknown[]) => logError(...a), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 import {
+  BudgetGrainContradictionError,
   classifyBudgetRow,
   effectiveDims,
   type BudgetFilter,
@@ -51,7 +55,10 @@ describe('effective dimensions', () => {
   });
 
   it('a stored CC1 that contradicts the CC2 chain is refused, not resolved', () => {
+    expect(() => row(B, P, null)).toThrow(BudgetGrainContradictionError);
     expect(() => row(B, P, null)).toThrow(/contradicts/);
+    // Logged with the ids before it surfaces as a 500 (review Q7).
+    expect(logError).toHaveBeenCalledWith(expect.stringMatching(/contradicts/), expect.objectContaining({ cc1: B, cc2: P, fno: A }), 'budgets');
     expect(row(A, P, null)).toEqual({ cc1: A, cc2: P, bu: null });
   });
 });
