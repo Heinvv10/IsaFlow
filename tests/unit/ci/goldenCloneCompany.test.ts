@@ -27,7 +27,7 @@ describe('planTableClone', () => {
     expect(plan.nulled).toEqual([]);
     expect(plan.sql).toBe(
       'INSERT INTO "gl_accounts" ("id", "company_id", "account_code", "parent_account_id", "created_by") '
-      + "SELECT (md5($1::text || ':' || \"id\"::text)::uuid)::uuid, $1::uuid, \"account_code\", (md5($1::text || ':' || \"parent_account_id\"::text)::uuid)::uuid, "
+      + "SELECT (substr(md5($1::text || ':' || \"id\"::text), 1, 12) || '4' || substr(md5($1::text || ':' || \"id\"::text), 14, 3) || '8' || substr(md5($1::text || ':' || \"id\"::text), 18, 15))::uuid::uuid, $1::uuid, \"account_code\", (substr(md5($1::text || ':' || \"parent_account_id\"::text), 1, 12) || '4' || substr(md5($1::text || ':' || \"parent_account_id\"::text), 14, 3) || '8' || substr(md5($1::text || ':' || \"parent_account_id\"::text), 18, 15))::uuid::uuid, "
       + 'CASE WHEN EXISTS (SELECT 1 FROM "users" r WHERE r."id" = "gl_accounts"."created_by") THEN "gl_accounts"."created_by" ELSE NULL END '
       + 'FROM "gl_accounts" WHERE "company_id" = $2::uuid',
     );
@@ -43,7 +43,7 @@ describe('planTableClone', () => {
         { columns: ['pay_scale_id'], refTable: 'pay_scales', refColumns: ['id'] },
       ],
     }, SET, SCOPED);
-    expect(plan.sql).toContain("(md5($1::text || ':' || \"pay_scale_id\"::text)::uuid)::text");
+    expect(plan.sql).toContain("(substr(md5($1::text || ':' || \"pay_scale_id\"::text), 1, 12) || '4' || substr(md5($1::text || ':' || \"pay_scale_id\"::text), 14, 3) || '8' || substr(md5($1::text || ':' || \"pay_scale_id\"::text), 18, 15))::uuid::text");
   });
 
   it('re-keys only the id half of a composite (id, company_id) key', () => {

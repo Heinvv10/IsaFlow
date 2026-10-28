@@ -3,7 +3,7 @@
  * onto another company id, from the catalog's own foreign keys rather than a hand-kept column list, so a column or
  * key added by a later migration is carried without editing this file.
  *
- * Every id of a copied row, and every key that points at another copied row, becomes md5(target || ':' || old)::uuid:
+ * Every id of a copied row, and every key that points at another copied row, becomes a version-4 uuid built from md5(target || ':' || old):
  * deterministic, so a half-finished run cannot leave two generations behind, and unique per target. A key that would
  * point at another company's row (a table that is not copied) is nulled if it can be and refused if it cannot: a slot
  * must never hold a reference into the Demo company. A key into a global table (users, reference data) is kept where
@@ -29,7 +29,11 @@ export interface TablePlan { table: string; sql: string; scope: string; mapped: 
 
 const q = (name: string): string => `"${name}"`;
 /** $1 is the target company, $2 the source. */
-const rekey = (column: string, type: string): string => `(md5($1::text || ':' || ${q(column)}::text)::uuid)::${type}`;
+/** A version-4 uuid built from the md5 (version and variant nibbles set), so zod's strict uuid() accepts the copy's ids. */
+const rekey = (column: string, type: string): string => {
+  const hash = `md5($1::text || ':' || ${q(column)}::text)`;
+  return `(substr(${hash}, 1, 12) || '4' || substr(${hash}, 14, 3) || '8' || substr(${hash}, 18, 15))::uuid::${type}`;
+};
 
 /**
  * Builds the INSERT ... SELECT that copies one table's rows for the source company ($2) to the target ($1).
