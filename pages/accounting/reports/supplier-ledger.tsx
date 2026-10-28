@@ -11,6 +11,7 @@ import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-reac
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
+import { useDateGate } from '@/hooks/useDateGate';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
@@ -33,6 +34,7 @@ interface LedgerData {
 }
 
 const fmt = (n: number) => formatMoney(n);
+const FIX_DATE = 'Fix the date marked in red before running the report: it still uses the previous dates.';
 
 function getDefaultDates() {
   const now = new Date();
@@ -88,6 +90,9 @@ export default function SupplierLedgerPage() {
   const [ledger, setLedger] = useState<LedgerData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
+  const onFromChange = dates.bind('dateFrom', setDateFrom, dateFrom);
+  const onToChange = dates.bind('dateTo', setDateTo, dateTo);
 
   const runReport = useCallback(async () => {
     if (!supplierId) {
@@ -159,14 +164,14 @@ export default function SupplierLedgerPage() {
               <SupplierSelect value={supplierId} onChange={setSupplierId} inputClassName="ff-input text-sm w-full" />
             </div>
             <div>
-              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
+              <DateField label="From" value={dateFrom || null} onChange={onFromChange} />
             </div>
             <div>
-              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
+              <DateField label="To" value={dateTo || null} onChange={onToChange} />
             </div>
             <button
               onClick={runReport}
-              disabled={loading || !supplierId}
+              disabled={loading || !supplierId || dates.blocked}
               className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -174,6 +179,11 @@ export default function SupplierLedgerPage() {
             </button>
           </div>
 
+          {dates.blocked && (
+            <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4" /> {FIX_DATE}
+            </div>
+          )}
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}
