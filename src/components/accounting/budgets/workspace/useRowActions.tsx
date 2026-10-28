@@ -100,7 +100,7 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
         return;
       }
       case 'note':
-        setNote({ r: row.index, target: { accountId: row.account.id, accountLabel: label, note: snap.note } });
+        setNote({ r: row.index, target: { accountId: row.account.id, accountLabel: label, note: snap.note, readOnly: action.readOnly } });
         return;
       case 'grain': {
         const { view, members, layout } = live.current;

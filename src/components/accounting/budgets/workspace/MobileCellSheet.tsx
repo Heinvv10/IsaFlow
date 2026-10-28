@@ -49,13 +49,14 @@ export function MobileCellSheet({ target, onSave, onNext, onClose, actions }: Mo
         aria-modal="true"
         aria-label={`${title} budget`}
         onClick={e => e.stopPropagation()}
-        className="w-full rounded-t-xl border-t border-[var(--ff-border-secondary)] bg-[var(--ff-bg-secondary)] p-4 pb-6 space-y-3"
+        className="w-full max-h-[90vh] overflow-y-auto rounded-t-xl border-t border-[var(--ff-border-secondary)] bg-[var(--ff-bg-secondary)] p-4 pb-6 space-y-3"
       >
         <div>
           <p className="text-sm font-semibold text-[var(--ff-text-primary)]">{target.accountLabel}</p>
           <p className="text-xs text-[var(--ff-text-tertiary)]">{target.monthLabel}{target.isTotal ? ' (spread evenly over the months)' : ''}</p>
           {target.note && (
-            <p data-testid="sheet-note" className="mt-1 text-xs text-[var(--ff-text-secondary)] whitespace-pre-line">
+            // A long note scrolls inside its own box, so the title and the amount stay on screen.
+            <p data-testid="sheet-note" tabIndex={0} className="mt-1 max-h-24 overflow-y-auto break-words text-xs text-[var(--ff-text-secondary)] whitespace-pre-line">
               <span className="font-medium">Note:</span> {target.note}
             </p>
           )}

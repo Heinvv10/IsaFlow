@@ -63,6 +63,7 @@ describe('editing a budget note from the grid', () => {
     const dialog = screen.getByRole('dialog', { name: 'Note for 1010 Account 1010' });
     const box = within(dialog).getByRole('textbox', { name: 'Note' });
     expect(box).toHaveValue(NOTE);
+    expect(document.activeElement).toBe(box);
     expect(box).toHaveAccessibleDescription(/Shown on every version of FY2027/);
     fireEvent.change(box, { target: { value: '  Price rise moved to Q4  ' } });
     await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save note' })); });
@@ -128,6 +129,7 @@ describe('editing a budget note from the grid', () => {
     expect(screen.getByRole('button', { name: 'Save note' })).toBeEnabled();
     fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'x'.repeat(2001) } });
     expect(screen.getByRole('button', { name: 'Save note' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveAccessibleDescription(/2001 \/ 2000 characters: 1 too many to save/);
     expect(onSaveNote).not.toHaveBeenCalled();
   });
 
@@ -166,12 +168,31 @@ describe('editing a budget note from the grid', () => {
     expect(screen.queryByRole('menuitem', { name: /note…$/ })).toBeNull();
   });
 
-  it('read-only (viewer, or a locked version): no row actions at all, the note still shows', () => {
+  it('read-only (viewer, or a locked version): only a row with a note has actions, and only "View note…", which shows the text', async () => {
     const m = model();
     store.reset({ ...m, version: { ...m.version!, status: 'locked' } }, { view: COMPANY, canWrite: false });
-    mount({ canWrite: false });
-    expect(screen.queryByRole('button', { name: /^Row actions/ })).toBeNull();
+    const onSaveNote = mount({ canWrite: false });
+    expect(screen.getAllByRole('button', { name: /^Row actions/ }).map((b) => b.getAttribute('aria-label'))).toEqual(['Row actions for 1010 Account 1010']);
     expect(within(rowOf(accountRowKey(ID.rev2))).getByRole('img', { name: `Note: ${NOTE}` })).toBeInTheDocument();
+    openMenu('1010 Account 1010');
+    expect((await screen.findAllByRole('menuitem')).map((i) => i.textContent)).toEqual(['View note…']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'View note…' }));
+    const dialog = screen.getByRole('dialog', { name: 'Note for 1010 Account 1010' });
+    expect(within(dialog).getByTestId('note-text')).toHaveTextContent(NOTE);
+    expect(within(dialog).queryByRole('textbox')).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Save note' })).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(cellOf(ID.rev2, 0));
+    expect(onSaveNote).not.toHaveBeenCalled();
+  });
+
+  it('a header roll-up with a note offers "View note…" beside its spread (headers take no edit)', async () => {
+    const m = model();
+    store.reset({ ...m, accounts: m.accounts.map((a) => (a.id === ID.hdr ? { ...a, note: 'Header note' } : a)) }, { view: COMPANY, canWrite: true });
+    mount();
+    fireEvent.click(within(rowOf(rollupRowKey(ID.hdr))).getByRole('button', { name: /^Row actions/ }));
+    expect((await screen.findAllByRole('menuitem')).map((i) => i.textContent)).toEqual(['Spread across sub-accounts…', 'View note…']);
   });
 
   it('the phone sheet offers the same action and shows the saved note', async () => {
