@@ -207,6 +207,24 @@ describe('budget-tracking-export', () => {
     });
   });
 
+  it('L4: a window reaching a year with no version says so in the header, CSV and XLSX', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => {
+      const r = fixture();
+      return { ...r, notices: { ...r.notices, noVersion: false, noVersionYears: [2026] } };
+    });
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026: the Budget columns are blank for this window']);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await call(exportHandler, { ...query, format: 'xlsx' })).sent as ArrayBuffer);
+    const head: unknown[][] = [];
+    wb.worksheets[0]!.eachRow((r) => { head.push([r.getCell(1).value, r.getCell(2).value]); });
+    expect(head).toContainEqual(['Notice', 'No budget for FY2026: the Budget columns are blank for this window']);
+    // A fully versioned window carries no notice line.
+    buildBudgetTrackingReport.mockImplementation(async () => fixture());
+    const plain = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(plain.find((r) => r[0] === 'Notice')).toBeUndefined();
+  });
+
   it('refuses an unknown format and a malformed query before any work', async () => {
     expect((await call(exportHandler, { ...query, format: 'pdf' })).statusCode).toBe(400);
     expect((await call(exportHandler, { period: 'quarter', quarter: '7', format: 'csv' })).statusCode).toBe(400);
