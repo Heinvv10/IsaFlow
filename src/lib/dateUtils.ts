@@ -84,6 +84,15 @@ export function addDaysISO(iso: string, n: number): string {
 }
 
 /**
+ * The day before a 'YYYY-MM-DD' date, on the local calendar. The ONE definition:
+ * `gl/fiscalYearRegistry` re-exports it, and browser-bundled modules import it
+ * from here (the registry holds SQL).
+ */
+export function dayBefore(date: string): string {
+  return addDaysISO(date, -1);
+}
+
+/**
  * 'YYYY-MM-DD' shifted by whole years, clamping the day to the target month
  * (2028-02-29 minus 1 year is 2027-02-28, not 2027-03-01). Throws RangeError on bad input.
  */
