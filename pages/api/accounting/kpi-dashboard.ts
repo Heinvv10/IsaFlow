@@ -59,7 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
       await Promise.all([
         getDashboardKPIs(companyId, from, to, today, { ar: arBook, ap: apBook }),
-        getRevenueChart(companyId, months),
+        getRevenueChart(companyId, months, today),
         getCashFlowChart(companyId, months),
         getAgingBreakdown(companyId, 'ar', today, arBook),
         getAgingBreakdown(companyId, 'ap', today, apBook),

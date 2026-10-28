@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { getRevenueChart } from '../../src/modules/accounting/services/reports/kpiChartsService';
 import { getDashboardKPIs } from '../../src/modules/accounting/services/reports/kpiDashboardService';
 import { getIncomeStatement } from '../../src/modules/accounting/services/reports/incomeStatementService';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
@@ -57,6 +58,9 @@ describeIfDb('Home revenue figures equal the income statement over the same rang
     await post('O1', '2026-10-06', acct.bank, acct.other, 40.5);
     await post('S0', '2026-09-20', acct.bank, acct.sales, 200);
     await post('X1', '2026-10-07', acct.rent, acct.bank, 100);
+    // A credit note larger than September's sales (September nets to -100), and a sale after "today".
+    await post('C1', '2026-09-25', acct.sales, acct.bank, 300);
+    await post('F1', '2026-10-29', acct.bank, acct.sales, 77);
   }, 120000);
 
   afterAll(async () => {
@@ -90,7 +94,17 @@ describeIfDb('Home revenue figures equal the income statement over the same rang
     const kpis = await getDashboardKPIs(company, WINDOW[0], WINDOW[1], TODAY);
     const is = await getIncomeStatement(company, WINDOW[0], WINDOW[1]);
     expect(kpis.revenue.total).toBeCloseTo(is.totalRevenue, 2);
-    expect(kpis.revenue.total).toBeCloseTo(1200.25, 2);
-    expect(kpis.grossProfit.amount).toBeCloseTo(is.netProfit, 2);
+    expect(kpis.revenue.total).toBeCloseTo(900.25, 2);
+    expect(kpis.netProfit.amount).toBeCloseTo(is.netProfit, 2);
+  });
+
+  it('the chart: current bar = Revenue MTD (nothing after today, no other income), a negative month stays negative', async () => {
+    const kpis = await getDashboardKPIs(company, WINDOW[0], WINDOW[1], TODAY);
+    const bars = await getRevenueChart(company, 6, TODAY);
+    expect(bars).toHaveLength(6);
+    expect(bars[5]!.revenue).toBeCloseTo(kpis.revenueMtd, 2);
+    expect(bars[5]!.revenue).toBeCloseTo(1000.25, 2);
+    expect(bars[5]!.expenses).toBeCloseTo(100, 2);
+    expect(bars[4]!.revenue).toBeCloseTo(-100, 2);
   });
 });

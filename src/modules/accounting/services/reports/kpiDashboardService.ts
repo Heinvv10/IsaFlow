@@ -19,7 +19,7 @@ export interface DashboardKPIs {
   /** Posted revenue from the 1st of the current SAST month to `todayStr`: the hero's "Revenue MTD". */
   revenueMtd: number;
   expenses: { total: number; priorTotal: number };
-  grossProfit: { amount: number; margin: number };
+  /** Every revenue-type account less every expense: the income statement's Net Profit, and its margin over turnover. */
   netProfit: { amount: number; margin: number };
   cash: { total: number; priorTotal: number; change: number };
   receivables: { total: number; overdue: number; overdueDisputed: number; avgDebtorDays: number };
@@ -89,7 +89,7 @@ export async function getDashboardKPIs(companyId: string,
         SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
@@ -98,7 +98,7 @@ export async function getDashboardKPIs(companyId: string,
         SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
@@ -202,8 +202,9 @@ export async function getDashboardKPIs(companyId: string,
     const priorExpenses = Number((priorExpenseRows as DbRow[])[0]?.total || 0);
     const cashTotal = Number((cashRows as DbRow[])[0]?.total || 0);
     const priorCash = Number((priorCashRows as DbRow[])[0]?.total || 0);
-    const grossProfit = allRevenue - totalExpenses;
-    const grossMargin = marginPct(grossProfit, totalRevenue) ?? 0;
+    const netProfit = allRevenue - totalExpenses;
+    // allowNegativeRevenue, as the income statement's net margin.
+    const netMargin = marginPct(netProfit, totalRevenue, { allowNegativeRevenue: true }) ?? 0;
     const revenueChange = priorRevenue > 0
       ? ((totalRevenue - priorRevenue) / priorRevenue) * 100
       : totalRevenue > 0 ? 100 : 0;
@@ -212,8 +213,7 @@ export async function getDashboardKPIs(companyId: string,
       revenue: { total: totalRevenue, priorTotal: priorRevenue, changePercent: revenueChange },
       revenueMtd: turnover(mtdRevenueRows as RevenueRow[]),
       expenses: { total: totalExpenses, priorTotal: priorExpenses },
-      grossProfit: { amount: grossProfit, margin: grossMargin },
-      netProfit: { amount: grossProfit, margin: grossMargin },
+      netProfit: { amount: netProfit, margin: netMargin },
       cash: { total: cashTotal, priorTotal: priorCash, change: cashTotal - priorCash },
       receivables: {
         total: arBook.total,
