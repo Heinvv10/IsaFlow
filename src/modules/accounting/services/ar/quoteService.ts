@@ -116,15 +116,15 @@ export class LineValidationError extends Error {
 /**
  * W1 (P2.1): negative quantities/prices produced negative documents server-side
  * (the July-4 audit created a -R115 invoice live). Zero-quantity lines are
- * also meaningless on a quote. Throws before any SQL runs.
+ * also meaningless on a quote. Throws before any SQL runs. A line is named by position, never by description (error capture).
  */
 export async function assertValidLines(companyId: string, lines: QuoteInput['lines']): Promise<void> {
-  for (const l of lines || []) {
+  for (const [i, l] of (lines || []).entries()) {
     if (!(Number(l.quantity) > 0)) {
-      throw new LineValidationError(`Line "${l.description}": quantity must be positive`);
+      throw new LineValidationError(`Line ${i + 1}: quantity must be positive`);
     }
     if (Number(l.unitPrice) < 0) {
-      throw new LineValidationError(`Line "${l.description}": unit price cannot be negative`);
+      throw new LineValidationError(`Line ${i + 1}: unit price cannot be negative`);
     }
   }
   await assertLineAccountIds(companyId, (lines || []).map((l) => l.accountId)); // conversion posts to them (mig 874)

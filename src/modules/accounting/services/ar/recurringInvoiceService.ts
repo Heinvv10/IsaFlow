@@ -73,12 +73,13 @@ export async function createRecurringInvoice(companyId: string,
   const taxRate = input.taxRate ?? 15;
   // W1 family (P2.1): a template with negative lines re-mints a negative
   // approved invoice EVERY period.
-  for (const li of input.lineItems || []) {
+  // A line is named by its position, never its description: this message reaches error capture, and a description is customer text.
+  for (const [i, li] of (input.lineItems || []).entries()) {
     if (!(Number(li.quantity) > 0)) {
-      throw new Error(`Line "${li.description}": quantity must be positive`);
+      throw new Error(`Line ${i + 1}: quantity must be positive`);
     }
     if (Number(li.unitPrice) < 0) {
-      throw new Error(`Line "${li.description}": unit price cannot be negative`);
+      throw new Error(`Line ${i + 1}: unit price cannot be negative`);
     }
   }
   const subtotal = input.lineItems.reduce(

@@ -39,13 +39,17 @@ export function scrubUrl(url: string): string {
 }
 
 // A URL inside free text: absolute, or from the first "/" of a path (`api/x?q=1` too). Harmless on `a/b` or `1/2`: scrubUrl only touches "?" and "#".
-const URL_IN_TEXT_RE = /https?:\/\/[^\s"'<>`]+|\/[^\s"'<>`]*/g;
+// It stops at "[" and "]" (a selector's attribute opens there), except the masks `[token]` and `[REDACTED]`.
+const URL_CHAR = '(?:[^\\s"\'<>`\\[\\]]|\\[token\\]|\\[REDACTED\\])';
+const URL_IN_TEXT_RE = new RegExp(`https?://${URL_CHAR}+|/${URL_CHAR}*`, 'g');
 
 export function redactUrlsInText(text: string): string {
   return text.replace(URL_IN_TEXT_RE, scrubUrl);
 }
 
-/** Free text (an exception, a message): URLs lose their query values and fragment, a selector is cut at its first attribute. */
+/** Free text (an exception, a message): a selector is cut at its first attribute, then URLs lose their query values and
+ *  fragment. The cut goes first: an unescaped value can hold a "/" or a "?", and a URL match must never eat the
+ *  `[attr="` that opens it. */
 export function scrubText(text: string): string {
-  return redactDomAttrs(redactUrlsInText(text));
+  return redactUrlsInText(redactDomAttrs(text));
 }
