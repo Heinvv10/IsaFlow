@@ -47,8 +47,10 @@ export async function fetchARAgingInvoices(
     -- LEFT: client_id has no foreign key, so one pointing at no customer row is
     -- possible. The report's summary reads customer_invoices alone, so an inner
     -- join here would drop that invoice from Home's tile and donut while it
-    -- stays in the report's total.
+    -- stays in the report's total. Company-scoped: a client_id naming ANOTHER
+    -- tenant's customer must not lend its name to this tenant's list.
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      AND c.company_id = ci.company_id
     LEFT JOIN LATERAL (
       ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
     ) unpaid ON TRUE
