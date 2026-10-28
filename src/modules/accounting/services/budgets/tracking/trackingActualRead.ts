@@ -95,3 +95,14 @@ export async function readPostedThrough(companyId: string, startDate: string, en
   const raw = rows[0]?.posted_through;
   return raw == null ? null : String(raw);
 }
+
+/** Account ids in the ledger's own order (`ORDER BY account_code`, Postgres' collation), as the income statement lists them. */
+export async function readAccountOrder(companyId: string, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = (await sql`
+    SELECT id::TEXT AS id FROM gl_accounts
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[])
+     ORDER BY account_code, id
+  `) as DbRow[];
+  return rows.map((r) => String(r.id).toLowerCase());
+}

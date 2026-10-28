@@ -183,3 +183,14 @@ describe('review round 1', () => {
     expect([n.unbudgetedCount, n.unbudgetedActual, n.noVersionYears]).toEqual([0, { income: 0, expense: 0 }, [2028]]);
   });
 });
+
+describe('line order (review Q5)', () => {
+  it("prints lines in the order given (Postgres' ORDER BY account_code), not a JS comparison", () => {
+    const actuals = [a('sales', 1), a('rent', 2), a('cos', 3)];
+    const order = ['rent', 'cos', 'sales'];
+    const lines = buildTrackingLines({ accounts: ACCOUNTS, windowMonths: [M], plan: PLAN, actuals, budgets: [], order });
+    expect(lines.map((l) => l.accountId)).toEqual(order);
+    expect(() => buildTrackingLines({ accounts: ACCOUNTS, windowMonths: [M], plan: PLAN, actuals, budgets: [], order: ['rent'] }))
+      .toThrow(/missing from the print order/);
+  });
+});

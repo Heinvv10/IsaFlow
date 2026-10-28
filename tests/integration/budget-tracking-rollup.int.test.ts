@@ -57,6 +57,17 @@ describe('Invariant 2: company roll-up = Σ grains', () => {
   });
 });
 
+describe('line order (review Q5)', () => {
+  it("lines come in the ledger's ORDER BY account_code, Postgres' collation", async () => {
+    const r = await run(FY);
+    const { rows } = await pool.query(
+      `SELECT account_code FROM gl_accounts WHERE company_id = $1 AND id = ANY($2::UUID[]) ORDER BY account_code, id`,
+      [f.a, r.lines.map((l) => l.accountId)]);
+    expect(r.lines.map((l) => l.accountCode)).toEqual(rows.map((x) => x.account_code));
+    expect(r.lines.length).toBe(5);
+  });
+});
+
 describe('under a filter: included, unallocated, excluded', () => {
   it('CC1 = FT takes FT and the CC2 under it; company, BU and the chainless project are unallocated', async () => {
     const r = await run({ ...FY, cc1Id: f.cc.FT });

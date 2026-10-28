@@ -20,14 +20,14 @@ import { resolveDimensionMembers } from '@/modules/accounting/services/reports/d
 import { loadCostCentreChains } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 import { buildBands, buildNotices } from './trackingBands';
 import { readTrackingBudgets, resolveTrackingVersions } from './trackingBudgetRead';
-import { readPostedThrough, readTrackingActuals } from './trackingActualRead';
+import { readAccountOrder, readPostedThrough, readTrackingActuals } from './trackingActualRead';
 import { buildTrackingMembers } from './trackingByMember';
-import { classifyBudgetRow, effectiveDims, isFiltered } from './trackingDimRollup';
+import { classifyBudgetRow, effectiveDims } from './trackingDimRollup';
 import { resolveTrackingFilter } from './trackingFilter';
 import { buildTrackingLines, type AccountMeta } from './trackingLines';
 import { projectionPlan } from './trackingProjection';
 import { TrackingError, type BudgetTrackingReport, type TrackingParams } from './trackingTypes';
-import { resolveTrackingWindow } from './trackingWindow';
+import { readStartOf, resolveTrackingWindow } from './trackingWindow';
 
 export async function buildBudgetTrackingReport(
   companyId: string,
@@ -38,17 +38,18 @@ export async function buildBudgetTrackingReport(
   const window = await resolveTrackingWindow(companyId, params, now);
   const filter = await resolveTrackingFilter(companyId, params);
   const groupBy = params.groupBy ?? null;
-  if (groupBy && isFiltered(filter.budget)) {
+  if (groupBy && Object.keys(filter.actual).length > 0) {
     throw new TrackingError(400, 'group_by needs the unfiltered view: the members partition the company total');
   }
   const versions = await resolveTrackingVersions(companyId, window, params.versionId);
   const plan = projectionPlan(window.fy, window.endDate, today);
 
   const budgetRows = await readTrackingBudgets(companyId, versions.scope);
-  const cc2Ids = [...new Set(budgetRows.map((r) => r.cc2Id).filter((v): v is string => v !== null))];
-  const nodes = await loadCostCentreChains(companyId, cc2Ids);
-  const readStart = window.startDate < window.fy.startDate ? window.startDate : window.fy.startDate;
-  const actualRows = await readTrackingActuals(companyId, readStart, window.endDate, filter.actual, groupBy);
+  // Every chain the request needs (the budget rows' CC2s and the filter's), in ONE query.
+  const chainIds = [...new Set([...filter.chainIds, ...budgetRows.map((r) => r.cc2Id).filter((v): v is string => v !== null)])];
+  const nodes = await loadCostCentreChains(companyId, chainIds);
+  const budgetFilter = filter.budgetFilter(nodes);
+  const actualRows = await readTrackingActuals(companyId, readStartOf(window), window.endDate, filter.actual, groupBy);
 
   const accounts = new Map<string, AccountMeta>();
   for (const r of [...actualRows, ...budgetRows]) {
@@ -66,7 +67,8 @@ export async function buildBudgetTrackingReport(
     windowMonths: window.months,
     plan,
     actuals: actualRows,
-    budgets: budgetRows.map((r, i) => ({ accountId: r.accountId, month: r.month, amount: r.amount, cls: classifyBudgetRow(effs[i]!, filter.budget) })),
+    budgets: budgetRows.map((r, i) => ({ accountId: r.accountId, month: r.month, amount: r.amount, cls: classifyBudgetRow(effs[i]!, budgetFilter) })),
+    order: await readAccountOrder(companyId, [...accounts.keys()]),
   });
 
   let members: BudgetTrackingReport['members'];

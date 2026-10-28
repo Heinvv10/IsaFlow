@@ -4,9 +4,10 @@
  * month x grain.
  *
  * Versions (contract: "readers use the primary"): with no `versionId` each
- * financial year the read covers contributes its PRIMARY version's months
- * (`budgets/budgetVersionScope.primaryVersionScope`, a year with none
- * contributes nothing). A named version must belong to the company (else 404,
+ * financial year the read covers contributes its PRIMARY version's months (a
+ * year with none contributes nothing), the rule of
+ * `budgets/budgetVersionScope.primaryVersionScope`, applied to the years the
+ * window already resolved. A named version must belong to the company (else 404,
  * through `versionYear`), and every month of the window must lie in that
  * version's year, else 400 "version X is FY2027; the window reaches FY2028".
  *
@@ -19,7 +20,8 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { namedVersionScope, primaryVersionScope, versionYear, type VersionScope } from '../budgetVersionScope';
+import { budgetMonthBounds, monthKeyToDate } from '@/modules/accounting/services/reports/budgetPeriodWindow';
+import { versionYear, type VersionScope } from '../budgetVersionScope';
 import type { AccountMeta } from './trackingLines';
 import { TrackingError, type TrackingVersionRef, type TrackingWindow } from './trackingTypes';
 
@@ -54,30 +56,50 @@ async function versionHeads(companyId: string, ids: string[]): Promise<Map<strin
   }]));
 }
 
+/**
+ * The months each version contributes: every window year's months inside the window, and FY*
+ * whole (the projection reads its full budget). Built from the window the registry already
+ * resolved (`window.years`, `window.fy`), so the registry is not walked twice.
+ */
+function scopeYears(window: TrackingWindow): Array<{ fiscalYear: number; first: string; last: string }> {
+  const fy = window.fy;
+  const out = window.years
+    .filter((y) => y.fiscalYear !== fy.fiscalYear && y.months.length > 0)
+    .map((y) => ({ fiscalYear: y.fiscalYear, first: monthKeyToDate(y.months[0]!), last: monthKeyToDate(y.months[y.months.length - 1]!) }));
+  const whole = budgetMonthBounds(fy.startDate, fy.endDate);
+  if (whole) out.push({ fiscalYear: fy.fiscalYear, ...whole });
+  return out;
+}
+
 /** The versions a window reads; `versionId` is looked up under the company (404 when it is not its own). */
 export async function resolveTrackingVersions(companyId: string, window: TrackingWindow, versionId?: string): Promise<TrackingVersions> {
   const fy = window.fy;
-  const readStart = window.startDate < fy.startDate ? window.startDate : fy.startDate;
+  const years = scopeYears(window);
   let scope: VersionScope[];
   if (versionId) {
     const year = await versionYear(companyId, versionId);
-    const reaches = [...new Set([...window.years.map((y) => y.fiscalYear), fy.fiscalYear])].filter((y) => y !== year.fiscalYear);
+    const reaches = years.map((y) => y.fiscalYear).filter((y) => y !== year.fiscalYear);
     if (reaches.length > 0) {
       throw new TrackingError(400, `version ${versionId} is FY${year.fiscalYear}; the window reaches FY${reaches[0]}`);
     }
-    scope = await namedVersionScope(companyId, versionId);
+    // The window lies inside the version's year, so FY* is that year: one scope entry, the whole year.
+    scope = years.map((y) => ({ ...y, versionId }));
   } else {
-    scope = await primaryVersionScope(companyId, readStart, fy.endDate);
+    const prim = (await sql`
+      SELECT id::TEXT AS id, fiscal_year FROM budget_versions
+       WHERE company_id = ${companyId}::UUID AND is_primary AND fiscal_year = ANY(${years.map((y) => y.fiscalYear)}::INT[])
+    `) as DbRow[];
+    const byLabel = new Map(prim.map((r) => [Number(r.fiscal_year), String(r.id)]));
+    scope = years.map((y) => ({ ...y, versionId: byLabel.get(y.fiscalYear) ?? null }));
   }
   const ids = [...new Set(scope.map((s) => s.versionId).filter((v): v is string => v !== null))];
   const heads = await versionHeads(companyId, ids);
   const byYear = new Map(scope.map((s) => [s.fiscalYear, s.versionId]));
   const fyVersion = byYear.get(fy.fiscalYear) ?? null;
-  const windowYears = [...new Set([...window.years.map((y) => y.fiscalYear), fy.fiscalYear])];
   const out: TrackingVersions = {
     scope,
     version: fyVersion === null ? null : heads.get(fyVersion) ?? null,
-    noVersionYears: windowYears.filter((y) => (byYear.get(y) ?? null) === null),
+    noVersionYears: scope.filter((s) => s.versionId === null).map((s) => s.fiscalYear),
   };
   if (window.years.length > 1) {
     out.versionsByFy = {};

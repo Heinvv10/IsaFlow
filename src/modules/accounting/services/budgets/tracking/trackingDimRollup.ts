@@ -21,8 +21,9 @@
  * footer, which says it is set above this filter when it is not.
  *
  * Either level (`cost_centre_id`, the statement pages' meaning, for the PR-C
- * comparator) matches `eff.cc1 = X OR eff.cc2 = X`; otherwise it is the
- * explicit filter of X's own level.
+ * comparator), as the spec states it: included when `eff.cc1 = X OR eff.cc2 = X`,
+ * coarser only when BOTH are NULL, otherwise other (so a chainless project's
+ * row is excluded under an FNO, not unallocated).
  */
 import { deriveFnoId, type CostCentreNode } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 
@@ -41,7 +42,7 @@ export interface BudgetFilter {
   cc1?: string;
   cc2?: ProjectRef;
   bu?: string;
-  costCentre?: { id: string; level: 'cc1' | 'cc2'; fno: string | null };
+  costCentre?: { id: string };
 }
 
 const lower = (id: string | null): string | null => (id ? id.toLowerCase() : null);
@@ -81,16 +82,11 @@ export function classifyBudgetRow(eff: EffDims, f: BudgetFilter): BudgetRowClass
   if (f.cc2 !== undefined) verdicts.push(project(eff, f.cc2));
   if (f.bu !== undefined) verdicts.push(level(eff.bu, f.bu));
   if (f.costCentre !== undefined) {
-    const x = f.costCentre;
-    if (eff.cc1 === x.id || eff.cc2 === x.id) verdicts.push('match');
-    else verdicts.push(x.level === 'cc1' ? level(eff.cc1, x.id) : project(eff, { id: x.id, fno: x.fno }));
+    const x = f.costCentre.id;
+    if (eff.cc1 === x || eff.cc2 === x) verdicts.push('match');
+    else verdicts.push(eff.cc1 === null && eff.cc2 === null ? 'coarser' : 'other');
   }
   if (verdicts.includes('other')) return 'other';
   if (verdicts.includes('coarser')) return 'coarser';
   return 'included';
-}
-
-/** True when the filter names any level. */
-export function isFiltered(f: BudgetFilter): boolean {
-  return f.cc1 !== undefined || f.cc2 !== undefined || f.bu !== undefined || f.costCentre !== undefined;
 }

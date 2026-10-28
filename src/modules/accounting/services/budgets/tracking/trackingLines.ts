@@ -60,6 +60,8 @@ export function buildTrackingLines(input: {
   budgets: readonly ClassifiedBudgetCell[];
   /** Window months in a year with no version: any of them makes the WINDOW budget absent on every line. */
   noVersionMonths?: readonly string[];
+  /** Account ids in the order to print them (Postgres' `ORDER BY account_code`); absent, the order the cells arrive in. */
+  order?: readonly string[];
 }): TrackingLine[] {
   // A month nobody budgeted for (no version) is not a zero budget: a window total that silently
   // counted it as 0 would print a variance against part of the window.
@@ -115,5 +117,12 @@ export function buildTrackingLines(input: {
       monthly,
     });
   }
-  return lines.sort((x, y) => (x.accountCode < y.accountCode ? -1 : x.accountCode > y.accountCode ? 1 : x.accountId < y.accountId ? -1 : 1));
+  if (!input.order) return lines;
+  const rank = new Map(input.order.map((id, i) => [id, i]));
+  const at = (id: string) => {
+    const i = rank.get(id);
+    if (i === undefined) throw new Error(`tracking: account ${id} is missing from the print order`);
+    return i;
+  };
+  return lines.sort((x, y) => at(x.accountId) - at(y.accountId));
 }
