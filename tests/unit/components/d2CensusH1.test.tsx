@@ -44,6 +44,8 @@ interface Case {
   rest?: (url: string) => unknown;
   /** Kit selects render their options only when opened: the combobox to open before looking for `shows`. */
   open?: string;
+  /** The list loads when the picker opens (ContactPicker), so the failure cases open it too. */
+  loadsOnOpen?: boolean;
   shows: RegExp;
   plain: RegExp;
 }
@@ -79,8 +81,8 @@ const CASES: Case[] = [
   { name: 'convert trial: plans', page: () => <ConvertTrialModal companyId="c1" companyName="D2 Co" onClose={vi.fn()} onConverted={vi.fn()} />,
     fails: u => u.includes('billing/plans'), good: [{ id: 'p1', name: 'D2 Pro Plan', code: 'pro', monthly_price_cents: 100, currency: 'ZAR' }],
     shows: /D2 Pro Plan/, plain: /Could not load plans - try again/ },
-  { name: 'new customer invoice: clients', page: () => <NewCustomerInvoicePage />, fails: u => u.includes('/accounting/customers'), open: 'Client',
-    good: [{ id: 'cl1', name: 'D2 Client Co' }], shows: /D2 Client Co/, plain: /Could not load clients - try again/ },
+  { name: 'new customer invoice: clients', page: () => <NewCustomerInvoicePage />, fails: u => u.includes('/accounting/customers'), open: 'Client', loadsOnOpen: true,
+    good: [{ id: 'cl1', name: 'D2 Client Co' }], shows: /D2 Client Co/, plain: /Could not load customers - try again/ },
   { name: 'new customer invoice: currencies', page: () => <NewCustomerInvoicePage />, fails: u => u.includes('/currencies'), open: 'Currency',
     good: [{ code: 'USD', name: 'D2 Dollar', symbol: '$' }], shows: /D2 Dollar/, plain: /Could not load currencies - try again/ },
 ];
@@ -96,12 +98,14 @@ describe.each(CASES)('$name', (c) => {
   it('400: the server message is shown', async () => {
     script(c, () => envelope(MSG));
     render(c.page());
+    if (c.loadsOnOpen && c.open) openCombobox(c.open);
     expect(await screen.findByText(new RegExp(MSG))).toBeTruthy();
   });
 
   it('500 with an empty body: a plain sentence, not a JSON parse error', async () => {
     script(c, empty500);
     render(c.page());
+    if (c.loadsOnOpen && c.open) openCombobox(c.open);
     expect(await screen.findByText(c.plain)).toBeTruthy();
     expect(screen.queryByText(/JSON|Unexpected end/)).toBeNull();
   });
