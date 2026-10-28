@@ -17,6 +17,7 @@ import { importChartOfAccounts, type AccountImportRow } from '@/modules/accounti
 import { createSession } from '@/modules/accounting/services/core/migrationService';
 import { seedChartOfAccountsFromTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
+import { firstChildWouldHideBalance } from '@/modules/accounting/services/gl/accountParentRules';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { request, response } from './mfa-impersonation-postgres.helpers';
@@ -248,6 +249,29 @@ describeIfDb('the import, the template seed and the bank grouping keep posted ac
       await inTx(o.fx, () => ensureOpeningBalanceEquityAccount(o.fx.companyId));
       expect(await childCount(e3000)).toBe(0);
       expect(await obeParent()).toBe('');
+    });
+
+    it('control: the check refuses only a posted, childless level 1-2 parent', async () => {
+      const would = (id: string, level: number | null) => inTx(o.fx, () =>
+        firstChildWouldHideBalance(o.fx.companyId, { id, level, account_type: 'equity' }));
+      const unposted = await addAccount(o.fx, { code: 'HISO-U', type: 'equity', level: 1 });
+      expect(await would(unposted, 1)).toBe(false);                  // no lines yet
+      const withChild = await addAccount(o.fx, { code: 'HISO-C', type: 'equity', level: 1 });
+      await addAccount(o.fx, { code: 'HISO-C.1', type: 'equity', level: 2, parentId: withChild });
+      await inTx(o.fx, async () => {
+        const e = await createJournalEntry(o.fx.companyId, { entryDate: DATE, description: 'HISO-C', source: 'manual',
+          lines: [{ glAccountId: o.fx.bankAccountId, debit: 50, credit: 0 }, { glAccountId: unposted, debit: 0, credit: 50 }] },
+          o.fx.userId);
+        await postJournalEntry(o.fx.companyId, e.id, o.fx.userId);
+      });
+      // A line on the header as well (written directly: a post to a header is refused, as it should be).
+      await sql`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, company_id)
+        SELECT journal_entry_id, ${withChild}::UUID, 0, 0, company_id FROM gl_journal_lines
+         WHERE gl_account_id = ${unposted}::UUID LIMIT 1`;
+      expect(await would(withChild, 1)).toBe(false);                 // posted, but already a header
+      expect(await would(unposted, 3)).toBe(false);                  // posted, but level 3 keeps its balance
+      expect(await would(unposted, 1)).toBe(true);                   // posted, childless, level 1
+      expect(await would(unposted, null)).toBe(true);                // NULL level counts as below 3
     });
   });
 });
