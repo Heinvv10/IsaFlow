@@ -125,6 +125,8 @@ export default function EditRecurringInvoicePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
     setError('');
+    if (!form.nextRunDate) { setError('Enter the next run date.'); return; }
+    if (form.endDate && form.endDate < form.nextRunDate) { setError('The end date cannot be before the next run date.'); return; }
     if (lines.some(l => !l.description)) { setError('All line items must have a description'); return; }
     setSubmitting(true);
     try {

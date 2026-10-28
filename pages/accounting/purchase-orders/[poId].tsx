@@ -173,6 +173,7 @@ export default function PurchaseOrderDetailPage() {
 
   const handleSave = async () => {
     if (!form || !poId) return; if (dates.blocked) { setSaveError('Fix the date marked in red before saving.'); return; }
+    if (!form.order_date) { setSaveError('Enter the order date.'); return; }
     if (!form.supplier_id) { setSaveError('Please select a supplier'); return; }
     setSaving(true);
     setSaveError('');

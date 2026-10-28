@@ -79,6 +79,7 @@ export default function NewRecurringInvoicePage() {
     e.preventDefault();
     if (dates.blocked) return;
     setError('');
+    if (form.endDate && form.endDate < form.nextRunDate) { setError('The end date cannot be before the first run date.'); return; }
     if (!form.clientId) { setError('Please select a customer'); return; }
     if (lines.some(l => !l.description)) { setError('All line items must have a description'); return; }
     if (lines.some(l => l.unitPrice <= 0)) { setError('All line items must have a unit price > 0'); return; }
