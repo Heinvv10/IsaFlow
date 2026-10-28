@@ -7,20 +7,13 @@ import { SlidersHorizontal, X, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ScheduleRow, LoanEvent } from './types';
 import { LoanScheduleTable } from './LoanScheduleTable';
-import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { useDateGate } from '@/components/forms/GatedDateField';
+import { WhatIfEventRow, type WhatIfEvent } from './WhatIfEventRow';
 
 interface Props {
   loanId: string;
   rows: ScheduleRow[];
   loading: boolean;
-}
-
-interface WhatIfEvent {
-  /** Stable per row: keys the row and its date gate, so removing a row never moves a refusal onto another. */
-  id: number;
-  kind: string;
-  date: string;
-  amount: string;
 }
 
 export function LoanScheduleTab({ loanId, rows, loading }: Props) {
@@ -36,7 +29,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
 
   const addEvent = () => setEvents(ev => [...ev, { id: nextId.current++, kind: 'LUMP', date: '', amount: '' }]);
   const removeEvent = (i: number) => setEvents(ev => ev.filter((_, idx) => idx !== i));
-  const updateEvent = (i: number, field: keyof WhatIfEvent, value: string) =>
+  const updateEvent = (i: number, field: Exclude<keyof WhatIfEvent, 'id'>, value: string) =>
     setEvents(ev => ev.map((e, idx) => idx === i ? { ...e, [field]: value } : e));
 
   const runPreview = async () => {
@@ -110,37 +103,10 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
           )}
 
           {events.map((ev, i) => (
-            <div key={ev.id} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
-              <select
-                value={ev.kind}
-                onChange={e => updateEvent(i, 'kind', e.target.value)}
-                className="ff-select text-xs"
-              >
-                <option value="LUMP">Lump Sum</option>
-                <option value="SKIP">Skip</option>
-              </select>
-              <GatedDateField gate={dateGate} gateKey={`event-date-${ev.id}`} label="Event date" value={ev.date || null} onValue={iso => updateEvent(i, 'date', iso)} />
-              {ev.kind === 'LUMP' ? (
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Amount"
-                  value={ev.amount}
-                  onChange={e => updateEvent(i, 'amount', e.target.value)}
-                  className="ff-input text-xs"
-                />
-              ) : (
-                <div />
-              )}
-              <button
-                onClick={() => removeEvent(i)}
-                aria-label={`Remove event ${i + 1}`}
-                className="text-[var(--ff-text-tertiary)] hover:text-red-400 p-1"
-                disabled={events.length === 1}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
+            <WhatIfEventRow
+              key={ev.id} event={ev} position={i + 1} gate={dateGate} canRemove={events.length > 1}
+              onChange={(field, value) => updateEvent(i, field, value)} onRemove={() => removeEvent(i)}
+            />
           ))}
 
           <div className="flex items-center gap-2">
