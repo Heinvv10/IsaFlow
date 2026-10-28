@@ -11,7 +11,7 @@ import type { GridAccount, GridReadModel } from '@/modules/accounting/services/b
 
 const account = (id: string, code: string): GridAccount => ({
   id, code, name: `Account ${code}`, type: 'revenue', subtype: null, band: 'turnover', isActive: true, parentId: null, depth: 0,
-  isHeader: false, childIds: [], ownAmounts: false, grain: null, rollup: null,
+  isHeader: false, childIds: [], ownAmounts: false, grain: null, rollup: null, note: null,
 });
 const model = (accounts: GridAccount[]) => ({ accounts, dimensions: { cc1: [], cc2: [], bu: [] } }) as unknown as GridReadModel;
 const line = (row: number, accountCode: string): ImportLine => ({ row, accountCode, dimensionCode: null, amounts: [{ month: '2026-03', cell: { kind: 'value', cents: row } }] });
