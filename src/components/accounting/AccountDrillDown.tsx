@@ -10,6 +10,8 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import Link from 'next/link';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { journalSourceHref } from '@/lib/journalSourceHref';
+import type { JournalDocumentRef } from '@/modules/accounting/services/gl/accountTransactionsService';
 
 // A request in flight, by URL. React StrictMode (`next dev`) mounts, unmounts and re-mounts the effect
 // below at once: the second run joins the first request instead of sending its own.
@@ -44,8 +46,22 @@ interface Transaction {
   credit: number;
   balance: number;
   source: string;
+  journalId?: string;
+  /** The document the journal was posted from (null: none). */
+  document?: JournalDocumentRef | null;
   /** Year-end close row — derived, not posted. */
   derived?: boolean;
+}
+
+/** The entry number, linked to its source document (or journal entry) when the row was posted. */
+function EntryCell({ tx }: { tx: Transaction }) {
+  const target = tx.derived ? null : journalSourceHref(tx);
+  if (!target) return <span className="w-24 font-mono text-[var(--ff-text-secondary)]">{tx.entryNumber}</span>;
+  return (
+    <Link href={target.href} title={target.label} className="w-24 font-mono text-indigo-400 hover:underline">
+      {tx.entryNumber}
+    </Link>
+  );
 }
 
 interface DrillDownData {
@@ -64,6 +80,9 @@ interface AccountDrillDownProps {
   periodEnd: string;
   costCentreId?: string;
   businessUnitId?: string;
+  /** Explicit dimension levels (Budget vs Actual), ANDed with the either-level costCentreId. */
+  cc1Id?: string;
+  cc2Id?: string;
   source?: 'tb' | 'bs' | 'is';
   returnTo?: string;
   /** Render inside a <table> (uses <tr>/<td>) vs standalone (uses <div>) */
@@ -78,6 +97,8 @@ export function AccountDrillDown({
   periodEnd,
   costCentreId,
   businessUnitId,
+  cc1Id,
+  cc2Id,
   source,
   returnTo,
   asTableRow,
@@ -106,6 +127,8 @@ export function AccountDrillDown({
 
     if (costCentreId) params.set('cost_centre_id', costCentreId);
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
+    if (cc1Id) params.set('cc1_id', cc1Id);
+    if (cc2Id) params.set('cc2_id', cc2Id);
 
     loadTransactions(params)
       .then(d => {
@@ -122,7 +145,7 @@ export function AccountDrillDown({
       });
 
     return () => { cancelled = true; };
-  }, [accountCode, periodStart, periodEnd, costCentreId, businessUnitId]);
+  }, [accountCode, periodStart, periodEnd, costCentreId, businessUnitId, cc1Id, cc2Id]);
 
   const postedCount = data ? data.transactions.filter(t => !t.derived).length : 0;
 
@@ -169,7 +192,7 @@ export function AccountDrillDown({
               className={`px-4 py-1 flex items-center gap-3 text-xs border-b border-[var(--ff-border-light)]/40 hover:bg-[var(--ff-bg-tertiary)]/20${tx.derived ? ' italic' : ''}`}
             >
               <span className="w-20 text-[var(--ff-text-tertiary)]">{fmtDate(tx.date)}</span>
-              <span className="w-24 font-mono text-[var(--ff-text-secondary)]">{tx.entryNumber}</span>
+              <EntryCell tx={tx} />
               <span className="flex-1 text-[var(--ff-text-secondary)] truncate">{tx.description}</span>
               <span className="w-24 text-right tabular-nums text-[var(--ff-text-primary)]">
                 {tx.debit > 0 ? fmt(tx.debit) : ''}

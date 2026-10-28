@@ -1,7 +1,9 @@
 /**
  * Account Transactions Report API
  * GET /api/accounting/reports-account-transactions?account_code=1110&period_start=&period_end=
- * Optional cost_centre_id and business_unit_id filters are cumulative.
+ * Optional cost_centre_id (either level: cc1 OR cc2), business_unit_id, and the
+ * explicit levels cc1_id / cc2_id (the Budget vs Actual drill, budgets P3 §2.6)
+ * are cumulative.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -27,6 +29,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (businessUnitId !== undefined && (typeof businessUnitId !== 'string' || !UUID_RE.test(businessUnitId))) {
     return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
   }
+  const dims: { cc1Id?: string; cc2Id?: string } = {};
+  for (const [param, key] of [['cc1_id', 'cc1Id'], ['cc2_id', 'cc2Id']] as const) {
+    const value = req.query[param];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !UUID_RE.test(value)) return apiResponse.badRequest(res, `${param} must be a valid UUID`);
+    dims[key] = value;
+  }
 
   try {
     const { account_code, period_start, period_end } = req.query;
@@ -38,7 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     if (period_start > period_end) return apiResponse.badRequest(res, 'period_start must not be after period_end');
     const report = await getAccountTransactions(companyId,
-      String(account_code), String(period_start), String(period_end), costCentreId, businessUnitId
+      String(account_code), String(period_start), String(period_end), costCentreId, businessUnitId, dims
     );
     return apiResponse.success(res, report);
   } catch (err) {
