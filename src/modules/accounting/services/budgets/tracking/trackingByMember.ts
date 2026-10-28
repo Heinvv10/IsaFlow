@@ -8,8 +8,10 @@
  * grain, a CC2 with no FNO under CC1) — the same rule as `dimensionPnlService`'s
  * UNTAGGED column. The members therefore PARTITION the company figure.
  *
- * Over a window with a month in a year with no version the members carry no
- * budget at all (the lines' F1 rule): a partial-window budget is not one.
+ * Over a window with a month in a year with no version, or with a line whose
+ * budget covers part of the window (so NP's budget is absent), the members
+ * carry no budget at all: they partition NP, and a partial-window budget is
+ * not one.
  *
  * The figure is each member's NET PROFIT contribution (revenue − expense, so
  * favourable when ≥ 0, like every profit total): a cost centre holds both
@@ -41,9 +43,11 @@ export function buildTrackingMembers(input: {
   noVersionMonths?: readonly string[];
   /** Member ids in the masters' order (`readMemberOrder`, ORDER BY code, id in SQL). */
   order?: readonly string[];
+  /** The window's profit budget is a partial-window figure (a partial line, review r5 G1): members partition it, so none has a budget. */
+  budgetAbsent?: boolean;
 }): TrackingMember[] {
   const inWindow = new Set(input.windowMonths);
-  const budgetAbsent = input.windowMonths.some((m) => input.noVersionMonths?.includes(m));
+  const budgetAbsent = input.budgetAbsent === true || input.windowMonths.some((m) => input.noVersionMonths?.includes(m));
   const acc = new Map<string | null, { actual: number; budget: number | null }>();
   const slot = (id: string | null) => {
     let s = acc.get(id);
