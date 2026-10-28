@@ -30,6 +30,25 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-28 — GL Parent Guard Gaps, Budgets P2D Cutover, Auth/Email Fixes
+
+**GL**
+
+- COA import, template seed and bank grouping no longer hide posted accounts from the balance sheet when a parent account exists (#922)
+- Import never re-types a parent into a hiding header; NULL level treated as below 3; Opening Balance Equity edge case fixed (#922)
+
+**Budgets**
+
+- P2D cutover: `/accounting/budgets` now routes to the budget workspace; legacy POST endpoint returns 405 (#901)
+- Budget workspace axe spec moved to dev-only; CI fixture requires active (non-header) accounts (#897, #911)
+
+**Auth / Email**
+
+- Invitation emails logged under the inviting company's `company_id`, not NULL (#924)
+- Accept-invite page: app styling, dark-mode readability, and autofill hints (#918)
+
+---
+
 ## 2026-10-22 — GL Export Bearer Auth, Payroll Directives, Security Hardening
 
 **GL Export / MCP**
