@@ -88,7 +88,7 @@ test('the dashboard AR ties to the AR Age Analysis, whatever is disputed', async
   }
 });
 
-test('the ageing donuts draw in colour and fit a 390 px screen', async ({ page }) => {
+test('the ageing donuts and Top 5 tables draw in colour and fit a 390 px screen', async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto('/accounting');
@@ -109,6 +109,29 @@ test('the ageing donuts draw in colour and fit a 390 px screen', async ({ page }
     expect(ring!.x + ring!.width).toBeLessThanOrEqual(pie!.x + pie!.width);
   }
   await shot(page, 'y7-donut-390');
+
+  // The Top 5 tables: wider than the 308 px card, so each scrolls inside its labelled region (the card
+  // is overflow-hidden: without it Invoices and % were cut off). The region stays inside the card, the
+  // page does not scroll sideways, and no amount cell is cut (scrollWidth within clientWidth).
+  for (const name of ['Top 5 Customers by Revenue, table', 'Top 5 Expense Categories, table']) {
+    const region = page.getByRole('region', { name });
+    await region.scrollIntoViewIfNeeded();
+    const m = await region.evaluate((el) => {
+      const card = el.parentElement!;
+      const last = el.querySelector('tbody tr:last-child td:last-child') as HTMLElement | null;
+      return {
+        regionRight: el.getBoundingClientRect().right, cardRight: card.getBoundingClientRect().right,
+        scrolls: el.scrollWidth > el.clientWidth, overflowX: getComputedStyle(el).overflowX,
+        amountCut: [...el.querySelectorAll('td.tabular-nums')].some((c) => c.scrollWidth > c.clientWidth),
+        reachable: last ? (() => { el.scrollLeft = el.scrollWidth; const r = last.getBoundingClientRect(); return r.right <= el.getBoundingClientRect().right + 1; })() : true,
+      };
+    });
+    expect(m.regionRight, `${name} inside its card`).toBeLessThanOrEqual(m.cardRight + 1);
+    if (m.scrolls) expect(['auto', 'scroll'], `${name} scrolls`).toContain(m.overflowX);
+    expect(m.amountCut, `${name} amounts cut`).toBe(false);
+    expect(m.reachable, `${name} last column reachable`).toBe(true);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no page-level horizontal scroll').toBe(true);
 });
 
 test('on an empty company the setup checklist leads Home and nothing says "All caught up!"', async ({ page, baseURL }) => {

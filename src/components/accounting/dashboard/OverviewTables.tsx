@@ -10,6 +10,13 @@ const Pie = dynamic(() => import('recharts').then(m => m.Pie), { ssr: false });
 const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
 const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
 
+/**
+ * The two Top 5 tables are wider than a 390 px card (an exact amount, "R 6 376 148.65", does not wrap or
+ * truncate): they scroll sideways inside a labelled, focusable region, so every column stays reachable
+ * and the page itself never scrolls.
+ */
+const SCROLL_REGION = 'overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-500';
+
 /** One per segment: Current, 1–30, 31–60, 61–90, 90+, Disputed (reports/dashboardOpenBook AGING_BREAKDOWN_LABELS). */
 const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e', '#9f1239', '#8b5cf6'];
 /** A zero Disputed segment is left out of the legend (AP has no disputes); a zero age bucket is not. */
@@ -48,24 +55,26 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
             <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Top 5 Customers by Revenue</h3>
           </div>
           {topCustomers.length > 0 ? (
+            <div role="region" aria-label="Top 5 Customers by Revenue, table" tabIndex={0} className={SCROLL_REGION}>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)]">
-                  <th className="px-5 py-2 text-left text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Customer</th>
-                  <th className="px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Revenue</th>
-                  <th className="px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Invoices</th>
+                  <th className="px-3 sm:px-5 py-2 text-left text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Customer</th>
+                  <th className="px-3 sm:px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Revenue</th>
+                  <th className="px-3 sm:px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Invoices</th>
                 </tr>
               </thead>
               <tbody>
                 {topCustomers.map((c, i) => (
                   <tr key={i} className="border-b border-[var(--ff-border-light)]/50 last:border-0">
-                    <td className="px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[200px]">{c.name}</td>
-                    <td className="px-5 py-2.5 text-sm text-right tabular-nums text-teal-500">{fmtCurrency(c.revenue)}</td>
-                    <td className="px-5 py-2.5 text-sm text-right text-[var(--ff-text-secondary)]">{c.invoiceCount}</td>
+                    <td className="px-3 sm:px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[140px] sm:max-w-[200px]">{c.name}</td>
+                    <td className="px-3 sm:px-5 py-2.5 text-sm text-right tabular-nums whitespace-nowrap text-teal-500">{fmtCurrency(c.revenue)}</td>
+                    <td className="px-3 sm:px-5 py-2.5 text-sm text-right whitespace-nowrap text-[var(--ff-text-secondary)]">{c.invoiceCount}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           ) : (
             <div className="p-8 text-center text-sm text-[var(--ff-text-tertiary)]">No customer data</div>
           )}
@@ -76,24 +85,26 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
             <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Top 5 Expense Categories</h3>
           </div>
           {topExpenses.length > 0 ? (
+            <div role="region" aria-label="Top 5 Expense Categories, table" tabIndex={0} className={SCROLL_REGION}>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)]">
-                  <th className="px-5 py-2 text-left text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Account</th>
-                  <th className="px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Total</th>
-                  <th className="px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">%</th>
+                  <th className="px-3 sm:px-5 py-2 text-left text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Account</th>
+                  <th className="px-3 sm:px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Total</th>
+                  <th className="px-3 sm:px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">%</th>
                 </tr>
               </thead>
               <tbody>
                 {topExpenses.map((e, i) => (
                   <tr key={i} className="border-b border-[var(--ff-border-light)]/50 last:border-0">
-                    <td className="px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[200px]">{e.accountName}</td>
-                    <td className="px-5 py-2.5 text-sm text-right tabular-nums text-rose-600 dark:text-rose-400">{fmtCurrency(e.total)}</td>
-                    <td className="px-5 py-2.5 text-sm text-right text-[var(--ff-text-secondary)]">{e.percentOfExpenses.toFixed(1)}%</td>
+                    <td className="px-3 sm:px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[140px] sm:max-w-[200px]">{e.accountName}</td>
+                    <td className="px-3 sm:px-5 py-2.5 text-sm text-right tabular-nums whitespace-nowrap text-rose-600 dark:text-rose-400">{fmtCurrency(e.total)}</td>
+                    <td className="px-3 sm:px-5 py-2.5 text-sm text-right whitespace-nowrap text-[var(--ff-text-secondary)]">{e.percentOfExpenses.toFixed(1)}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           ) : (
             <div className="p-8 text-center text-sm text-[var(--ff-text-tertiary)]">No expense data</div>
           )}
