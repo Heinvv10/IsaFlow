@@ -75,6 +75,16 @@ describe('Projected FY on a 14-month year, November in progress', () => {
     expect(band('net_profit').projected).toBe(Math.round(np * 100) / 100);
   });
 
+  it('F2: "actuals posted through" is bounded by today; the window posted-through is always returned', async () => {
+    // The fixture posts on the 15th AND on the last day of every month through Jul 2027: forward-dated from 15 Nov 2026.
+    const year = await run({ period: 'fy', fiscalYear: 2027 });
+    expect(year.window.inProgress).toEqual({ month: '2026-11', actualsTo: '2026-11-15' });
+    expect(year.window.postedThrough).toBe('2027-04-30');
+    const past = await run({ period: 'quarter', fiscalYear: 2027, quarter: 2 });
+    expect(past.window.inProgress).toBeNull();
+    expect(past.window.postedThrough).toBe('2026-08-31');
+  });
+
   it('a window ending in a year that has not started projects budget only', async () => {
     const r = await run({ period: 'custom', from: '2027-03', to: '2027-07' });
     expect([r.projection.fiscalYear, r.projection.cutoff, r.projection.actualMonths]).toEqual([2028, '2027-04-30', []]);

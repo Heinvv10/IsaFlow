@@ -18,28 +18,16 @@ import { localISODate } from '@/lib/dateUtils';
 import { reportYearOptions } from '@/modules/accounting/services/reports/budgetReportYear';
 import { resolveDimensionMembers } from '@/modules/accounting/services/reports/dimensionPnlService';
 import { loadCostCentreChains } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { buildBands } from './trackingBands';
+import { buildBands, buildNotices } from './trackingBands';
 import { readTrackingBudgets, resolveTrackingVersions } from './trackingBudgetRead';
 import { readPostedThrough, readTrackingActuals } from './trackingActualRead';
 import { buildTrackingMembers } from './trackingByMember';
 import { classifyBudgetRow, effectiveDims, isFiltered } from './trackingDimRollup';
 import { resolveTrackingFilter } from './trackingFilter';
-import { fromCents, toCents } from '../grid/cents';
 import { buildTrackingLines, type AccountMeta } from './trackingLines';
 import { projectionPlan } from './trackingProjection';
-import { TrackingError, type BudgetTrackingReport, type TrackingLine, type TrackingNotices, type TrackingParams } from './trackingTypes';
+import { TrackingError, type BudgetTrackingReport, type TrackingParams } from './trackingTypes';
 import { resolveTrackingWindow } from './trackingWindow';
-
-function notices(lines: readonly TrackingLine[], noVersion: boolean, noVersionYears: number[]): TrackingNotices {
-  const unbudgeted = lines.filter((l) => l.budget === null && l.actual !== 0);
-  return {
-    unbudgetedCount: unbudgeted.length,
-    unbudgetedActual: fromCents(unbudgeted.reduce((s, l) => s + Math.abs(toCents(l.actual)), 0)),
-    unallocatedBudget: fromCents(lines.reduce((s, l) => s + toCents(l.unallocatedBudget), 0)),
-    noVersion,
-    noVersionYears,
-  };
-}
 
 export async function buildBudgetTrackingReport(
   companyId: string,
@@ -71,7 +59,9 @@ export async function buildBudgetTrackingReport(
     }
   }
   const effs = budgetRows.map((r) => effectiveDims(r, nodes));
+  const noVersionMonths = window.years.filter((y) => versions.noVersionYears.includes(y.fiscalYear)).flatMap((y) => y.months);
   const lines = buildTrackingLines({
+    noVersionMonths,
     accounts,
     windowMonths: window.months,
     plan,
@@ -109,7 +99,7 @@ export async function buildBudgetTrackingReport(
     projection: { fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
     lines,
     bands: buildBands(lines),
-    notices: notices(lines, versions.version === null, versions.noVersionYears),
+    notices: buildNotices(lines, { noVersion: versions.version === null, noVersionYears: versions.noVersionYears, budgetAbsent: noVersionMonths.length > 0 }),
     years: await reportYearOptions(companyId, today),
   };
   if (versions.versionsByFy) report.versionsByFy = versions.versionsByFy;

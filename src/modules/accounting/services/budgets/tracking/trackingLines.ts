@@ -12,7 +12,8 @@
  *
  * "Budgeted" is the PRESENCE of an included cell in the window (D5): a
  * deliberate zero budget prints 0 and its variance is the actual; no cell
- * prints "—". A line is printed when it has a window actual, a window budget,
+ * prints "—". A window reaching a year with NO version has no window budget
+ * at all (every line "—"); the monthly figures keep the versioned months. A line is printed when it has a window actual, a window budget,
  * an FY* budget, a projection or unallocated budget: band and profit totals
  * (`trackingBands`) are sums of these lines, so a line left out would be a
  * figure missing from its band.
@@ -57,7 +58,12 @@ export function buildTrackingLines(input: {
   plan: ProjectionPlan;
   actuals: readonly ActualCell[];
   budgets: readonly ClassifiedBudgetCell[];
+  /** Window months in a year with no version: any of them makes the WINDOW budget absent on every line. */
+  noVersionMonths?: readonly string[];
 }): TrackingLine[] {
+  // A month nobody budgeted for (no version) is not a zero budget: a window total that silently
+  // counted it as 0 would print a variance against part of the window.
+  const windowBudgetAbsent = input.windowMonths.some((m) => input.noVersionMonths?.includes(m));
   const byAccount = new Map<string, Acc>();
   const accOf = (id: string): Acc => {
     let acc = byAccount.get(id);
@@ -77,7 +83,7 @@ export function buildTrackingLines(input: {
     const polarity = meta.accountType === 'revenue' ? 'income' : 'expense';
     const ms = input.windowMonths;
     const actual = sumOver(acc.actual, ms);
-    const budget = anyIn(acc.budget, ms) ? sumOver(acc.budget, ms) : null;
+    const budget = !windowBudgetAbsent && anyIn(acc.budget, ms) ? sumOver(acc.budget, ms) : null;
     const unallocated = sumOver(acc.coarser, ms);
     const variance = budget === null ? null : actual - budget;
     const proj = projectCents(acc.actual, anyIn(acc.budget, input.plan.fyMonths) ? acc.budget : null, input.plan);
@@ -105,7 +111,7 @@ export function buildTrackingLines(input: {
       projVariance: proj.projVariance === null ? null : fromCents(proj.projVariance),
       projFavourable: proj.projVariance === null ? null : isFavourable(polarity, proj.projVariance),
       unallocatedBudget: fromCents(unallocated),
-      budgetAboveFilter: budget === null && anyIn(acc.coarser, ms),
+      budgetAboveFilter: !anyIn(acc.budget, ms) && anyIn(acc.coarser, ms),
       monthly,
     });
   }

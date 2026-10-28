@@ -44,7 +44,7 @@ describe('Invariant 2: company roll-up = Σ grains', () => {
       expect(cell?.budget, `${row.acct} ${row.m}`).toBe(Number(row.total));
     }
     expect([line(r, f.acc.sales).budget, line(r, f.acc.cos).budget, line(r, f.acc.opex).budget]).toEqual([150 * N, 70 * N, 200 * N]);
-    expect(r.notices.unallocatedBudget).toBe(0);
+    expect(r.notices.unallocatedBudget).toEqual({ income: 0, expense: 0 });
     expect(r.version).toMatchObject({ id: f.v.primary27, name: 'Original', kind: 'original', status: 'approved', isPrimary: true });
   });
 
@@ -68,7 +68,8 @@ describe('under a filter: included, unallocated, excluded', () => {
     }
     expect([line(r, f.acc.opex).unallocatedBudget, line(r, f.acc.interest).unallocatedBudget, line(r, f.acc.fin).unallocatedBudget])
       .toEqual([200 * N, 5 * N, 7 * N]);
-    expect(r.notices.unallocatedBudget).toBe(212 * N);
+    // Per polarity (D1): interest is income, opex and finance cost are expense.
+    expect(r.notices.unallocatedBudget).toEqual({ income: 5 * N, expense: 207 * N });
     expect(r.filter.cc1).toEqual({ id: f.cc.FT, code: 'BT-FT', name: 'Fibertime' });
   });
 
@@ -128,6 +129,20 @@ describe('versions', () => {
     expect(err).toBeInstanceOf(TrackingError);
     expect((err as TrackingError).status).toBe(400);
     expect((err as TrackingError).message).toMatch(/FY2027; the window reaches FY2028/);
+  });
+
+  it('F1: a window reaching a year with no version has no window budget, though another year is budgeted', async () => {
+    // FY2028 loses its primary for this request only; FY2027's March and April stay budgeted.
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2027-03', to: '2027-07' }, NOW), {
+      before: (c) => c.query('UPDATE budget_versions SET is_primary = false WHERE id = $1', [f.v.primary28]),
+    });
+    const opex = line(r, f.acc.opex);
+    expect([opex.budget, opex.variance, opex.variancePct, opex.favourable]).toEqual([null, null, null, null]);
+    expect(opex.monthly.map((m) => [m.month, m.budget])).toEqual([
+      ['2027-03', 200], ['2027-04', 200], ['2027-05', null], ['2027-06', null], ['2027-07', null],
+    ]);
+    for (const b of r.bands) expect([b.key, b.budget, b.variance]).toEqual([b.key, null, null]);
+    expect([r.notices.noVersionYears, r.notices.unbudgetedCount]).toEqual([[2028], 0]);
   });
 
   it('a year with no version leaves the Budget column absent, never zero', async () => {
