@@ -21,6 +21,7 @@ import {
   getTopCustomers,
   getTopExpenseCategories,
 } from '@/modules/accounting/services/reports/kpiService';
+import { getOpenBook } from '@/modules/accounting/services/reports/dashboardOpenBook';
 import { hasBankAccount } from '@/modules/accounting/services/bank/hasBankAccountService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -48,13 +49,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       : today;
     const months = Math.max(1, Math.min(Number(req.query.months) || 6, 120));
 
+    // Each side of the open book is read once and feeds both its tile and its
+    // donut: they are one figure by construction, and one query's cost.
+    const arBook = await getOpenBook(companyId, 'ar', today);
+    const apBook = await getOpenBook(companyId, 'ap', today);
+
     const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
       await Promise.all([
-        getDashboardKPIs(companyId, from, to, today),
+        getDashboardKPIs(companyId, from, to, today, { ar: arBook, ap: apBook }),
         getRevenueChart(companyId, months),
         getCashFlowChart(companyId, months),
-        getAgingBreakdown(companyId, 'ar', today),
-        getAgingBreakdown(companyId, 'ap', today),
+        getAgingBreakdown(companyId, 'ar', today, arBook),
+        getAgingBreakdown(companyId, 'ap', today, apBook),
         getTopCustomers(companyId, 5),
         getTopExpenseCategories(companyId, 5),
         hasBankAccount(companyId),

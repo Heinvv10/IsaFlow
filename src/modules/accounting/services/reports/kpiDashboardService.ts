@@ -9,29 +9,37 @@ import type { DbRow } from '@/types/db';
 import { marginPct } from './marginPct';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { todayInSast } from '@/lib/saDateParser';
-import { getOpenBook } from './dashboardOpenBook';
+import { getOpenBook, type OpenBook } from './dashboardOpenBook';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
 export interface DashboardKPIs {
   revenue: { total: number; priorTotal: number; changePercent: number };
+  /** Posted revenue from the 1st of the current SAST month to `todayStr`: the hero's "Revenue MTD". */
+  revenueMtd: number;
   expenses: { total: number; priorTotal: number };
   grossProfit: { amount: number; margin: number };
   netProfit: { amount: number; margin: number };
   cash: { total: number; priorTotal: number; change: number };
-  receivables: { total: number; overdue: number; avgDebtorDays: number };
+  receivables: { total: number; overdue: number; overdueDisputed: number; avgDebtorDays: number };
   payables: { total: number; overdue: number; avgCreditorDays: number };
   activity: { invoicesIssued: number; paymentsReceived: number; journalsPosted: number };
 }
 
+/** Both sides of the open book, already read: a caller that also draws the ageing donuts reads each once. */
+export interface OpenBooks { ar: OpenBook; ap: OpenBook }
+
 /**
  * `todayStr` is the SAST app date the Receivables / Payables tiles are as at
- * (reports/dashboardOpenBook), never the UTC session's CURRENT_DATE.
+ * (reports/dashboardOpenBook), never the UTC session's CURRENT_DATE. `books`
+ * are those tiles' open books when the caller already has them; without them
+ * they are read here.
  */
 export async function getDashboardKPIs(companyId: string,
   fromDate: string,
   toDate: string,
   todayStr: string = todayInSast(),
+  books?: OpenBooks,
 ): Promise<DashboardKPIs> {
   try {
     const from = new Date(fromDate);
@@ -48,6 +56,7 @@ export async function getDashboardKPIs(companyId: string,
       arBook, arDebtorDaysRows,
       apBook, apCreditorDaysRows,
       invoicesIssuedRows, paymentsReceivedRows, journalsPostedRows,
+      mtdRevenueRows,
     ] = await Promise.all([
       sql`
         SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS total
@@ -120,7 +129,7 @@ export async function getDashboardKPIs(companyId: string,
       `,
       // The aging report's own population, as at todayStr; its soft-delete
       // presence is dated there too (K-053, shared/softDeleteLedgerPresence).
-      getOpenBook(companyId, 'ar', todayStr),
+      books ? books.ar : getOpenBook(companyId, 'ar', todayStr),
       sql`
         SELECT COALESCE(AVG(
           EXTRACT(EPOCH FROM (COALESCE(paid_at, CURRENT_DATE) - invoice_date)) / 86400
@@ -130,7 +139,7 @@ export async function getDashboardKPIs(companyId: string,
           AND company_id = ${companyId}::UUID
           AND invoice_date >= ${fromDate}
       `,
-      getOpenBook(companyId, 'ap', todayStr),
+      books ? books.ap : getOpenBook(companyId, 'ap', todayStr),
       sql`
         SELECT COALESCE(AVG(
           EXTRACT(EPOCH FROM (COALESCE(paid_at, CURRENT_DATE) - invoice_date)) / 86400
@@ -160,6 +169,17 @@ export async function getDashboardKPIs(companyId: string,
           AND status = 'posted' AND source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND entry_date >= ${fromDate} AND entry_date <= ${toDate}
       `,
+      // The first query's own rule, over the SAST month so far (the revenue
+      // tile spans the whole window and is not a month-to-date figure).
+      sql`
+        SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS total
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
+          AND je.entry_date >= ${`${todayStr.slice(0, 8)}01`} AND je.entry_date <= ${todayStr}
+      `,
     ]);
 
     const totalRevenue = Number((revenueRows as DbRow[])[0]?.total || 0);
@@ -176,6 +196,7 @@ export async function getDashboardKPIs(companyId: string,
 
     return {
       revenue: { total: totalRevenue, priorTotal: priorRevenue, changePercent: revenueChange },
+      revenueMtd: Number((mtdRevenueRows as DbRow[])[0]?.total || 0),
       expenses: { total: totalExpenses, priorTotal: priorExpenses },
       grossProfit: { amount: grossProfit, margin: grossMargin },
       netProfit: { amount: grossProfit, margin: grossMargin },
@@ -183,6 +204,7 @@ export async function getDashboardKPIs(companyId: string,
       receivables: {
         total: arBook.total,
         overdue: arBook.overdue,
+        overdueDisputed: arBook.overdueDisputed,
         avgDebtorDays: Math.round(Number((arDebtorDaysRows as DbRow[])[0]?.avg_days || 0)),
       },
       payables: {

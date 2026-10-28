@@ -21,8 +21,13 @@ export interface OpenBook {
   buckets: number[];
   /** Every open balance, disputed or not: the report's total. */
   total: number;
-  /** Open balances already past due on `todayStr`, disputed or not. */
+  /** Open balances already past due on `todayStr`, disputed or not: the report's overdue. */
   overdue: number;
+  /**
+   * The disputed part of `overdue`. The donut's four overdue slices exclude it,
+   * so slices + overdueDisputed = overdue, and the tile can say so.
+   */
+  overdueDisputed: number;
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
@@ -37,11 +42,12 @@ export async function getOpenBook(companyId: string, side: 'ar' | 'ap', todayStr
   const keys = ['current', 'days30', 'days60', 'days90', 'days120Plus', 'disputed'] as const;
   const buckets = keys.map((k) => cents(rows.reduce((s, r) => s + (r[k] ?? 0), 0)));
   const open = invoices.filter((inv) => inv.balance > 0);
+  const pastDue = open.filter((inv) => getAgingBucket(new Date(inv.dueDate), asAt) !== 'current');
   return {
     buckets,
     total: cents(open.reduce((s, inv) => s + inv.balance, 0)),
-    overdue: cents(open
-      .filter((inv) => getAgingBucket(new Date(inv.dueDate), asAt) !== 'current')
-      .reduce((s, inv) => s + inv.balance, 0)),
+    overdue: cents(pastDue.reduce((s, inv) => s + inv.balance, 0)),
+    // The same cap calculateAgingBuckets applies: a dispute never exceeds its balance.
+    overdueDisputed: cents(pastDue.reduce((s, inv) => s + Math.min(Math.max(inv.disputedAmount ?? 0, 0), inv.balance), 0)),
   };
 }
