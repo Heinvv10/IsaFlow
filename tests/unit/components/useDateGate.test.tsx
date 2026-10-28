@@ -77,3 +77,32 @@ it('reset forgets one field', () => {
   act(() => result.current.reset('a'));
   expect(result.current.blocked).toBe(false);
 });
+
+it('a deliberate re-set of the SAME date (scan-fill) clears the refusal and puts the date back on screen', () => {
+  function Parent(): JSX.Element {
+    const [d, setD] = useState('2026-10-01');
+    const gate = useDateGate();
+    return (
+      <div>
+        <DateField label="When" value={d || null} resetKey={gate.resetKey('when')} onChange={gate.bind('when', setD, d)} />
+        <button type="button" onClick={() => { gate.reset('when'); setD('2026-10-01'); }}>scan</button>
+        <output data-testid="blocked">{String(gate.blocked)}</output>
+      </div>
+    );
+  }
+  render(<Parent />);
+  type('zz');
+  expect(screen.getByTestId('blocked').textContent).toBe('true');
+  fireEvent.click(screen.getByText('scan'));
+  expect(screen.getByTestId('blocked').textContent).toBe('false');
+  expect((screen.getByRole('textbox', { name: /when/i }) as HTMLInputElement).value).toBe('01 Oct 2026');
+  expect(screen.getByRole('textbox', { name: /when/i }).getAttribute('aria-invalid')).not.toBe('true');
+});
+
+it('resetKey changes only for the field that was reset', () => {
+  const { result } = renderHook(() => useDateGate());
+  const before = [result.current.resetKey('a'), result.current.resetKey('b')];
+  act(() => result.current.reset('a'));
+  expect(result.current.resetKey('a')).not.toBe(before[0]);
+  expect(result.current.resetKey('b')).toBe(before[1]);
+});

@@ -99,7 +99,7 @@ export default function NewCustomerPaymentPage() {
   };
 
   function handleExtracted(data: ExtractedDocument) {
-    if (data.date) setForm(f => ({ ...f, paymentDate: data.date! }));
+    if (data.date) { dates.reset('paymentDate'); setForm(f => ({ ...f, paymentDate: data.date! })); }
     if (data.referenceNumber) setForm(f => ({ ...f, bankReference: data.referenceNumber! }));
     if (data.customerName && clients.length > 0) {
       const match = fuzzyMatchClient(data.customerName, clients);
@@ -191,6 +191,7 @@ export default function NewCustomerPaymentPage() {
                   </div>
                   <div>
                     <DateField label="Payment Date" required name="paymentDate" value={form.paymentDate || null}
+                      resetKey={dates.resetKey('paymentDate')}
                       onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>
                   <div>

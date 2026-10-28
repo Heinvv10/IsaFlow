@@ -123,8 +123,8 @@ export default function NewSupplierInvoicePage() {
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};
     if (data.referenceNumber) updates.invoiceNumber = data.referenceNumber;
-    if (data.date) updates.invoiceDate = data.date;
-    if (data.dueDate) updates.dueDate = data.dueDate;
+    if (data.date) { updates.invoiceDate = data.date; dates.reset('invoiceDate'); }
+    if (data.dueDate) { updates.dueDate = data.dueDate; dates.reset('dueDate'); }
     if (data.purchaseOrderRef) updates.reference = data.purchaseOrderRef;
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
     if (data.paymentTerms) {
@@ -231,8 +231,8 @@ export default function NewSupplierInvoicePage() {
                         purchaseOrderId: '', grnId: '', copyLinesFromPo: false,
                       })); }} />
                   </div>
-                  <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
-                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })), form.dueDate)} />
+                  <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
+                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })), form.dueDate)} />
                   <div>
                     <label className={lbl}>Payment Terms</label>
                     <select value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
