@@ -264,6 +264,20 @@ describe('budget-tracking-export', () => {
     expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026 in this window']);
   });
 
+  it('G2: a single-year window whose version holds no budget in it says so beside the version', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => {
+      const r = fixture();
+      return { ...r, version: { id: 'v1', name: 'Original', kind: 'original', status: 'approved', isPrimary: true, empty: true }, notices: { ...r.notices, noVersion: true, noVersionYears: [2027] } };
+    });
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.find((r) => r[0] === 'Version')).toEqual(['Version', 'Original · approved (no budget in this window)']);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await call(exportHandler, { ...query, format: 'xlsx' })).sent as ArrayBuffer);
+    const head: unknown[][] = [];
+    wb.worksheets[0]!.eachRow((r) => { head.push([r.getCell(1).value, r.getCell(2).value]); });
+    expect(head).toContainEqual(['Version', 'Original · approved (no budget in this window)']);
+  });
+
   it('refuses an unknown format and a malformed query before any work', async () => {
     expect((await call(exportHandler, { ...query, format: 'pdf' })).statusCode).toBe(400);
     expect((await call(exportHandler, { period: 'quarter', quarter: '7', format: 'csv' })).statusCode).toBe(400);

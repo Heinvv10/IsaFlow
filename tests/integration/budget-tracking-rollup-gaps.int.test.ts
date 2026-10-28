@@ -3,7 +3,8 @@
  * unchanged out of budget-tracking-rollup.int.test.ts for the 300-line rule): the no-version
  * gap on members and unallocated budget (A1, A2), a grain change between versions (A3), empty
  * versions and the budget-absent rule (R9, E1-E3), a gap window with no lines (R1), the
- * above-filter month flag (R4), member order (R5) and registry misses (L3).
+ * above-filter month flag (R4), member order (R5), registry misses (L3), and the per-line
+ * cross-year rule (r5 G1) with the empty-version marker (G2).
  * Seed: helpers/budgetTrackingFixture.ts.
  *
  * Fixture route: isaflow_schema_fixture (assertDisposable). Never skips.
@@ -13,6 +14,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asRequest, dropTrackingFixture, seedTrackingFixture, type TrackingFixture } from './helpers/budgetTrackingFixture';
 import { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
+import { budgetBridgeSteps } from '@/modules/accounting/services/budgets/tracking/budgetBridgeSteps';
 import { TrackingError, type BudgetTrackingReport, type TrackingParams } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 
@@ -192,5 +194,81 @@ describe('review round 2: registry failures on the way are a 4xx (L3)', () => {
     // mapped too (unit: trackingBudgetReadRegistry.test.ts).
     expect(err instanceof TrackingError || err instanceof BudgetVersionError, String(err)).toBe(true);
     expect([400, 404, 409]).toContain((err as { status: number }).status);
+  });
+});
+
+describe('review round 5: a cross-year window budgeted in some years only (G1, G2)', () => {
+  const W: TrackingParams = { period: 'custom', from: '2027-03', to: '2027-06' }; // FY2027 Mar-Apr, FY2028 May-Jun
+  const del = (c: import('pg').PoolClient, vid: string, where = 'TRUE', params: unknown[] = []) =>
+    c.query(`DELETE FROM budget_month_amounts WHERE version_id = $1 AND ${where}`, [vid, ...params]);
+  const amt = (c: import('pg').PoolClient, vid: string, acct: string, month: string, amount: number, d: { cc2?: string } = {}) =>
+    c.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, cc2_id) VALUES ($1, $2, $3, $4::DATE, $5, $6)`,
+      [f.a, vid, acct, month, amount, d.cc2 ?? null]);
+  const np = (r: BudgetTrackingReport) => r.bands.find((b) => b.key === 'net_profit')!;
+
+  it('A1c: unfiltered, FY2028 budgets only opex: sales has no window budget, NP none, no bridge', async () => {
+    const r = await run(W);
+    const sales = line(r, f.acc.sales);
+    expect([sales.budget, sales.variance, sales.partialBudget]).toEqual([null, null, true]);
+    expect(line(r, f.acc.opex).budget).toBe(200 * 2 + 210 * 2);
+    expect([np(r).budget, budgetBridgeSteps(r)]).toEqual([null, []]);
+    expect([r.notices.noVersionYears, r.notices.unbudgetedCount]).toEqual([[], 0]);
+  });
+
+  it("A1a: CC2 = P1, FY2028's only rows are P2's (other for P1): FY2028 is budget-absent for P1's view", async () => {
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { ...W, cc2Id: f.cc.P1 }, NOW), {
+      before: async (c) => {
+        await del(c, f.v.primary28);
+        await amt(c, f.v.primary28, f.acc.sales, '2027-05-01', 100, { cc2: f.cc.P2 });
+        await amt(c, f.v.primary28, f.acc.sales, '2027-06-01', 100, { cc2: f.cc.P2 });
+      },
+    });
+    expect(r.notices.noVersionYears).toEqual([2028]);
+    expect([line(r, f.acc.sales).budget, np(r).budget]).toEqual([null, null]);
+    expect(r.versionsByFy?.[2028]?.empty).toBe(true);
+  });
+
+  it('A1b: CC2 = P1, FY2028 holds only company-level opex (coarser for P1): the year stays, sales is partial', async () => {
+    const r = await run({ ...W, cc2Id: f.cc.P1 });
+    expect(r.notices.noVersionYears).toEqual([]);
+    const sales = line(r, f.acc.sales);
+    expect([sales.budget, sales.partialBudget, sales.budgetAboveFilter]).toEqual([null, true, false]);
+    // Opex is above the filter in both years: its unallocated footer is the whole window's.
+    expect([line(r, f.acc.opex).budget, line(r, f.acc.opex).unallocatedBudget]).toEqual([null, 200 * 2 + 210 * 2]);
+    expect([np(r).budget, budgetBridgeSteps(r)]).toEqual([null, []]);
+  });
+
+  const A6: Array<[string, string, string, number[]]> = [
+    ['rows at both window edges (Feb in FY2026, Mar in FY2027)', '2026-02-01', '2026-03-01', []],
+    ['the FY2026 row a month before the window', '2026-01-01', '2026-03-01', [2026]],
+    ['the FY2027 row a month after the window', '2026-02-01', '2026-04-01', [2027]],
+  ];
+  for (const [name, m26, m27, absent] of A6) {
+    it(`A6: 2026-02..03, ${name}`, async () => {
+      const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2026-02', to: '2026-03' }, NOW), {
+        before: async (c) => {
+          const v = String((await c.query(
+            `INSERT INTO budget_versions (company_id, fiscal_year, name, kind, is_primary, created_by) VALUES ($1, 2026, 'Original', 'original', true, $2) RETURNING id`,
+            [f.a, f.userA])).rows[0].id);
+          await amt(c, v, f.acc.opex, m26, 11);
+          await del(c, f.v.primary27, 'month <> $2::DATE', [m27]);
+        },
+      });
+      expect(r.notices.noVersionYears).toEqual(absent);
+      // Opex is budgeted in both years only in the first case; sales (FY2027 only) never has a window budget.
+      expect(line(r, f.acc.opex).budget).toBe(absent.length === 0 ? 11 + 200 : null);
+      expect(line(r, f.acc.sales).budget).toBeNull();
+      expect(line(r, f.acc.sales).partialBudget).toBe(absent.length === 0);
+    });
+  }
+
+  it("G2: a single-year window whose version holds nothing in it marks the version itself", async () => {
+    const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'quarter', fiscalYear: 2027, quarter: 2 }, NOW), {
+      before: (c) => del(c, f.v.primary27, "month BETWEEN '2026-06-01' AND '2026-08-01'"),
+    });
+    expect(r.notices.noVersionYears).toEqual([2027]);
+    expect(r.version).toMatchObject({ id: f.v.primary27, name: 'Original', empty: true });
+    // A budgeted window carries no marker.
+    expect((await run({ period: 'quarter', fiscalYear: 2027, quarter: 2 })).version?.empty).toBeUndefined();
   });
 });

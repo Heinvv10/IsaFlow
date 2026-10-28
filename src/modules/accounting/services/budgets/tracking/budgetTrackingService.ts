@@ -45,9 +45,6 @@ export async function buildBudgetTrackingReport(
   const plan = projectionPlan(window.fy, window.endDate, today);
 
   const budgetRows = await readTrackingBudgets(companyId, versions.scope);
-  // Budget-absent years are decided from what this read returned (review r4): no version, or no
-  // income-statement row in the year's window months.
-  const absentYears = budgetAbsentYears(window, versions.scope, budgetRows);
   // Every chain the request needs (the budget rows' CC2s and the filter's), in ONE query.
   const chainIds = [...new Set([...filter.chainIds, ...budgetRows.map((r) => r.cc2Id).filter((v): v is string => v !== null)])];
   const nodes = await loadCostCentreChains(companyId, chainIds);
@@ -63,6 +60,10 @@ export async function buildBudgetTrackingReport(
     }
   }
   const effs = budgetRows.map((r) => effectiveDims(r, nodes));
+  const classified = budgetRows.map((r, i) => ({ accountId: r.accountId, month: r.month, amount: r.amount, cls: classifyBudgetRow(effs[i]!, budgetFilter) }));
+  // Budget-absent years are decided from what this read returned, as the filter classes it (review
+  // r4, r5): no version, or no included or coarser income-statement row in the year's window months.
+  const absentYears = budgetAbsentYears(window, versions.scope, classified);
   const noVersionMonths = window.years.filter((y) => absentYears.includes(y.fiscalYear)).flatMap((y) => y.months);
   const lines = buildTrackingLines({
     noVersionMonths,
@@ -70,7 +71,8 @@ export async function buildBudgetTrackingReport(
     windowMonths: window.months,
     plan,
     actuals: actualRows,
-    budgets: budgetRows.map((r, i) => ({ accountId: r.accountId, month: r.month, amount: r.amount, cls: classifyBudgetRow(effs[i]!, budgetFilter) })),
+    budgets: classified,
+    windowYears: window.years,
     order: await readAccountOrder(companyId, [...accounts.keys()]),
   });
 
@@ -109,7 +111,8 @@ export async function buildBudgetTrackingReport(
       period: window.period, label: window.label, startDate: window.startDate, endDate: window.endDate, months: window.months,
       fiscalYear: window.fiscalYear, inProgress, postedThrough, notStarted: window.notStarted,
     },
-    version: versions.version,
+    // FY*'s version that holds no budget in this window is marked, never presented as a budget (G2).
+    version: versions.version && absentYears.includes(window.fy.fiscalYear) ? { ...versions.version, empty: true } : versions.version,
     filter: filter.members,
     projection: { fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
     lines,

@@ -82,7 +82,9 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
         return v && !v.empty && !report.notices.noVersionYears.includes(y) ? `FY${y}: ${v.name} · ${v.status}` : `FY${y}: no budget in this window`;
       })
       .join('; ')
-    : report.version ? `${report.version.name} · ${report.version.status}` : `None (no budget for FY${w.fiscalYear})`;
+    : report.version
+      ? `${report.version.name} · ${report.version.status}${report.version.empty ? ' (no budget in this window)' : ''}`
+      : `None (no budget for FY${w.fiscalYear})`;
   const head: Array<[string, string]> = [
     ['Company', companyName],
     ['Window', w.notStarted ? `${w.label} (not started)` : `${w.label} (${w.startDate} to ${w.endDate})`],
