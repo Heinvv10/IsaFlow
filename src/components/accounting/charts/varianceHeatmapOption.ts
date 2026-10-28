@@ -89,8 +89,8 @@ export function buildVarianceHeatmapOption(
     media: [{
       query: { maxWidth: NARROW_WIDTH },
       option: {
-        yAxis: { axisLabel: { width: NARROW_LABEL_WIDTH, overflow: 'truncate', fontSize: 10 } },
-        xAxis: { axisLabel: { rotate: 45, fontSize: 9 } },
+        yAxis: { axisLabel: { width: NARROW_LABEL_WIDTH, overflow: 'truncate' } },
+        xAxis: { axisLabel: { rotate: 45 } },
       },
     }],
     grid: { left: 8, right: 8, top: 8, bottom: 8, containLabel: true },
