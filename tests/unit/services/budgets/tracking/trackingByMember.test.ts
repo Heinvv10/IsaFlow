@@ -118,3 +118,15 @@ describe('review round 3', () => {
     expect(members.map((m) => m.code)).toEqual(['bt-aa', 'BT-FT', 'bt-zz', '']);
   });
 });
+
+describe('review round 5', () => {
+  it('G1: with a partial line in the window (budgetAbsent) no member carries a budget', () => {
+    const members = buildTrackingMembers({
+      groupBy: 'cc1', windowMonths: [M], budgetAbsent: true,
+      actuals: [{ memberId: FT, month: M, accountType: 'revenue', amount: 150 }],
+      budgets: [{ eff: eff(FT), month: M, accountType: 'revenue', amount: 120 }],
+      names: new Map([[FT, { code: 'FT', name: 'Fibertime' }]]),
+    });
+    expect(members.map((m) => [m.name, m.actual, m.budget, m.variance, m.favourable])).toEqual([['Fibertime', 150, null, null, null]]);
+  });
+});

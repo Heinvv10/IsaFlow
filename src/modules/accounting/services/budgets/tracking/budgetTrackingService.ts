@@ -92,6 +92,8 @@ export async function buildBudgetTrackingReport(
       names: new Map([...named].map(([id, m]) => [id.toLowerCase(), { code: m.code, name: m.name }])),
       noVersionMonths,
       order: memberOrder,
+      // Members partition NP: when a partial line leaves NP's budget absent, theirs is too.
+      budgetAbsent: lines.some((l) => l.partialBudget),
     });
   }
 

@@ -215,6 +215,17 @@ describe('review round 5: a cross-year window budgeted in some years only (G1, G
     expect([r.notices.noVersionYears, r.notices.unbudgetedCount]).toEqual([[], 0]);
   });
 
+  it('G1: members partition NP: over a partial line every member budget is absent too; a fully budgeted window keeps them', async () => {
+    for (const g of ['cc1', 'cc2', 'bu'] as const) {
+      const r = await run({ ...W, groupBy: g });
+      expect(np(r).budget).toBeNull();
+      for (const m of r.members!) expect([g, m.name, m.budget, m.variance, m.favourable]).toEqual([g, m.name, null, null, null]);
+      const q5 = await run({ period: 'quarter', fiscalYear: 2027, quarter: 5, groupBy: g });
+      const sum = q5.members!.reduce((t, m) => t + Math.round((m.budget ?? 0) * 100), 0);
+      expect([g, sum]).toEqual([g, Math.round(np(q5).budget! * 100)]);
+    }
+  });
+
   it("A1a: CC2 = P1, FY2028's only rows are P2's (other for P1): FY2028 is budget-absent for P1's view", async () => {
     const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { ...W, cc2Id: f.cc.P1 }, NOW), {
       before: async (c) => {
