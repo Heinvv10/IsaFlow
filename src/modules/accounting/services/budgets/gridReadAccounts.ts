@@ -64,11 +64,26 @@ function listedIds(rows: readonly AccountRow[], holds: ReadonlySet<string>): Set
 }
 
 /**
+ * Each account's budget note for a financial year: `accounting_budgets` holds one header per
+ * company, account and year (uq_accounting_budgets_company_account_year), so one string each.
+ * Blank notes are left out.
+ */
+export async function loadGridNotes(companyId: string, fiscalYear: number): Promise<Map<string, string>> {
+  const rows = (await sql`
+    SELECT gl_account_id, notes FROM accounting_budgets
+     WHERE company_id = ${companyId}::UUID AND fiscal_year = ${fiscalYear}
+       AND gl_account_id IS NOT NULL AND NULLIF(BTRIM(notes), '') IS NOT NULL
+  `) as DbRow[];
+  return new Map(rows.map((r) => [String(r.gl_account_id), String(r.notes)]));
+}
+
+/**
  * The grid's accounts in tree order (a header, then what is below it, each level by code).
  * `own` is each account's own amounts per year month in cents, summed over its dimension rows.
  */
 export async function loadGridAccounts(
   companyId: string, own: ReadonlyMap<string, readonly number[]>, grains: ReadonlyMap<string, AccountGrain>, monthCount: number,
+  notes: ReadonlyMap<string, string>,
 ): Promise<GridAccount[]> {
   const rows = await readAccountRows(companyId);
   const listed = listedIds(rows, new Set(own.keys()));
@@ -106,6 +121,7 @@ export async function loadGridAccounts(
       parentId: parentOf(r), depth, isHeader: r.isHeader, childIds: kids.map((k) => k.id),
       ownAmounts: r.isHeader && holdsAmounts, grain: grains.get(r.id) ?? null,
       rollup: r.isHeader ? sumBelow(r.id, new Set([...seen, r.id])).map(fromCents) : null,
+      note: notes.get(r.id) ?? null,
     });
     for (const k of kids) place(k, depth + 1, new Set([...seen, k.id]));
   };

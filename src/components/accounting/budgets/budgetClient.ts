@@ -1,24 +1,12 @@
-/** Shapes and labels the budgets page reads from /api/accounting/budgets. */
-import { formatMoney } from '@/lib/money/formatMoney';
+/** Year shapes and labels for the budget workspace (years from /api/accounting/budgets) and the Budget vs Actual report. */
 import { formatPct } from '@/lib/format/money';
-
-export interface BudgetMonth { month: string; amount: number }
-
-export interface BudgetRow {
-  id: string | null; glAccountId: string; accountCode: string; accountName: string;
-  accountType: string; fiscalYear: number; annualAmount: number; months: BudgetMonth[]; notes?: string;
-}
 
 /** A financial year a budget can be set for; `monthKeys` are its 'YYYY-MM' months in order. */
 export interface BudgetYear {
   fiscalYear: number; startDate: string; endDate: string; kind: string; monthKeys: string[];
 }
 
-export interface GLAccount { id: string; accountCode: string; accountName: string }
-
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-export const fmt = (n: number) => formatMoney(n);
 
 /** 'Mar 2026' for '2026-03'. */
 export function monthLabel(key: string): string {
@@ -56,10 +44,3 @@ export function variancePctLabel(pct: number | null): string {
   return pct === null ? '—' : formatPct(pct);
 }
 
-/** Revenue and expense budgets apart, and the net budgeted profit: never revenue + expense, which means nothing (D10). */
-export function budgetTotals(rows: Pick<BudgetRow, 'accountType' | 'annualAmount'>[]): { revenue: number; expense: number; net: number } {
-  const total = (type: string) => Math.round(rows.filter(r => r.accountType === type).reduce((s, r) => s + r.annualAmount, 0) * 100) / 100;
-  const revenue = total('revenue');
-  const expense = total('expense');
-  return { revenue, expense, net: Math.round((revenue - expense) * 100) / 100 };
-}
