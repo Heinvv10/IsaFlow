@@ -99,3 +99,38 @@ export function uplift(pyCents: readonly number[], pct: number, unit: RoundingUn
   // Each month's exact uplifted value (still scaled by PCT_SCALE), rounded to the unit in one division.
   return residueLast(target, pyCents.map(c => toUnit(BigInt(c) * num, PCT_SCALE, unit)));
 }
+
+export type SplitResult = { ok: true; parts: number[] } | { ok: false; reason: string };
+
+/**
+ * `totalCents` split across N parts with no upper bound on N (a header's sub-accounts; the month
+ * spreads above stop at MAX_MONTHS on purpose): `by` is a count (evenly) or one-signed integer
+ * weights (PY share, not all zero). Every part but the LAST is rounded half away from zero to the
+ * unit, exactly in BigInt; the last takes the residue, so Σ parts = total to the cent (decision 5).
+ */
+export function splitByWeights(totalCents: number, by: number | readonly number[], unit: RoundingUnit): SplitResult {
+  const no = (reason: string): SplitResult => ({ ok: false, reason });
+  const bad = badCents(totalCents);
+  if (bad) return no(bad);
+  const weights = typeof by === 'number' ? null : by;
+  const n = weights === null ? by as number : weights.length;
+  if (!Number.isInteger(n) || n < 1) return no('There is nothing to split across.');
+  if (weights !== null) {
+    if (!weights.every(Number.isSafeInteger)) return no('Each share needs a whole-cent weight.');
+    if (weights.some(w => w > 0) && weights.some(w => w < 0)) return no('The weights have mixed signs, so they give no shares.');
+    if (weights.every(w => w === 0)) return no('Every weight is zero, so there are no shares to split by.');
+  }
+  const total = BigInt(totalCents);
+  const wSum = weights === null ? BigInt(n) : weights.reduce((s, w) => s + BigInt(w), 0n);
+  const parts: number[] = [];
+  for (let i = 0; i < n - 1; i++) parts.push(toUnit(total * (weights === null ? 1n : BigInt(weights[i]!)), wSum, unit));
+  parts.push(totalCents - parts.reduce((s, x) => s + x, 0));
+  if (!parts.every(isCents)) return no(TOO_LARGE);
+  return { ok: true, parts: parts.map(x => (x === 0 ? 0 : x)) };
+}
+
+/** The residue month landed on the other side of zero from the total (the unit rounded the others up past it). */
+export function residueFlipsSign(totalCents: number, months: readonly number[]): boolean {
+  const last = months[months.length - 1] ?? 0;
+  return (totalCents > 0 && last < 0) || (totalCents < 0 && last > 0);
+}

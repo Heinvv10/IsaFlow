@@ -1,7 +1,6 @@
 /**
  * Decision 18's header test, shared by every budget reader and writer that applies the leaf rule
- * (gridSave, gridReadAccounts, seedSeries, core/budgetAccount and the legacy copyBudgets). It
- * lives in budgets/ so the grid modules never import core/budgetAccount, which imports budgets/.
+ * (gridSave, gridReadAccounts, seedSeries). One copy, so the rule cannot drift between them.
  */
 import { sql } from '@/lib/neon';
 
