@@ -121,6 +121,7 @@ export default function RecurringJournalsPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (dates.blocked) return;
+    if (!form.nextRunDate) { setError('Enter the first run date.'); return; }
     setError('');
     if (!editId && Math.abs(totalDebit - totalCredit) > 0.01) { setError('Lines must balance (DR = CR)'); return; }
     setBusy('new');

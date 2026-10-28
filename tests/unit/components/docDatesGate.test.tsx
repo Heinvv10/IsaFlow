@@ -60,6 +60,8 @@ interface GateCase {
   /** Open a modal / form, then fill what the page needs besides the date. */
   ready: () => Promise<void> | void;
   field: string;
+  /** The DateField is `required` (the native attribute it replaced would have stopped an empty submit). */
+  required?: boolean;
   submit: () => Promise<void> | void;
 }
 
@@ -94,7 +96,7 @@ const cases: GateCase[] = [
       change(await screen.findByPlaceholderText('Item description'), 'Widget');
     },
     submit: () => click(/create sales order/i) },
-  { page: 'delivery-notes/new', element: <DeliveryNoteNew />, field: 'Delivery Date',
+  { page: 'delivery-notes/new', required: true, element: <DeliveryNoteNew />, field: 'Delivery Date',
     data: (u) => (u.includes('/customers') ? customers : undefined),
     ready: async () => {
       await screen.findByRole('option', { name: 'Acme' });
@@ -106,7 +108,7 @@ const cases: GateCase[] = [
     data: (u) => (u.includes('/payroll/employees') ? [{ id: 'e1', first_name: 'Eve', last_name: 'Smith' }] : undefined),
     ready: async () => { await screen.findByRole('option', { name: /Eve Smith/ }); },
     submit: () => click(/create draft/i) },
-  { page: 'goods-received/new', element: <GoodsReceivedNew />, field: 'Receipt Date',
+  { page: 'goods-received/new', required: true, element: <GoodsReceivedNew />, field: 'Receipt Date',
     data: (u) => (u.includes('purchase-orders/po-1') ? { items: [{ id: 'i1', description: 'Bolts', quantity: 5, quantity_received: 0 }] }
       : u.includes('purchase-orders') ? [{ id: 'po-1', po_number: 'PO-1', supplier_name: 'Acme' }] : undefined),
     ready: async () => {
@@ -115,7 +117,7 @@ const cases: GateCase[] = [
       await screen.findByText('Bolts');
     },
     submit: () => click(/receive|submit|create|save/i) },
-  { page: 'recurring-invoices/new', element: <RecurringInvoiceNew />, field: 'First Run Date',
+  { page: 'recurring-invoices/new', required: true, element: <RecurringInvoiceNew />, field: 'First Run Date',
     data: (u) => (u.includes('/customers') ? customers : undefined),
     ready: async () => {
       await screen.findByRole('option', { name: 'Acme' });
@@ -124,13 +126,13 @@ const cases: GateCase[] = [
       change(screen.getAllByRole('spinbutton')[1]!, '100');
     },
     submit: submitForm },
-  { page: 'recurring-journals', element: <RecurringJournals />, field: 'First Run Date',
+  { page: 'recurring-journals', required: true, element: <RecurringJournals />, field: 'First Run Date',
     ready: async () => {
       await click(/new template/i);
       change(byPlaceholder('Template Name *'), 'Rent');
     },
     submit: submitForm },
-  { page: 'supplier-credit-notes/new', element: <SupplierCreditNoteNew />, field: 'Credit Note Date',
+  { page: 'supplier-credit-notes/new', required: true, element: <SupplierCreditNoteNew />, field: 'Credit Note Date',
     ready: async () => {
       fireEvent.click(screen.getByText('pick-supplier'));
       change(byPlaceholder('Item description'), 'Bolts');
@@ -138,10 +140,10 @@ const cases: GateCase[] = [
       change(price!, '10');
     },
     submit: submitForm },
-  { page: 'supplier-payments/new', element: <SupplierPaymentNew />, field: 'Payment Date',
+  { page: 'supplier-payments/new', required: true, element: <SupplierPaymentNew />, field: 'Payment Date',
     ready: () => { fireEvent.click(screen.getByText('pick-supplier')); },
     submit: submitForm },
-  { page: 'vat-adjustments', element: <VatAdjustments />, field: 'Adjustment Date',
+  { page: 'vat-adjustments', required: true, element: <VatAdjustments />, field: 'Adjustment Date',
     ready: async () => { await click(/new adjustment/i); },
     submit: submitForm },
 ];
@@ -171,5 +173,19 @@ describe.each(cases)('$page', (c) => {
     typeDate(box(c.field), '6 Oct 2031');
     await c.submit();
     await waitFor(() => expect(writes().length).toBeGreaterThan(0));
+  });
+});
+
+describe.each(cases.filter((c) => c.required))('$page: required date', (c) => {
+  it('sends nothing once the date is cleared', async () => {
+    respond = c.data ?? (() => undefined);
+    render(c.element);
+    await c.ready();
+    typeDate(box(c.field), '5 Oct 2031');
+    typeDate(box(c.field), '');
+    expect(box(c.field).getAttribute('aria-invalid')).toBe('true');
+    await c.submit();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(writes()).toHaveLength(0);
   });
 });
