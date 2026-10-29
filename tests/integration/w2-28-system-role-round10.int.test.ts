@@ -99,7 +99,9 @@ describeIfDb('W2-28 round 10', () => {
       return () => fx.call(migrationRollback, 'POST', '/api/accounting/migration-rollback', { source: 'xero' });
     }],
     ['the template seed', async () => {
-      await fx.query("UPDATE gl_accounts SET account_code = '1130' WHERE id = $1", [X]);   // a template row with a parent: pass 2 updates it
+      // A template PARENT (1200, of 1210) the company already has at level 1: the seed locks it before giving it
+      // children. (It no longer re-points existing template-coded rows, so a held 1130 is not waited on.)
+      await fx.query("UPDATE gl_accounts SET account_code = '1200', level = 1 WHERE id = $1", [X]);
       return () => fx.call(coaSeed, 'POST', '/api/accounting/coa-seed', { template: 'isaflow_standard' });
     }],
   ])('%s that finds a row held by a slow request answers 503 in about 5s instead of holding the role lock for as long as it runs', async (_what, arrange) => {

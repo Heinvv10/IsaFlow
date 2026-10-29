@@ -31,6 +31,11 @@ export interface GridAccount {
   grain: AccountGrain | null;
   /** A header's roll-up per year month: the amounts of every listed account below it. Null for a line. */
   rollup: number[] | null;
+  /**
+   * The account's budget note for the financial year (`accounting_budgets.notes`, one per account and
+   * year, shared by every version of the year); null when none. Read-only in the grid.
+   */
+  note: string | null;
 }
 
 export interface GridMember {
