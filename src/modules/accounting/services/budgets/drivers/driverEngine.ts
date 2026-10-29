@@ -10,8 +10,8 @@
  * - Each value is rounded ONCE, half away from zero, from the exact ratio
  *   straight to the rounding unit (the driver's own, else the caller's;
  *   decision 5; no residue: drivers have no total). Never cents-then-unit.
- * - A 'driver' or 'override' cell with no driver covering it (driver removed,
- *   range shrunk) is re-sourced 'manual', value kept.
+ * - A 'driver' cell with no driver covering it (driver removed, range shrunk)
+ *   is re-sourced 'manual', value kept. An 'override' is never touched.
  * - `writes` holds only cells whose amount or source differ from the input: per
  *   row in topo order, its driver writes in month order, then its re-sourced
  *   cells in month order. An unchanged recompute returns [].

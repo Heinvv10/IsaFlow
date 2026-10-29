@@ -51,7 +51,7 @@ const view = (cells: Cell[] | undefined) => (cells ?? []).map(c => `${c.month}:$
 describe('closed months take actuals, open months the source', () => {
   it('company grain: actual (0 when none) in closed months, source cell kept in open months', () => {
     const actuals = { company: [act('sales', '2026-03', 250000), act('sales', '2026-06', 1)], cc1: [], cc2: [], bu: [] };
-    // RENT_B's override sits inside a driver's range, so it is kept (a driverless override is re-sourced).
+    // RENT_B's override sits inside a driver's range: the driver never writes over it.
     const drivers: DriverDef[] = [{ kind: 'fixed', rowKey: RENT_B.key, amount: 1, fromMonth: '2026-03', toMonth: '2026-07' }];
     const out = plan({ actuals, drivers });
     expect(view(out.cells.get(SALES.key))).toEqual([

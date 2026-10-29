@@ -2,7 +2,7 @@
  * computeVersion guards (PR-1 review round 1): ONE half-away rounding from the
  * exact ratio to the unit (never cents-then-unit), SECTION_EMPTY / BASE_MISSING
  * warnings, the per_head headcount guard, percent bounds (NUMERIC(9,4),
- * growth >= -100%), and stale driver / override cells re-sourced 'manual'.
+ * growth >= -100%), and stale driver cells re-sourced 'manual' (overrides stay).
  */
 import { describe, it, expect } from 'vitest';
 import { assertDriverMonths, computeVersion, monthIndex, type ComputeInput } from '@/modules/accounting/services/budgets/drivers/driverEngine';
