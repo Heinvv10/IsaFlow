@@ -39,11 +39,10 @@ test.describe('PRD-02 Phase 2 — payroll golden path', () => {
     await page.goto('/payroll/employees/new');
     await page.waitForLoadState('networkidle');
 
-    // Labels are plain siblings to their inputs inside a div wrapper.
-    // Use CSS adjacent-sibling: label:has-text("...") + input
-    await page.locator('label:has-text("First name *") + input').fill('Phase');
-    await page.locator('label:has-text("Last name *") + input').fill('Two');
-    await page.locator('label:has-text("Employee number *") + input').fill(EMP_NO);
+    // The kit's Input ties each label to its input (htmlFor/id), so address them by label.
+    await page.getByLabel('First name *').fill('Phase');
+    await page.getByLabel('Last name *').fill('Two');
+    await page.getByLabel('Employee number *').fill(EMP_NO);
     // Start date defaults to today — leave as-is.
 
     await page.getByRole('button', { name: 'Create Employee' }).click();
