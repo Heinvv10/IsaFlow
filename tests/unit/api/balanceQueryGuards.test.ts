@@ -111,6 +111,16 @@ const GA_IS_ACTIVE = /\bga?\.is_active\s*=\s*(true|TRUE)/;
  */
 const LEAKY_LINE_JOIN = /LEFT JOIN gl_journal_lines/i;
 
+/**
+ * Locates the Budget vs Actual actuals query. Since budgets P3 PR-C the old
+ * report and its export reach it through `getBudgetVariance`'s facade: the
+ * tracking engine's one actuals SQL (`budgets/tracking/trackingActualRead.ts`),
+ * which reads posted lines per account and month. A locator only: the
+ * assertions on it (no is_active, no level, the period inside the query that
+ * sums) are unchanged.
+ */
+const BUDGET_ACTUALS = /to_char\(je\.entry_date, 'YYYY-MM'\) AS month/i;
+
 /** What the fiscal-year registry reads (the budget report resolves its window through it). */
 const FISCAL_YEAR_ROW = {
   id: null, fiscal_year: 2026, start_date: '2026-01-01', end_date: '2026-12-31', status: 'open', kind: 'normal', stored: false,
@@ -148,7 +158,7 @@ describe('class 1 — is_active never filters a balance query', () => {
     const { req, res } = mockReqRes({ period: 'ytd' });
     await (budgetVsActualHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
 
-    const [q] = matching(/actual_amount/i);
+    const [q] = matching(BUDGET_ACTUALS);
     expect(q).toBeDefined();
     expect(q!).not.toMatch(GA_IS_ACTIVE);
   });
@@ -156,12 +166,12 @@ describe('class 1 — is_active never filters a balance query', () => {
   it('budget-vs-actual-export reads the same actuals as the report (no level filter)', async () => {
     const { req, res } = mockReqRes({ period: 'ytd' });
     await (budgetVsActualHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
-    const [reportQuery] = matching(/actual_amount/i);
+    const [reportQuery] = matching(BUDGET_ACTUALS);
     vi.clearAllMocks();
     const exp = mockReqRes({ period: 'ytd' });
     await (budgetVsActualExportHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(exp.req, exp.res);
 
-    const exportQueries = matching(/actual_amount/i);
+    const exportQueries = matching(BUDGET_ACTUALS);
     expect(exportQueries).toHaveLength(1);
     expect(exportQueries[0]).toBe(reportQuery);
     expect(exportQueries[0]!).not.toMatch(/\blevel\b/);
@@ -231,7 +241,7 @@ describe('class 2 — journal-entry predicates must actually restrict the summed
     const { req, res } = mockReqRes({ period: 'ytd' });
     await (budgetVsActualHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
 
-    const [q] = matching(/actual_amount/i);
+    const [q] = matching(BUDGET_ACTUALS);
     expect(q!).not.toMatch(LEAKY_LINE_JOIN);
     expect(q!).toMatch(/je\.entry_date >= \?/);
     expect(q!).toMatch(/je\.status = 'posted'/);
@@ -241,7 +251,7 @@ describe('class 2 — journal-entry predicates must actually restrict the summed
     const { req, res } = mockReqRes({ period: 'ytd' });
     await (budgetVsActualExportHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
 
-    const [q] = matching(/actual_amount/i);
+    const [q] = matching(BUDGET_ACTUALS);
     expect(q!).not.toMatch(LEAKY_LINE_JOIN);
     expect(q!).toMatch(/je\.entry_date >= \?/);
     expect(q!).toMatch(/je\.status = 'posted'/);
