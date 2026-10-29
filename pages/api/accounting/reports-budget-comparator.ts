@@ -52,7 +52,9 @@ const blankIsAbsent = (v: unknown) => (v === '' ? undefined : v);
 const Id = z.preprocess(blankIsAbsent, UUID.optional());
 
 /** A real calendar date (2026-02-31 is not one) in YEAR_MIN..YEAR_MAX; read as text, no Date built. */
-const Day = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'Must be a date, YYYY-MM-DD')
+// The shape check ABORTS: a continuable failure would still run the refines, and `monthEnd` throws on a
+// string that is not a date (a 500 with a stack trace for user input).
+const Day = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, { error: 'Must be a date, YYYY-MM-DD', abort: true })
   .refine((d) => d <= monthEnd(`${d.slice(0, 7)}-01`), 'Must be a real calendar date')
   .refine((d) => Number(d.slice(0, 4)) >= YEAR_MIN && Number(d.slice(0, 4)) <= YEAR_MAX, `Year must lie in ${YEAR_MIN}-${YEAR_MAX}`);
 
