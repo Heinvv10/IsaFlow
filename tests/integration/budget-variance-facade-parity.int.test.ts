@@ -25,6 +25,7 @@ import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRe
 import { budgetMonthBounds, budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import { buildBudgetVsActualLines, type RawActualRow } from '@/modules/accounting/services/reports/budgetVsActualLines';
 import { buildBudgetVsActualSections } from '@/modules/accounting/services/reports/budgetVsActualSections';
+import { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import { getBudgetVariance, type BudgetVarianceResult } from '@/modules/accounting/services/reports/budgetVarianceService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asRequest, dropTrackingFixture, seedTrackingFixture, type TrackingFixture } from './helpers/budgetTrackingFixture';
@@ -152,7 +153,7 @@ const fullyBudgeted28: Before = async (c) => {
 describe('no options: deep-equal to the P0 + P1 oracle', () => {
   it.each([
     ['FY2027 whole (14 months)', '2026-03-01', '2027-04-30'],
-    ['day-level edges inside FY2027', '2026-03-15', '2026-10-29'],
+    ['day-level edges inside FY2027 (the 15th journal left out)', '2026-03-16', '2026-10-29'],
     ['one day, the inclusive month-end journal', '2026-04-30', '2026-04-30'],
     ['a quarter', '2026-06-01', '2026-08-31'],
     ['FY2028 to date: opex budgeted, the rest unbudgeted', '2027-05-01', '2027-07-31'],
@@ -176,6 +177,20 @@ describe('no options: deep-equal to the P0 + P1 oracle', () => {
     expect(want.rows.length).toBe(5);
     expect(p0(facade)).toEqual(want);
     expect(facade.noBudgetYears).toEqual([]);
+  });
+
+  it('a registry year that starts mid-month is read as P1 scopes it (a shared month counts in the earlier year), not refused', async () => {
+    const midMonth: Before = async (c) => {
+      // FY2028 shrinks first, so the two years never overlap (fiscal_years_no_overlap).
+      await c.query(`UPDATE fiscal_years SET start_date = '2027-05-15' WHERE company_id = $1 AND fiscal_year = 2028`, [f.a]);
+      await c.query(`UPDATE fiscal_years SET end_date = '2027-05-14' WHERE company_id = $1 AND fiscal_year = 2027`, [f.a]);
+    };
+    const { facade, oracle: want } = await both('2027-04-01', '2027-05-31', midMonth);
+    expect(want.rows.length).toBeGreaterThan(0);
+    expect(p0(facade)).toEqual(want);
+    // The Budget vs Actual page's own windows still refuse that registry (409): only the range entry reads it.
+    const page = asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2027-04', to: '2027-05' }), { before: midMonth });
+    await expect(page).rejects.toMatchObject({ name: 'TrackingError', status: 409 });
   });
 
   it('names the version of the year holding the end, and no unallocated budget without a filter', async () => {
