@@ -94,6 +94,13 @@ describe('budget driver writes: a locked version', () => {
     expect((await fx.call.hires(viewer, 'GET', undefined, { versionId: v })).status).toBe(200);
     expect((await fx.call.headcount(viewer, 'GET', undefined, { versionId: v })).status).toBe(200);
   });
+
+  it("a viewer reads company headcount but not a cost centre's (403); a writer reads both", async () => {
+    const { v } = await lockedVersion();
+    const cc = await fx.call.headcount(viewer, 'GET', undefined, { versionId: v, costCentreId: w.cc1 });
+    expect(cc.status, dump(cc)).toBe(403);
+    expect((await fx.call.headcount(w.u, 'GET', undefined, { versionId: v, costCentreId: w.cc1 })).status).toBe(200);
+  });
 });
 
 describe('budget driver writes: cycles and references', () => {
@@ -153,8 +160,9 @@ describe('budget driver writes: cycles and references', () => {
     const v = await fx.version(w);
     const put = await fx.call.drivers(w.u, 'PUT', { ...fixed(v, w.rent), fromMonth: w.months[0], toMonth: w.months[0] });
     expect(put.status, dump(put)).toBe(200);
-    // The company-level cell the driver wrote is cleared in the same batch, so only the 949 trigger
-    // (an amount at another grain than the account's driver) stands in the way.
+    // The driver's company-level cell is typed over (an override), then cleared in the batch (a reset), so
+    // only the 949 trigger (an amount at another grain than the account's driver) stands in the way.
+    expect((await fx.call.save(w.u, v, [{ glAccountId: w.rent, cc1Id: null, cc2Id: null, buId: null, month: w.months[0], amount: 7 }])).status).toBe(200);
     const r = await refused(v, () => fx.call.save(w.u, v, [
       { glAccountId: w.rent, cc1Id: null, cc2Id: null, buId: null, month: w.months[0], amount: null, clear: true },
       { glAccountId: w.rent, cc1Id: w.cc1, cc2Id: null, buId: null, month: w.months[1], amount: 5 },
@@ -162,6 +170,21 @@ describe('budget driver writes: cycles and references', () => {
     expect([r.status, errCode(r)], dump(r)).toEqual([400, 'BUDGET_GRAIN_CONFLICT']);
     // The trigger's answer (budgetDbRefusal), not the service's own amounts-only check.
     expect(String(r.body.error?.message)).toBe('An account is budgeted at one level per version: company level or one dimension');
+  });
+
+  it('a driver or planned hire this version does not hold is 404 DRIVER_NOT_FOUND / PLANNED_HIRE_NOT_FOUND', async () => {
+    const v = await fx.version(w);
+    const theirs = await fx.version(other);
+    const theirDriver = dataOf<{ driver: { id: string } }>(await fx.call.drivers(other.u, 'PUT', fixed(theirs, other.rent))).driver.id;
+    const gone = crypto.randomUUID();
+    for (const id of [gone, theirDriver]) {
+      const r = await refused(v, () => fx.call.drivers(w.u, 'DELETE', undefined, { versionId: v, id }));
+      expect([r.status, errCode(r)], dump(r)).toEqual([404, 'DRIVER_NOT_FOUND']);
+    }
+    const put = await refused(v, () => fx.call.hires(w.u, 'PUT', { versionId: v, id: gone, label: 'X', startMonth: w.months[1] }));
+    expect([put.status, errCode(put)], dump(put)).toEqual([404, 'PLANNED_HIRE_NOT_FOUND']);
+    const del = await refused(v, () => fx.call.hires(w.u, 'DELETE', undefined, { versionId: v, id: gone }));
+    expect([del.status, errCode(del)], dump(del)).toEqual([404, 'PLANNED_HIRE_NOT_FOUND']);
   });
 
   it('a viewer is 403 and nothing is written', async () => {
