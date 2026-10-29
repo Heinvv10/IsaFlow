@@ -30,7 +30,7 @@ async function fixture(): Promise<{ c: string; customer: string }> {
   return { c, customer };
 }
 
-describe('POST recurring-invoices: tax rate scale', () => {
+describe('POST recurring-invoices: tax rate and date validation', () => {
   const post = (c: string, customer: string, taxRate: unknown) => callRoute(recurringInvoices, tokens[user]!, c, 'POST', {
     templateName: 'POST scale', clientId: customer, frequency: 'monthly', nextRunDate: '2031-01-01', taxRate,
     lineItems: [{ description: 'Big', quantity: 1, unitPrice: 10000 }],
