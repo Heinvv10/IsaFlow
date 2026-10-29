@@ -3,14 +3,13 @@
  * PRD-060 Phase 5: Revenue, Cost of Sales, Operating Expenses
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { DateField } from '@/components/ui/DateField';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BarChart3, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
-import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -22,11 +21,11 @@ import { useStatementComparatorState } from '@/components/accounting/reportContr
 import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 import { reportHref } from '@/components/reports/reportReturnState';
 import { localISODate } from '@/lib/dateUtils';
+import { useIncomeStatementReport } from '@/components/accounting/reportControls/useIncomeStatementReport';
 import { deepLinkDates } from '@/components/accounting/reportControls/deepLinkDates';
 
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
-interface ShownReport { key: string; report: IncomeStatementReport; start: string; end: string; cc: string; bu: string; cmp: boolean }
 
 function clampToToday(dateStr: string): string {
   const today = localISODate();
@@ -58,9 +57,8 @@ export default function IncomeStatementPage() {
   // A refused text keeps DateField's own reason (an external error would hide it).
   const fromError = badDate.from ? undefined : !periodStart ? 'Enter a From date.' : rangeInverted ? 'From must be on or before To.' : undefined;
   const toError = badDate.to || periodEnd ? undefined : 'Enter a To date.';
-  const reportRequestRef = useRef(0);
-  const requestedKeyRef = useRef<string | null>(null); // the key of the newest request, in flight or done
-  const shownKeyRef = useRef<string | null>(null);
+
+  const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
 
   // Sync-back effect: when router.query.period_start / period_end populate after
   // mount (Next.js can hydrate router.query on a later tick, or client-side
@@ -105,16 +103,10 @@ export default function IncomeStatementPage() {
       });
     return () => { cancelled = true; };
   }, [router.isReady, qStart, qEnd]);
-  // The report is stored with the inputs it was run for; it is shown only while they equal the live ones, so the
-  // heading, drill-downs and present link never name a range the data is not for.
-  const [shown, setShown] = useState<ShownReport | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
   const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
-  const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
   const [refError, setRefError] = useState<Record<string, string>>({});
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
@@ -125,11 +117,10 @@ export default function IncomeStatementPage() {
       asOf: periodEnd, basis: 'movement', periodStart, periodEnd,
     });
   const showComparative = columns.prior;
-  const live = { start: periodStart, end: periodEnd, cc: costCentreId, bu: businessUnitId, cmp: showComparative };
-  const liveKey = JSON.stringify(live);
-  const view = shown && shown.key === liveKey ? shown : null;
-  const report = view?.report ?? null;
-  const vw = view ?? live;
+  const { report, vw, shown, live, isLoading, error } = useIncomeStatementReport({
+    ready: router.isReady !== false, periodStart, periodEnd, periodResolved, datesOk,
+    costCentreId, businessUnitId, showComparative,
+  });
   const returnTo = reportHref('is', { period_start: vw.start, period_end: vw.end,
     cost_centre_id: vw.cc, business_unit_id: vw.bu });
 
@@ -161,50 +152,6 @@ export default function IncomeStatementPage() {
   function toggleAccount(code: string) {
     setExpandedAccount(prev => (prev === code ? null : code));
   }
-  const loadReport = useCallback(async () => {
-    // Refused text changes neither the key nor what is in flight; only a changed key invalidates a request.
-    if (router.isReady === false || !periodStart || !periodEnd || !periodResolved || !datesOk) {
-      if (requestedKeyRef.current !== liveKey) {
-        reportRequestRef.current += 1;
-        requestedKeyRef.current = null;
-        if (!datesOk) setIsLoading(false);
-      }
-      return;
-    }
-    if (requestedKeyRef.current === liveKey) return;
-    requestedKeyRef.current = liveKey;
-    const requestId = ++reportRequestRef.current;
-    if (shownKeyRef.current === liveKey) { setIsLoading(false); return; } // already on screen: no refetch
-    setIsLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      if (costCentreId) params.set('cost_centre_id', costCentreId);
-      if (businessUnitId) params.set('business_unit_id', businessUnitId);
-      if (showComparative) {
-        const start = new Date(periodStart);
-        const end = new Date(periodEnd);
-        const durationMs = end.getTime() - start.getTime();
-        const priorEnd = new Date(start.getTime() - 1);
-        const priorStart = new Date(priorEnd.getTime() - durationMs);
-        params.set('compare_start', priorStart.toISOString().split('T')[0] ?? '');
-        params.set('compare_end', priorEnd.toISOString().split('T')[0] ?? '');
-      }
-      const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
-      await assertOk(res, 'Could not load income statement - try again');
-      const json = await res.json();
-      if (requestId === reportRequestRef.current) {
-        shownKeyRef.current = liveKey;
-        setShown({ key: liveKey, report: json.data || json, start: periodStart, end: periodEnd, cc: costCentreId, bu: businessUnitId, cmp: showComparative });
-      }
-    } catch (err) {
-      if (requestId === reportRequestRef.current) { requestedKeyRef.current = null; shownKeyRef.current = null; setShown(null); setError(apiErrorMessage(err, 'Could not load income statement - try again')); }
-    } finally {
-      if (requestId === reportRequestRef.current) setIsLoading(false);
-    }
-  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved, datesOk, liveKey]);
-
-  useEffect(() => { void loadReport(); }, [loadReport]);
 
   return (
     <AppLayout>
