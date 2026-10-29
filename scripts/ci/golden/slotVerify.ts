@@ -9,6 +9,14 @@ import { SEED } from './seedSlotData';
 export const REQUIRED_SYSTEM_SUBTYPES = ['receivable', 'default_revenue', 'vat_output', 'payable', 'vat_input', 'default_expense'] as const;
 /** The payroll sandbox month (tests/e2e/golden-paths/_api.ts PAYROLL_SANDBOX_MONTH). */
 const SANDBOX = { year: 2027, month: 2 } as const;
+const iso = (d: Date): string => d.toISOString().slice(0, 10);
+/** The dates the queries below bind: the sandbox year (Jan 1 to the next Jan 1) and the sandbox month (first and last day). */
+const DATES = {
+  yearStart: iso(new Date(Date.UTC(SANDBOX.year, 0, 1))),
+  nextYearStart: iso(new Date(Date.UTC(SANDBOX.year + 1, 0, 1))),
+  monthStart: iso(new Date(Date.UTC(SANDBOX.year, SANDBOX.month - 1, 1))),
+  monthEnd: iso(new Date(Date.UTC(SANDBOX.year, SANDBOX.month, 0))),
+};
 
 export interface SlotReport {
   companyId: string;
@@ -27,7 +35,8 @@ export interface SlotReport {
 }
 
 export async function readSlotReport(db: ClientBase, companyId: string): Promise<SlotReport> {
-  const count = async (sql: string): Promise<number> => Number((await db.query<{ n: string }>(sql, [companyId])).rows[0]!.n);
+  /** $1 is the company; `more` binds $2 onward. */
+  const count = async (sql: string, more: unknown[] = []): Promise<number> => Number((await db.query<{ n: string }>(sql, [companyId, ...more])).rows[0]!.n);
   const system = await db.query<{ account_subtype: string; n: string }>(
     `SELECT account_subtype, count(*) AS n FROM gl_accounts WHERE company_id = $1::uuid AND is_system_account GROUP BY 1`, [companyId]);
   return {
@@ -35,9 +44,9 @@ export async function readSlotReport(db: ClientBase, companyId: string): Promise
     systemAccounts: Object.fromEntries(REQUIRED_SYSTEM_SUBTYPES.map((s) => [s, Number(system.rows.find((r) => r.account_subtype === s)?.n ?? 0)])),
     employees: await count(`SELECT count(*) AS n FROM payroll_employees WHERE company_id = $1::uuid`),
     bankAccounts: await count(`SELECT count(*) AS n FROM gl_accounts WHERE company_id = $1::uuid AND account_subtype = 'bank'`),
-    open2027Periods: await count(`SELECT count(*) AS n FROM fiscal_periods WHERE company_id = $1::uuid AND status = 'open' AND start_date >= '2027-01-01' AND start_date < '2028-01-01'`),
-    sandboxPeriodOpen: (await count(`SELECT count(*) AS n FROM fiscal_periods WHERE company_id = $1::uuid AND status = 'open' AND start_date <= '2027-02-28' AND end_date >= '2027-02-01'`)) > 0,
-    payrollRunsInSandboxMonth: await count(`SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1::uuid AND period_year = ${SANDBOX.year} AND period_month = ${SANDBOX.month}`),
+    open2027Periods: await count(`SELECT count(*) AS n FROM fiscal_periods WHERE company_id = $1::uuid AND status = 'open' AND start_date >= $2::date AND start_date < $3::date`, [DATES.yearStart, DATES.nextYearStart]),
+    sandboxPeriodOpen: (await count(`SELECT count(*) AS n FROM fiscal_periods WHERE company_id = $1::uuid AND status = 'open' AND start_date <= $3::date AND end_date >= $2::date`, [DATES.monthStart, DATES.monthEnd])) > 0,
+    payrollRunsInSandboxMonth: await count(`SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1::uuid AND period_year = $2 AND period_month = $3`, [SANDBOX.year, SANDBOX.month]),
     members: await count(`SELECT count(*) AS n FROM company_users WHERE company_id = $1::uuid`),
     seededInvoices: await count(`SELECT count(*) AS n FROM supplier_invoices WHERE company_id = $1::uuid AND invoice_number ~ '^GSEED-AP-[0-9]+$' AND status NOT IN ('draft', 'pending_approval')`),
     seededJournals: await count(`SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1::uuid AND description ~ '^GSEED-JNL-[0-9]+$' AND status = 'posted'`),
