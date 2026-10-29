@@ -94,10 +94,11 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     await pool.query(`UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`, [rf, w.u.userId]);
     await pool.query(`UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = clock_timestamp() WHERE id = $1`, [rf, w.u.userId]);
     const before = await fx.snapshot(rf);
+    const created = await fx.rollingRow(rf);
     await fx.close(w, [m[0]!]);
     await fx.until(async () => (await fx.rollingRow(rf))?.last_error === 'version locked', 'the skipped roll');
     expect(await fx.snapshot(rf)).toEqual(before);
-    expect(await fx.rollingRow(rf)).toMatchObject({ through: null, rolled_at: null });
+    expect(await fx.rollingRow(rf)).toMatchObject({ through: null, rolled_at: created!.rolled_at });
     const r = await rollNow(w, rf);
     expect([r.status, details(r).code], dump(r)).toEqual([409, 'BUDGET_VERSION_LOCKED']);
     expect(await fx.snapshot(rf)).toEqual(before);
@@ -107,12 +108,13 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     const { w, m, rf } = await rollingWorld();
     await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE id = $1`, [w.periods.get(m[0]!)]);
     const before = await fx.snapshot(rf);
+    const created = await fx.rollingRow(rf);
     const current = await fx.token(rf);
     const r = await rollNow(w, rf, '2020-01-01T00:00:00.000000Z');
     expect([r.status, details(r).code], dump(r)).toEqual([409, 'BUDGET_VERSION_STALE']);
     expect(details(r).currentUpdatedAt).toBe(current);
     expect(await fx.snapshot(rf)).toEqual(before);
-    expect(await fx.rollingRow(rf)).toMatchObject({ through: null, rolled_at: null });
+    expect(await fx.rollingRow(rf)).toEqual(created);
   });
 
   it("a month reopened after a roll becomes 'manual' on the next roll, value kept, and the driver covering it recomputes", async () => {

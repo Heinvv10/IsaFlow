@@ -169,6 +169,25 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
 }
 
 /**
+ * What turning auto-roll on finds the version already rolled through (it does not roll): the
+ * closed months, in order, while each still holds the version's 'actual' cells: rolled through the
+ * last of that run (all of them, or none closed: fully rolled), stamped now. A closed month without
+ * actuals ends the run, so it and every later one read as stale (Roll now). The FIRST closed month
+ * without actuals: nothing is stamped (not rolled yet).
+ */
+async function heldRoll(companyId: string, versionId: string, fiscalYear: number): Promise<{ through: string | null } | null> {
+  const { year, months } = await reforecastYear(companyId, fiscalYear);
+  const closed = await closedMonthsOf(companyId, year, months);
+  const held = new Set(((await sql`
+    SELECT DISTINCT to_char(month, 'YYYY-MM') AS m FROM budget_month_amounts
+     WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID AND amount_source = 'actual'
+  `) as DbRow[]).map((r) => String(r.m)));
+  const run = closed.findIndex((m) => !held.has(m));
+  if (run === -1) return { through: closed.length > 0 ? closed[closed.length - 1]! : null };
+  return run === 0 ? null : { through: closed[run - 1]! };
+}
+
+/**
  * Turns auto-roll on (a non-primary reforecast only; one per company and year) or off (the row deleted) for
  * the version, under its compare-and-set token, in one savepoint. Returns the new token.
  */
@@ -189,7 +208,7 @@ export async function setRolling(
           throw new BudgetVersionError('BUDGET_VERSION_STATE',
             'The primary budget cannot roll forward: a roll would rewrite what the reports compare against. Make another version primary first');
         }
-        await insertRollingRow(companyId, v.fiscalYear, id, userId);
+        await insertRollingRow(companyId, v.fiscalYear, id, userId, await heldRoll(companyId, id, v.fiscalYear));
       }
       if (!rolling && had) {
         await sql`DELETE FROM budget_rolling_forecasts WHERE company_id = ${companyId}::UUID AND version_id = ${id}::UUID`;
