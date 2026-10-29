@@ -45,6 +45,29 @@ describe('useBudgetGrid refresh', () => {
     expect(hook.result.current.version?.id).toBe(OTHER);
   });
 
+  it('a reload of the same version that finished while the re-read was out wins over the older answer', async () => {
+    const net = installNetwork();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => { release = r; });
+    let reads = 0;
+    const withSales = (amount: number) => {
+      const m = driverModel();
+      return { ...m, cells: m.cells.map((c) => (c.glAccountId === ID.rev1 ? { ...c, amount } : c)) };
+    };
+    net.on(isModel, async () => {
+      reads++;
+      if (reads === 2) { await held; return ok(withSales(1000)); }
+      return ok(withSales(reads === 1 ? 1000 : 2000));
+    });
+    const hook = await loaded();
+    let refreshed: Promise<string | null> = Promise.resolve(null);
+    act(() => { refreshed = hook.result.current.refresh(); });
+    await act(async () => { await hook.result.current.reload(); });
+    expect(hook.result.current.store.getRow(`acct:${ID.rev1}`).values[0]).toBe(200_000);
+    await act(async () => { release(); await refreshed; });
+    expect(hook.result.current.store.getRow(`acct:${ID.rev1}`).values[0]).toBe(200_000);
+  });
+
   it('a re-read while a load is pending is skipped (the load brings the cells)', async () => {
     const net = installNetwork();
     let release: () => void = () => undefined;
