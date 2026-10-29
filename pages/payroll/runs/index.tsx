@@ -12,36 +12,7 @@ import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { ListEmpty } from '@/components/ui/ListEmpty';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
-
-interface RunRow {
-  id: string;
-  periodMonth: number;
-  periodYear: number;
-  status: string;
-  totalGross: number;
-  totalPaye: number;
-  totalNet: number;
-  employeeCount: number;
-  journalEntryId: string | null;
-}
-
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const periodLabel = (r: RunRow) => `${MONTHS[r.periodMonth - 1]} ${r.periodYear}`;
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    draft: 'bg-yellow-500/10 text-yellow-400',
-    calculated: 'bg-blue-500/10 text-blue-400',
-    approved: 'bg-teal-500/10 text-teal-400',
-    posted: 'bg-emerald-500/10 text-emerald-400',
-    cancelled: 'bg-red-500/10 text-red-400',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
-      {status}
-    </span>
-  );
-}
+import { RunCards, StatusBadge, periodLabel, type RunRow } from '@/components/payroll/RunCards';
 
 export default function PayrollRunsListPage() {
   const { companyRole } = useCompany();
@@ -109,7 +80,9 @@ export default function PayrollRunsListPage() {
               }}
             />
           ) : (
-            <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
+            <>
+            <RunCards runs={runs} mayWrite={mayWrite} />
+            <div className="hidden md:block rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
@@ -152,6 +125,7 @@ export default function PayrollRunsListPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </div>

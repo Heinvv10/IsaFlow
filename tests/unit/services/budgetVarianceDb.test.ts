@@ -25,7 +25,6 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { getPoolForTests, sql } from '@/lib/neon';
-import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
 import { requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import { addDaysISO } from '@/lib/dateUtils';
@@ -158,6 +157,26 @@ async function inRequestTx(run: (f: Fixture) => Promise<void>): Promise<void> {
 // isaflow_dev's posted journals, which run to 2031-01 (a later posting would move postedThrough).
 const FY = 2033;
 
+/**
+ * The year's budget for an account on its primary version, `annual` spread evenly over the year's
+ * months with the cents on the last, written directly as the grid save stores amounts (the legacy
+ * upsertBudget that did this was removed in budgets P2 PR-D). When the year has no primary,
+ * budget_version_original makes an APPROVED 'Original' (as migration 947 converted legacy budgets).
+ */
+async function setBudget(f: Fixture, accountId: string, annual: number): Promise<void> {
+  const year = await requireFiscalYear(f.companyId, FY);
+  const keys = budgetMonthKeysInWindow(year.startDate, year.endDate);
+  const cents = Math.round(annual * 100);
+  const each = Math.trunc(cents / keys.length);
+  const amounts = keys.map((_, i) => (i === keys.length - 1 ? cents - each * (keys.length - 1) : each) / 100);
+  const [v] = (await sql`SELECT public.budget_version_original(${f.companyId}::uuid, ${FY}, ${f.userId}) AS id`) as Array<{ id: string }>;
+  await sql`
+    INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount, created_by)
+    SELECT ${f.companyId}::uuid, ${v!.id}::uuid, ${accountId}::uuid, (t.m || '-01')::date, t.a, ${f.userId}
+      FROM unnest(${keys}::text[], ${amounts}::numeric[]) AS t(m, a)
+  `;
+}
+
 /** The registry year's window, and a date `day` days into its month number `i` (0-based). */
 async function yearWindow(f: Fixture): Promise<{ start: string; end: string; at: (i: number, day: number) => string }> {
   const year = await requireFiscalYear(f.companyId, FY);
@@ -172,11 +191,7 @@ describe('getBudgetVariance against a real ledger', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
       // R120,000 a year, evenly spread — R10,000 a month over the year's twelve months.
-      await upsertBudget(
-        f.companyId,
-        { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 120000 },
-        f.userId,
-      );
+      await setBudget(f, f.expenseAccountId, 120000);
       await postJournal(f, w.at(1, 15), f.expenseAccountId, 25000);
       await postJournal(f, w.at(10, 10), f.expenseAccountId, 5000); // across the calendar-year boundary
 
@@ -201,9 +216,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('reports credited revenue as a positive actual, not a negative one', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.revenueAccountId, fiscalYear: FY, annualAmount: 120000 }, f.userId,
-      );
+      await setBudget(f, f.revenueAccountId, 120000);
       await postRevenueJournal(f, w.at(1, 15), f.revenueAccountId, 30000);
 
       const result = await getBudgetVariance(f.companyId, w.start, w.end);
@@ -219,9 +232,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('nets a debit against credited revenue', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.revenueAccountId, fiscalYear: FY, annualAmount: 120000 }, f.userId,
-      );
+      await setBudget(f, f.revenueAccountId, 120000);
       await postRevenueJournal(f, w.at(1, 15), f.revenueAccountId, 30000);
       await postJournal(f, w.at(2, 20), f.revenueAccountId, 5000); // DR revenue = a reversal
 
@@ -234,9 +245,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('excludes movement dated outside the window', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
-      );
+      await setBudget(f, f.expenseAccountId, 12000);
       await postJournal(f, addDaysISO(w.end, 1), f.expenseAccountId, 999999); // the day after the year ends
 
       const result = await getBudgetVariance(f.companyId, w.start, w.end);
@@ -248,9 +257,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('surfaces spend on an unbudgeted account instead of dropping it', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
-      );
+      await setBudget(f, f.expenseAccountId, 12000);
       await postJournal(f, w.at(3, 1), f.otherExpenseId, 44000);
 
       const result = await getBudgetVariance(f.companyId, w.start, w.end);
@@ -269,9 +276,7 @@ describe('getBudgetVariance against a real ledger', async () => {
   it.skipIf(!reachable)('ignores a draft journal', async () => {
     await inRequestTx(async (f) => {
       const w = await yearWindow(f);
-      await upsertBudget(
-        f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
-      );
+      await setBudget(f, f.expenseAccountId, 12000);
       const je = (await sql`
         INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
         VALUES (${f.companyId}::uuid, ${w.at(2, 1)}::date, ${'draft'}, ${'manual'}, ${'draft'}, ${f.userId})
