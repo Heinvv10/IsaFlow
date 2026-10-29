@@ -48,6 +48,7 @@ export async function postOpeningBalances(
   const lines: JournalLineInput[] = [];
   const unresolved: string[] = [];
   const notOwned: string[] = [];
+  const otherType: string[] = [];
 
   for (const acct of balanceAccounts) {
     // Only an account THIS source owns may receive its opening balance.
@@ -57,7 +58,7 @@ export async function postOpeningBalances(
     // unchanged". The two ways a code can fail to resolve are reported apart,
     // because they need different things from the operator.
     const glRows = (await sql`
-      SELECT id, imported_from FROM gl_accounts
+      SELECT id, imported_from, account_type FROM gl_accounts
       WHERE company_id = ${companyId}::UUID AND account_code = ${acct.sourceCode}
       LIMIT 1
     `) as DbRow[];
@@ -67,6 +68,13 @@ export async function postOpeningBalances(
     }
     if (glRows[0]!.imported_from !== source) {
       notOwned.push(`${acct.sourceCode} ${acct.sourceName}`);
+      continue;
+    }
+    // A re-run never re-types an account (the row was refused), so the file's
+    // type and normal side are not the account's: its balance would land on
+    // the wrong side of an account the operator was told was left unchanged.
+    if (String(glRows[0]!.account_type) !== String(acct.mappedType)) {
+      otherType.push(`${acct.sourceCode} ${acct.sourceName} (${String(glRows[0]!.account_type)} here, ${String(acct.mappedType)} in the file)`);
       continue;
     }
     // SIGN CONVENTION: a positive openingBalance sits on the account's own
@@ -109,6 +117,9 @@ export async function postOpeningBalances(
     // it is, because "no GL account was created" sent the operator looking for
     // an import failure that never happened.
     problems.push(`${notOwned.join('; ')} already exists as an account the ${source} import does not own (renumber the source row, or delete the existing account, then re-run)`);
+  }
+  if (otherType.length > 0) {
+    problems.push(`${otherType.join('; ')} is a different type here than in the file (change its type in the chart of accounts, or fix the mapping, then re-run)`);
   }
   if (problems.length > 0) {
     throw new Error(`opening balances not imported: ${problems.join('; and ')}`);
