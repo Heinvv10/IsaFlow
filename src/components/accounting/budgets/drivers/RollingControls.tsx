@@ -3,7 +3,7 @@
  * the auto-roll toggle (PUT); when the roll is behind the closed periods (a missed after-close
  * job) the badge "Rolled through <Mon YYYY> · N months closed since"; a month reopened after the
  * roll, "<Mon> reopened after the roll — Roll now refreshes it"; one Roll now (POST
- * `{ action: 'roll' }`) for either; the actuals the forecast cannot place; and a skipped roll's
+ * `{ action: 'roll' }`) for either, on any reforecast (a non-rolling one refreshes its actuals by hand); the actuals the forecast cannot place; and a skipped roll's
  * `last_error`. Both writes send the version token and need a clean grid; a write's token is
  * adopted, the grid re-reads the version (the roll's warnings land on the rows) and the status is
  * read again (a roll that changes no cell keeps the token). A roll the server skipped (locked,
@@ -28,9 +28,13 @@ export interface RollingControlsProps {
 const BTN = 'inline-flex items-center gap-1 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] px-2.5 py-1 text-xs text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)] disabled:opacity-50';
 const PILL = 'inline-flex items-center gap-1.5 rounded-full border border-[var(--ff-unfav)] px-2 py-0.5 text-xs text-[var(--ff-unfav)]';
 
-/** "Rolled through Mar 2026 · 2 months closed since"; null when the roll is up to date. */
+/**
+ * "Rolled through Mar 2026 · 2 months closed since"; null when the roll is up to date. Any reforecast, rolling or
+ * not: Roll now is also the manual refresh of a reforecast that does not roll (PR-4), and turning rolling on shows
+ * the closed months as stale until the first roll.
+ */
 export function staleBadgeText(s: RollingStatus): string | null {
-  if (!s.rolling || s.staleMonths.length === 0) return null;
+  if (s.staleMonths.length === 0) return null;
   const n = s.staleMonths.length;
   const since = `${n} month${n === 1 ? '' : 's'} closed since`;
   return s.rolledThroughMonth ? `Rolled through ${monthLabel(s.rolledThroughMonth)} · ${since}` : `Not rolled yet · ${n} closed month${n === 1 ? '' : 's'} to roll`;

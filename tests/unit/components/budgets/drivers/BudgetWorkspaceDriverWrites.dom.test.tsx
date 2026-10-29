@@ -143,4 +143,23 @@ describe('driver writes through the real fetchers', () => {
     expect(screen.getByTestId('grid-announcement')).toHaveTextContent(FY_CLOSED_REASON);
     expect(screen.queryByTestId('spread-note')).toBeNull();
   });
+
+  it("useDriverActions records a failed headcount read: the per_head preview says so; a later good read clears it", async () => {
+    const { net } = await ready();
+    let reads = 0;
+    net.on((u) => u.startsWith('/api/accounting/budget-drivers/headcount?'), () => (++reads === 1 ? fail(503, 'Payroll is busy.')
+      : ok({ costCentreId: null, months: MONTHS.map((month) => ({ month, payroll: 2, hires: 0, total: 2 })), asOf: '2026-10-29T08:00:00.000Z' })));
+    await rowActions('3100', 'Edit driver…');
+    const ed = await screen.findByTestId('driver-editor');
+    fireEvent.change(within(ed).getByLabelText('Driver'), { target: { value: 'per_head' } });
+    fireEvent.change(within(ed).getByLabelText('Amount per head a month (R)'), { target: { value: '1000' } });
+    expect(await within(ed).findByText(/The headcount could not be read: Payroll is busy\./)).toBeInTheDocument();
+    // Asking again (another scope, then back) retries; the good answer replaces the error with the counts.
+    fireEvent.change(within(ed).getByLabelText('Headcount of'), { target: { value: ID.m1 } });
+    fireEvent.change(within(ed).getByLabelText('Headcount of'), { target: { value: '' } });
+    await waitFor(() => expect(within(ed).queryByText(/could not be read/)).toBeNull());
+    const apr = within(screen.getByTestId('driver-preview')).getByRole('rowheader', { name: 'Apr 2026' }).closest('tr')!;
+    await waitFor(() => expect(apr).toHaveTextContent('R 2 000.00'));
+  });
 });
+

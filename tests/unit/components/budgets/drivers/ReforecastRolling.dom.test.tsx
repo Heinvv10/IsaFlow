@@ -163,4 +163,18 @@ describe('RollingControls', () => {
     fireEvent.click(await screen.findByTestId('roll-now'));
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be read again');
   });
+
+  it('a reforecast that does not roll: closed months since the last roll, a reopened month and Roll now as a manual refresh', async () => {
+    const net = installNetwork();
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status({ rolling: false, rolledThroughMonth: '2026-04', staleMonths: ['2026-05'], reopenedMonths: ['2026-03'] })));
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'POST', () => ok({ status: 'rolled', changed: 2, closedMonths: [], rolledThroughMonth: '2026-05', unplaced: [], warnings: [], updatedAt: T2 }));
+    const g = grid();
+    render(<RollingControls version={REFORECAST} grid={g} editable />);
+    expect(await screen.findByRole('switch', { name: /Rolling: off/ })).toBeInTheDocument();
+    expect(screen.getByTestId('rolling-stale')).toHaveTextContent('Rolled through Apr 2026 · 1 month closed since');
+    expect(screen.getByTestId('rolling-reopened')).toHaveTextContent('Mar 2026 reopened after the roll — Roll now refreshes it');
+    fireEvent.click(screen.getByTestId('roll-now'));
+    await waitFor(() => expect(g.adoptToken).toHaveBeenCalledWith(T2));
+    expect(net.sent.find((s) => s.method === 'POST')!.body).toEqual({ action: 'roll', expectedUpdatedAt: TOKEN });
+  });
 });
