@@ -331,7 +331,7 @@ END;
 $$;
 DROP TRIGGER IF EXISTS trg_budget_month_amounts_driver_grain ON budget_month_amounts;
 CREATE TRIGGER trg_budget_month_amounts_driver_grain
-  BEFORE INSERT OR UPDATE OF version_id, gl_account_id, cc1_id, cc2_id, bu_id ON budget_month_amounts
+  BEFORE INSERT OR UPDATE OF company_id, version_id, gl_account_id, cc1_id, cc2_id, bu_id ON budget_month_amounts
   FOR EACH ROW EXECUTE FUNCTION public.budget_month_amounts_driver_grain();
 ALTER TABLE budget_month_amounts ENABLE ALWAYS TRIGGER trg_budget_month_amounts_driver_grain;
 
@@ -372,12 +372,21 @@ BEGIN
       'CREATE POLICY tenant_isolation ON %I FOR ALL TO app_user '
       'USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies())) '
       'WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))', t);
-    EXECUTE format('GRANT SELECT, INSERT, DELETE ON %I TO app_user', t);
-    EXECUTE format('REVOKE UPDATE ON %I FROM app_user', t);
+    EXECUTE format('GRANT SELECT, DELETE ON %I TO app_user', t);
+    EXECUTE format('REVOKE INSERT, UPDATE ON %I FROM app_user', t);
   END LOOP;
 END;
 $$;
--- UPDATE per column: never id, company_id or the creation stamps (a writable stamp gets forged).
+-- INSERT per column: id and the timestamps take their defaults (a writable stamp gets forged);
+-- created_by is the session's user, written by the services.
+GRANT INSERT (company_id, version_id, gl_account_id, cc1_id, cc2_id, bu_id, kind, from_month, to_month, amount, pct,
+  ref_gl_account_id, ref_cc1_id, ref_cc2_id, ref_bu_id, ref_section, ref_scope, base_month,
+  headcount_cost_centre_id, rounding_unit, created_by, updated_by) ON budget_driver_lines TO app_user;
+GRANT INSERT (company_id, version_id, label, cost_centre_id, start_month, end_month, fte, created_by)
+  ON budget_planned_hires TO app_user;
+GRANT INSERT (company_id, fiscal_year, version_id, rolled_through_month, last_rolled_at, last_error, created_by)
+  ON budget_rolling_forecasts TO app_user;
+-- UPDATE per column: never id, company_id or the creation stamps.
 GRANT UPDATE (version_id, gl_account_id, cc1_id, cc2_id, bu_id, kind, from_month, to_month, amount, pct,
   ref_gl_account_id, ref_cc1_id, ref_cc2_id, ref_bu_id, ref_section, ref_scope, base_month,
   headcount_cost_centre_id, rounding_unit, updated_by, updated_at) ON budget_driver_lines TO app_user;
