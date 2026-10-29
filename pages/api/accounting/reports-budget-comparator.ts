@@ -62,6 +62,12 @@ const day = (label: string) =>
     .refine((d) => d <= monthEnd(`${d.slice(0, 7)}-01`), `${label} must be a real calendar date`)
     .refine((d) => Number(d.slice(0, 4)) >= YEAR_MIN && Number(d.slice(0, 4)) <= YEAR_MAX, `${label}'s year must lie in ${YEAR_MIN}-${YEAR_MAX}`);
 
+/** What a bad id says, per dimension: the page shows the server's sentence, not a field name and a parser's words. */
+const ID_SUBJECT: Record<string, string> = {
+  version_id: 'budget version', cost_centre_id: 'cost centre', cc1_id: 'cost centre', cc2_id: 'cost centre', bu_id: 'business unit', business_unit_id: 'business unit',
+};
+const invalidId = (field: string): string => `That ${ID_SUBJECT[field] ?? 'filter'} is not valid.`;
+
 const Query = z.object({
   period_start: day('The start date'),
   period_end: day('The end date'),
@@ -92,8 +98,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) {
     const fieldErrors = parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>;
     const first = Object.entries(fieldErrors).find(([, v]) => v && v.length > 0);
-    // The window's messages are whole sentences (the page prints them as they are); an id's names its field.
-    const message = first ? (first[0].startsWith('period_') ? first[1]![0]! : `${first[0]}: ${first[1]![0]}`) : 'Invalid query';
+    // Every message is a whole sentence the page prints as it is: a window's own, or "That cost centre is not valid."
+    const message = first ? (first[0].startsWith('period_') ? first[1]![0]! : invalidId(first[0])) : 'That request is not valid.';
     return apiResponse.badRequest(res, message, fieldErrors);
   }
 

@@ -46,6 +46,20 @@ describe('budget-tracking-export header', () => {
     expect(plain.find((r) => r[0] === 'Notice')).toBeUndefined();
   });
 
+  it('r3: a year with a budget, none of it at the filter, says so in the header, CSV and XLSX (the same words as the page)', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => {
+      const r = fixture();
+      return { ...r, notices: { ...r.notices, noBudgetAtFilterYears: [2027] } };
+    });
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'FY2027 has a budget, but none of it is at this filter.']);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await call(exportHandler, { ...query, format: 'xlsx' })).sent as ArrayBuffer);
+    const head: unknown[][] = [];
+    wb.worksheets[0]!.eachRow((r) => { head.push([r.getCell(1).value, r.getCell(2).value]); });
+    expect(head).toContainEqual(['Notice', 'FY2027 has a budget, but none of it is at this filter.']);
+  });
+
   it('R2: a cross-FY window names every version it reads, per year, in CSV and XLSX', async () => {
     buildBudgetTrackingReport.mockImplementation(async () => ({
       ...fixture(),

@@ -122,3 +122,4 @@ changed an amount would make two screens disagree about the same period.
 - `ComparatorNotices.tsx` — the sentences for a missing or unloadable
   comparator. `comparatorNotices` is exported and pure.
 - `useDensity.ts`, `DensityToggle.tsx` — the reading-density preference.
+- 2026-10-29 (PR-C review r3): the absent-year and "budget, none at this filter" notices are `trackingNoticeText`'s, one per year, word for word those of Budget vs Actual. A refused window reads "The Budget column is empty. <reason>." The route answers a bad id with a sentence per dimension ("That cost centre is not valid."). The IS report's own "Could not load income statement - try again" for a malformed start is the IS route's pre-existing behaviour (`reports-income-statement`), not this column's.

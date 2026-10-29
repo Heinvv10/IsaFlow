@@ -1,6 +1,6 @@
 /**
  * An in-memory ledger that answers the budget readers' SQL by query shape, so a unit test runs
- * the REAL facade (`getBudgetVariance`), `trackingRange`, `trackingCore`, P1's `primaryVersionScope`
+ * the REAL facade (`getBudgetVariance`), `trackingRange`, `trackingCore`, P1's `primaryVersionScopeAndYears`
  * and the line builder with no database. Adopted from the PR-C round-1 ledger-breaker's repro.
  *
  * Use: `vi.mock('@/lib/neon', () => ({ sql: fakeSql }))` and the registry mock below, then fill `W`.

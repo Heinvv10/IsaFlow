@@ -114,7 +114,9 @@ export function buildTrackingLines(input: {
     const unallocated = windowBudgetAbsent ? null : sumOver(acc.coarser, ms);
     const variance = budget === null ? null : actual - budget;
     const proj = projectCents(acc.actual, anyIn(acc.budget, input.plan.fyMonths) ? acc.budget : null, input.plan);
-    if (actual === 0 && budget === null && proj.fyBudget === null && proj.projected === 0 && !anyIn(acc.coarser, ms)) continue;
+    // A partial line is kept even with no figure of its own: its band's budget is null because of it, and the
+    // partial-account notice counts it, so the report must show it (review r3: BvA dropped it and showed its band whole).
+    if (actual === 0 && budget === null && proj.fyBudget === null && proj.projected === 0 && !anyIn(acc.coarser, ms) && !partial) continue;
 
     const aboveFilter = (partial || !anyIn(acc.budget, ms)) && anyIn(acc.coarser, ms);
     const monthly: TrackingMonth[] = ms.map((month) => {
