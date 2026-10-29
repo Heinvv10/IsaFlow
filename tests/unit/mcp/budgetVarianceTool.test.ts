@@ -11,19 +11,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// The DATA loaders are mocked; the service, the line builder and the sections
-// are real, so the budgeted/unbudgeted split (D5) and net profit in sections (D11, decision 19)
-// are proved through the tool rather than restated in a fixture.
+// The engine's range read is mocked (its figures are proved against real Postgres in
+// tests/integration/budget-variance-facade-parity.int.test.ts); the facade, the line builder and
+// the sections are real, so the budgeted/unbudgeted split (D5) and net profit in sections
+// (D11, decision 19) are proved through the tool rather than restated in a fixture.
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
-vi.mock('@/modules/accounting/services/reports/budgetWindowActuals', () => ({ loadWindowActuals: vi.fn() }));
-vi.mock('@/modules/accounting/services/reports/budgetWindowService', () => ({ loadWindowBudgets: vi.fn() }));
+vi.mock('@/modules/accounting/services/budgets/tracking/trackingRange', () => ({ buildRangeTracking: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({
   fiscalYearForDate: vi.fn(async () => ({ fiscalYear: 2026 })),
 }));
 
-import { sql } from '@/lib/neon';
-import { loadWindowActuals } from '@/modules/accounting/services/reports/budgetWindowActuals';
-import { loadWindowBudgets } from '@/modules/accounting/services/reports/budgetWindowService';
+import { buildRangeTracking } from '@/modules/accounting/services/budgets/tracking/trackingRange';
+import type { TrackingLine } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import { budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import * as varianceService from '@/modules/accounting/services/reports/budgetVarianceService';
 import { budgetVarianceTool } from '@/lib/mcp/tools/budgetVariance';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
@@ -65,14 +65,19 @@ function json(res: { content: Array<{ text: string }>; isError?: boolean }): Env
 
 type Raw = { code: string; type: 'revenue' | 'expense'; actual: number };
 
-/** Ledger and budgets the real service reads. */
+/** The engine's lines for a ledger and its budgets (keyed by code for readability), as the facade reads them. */
 function ledger(raws: Raw[], budgets: Record<string, number>, postedThrough = '2026-05-29') {
-  vi.mocked(loadWindowActuals).mockResolvedValue(raws.map((r) => ({
-    id: `id-${r.code}`, account_code: r.code, account_name: `Account ${r.code}`, account_type: r.type, actual_amount: r.actual,
-  })));
-  // Budgets are keyed by account id (budgetWindowService); the fixture writes codes for readability.
-  vi.mocked(loadWindowBudgets).mockResolvedValue(Object.fromEntries(Object.entries(budgets).map(([c, v]) => [`id-${c}`, v])));
-  vi.mocked(sql).mockResolvedValue([{ posted_through: postedThrough }] as never);
+  const lines = raws.map((r) => ({
+    accountId: `id-${r.code}`, accountCode: r.code, accountName: `Account ${r.code}`, accountType: r.type,
+    actual: r.actual, budget: Object.hasOwn(budgets, r.code) ? budgets[r.code]! : null,
+    partialBudget: false, budgetAboveFilter: false, monthly: [],
+  })) as unknown as TrackingLine[];
+  vi.mocked(buildRangeTracking).mockImplementation(async (_c, start, end) => ({
+    months: budgetMonthKeysInWindow(start, end), years: [], lines,
+    notices: { unbudgetedCount: 0, unbudgetedActual: { income: 0, expense: 0 }, unallocatedBudget: { income: 0, expense: 0 },
+      noVersion: false, partialBudget: null, noVersionYears: [] },
+    version: null, filter: {}, postedThrough,
+  }));
 }
 
 const getBudgetVariance = vi.spyOn(varianceService, 'getBudgetVariance');
