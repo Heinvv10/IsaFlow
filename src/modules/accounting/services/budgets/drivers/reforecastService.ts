@@ -24,12 +24,14 @@ import { RowLockTimeoutError, withRowLockBudget } from '../../core/rowLockBudget
 import { auditBudgetWrite, holdYearRegistry, lockVersionForWrite } from '../budgetVersionScope';
 import { createVersion, getVersion, type VersionActor } from '../budgetVersions';
 import { BudgetVersionError, mapBudgetDbError, type BudgetVersion } from '../budgetVersionTypes';
-import type { DriverWarning } from './driverTypes';
 import { fromCents } from '../grid/cents';
+import { monthKeyToDate } from '../../reports/budgetPeriodWindow';
 import { loadVersionModel } from './driverModel';
+import type { RecomputeWarning } from './driverRecomputeService';
 import { listDriverLines } from './driverRepository';
 import {
-  closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, writePlannedCells, type UnplacedActualLine,
+  closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, unplacedSummary, writePlannedCells,
+  type UnplacedActualLine,
 } from './reforecastInputs';
 
 export interface ReforecastCreated {
@@ -39,7 +41,9 @@ export interface ReforecastCreated {
   /** Cells written. */
   cells: number;
   unplaced: UnplacedActualLine[];
-  warnings: DriverWarning[];
+  warnings: RecomputeWarning[];
+  /** When payroll was read for per_head drivers (headcount refreshed); null when none needed it. */
+  headcountAsOf: string | null;
 }
 
 /** The source row, share-locked (bounded wait); another company's is BUDGET_VERSION_NOT_FOUND. */
@@ -79,11 +83,19 @@ async function copyInputs(companyId: string, sourceId: string, versionId: string
   `;
 }
 
-/** The rolling row for a new reforecast; a year that already rolls one is a 409 naming it. */
-export async function insertRollingRow(companyId: string, fiscalYear: number, versionId: string, userId: string): Promise<void> {
+/**
+ * The rolling row for a reforecast; a year that already rolls one is a 409 naming it. `rolled` is
+ * what the version already holds: the months it is rolled through (null: none) and whether that is
+ * a roll (last_rolled_at = now()), as a create is the first roll; null leaves both unset.
+ */
+export async function insertRollingRow(
+  companyId: string, fiscalYear: number, versionId: string, userId: string, rolled: { through: string | null } | null,
+): Promise<void> {
+  const through = rolled?.through ? monthKeyToDate(rolled.through) : null;
   const made = (await sql`
-    INSERT INTO budget_rolling_forecasts (company_id, fiscal_year, version_id, created_by)
-    VALUES (${companyId}::UUID, ${fiscalYear}, ${versionId}::UUID, ${userId})
+    INSERT INTO budget_rolling_forecasts (company_id, fiscal_year, version_id, rolled_through_month, last_rolled_at, created_by)
+    VALUES (${companyId}::UUID, ${fiscalYear}, ${versionId}::UUID, ${through}::DATE,
+            CASE WHEN ${rolled !== null}::BOOLEAN THEN now() END, ${userId})
     ON CONFLICT DO NOTHING
     RETURNING version_id
   `) as DbRow[];
@@ -114,21 +126,24 @@ export async function createReforecastFromActuals(
       const closed = await closedMonthsOf(companyId, year, months);
       const read = await readClosedActuals(companyId, year, closed);
       const model = await loadVersionModel(companyId, sourceId, months, await listDriverLines(companyId, sourceId));
-      const { plan, headcountAsOf } = await planOver(companyId, model, id, closed, read);
+      const { plan, headcountAsOf, warnings } = await planOver(companyId, model, id, closed, read);
       const cells = await writePlannedCells(companyId, id, actor.userId, plan.cells);
-      if (input.rolling) await insertRollingRow(companyId, fiscalYear, id, actor.userId);
+      // The create is the first roll: rolled through the latest closed month, now.
+      if (input.rolling) {
+        await insertRollingRow(companyId, fiscalYear, id, actor.userId, { through: closed.length > 0 ? closed[closed.length - 1]! : null });
+      }
 
       const unplaced = describeUnplaced(plan, read);
       await auditBudgetWrite(companyId, actor.userId, 'update', id, fiscalYear, {
         reforecastFrom: sourceId, closedMonths: closed.join(',') || 'none', cells: String(cells),
-        unplaced: String(unplaced.length), unplacedTotal: String(fromCents(plan.unplaced.reduce((s, u) => s + u.amount, 0))),
+        unplaced: unplacedSummary(unplaced), unplacedTotal: String(fromCents(plan.unplaced.reduce((s, u) => s + u.amount, 0))),
         rolling: String(input.rolling), headcountAsOf: headcountAsOf ?? 'none',
       });
       log.info('Created budget reforecast from actuals', {
         companyId, sourceId, versionId: id, closedMonths: closed.length, cells, unplaced: unplaced.length,
       }, 'accounting');
       return {
-        version: await getVersion(companyId, id), rolling: input.rolling, closedMonths: closed, cells, unplaced, warnings: plan.warnings,
+        version: await getVersion(companyId, id), rolling: input.rolling, closedMonths: closed, cells, unplaced, warnings, headcountAsOf,
       };
     });
   } catch (err) {
