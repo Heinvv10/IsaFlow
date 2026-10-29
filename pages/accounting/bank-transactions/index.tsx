@@ -110,12 +110,12 @@ export default function BankTransactionsPage() {
       setShowBU(buLocal !== null ? buLocal !== 'false' : buJson.data?.value === 'true');
     }).catch(err => log.warn('Column settings unavailable, using defaults', { error: err }, 'bank-transactions'));
   }, []);
-  // Debounce search — 500ms
+  // Debounce search — 500ms. Only a changed search resets to page 1 (the mount timer used to undo a page-3 click).
   useEffect(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (searchTerm === debouncedSearch) return;
     debounceTimer.current = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 500);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
-  }, [searchTerm]);
+  }, [searchTerm, debouncedSearch]);
   // Load transactions. Only the latest request writes state: a slow older response must not overwrite a newer one.
   const loadSeq = useRef(0);
   const loadTransactions = useCallback(async () => {
