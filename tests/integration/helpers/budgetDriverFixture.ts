@@ -12,7 +12,8 @@ type Stmt = [string, unknown[]];
 export interface DriverOpts {
   kind?: 'fixed' | 'pct_of_line' | 'pct_of_section' | 'growth' | 'per_head';
   acct?: string; cc1?: string | null; cc2?: string | null; bu?: string | null;
-  from?: string; to?: string; refAcct?: string; headcountCc?: string | null; base?: string;
+  from?: string; to?: string; refAcct?: string; refCc1?: string | null; refCc2?: string | null; refBu?: string | null;
+  headcountCc?: string | null; base?: string;
 }
 
 function driverSql(c: Co, versionId: string, o: DriverOpts = {}): Stmt {
@@ -21,12 +22,14 @@ function driverSql(c: Co, versionId: string, o: DriverOpts = {}): Stmt {
   const pct = amount === null ? 2.5 : null;
   return [
     `INSERT INTO budget_driver_lines (company_id, version_id, gl_account_id, cc1_id, cc2_id, bu_id, kind, from_month, to_month,
-       amount, pct, ref_gl_account_id, ref_section, ref_scope, base_month, headcount_cost_centre_id, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
+       amount, pct, ref_gl_account_id, ref_section, ref_scope, base_month, headcount_cost_centre_id, created_by,
+       ref_cc1_id, ref_cc2_id, ref_bu_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id`,
     [c.id, versionId, o.acct ?? c.acct, o.cc1 ?? null, o.cc2 ?? null, o.bu ?? null, kind, o.from ?? '2026-04-01', o.to ?? '2026-12-01',
       amount, pct, kind === 'pct_of_line' ? (o.refAcct ?? c.acct2) : null,
       kind === 'pct_of_section' ? 'operating_expense' : null, kind === 'pct_of_section' ? 'company' : null,
-      kind === 'growth' ? (o.base ?? '2026-03-01') : null, kind === 'per_head' ? (o.headcountCc ?? null) : null, c.user],
+      kind === 'growth' ? (o.base ?? '2026-03-01') : null, kind === 'per_head' ? (o.headcountCc ?? null) : null, c.user,
+      o.refCc1 ?? null, o.refCc2 ?? null, o.refBu ?? null],
   ];
 }
 

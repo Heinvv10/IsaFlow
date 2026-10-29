@@ -93,6 +93,67 @@ describe('949: budget_driver_lines rules', () => {
   });
 });
 
+describe('949: review round 1 rules', () => {
+  it("an amount at another grain than the account's driver is refused as the amounts' grain clash", async () => {
+    await asAppUser(A, async (q) => {
+      expect(await codeOf(q, ...driver.sql(A, v, { cc1: A.cc1 }))).toBe('ok');
+      expect(await codeOf(q, `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+                              VALUES ($1, $2, $3, '2027-01-01', 5)`, [A.id, v, A.acct])).toBe('23P01:budget_month_amounts_one_grain');
+      expect(await codeOf(q, `INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, cc1_id, month, amount)
+                              VALUES ($1, $2, $3, $4, '2027-01-01', 5)`, [A.id, v, A.acct, A.cc1b])).toBe('ok');
+    });
+  });
+
+  it('a centre a driver uses (grain or reference) cannot change kind', async () => {
+    await asAppUser(A, async (q) => {
+      expect(await codeOf(q, ...driver.sql(A, v, { cc1: A.cc1 }))).toBe('ok');
+      expect(await codeOf(q, ...driver.sql(A, v, { acct: A.acct2, cc2: A.cc2, kind: 'pct_of_line', refAcct: A.acct, refCc1: A.cc1b }))).toBe('ok');
+      expect(await codeOf(q, `UPDATE cost_centres SET cc_type = 'cc2' WHERE id = $1`, [A.cc1])).toBe('23514');
+      expect(await codeOf(q, `UPDATE cost_centres SET cc_type = 'cc2' WHERE id = $1`, [A.cc1b])).toBe('23514');
+      expect(await codeOf(q, `UPDATE cost_centres SET cc_type = 'cc1' WHERE id = $1`, [A.cc2])).toBe('23514');
+    });
+  });
+
+  it("a reference's CC1/CC2 must be of that kind", async () => {
+    await asAppUser(A, async (q) => {
+      expect(await codeOf(q, ...driver.sql(A, v, { kind: 'pct_of_line', refCc1: A.cc2 }))).toBe('23514');
+      expect(await codeOf(q, ...driver.sql(A, v, { kind: 'pct_of_line', refCc2: A.cc1 }))).toBe('23514');
+      expect(await codeOf(q, ...driver.sql(A, v, { kind: 'pct_of_line', refCc1: A.cc1 }))).toBe('ok');
+    });
+  });
+
+  it('a row cannot be a % of itself', async () => {
+    await asAppUser(A, async (q) => {
+      expect(await codeOf(q, ...driver.sql(A, v, { kind: 'pct_of_line', refAcct: A.acct }))).toBe('23514:budget_driver_lines_not_self');
+      expect(await codeOf(q, ...driver.sql(A, v, { kind: 'pct_of_line', cc1: A.cc1, refAcct: A.acct, refCc1: A.cc1 })))
+        .toBe('23514:budget_driver_lines_not_self');
+    });
+  });
+
+  it("deleting a referenced account is refused, never cascading into another account's driver", async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await driver(c, A, v, { kind: 'pct_of_line', refAcct: A.acct2 });
+      expect(await codeOf(c, 'DELETE FROM gl_accounts WHERE id = $1', [A.acct2])).toMatch(/^23503/);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
+
+  it('app_user cannot rewrite id, company or creation stamps', async () => {
+    await asAppUser(A, async (q) => {
+      const d = (await driver(q, A, v)).rows[0].id as string;
+      for (const col of ['created_by', 'created_at', 'company_id', 'id']) {
+        const val = col === 'created_at' ? 'now()' : col === 'created_by' ? `'forged'` : 'gen_random_uuid()';
+        expect(await codeOf(q, `UPDATE budget_driver_lines SET ${col} = ${val} WHERE id = $1`, [d]), col).toBe('42501');
+      }
+      expect(await codeOf(q, `UPDATE budget_driver_lines SET amount = 3, updated_by = 'me' WHERE id = $1`, [d])).toBe('ok');
+    });
+  });
+});
+
 describe('949: budget_rolling_forecasts rules', () => {
   it('names a reforecast of its own year, once per company-year and once per version', async () => {
     const reforecast = await version(A, { kind: 'reforecast' });

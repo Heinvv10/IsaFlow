@@ -79,6 +79,9 @@ describe('949: the new budget tables are tenant-isolated as app_user', () => {
       expect(await codeOf(q, ...rolling.sql(A, bReforecast))).toBe('23514');
       expect(await codeOf(q, ...driver.sql(A, aVersion, { cc1: B.cc1 }))).toMatch(/^23503/);
       expect(await codeOf(q, ...driver.sql(A, aVersion, { bu: B.bu }))).toMatch(/^23503/);
+      // The reference columns: B's centre or unit as the referenced row's grain.
+      expect(await codeOf(q, ...driver.sql(A, aVersion, { kind: 'pct_of_line', refCc1: B.cc1 }))).toMatch(/^23(503|514)/);
+      expect(await codeOf(q, ...driver.sql(A, aVersion, { kind: 'pct_of_line', refBu: B.bu }))).toMatch(/^23503/);
       expect(await codeOf(q, ...driver.sql(A, aVersion, { kind: 'per_head', headcountCc: B.cc1 }))).toMatch(/^23503/);
       expect(await codeOf(q, ...hire.sql(A, aVersion, { cc: B.cc1 }))).toMatch(/^23503/);
       expect(await codeOf(q, ...driver.sql(A, aVersion, { acct: B.acct }))).toBe('23514');
