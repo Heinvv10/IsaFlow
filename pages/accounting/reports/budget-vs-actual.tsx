@@ -117,6 +117,7 @@ export default function BudgetVsActualPage() {
               <p className="sm:hidden text-xs text-[var(--ff-text-secondary)]">
                 Swipe the statement sideways for the variance and projected-year columns.
               </p>
+              <div id="bva-statement" tabIndex={-1}>
               <StatementGrid rows={rows} columns={COLUMNS} title={report.window.label} sticky cents budgetTracking
                 projectionTitle={projectionHeading(report.projection)}
                 expandedAccount={expanded}
@@ -126,6 +127,7 @@ export default function BudgetVsActualPage() {
                     cc1Id={report.filter.cc1?.id} cc2Id={report.filter.cc2?.id}
                     businessUnitId={report.filter.bu?.id} budgetTracking returnTo={t.returnTo} asTableRow={false} />
                 )} />
+              </div>
               <BudgetTrackingVisuals report={report} filtered={filtered} groupBy={controls.groupBy}
                 onGroupBy={(groupBy) => t.update({ groupBy })} />
             </>

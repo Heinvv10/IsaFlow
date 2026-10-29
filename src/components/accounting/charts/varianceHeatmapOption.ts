@@ -13,12 +13,18 @@
  * `lib/charts/echarts.ts`; the heatmap series is not), which also lets the
  * decal render in the SSR SVG.
  *
+ * The month in progress (`inProgressMonth`) holds part-month actuals against a
+ * whole month's budget: not a variance yet. Its cells are drawn neutral (the
+ * axis ink), labelled "*" on the axis, said so in the tooltip, and left out of
+ * the colour scale, so the complete months keep their strength.
+ *
  * Labels: account names are ledger data. The tooltip escapes them
  * (`escapeHtml`); the axis is drawn as text by zrender, not HTML. Below
- * `NARROW_WIDTH` the names truncate (full name in the tooltip) so the cells
- * keep the width: `containLabel` alone would keep a long name inside the box
- * by squeezing the plot to nothing. Proved painted by
- * tests/unit/services/reports/charts/varianceHeatmapLegibility.test.ts.
+ * `NARROW_WIDTH` the names truncate at a smaller size (full name in the
+ * tooltip) so the cells keep the width: `containLabel` alone would keep a long
+ * name inside the box by squeezing the plot to nothing. The month labels stand
+ * vertical there, so twelve months clear each other on a phone. Proved painted
+ * by tests/unit/services/reports/charts/varianceHeatmapLegibility.test.ts.
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { CustomSeriesRenderItemAPI, CustomSeriesRenderItemParams } from 'echarts';
@@ -32,7 +38,8 @@ import { NARROW_WIDTH } from './waterfallOption';
 export const HEATMAP_DEFAULT_LIMIT = 15;
 /** Label width (px) wide and below NARROW_WIDTH; past it a name truncates with an ellipsis. */
 const WIDE_LABEL_WIDTH = 260;
-const NARROW_LABEL_WIDTH = 104;
+const NARROW_LABEL_WIDTH = 120;
+const NARROW_FONT = 10;
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (key: string) => `${MONTH_NAMES[Number(key.slice(5, 7)) - 1] ?? key} ${key.slice(2, 4)}`;
@@ -56,8 +63,9 @@ export function buildVarianceHeatmapOption(
   lines: readonly TrackingLine[],
   months: readonly string[],
   palette: ChartPalette,
-  opts: { limit?: number; showAll?: boolean } = {},
+  opts: { limit?: number; showAll?: boolean; inProgressMonth?: string | null } = {},
 ): EChartsCoreOption | null {
+  const inProgress = (month: string) => month === opts.inProgressMonth;
   // ECharts draws category index 0 at the BOTTOM: reversed, the largest |variance| is on top.
   const rows = heatmapAccounts(lines, opts).reverse();
   if (rows.length === 0 || months.length === 0) return null;
@@ -71,7 +79,8 @@ export function buildVarianceHeatmapOption(
       });
     });
   });
-  const max = Math.max(0, ...cells.map((c) => (c.variance === null ? 0 : Math.abs(c.variance))));
+  // The month in progress is not on the scale: its part-month figure would wash out the complete months.
+  const max = Math.max(0, ...cells.map((c) => (c.variance === null || inProgress(c.month) ? 0 : Math.abs(c.variance))));
   const forecast = roleStyle('forecast', palette);
 
   const renderItem = (params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) => {
@@ -84,6 +93,7 @@ export function buildVarianceHeatmapOption(
     if (c.variance === null) {
       return { type: 'rect' as const, shape, style: { fill: forecast.color, stroke: forecast.borderColor, lineWidth: forecast.borderWidth, decal: forecast.decal } };
     }
+    if (inProgress(c.month)) return { type: 'rect' as const, shape, style: { fill: palette.axisLine, opacity: 0.35 } };
     const opacity = max === 0 ? 0 : Math.round((Math.abs(c.variance) / max) * 1000) / 1000;
     return { type: 'rect' as const, shape, style: { fill: varianceColor(c.favourable ?? undefined, palette), opacity } };
   };
@@ -92,8 +102,8 @@ export function buildVarianceHeatmapOption(
     media: [{
       query: { maxWidth: NARROW_WIDTH },
       option: {
-        yAxis: { axisLabel: { width: NARROW_LABEL_WIDTH, overflow: 'truncate' } },
-        xAxis: { axisLabel: { rotate: 45 } },
+        yAxis: { axisLabel: { width: NARROW_LABEL_WIDTH, overflow: 'truncate', fontSize: NARROW_FONT } },
+        xAxis: { axisLabel: { rotate: 90, fontSize: NARROW_FONT } },
       },
     }],
     grid: { left: 8, right: 8, top: 8, bottom: 8, containLabel: true },
@@ -104,6 +114,9 @@ export function buildVarianceHeatmapOption(
         if (!c) return '';
         const head = `${escapeHtml(`${c.line.accountCode} ${c.line.accountName}`)}<br/>${monthLabel(c.month)}`;
         const actual = `Actual ${formatStatementFigure(c.actual, { symbol: true })}`;
+        if (inProgress(c.month) && c.budget !== null) {
+          return `${head}<br/>${actual}<br/>Budget ${formatStatementFigure(c.budget, { symbol: true })}<br/>In progress: actuals to date against the whole month's budget, not yet a variance`;
+        }
         if (c.budget === null || c.variance === null) {
           // A month budgeted only above the filter has a budget, just not one this filter can split.
           return `${head}<br/>${actual}<br/>${c.above ? 'Budgeted above this filter' : 'No budget for this month'}`;
@@ -113,7 +126,7 @@ export function buildVarianceHeatmapOption(
     },
     xAxis: {
       type: 'category',
-      data: months.map(monthLabel),
+      data: months.map((m) => (inProgress(m) ? `${monthLabel(m)} *` : monthLabel(m))),
       axisLabel: { color: palette.axisLabel, interval: 0 },
       axisLine: { lineStyle: { color: palette.axisLine } },
     },

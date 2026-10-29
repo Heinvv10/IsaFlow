@@ -4,21 +4,25 @@ import { ChartFrame } from './ChartFrame';
 import type { ChartPalette } from './chartTypes';
 import { buildVarianceHeatmapOption, HEATMAP_DEFAULT_LIMIT } from './varianceHeatmapOption';
 
-/** Account x month variance (actual − budget); hatched = no budget that month. */
-export function VarianceHeatmap({ lines, months }: { lines: TrackingLine[]; months: string[] }) {
+/** Account x month variance (actual − budget); hatched = no budget that month; "*" = in progress, not judged. */
+export function VarianceHeatmap({ lines, months, inProgressMonth = null, summary }: {
+  lines: TrackingLine[]; months: string[]; inProgressMonth?: string | null; summary?: string;
+}) {
   const [showAll, setShowAll] = useState(false);
   const drawn = showAll ? lines.length : Math.min(lines.length, HEATMAP_DEFAULT_LIMIT);
   const build = useCallback(
-    (p: ChartPalette) => buildVarianceHeatmapOption(lines, months, p, { showAll }),
-    [lines, months, showAll],
+    (p: ChartPalette) => buildVarianceHeatmapOption(lines, months, p, { showAll, inProgressMonth }),
+    [lines, months, showAll, inProgressMonth],
   );
   return (
     <div>
       <ChartFrame
         title="Variance by month"
-        unit="Rand, actual − budget. Colour = favourable or not; hatched = no budget that month."
+        unit={`Rand, actual − budget. Colour = favourable or not; hatched = no budget that month${
+          inProgressMonth && months.includes(inProgressMonth) ? '; * = in progress, not judged' : ''}.`}
         height={Math.max(160, drawn * 28 + 72)}
         unavailable="No account carries actuals or a budget in this window."
+        summary={summary}
       >
         {build}
       </ChartFrame>
