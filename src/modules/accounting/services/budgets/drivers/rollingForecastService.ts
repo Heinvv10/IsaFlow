@@ -24,7 +24,7 @@ import { inputError, isVersionToken, tokenSql } from '../gridErrors';
 import { takeVersion } from '../versionTake';
 import { budgetMonthKeysInWindow, monthKeyToDate } from '../../reports/budgetPeriodWindow';
 import type { DriverWarning } from './driverTypes';
-import { loadVersionModel } from './driverRecomputeService';
+import { loadVersionModel } from './driverModel';
 import { listDriverLines } from './driverRepository';
 import {
   closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, writePlannedCells, type UnplacedActualLine,

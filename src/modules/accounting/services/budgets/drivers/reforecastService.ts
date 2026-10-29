@@ -26,7 +26,7 @@ import { createVersion, getVersion, type VersionActor } from '../budgetVersions'
 import { BudgetVersionError, mapBudgetDbError, type BudgetVersion } from '../budgetVersionTypes';
 import type { DriverWarning } from './driverTypes';
 import { fromCents } from '../grid/cents';
-import { loadVersionModel } from './driverRecomputeService';
+import { loadVersionModel } from './driverModel';
 import { listDriverLines } from './driverRepository';
 import {
   closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, writePlannedCells, type UnplacedActualLine,

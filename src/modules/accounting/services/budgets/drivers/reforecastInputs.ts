@@ -22,7 +22,7 @@ import { NIL_UUID } from '../gridSaveValidate';
 import { readTrackingActuals, type ActualRow } from '../tracking/trackingActualRead';
 import type { TrackingGroupBy } from '../tracking/trackingTypes';
 import { versionHeadcount } from './driverHeadcount';
-import type { VersionModel } from './driverRecomputeService';
+import type { VersionModel } from './driverModel';
 import { DriverRangeError, type Cell, type RowKey } from './driverTypes';
 import { planReforecast, type ReforecastActual, type ReforecastActuals, type ReforecastResult } from './reforecast';
 
