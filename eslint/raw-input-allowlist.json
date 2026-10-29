@@ -24,8 +24,6 @@
   "pages/accounting/credit-notes/new.tsx": 5,
   "pages/accounting/customer-categories/index.tsx": 2,
   "pages/accounting/customer-invoices/[invoiceId].tsx": 1,
-  "pages/accounting/customer-invoices/edit/[invoiceId].tsx": 10,
-  "pages/accounting/customer-invoices/new.tsx": 10,
   "pages/accounting/customer-payments/index.tsx": 1,
   "pages/accounting/customer-payments/new.tsx": 5,
   "pages/accounting/customer-quotes/index.tsx": 9,
