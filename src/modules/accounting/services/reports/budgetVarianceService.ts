@@ -1,29 +1,42 @@
 /**
  * Budget variance: what was planned against what the ledger actually carries.
  *
+ * A FACADE over the budgets P3 tracking engine (spec §3, PR-C). The figures
+ * are `budgets/tracking/trackingRange.ts`'s: the engine's one actuals SQL
+ * (`trackingActualRead`), its budget read, its dimension classes and its
+ * budget-absent and partial rules. This file only maps them onto P0's
+ * `BudgetVarianceResult`, which its consumers (the statement comparator, MCP
+ * budget_variance, the board pack, the old Budget vs Actual routes) read.
+ * With no options the P0 fields are deep-equal to the pre-facade service's
+ * wherever P0 and the engine agree (tests/integration/budget-variance-facade-parity.int.test.ts,
+ * whose oracle is P0's own SQL).
+ *
  * THE ACTUAL IS A RAW PER-ACCOUNT GL AGGREGATE, DELIBERATELY NOT THE INCOME
  * STATEMENT. `incomeStatementService` has open defects in exactly the layer a
  * variance would inherit — a rolling-window comparative, cost of sales bucketed
  * by account NAME rather than subtype, and no other-income / finance-cost / tax
- * layer at all. A variance computed against a net profit we already know is
- * wrong would be worse than no variance, because it would wear the authority of
- * a reconciliation. Summing posted journal lines per account borrows none of
- * that: it is the same figure the trial balance shows for the account.
+ * layer at all. Summing posted journal lines per account borrows none of that:
+ * it is the same figure the trial balance shows for the account.
  *
  * Signs are normalised so "more is more" on both sides: revenue is credit less
  * debit, expenses are debit less credit. The variance rules themselves live in
  * budgetVsActualLines so this and the Budget vs Actual report cannot drift.
+ *
+ * A line whose budget the engine WITHHOLDS (a year in the range with no budget
+ * in it, a budget for only part of the range, or one set above the filter) is
+ * neither budgeted nor unbudgeted: it is in `lines` with `budgeted: false` and
+ * in neither `rows` nor `unbudgeted`, and `noBudgetYears` / `unallocatedBudget`
+ * say why. Calling it unbudgeted would state that nobody set a budget.
  */
 
-import { sql } from '@/lib/neon';
 import { round2 } from '../core/budgetMonths';
-import { budgetMonthKeysInWindow } from './budgetPeriodWindow';
-import { loadWindowBudgets } from './budgetWindowService';
-import { loadWindowActuals } from './budgetWindowActuals';
-import { buildBudgetVsActualLines, type BudgetVsActualLine } from './budgetVsActualLines';
+import { buildRangeTracking, type RangeTrackingOptions } from '../budgets/tracking/trackingRange';
+import type { ByPolarity, TrackingLine, TrackingVersionRef } from '../budgets/tracking/trackingTypes';
+import { buildBudgetVsActualLines, type BudgetVsActualLine, type RawActualRow } from './budgetVsActualLines';
 import { buildBudgetVsActualSections, type BudgetVsActualSections } from './budgetVsActualSections';
-import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+
+export type BudgetVarianceOptions = RangeTrackingOptions;
 
 export interface BudgetVarianceResult {
   /** The financial year (registry label) holding the window's start. */
@@ -38,7 +51,7 @@ export interface BudgetVarianceResult {
   unbudgeted: BudgetVsActualLine[];
   /** Revenue / Expenses / Net profit over `lines`. */
   sections: BudgetVsActualSections;
-  /** Budgeted + unbudgeted — every account this report had to classify. */
+  /** Budgeted + unbudgeted + withheld — every account this report had to classify. */
   universeTotal: number;
   /** Net profit (budget, actual, favourably signed variance) — not revenue + expense, which means nothing. */
   totals: { budget: number; actual: number; variance: number };
@@ -46,45 +59,51 @@ export interface BudgetVarianceResult {
   unbudgetedMovement: number;
   /** Latest posted entry date inside the window, or null when nothing posted. */
   postedThrough: string | null;
+  /** The version of the year holding the window's end (`empty`: it holds no budget in the window); null when that year has none. */
+  version: TrackingVersionRef | null;
+  /** Budget set above the dimension filter, never apportioned, per polarity; null when the window budget is absent. */
+  unallocatedBudget: ByPolarity | null;
+  /** Years in the window with no budget in it: while any is listed, no line carries a window budget. */
+  noBudgetYears: number[];
+}
+
+/** The engine has a budget for the account in a window month that it does not print as the window's. */
+function withheld(line: TrackingLine): boolean {
+  return line.budget === null && (line.partialBudget || line.budgetAboveFilter || line.monthly.some((m) => m.budget !== null));
 }
 
 export async function getBudgetVariance(
   companyId: string,
   periodStart: string,
   periodEnd: string,
+  opts: BudgetVarianceOptions = {},
 ): Promise<BudgetVarianceResult> {
-  const monthKeys = budgetMonthKeysInWindow(periodStart, periodEnd);
   // The financial year holding the window's start: a label for the reader to
   // re-derive against, not a key the budget is looked up by (budgets are per
   // calendar month, so a window spanning two years sums both).
   const fiscalYear = (await fiscalYearForDate(companyId, periodStart)).fiscalYear;
-  const budgets = await loadWindowBudgets(companyId, periodStart, periodEnd);
-  const actuals = await loadWindowActuals(companyId, periodStart, periodEnd);
+  const range = await buildRangeTracking(companyId, periodStart, periodEnd, opts);
 
-  const postedRows = (await sql`
-    SELECT MAX(je.entry_date)::text AS posted_through
-    FROM gl_journal_entries je
-    WHERE je.company_id = ${companyId}::UUID
-      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-  `) as Array<{ posted_through: string | null }>;
-
+  // The engine's figures, through P0's own row builder (variance, %, favourable, the keep rule).
+  const actuals: RawActualRow[] = range.lines.map((l) => ({
+    id: l.accountId, account_code: l.accountCode, account_name: l.accountName, account_type: l.accountType, actual_amount: l.actual,
+  }));
+  const budgets: Record<string, number> = {};
+  for (const l of range.lines) if (l.budget !== null) budgets[l.accountId] = l.budget;
   const lines = buildBudgetVsActualLines(actuals, budgets);
+  const held = new Set(range.lines.filter(withheld).map((l) => l.accountId));
   // Split on the budgeted BIT, never on the amount: a deliberate zero budget is a budget (D5).
   const rows = lines.filter((l) => l.budgeted);
-  const unbudgeted = lines.filter((l) => !l.budgeted);
+  const unbudgeted = lines.filter((l) => !l.budgeted && !held.has(l.account_id));
   const sections = buildBudgetVsActualSections(lines);
 
   return {
     fiscalYear,
-    monthKeys,
+    monthKeys: range.months,
     lines,
     rows,
     unbudgeted,
     sections,
-    // Every account the report prints (budgeted, or carrying movement): the
-    // two halves are a partition of it, so it always equals rows + unbudgeted.
     universeTotal: lines.length,
     totals: {
       budget: sections.net_profit.budget,
@@ -94,6 +113,9 @@ export async function getBudgetVariance(
     unbudgetedMovement: round2(
       unbudgeted.reduce((s, l) => s + Math.abs(l.actual_amount), 0),
     ),
-    postedThrough: postedRows[0]?.posted_through ?? null,
+    postedThrough: range.postedThrough,
+    version: range.version,
+    unallocatedBudget: range.notices.unallocatedBudget,
+    noBudgetYears: range.notices.noVersionYears,
   };
 }

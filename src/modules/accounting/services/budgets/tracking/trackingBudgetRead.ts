@@ -45,7 +45,7 @@ export interface TrackingVersions {
   noVersionYears: number[];
 }
 
-async function versionHeads(companyId: string, ids: string[]): Promise<Map<string, TrackingVersionRef>> {
+export async function versionHeads(companyId: string, ids: string[]): Promise<Map<string, TrackingVersionRef>> {
   if (ids.length === 0) return new Map();
   const rows = (await sql`
     SELECT id::TEXT AS id, name, kind, status, is_primary
