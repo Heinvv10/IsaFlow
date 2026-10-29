@@ -5,8 +5,10 @@
  * and the headcount the panel read. The server recomputes on save; this only shows what it will.
  *
  * Rows are every account × grain the cells or drivers name (accounts the grid does not list are
- * left out, and a driver naming one is dropped from the pass, as the server skips it). Headcount
- * not read yet counts 0 and the preview says so (`headcountMissing`).
+ * left out, and a driver naming one is dropped from the pass, as the server skips it). Every
+ * per_head row but the one asked about is read as it stands (`frozenRows`), as the server freezes
+ * them outside a refresh; that row's headcount not read yet counts 0 and the preview says so
+ * (`headcountMissing`).
  */
 import { computeVersion } from '@/modules/accounting/services/budgets/drivers/driverEngine';
 import {
@@ -94,6 +96,11 @@ function buildPass(ctx: DriverContext, lines: readonly (StoredDriverLine | Retur
   return { rows, cells, defs };
 }
 
+/** The per_head rows except `key`: they keep their stored figures this pass (no headcount read). */
+function otherHeadRows(pass: Pass, key: RowKey): Set<RowKey> {
+  return new Set(pass.defs.filter((d) => d.kind === 'per_head' && d.rowKey !== key).map((d) => d.rowKey));
+}
+
 function headcountFn(lookup: HeadcountLookup, missing: { any: boolean }): HeadcountFn {
   return (scope, month) => {
     const counts = lookup(scope);
@@ -125,6 +132,7 @@ export function previewDriver(ctx: DriverContext, candidate: DriverLineInput, he
     const result = computeVersion({
       months: ctx.months, rows: pass.rows, cells: pass.cells, drivers: pass.defs,
       headcount: headcountFn(headcount, missing), closedMonths: ctx.closedMonths, rounding: ctx.rounding,
+      frozenRows: otherHeadRows(pass, key),
     });
     const after = rowAfter(ctx, pass, key, result.writes);
     const warnings = result.warnings.filter((w) => w.rowKey === key).map((w) => w.message);
@@ -148,6 +156,7 @@ export function driverValueOf(ctx: DriverContext, rowKey: RowKey, month: string,
     const result = computeVersion({
       months: ctx.months, rows: pass.rows, cells: pass.cells, drivers: pass.defs,
       headcount: headcountFn(headcount, missing), closedMonths: ctx.closedMonths, rounding: ctx.rounding,
+      frozenRows: otherHeadRows(pass, rowKey),
     });
     // A per_head figure without the headcount read would be a made-up 0.
     if (missing.any) return null;
