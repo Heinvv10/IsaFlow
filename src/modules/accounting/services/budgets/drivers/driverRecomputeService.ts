@@ -11,9 +11,10 @@
  *
  * Headcount refreshes on demand only (spec §5: payroll edits never push a recompute): per_head
  * rows are FROZEN (their cells read as they stand) unless the pass names them live: every one on
- * "Refresh headcount" and on a planned-hire write, the row being written on a driver write. The
- * grid-save hook keeps all of them frozen (bar a row whose override it reset), so payroll is read
- * only when something live needs it.
+ * "Refresh headcount" and on a planned-hire write, the row being written on a driver save or reset
+ * (the /override route, or an override cleared in the grid). The grid-save hook keeps every other
+ * one frozen, so payroll is read only when something live needs it, and then `headcountAsOf` says
+ * when: every caller audits it.
  *
  * A changed cell is UPDATEd (amount + the engine's source: 'driver', or 'manual' for a 'driver'
  * cell no driver covers any more), a new one INSERTed as 'driver'; an unchanged cell is not
@@ -45,6 +46,8 @@ export interface RecomputeResult {
   /** Cells written (updated or inserted). */
   changed: number;
   warnings: RecomputeWarning[];
+  /** When payroll was read for a live per_head row (UTC ISO); null when this pass read none. */
+  headcountAsOf: string | null;
 }
 
 export interface RecomputeOptions {
@@ -127,7 +130,7 @@ export async function recomputeVersion(
   const lines = await listDriverLines(companyId, versionId);
   // No driver and no 'driver' cell left behind: nothing to compute or re-source (the grid save's
   // usual case, so it reads no cells). A deleted last driver still re-sources its cells 'manual'.
-  if (lines.length === 0 && !(await holdsDriverCells(companyId, versionId))) return { changed: 0, warnings: [] };
+  if (lines.length === 0 && !(await holdsDriverCells(companyId, versionId))) return { changed: 0, warnings: [], headcountAsOf: null };
   const found = (await sql`
     SELECT fiscal_year FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
@@ -140,8 +143,9 @@ export async function recomputeVersion(
   const rowKeys = new Set(model.rows.map((r) => r.key));
   const frozen = new Set(model.skipped.map((s) => s.rowKey).filter((k) => rowKeys.has(k)));
   for (const d of model.defs) if (d.kind === 'per_head' && live !== 'all' && !live.has(d.rowKey)) frozen.add(d.rowKey);
-  const heads = model.defs.some((d) => d.kind === 'per_head' && !frozen.has(d.rowKey))
-    ? await versionHeadcount(companyId, versionId, months) : null;
+  const readsPayroll = model.defs.some((d) => d.kind === 'per_head' && !frozen.has(d.rowKey));
+  const headcountAsOf = readsPayroll ? new Date().toISOString() : null;
+  const heads = readsPayroll ? await versionHeadcount(companyId, versionId, months) : null;
   let result: ReturnType<typeof computeVersion>;
   try {
     result = computeVersion({
@@ -159,7 +163,7 @@ export async function recomputeVersion(
     ...model.skipped.map((s) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: s.rowKey, message: s.message })),
     ...result.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
   ];
-  return { changed: await writeDriverCells(companyId, versionId, userId, result.writes), warnings };
+  return { changed: await writeDriverCells(companyId, versionId, userId, result.writes), warnings, headcountAsOf };
 }
 
 /**
