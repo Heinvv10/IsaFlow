@@ -39,6 +39,7 @@ import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
 import { roleBarringChildren } from './roleTargetRules';
+import { firstChildWouldHideBalance } from './accountParentRules';
 
 export const OPENING_BALANCE_EQUITY_SUBTYPE = 'opening_balance_equity';
 export const OPENING_BALANCE_EQUITY_NAME = 'Opening Balance Equity';
@@ -111,9 +112,13 @@ export async function ensureOpeningBalanceEquityAccount(
   `) as DbRow[];
   // Not under a 3000 that holds a role (retained earnings, say): a balance-sheet
   // role holder cannot have sub-accounts. The account goes at the top level instead.
-  const parent = parents[0] && !roleBarringChildren(parents[0]) ? parents[0] : undefined;
+  let parent = parents[0] && !roleBarringChildren(parents[0]) ? parents[0] : undefined;
+  // Nor under a level 1-2 3000 with lines of its own and no sub-accounts yet: its first child would make it a
+  // header the balance sheet drops (assertParentUsable's rule).
+  if (parent && await firstChildWouldHideBalance(companyId,
+    { id: String(parent.id), level: parent.level == null ? null : Number(parent.level), account_type: 'equity' })) parent = undefined;
   const parentId = parent ? String(parent.id) : null;
-  const level = parent ? Number(parent.level ?? 1) + 1 : 1;
+  const level = parent ? Number(parent.level ?? 0) + 1 : 1;
 
   let rows: DbRow[];
   try {
