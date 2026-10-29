@@ -2,6 +2,7 @@
 # One colour of the blue/green pair (instance = port, 3111 or 3112). nginx
 # fronts the live one on :3101 and :80; scripts/deploy.sh builds into the idle
 # one, verifies it on its own port, then switches nginx (scripts/deploy/bluegreen.sh).
+# Carries what isaflow.service had in its drop-ins (isaflow.service.d/).
 Description=IsaFlow App (Next.js) on port %i
 After=network.target
 
@@ -10,26 +11,35 @@ Type=simple
 User=velo
 Group=velo
 WorkingDirectory=/home/velo/isaflow-%i
-ExecStart=/usr/bin/node /home/velo/isaflow-%i/server.js
-Restart=on-failure
-RestartSec=5
-Environment=NODE_ENV=production
-Environment=PORT=%i
-# Loopback only: everything reaches a colour through nginx (or the deploy's
-# own verification on 127.0.0.1).
-Environment=HOSTNAME=127.0.0.1
 # The single production env file stays where every other unit and runbook reads it.
 EnvironmentFile=/home/velo/isaflow/.env.local
+Environment=NODE_ENV=production
+# PORT and HOSTNAME on the command line: a PORT= or HOSTNAME= line in the env
+# file must never move a colour. Loopback only: everything reaches a colour
+# through nginx, or the deploy's own verification on localhost.
+ExecStart=/usr/bin/env PORT=%i HOSTNAME=127.0.0.1 /usr/bin/node /home/velo/isaflow-%i/server.js
+Restart=on-failure
+RestartSec=5
 
-# Logging
+# Logging. One identifier for both colours (journalctl -t isaflow); the unit
+# (journalctl -u 'isaflow@*') tells them apart.
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=isaflow-%i
+SyslogIdentifier=isaflow
 
 # Security
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/home/velo/isaflow-%i /tmp
+# #793: durable Netcash answer spool ($STATE_DIRECTORY/netcash-spool), shared
+# by both colours (/var/lib/isaflow); ProtectSystem=strict leaves it writable.
+StateDirectory=isaflow
+StateDirectoryMode=0700
+
+# Velo memory protections, approved by Hein 27 Oct 2026 (was 50-memprot.conf).
+OOMScoreAdjust=-500
+MemoryLow=2G
+ManagedOOMPreference=avoid
 
 [Install]
 WantedBy=multi-user.target

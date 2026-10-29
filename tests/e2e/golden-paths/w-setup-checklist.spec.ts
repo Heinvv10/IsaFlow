@@ -18,10 +18,13 @@ import { activeCompanyId, switchApiCompany, switchBrowserCompany } from './_migr
 // Creates a sandbox company and a permanent customer, so it is a dev/CI gate only:
 // playwright-golden.config.ts leaves it out of the production post-deploy verify.
 const PROD_HOST = /(^|\.)app\.isaflow\.co\.za$/;
+// Production on this box: :3101 (nginx) and the blue/green colours deploy.sh verifies before a switch.
+const PROD_PORTS = new Set(['3101', '3111', '3112']);
 
 test.beforeAll(({}, testInfo) => {
-  const host = new URL(String(testInfo.project.use.baseURL ?? 'http://localhost')).hostname;
-  if (PROD_HOST.test(host)) throw new Error('w-setup-checklist writes a sandbox company and a customer: never run it against production');
+  const url = new URL(String(testInfo.project.use.baseURL ?? 'http://localhost'));
+  const host = url.hostname;
+  if (PROD_HOST.test(host) || PROD_PORTS.has(url.port)) throw new Error('w-setup-checklist writes a sandbox company and a customer: never run it against production');
 });
 
 const SANDBOX_NAME = '0GP Golden Checklist Sandbox';
