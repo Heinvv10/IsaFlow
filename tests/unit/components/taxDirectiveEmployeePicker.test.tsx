@@ -38,7 +38,11 @@ function serve(posted: unknown[]) {
   });
 }
 
-const fill = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+const fill = (label: string | RegExp, value: string) => {
+  const el = screen.getByLabelText(label);
+  fireEvent.change(el, { target: { value } });
+  fireEvent.blur(el);
+};
 
 describe('CreateTaxDirectiveModal: employee picker', () => {
   it('lists the company\'s employees, leavers included, from the employees route', async () => {
@@ -64,7 +68,7 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).readOnly).toBe(true);
     expect((screen.getByLabelText('Tax Number') as HTMLInputElement).value).toBe('0123456789');
     fill('Gross Amount (ZAR) *', '10000');
-    fill('Effective Date *', '2026-05-01');
+    fill(/^Effective Date/, '2026-05-01');
     fireEvent.submit(select.closest('form')!);
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(posted).toEqual([expect.objectContaining({
@@ -139,7 +143,7 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     fireEvent.change(select, { target: { value: 'e-1' } });
     fireEvent.change(select, { target: { value: 'e-2' } });
     fill('Gross Amount (ZAR) *', '10000');
-    fill('Effective Date *', '2026-05-01');
+    fill(/^Effective Date/, '2026-05-01');
     fireEvent.submit(select.closest('form')!);
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
     expect(posted).toHaveLength(1);
