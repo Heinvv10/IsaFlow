@@ -97,25 +97,6 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "Installing dependencies..."
 $BUN install
 
-# 1-0. Blue/green (2026-10-29): the app runs as isaflow@3111 and isaflow@3112
-# behind nginx. This deploy builds into the IDLE colour, verifies it on its own
-# port, then switches nginx to it; the live colour is never written or
-# restarted, so nobody's request is cut and the old colour is the rollback.
-# Both refusals below come before the 20-minute CI gate and the build.
-# shellcheck source=ops/ownerDatabaseUrl.sh
-. "$REPO_DIR/scripts/ops/ownerDatabaseUrl.sh"
-# shellcheck source=deploy/bluegreen.sh
-. "$REPO_DIR/scripts/deploy/bluegreen.sh"
-LIVE_PORT=$(bg_live_port)
-if [ -z "$LIVE_PORT" ]; then
-  echo "ERROR: no live colour in $BG_UPSTREAM_FILE — run scripts/deploy/cutover.sh once first"
-  exit 1
-fi
-IDLE_PORT=$(bg_other_port "$LIVE_PORT")
-echo "Live colour: isaflow@$LIVE_PORT; this deploy builds isaflow@$IDLE_PORT"
-EARLY_DB=$(owner_database_url_for "$DEPLOY_DIR/.env.local" sudo || true)
-bg_midday_migration_check "$EARLY_DB" "$REPO_DIR" || exit 1
-unset EARLY_DB
 
 # 1a-0. Migration-parity gate. Runs BEFORE the CI gate (and is not subject to
 # SKIP_CI) because the CI gate runs DB-backed tests against isaflow_dev: dev
@@ -128,6 +109,8 @@ unset EARLY_DB
 # $OWNER_ENV_FILE (root-only, outside the deploy dir), then .env.local's
 # OWNER_DATABASE_URL, then its DATABASE_URL, each fallback with a warning;
 # dev's from the workspace .env.local.
+# shellcheck source=ops/ownerDatabaseUrl.sh
+. "$REPO_DIR/scripts/ops/ownerDatabaseUrl.sh"
 PARITY_PROD_ENV="$DEPLOY_DIR/.env.local"
 PARITY_PROD_DB=""
 if sudo test -f "$PARITY_PROD_ENV"; then
@@ -146,6 +129,26 @@ echo "Checking migration parity (dev vs prod vs repo)..."
 DATABASE_URL="$PARITY_DEV_DB" PARITY_PROD_DATABASE_URL="$PARITY_PROD_DB" $BUN "$REPO_DIR/scripts/check-migration-parity.ts" --apply-dev
 unset PARITY_DEV_DB
 unset PARITY_PROD_DB
+
+# 1-0. Blue/green (2026-10-29): the app runs as isaflow@3111 and isaflow@3112
+# behind nginx. This deploy builds into the IDLE colour, verifies it on its own
+# port, then switches nginx to it; the live colour is never written or
+# restarted, so nobody's request is cut and the old colour is the rollback.
+# Both refusals below come before the 20-minute CI gate and the build.
+# shellcheck source=deploy/bluegreen.sh
+. "$REPO_DIR/scripts/deploy/bluegreen.sh"
+LIVE_PORT=$(bg_live_port)
+if [ -z "$LIVE_PORT" ]; then
+  echo "ERROR: no live colour in $BG_UPSTREAM_FILE — run scripts/deploy/cutover.sh once first"
+  exit 1
+fi
+IDLE_PORT=$(bg_other_port "$LIVE_PORT")
+echo "Live colour: isaflow@$LIVE_PORT; this deploy builds isaflow@$IDLE_PORT"
+# The file must agree with what nginx actually serves, or "idle" could be live.
+bg_served_by "$LIVE_PORT" || exit 1
+EARLY_DB=$(owner_database_url_for "$DEPLOY_DIR/.env.local" sudo || true)
+bg_midday_migration_check "$EARLY_DB" "$REPO_DIR" || exit 1
+unset EARLY_DB
 
 # 1a. CI gate — type-check, lint, unit tests must pass before we build
 if [ "${SKIP_CI:-0}" != "1" ]; then
@@ -186,14 +189,14 @@ echo "Build integrity OK: $MANIFEST_ENTRIES pages-manifest entries"
 # Migrations run BEFORE the new colour starts, so a failing migration leaves
 # the live colour serving untouched. .env.local is owned by velo:velo (0600)
 # so we read it with sudo.
+# Again here: the clock may have crossed 08:00 during CI and the build.
+bg_midday_migration_check "$(owner_database_url_for "$DEPLOY_DIR/.env.local" sudo || true)" "$REPO_DIR" || exit 1
 echo "Running database migrations..."
 PROD_ENV="$DEPLOY_DIR/.env.local"
 if sudo test -f "$PROD_ENV"; then
   # The schema owner's URL: the app's DATABASE_URL cannot migrate (S-07b).
   PROD_DB=$(owner_database_url_for "$PROD_ENV" sudo || true)
   if [ -n "$PROD_DB" ]; then
-    # Again here: the clock may have crossed 08:00 during CI and the build.
-    bg_midday_migration_check "$PROD_DB" "$REPO_DIR" || exit 1
     DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/apply-migrations.ts"
 
     echo "Running schema-drift audit..."
@@ -211,11 +214,7 @@ else
   echo "WARNING: $PROD_ENV not found — skipping migrations"
 fi
 
-# 3. Copy the standalone build into the idle colour's folder.
-echo "Syncing build into isaflow@$IDLE_PORT ($(bg_release_dir "$IDLE_PORT"))..."
-bg_sync_release "$REPO_DIR" "$IDLE_PORT" "$GIT_SHA"
-
-# 4. Copy env file if not exists. The production file is velo:velo 0600, so
+# 3. Copy env file if not exists. The production file is velo:velo 0600, so
 # the deploy user cannot reliably stat it or copy into its directory without
 # sudo. Use root only for the file operation and preserve the least-privilege
 # owner/mode expected by the systemd service. Both colours read this one file.
@@ -224,59 +223,31 @@ if ! sudo test -f "$DEPLOY_DIR/.env.local"; then
   sudo install -o velo -g velo -m 600 "$ENV_LOCAL" "$DEPLOY_DIR/.env.local"
 fi
 
-# 5. Install/update the colour unit template (the previous one is kept, and put
-# back if this build fails: the live colour restarts from it after a crash),
-# then start the idle colour.
-echo "Updating systemd unit template..."
-sudo cp -p "$BG_UNIT_FILE" "$BG_UNIT_FILE.prev" 2>/dev/null || true
-sudo cp "$REPO_DIR/scripts/${SERVICE_NAME}@.service" "$BG_UNIT_FILE"
-sudo systemctl daemon-reload
-sudo systemctl enable "${SERVICE_NAME}@$IDLE_PORT"
-# A failed build: users stay on the live colour; the idle one is disabled,
-# stopped and marked FAILED so no rollback switches to it.
-fail_idle() {
-  echo ""
-  echo "!!! $1 — users stay on isaflow@$LIVE_PORT; retiring isaflow@$IDLE_PORT !!!"
-  bg_retire_failed "$IDLE_PORT" "$GIT_SHA: $1" || true
-  if sudo test -f "$BG_UNIT_FILE.prev"; then sudo mv "$BG_UNIT_FILE.prev" "$BG_UNIT_FILE"; sudo systemctl daemon-reload; fi
-  echo "Deploy of $GIT_SHA was NOT switched in (DB migrations, if any, stay"
-  echo "applied: they are additive by project rule). Fix the regression, then redeploy."
-  exit 1
-}
-echo "Starting isaflow@$IDLE_PORT..."
-bg_start "$IDLE_PORT" || fail_idle "isaflow@$IDLE_PORT did not start"
-
-# 6. Verification gate (P3.1), BEFORE any user reaches the new build: health +
-# golden-paths suite vs prod Demo + integrity check, against the idle colour's
-# own port. SKIP_VERIFY=1 is for genuine emergencies only and leaves the deploy
+# 4-7. Under the colour lock (rollback and restart-colours wait for it):
+# replace the idle colour with this build, install the unit template, start
+# it, run the verification gate (P3.1: health + golden paths vs prod Demo +
+# integrity) against its own port BEFORE any user reaches it, publish its
+# static files, then switch nginx (graceful reload) and prove nginx serves it.
+# A build that fails to start or verify is retired and marked; users stay on
+# the live colour, which is never written, stopped or restarted.
+# SKIP_VERIFY=1 is for genuine emergencies only and leaves the deploy
 # UNVERIFIED — say so out loud in the deploy report.
-if [ "${SKIP_VERIFY:-0}" != "1" ]; then
+verify_idle() {
+  if [ "${SKIP_VERIFY:-0}" = "1" ]; then
+    echo "WARNING: SKIP_VERIFY=1 — verification gate bypassed (deploy is UNVERIFIED)"
+    return 0
+  fi
+  echo "Verifying $1 before the switch..."
+  DATABASE_URL="$PROD_DB" bash "$REPO_DIR/scripts/verify-deploy.sh" "$1"
+}
+BG_VERIFY=verify_idle
+bg_lock || exit 1
+if ! bg_deploy_release "$REPO_DIR" "$GIT_SHA"; then
   echo ""
-  echo "Verifying isaflow@$IDLE_PORT before the switch..."
-  DATABASE_URL="$PROD_DB" bash "$REPO_DIR/scripts/verify-deploy.sh" "http://localhost:$IDLE_PORT" \
-    || fail_idle "VERIFICATION FAILED"
-  echo "Verification PASSED"
-else
-  echo "WARNING: SKIP_VERIFY=1 — verification gate bypassed (deploy is UNVERIFIED)"
+  echo "Deploy of $GIT_SHA was NOT switched in (DB migrations, if any, stay"
+  echo "applied: they are additive by project rule). Read the reason above, fix, then redeploy."
+  exit 1
 fi
-
-# 7. Add the build's hashed static files to the shared folder nginx serves
-# (kept for the last few builds, so a page loaded before the switch still finds
-# its chunks), then switch nginx (graceful reload: in-flight requests finish on
-# the old colour). Proven by nginx's own answer and by the public URL; either
-# failing switches back.
-bg_sync_static "$REPO_DIR"
-echo "Switching nginx: isaflow@$LIVE_PORT -> isaflow@$IDLE_PORT..."
-bg_switch "$IDLE_PORT" || fail_idle "nginx switch failed"
-if ! bg_served_by "$IDLE_PORT" \
-  || ! curl -sf --max-time 10 --retry 5 --retry-delay 2 --retry-all-errors "https://app.isaflow.co.za/api/health" >/dev/null; then
-  echo "!!! CHECK FAILED after the switch — switching back to isaflow@$LIVE_PORT !!!"
-  bg_switch "$LIVE_PORT" || { echo "!!! SWITCH-BACK FAILED: nginx may still send users to isaflow@$IDLE_PORT. Run scripts/rollback-deploy.sh now."; exit 1; }
-  fail_idle "post-switch check failed"
-fi
-sudo rm -f "$BG_UNIT_FILE.prev"
-bg_record_live "$IDLE_PORT"
-echo "Live: isaflow@$IDLE_PORT at $GIT_SHA. isaflow@$LIVE_PORT keeps running as the rollback (scripts/rollback-deploy.sh)."
 
 echo ""
 echo "=== Deploy complete ==="
