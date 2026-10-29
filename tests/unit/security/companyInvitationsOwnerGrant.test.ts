@@ -115,3 +115,23 @@ describe('company-invitations — only a live owner grants owner', () => {
     expect(writes()).toHaveLength(1);
   });
 });
+
+describe('company-invitations — the raw token never reaches the inviter', () => {
+  beforeEach(() => { h.statements.length = 0; h.inviterRole = 'owner'; });
+
+  // The token is what /accept-invite trusts to set a password for an address
+  // with no login yet; only the invitee's mailbox may hold it.
+  it('answers the invitation without its token, while the email still carries it', async () => {
+    const { sendInviteEmail } = await import('@/modules/accounting/services/core/emailService');
+    const { promise, res } = post('owner', 'viewer');
+    await promise;
+    const sentToken = (sendInviteEmail as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]?.inviteToken as string;
+    expect(sentToken).toMatch(/^[0-9a-f]{32,}$/);
+    const body = JSON.stringify((res.json as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]);
+    expect(body).toContain('inv-1');
+    expect(body).not.toContain(sentToken);
+    expect(body).not.toContain('"token"');
+    // The email_log row is written as app_user for the request's company: a NULL failed RLS on every send.
+    expect(sendInviteEmail).toHaveBeenLastCalledWith(expect.objectContaining({ companyId: COMPANY_ID }));
+  });
+});

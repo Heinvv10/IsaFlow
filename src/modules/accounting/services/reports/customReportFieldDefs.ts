@@ -74,6 +74,10 @@ const BANK_TRANSACTIONS: FieldDef[] = [
   // gl_accounts names its label column account_name. The old `ba.name` against
   // bank_accounts was a 42703 on every run.
   { field: 'bank_account',  label: 'Bank Account',  type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'ga.account_name' },
+  // The bank row's own cc1/cc2/bu codes, joined through the tenant-scoped masters.
+  { field: 'cost_centre',   label: 'Cost Centre (CC1)', type: 'text',  sortable: true,  filterable: true,  totalable: false, sqlExpr: 'cc1.code' },
+  { field: 'project_cc2',   label: 'Project (CC2)', type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'cc2.code' },
+  { field: 'business_unit', label: 'Business Unit', type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'bu.code' },
 ];
 
 const CUSTOMERS: FieldDef[] = [
@@ -145,7 +149,10 @@ export function getBaseQuery(dataSource: string): string {
       // DB level stops a row pointing at another tenant's GL account — scope
       // the join too rather than relying on RLS alone.
       return `FROM bank_transactions bt
-        LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = $1`;
+        LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = $1
+        LEFT JOIN cost_centres cc1 ON cc1.id = bt.cc1_id AND cc1.company_id = $1
+        LEFT JOIN cost_centres cc2 ON cc2.id = bt.cc2_id AND cc2.company_id = $1
+        LEFT JOIN business_units bu ON bu.id = bt.bu_id AND bu.company_id = $1`;
     case 'customers':
       return `FROM customers c`;
     case 'suppliers':

@@ -89,6 +89,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       let emailSent = false;
       try {
         const emailResult = await sendInviteEmail({
+          companyId,
           recipientEmail: emailLower,
           inviteToken: token,
           companyName,
@@ -112,7 +113,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         log.error('Invite email threw', { invitationId, error: errMsg }, 'company-invitations');
       }
 
-      return apiResponse.success(res, { ...result, emailSent });
+      // Never the raw token: it went to the invitee's mailbox only. Holding it is
+      // what lets /accept-invite set a password for an address with no login
+      // yet, so returning it here let the inviter create that login themselves.
+      const { token: _rawToken, ...invitation } = result.invitation;
+      return apiResponse.success(res, { autoAdded: result.autoAdded, invitation, emailSent });
     } catch (err) {
       if (err instanceof InvitationForbiddenError || err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
       if (err instanceof InvitationConflictError) return apiResponse.conflict(res, err.message);

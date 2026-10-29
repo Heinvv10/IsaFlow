@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
+import { openCombobox } from '../helpers/kitPick';
 import { MSG, bad400, empty500, okRes, rawJsonError, router } from '../helpers/d2CensusG6';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
@@ -110,6 +111,8 @@ describe('Edit customer invoice load', () => {
     routerState.query = { invoiceId: 'i1' };
     script([['customer-invoices-detail', () => okRes(INV)], ['/currencies', () => okRes([])], ['/customers', bad400]]);
     render(<EditCustomerInvoicePage />);
+    await screen.findByText('D2-INV-1');
+    openCombobox('Client'); // the client picker looks customers up when opened, not on load
     await waitFor(() => expect(screen.queryByText(MSG)).not.toBeNull());
   });
 });
