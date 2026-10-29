@@ -41,14 +41,14 @@ const hrefs = () => Array.from(document.querySelectorAll('a')).map((a) => a.getA
 describe('viewer sees totals, not links to per-employee detail', () => {
   it('runs list: totals shown, no View link, no New Payroll Run', async () => {
     render(<RunsPage />);
-    expect(await screen.findByText(/Sep 2026/)).toBeTruthy();
+    expect((await screen.findAllByText(/Sep 2026/)).length).toBe(2); // the card list (below md) and the table
     expect(hrefs()).not.toContain('/payroll/runs/run-1');
     expect(hrefs()).not.toContain('/payroll/runs/new');
   });
   it('runs list: a manager gets both', async () => {
     company.role = 'manager';
     render(<RunsPage />);
-    await screen.findByText(/Sep 2026/);
+    await screen.findAllByText(/Sep 2026/); // the card list (below md) and the table both render
     expect(hrefs()).toContain('/payroll/runs/run-1');
     expect(hrefs()).toContain('/payroll/runs/new');
   });

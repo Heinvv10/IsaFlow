@@ -200,10 +200,13 @@ jobs:
           # The specs that check the host allow 3300-3799; each slot draws from a
           # window of its own inside it (166 ports), so two runners never pick the
           # same port. Disjoint windows rule out a check-then-bind race, which a
-          # wider shared window would leave open.
+          # wider shared window would leave open. Next.js refuses fetch-spec "bad
+          # ports"; 3659 (apple-sasl) is the only one in 3300-3799 and failed a
+          # boot on 2026-10-28, so it is never drawn (it sits in slot 3's window).
           GOLDEN_PORT=""
           for _ in $(seq 1 50); do
             candidate=$((3300 + (slot - 1) * 166 + RANDOM % 166))
+            [ "$candidate" -eq 3659 ] && continue
             if ! ss -ltn | awk '{print $4}' | grep -qE ":${candidate}\$"; then GOLDEN_PORT=$candidate; break; fi
           done
           if [ -z "$GOLDEN_PORT" ]; then echo "::error::no free port in the window of slot $slot"; exit 1; fi

@@ -29,6 +29,7 @@ import PaymentDetailPage from '../../../pages/accounting/customer-payments/[paym
 import NewBankTxPage from '../../../pages/accounting/bank-transactions/new';
 import { ok } from '../helpers/d2CensusG4';
 import { trio3 } from '../helpers/d2R3a3';
+import { pickOption } from '../helpers/kitPick';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -42,14 +43,13 @@ const CLIENTS = [{ id: 'c-1', name: 'D2 Client' }];
 
 describe('customer-invoices/new submit', () => {
   const drive = async () => {
-    await screen.findByRole('option', { name: 'D2 Client' });
-    fireEvent.change(document.querySelector('select[name="clientId"]')!, { target: { value: 'c-1' } });
+    await pickOption('Client', 'D2 Client');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'D2 work' } });
     fireEvent.change(document.querySelector('input[name="unitPrice"]')!, { target: { value: '50' } });
     await clickBtn(/^create invoice$/i);
   };
   trio3({ name: 'create invoice', render: () => render(<NewInvoicePage />), drive, match: (u, i) => u.includes('customer-invoices-create') && i?.method === 'POST',
-    data: { id: 'new-inv' }, others: u => (u.endsWith('/customers') ? ok(CLIENTS) : u.includes('currencies') ? ok([]) : undefined),
+    data: { id: 'new-inv' }, others: u => (u.includes('/customers') ? ok(CLIENTS) : u.includes('currencies') ? ok([]) : undefined),
     plain: 'Could not create the invoice - try again',
     succeeds: async () => { await vi.waitFor(() => expect(push).toHaveBeenCalledWith('/accounting/customer-invoices/new-inv')); },
     stays: () => { expect(push).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: /^create invoice$/i })).toBeTruthy(); } });
