@@ -31,6 +31,7 @@ import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useL
 import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
 import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
+import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
 
 const PAGE_SIZE = 25;
 
@@ -211,7 +212,8 @@ export default function BankTransactionsPage() {
           onRefresh={loadTransactions} onBulkAccept={actions.handleBulkAccept}
           onBatchAccept={actions.handleBatchAccept} onBatchDelete={actions.handleBatchDelete}
           onToggleBatchEdit={() => { setShowBatchEdit(s => !s); setBatchSearch(''); }}
-          onExport={() => actions.handleExport(bank?.accountCode)}
+          onExport={() => exportLoadedBankTx(transactions, bank?.accountCode, bank?.accountName)}
+          onExportAll={() => exportAllBankTx(fromDate, toDate)}
           onApplyRules={actions.handleApplyRules}
           onDownloadReport={() => actions.handleDownloadReport(bank?.accountCode)}
           onSearchChange={setSearchTerm}
