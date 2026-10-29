@@ -7,8 +7,10 @@
  * LOCKED) → `planReforecast` over ALL closed months of the year with the version's OWN cells,
  * drivers and hires as the source (headcount refreshed: nothing frozen; the audit row records
  * headcountAsOf) → only the cells whose amount or source differ written → the
- * row's rolled_through_month / last_rolled_at, last_error cleared → an audit row when cells changed.
- * Re-rolling unchanged books writes no cell: the output is a function of committed state.
+ * row's rolled_through_month / last_rolled_at, last_error cleared → an audit row.
+ * Re-rolling unchanged books writes no cell: the output is a function of committed state. A roll
+ * that changes NO cell rolls its savepoint back (gridSave's NothingChanged), so the version's token
+ * bump goes with it and no open grid turns stale; only the rolling row is then updated, outside it.
  *
  * A locked version is not rolled: last_error = 'version locked' is written OUTSIDE the savepoint
  * (which the refusal rolled back), so it persists, and nothing else changes. A month reopened
@@ -60,6 +62,25 @@ interface RollingRow { fiscalYear: number; rolledThrough: string | null; lastRol
 
 const VERSION_LOCKED = 'version locked';
 
+/** Thrown out of the roll's savepoint when no cell changed: the savepoint (and its token bump) is rolled back. */
+class NothingRolled extends Error {
+  constructor(readonly outcome: Omit<RollOutcome, 'updatedAt'>) {
+    super('nothing to roll');
+  }
+}
+
+async function markRolled(companyId: string, versionId: string, through: string | null): Promise<void> {
+  await sql`
+    UPDATE budget_rolling_forecasts
+       SET rolled_through_month = ${through === null ? null : monthKeyToDate(through)}::DATE, last_rolled_at = now(), last_error = NULL
+     WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
+  `;
+}
+
+const versionToken = async (companyId: string, versionId: string): Promise<string> => String(((await sql`
+  SELECT ${tokenSql()} AS token FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
+`) as DbRow[])[0]?.token ?? '');
+
 async function rollingRow(companyId: string, versionId: string): Promise<RollingRow | null> {
   const rows = (await sql`
     SELECT fiscal_year, to_char(rolled_through_month, 'YYYY-MM') AS through, last_error,
@@ -98,28 +119,24 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       const { plan, headcountAsOf } = await planOver(companyId, model, id, closed, read);
       const changed = await writePlannedCells(companyId, id, userId, plan.cells);
       const through = closed.length > 0 ? closed[closed.length - 1]! : null;
-      await sql`
-        UPDATE budget_rolling_forecasts
-           SET rolled_through_month = ${through === null ? null : monthKeyToDate(through)}::DATE, last_rolled_at = now(), last_error = NULL
-         WHERE company_id = ${companyId}::UUID AND version_id = ${id}::UUID
-      `;
       const unplaced = describeUnplaced(plan, read);
-      if (changed > 0) {
-        await auditBudgetWrite(companyId, userId, 'update', id, row.fiscalYear, {
-          rolled: mode === 'auto' ? 'auto' : 'roll_now', closedMonths: closed.join(',') || 'none', cells: String(changed),
-          unplaced: String(unplaced.length), headcountAsOf: headcountAsOf ?? 'none',
-        });
-      }
-      const token = (await sql`
-        SELECT ${tokenSql()} AS token FROM budget_versions WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-      `) as DbRow[];
+      const outcome = { status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings: plan.warnings };
+      if (changed === 0) throw new NothingRolled(outcome);
+      await markRolled(companyId, id, through);
+      await auditBudgetWrite(companyId, userId, 'update', id, row.fiscalYear, {
+        rolled: mode === 'auto' ? 'auto' : 'roll_now', closedMonths: closed.join(',') || 'none', cells: String(changed),
+        unplaced: String(unplaced.length), headcountAsOf: headcountAsOf ?? 'none',
+      });
       log.info('Rolled budget forecast', { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now', changed, through }, 'accounting');
-      return {
-        status: 'rolled', changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings: plan.warnings,
-        updatedAt: String(token[0]?.token ?? ''),
-      } satisfies RollOutcome;
+      return { ...outcome, updatedAt: await versionToken(companyId, id) } satisfies RollOutcome;
     });
   } catch (err) {
+    if (err instanceof NothingRolled) {
+      // The savepoint (the version lock's token bump included) is rolled back: only the rolling row moves.
+      await markRolled(companyId, id, err.outcome.rolledThroughMonth);
+      log.info('Rolled budget forecast: nothing changed', { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now' }, 'accounting');
+      return { ...err.outcome, updatedAt: await versionToken(companyId, id) };
+    }
     const refusal = budgetDbRefusal(err) ?? err;
     if (!(refusal instanceof BudgetVersionError) || refusal.code !== 'BUDGET_VERSION_LOCKED') throw refusal;
     await sql`

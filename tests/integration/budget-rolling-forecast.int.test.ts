@@ -1,11 +1,12 @@
 /**
  * Budgets P4 rolling forecast (spec §6, §9 `budget-rolling-forecast`): a real closePeriod (the
  * fiscal-period route, through withAuth) rolls the company's rolling reforecast AFTER COMMIT; a
- * second roll changes no cell (each cell's xmin and updated_at stay); a locked rolling version is
- * skipped with last_error 'version locked' and its cells unchanged; Roll now with a stale token is
- * a 409; a month reopened after a roll becomes 'manual' (value kept) on the next roll and the
- * driver covering it recomputes; the status reports months closed since a roll that did not run;
- * closing the whole year rolls too.
+ * second roll (Roll now, or the after-commit roll of a lock) changes no cell and leaves the
+ * version's token, each cell's xmin and updated_at, and the audit as they were; a locked rolling
+ * version is skipped with last_error 'version locked' and its cells unchanged; Roll now with a
+ * stale token is a 409; a month reopened after a roll becomes 'manual' (value kept) on the next
+ * roll and the driver covering it recomputes; the status reports months closed since a roll that
+ * did not run; closing the whole year rolls too.
  *
  * Each test has its own company. The source: Sales 1 000 a month, COGS = 38% of Sales. The ledger:
  * Sales 1 200 and COGS 400 in month 1, Sales 1 500 in month 2. Expected by hand: after month 1
@@ -64,13 +65,28 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     expect(audits.length).toBe(auditsBefore + 1);
     expect(audits.at(-1)!.changes.metadata).toMatchObject({ rolled: 'auto', closedMonths: m[0], cells: '2', headcountAsOf: 'none' });
 
+    // A roll that changes no cell leaves the version's token (no open grid turns stale), every cell's
+    // updated_at and xmin, and the audit alone; only the rolling row moves.
     const before = await fx.snapshot(rf);
+    const token = await fx.token(rf);
+    const rolledAt = (await fx.rollingRow(rf))!.rolled_at;
     const again = await rollNow(w, rf);
     expect(again.status, dump(again)).toBe(200);
-    expect(dataOf(again)).toMatchObject({ status: 'rolled', changed: 0, rolledThroughMonth: m[0] });
+    expect(dataOf(again)).toMatchObject({ status: 'rolled', changed: 0, rolledThroughMonth: m[0], updatedAt: token });
+    expect(await fx.token(rf)).toBe(token);
     expect(await fx.snapshot(rf)).toEqual(before);
     expect((await fx.audits(rf)).length).toBe(auditsBefore + 1);
-    expect(dataOf<{ updatedAt: string }>(again).updatedAt).toBe(await fx.token(rf));
+    expect((await fx.rollingRow(rf))!.rolled_at).not.toBe(rolledAt);
+
+    // The same for the after-commit roll: locking the closed month rolls again and changes nothing.
+    const rolledNow = (await fx.rollingRow(rf))!.rolled_at;
+    const lock = await fx.call.period(w.u, { action: 'lock', id: w.periods.get(m[0]!) });
+    expect(lock.status, dump(lock)).toBe(200);
+    await fx.until(async () => (await fx.rollingRow(rf))?.rolled_at !== rolledNow, 'the after-lock roll');
+    expect(await fx.rollingRow(rf)).toMatchObject({ through: m[0], last_error: null });
+    expect(await fx.token(rf)).toBe(token);
+    expect(await fx.snapshot(rf)).toEqual(before);
+    expect((await fx.audits(rf)).length).toBe(auditsBefore + 1);
   });
 
   it("a locked rolling version is skipped: last_error 'version locked', its cells unchanged; Roll now is 409 LOCKED", async () => {
