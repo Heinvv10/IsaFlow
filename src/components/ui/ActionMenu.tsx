@@ -122,11 +122,14 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
     };
   }, [open]);
 
-  // Keyboard navigation
+  // Keyboard navigation. Every key the open menu acts on is preventDefault-ed: the listener is on
+  // `document`, so otherwise the browser's own Enter activation also clicks whatever just took focus
+  // (the dialog an item opened, or the trigger, which would re-open the menu).
   React.useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         setOpen(false);
         setFocusedIndex(-1);
         triggerRef.current?.focus();
@@ -145,6 +148,7 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
       if (e.key === 'Enter' && focusedIndex >= 0) {
         const item = items[focusedIndex];
         if (item && !item.disabled) {
+          e.preventDefault();
           item.onClick();
           setOpen(false);
           setFocusedIndex(-1);

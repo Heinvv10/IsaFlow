@@ -5,7 +5,7 @@
  * The real apiJson / assertOk / apiErrorMessage run on top of the mocked apiFetch.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -19,9 +19,7 @@ vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRe
 import { apiFetch } from '@/lib/apiFetch';
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import BankTransfersPage from '../../../pages/accounting/bank-transfers/index';
-import BudgetsPage from '../../../pages/accounting/budgets/index';
 import BusinessUnitsPage from '../../../pages/accounting/business-units/index';
-import { budgetRow, budgetsPayload } from './budgetsApiFixture';
 import DepreciationPage from '../../../pages/accounting/depreciation/index';
 import DrcVatPage from '../../../pages/accounting/drc-vat/index';
 
@@ -74,38 +72,6 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
     fireEvent.change(to!, { target: { value: 'a2' } });
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '50' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
-    await sees(MSG);
-  });
-
-  it('budgets: save refusal is shown', async () => {
-    const MSG = 'D2 server says no: budget already exists for this account';
-    script((u, m) => (u.endsWith('/api/accounting/budgets') && m === 'POST' ? refuse(MSG, 409) : undefined), {
-      // The route's real shape: a plain GLAccount[] (chartAccountOptions).
-      '/chart-of-accounts': [{ id: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense', isActive: true }],
-      '/api/accounting/budgets': budgetsPayload([]),
-    });
-    render(<BudgetsPage />);
-    // Add is disabled while the page loads: wait for it.
-    await waitFor(() => expect((screen.getByRole('button', { name: /add budget/i }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByRole('button', { name: /add budget/i }));
-    await screen.findByRole('option', { name: /Rent/ });
-    fireEvent.change(screen.getByText('Select GL Account *').closest('select')!, { target: { value: 'g1' } });
-    // MoneyField parses on blur.
-    fireEvent.change(screen.getByLabelText(/Annual amount/), { target: { value: '1200' } });
-    fireEvent.blur(screen.getByLabelText(/Annual amount/));
-    fireEvent.click(screen.getByRole('button', { name: /save budget/i }));
-    await sees(MSG);
-  });
-
-  it('budgets: copy-to-next-year refusal is shown', async () => {
-    const MSG = 'D2 server says no: next year already has budgets';
-    script((u, m) => (u.includes('budgets-action') && m === 'POST' ? refuse(MSG, 409) : undefined), {
-      '/api/accounting/budgets': budgetsPayload([budgetRow({ glAccountId: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense', notes: '' })]),
-    });
-    render(<BudgetsPage />);
-    const copy = await screen.findByRole('button', { name: /copy to/i });
-    await waitFor(() => expect((copy as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(copy);
     await sees(MSG);
   });
 

@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path (q2): the top-nav menu is axe-clean with a menu and a sub-panel open, in both themes
  * (`shell:top-nav-menu`, no baseline entries). EVIDENCE=1 saves the screenshots to docs/evidence.

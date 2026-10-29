@@ -1,5 +1,5 @@
 // src/lib/auth/inviteToken.ts
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 /**
  * The single stored encoding for `company_invitations.token`.
@@ -15,4 +15,15 @@ import { createHash } from 'node:crypto';
  */
 export function hashInviteToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
+}
+
+/**
+ * A new raw invitation token: 32 random bytes as 64 lowercase hex. Both
+ * invitation systems mint through this. The analytics scrub
+ * (src/modules/analytics/scrubInviteSecrets.ts) recognises a token by that
+ * shape alone, so changing the format here without changing the scrub would
+ * start writing live tokens to analytics_events; its test mints through this.
+ */
+export function mintInviteToken(): string {
+  return randomBytes(32).toString('hex');
 }

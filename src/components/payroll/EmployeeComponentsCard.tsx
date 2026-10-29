@@ -2,7 +2,9 @@
  * Payroll Employee Components card — assignment form + list of current assignments.
  * Used by /payroll/employees/[id].
  */
+import { useState } from 'react';
 import { Loader2, Plus, X, Repeat, Calendar } from 'lucide-react';
+import { DateField } from '@/components/ui/DateField';
 import { formatCurrency } from '@/utils/formatters';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
@@ -58,6 +60,8 @@ export function EmployeeComponentsCard({
   onEnd,
   adding,
 }: Props) {
+  // A refused date is reported as null: hold Assign until it is fixed rather than post an empty effective date.
+  const [fromRefused, setFromRefused] = useState(false);
   return (
     <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Pay Components</h2>
@@ -78,14 +82,13 @@ export function EmployeeComponentsCard({
             <input type="number" step="0.01" className={field}
               value={newAmount} onChange={e => onNewAmount(e.target.value)} />
           </div>
-          <div className="w-40">
-            <label className={label}>Effective from</label>
-            <input type="date" className={field}
-              value={newFrom} onChange={e => onNewFrom(e.target.value)} />
+          <div className="w-48">
+            <DateField label="Effective from" required value={newFrom || null}
+              onChange={(iso, v) => { setFromRefused(!v.valid); if (v.valid) onNewFrom(iso ?? ''); }} />
           </div>
           <button
             onClick={onAssign}
-            disabled={!newComponentId || !newAmount || adding}
+            disabled={!newComponentId || !newAmount || adding || fromRefused}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium"
           >
             {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
