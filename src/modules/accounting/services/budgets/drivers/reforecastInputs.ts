@@ -22,9 +22,11 @@ import { NIL_UUID } from '../gridSaveValidate';
 import { readTrackingActuals, type ActualRow } from '../tracking/trackingActualRead';
 import type { TrackingGroupBy } from '../tracking/trackingTypes';
 import { versionHeadcount } from './driverHeadcount';
-import { labelKeys, type VersionModel } from './driverModel';
+import { log } from '@/lib/logger';
+import { BudgetDriverError } from './driverErrors';
+import { labelKeys, rowLabel, type VersionModel } from './driverModel';
 import type { RecomputeWarning } from './driverRecomputeService';
-import { DriverRangeError, type Cell, type RowKey } from './driverTypes';
+import { DriverCycleError, DriverRangeError, DriverRefError, type Cell, type RowKey } from './driverTypes';
 import { planReforecast, type ReforecastActual, type ReforecastActuals, type ReforecastResult } from './reforecast';
 
 type Level = keyof ReforecastActuals;
@@ -111,6 +113,10 @@ export async function readClosedActuals(companyId: string, year: FiscalYearRecor
  * A driver `loadVersionModel` skipped (it cannot compute: its account retyped, its months outside
  * the year) is not in `defs`, so its row is planned as having no driver; it is reported as a
  * DRIVER_SKIPPED warning, and the engine's warnings are labelled by account, as the recompute does.
+ * A stored driver loop is survivable, as in the recompute: the drivers on it sit out (their rows
+ * plan as driverless, so open-month 'driver' cells become 'manual', values kept) with one
+ * DRIVER_SKIPPED warning per loop. A range or reference refusal is 400 DRIVER_RANGE / DRIVER_REF,
+ * labelled by account.
  */
 export async function planOver(
   companyId: string, model: VersionModel, hiresVersionId: string, closed: readonly string[], read: ClosedActuals,
@@ -119,20 +125,37 @@ export async function planOver(
   const headcountAsOf = needsHeads ? new Date().toISOString() : null;
   const heads = needsHeads ? await versionHeadcount(companyId, hiresVersionId, model.months) : null;
   const bands = new Map(model.rows.map((r) => [r.glAccountId, r.band]));
-  const plan = planReforecast({
-    months: model.months, rows: model.rows, sourceCells: model.cells, actuals: read.actuals, closedMonths: new Set(closed),
-    drivers: model.defs, rounding: 1,
-    headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
-    accountBand: (accountId) => {
-      const known = bands.get(accountId);
-      if (known) return known;
-      const a = read.accounts.get(accountId);
-      if (!a) throw new Error(`reforecast: no account details for actual on ${accountId}`);
-      return bandOf(a.accountType, a.accountSubtype);
-    },
-  });
+  const accountBand = (accountId: string) => {
+    const known = bands.get(accountId);
+    if (known) return known;
+    const a = read.accounts.get(accountId);
+    if (!a) throw new Error(`reforecast: no account details for actual on ${accountId}`);
+    return bandOf(a.accountType, a.accountSubtype);
+  };
+  let defs = model.defs;
+  const loops: RecomputeWarning[] = [];
+  let plan: ReforecastResult | null = null;
+  while (plan === null) {
+    try {
+      plan = planReforecast({
+        months: model.months, rows: model.rows, sourceCells: model.cells, actuals: read.actuals, closedMonths: new Set(closed),
+        drivers: defs, rounding: 1, headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0, accountBand,
+      });
+    } catch (err) {
+      if (err instanceof DriverRangeError) throw new BudgetDriverError('DRIVER_RANGE', `The reforecast cannot compute: ${labelKeys(err.message, model.labels)}`);
+      if (err instanceof DriverRefError) throw new BudgetDriverError('DRIVER_REF', `The reforecast cannot compute: ${labelKeys(err.message, model.labels)}`);
+      if (!(err instanceof DriverCycleError)) throw err;
+      // Each pass removes at least one driver, so this ends.
+      const onPath = new Set(err.path);
+      defs = defs.filter((d) => !onPath.has(d.rowKey));
+      const names = err.path.map((k) => rowLabel(k, model.labels)).join(' → ');
+      loops.push({ code: 'DRIVER_SKIPPED', rowKey: err.path[0]!, message: `drivers on ${names} form a loop; change one of them` });
+      log.warn('budget driver loop found at reforecast: its drivers sit out', { companyId, path: err.path.join(' > ') });
+    }
+  }
   const warnings: RecomputeWarning[] = [
     ...model.skipped.map((x) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: x.rowKey, message: x.message })),
+    ...loops,
     ...plan.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
   ];
   return { plan, headcountAsOf, warnings };

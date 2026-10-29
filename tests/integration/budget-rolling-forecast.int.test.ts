@@ -72,7 +72,7 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     const rolledAt = (await fx.rollingRow(rf))!.rolled_at;
     const again = await rollNow(w, rf);
     expect(again.status, dump(again)).toBe(200);
-    expect(dataOf(again)).toMatchObject({ status: 'rolled', changed: 0, rolledThroughMonth: m[0], updatedAt: token });
+    expect(dataOf(again)).toMatchObject({ status: 'rolled', changed: 0, rolledThroughMonth: m[0], updatedAt: token, headcountAsOf: null });
     expect(await fx.token(rf)).toBe(token);
     expect(await fx.snapshot(rf)).toEqual(before);
     expect((await fx.audits(rf)).length).toBe(auditsBefore + 1);

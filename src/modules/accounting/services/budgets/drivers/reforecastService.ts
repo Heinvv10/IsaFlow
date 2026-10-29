@@ -40,6 +40,8 @@ export interface ReforecastCreated {
   cells: number;
   unplaced: UnplacedActualLine[];
   warnings: RecomputeWarning[];
+  /** When payroll was read for per_head drivers (headcount refreshed); null when none needed it. */
+  headcountAsOf: string | null;
 }
 
 /** The source row, share-locked (bounded wait); another company's is BUDGET_VERSION_NOT_FOUND. */
@@ -128,7 +130,7 @@ export async function createReforecastFromActuals(
         companyId, sourceId, versionId: id, closedMonths: closed.length, cells, unplaced: unplaced.length,
       }, 'accounting');
       return {
-        version: await getVersion(companyId, id), rolling: input.rolling, closedMonths: closed, cells, unplaced, warnings,
+        version: await getVersion(companyId, id), rolling: input.rolling, closedMonths: closed, cells, unplaced, warnings, headcountAsOf,
       };
     });
   } catch (err) {
