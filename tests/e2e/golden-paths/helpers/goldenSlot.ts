@@ -39,6 +39,7 @@ export function describeGoldenCompany(env: Record<string, string | undefined>): 
   if (!companyId) return 'the Demo company';
   const email = env.GOLDEN_USER_EMAIL ?? 'unknown';
   const n = /^golden-slot-(\d)@/.exec(email)?.[1];
-  const rebuild = n ? `, or rebuild the slot with: bun scripts/ci/golden/provision-slots.ts --reset-slot ${n}` : '';
+  // --reset-slot refuses to run without --seed-url: a rebuilt slot without the GSEED data fails the volume specs.
+  const rebuild = n ? `, or rebuild the slot with: bun scripts/ci/golden/provision-slots.ts --reset-slot ${n} --seed-url http://localhost:<dev server port, 3300-3799>` : '';
   return `GOLDEN SLOT${n ? ` ${n}` : ''} company ${companyId} (user ${email})${rebuild}`;
 }
