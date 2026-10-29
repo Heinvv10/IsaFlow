@@ -40,6 +40,8 @@ export interface DriverWriteOutcome {
   /** Cells the recompute changed. */
   recomputed: number;
   warnings: RecomputeWarning[];
+  /** When payroll was read (a live per_head row, or a Refresh); null when this write read none. */
+  headcountAsOf: string | null;
 }
 
 export interface DriverWriteBody<T> {
@@ -62,11 +64,14 @@ export async function runDriverWrite<T extends object>(
       const version = await takeVersion(companyId, versionId, target.expectedUpdatedAt);
       const months = await versionMonths(companyId, version.fiscalYear);
       const { value, audit, live } = await write({ versionId, fiscalYear: version.fiscalYear, months });
-      const { changed, warnings } = await recomputeVersion(companyId, versionId, userId, { live });
+      const recomputed = await recomputeVersion(companyId, versionId, userId, { live });
+      // Every write that read payroll audits when (a Refresh records its own time even with no per_head row).
+      const headcountAsOf = recomputed.headcountAsOf ?? audit?.headcountAsOf ?? null;
       await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {
-        driverAction: action, ...audit, recomputed: String(changed), versionStatus: version.status,
+        driverAction: action, ...audit, recomputed: String(recomputed.changed), versionStatus: version.status,
+        ...(headcountAsOf === null ? {} : { headcountAsOf }),
       });
-      return { ...value, updatedAt: version.updatedAt, recomputed: changed, warnings };
+      return { ...value, updatedAt: version.updatedAt, recomputed: recomputed.changed, warnings: recomputed.warnings, headcountAsOf };
     });
   } catch (err) {
     return mapBudgetDbError(err);

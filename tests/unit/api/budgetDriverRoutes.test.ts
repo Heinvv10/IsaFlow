@@ -105,13 +105,11 @@ describe('budget-drivers routes: methods, CSRF, roles and the bucket', () => {
     expect(svc.resetOverride).not.toHaveBeenCalled();
   });
 
-  it("a viewer reads company headcount, but a cost centre's is 403 before the service runs", async () => {
+  it('a viewer reads headcount at company and cost-centre scope (budget readers see budget figures)', async () => {
     svc.readHeadcount.mockResolvedValue({ costCentreId: null, months: [], asOf: 't' });
     const CC = '66666666-6666-4666-8666-666666666666';
     expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V }, companyRole: 'viewer' })).statusCode).toBe(200);
-    expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V, costCentreId: CC }, companyRole: 'viewer' })).statusCode).toBe(403);
-    expect(svc.readHeadcount).toHaveBeenCalledTimes(1);
-    expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V, costCentreId: CC }, companyRole: 'manager' })).statusCode).toBe(200);
+    expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V, costCentreId: CC }, companyRole: 'viewer' })).statusCode).toBe(200);
     expect(svc.readHeadcount).toHaveBeenLastCalledWith(COMPANY, V, CC);
   });
 
