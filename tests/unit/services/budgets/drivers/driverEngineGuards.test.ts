@@ -140,3 +140,14 @@ describe('stale driver cells are re-sourced manual, value kept; overrides stay',
     expect(run({ cells: after, drivers: [], closedMonths: new Set(['2026-03']) }).writes).toEqual([]);
   });
 });
+
+describe('frozen rows (headcount refreshes on demand)', () => {
+  it('a frozen row keeps its cells, is not re-sourced, and feeds its dependents as it stands', () => {
+    const cells = new Map<RowKey, Cell[]>([[RENT.key, flat(700, 'driver')]]);
+    const perHead: DriverDef = { kind: 'per_head', rowKey: RENT.key, amount: 100, headcountScope: null, ...ALL };
+    const heads = { headcount: () => 3 };
+    expect(run({ cells, drivers: [perHead], ...heads, frozenRows: new Set([RENT.key]) }).writes).toEqual([]);
+    expect(run({ cells, drivers: [], frozenRows: new Set([RENT.key]) }).writes).toEqual([]);
+    expect(run({ cells, drivers: [perHead], ...heads }).writes.map(w => w.amount)).toEqual(FY.map(() => 300));
+  });
+});
