@@ -10,10 +10,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  assertEndNotBeforeNextRun,
+  assertEditDatesConsistent,
   editTotals,
-  effectiveNextRunDate,
   parseEndDateEdit,
+  parseNextRunDateEdit,
   parseTaxRate,
   RecurringInvoiceEditError,
   resolveEditTaxRate,
@@ -97,27 +97,49 @@ describe('tax rate scale (tax_rate is NUMERIC(5,2))', () => {
     });
 });
 
-describe('effectiveNextRunDate', () => {
-  it('prefers a next run date in the body, reading only its date part', () => {
-    expect(effectiveNextRunDate('2027-05-01', '2027-01-01')).toBe('2027-05-01');
-    expect(effectiveNextRunDate('2027-05-01T00:00:00.000Z', '2027-01-01')).toBe('2027-05-01');
+describe('parseNextRunDateEdit', () => {
+  it.each([undefined, null, '', '  '])('keeps the stored date for %j', (v) => {
+    expect(parseNextRunDateEdit({ nextRunDate: v })).toEqual({ provided: false, value: null });
   });
 
-  it('falls back to the stored date (string or Date) when the body sends none', () => {
-    expect(effectiveNextRunDate(undefined, '2027-01-01')).toBe('2027-01-01');
-    expect(effectiveNextRunDate('', new Date(2027, 0, 1))).toBe('2027-01-01');
+  it('sets a valid YYYY-MM-DD date', () => {
+    expect(parseNextRunDateEdit({ nextRunDate: '2031-06-01' })).toEqual({ provided: true, value: '2031-06-01' });
   });
+
+  it.each(['2031-06-01T00:00:00Z', '2031-06-01 junk', 'garbage', '2031-02-30', '2031-13-01', '1/6/2031', 20310601, true])(
+    'refuses %j rather than letting the SQL cast decide', (v) => {
+      expect(() => parseNextRunDateEdit({ nextRunDate: v })).toThrow(RecurringInvoiceEditError);
+    });
 });
 
-describe('assertEndNotBeforeNextRun', () => {
+describe('assertEditDatesConsistent', () => {
+  const stored = { end_date: '2031-01-01', next_run_date: '2030-12-01' };
+  const set = (value: string | null) => ({ provided: true, value });
+  const keep = { provided: false, value: null };
+
   it('refuses an End Date before the next run', () => {
-    expect(() => assertEndNotBeforeNextRun('2027-01-31', '2027-02-01')).toThrow(RecurringInvoiceEditError);
+    expect(() => assertEditDatesConsistent(set('2031-01-31'), set('2031-02-01'), stored)).toThrow(RecurringInvoiceEditError);
+    expect(() => assertEditDatesConsistent(set('2020-01-01'), keep, stored)).toThrow(RecurringInvoiceEditError);
   });
 
-  it('allows the same day, a later day, and clearing', () => {
-    expect(() => assertEndNotBeforeNextRun('2027-02-01', '2027-02-01')).not.toThrow();
-    expect(() => assertEndNotBeforeNextRun('2027-03-01', '2027-02-01')).not.toThrow();
-    expect(() => assertEndNotBeforeNextRun(null, '2027-02-01')).not.toThrow();
+  it('refuses a new next run date past the STORED End Date', () => {
+    expect(() => assertEditDatesConsistent(keep, set('2031-06-01'), stored)).toThrow(/2031-01-01.*2031-06-01/);
+  });
+
+  it('allows the same day, a later End Date, and clearing the End Date', () => {
+    expect(() => assertEditDatesConsistent(set('2031-02-01'), set('2031-02-01'), stored)).not.toThrow();
+    expect(() => assertEditDatesConsistent(set('2031-03-01'), set('2031-02-01'), stored)).not.toThrow();
+    expect(() => assertEditDatesConsistent(set(null), set('2040-01-01'), stored)).not.toThrow();
+  });
+
+  it('judges against the stored next run date when only the End Date is sent (Date or string)', () => {
+    expect(() => assertEditDatesConsistent(set('2030-11-30'), keep, { next_run_date: new Date(2030, 11, 1) })).toThrow();
+    expect(() => assertEditDatesConsistent(set('2030-12-01'), keep, { next_run_date: new Date(2030, 11, 1) })).not.toThrow();
+  });
+
+  it('does not judge an edit that touches neither date, nor a template with no End Date', () => {
+    expect(() => assertEditDatesConsistent(keep, keep, { end_date: '2020-01-01', next_run_date: '2030-12-01' })).not.toThrow();
+    expect(() => assertEditDatesConsistent(keep, set('2040-01-01'), { end_date: null, next_run_date: '2030-12-01' })).not.toThrow();
   });
 });
 

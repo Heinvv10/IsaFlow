@@ -55,10 +55,10 @@ async function template(c: string, customer: string, o: Opts): Promise<string> {
 const put = (c: string, body: Record<string, unknown>) =>
   callRoute(recurringInvoices, tokens[user]!, c, 'PUT', body, '/api/accounting/recurring-invoices');
 const row = async (id: string) => (await pool.query(
-  `SELECT end_date::text AS end_date, status, tax_rate::float AS tax_rate, tax_amount::float AS tax_amount,
+  `SELECT end_date::text AS end_date, next_run_date::text AS next_run_date, status, tax_rate::float AS tax_rate, tax_amount::float AS tax_amount,
           total_amount::float AS total_amount, subtotal::float AS subtotal, template_name
      FROM recurring_invoices WHERE id = $1`, [id])).rows[0] as {
-  end_date: string | null; status: string; tax_rate: number; tax_amount: number; total_amount: number; subtotal: number; template_name: string };
+  end_date: string | null; next_run_date: string; status: string; tax_rate: number; tax_amount: number; total_amount: number; subtotal: number; template_name: string };
 const lines = (unitPrice: number) => [{ description: 'Retainer', quantity: 2, unitPrice }];
 
 describe('PUT recurring-invoices: End Date', () => {
@@ -179,6 +179,7 @@ describe('PUT recurring-invoices: review findings', () => {
       await holder.query('SELECT 1 FROM recurring_invoices WHERE id = $1 FOR UPDATE', [id]);
       const res = await put(c, { id, templateName: 'blocked' });
       expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(503);
+      expect(JSON.stringify(res.state.body)).toMatch(/locked by another request \(a run or another edit\) — retry the edit in a moment/);
       expect(JSON.stringify(res.state.body)).not.toMatch(/being run by another request/);
     } finally {
       await holder.query('ROLLBACK');
@@ -226,6 +227,43 @@ describe('PUT recurring-invoices: review findings', () => {
     // An early next run in the body makes an otherwise-early End Date valid.
     const early = await put(c, { id, nextRunDate: '2020-01-01', endDate: '2020-06-01' });
     expect(early.state.statusCode, JSON.stringify(early.state.body)).toBe(200);
+  });
+
+  it('refuses a next run date past the STORED End Date (the run would complete it without billing)', async () => {
+    const { c, customer } = await fixture();
+    const id = await template(c, customer, { taxRate: 15, endDate: '2031-01-01' });
+    const before = (await row(id)).next_run_date;
+    const res = await put(c, { id, nextRunDate: '2031-06-01' });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(await row(id)).toMatchObject({ next_run_date: before, end_date: '2031-01-01' });
+    // Clearing the End Date in the same body makes the move valid.
+    const ok = await put(c, { id, nextRunDate: '2031-06-01', endDate: null });
+    expect(ok.state.statusCode, JSON.stringify(ok.state.body)).toBe(200);
+    expect(await row(id)).toMatchObject({ next_run_date: '2031-06-01', end_date: null });
+  });
+
+  it('does not judge an edit that touches neither date, even on a legacy template whose End Date is early', async () => {
+    const { c, customer } = await fixture();
+    const id = await template(c, customer, { taxRate: 15, endDate: '2020-01-01' });
+    expect((await put(c, { id, templateName: 'legacy rename' })).state.statusCode).toBe(200);
+  });
+
+  it.each(['garbage', '2031-02-30', '2031-06-01T00:00:00Z'])('refuses a malformed nextRunDate %j and changes nothing', async (nextRunDate) => {
+    const { c, customer } = await fixture();
+    const id = await template(c, customer, { taxRate: 15 });
+    const before = (await row(id)).next_run_date;
+    const res = await put(c, { id, nextRunDate, templateName: 'should not apply' });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(await row(id)).toMatchObject({ next_run_date: before });
+    expect((await row(id)).template_name).not.toBe('should not apply');
+  });
+
+  it("a blank nextRunDate keeps the stored one, as before", async () => {
+    const { c, customer } = await fixture();
+    const id = await template(c, customer, { taxRate: 15 });
+    const before = (await row(id)).next_run_date;
+    expect((await put(c, { id, nextRunDate: '', templateName: 'blank date' })).state.statusCode).toBe(200);
+    expect(await row(id)).toMatchObject({ next_run_date: before, template_name: 'blank date' });
   });
 });
 
