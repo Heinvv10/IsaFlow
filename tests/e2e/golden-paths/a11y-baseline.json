@@ -147,13 +147,6 @@
     "maxHint": 1
    }
   ],
-  "/accounting/migration/opening-balances": [
-   {
-    "rule": "label",
-    "selector": "main > div > div > div > div > input[type=\"date\"]",
-    "max": 1
-   }
-  ],
   "/accounting/month-end-workbench": [
    {
     "rule": "color-contrast",
