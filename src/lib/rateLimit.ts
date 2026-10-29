@@ -12,7 +12,6 @@ import { noteQuotaCharge } from '@/lib/quotaUse';
 import {
   chargeRateLimit, checkRateLimit, clampCost, isKnownFull, refundRateLimit, type RateLimitCharge, type RateLimitOptions,
 } from '@/lib/rateLimitCore';
-import { getRateLimitPool } from '@/lib/rateLimitPool';
 
 export {
   chargeRateLimit, checkRateLimit, clampCost, clearRateLimitCache, refundRateLimit, REFUSAL_TTL_MS,
@@ -143,18 +142,20 @@ export async function checkReportRateLimit(
 export const INTERACTIVE_REPORT_LIMIT = { max: 120, windowSecs: 900 } as const;
 
 /**
- * Seconds until a company's report window ends, for a refused request's
- * Retry-After. Read only on the refused path; clamped to [1, window]; a key the
- * database no longer holds waits the whole window.
+ * `checkReportRateLimit` with the wait: on a refusal, the whole seconds left in
+ * the company's report window (clamped to [1, window]) from the limiter's own
+ * reading, for a Retry-After; null when admitted or unknown. No query beyond the
+ * charge itself, so nothing here can turn a 429 into a 500.
  */
-export async function reportRateLimitRetryAfter(companyId: string, name: string, windowSecs = 900): Promise<number> {
-  const { rows } = await getRateLimitPool().query<{ secs: number | null }>(
-    `SELECT CEIL(EXTRACT(EPOCH FROM (window_start + make_interval(secs => $2) - NOW())))::int AS secs
-       FROM rate_limit_counters WHERE key = $1`,
-    [`report:${name}:co:${companyId}`, windowSecs],
-  );
-  const secs = rows[0]?.secs;
-  return secs == null ? windowSecs : Math.min(windowSecs, Math.max(1, secs));
+export async function chargeReportRateLimit(
+  companyId: string,
+  name: string,
+  opts: { max?: number; windowSecs?: number } = {},
+): Promise<{ admitted: boolean; retryAfterSecs: number | null }> {
+  const windowSecs = opts.windowSecs ?? 900;
+  const charge = await chargeRateLimit(`report:${name}:co:${companyId}`, { max: opts.max ?? 25, windowSecs });
+  if (charge.admitted || charge.retryAfterMs === undefined) return { admitted: charge.admitted, retryAfterSecs: null };
+  return { admitted: false, retryAfterSecs: Math.min(windowSecs, Math.max(1, Math.ceil(charge.retryAfterMs / 1000))) };
 }
 
 // ---------------------------------------------------------------------------

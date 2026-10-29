@@ -17,7 +17,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
+import { ApiRequestError, apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { log } from '@/lib/logger';
 import type { BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
@@ -32,6 +32,21 @@ export interface DimensionOption { id: string; code: string; name: string; ccTyp
 
 export const BVA_PATH = '/accounting/reports/budget-vs-actual';
 const LOAD_FAILED = 'Could not load the budget report - try again';
+
+/**
+ * A refusal says how long to wait. The route's own cap sends Retry-After; the shared per-company
+ * reports limiter in withAuth (60 a minute) does not, so its 429 reads "about a minute": adding the
+ * header there is not additive (every test that mocks @/lib/rateLimit would need chargeRateLimit).
+ */
+function loadError(err: unknown): string {
+  if (err instanceof ApiRequestError && err.status === 429) {
+    const s = err.retryAfterSecs;
+    const wait = s === undefined ? 'about a minute'
+      : s < 60 ? `${s} second${s === 1 ? '' : 's'}` : `${Math.ceil(s / 60)} minute${Math.ceil(s / 60) === 1 ? '' : 's'}`;
+    return `Too many report requests: try again in ${wait}.`;
+  }
+  return apiErrorMessage(err, LOAD_FAILED);
+}
 const COALESCE_MS = 350;
 
 async function listOf(url: string, failure: string): Promise<DimensionOption[]> {
@@ -65,7 +80,6 @@ export function useBudgetTracking() {
   const query = trackingSearch(controls, { bullets: true }).toString();
   const exportQuery = trackingSearch(controls, { bullets: false }).toString();
   const urlQuery = new URLSearchParams(controlsToQuery(controls)).toString();
-  const returnTo = `${BVA_PATH}?${urlQuery}`;
   const problem = controlsProblem(controls);
 
   useEffect(() => {
@@ -112,7 +126,7 @@ export function useBudgetTracking() {
       .catch((err) => {
         if (request !== latest.current) return;
         setReport(null);
-        setError(apiErrorMessage(err, LOAD_FAILED));
+        setError(loadError(err));
       })
       .finally(() => { if (request === latest.current) setIsLoading(false); });
   }, [requested, attempt]);
@@ -178,6 +192,6 @@ export function useBudgetTracking() {
 
   return {
     controls, update, setPeriod, setFiscalYear, clearFilter, retry, problem, report, years, isLoading, error,
-    versions, versionsError, centres, units, refError, today, exportQuery, returnTo,
+    versions, versionsError, centres, units, refError, today, exportQuery,
   };
 }

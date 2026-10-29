@@ -16,7 +16,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 const checkReportRateLimit = vi.fn(async () => true);
 vi.mock('@/lib/rateLimit', () => ({
   checkReportRateLimit: (...a: unknown[]) => checkReportRateLimit(...(a as [])),
-  reportRateLimitRetryAfter: async () => 900,
+  chargeReportRateLimit: async () => ({ admitted: true, retryAfterSecs: null }),
   INTERACTIVE_REPORT_LIMIT: { max: 120, windowSecs: 900 },
 }));
 const buildBudgetTrackingReport = vi.fn();
