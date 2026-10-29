@@ -4,7 +4,7 @@
  *     which usePageClamp and BankTxListFrame used to read as "past the end" (a skeleton, then a silent jump to page 1).
  * (2) loadTransactions has no request sequencing of its own: a slow older response must not overwrite a newer one.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { BankTx } from '@/components/accounting/bankTx/bankTxTypes';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -38,9 +38,21 @@ function script(list: (offset: string) => Promise<Response> | Response) {
 }
 
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
-afterEach(() => { cleanup(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+/** Holds the page's own 500ms timers (the search debounce) so the test decides when they fire, not the box's load. */
+function holdDebounceTimers(): { fireAll: () => Promise<void> } {
+  const real = globalThis.setTimeout;
+  const held: Array<() => void> = [];
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+    if (ms === 500) { held.push(fn); return 0 as unknown as ReturnType<typeof setTimeout>; }
+    return real(fn, ms, ...rest);
+  }) as typeof setTimeout);
+  return { fireAll: () => act(async () => { held.splice(0).forEach(fn => fn()); await new Promise(r => real(r, 50)); }) };
+}
 
 it('a failed load on page 3 shows the error on page 3: no skeleton, no jump back to page 1', async () => {
+  const debounce = holdDebounceTimers();
   script(offset => (offset === '50' ? json({ success: false, message: 'db down' }, 500) : txPage('ROW-P1')));
   render(<BankTransactionsPage />);
   await screen.findByText('ROW-P1');
@@ -49,9 +61,24 @@ it('a failed load on page 3 shows the error on page 3: no skeleton, no jump back
 
   expect(await screen.findByText(/could not load|db down/i)).toBeInTheDocument();
   expect(screen.queryByTestId('list-skeleton')).toBeNull();
-  await new Promise(r => setTimeout(r, 100)); // a clamp would refetch page 1 within a tick
+  await debounce.fireAll(); // the debounce fires now, as it does when the box is slow and the load outlasts 500ms
   expect(offsets()).toEqual(['0', '50']);
+  expect(screen.getByText(/could not load|db down/i)).toBeInTheDocument();
   expect(screen.queryByTestId('list-skeleton')).toBeNull();
+});
+
+it('a changed search still returns to page 1 once the debounce fires', async () => {
+  const debounce = holdDebounceTimers();
+  script(() => txPage('ROW-P1'));
+  render(<BankTransactionsPage />);
+  await screen.findByText('ROW-P1');
+  await debounce.fireAll(); // the mount-time timer: nothing changed, so nothing moves
+  fireEvent.click(screen.getByRole('button', { name: '3' }));
+  await waitFor(() => expect(offsets()).toEqual(['0', '50']));
+
+  fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'rent' } });
+  await debounce.fireAll();
+  await waitFor(() => expect(txCalls().at(-1)).toMatch(/offset=0.*search=rent|search=rent.*offset=0/));
 });
 
 it('a slow older response does not overwrite a newer one', async () => {
