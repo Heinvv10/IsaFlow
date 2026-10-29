@@ -11,19 +11,27 @@
  *
  * Decision 18: a cell is refused on a header (an account another account, active or not, names
  * as its parent) or an inactive account unless that account already holds amounts in the version.
+ *
+ * Drivers (P4 spec §1.2, §5; P4 owns this hook): a closed month's 'actual' cell is read-only (typing
+ * over it or clearing it is refused); a typed cell inside its row's driver range becomes 'override' (the recompute never
+ * touches it); then, once per batch that changed something, the version's drivers recompute in
+ * the same savepoint (`recomputeDependents`), so rows reading an edited row follow it. A clear
+ * inside a driver range is refilled by that recompute (the driver computes its whole range).
  */
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { isHeaderSql } from './headerSql';
-import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
 import { getFiscalYear } from '../gl/fiscalYearRegistry';
 import { budgetMonthKeysInWindow } from '../reports/budgetPeriodWindow';
 import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
-import { BudgetVersionError, mapBudgetDbError, type BudgetVersionStatus } from './budgetVersionTypes';
-import { inputError, tokenSql } from './gridErrors';
-import { deleteCells, versionSum, writeCells } from './gridSaveWrite';
+import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
+import { inputError } from './gridErrors';
+import { takeVersion } from './versionTake';
+import { deleteCells, firstActualCell, markOverrides, versionSum, writeCells } from './gridSaveWrite';
+import { recomputeDependents } from './drivers/driverRecomputeService';
 import { accountWithTwoGrains, assertMonthsInYear, validateBatch, type SaveCell, type ValidatedBatch } from './gridSaveValidate';
 
 export { MAX_IMPORT_CELLS, MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
+export { BudgetVersionStaleError } from './versionTake';
 
 export interface SaveCellsInput {
   versionId: string;
@@ -37,13 +45,8 @@ export interface SaveCellsResult {
   updatedAt: string;
   saved: number;
   deleted: number;
-}
-
-/** 409 BUDGET_VERSION_STALE, with what the version is now (for the stale-version dialog). */
-export class BudgetVersionStaleError extends BudgetVersionError {
-  constructor(readonly currentUpdatedAt: string, readonly versionStatus: BudgetVersionStatus) {
-    super('BUDGET_VERSION_STALE', 'This budget changed since you opened it; reload and re-apply your changes');
-  }
+  /** Cells the version's drivers rewrote after the batch; absent when the batch changed nothing. */
+  recomputed?: number;
 }
 
 const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
@@ -97,45 +100,24 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
   await checkDimensions(companyId, input.cells);
   const twoGrains = accountWithTwoGrains(batch.upserts);
   if (twoGrains) throw grainClash(labels.get(twoGrains)!);
+  const actual = await firstActualCell(companyId, versionId, [...batch.upserts, ...batch.deletes]);
+  if (actual) throw inputError(`Account ${labels.get(actual.glAccountId)!} month ${actual.month} is a closed month's actual: it cannot be typed over or cleared`);
 
   const sumBefore = await versionSum(companyId, versionId);
   const deleted = await deleteCells(companyId, versionId, batch.deletes);
   await assertOneGrain(companyId, versionId, batch.upserts, labels);
   const changed = await writeCells(companyId, versionId, userId, batch.upserts);
-  if (deleted === 0 && changed === 0) throw new NothingChanged();
+  const overrides = await markOverrides(companyId, versionId, batch.upserts);
+  if (deleted === 0 && changed === 0 && overrides === 0) throw new NothingChanged();
+  const recomputed = await recomputeDependents(companyId, versionId, userId);
   const sumAfter = await versionSum(companyId, versionId);
 
   // `saved` and the audit count the rows the batch changed (updated or inserted), not the cells sent.
   await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {
     upserts: String(changed), deletes: String(deleted), sumBefore, sumAfter, versionStatus: version.status,
+    overrides: String(overrides), recomputed: String(recomputed),
   });
-  return { updatedAt: version.updatedAt, saved: changed, deleted };
-}
-
-/**
- * The compare-and-set: bumps the version's updated_at only when it is the company's, still holds
- * the client's token and is not locked, taking the row lock (bounded wait). Otherwise says why.
- */
-async function takeVersion(companyId: string, versionId: string, expected: string) {
-  const rows = (await withRowLockBudget(
-    () => sql`
-      UPDATE budget_versions SET updated_at = clock_timestamp()
-       WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
-         AND updated_at = ${expected}::TIMESTAMPTZ AND status <> 'locked'
-      RETURNING fiscal_year, status, ${tokenSql()} AS token
-    `,
-    () => new RowLockTimeoutError('This budget version'),
-  )) as DbRow[];
-  if (rows[0]) {
-    return { fiscalYear: Number(rows[0].fiscal_year), status: String(rows[0].status) as BudgetVersionStatus, updatedAt: String(rows[0].token) };
-  }
-  const now = (await sql`
-    SELECT status, ${tokenSql()} AS token
-      FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  if (!now[0]) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found');
-  if (now[0].status === 'locked') throw new BudgetVersionError('BUDGET_VERSION_LOCKED', 'This budget version is locked');
-  throw new BudgetVersionStaleError(String(now[0].token), String(now[0].status) as BudgetVersionStatus);
+  return { updatedAt: version.updatedAt, saved: changed, deleted, recomputed };
 }
 
 /**

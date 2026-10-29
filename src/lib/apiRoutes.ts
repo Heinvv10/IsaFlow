@@ -71,6 +71,7 @@ import type { PriorActuals } from '@/modules/accounting/services/budgets/priorAc
 import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
 import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
 import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
+import type { DriverHeadcountResponse, DriverOverrideResponse, DriversResponse, PlannedHiresResponse } from '@/modules/accounting/services/budgets/drivers/driverApiTypes';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -122,6 +123,10 @@ interface StaticRoutes {
   '/api/accounting/budget-grid/import-preview': ImportPreview;
   // PUT: the note as stored (trimmed; null when cleared). Year-scoped (P2 follow-up F1).
   '/api/accounting/budget-grid/note': { note: string | null };
+  '/api/accounting/budget-drivers': DriversResponse;
+  '/api/accounting/budget-drivers/override': DriverOverrideResponse;
+  '/api/accounting/budget-drivers/headcount': DriverHeadcountResponse;
+  '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;
   '/api/accounting/setup-checklist': Awaited<ReturnType<typeof getSetupProgress>>;
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
