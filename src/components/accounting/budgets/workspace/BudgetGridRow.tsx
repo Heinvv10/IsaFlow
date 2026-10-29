@@ -116,9 +116,9 @@ function RowLabel({ row, snap, chip, grain }: { row: LineRow; snap: GridRowSnaps
         {badge && row.role === 'account' && (
           <span className="text-xs px-1 rounded bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] shrink-0">{badge}</span>
         )}
-        {a.note && row.role !== 'own' && (
-          // Read-only: the year's budget note (editing it is a follow-up). Name and tooltip carry the text.
-          <span role="img" aria-label={`Note: ${a.note}`} title={a.note} className="shrink-0 text-[var(--ff-text-secondary)]">
+        {snap.note && row.role !== 'own' && (
+          // The year's budget note (edited from the row actions). Name and tooltip carry the text.
+          <span role="img" aria-label={`Note: ${snap.note}`} title={snap.note} className="shrink-0 text-[var(--ff-text-secondary)]">
             <StickyNote className="h-3.5 w-3.5" aria-hidden="true" />
           </span>
         )}
