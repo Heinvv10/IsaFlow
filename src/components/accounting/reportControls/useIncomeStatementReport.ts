@@ -14,6 +14,10 @@ function localDate(iso: string): Date {
   return new Date(y, m - 1, d);
 }
 const addDays = (iso: string, n: number): string => { const d = localDate(iso); d.setDate(d.getDate() + n); return localISODate(d); };
+export function priorRange(start: string, end: string): { start: string; end: string } {
+  const priorEnd = addDays(start, -1);
+  return { start: addDays(priorEnd, -daysBetween(start, end)), end: priorEnd };
+}
 const daysBetween = (a: string, b: string): number => Math.round((localDate(b).getTime() - localDate(a).getTime()) / 86_400_000);
 
 /**
@@ -53,9 +57,7 @@ export function useIncomeStatementReport(i: Inputs) {
       if (costCentreId) params.set('cost_centre_id', costCentreId);
       if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (showComparative) {
-        const days = daysBetween(periodStart, periodEnd);
-        const priorEnd = addDays(periodStart, -1);
-        const priorStart = addDays(priorEnd, -days);
+        const { start: priorStart, end: priorEnd } = priorRange(periodStart, periodEnd);
         params.set('compare_start', priorStart);
         params.set('compare_end', priorEnd);
       }
