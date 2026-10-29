@@ -1,9 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { vi } from 'vitest';
 import {
   ComparatorNotices, comparatorNotices, BUDGET_NONE, BUDGET_FAILED, TREND_FAILED,
-  COMPANY_WIDE_UNAVAILABLE,
+  COMPANY_WIDE_UNAVAILABLE, type BudgetInfo,
 } from '@/components/accounting/reportControls/ComparatorNotices';
+
+const INFO = (over: Partial<BudgetInfo> = {}): BudgetInfo => ({
+  noBudgetYears: [], unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, retryAfterSecs: null, ...over,
+});
 
 afterEach(cleanup);
 
@@ -61,5 +66,54 @@ describe('<ComparatorNotices />', () => {
     render(<ComparatorNotices budgetState="none" trendFailed={false} />);
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByText(BUDGET_NONE)).toBeInTheDocument();
+  });
+});
+
+describe('comparatorNotices: the budget under a filter (budgets P3 PR-C)', () => {
+  it('the dimension notice names the trend only: the budget column follows the filter now', () => {
+    expect(COMPANY_WIDE_UNAVAILABLE).toMatch(/12-month trend/);
+    expect(COMPANY_WIDE_UNAVAILABLE).not.toMatch(/budget/i);
+  });
+
+  it('a year with no budget in the window is named, never "no budget captured"', () => {
+    const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ noBudgetYears: [2026] }) });
+    expect(n).toEqual([{ tone: 'info', text: 'No budget for FY2026 in this window, so the Budget column is empty.' }]);
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ noBudgetYears: [2026, 2028] }) })[0]!.text)
+      .toBe('No budget for FY2026 and FY2028 in this window, so the Budget column is empty.');
+  });
+
+  it('budget set above the filter is reported per polarity and never summed; it replaces "no budget captured"', () => {
+    const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ unallocatedBudget: { income: 300, expense: 1200 } }) });
+    expect(n).toHaveLength(1);
+    expect(n[0]!.text).toMatch(/^R\s?300\.00 of income budget and R\s?1[\s ]?200\.00 of expense budget on these accounts is set at company level or above this filter/);
+    expect(n[0]!.text).not.toMatch(/1[\s ]?500/);
+    const avail = comparatorNotices({ budgetState: 'available', trendFailed: false, budget: INFO({ unallocatedBudget: { income: 0, expense: 1200 } }) });
+    expect(avail[0]!.text).toMatch(/^R\s?1[\s ]?200\.00 of expense budget on these accounts/);
+  });
+
+  it('lines budgeted for only part of the window are named, beside a column that has budgets', () => {
+    expect(comparatorNotices({ budgetState: 'available', trendFailed: false, budget: INFO({ partialBudgetCount: 2 }) }))
+      .toEqual([{ tone: 'info', text: '2 accounts have a budget for only part of this window; their Budget is blank.' }]);
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ partialBudgetCount: 1 }) }))
+      .toEqual([{ tone: 'info', text: '1 account has a budget for only part of this window; its Budget is blank.' }]);
+  });
+
+  it('a refused budget request says how long to wait, and offers a retry', () => {
+    expect(comparatorNotices({ budgetState: 'limited', trendFailed: false, budget: INFO({ retryAfterSecs: 250 }) }))
+      .toEqual([{ tone: 'error', text: 'Too many report requests, so the Budget column is empty: try again in 5 minutes.', retry: true }]);
+    expect(comparatorNotices({ budgetState: 'limited', trendFailed: false, budget: INFO({ retryAfterSecs: 1 }) })[0]!.text)
+      .toMatch(/try again in 1 second\.$/);
+    // The shared withAuth limiter sends no Retry-After.
+    expect(comparatorNotices({ budgetState: 'limited', trendFailed: false })[0]!.text).toMatch(/try again in about a minute\.$/);
+  });
+});
+
+describe('<ComparatorNotices /> retry', () => {
+  it('the refusal carries a Retry button that calls back once per click', () => {
+    const onRetryBudget = vi.fn();
+    render(<ComparatorNotices budgetState="limited" trendFailed={false} budget={INFO({ retryAfterSecs: 30 })} onRetryBudget={onRetryBudget} />);
+    expect(screen.getByRole('alert').textContent).toContain('try again in 30 seconds.');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetryBudget).toHaveBeenCalledTimes(1);
   });
 });

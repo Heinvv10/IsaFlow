@@ -104,10 +104,10 @@ export default function IncomeStatementPage() {
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
   // column cannot be on with no comparative period behind it.
-  const { columns, setColumns, companyWideUnavailable, apply, budgetState, trendFailed } =
+  const { columns, setColumns, companyWideUnavailable, apply, budgetState, budgetInfo, retryBudget, trendFailed } =
     useStatementComparatorState({
       dimensionSelected: costCentreId !== '' || businessUnitId !== '',
-      asOf: periodEnd, basis: 'movement', periodStart, periodEnd,
+      asOf: periodEnd, basis: 'movement', periodStart, periodEnd, costCentreId, businessUnitId,
     });
   const showComparative = columns.prior;
   const returnTo = reportHref('is', { period_start: periodStart, period_end: periodEnd,
@@ -236,7 +236,7 @@ export default function IncomeStatementPage() {
           </div>
 
           <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
-            companyWideUnavailable={companyWideUnavailable} />
+            companyWideUnavailable={companyWideUnavailable} budget={budgetInfo} onRetryBudget={retryBudget} />
 
           {Object.keys(refError).length > 0 && <p role="alert" className="text-xs text-amber-500">{Object.values(refError).join(' ')}</p>}
           {error && (

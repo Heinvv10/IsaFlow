@@ -14,7 +14,7 @@ import type {
 } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { useComparatorColumns } from './useComparatorColumns';
 import { useDensity, type Density } from './useDensity';
-import { useStatementComparators, type BudgetState } from './useStatementComparators';
+import { useStatementComparators, type BudgetInfo, type BudgetState } from './useStatementComparators';
 
 export interface StatementComparatorStateOptions {
   /** The surface is filtered to one accounting dimension. */
@@ -26,6 +26,9 @@ export interface StatementComparatorStateOptions {
   /** The budget window. Required when the surface offers a budget. */
   periodStart?: string;
   periodEnd?: string;
+  /** The statement's dimension filter ('' = none), which the budget column follows. */
+  costCentreId?: string;
+  businessUnitId?: string;
   /** False on a surface with no budget to offer — the balance sheet, whose
    *  account codes match no budget line. Defaults to true. */
   offersBudget?: boolean;
@@ -33,14 +36,16 @@ export interface StatementComparatorStateOptions {
 
 export interface StatementComparatorState {
   /** What to render and what to hand `ComparatorControls`. Already gated: a
-   *  selected cost centre forces the two company-wide columns off. */
+   *  selected dimension forces the company-wide trend off. */
   columns: StatementColumns;
   setColumns: (next: StatementColumns) => void;
-  /** True when a cost centre is selected. Hand it to `ComparatorControls` to
-   *  disable the two checkboxes and to `ComparatorNotices` to say why. */
+  /** True when a dimension is selected. Hand it to `ComparatorControls` to
+   *  disable the trend checkbox and to `ComparatorNotices` to say why. */
   companyWideUnavailable: boolean;
   apply: (rows: StatementRow[]) => StatementRow[];
   budgetState: BudgetState;
+  budgetInfo: BudgetInfo;
+  retryBudget: () => void;
   trendFailed: boolean;
   /** The page's ONE density instance, for a `DensityToggle` if it renders one.
    *  See the module doc: a second `useDensity()` is a second preference. */
@@ -53,21 +58,19 @@ export function useStatementComparatorState(
   opts: StatementComparatorStateOptions,
 ): StatementComparatorState {
   const {
-    dimensionSelected, asOf, basis, periodStart, periodEnd, offersBudget = true,
+    dimensionSelected, asOf, basis, periodStart, periodEnd, offersBudget = true, costCentreId, businessUnitId,
   } = opts;
 
   const densityState = useDensity();
   const { columns: chosen, setColumns: setChosen } = useComparatorColumns(densityState);
 
-  // The trend and the budget are COMPANY-WIDE: `trendRowsService` applies no
-  // cost-centre filter and `getBudgetVariance` takes no cost centre. With one
-  // selected, those two columns would print a company figure in the same row
-  // as a departmental one. They are switched off, not fetched. The reader's
-  // own choice stays in `chosen`, so clearing the filter restores it.
+  // The trend is COMPANY-WIDE: `trendRowsService` applies no cost-centre
+  // filter, so with a dimension selected it would print a company figure in
+  // the same row as a departmental one. It is switched off, not fetched; the
+  // reader's own choice stays in `chosen`, so clearing the filter restores it.
+  // The budget follows the filter (budgets P3 PR-C), so it stays.
   const columns: StatementColumns = useMemo(
-    () => (dimensionSelected
-      ? { ...chosen, budget: false, trend: false, variance: chosen.variance && chosen.prior }
-      : chosen),
+    () => (dimensionSelected ? { ...chosen, trend: false } : chosen),
     [dimensionSelected, chosen],
   );
 
@@ -75,24 +78,24 @@ export function useStatementComparatorState(
    * `ComparatorControls` is handed the GATED columns and sends back a whole
    * `StatementColumns`, not a patch — `{ ...value, ...patch }`. Written
    * straight through, the first checkbox the reader touches under a cost
-   * centre would carry the gate's own `budget: false, trend: false` into
-   * `chosen`, and clearing the filter would restore nothing. The two fields
-   * the gate forces are therefore taken from `chosen` rather than from the
-   * value that was on screen; every other field is the reader's actual click.
+   * centre would carry the gate's own `trend: false` into `chosen`, and
+   * clearing the filter would restore nothing. The field the gate forces is
+   * therefore taken from `chosen` rather than from the value that was on
+   * screen; every other field is the reader's actual click.
    */
   const setColumns = useCallback((next: StatementColumns) => {
-    setChosen(dimensionSelected
-      ? { ...next, budget: chosen.budget, trend: chosen.trend }
-      : next);
-  }, [dimensionSelected, chosen.budget, chosen.trend, setChosen]);
+    setChosen(dimensionSelected ? { ...next, trend: chosen.trend } : next);
+  }, [dimensionSelected, chosen.trend, setChosen]);
 
-  const { apply, budgetState, trendFailed } = useStatementComparators({
+  const { apply, budgetState, budgetInfo, retryBudget, trendFailed } = useStatementComparators({
     trend: columns.trend,
     budget: offersBudget && columns.budget,
     asOf,
     basis,
     periodStart,
     periodEnd,
+    costCentreId,
+    businessUnitId,
   });
 
   return {
@@ -101,6 +104,8 @@ export function useStatementComparatorState(
     companyWideUnavailable: dimensionSelected,
     apply,
     budgetState,
+    budgetInfo,
+    retryBudget,
     trendFailed,
     density: densityState.density,
     setDensity: densityState.setDensity,

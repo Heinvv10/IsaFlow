@@ -65,6 +65,7 @@ beforeEach(() => {
     version: VERSION,
     unallocatedBudget: { income: 0, expense: 1200 },
     noBudgetYears: [],
+    partialBudgetCount: 2,
   });
 });
 
@@ -147,6 +148,7 @@ describe('reports-budget-comparator', () => {
     expect(body.data.version).toEqual(VERSION);
     expect(body.data.unallocatedBudget).toEqual({ income: 0, expense: 1200 });
     expect(body.data.noBudgetYears).toEqual([]);
+    expect(body.data.partialBudgetCount).toBe(2);
     expect(body.data.budgetedCount).toBe(1);
   });
 
