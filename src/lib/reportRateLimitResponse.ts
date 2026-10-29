@@ -3,7 +3,8 @@
  * naming the wait: `Retry-After` in whole seconds and the same wait in the
  * message ("try again in 5 minutes"), so a page can say when to retry instead
  * of leaving its reader to guess. With no known wait it says "shortly" and
- * sends no Retry-After. The Budget vs Actual route words its refusal the same way.
+ * sends no Retry-After. Both budget report routes (Budget vs Actual and the
+ * statement comparator) answer their refusals through it.
  */
 import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';

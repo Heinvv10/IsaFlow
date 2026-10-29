@@ -132,8 +132,20 @@ export interface TrackingLine extends TrackingFigures {
    *  or a grain change between versions): the window Budget / Var R / Var % are absent, and so are the
    *  profit totals above it. Not "unbudgeted". */
   partialBudget: boolean;
+  /** The engine's ONE verdict on the line's window budget; every reader copies it, none re-derives it. */
+  budgetVerdict: BudgetVerdict;
   monthly: TrackingMonth[];
 }
+
+/**
+ * - `budgeted`: an included budget for the window (a zero counts).
+ * - `absent`: the WINDOW budget is absent (a year in it with no budget, or a range that splits a budget
+ *   month): nothing is called unbudgeted, nothing partial.
+ * - `partial`: budgeted for part of the window only (`partialBudget`).
+ * - `above-filter`: its only budget is set above the filter (`budgetAboveFilter`, unallocated).
+ * - `unbudgeted`: no budget for it in the window at all.
+ */
+export type BudgetVerdict = 'budgeted' | 'absent' | 'partial' | 'above-filter' | 'unbudgeted';
 
 export interface TrackingBand extends TrackingFigures {
   key: TrackingBandKey | TrackingTotalKey;

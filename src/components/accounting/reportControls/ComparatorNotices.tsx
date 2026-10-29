@@ -21,6 +21,8 @@ export const BUDGET_NONE =
   'No budget has been captured for this period, so the Budget column is empty. Capture one under Accounting → Budgets.';
 export const BUDGET_FAILED =
   'The budget could not be loaded, so the Budget column is empty. This is a loading failure, not a statement about the period — reload to try again.';
+export const BUDGET_WHOLE_MONTHS =
+  'Budgets are set by whole month. Choose a window from the 1st to a month end to compare.';
 export const COMPANY_WIDE_UNAVAILABLE =
   'A reporting dimension is selected. The 12-month trend is a company-wide figure, so that column is switched off rather than printed beside a filtered figure. Clear the dimension filters to use it.';
 export const TREND_FAILED =
@@ -76,8 +78,13 @@ export function comparatorNotices(
   if (budgetState === 'none') {
     // A window with no budget in one of its years, a budget only above the filter, or only for part
     // of the window is not "no budget captured": the sentences below say which it is.
-    if (budget && budget.budgetAbsentYears.length > 0) {
-      out.push({ tone: 'info', text: `No budget for ${yearsText(budget.budgetAbsentYears)} in this window, so the Budget column is empty.` });
+    if (budget?.splitsMonth) {
+      out.push({ tone: 'info', text: BUDGET_WHOLE_MONTHS });
+    } else if (budget && budget.budgetAbsentYears.length > 0) {
+      // A year that does have a budget is named too: its budget alone would cover only part of the window.
+      const others = budget.windowYears.filter((y) => !budget.budgetAbsentYears.includes(y));
+      const rest = others.length === 0 ? '' : ` ${yearsText(others)}'s budget alone would cover only part of it.`;
+      out.push({ tone: 'info', text: `No budget for ${yearsText(budget.budgetAbsentYears)} in this window, so the Budget column is empty.${rest}` });
     } else if (unallocated === null && partial === 0) {
       out.push({ tone: 'info', text: BUDGET_NONE });
     }

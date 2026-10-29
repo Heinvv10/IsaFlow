@@ -106,7 +106,6 @@ export default function IncomeStatementPage() {
   // column cannot be on with no comparative period behind it.
   const { columns, setColumns, companyWideUnavailable, apply, budgetState, budgetInfo, retryBudget, trendFailed } =
     useStatementComparatorState({
-      dimensionSelected: costCentreId !== '' || businessUnitId !== '',
       asOf: periodEnd, basis: 'movement', periodStart, periodEnd, costCentreId, businessUnitId,
     });
   const showComparative = columns.prior;

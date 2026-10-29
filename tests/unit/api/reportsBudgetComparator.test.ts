@@ -41,9 +41,10 @@ function mockRes() {
   return res as unknown as NextApiResponse & typeof res;
 }
 
-const BUDGETED = { account_id: 'a1', account_code: '4000', budget: 100 };
-const UNBUDGETED = { account_id: 'a2', account_code: '5000', budget: 0 };
-const PARTIAL = { account_id: 'a3', account_code: '6000', budget: 0, budgeted: false, budget_partial: true };
+const BUDGETED = { account_id: 'a1', account_code: '4000', budget: 100, budget_verdict: 'budgeted' };
+const UNBUDGETED = { account_id: 'a2', account_code: '5000', budget: 0, budget_verdict: 'unbudgeted' };
+const PARTIAL = { account_id: 'a3', account_code: '6000', budget: 0, budgeted: false, budget_partial: true, budget_verdict: 'partial' };
+const BANDS = [{ key: 'turnover', budget: 100 }, { key: 'net_profit', budget: null }];
 const VERSION = { id: 'v1', name: 'Original', kind: 'original', status: 'approved', isPrimary: true };
 const CC = '22222222-2222-4222-8222-222222222222';
 const BU = '33333333-3333-4333-8333-333333333333';
@@ -66,6 +67,11 @@ beforeEach(() => {
     version: VERSION,
     unallocatedBudget: { income: 0, expense: 1200 },
     budgetAbsentYears: [],
+    windowYears: [2027],
+    splitsMonth: false,
+    // The engine's count: it includes a partial account the facade's lines no longer carry (no actual).
+    partialBudgetCount: 3,
+    bands: BANDS,
     lines: [BUDGETED, UNBUDGETED, PARTIAL, { ...PARTIAL, account_id: 'a4' }],
   });
 });
@@ -86,8 +92,27 @@ describe('reports-budget-comparator', () => {
     } as unknown as NextApiRequest;
     const res = mockRes();
     await handler(req, res);
-    expect(res.statusCode).toBe(422);
+    expect(res.statusCode).toBe(400);
     expect(getBudgetVariance).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['not a calendar date', { period_start: '2026-02-01', period_end: '2026-02-31' }],
+    ['the end before the start', { period_start: '2026-08-31', period_end: '2026-08-01' }],
+    ['more than 24 months', { period_start: '2024-01-01', period_end: '2026-01-31' }],
+    ['a year before 1900', { period_start: '1899-12-01', period_end: '1899-12-31' }],
+    ['a year after 2200', { period_start: '2201-01-01', period_end: '2201-01-31' }],
+  ])('refuses %s with a 400, before the service', async (_name, query) => {
+    const res = mockRes();
+    await handler(get(query), res);
+    expect(res.statusCode).toBe(400);
+    expect(getBudgetVariance).not.toHaveBeenCalled();
+  });
+
+  it('takes exactly 24 months and a leap day', async () => {
+    const res = mockRes();
+    await handler(get({ period_start: '2024-02-29', period_end: '2026-01-31' }), res);
+    expect(res.statusCode).toBe(200);
   });
 
   it('calls getBudgetVariance with companyId and the window', async () => {
@@ -102,7 +127,7 @@ describe('reports-budget-comparator', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('concatenates budgeted rows before unbudgeted ones, and keeps both', async () => {
+  it('sends every line with its engine verdict, withheld ones included', async () => {
     const req = {
       method: 'GET',
       query: { period_start: '2026-08-01', period_end: '2026-08-31' },
@@ -111,7 +136,7 @@ describe('reports-budget-comparator', () => {
     const res = mockRes();
     await handler(req, res);
     const body = res.sent as { data: { lines: unknown[]; fiscalYear: number; monthKeys: string[]; postedThrough: string | null } };
-    expect(body.data.lines).toEqual([BUDGETED, UNBUDGETED]);
+    expect(body.data.lines).toEqual([BUDGETED, UNBUDGETED, PARTIAL, { ...PARTIAL, account_id: 'a4' }]);
     expect(body.data.fiscalYear).toBe(2026);
     expect(body.data.monthKeys).toEqual(['2026-08']);
     expect(body.data.postedThrough).toBe('2026-08-31');
@@ -138,7 +163,7 @@ describe('reports-budget-comparator', () => {
     expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', { partialWindow: 'absent' });
     const res = mockRes();
     await handler(get({ ...WINDOW, cost_centre_id: 'not-a-uuid' }), res);
-    expect(res.statusCode).toBe(422);
+    expect(res.statusCode).toBe(400);
     expect(getBudgetVariance).toHaveBeenCalledTimes(1);
   });
 
@@ -149,8 +174,28 @@ describe('reports-budget-comparator', () => {
     expect(body.data.version).toEqual(VERSION);
     expect(body.data.unallocatedBudget).toEqual({ income: 0, expense: 1200 });
     expect(body.data.budgetAbsentYears).toEqual([]);
-    expect(body.data.partialBudgetCount).toBe(2);
+    // Copied from the engine (3), never counted from the lines (which would say 2).
+    expect(body.data.partialBudgetCount).toBe(3);
+    expect(body.data.bands).toEqual(BANDS);
+    expect([body.data.splitsMonth, body.data.windowYears]).toEqual([false, [2027]]);
     expect(body.data.budgetedCount).toBe(1);
+  });
+
+  it.each([
+    ['another company\'s version (BUDGET_VERSION_NOT_FOUND)', 'version', 404],
+    ['a version of another year (TrackingError 400)', 'tracking400', 400],
+    ['an unknown financial-year label', 'label', 404],
+  ] as const)('%s keeps its status through the route', async (_name, kind, status) => {
+    const { BudgetVersionError } = await import('@/modules/accounting/services/budgets/budgetVersionTypes');
+    const { TrackingError } = await import('@/modules/accounting/services/budgets/tracking/trackingTypes');
+    const { FiscalYearLabelUnknownError } = await import('@/modules/accounting/services/gl/fiscalYearRegistry');
+    const err = kind === 'version' ? new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found')
+      : kind === 'tracking400' ? new TrackingError(400, `version ${V} is FY2027; the window reaches FY2028`)
+        : new FiscalYearLabelUnknownError(COMPANY, 2031);
+    getBudgetVariance.mockRejectedValueOnce(err);
+    const res = mockRes();
+    await handler(get({ ...WINDOW, version_id: V }), res);
+    expect(res.statusCode).toBe(status);
   });
 
   it("an engine refusal keeps its status (another company's centre is a 404)", async () => {

@@ -28,6 +28,7 @@
  *      movement is good news; the sign of `variance`/`variancePct` is always
  *      "up is positive", never "good is positive".
  */
+import type { BudgetVerdict } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import type { BudgetVsActualLine } from '../budgetVsActualLines';
 import type { AccountTrends } from '../trendRowsService';
 import type { Comparison, StatementRow } from './statementModel';
@@ -89,15 +90,26 @@ export function applyTrend(rows: StatementRow[], trends: AccountTrends): Stateme
 
 export function applyBudgetComparator(
   rows: StatementRow[],
-  lines: BudgetVsActualLine[],
+  /** P0 lines, or the comparator's (`budget_verdict`: the engine's verdict on each). */
+  lines: ReadonlyArray<BudgetVsActualLine & { budget_verdict?: BudgetVerdict }>,
 ): StatementRow[] {
   const byCode = new Map(lines.map((l) => [l.account_code, l]));
   return rows.map((row) => {
     if (!isAccountLine(row)) return row;
     const line = byCode.get(row.accountCode!);
-    // An unbudgeted account has no budget to compare with: the Budget vs Actual
-    // screen, its CSV and MCP all leave it unjudged, and so does this column.
-    if (line === undefined || !line.budgeted) return row;
+    if (line === undefined) return row;
+    // No budget to compare with. A line carrying the engine's verdict (the
+    // comparator's mode) prints absent "—", with the reason when it has one
+    // (budgeted for part of the window; budget set above the filter); a line
+    // without one (P0's shape) leaves the cells empty, as before.
+    if (!line.budgeted) {
+      const verdict = line.budget_verdict;
+      if (verdict === undefined) return row;
+      const absent: Comparison = { value: 0, absent: true };
+      if (verdict === 'partial') absent.absentReason = 'partial';
+      if (verdict === 'above-filter') absent.absentReason = 'above-filter';
+      return { ...row, budget: absent };
+    }
     // The row's PRINTED actual, never the service's GL aggregate (D7): the
     // Budget column sits beside the figure on this row, and the two can differ.
     // An expense row prints positive (debit − credit, incomeStatementRows), so

@@ -99,19 +99,32 @@ export function budgetAbsentYears(
     .map((y) => y.fiscalYear);
 }
 
+/**
+ * A named version's scope over the window's years: the version must be the company's (404 through
+ * `versionYear`) and every year the window reaches must be its own (400 "version X is FY2027; the
+ * window reaches FY2028"). The Budget vs Actual report and the date-range entry point both use it.
+ */
+export async function namedVersionScopeOf(
+  companyId: string,
+  versionId: string,
+  years: ReadonlyArray<{ fiscalYear: number; first: string; last: string }>,
+): Promise<VersionScope[]> {
+  const year = await mapRegistryMiss(() => versionYear(companyId, versionId));
+  const reaches = years.map((y) => y.fiscalYear).filter((y) => y !== year.fiscalYear);
+  if (reaches.length > 0) {
+    throw new TrackingError(400, `version ${versionId} is FY${year.fiscalYear}; the window reaches FY${reaches[0]}`);
+  }
+  return years.map((y) => ({ ...y, versionId }));
+}
+
 /** The versions a window reads; `versionId` is looked up under the company (404 when it is not its own). */
 export async function resolveTrackingVersions(companyId: string, window: TrackingWindow, versionId?: string): Promise<TrackingVersions> {
   const fy = window.fy;
   const years = scopeYears(window);
   let scope: VersionScope[];
   if (versionId) {
-    const year = await mapRegistryMiss(() => versionYear(companyId, versionId));
-    const reaches = years.map((y) => y.fiscalYear).filter((y) => y !== year.fiscalYear);
-    if (reaches.length > 0) {
-      throw new TrackingError(400, `version ${versionId} is FY${year.fiscalYear}; the window reaches FY${reaches[0]}`);
-    }
     // The window lies inside the version's year, so FY* is that year: one scope entry, the whole year.
-    scope = years.map((y) => ({ ...y, versionId }));
+    scope = await namedVersionScopeOf(companyId, versionId, years);
   } else {
     const prim = (await sql`
       SELECT id::TEXT AS id, fiscal_year FROM budget_versions

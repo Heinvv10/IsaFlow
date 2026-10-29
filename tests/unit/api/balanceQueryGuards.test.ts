@@ -158,8 +158,10 @@ describe('class 1 — is_active never filters a balance query', () => {
     const { req, res } = mockReqRes({ period: 'ytd' });
     await (budgetVsActualHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
 
-    const [q] = matching(BUDGET_ACTUALS);
-    expect(q).toBeDefined();
+    // Exactly one: a second month-grouped query on this path would otherwise be asserted in its place.
+    const qs = matching(BUDGET_ACTUALS);
+    expect(qs).toHaveLength(1);
+    const [q] = qs;
     expect(q!).not.toMatch(GA_IS_ACTIVE);
   });
 
@@ -172,6 +174,8 @@ describe('class 1 — is_active never filters a balance query', () => {
     await (budgetVsActualExportHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(exp.req, exp.res);
 
     const exportQueries = matching(BUDGET_ACTUALS);
+    // Equal by construction now (both routes reach the one engine read through the facade); the
+    // equality still catches a route that grows its own actuals query.
     expect(exportQueries).toHaveLength(1);
     expect(exportQueries[0]).toBe(reportQuery);
     expect(exportQueries[0]!).not.toMatch(/\blevel\b/);

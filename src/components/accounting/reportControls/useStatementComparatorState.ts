@@ -17,8 +17,6 @@ import { useDensity, type Density } from './useDensity';
 import { useStatementComparators, type BudgetInfo, type BudgetState } from './useStatementComparators';
 
 export interface StatementComparatorStateOptions {
-  /** The surface is filtered to one accounting dimension. */
-  dimensionSelected: boolean;
   /** Last day of the trend window — the statement's period end / as-at. */
   asOf: string;
   /** `movement` for P&L accounts, `balance` for balance-sheet accounts. */
@@ -26,7 +24,8 @@ export interface StatementComparatorStateOptions {
   /** The budget window. Required when the surface offers a budget. */
   periodStart?: string;
   periodEnd?: string;
-  /** The statement's dimension filter ('' = none), which the budget column follows. */
+  /** The statement's dimension filter ('' = none): it gates the company-wide trend, and the budget
+   *  column follows it. One source, so the gate and the budget fetch cannot disagree about it. */
   costCentreId?: string;
   businessUnitId?: string;
   /** False on a surface with no budget to offer — the balance sheet, whose
@@ -58,8 +57,9 @@ export function useStatementComparatorState(
   opts: StatementComparatorStateOptions,
 ): StatementComparatorState {
   const {
-    dimensionSelected, asOf, basis, periodStart, periodEnd, offersBudget = true, costCentreId, businessUnitId,
+    asOf, basis, periodStart, periodEnd, offersBudget = true, costCentreId = '', businessUnitId = '',
   } = opts;
+  const dimensionSelected = costCentreId !== '' || businessUnitId !== '';
 
   const densityState = useDensity();
   const { columns: chosen, setColumns: setChosen } = useComparatorColumns(densityState);

@@ -29,12 +29,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { ByPolarity } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
-import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import {
   applyBudgetComparator, applyTrend, hasBudgetData,
 } from '@/modules/accounting/services/reports/statementRows/comparators';
+import { applyBudgetBands, withBudgetedLines } from '@/modules/accounting/services/reports/statementRows/budgetComparatorBands';
 
 /** What the budget fetch has established so far. `unknown` covers both "not
  *  asked for" and "still in flight"; `failed` must never be shown as `none`;
@@ -45,10 +46,14 @@ export type BudgetState = 'unknown' | 'failed' | 'limited' | 'none' | 'available
 export interface BudgetInfo {
   /** Years of the window with no budget in it. */
   budgetAbsentYears: number[];
+  /** Every financial year with months in the window. */
+  windowYears: number[];
   /** Budget set above the dimension filter, per polarity; null when the window budget is absent. */
   unallocatedBudget: ByPolarity | null;
   /** Accounts budgeted for only part of the window, whose Budget is blank. */
   partialBudgetCount: number;
+  /** The window cuts a budget month: no window budget (budgets are set by whole month). */
+  splitsMonth: boolean;
   /** The limiter's wait, when `budgetState` is `limited` and the server named one. */
   retryAfterSecs: number | null;
 }
@@ -89,11 +94,14 @@ export interface StatementComparatorOptions {
 }
 
 interface BudgetData {
-  lines: BudgetVsActualLine[];
+  lines: TrackedLine[];
   budgetedCount: number;
   budgetAbsentYears: number[];
+  windowYears: number[];
   unallocatedBudget: ByPolarity | null;
   partialBudgetCount: number;
+  splitsMonth: boolean;
+  bands: BudgetVarianceTracked['bands'];
 }
 
 /** A refusal by a report limiter: the route's own (with Retry-After) or withAuth's shared one (without). */
@@ -154,8 +162,9 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
         .then((data) => {
           if (!cancelled) {
             setBudgetData({
-              lines: data.lines, budgetedCount: data.budgetedCount, budgetAbsentYears: data.budgetAbsentYears ?? [],
-              unallocatedBudget: data.unallocatedBudget ?? null, partialBudgetCount: data.partialBudgetCount ?? 0,
+              lines: data.lines, budgetedCount: data.budgetedCount, budgetAbsentYears: data.budgetAbsentYears, windowYears: data.windowYears,
+              unallocatedBudget: data.unallocatedBudget, partialBudgetCount: data.partialBudgetCount,
+              splitsMonth: data.splitsMonth, bands: data.bands,
             });
           }
         })
@@ -181,7 +190,8 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     // a target nobody set — a large red bar that is an artefact, not a
     // finding. The column stays empty and the page says why.
     if (budget && budgetData && hasBudgetData(budgetData.budgetedCount)) {
-      out = applyBudgetComparator(out, budgetData.lines);
+      // Unspent budgets get their rows, every line its budget or "—", every band the engine's budget.
+      out = applyBudgetBands(applyBudgetComparator(withBudgetedLines(out, budgetData.lines), budgetData.lines), budgetData.bands);
     }
     return out;
   }, [trend, budget, trends, budgetData]);
@@ -198,8 +208,10 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
 
   const budgetInfo: BudgetInfo = {
     budgetAbsentYears: budgetData?.budgetAbsentYears ?? [],
+    windowYears: budgetData?.windowYears ?? [],
     unallocatedBudget: budgetData?.unallocatedBudget ?? null,
     partialBudgetCount: budgetData?.partialBudgetCount ?? 0,
+    splitsMonth: budgetData?.splitsMonth ?? false,
     retryAfterSecs: budgetLimited?.retryAfterSecs ?? null,
   };
 

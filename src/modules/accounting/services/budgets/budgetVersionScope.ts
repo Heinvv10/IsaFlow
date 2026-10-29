@@ -150,21 +150,6 @@ export async function primaryVersionScope(companyId: string, startDate: string, 
   return years.map((y) => ({ fiscalYear: y.year.fiscalYear, versionId: byLabel.get(y.year.fiscalYear) ?? null, first: y.first, last: y.last }));
 }
 
-/** One named version, clipped to its own year (and to the window when one is given). */
-export async function namedVersionScope(
-  companyId: string,
-  versionId: string,
-  window?: { startDate: string; endDate: string },
-): Promise<VersionScope[]> {
-  const year = await versionYear(companyId, versionId);
-  const own = budgetMonthBounds(year.startDate, year.endDate);
-  if (!own) return [];
-  const w = window ? budgetMonthBounds(window.startDate, window.endDate) : own;
-  if (!w) return [];
-  const part = clip(year, w.first, w.last);
-  return part ? [{ fiscalYear: year.fiscalYear, versionId, ...part }] : [];
-}
-
 /** The version a read of `fiscalYear` uses: the named one (which must be that year's) or the primary. */
 export async function readVersion(companyId: string, fiscalYear: number, versionId?: string): Promise<string | null> {
   if (!versionId) return resolvePrimaryVersion(companyId, fiscalYear);
