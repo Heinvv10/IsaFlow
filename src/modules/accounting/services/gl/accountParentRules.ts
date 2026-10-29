@@ -172,6 +172,23 @@ export async function warnIfHeaderHoldsMoney(
   }
 }
 
+/**
+ * Whether giving `parentId` its first child would drop its own posted balance from the balance sheet: a level
+ * 1-2 balance-sheet account with lines and no sub-accounts yet. Locks the parent FOR UPDATE before reading, as
+ * assertParentUsable does (request transaction required). For writers that place an account somewhere else
+ * instead of refusing (ensureOpeningBalanceEquityAccount goes to the top level).
+ */
+export async function firstChildWouldHideBalance(
+  companyId: string, parent: { id: string; level: number | null; account_type: string },
+): Promise<boolean> {
+  if (!isSubjectToLeafRule(Number(parent.level ?? 0), parent.account_type)) return false;
+  await lockGlAccountsForUpdate(companyId, [parent.id]);
+  const posted = (await sql`
+    SELECT 1 FROM gl_journal_lines WHERE gl_account_id = ${parent.id}::UUID AND company_id = ${companyId}::UUID LIMIT 1
+  `) as unknown[];
+  return posted.length > 0 && !(await hasChildAccounts(companyId, parent.id));
+}
+
 /** Refuses a childless level 1-2 parent with lines: a child would make it a header the reports drop. */
 async function assertNoPostedLines(
   companyId: string, parent: { id: string; account_code: string; account_type: string; level: number },

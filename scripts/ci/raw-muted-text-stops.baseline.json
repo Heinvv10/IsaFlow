@@ -150,7 +150,6 @@
   "pages/payroll/cost-centres/index.tsx": 1,
   "pages/payroll/loans/index.tsx": 1,
   "pages/payroll/leave/index.tsx": 1,
-  "pages/payroll/runs/index.tsx": 1,
   "pages/payroll/runs/[id]/variance.tsx": 1,
   "pages/contact.tsx": 2,
   "pages/forgot-password.tsx": 3,
