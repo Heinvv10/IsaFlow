@@ -47,6 +47,8 @@ describe('DriverEditor', () => {
     expect(dialog()).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('driver-editor-save'));
     expect(await screen.findByText('Type an amount')).toBeInTheDocument();
+    // Save says why it did nothing, beside the field's own message.
+    expect(screen.getByTestId('driver-editor-error')).toHaveTextContent('Fix the fields marked above before saving.');
     expect(onSave).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText('Amount a month (R)'), { target: { value: 'abc' } });
