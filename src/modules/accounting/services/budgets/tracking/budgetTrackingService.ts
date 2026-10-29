@@ -118,7 +118,10 @@ export async function buildBudgetTrackingReport(
     // FY*'s version that holds no budget in this window is marked, never presented as a budget (G2).
     version: versions.version && absentYears.includes(window.fy.fiscalYear) ? { ...versions.version, empty: true } : versions.version,
     filter: filter.members,
-    projection: { fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
+    projection: {
+      fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths,
+      judgedThrough: plan.judgedThrough,
+    },
     lines,
     bands: buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 }),
     notices: buildNotices(lines, {

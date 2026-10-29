@@ -62,8 +62,14 @@ export function projectionPlan(fy: ProjectionYear, windowEnd: string, today: str
     fyMonths,
     actualMonths: fyMonths.filter((m) => m <= cutoffMonth),
     budgetMonths: fyMonths.filter((m) => m > cutoffMonth),
+    // The last COMPLETE month a window may be judged through (the heatmap): the cutoff's month, but
+    // never past the month before today's. The cutoff is clamped up to FY*.start - 1, so on a window
+    // running into a future FY* it alone would judge the month in progress (review r3 M1).
+    judgedThrough: minMonth(cutoffMonth, dayBefore(`${today.slice(0, 7)}-01`).slice(0, 7)),
   };
 }
+
+const minMonth = (a: string, b: string) => (a < b ? a : b);
 
 /** The last day the actuals read must cover: the window end or FY*'s last month end, whichever is later. */
 export function readEndOf(window: { endDate: string }, plan: Pick<ProjectionPlan, 'fyMonths'>): string {

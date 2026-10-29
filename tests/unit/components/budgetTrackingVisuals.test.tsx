@@ -31,7 +31,7 @@ describe('BudgetTrackingVisuals', () => {
     expect(images).toEqual([
       bridgeSummary(budgetBridgeSteps(REPORT)),
       bulletSummary(toBulletLines(REPORT.members!)),
-      heatmapSummary(REPORT.lines, REPORT.window.months, REPORT.projection.cutoff.slice(0, 7)),
+      heatmapSummary(REPORT.lines, REPORT.window.months, REPORT.projection.judgedThrough),
     ]);
   });
 
@@ -51,4 +51,12 @@ describe('BudgetTrackingVisuals', () => {
     expect(screen.getByTestId('bva-bridge').textContent).toContain('No budget for net profit in this window, so there is no bridge.');
     expect(screen.getByTestId('bva-bridge').textContent).not.toContain('Nothing posted');
   });
+
+  it("judges through the engine's judgedThrough, not the cutoff's month (a window into a future year, review r3 M1)", () => {
+    // The cutoff is clamped up to the future year's start - 1; October, in progress, is still not judged.
+    const future = { ...REPORT, projection: { ...REPORT.projection, cutoff: '2027-02-28', judgedThrough: '2026-09' } };
+    render(<BudgetTrackingVisuals report={future} filtered={false} groupBy="cc1" onGroupBy={vi.fn()} />);
+    expect(screen.getAllByTestId('echart').map((e) => e.textContent)).toContain('Oct 26 *');
+  });
 });
+
