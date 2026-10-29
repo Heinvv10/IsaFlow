@@ -48,6 +48,7 @@ import FinancialYearsPage from '../../../pages/accounting/financial-years/index'
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import BankAccountsPage from '../../../pages/accounting/bank-accounts/index';
 import NewInvoicePage from '../../../pages/accounting/customer-invoices/new';
+import { pickOption } from '../helpers/kitPick';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); push.mockClear(); vi.mocked(notify.error).mockClear(); vi.mocked(notify.success).mockClear(); document.body.removeAttribute('data-add-error'); document.body.removeAttribute('data-add-error-class'); });
@@ -206,10 +207,9 @@ describe('bank-accounts: edit reloads even when the second update fails', () => 
 
 describe('new invoice: a 200 without an id is a failure, not /customer-invoices/undefined', () => {
   it('stays on the form with a plain sentence and never pushes', async () => {
-    script((u, m) => (m === 'POST' && u.includes('customer-invoices-create') ? ok({}) : u.endsWith('/customers') ? ok([{ id: 'c-1', name: 'D2 Client' }]) : u.includes('currencies') ? ok([]) : undefined));
+    script((u, m) => (m === 'POST' && u.includes('customer-invoices-create') ? ok({}) : u.includes('/customers') ? ok([{ id: 'c-1', name: 'D2 Client' }]) : u.includes('currencies') ? ok([]) : undefined));
     render(<NewInvoicePage />);
-    await screen.findByRole('option', { name: 'D2 Client' });
-    fireEvent.change(document.querySelector('select[name="clientId"]')!, { target: { value: 'c-1' } });
+    await pickOption('Client', 'D2 Client');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'D2 work' } });
     fireEvent.change(document.querySelector('input[name="unitPrice"]')!, { target: { value: '50' } });
     await click(/^create invoice$/i);
