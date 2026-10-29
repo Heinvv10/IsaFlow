@@ -36,7 +36,7 @@ describe('BankTxFilters date range', () => {
     tab: 'new', page: 1, total: 0, pageSize: 25, selectedCount: 0, selectedBank: 'b1', smartRunning: false,
     showCC: false, showBU: false, showBatchEdit: false, searchTerm: '', fromDate: '', toDate: '',
     fromAmount: '', toAmount: '', sortOrder: 'desc', allocationFilter: 'all', txType: 'all', allocType: 'all', hasSuggestion: 'all',
-    onRefresh: noop, onBulkAccept: noop, onBatchAccept: noop, onBatchDelete: noop, onToggleBatchEdit: noop, onExport: noop,
+    onRefresh: noop, onBulkAccept: noop, onBatchAccept: noop, onBatchDelete: noop, onToggleBatchEdit: noop, onExport: noop, onExportAll: noop,
     onApplyRules: noop, onDownloadReport: noop, onSearchChange: noop, onFromDateChange: noop, onToDateChange: noop,
     onFromAmountChange: noop, onToAmountChange: noop, onSortOrderChange: noop, onAllocationFilterChange: noop,
     onTxTypeChange: noop, onAllocTypeChange: noop, onHasSuggestionChange: noop, onToggleCC: noop, onToggleBU: noop,
