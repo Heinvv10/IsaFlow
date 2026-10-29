@@ -31,6 +31,9 @@ vi.mock('@/modules/accounting/services/expense/expenseClaimService', async (orig
 vi.mock('@/modules/accounting/services/gl/journalEntryService', async (orig) => ({ ...(await orig<object>()), createJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/openingBalancePostingService', async (orig) => ({ ...(await orig<object>()), postOpeningBalances: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/recurringInvoiceService', async (orig) => ({ ...(await orig<object>()), createRecurringInvoice: vi.fn(), updateRecurringStatus: vi.fn() }));
+// The recurring-invoices PUT reads the stored template under a row lock before its UPDATE;
+// the table below arms the UPDATE's failure, so the lock read is answered here.
+vi.mock('@/modules/accounting/services/ar/recurringInvoiceLock', async (orig) => ({ ...(await orig<object>()), lockRecurringTemplate: vi.fn().mockResolvedValue({ tax_rate: '15.00' }) }));
 vi.mock('@/modules/accounting/services/gl/recurringJournalService', async (orig) => ({ ...(await orig<object>()), createRecurringJournal: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/recurringTransactionService', async (orig) => ({ ...(await orig<object>()), createRecurringTemplate: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/sarsEfilingSubmissionService', async (orig) => ({ ...(await orig<object>()), submitVAT201ToSars: vi.fn() }));
