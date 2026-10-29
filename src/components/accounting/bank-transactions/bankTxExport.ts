@@ -13,7 +13,9 @@ function downloadCsv(csv: string, filename: string): void {
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   const a = document.createElement('a');
   a.href = url; a.download = filename;
-  a.click(); URL.revokeObjectURL(url);
+  a.click();
+  // Revoking in the same tick can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export function exportLoadedBankTx(transactions: BankTx[], bankAccountCode?: string, bankAccountName?: string): void {
