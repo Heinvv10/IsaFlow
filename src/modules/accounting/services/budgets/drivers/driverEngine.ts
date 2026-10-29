@@ -38,6 +38,13 @@ export interface ComputeInput {
   drivers: readonly DriverDef[];
   headcount: HeadcountFn;
   closedMonths: ReadonlySet<string>;
+  /**
+   * Rows whose driver is NOT recomputed in this pass: their cells are read as they stand (and
+   * never re-sourced). The services freeze per_head rows except on "Refresh headcount", a
+   * planned-hire write or that row's own driver write, so headcount refreshes on demand only
+   * (spec §5: payroll edits never push a recompute). Absent: none frozen.
+   */
+  frozenRows?: ReadonlySet<RowKey>;
   rounding: RoundingUnit;
 }
 
@@ -209,6 +216,7 @@ export function computeVersion(input: ComputeInput): ComputeResult {
     const d = graph.driverOf.get(key);
     const own = effective.get(key);
     if (!own) continue;
+    if (input.frozenRows?.has(key)) continue;
     if (!d) {
       resource(key, own, () => false, input, writes);
       continue;
