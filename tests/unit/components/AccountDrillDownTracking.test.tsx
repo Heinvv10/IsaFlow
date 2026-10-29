@@ -3,8 +3,8 @@
  * Budget vs Actual line (`budgetTracking`) sends the line's EXPLICIT dimension
  * levels (cc1_id / cc2_id, beside business_unit_id), asks for each row's
  * source document (`documents=1`) and the account-type sign (`sign=natural`),
- * and links every posted row to its document (or journal entry), carrying the
- * page it came from as return_to.
+ * and links every posted row to its document (or journal entry). The links
+ * carry no return_to (review r2 N6): Back reopens the report from its URL.
  *
  * Every other drill (IS / BS / TB) asks for none of that and renders exactly
  * what it rendered before: the HTML is pinned by a snapshot recorded on
@@ -38,13 +38,13 @@ afterEach(cleanup);
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
 
 describe('AccountDrillDown from Budget vs Actual (budgetTracking)', () => {
-  it('sends the explicit levels and the opt-ins, and links rows to their source with return_to', async () => {
+  it('sends the explicit levels and the opt-ins, and links rows to their source', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => response(withDocuments));
     render(<AccountDrillDown accountCode="4000" periodStart="2026-04-01" periodEnd="2026-04-30" cc1Id="cc1-a" cc2Id="cc2-b" businessUnitId="bu-a"
       budgetTracking returnTo={BACK} />);
     const inv = await screen.findByRole('link', { name: /INV-1/ });
-    expect(inv).toHaveAttribute('href', `/accounting/customer-invoices/${INV}?return_to=${encodeURIComponent(BACK)}`);
-    expect(screen.getByRole('link', { name: /JE-2/ })).toHaveAttribute('href', `/accounting/journal-entries/${JE2}?return_to=${encodeURIComponent(BACK)}`);
+    expect(inv).toHaveAttribute('href', `/accounting/customer-invoices/${INV}`);
+    expect(screen.getByRole('link', { name: /JE-2/ })).toHaveAttribute('href', `/accounting/journal-entries/${JE2}`);
     const params = requestParams();
     expect([params.get('cc1_id'), params.get('cc2_id'), params.get('business_unit_id'), params.get('cost_centre_id')]).toEqual(['cc1-a', 'cc2-b', 'bu-a', null]);
     expect([params.get('documents'), params.get('sign')]).toEqual(['1', 'natural']);

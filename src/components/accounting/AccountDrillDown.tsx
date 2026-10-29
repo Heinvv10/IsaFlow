@@ -54,8 +54,8 @@ interface Transaction {
 }
 
 /** The entry number; on the BvA drill (`links`) linked to its source document (or journal entry) when posted. */
-function EntryCell({ tx, links, returnTo }: { tx: Transaction; links: boolean; returnTo?: string }) {
-  const target = links && !tx.derived ? journalSourceHref(tx, returnTo) : null;
+function EntryCell({ tx, links }: { tx: Transaction; links: boolean }) {
+  const target = links && !tx.derived ? journalSourceHref(tx) : null;
   if (!target) return <span className="w-24 font-mono text-[var(--ff-text-secondary)]">{tx.entryNumber}</span>;
   return (
     <Link href={target.href} title={target.label} className="w-24 font-mono text-indigo-400 hover:underline">
@@ -85,7 +85,7 @@ interface AccountDrillDownProps {
   cc2Id?: string;
   /** The Budget vs Actual drill: asks for each row's source document (`documents=1`) and the
    *  account-type sign (`sign=natural`, so the period net is the BvA Actual), and links each
-   *  posted entry to its document carrying `returnTo`. Every other drill leaves it off. */
+   *  posted entry to its document. Every other drill leaves it off. */
   budgetTracking?: boolean;
   source?: 'tb' | 'bs' | 'is';
   returnTo?: string;
@@ -198,7 +198,7 @@ export function AccountDrillDown({
               className={`px-4 py-1 flex items-center gap-3 text-xs border-b border-[var(--ff-border-light)]/40 hover:bg-[var(--ff-bg-tertiary)]/20${tx.derived ? ' italic' : ''}`}
             >
               <span className="w-20 text-[var(--ff-text-tertiary)]">{fmtDate(tx.date)}</span>
-              <EntryCell tx={tx} links={budgetTracking} returnTo={returnTo} />
+              <EntryCell tx={tx} links={budgetTracking} />
               <span className="flex-1 text-[var(--ff-text-secondary)] truncate">{tx.description}</span>
               <span className="w-24 text-right tabular-nums text-[var(--ff-text-primary)]">
                 {tx.debit > 0 ? fmt(tx.debit) : ''}
