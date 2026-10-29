@@ -6,7 +6,7 @@
  *   → ONE savepoint: takeVersion (FIRST: the grid save's compare-and-set on the client's
  *     `expectedUpdatedAt`, which is also P1's pre-lock: 404 NOT_FOUND, 409 LOCKED, 409 STALE with
  *     the current token and status, all before anything is written) → the write →
- *     recomputeVersion → one audit row (entity 'budget', the version) naming the action and the
+ *     recomputeVersion (per_head rows live as the write says: see driverRecomputeService) → one audit row (entity 'budget', the version) naming the action and the
  *     cells the recompute changed → the version's new token.
  *
  * The savepoint matters: withAuth COMMITs a 4xx, so a refusal raised after a write (a cycle, a
@@ -19,8 +19,8 @@ import { auditBudgetWrite, holdYearRegistry } from '../budgetVersionScope';
 import { mapBudgetDbError } from '../budgetVersionTypes';
 import { inputError, isVersionToken } from '../gridErrors';
 import { takeVersion } from '../versionTake';
-import type { DriverWarning } from './driverTypes';
-import { recomputeVersion, versionMonths } from './driverRecomputeService';
+import type { RowKey } from './driverTypes';
+import { recomputeVersion, versionMonths, type RecomputeWarning } from './driverRecomputeService';
 
 export interface DriverWriteTarget {
   versionId: string;
@@ -39,12 +39,21 @@ export interface DriverWriteOutcome {
   updatedAt: string;
   /** Cells the recompute changed. */
   recomputed: number;
-  warnings: DriverWarning[];
+  warnings: RecomputeWarning[];
+  /** When payroll was read (a live per_head row, or a Refresh); null when this write read none. */
+  headcountAsOf: string | null;
+}
+
+export interface DriverWriteBody<T> {
+  value: T;
+  audit?: Record<string, string>;
+  /** per_head rows that read headcount in the recompute: 'all', or these rows (default none). */
+  live?: 'all' | ReadonlySet<RowKey>;
 }
 
 export async function runDriverWrite<T extends object>(
   companyId: string, userId: string, target: DriverWriteTarget, action: string,
-  write: (ctx: DriverWriteContext) => Promise<{ value: T; audit?: Record<string, string> }>,
+  write: (ctx: DriverWriteContext) => Promise<DriverWriteBody<T>>,
 ): Promise<T & DriverWriteOutcome> {
   const versionId = target.versionId.toLowerCase();
   // Checked here too: one Postgres cannot read would be a 500 at the compare.
@@ -54,12 +63,15 @@ export async function runDriverWrite<T extends object>(
     return await withSavepoint('budget_driver_write', async () => {
       const version = await takeVersion(companyId, versionId, target.expectedUpdatedAt);
       const months = await versionMonths(companyId, version.fiscalYear);
-      const { value, audit } = await write({ versionId, fiscalYear: version.fiscalYear, months });
-      const { changed, warnings } = await recomputeVersion(companyId, versionId, userId);
+      const { value, audit, live } = await write({ versionId, fiscalYear: version.fiscalYear, months });
+      const recomputed = await recomputeVersion(companyId, versionId, userId, { live });
+      // Every write that read payroll audits when (a Refresh records its own time even with no per_head row).
+      const headcountAsOf = recomputed.headcountAsOf ?? audit?.headcountAsOf ?? null;
       await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {
-        driverAction: action, ...audit, recomputed: String(changed), versionStatus: version.status,
+        driverAction: action, ...audit, recomputed: String(recomputed.changed), versionStatus: version.status,
+        ...(headcountAsOf === null ? {} : { headcountAsOf }),
       });
-      return { ...value, updatedAt: version.updatedAt, recomputed: changed, warnings };
+      return { ...value, updatedAt: version.updatedAt, recomputed: recomputed.changed, warnings: recomputed.warnings, headcountAsOf };
     });
   } catch (err) {
     return mapBudgetDbError(err);
