@@ -149,6 +149,36 @@ describe('drill documents (opt-in)', () => {
   });
 });
 
+describe('the opening balance under each filter (review r2 N3)', () => {
+  // A March posting on BT-4000 tagged to the OTHER FNO (HT), business unit B2, no project: inside FY2027
+  // (so in an April window's opening), outside every filter below but "none".
+  async function seedMarch(c: PoolClient) {
+    const eid = crypto.randomUUID();
+    await replica(c);
+    await c.query(`INSERT INTO gl_journal_entries (id, company_id, entry_number, entry_date, status, created_by, description, source, created_at)
+                   VALUES ($1, $2, 'OPEN-1', '2026-03-20', 'posted', $3, 'open', 'manual', NOW())`, [eid, f.a, f.userA]);
+    await c.query(`INSERT INTO gl_journal_lines (id, journal_entry_id, company_id, gl_account_id, debit, credit, cc1_id, cc2_id, bu_id, description)
+                   VALUES ($1, $2, $3, $4, 0, 4321.09, $5, NULL, $6, 'open'), ($7, $2, $3, $8, 4321.09, 0, NULL, NULL, NULL, 'open')`,
+    [crypto.randomUUID(), eid, f.a, f.acc.sales, f.cc.HT, f.bu.B2, crypto.randomUUID(), f.acc.bank]);
+    await origin(c);
+  }
+  const openings = (seed: boolean) => asRequest(pool, f.a, f.userA, async () => {
+    const out: Record<string, number> = {};
+    for (const [name, bu, dims] of FILTERS()) {
+      out[name] = (await getAccountTransactions(f.a, 'BT-4000', '2026-04-01', '2026-04-30', undefined, bu, { ...dims, naturalSign: true })).openingBalance;
+    }
+    return out;
+  }, seed ? { before: seedMarch } : {});
+
+  it('the posting moves the unfiltered opening by its amount, and no filtered opening it does not match', async () => {
+    const [without, withSeed] = [await openings(false), await openings(true)];
+    const moved = Object.fromEntries(Object.keys(without).map((k) => [k, Math.round((withSeed[k]! - without[k]!) * 100) / 100]));
+    expect(moved).toEqual({ none: 4321.09, cc1: 0, cc2: 0, bu: 0, 'cc1+bu': 0, 'cc2+bu': 0 });
+    // The filtered openings are their own figures, not the unfiltered one.
+    for (const k of ['cc1', 'cc2', 'bu']) expect(withSeed[k]).not.toBe(withSeed.none);
+  });
+});
+
 describe('drill sign (opt-in naturalSign)', () => {
   it('a debit-normal revenue account: the BvA drill periodNet equals the line Actual (revenue = credit − debit)', async () => {
     const out = await asRequest(pool, f.a, f.userA, async () => {
