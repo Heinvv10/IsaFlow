@@ -89,7 +89,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         (si.total_amount - ${sql.unsafe(paid)})         AS balance_due,
         GREATEST(0, (${asAtStr}::date - COALESCE(si.due_date, si.invoice_date)))  AS days_overdue
       FROM supplier_invoices si
-      JOIN suppliers s ON s.id = si.supplier_id
+      JOIN suppliers s
+        ON s.id = si.supplier_id
+       AND s.company_id = si.company_id
       LEFT JOIN LATERAL (
         ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
       ) unpaid ON TRUE

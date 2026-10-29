@@ -37,7 +37,9 @@ export async function fetchAPAgingInvoices(
       ${sql.unsafe(effectivePaidExpr('ap'))} AS amount_paid,
       (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) AS balance
     FROM supplier_invoices si
-    JOIN suppliers s ON s.id = si.supplier_id
+    -- supplier_id is a bare FK to suppliers(id): match the company so a row
+    -- cannot surface another tenant's supplier name.
+    JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     LEFT JOIN LATERAL (
       ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
     ) unpaid ON TRUE

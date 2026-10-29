@@ -40,7 +40,9 @@ export async function fetchARAgingInvoices(
       ${sql.unsafe(effectivePaidExpr('ar'))} AS amount_paid,
       (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) AS balance
     FROM customer_invoices ci
-    JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+    -- client_id / customer_id are bare FKs to customers(id): match the company
+    -- so a row cannot surface another tenant's customer name.
+    JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     LEFT JOIN LATERAL (
       ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
     ) unpaid ON TRUE
