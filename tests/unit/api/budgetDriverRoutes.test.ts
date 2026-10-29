@@ -41,6 +41,7 @@ import hiresRoute from '../../../pages/api/accounting/budget-drivers/planned-hir
 import { DriverCycleError, DriverRangeError, DriverRefError } from '@/modules/accounting/services/budgets/drivers/driverTypes';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { BudgetVersionStaleError } from '@/modules/accounting/services/budgets/versionTake';
+import { BudgetDriverError } from '@/modules/accounting/services/budgets/drivers/driverErrors';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const FOREIGN = '22222222-2222-4222-8222-222222222222';
@@ -102,6 +103,16 @@ describe('budget-drivers routes: methods, CSRF, roles and the bucket', () => {
     }
     expect(svc.saveDriver).not.toHaveBeenCalled();
     expect(svc.resetOverride).not.toHaveBeenCalled();
+  });
+
+  it("a viewer reads company headcount, but a cost centre's is 403 before the service runs", async () => {
+    svc.readHeadcount.mockResolvedValue({ costCentreId: null, months: [], asOf: 't' });
+    const CC = '66666666-6666-4666-8666-666666666666';
+    expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V }, companyRole: 'viewer' })).statusCode).toBe(200);
+    expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V, costCentreId: CC }, companyRole: 'viewer' })).statusCode).toBe(403);
+    expect(svc.readHeadcount).toHaveBeenCalledTimes(1);
+    expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V, costCentreId: CC }, companyRole: 'manager' })).statusCode).toBe(200);
+    expect(svc.readHeadcount).toHaveBeenLastCalledWith(COMPANY, V, CC);
   });
 
   it('charges writes to the budget-driver bucket (429 past it) and never reads', async () => {
@@ -169,6 +180,15 @@ describe('budget-drivers routes: refusals', () => {
     svc.createHire.mockRejectedValueOnce(new BudgetVersionError('BUDGET_VERSION_LOCKED', 'This budget version is locked'));
     const locked = await call(hiresRoute as Route, { method: 'POST', body: { versionId: V, expectedUpdatedAt: T, label: 'X', startMonth: '2026-04' } });
     expect([locked.statusCode, locked.sent.error?.details]).toEqual([409, { code: 'BUDGET_VERSION_LOCKED' }]);
+  });
+
+  it('a missing driver or hire is 404 DRIVER_NOT_FOUND / PLANNED_HIRE_NOT_FOUND', async () => {
+    svc.deleteDriver.mockRejectedValue(new BudgetDriverError('DRIVER_NOT_FOUND', 'Budget driver not found in this version'));
+    const d = await call(driversRoute as Route, { method: 'DELETE', query: { versionId: V, id: REF, expectedUpdatedAt: T } });
+    expect([d.statusCode, d.sent.error?.details]).toEqual([404, { code: 'DRIVER_NOT_FOUND' }]);
+    svc.deleteHire.mockRejectedValue(new BudgetDriverError('PLANNED_HIRE_NOT_FOUND', 'Planned hire not found in this version'));
+    const h = await call(hiresRoute as Route, { method: 'DELETE', query: { versionId: V, id: REF, expectedUpdatedAt: T } });
+    expect([h.statusCode, h.sent.error?.details]).toEqual([404, { code: 'PLANNED_HIRE_NOT_FOUND' }]);
   });
 
   it('a stale token is 409 BUDGET_VERSION_STALE with the current token and status', async () => {

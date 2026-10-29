@@ -1,17 +1,20 @@
 /**
- * A driver refusal the routes answer 400 with `error.details.code` (P4 spec §5): DRIVER_CYCLE
+ * A driver refusal the routes answer with `error.details.code` (P4 spec §5): 400 DRIVER_CYCLE
  * (with `path`, the row keys around it, first == last), DRIVER_REF (a row, month, base or field
- * the driver may not name) or DRIVER_RANGE (an amount, percentage or result beyond the budget range).
+ * the driver may not name) or DRIVER_RANGE (an amount, percentage or result beyond the budget
+ * range); 404 DRIVER_NOT_FOUND / PLANNED_HIRE_NOT_FOUND (none of this version's, another
+ * company's included). Messages name accounts by code and name, never by row key.
  */
 import { DriverCycleError, DriverRangeError, DriverRefError, type RowKey } from './driverTypes';
 
-export type BudgetDriverErrorCode = 'DRIVER_CYCLE' | 'DRIVER_REF' | 'DRIVER_RANGE';
+export type BudgetDriverErrorCode = 'DRIVER_CYCLE' | 'DRIVER_REF' | 'DRIVER_RANGE' | 'DRIVER_NOT_FOUND' | 'PLANNED_HIRE_NOT_FOUND';
 
 export class BudgetDriverError extends Error {
-  readonly status = 400;
+  readonly status: 400 | 404;
   constructor(readonly code: BudgetDriverErrorCode, message: string, readonly path: RowKey[] | null = null) {
     super(message);
     this.name = 'BudgetDriverError';
+    this.status = code === 'DRIVER_NOT_FOUND' || code === 'PLANNED_HIRE_NOT_FOUND' ? 404 : 400;
   }
 }
 
