@@ -43,6 +43,8 @@ export interface RollOutcome {
   rolledThroughMonth: string | null;
   unplaced: UnplacedActualLine[];
   warnings: RecomputeWarning[];
+  /** When payroll was read for per_head drivers (a roll refreshes headcount); null when none needed it or not rolled. */
+  headcountAsOf: string | null;
   /** The version's token after the roll (null when not rolled). */
   updatedAt: string | null;
 }
@@ -94,7 +96,7 @@ async function rollingRow(companyId: string, versionId: string): Promise<Rolling
 }
 
 const skipped = (status: 'locked' | 'not_rolling'): RollOutcome =>
-  ({ status, changed: 0, closedMonths: [], rolledThroughMonth: null, unplaced: [], warnings: [], updatedAt: null });
+  ({ status, changed: 0, closedMonths: [], rolledThroughMonth: null, unplaced: [], warnings: [], headcountAsOf: null, updatedAt: null });
 
 export async function rollVersion(companyId: string, userId: string, versionId: string, mode: RollMode): Promise<RollOutcome> {
   const id = versionId.toLowerCase();
@@ -120,7 +122,7 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       const changed = await writePlannedCells(companyId, id, userId, plan.cells);
       const through = closed.length > 0 ? closed[closed.length - 1]! : null;
       const unplaced = describeUnplaced(plan, read);
-      const outcome = { status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings };
+      const outcome = { status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings, headcountAsOf };
       if (changed === 0) throw new NothingRolled(outcome);
       await markRolled(companyId, id, through);
       await auditBudgetWrite(companyId, userId, 'update', id, row.fiscalYear, {

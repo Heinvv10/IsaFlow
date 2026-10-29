@@ -40,7 +40,8 @@ const dump = (r: RouteOut) => `${r.status} ${JSON.stringify(r.body).slice(0, 600
 
 interface Created {
   version: { id: string; kind: string; status: string; basedOnVersionId: string; updatedAt: string };
-  rolling: boolean; closedMonths: string[]; cells: number;
+  rolling: boolean; closedMonths: string[]; cells: number; headcountAsOf: string | null;
+  warnings: Array<{ code: string; message: string }>;
   unplaced: Array<{ accountId: string; accountCode: string; accountName: string; level: string; month: string; amount: number }>;
 }
 
@@ -158,6 +159,7 @@ describe('budget reforecast from actuals', () => {
 
   it('refreshes headcount (nothing frozen): per-head cells follow the hires as they are now, not the source', async () => {
     const v = rf.version.id;
+    expect(rf.headcountAsOf).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect((await fx.cellsOf(source, w.child1)).get(m[5]!)).toBe('100.00:driver');
     expect([...(await fx.cellsOf(v, w.child1)).values()]).toEqual([
       '0.00:actual', '0.00:actual', '0.00:driver', '100.00:driver', '100.00:driver', ...Array(7).fill('200.00:driver'),
@@ -192,6 +194,42 @@ describe('budget reforecast from actuals', () => {
     expect(made.version.status).toBe('draft');
     expect([...(await fx.cellsOf(made.version.id, w.sales)).values()].slice(0, 3)).toEqual(['1300.00:actual', '1500.00:actual', '1000.00:manual']);
     expect((await pool.query('SELECT status FROM budget_versions WHERE id = $1', [locked])).rows[0].status).toBe('locked');
+  });
+
+  it("the reforecast's closed months are read-only in the grid: an actual cannot be typed over, nor a new cell typed in", async () => {
+    const v = rf.version.id;
+    const before = await fx.cells(v);
+    const cell = (glAccountId: string, month: string, amount: number) => ({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, amount });
+    for (const c of [cell(w.sales, m[0]!, 1), cell(w.child2, m[1]!, 5)]) {
+      const r = await fx.call.save(w.u, v, [c]);
+      expect([r.status, details(r).code], dump(r)).toEqual([400, 'BUDGET_VERSION_INPUT']);
+      expect(String(r.body.error?.message)).toMatch(/is a closed month of this budget/);
+    }
+    // An open month still takes a typed cell.
+    expect((await fx.call.save(w.u, v, [cell(w.child2, m[2]!, 5)])).status).toBe(200);
+    expect((await fx.cells(v)).length).toBe(before.length + 1);
+  });
+
+  it('a stored driver loop sits out with a DRIVER_SKIPPED warning; its rows plan as driverless, values kept', async () => {
+    const looped = await fx.version(w);
+    for (const month of m) await fx.amount(w, looped, w.sales, month, 1000);
+    const cogs = await fx.call.drivers(w.u, 'PUT', {
+      versionId: looped, glAccountId: w.cogs, kind: 'pct_of_line', pct: 38, fromMonth: m[0], toMonth: m[11], ref: { glAccountId: w.sales },
+    });
+    expect(cogs.status, dump(cogs)).toBe(200);
+    // Written past the save-time cycle check, as a stored loop would be (a skipped driver come back).
+    await pool.query(
+      `INSERT INTO budget_driver_lines (company_id, version_id, gl_account_id, kind, from_month, to_month, pct, ref_gl_account_id, created_by)
+       VALUES ($1, $2, $3, 'pct_of_line', $4, $5, 10, $6, $7)`,
+      [w.u.homeCompanyId, looped, w.sales, `${m[0]}-01`, `${m[11]}-01`, w.cogs, w.u.userId]);
+    const r = await create(looped, { name: 'From a loop' });
+    expect(r.status, dump(r)).toBe(201);
+    const made = dataOf<Created>(r);
+    expect(made.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'DRIVER_SKIPPED', message: expect.stringMatching(/GS-\d+ .* form a loop; change one of them/) }),
+    ]));
+    expect([...(await fx.cellsOf(made.version.id, w.sales)).values()].slice(0, 3)).toEqual(['1300.00:actual', '1500.00:actual', '1000.00:manual']);
+    expect([...(await fx.cellsOf(made.version.id, w.cogs)).values()].slice(0, 3)).toEqual(['400.00:actual', '0.00:actual', '380.00:manual']);
   });
 
   it("another company's source version is a 404 and creates nothing", async () => {
