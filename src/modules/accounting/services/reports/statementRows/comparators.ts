@@ -94,10 +94,13 @@ export function applyBudgetComparator(
   lines: ReadonlyArray<BudgetVsActualLine & { budget_verdict?: BudgetVerdict }>,
 ): StatementRow[] {
   const byCode = new Map(lines.map((l) => [l.account_code, l]));
+  // The comparator's lines carry the engine's verdicts and cover every account with a budget or an
+  // actual: a statement row it does not name has no budget, so it prints absent too.
+  const tracked = lines.some((l) => l.budget_verdict !== undefined);
   return rows.map((row) => {
     if (!isAccountLine(row)) return row;
     const line = byCode.get(row.accountCode!);
-    if (line === undefined) return row;
+    if (line === undefined) return tracked ? { ...row, budget: { value: 0, absent: true } } : row;
     // No budget to compare with. A line carrying the engine's verdict (the
     // comparator's mode) prints absent "—", with the reason when it has one
     // (budgeted for part of the window; budget set above the filter); a line

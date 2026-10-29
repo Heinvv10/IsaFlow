@@ -51,7 +51,11 @@ function stubFetches() {
       totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
     } });
   });
-  apiJson.mockResolvedValue({ months: [], byAccountCode: {}, unavailable: {}, lines: [], budgetedCount: 0 });
+  // One stub answers both comparators: the trend's fields and the budget comparator's whole response.
+  apiJson.mockResolvedValue({
+    months: [], byAccountCode: {}, unavailable: {}, lines: [], budgetedCount: 0, budgetAbsentYears: [], windowYears: [],
+    unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, splitsMonth: false, bands: [],
+  });
 }
 
 const comparatorCalls = () =>

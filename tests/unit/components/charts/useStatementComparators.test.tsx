@@ -60,12 +60,13 @@ describe('useStatementComparators — a failed fetch', () => {
 
 describe('useStatementComparators — the budget signal comes from the service', () => {
   it('is "none" when the service budgeted no accounts, even though lines came back', async () => {
-    apiJson.mockResolvedValue(RESPONSE({ lines: budgetLines(0), budgetedCount: 0 }));
+    const absent = budgetLines(0).map((l) => ({ ...l, budgeted: false, budget_verdict: 'absent', band: 'turnover' }));
+    apiJson.mockResolvedValue(RESPONSE({ lines: absent, budgetedCount: 0 }));
     const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
     await waitFor(() => expect(result.current.budgetState).toBe('none'));
-    // And the comparator is not applied, so no variance is printed against a
-    // target nobody set.
-    expect(result.current.apply(ROW())[0]!.budget).toBeUndefined();
+    // No variance is printed against a target nobody set: the row prints absent "—" (the engine's
+    // verdict), never a zero budget with the whole actual as its variance.
+    expect(result.current.apply(ROW())[0]!.budget).toEqual({ value: 0, absent: true });
   });
 
   it('is "available" — and applies — when the service budgeted an account', async () => {

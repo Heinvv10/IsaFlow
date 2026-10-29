@@ -188,8 +188,10 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     // No budget captured means every account's budget is zero, and applying
     // the comparator then prints a variance equal to the whole actual against
     // a target nobody set — a large red bar that is an artefact, not a
-    // finding. The column stays empty and the page says why.
-    if (budget && budgetData && hasBudgetData(budgetData.budgetedCount)) {
+    // finding. The comparator's lines carry the engine's verdicts instead
+    // (budgets P3 PR-C), so a window with no budget prints "—" on every row,
+    // never a zero, and the page says why.
+    if (budget && budgetData) {
       // Unspent budgets get their rows, every line its budget or "—", every band the engine's budget.
       out = applyBudgetBands(applyBudgetComparator(withBudgetedLines(out, budgetData.lines), budgetData.lines), budgetData.bands);
     }
