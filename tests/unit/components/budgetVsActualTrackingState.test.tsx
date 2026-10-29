@@ -178,7 +178,7 @@ describe('controls the client can judge (browser review r1)', () => {
     expect((screen.getByRole('button', { name: /Export CSV/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('Quarter opens on the quarter holding today; a year that does not hold today opens on Q1', async () => {
+  it('Quarter opens on the quarter holding today; another year keeps the chosen quarter (review r3 L4)', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 7, 15, 12));
     vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok(named('Sales')));
@@ -188,7 +188,23 @@ describe('controls the client can judge (browser review r1)', () => {
     // FY2027 runs Mar 2026 - Feb 2027: August 2026 is in Q2.
     await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'quarter', quarter: '2', group_by: 'cc1' }));
     fireEvent.change(screen.getByTestId('report-year'), { target: { value: '2026' } });
-    await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'quarter', fiscal_year: '2026', quarter: '1', group_by: 'cc1' }));
+    await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'quarter', fiscal_year: '2026', quarter: '2', group_by: 'cc1' }));
+  });
+
+  it("a quarter the new year does not have is clamped to the year's last (Q5 of a 14-month year -> Q4)", async () => {
+    const years = [
+      { fiscalYear: 2027, startDate: '2026-01-01', endDate: '2027-02-28', kind: 'transition' },
+      { fiscalYear: 2028, startDate: '2027-03-01', endDate: '2028-02-29', kind: 'normal' },
+    ];
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok({ ...named('Sales'), years }));
+    render(<BudgetVsActualPage />);
+    await screen.findByRole('button', { name: /Sales/ });
+    fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'quarter' } });
+    fireEvent.change(await screen.findByTestId('report-year'), { target: { value: '2027' } });
+    fireEvent.change(await screen.findByTestId('bva-quarter'), { target: { value: '5' } });
+    await waitFor(() => expect(reportQueries().at(-1)).toMatchObject({ fiscal_year: '2027', quarter: '5' }));
+    fireEvent.change(screen.getByTestId('report-year'), { target: { value: '2028' } });
+    await waitFor(() => expect(reportQueries().at(-1)).toMatchObject({ fiscal_year: '2028', quarter: '4' }));
   });
 });
 

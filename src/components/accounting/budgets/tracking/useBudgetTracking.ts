@@ -24,7 +24,7 @@ import type { BudgetVersion } from '@/modules/accounting/services/budgets/budget
 import type { BudgetTrackingReport, TrackingPeriod } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import type { ReportYearOption } from '@/modules/accounting/services/reports/budgetReportYear';
 import {
-  controlsFromQuery, controlsProblem, controlsToQuery, DEFAULT_CONTROLS, quarterHolding, trackingSearch, withPatch,
+  controlsFromQuery, controlsProblem, controlsToQuery, DEFAULT_CONTROLS, quarterHolding, quarterOptions, trackingSearch, withPatch,
   type TrackingControls,
 } from './trackingControls';
 
@@ -183,10 +183,13 @@ export function useBudgetTracking() {
     });
   }, [report, today, years]);
 
-  /** Another financial year: a Quarter view opens on that year's quarter holding today (Q1 if none). */
+  /** Another financial year keeps the chosen quarter, clamped to that year's last (review r3 L4). */
   const setFiscalYear = useCallback((fiscalYear: number) => {
-    setControls((c) => withPatch(c, { fiscalYear, quarter: quarterHolding(years.find((y) => y.fiscalYear === fiscalYear), today) }));
-  }, [years, today]);
+    setControls((c) => {
+      const quarters = quarterOptions(years.find((y) => y.fiscalYear === fiscalYear)).length;
+      return withPatch(c, { fiscalYear, quarter: Math.min(c.quarter, quarters) });
+    });
+  }, [years]);
 
   const clearFilter = useCallback(() => update({ cc1Id: '', cc2Id: '', buId: '' }), [update]);
 

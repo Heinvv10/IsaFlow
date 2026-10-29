@@ -19,7 +19,9 @@
  * drawn neutral (the axis ink), marked "*" on the axis, said so in the tooltip,
  * and left out of the colour scale, so the judged months keep their strength.
  * A judged nonzero variance is drawn at no less than MIN_OPACITY, so a small
- * one still shows against a dark background; an on-budget month stays clear.
+ * one still shows against a dark background. A judged month exactly on budget
+ * (variance 0) is an outline in the axis-label ink: never coloured, never an
+ * invisible empty rectangle (review r3 L3; the legend says "outline = on budget").
  *
  * Labels: account names are ledger data. The tooltip escapes them
  * (`escapeHtml`); the axis is drawn as text by zrender, not HTML. Below
@@ -103,8 +105,9 @@ export function buildVarianceHeatmapOption(
       return { type: 'rect' as const, shape, style: { fill: forecast.color, stroke: forecast.borderColor, lineWidth: forecast.borderWidth, decal: forecast.decal } };
     }
     if (unjudged(c.month)) return { type: 'rect' as const, shape, style: { fill: palette.axisLine, opacity: 0.35 } };
+    if (c.variance === 0) return { type: 'rect' as const, shape, style: { fill: 'transparent', stroke: palette.axisLabel, lineWidth: 1 } };
     const share = max === 0 ? 0 : Math.abs(c.variance) / max;
-    const opacity = share === 0 ? 0 : Math.round(Math.max(MIN_OPACITY, share) * 1000) / 1000;
+    const opacity = Math.round(Math.max(MIN_OPACITY, share) * 1000) / 1000;
     return { type: 'rect' as const, shape, style: { fill: varianceColor(c.favourable ?? undefined, palette), opacity } };
   };
 
