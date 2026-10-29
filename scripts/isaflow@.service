@@ -1,0 +1,35 @@
+[Unit]
+# One colour of the blue/green pair (instance = port, 3111 or 3112). nginx
+# fronts the live one on :3101 and :80; scripts/deploy.sh builds into the idle
+# one, verifies it on its own port, then switches nginx (scripts/deploy/bluegreen.sh).
+Description=IsaFlow App (Next.js) on port %i
+After=network.target
+
+[Service]
+Type=simple
+User=velo
+Group=velo
+WorkingDirectory=/home/velo/isaflow-%i
+ExecStart=/usr/bin/node /home/velo/isaflow-%i/server.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=%i
+# Loopback only: everything reaches a colour through nginx (or the deploy's
+# own verification on 127.0.0.1).
+Environment=HOSTNAME=127.0.0.1
+# The single production env file stays where every other unit and runbook reads it.
+EnvironmentFile=/home/velo/isaflow/.env.local
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-%i
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/velo/isaflow-%i /tmp
+
+[Install]
+WantedBy=multi-user.target
