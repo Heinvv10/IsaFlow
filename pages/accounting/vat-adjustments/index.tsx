@@ -14,6 +14,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
@@ -35,12 +36,15 @@ export default function VATAdjustmentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const dates = useDateGate();
   const [form, setForm] = useState({
     adjustmentDate: localISODate(),
     vatPeriod: '', adjustmentType: 'input', amount: '', reason: '',
   });
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const onFromChange = dates.bind('dateFrom', setDateFrom, dateFrom);
+  const onToChange = dates.bind('dateTo', setDateTo, dateTo);
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +62,7 @@ export default function VATAdjustmentsPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     setError(''); setBusy('new');
     try {
       const res = await apiFetch('/api/accounting/vat-adjustments', {
@@ -123,7 +128,7 @@ export default function VATAdjustmentsPage() {
             </div>
             <div className="flex items-center gap-2">
               <ExportCSVButton endpoint="/api/accounting/vat-adjustments-export" filenamePrefix="vat-adjustments" label="Export CSV" />
-              <button onClick={() => setShowForm(!showForm)} className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
+              <button onClick={() => setShowForm(!showForm)} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
                 <Plus className="h-4 w-4" /> New Adjustment
               </button>
             </div>
@@ -134,19 +139,26 @@ export default function VATAdjustmentsPage() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
 
           <div className="flex items-center gap-4">
-            <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
-            <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
+            <DateField label="From" value={dateFrom || null} resetKey={dates.resetKey('dateFrom')} onChange={onFromChange} />
+            <DateField label="To" value={dateTo || null} resetKey={dates.resetKey('dateTo')} onChange={onToChange} />
             {(dateFrom || dateTo) && (
-              <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
+              <button onClick={() => { dates.reset('dateFrom'); dates.reset('dateTo'); setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
             )}
             <span className="mt-4 text-sm text-[var(--ff-text-secondary)] ml-auto">{filteredItems.length} adjustments</span>
           </div>
+
+          {dates.blocked && (
+            <div role="alert" className="p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
+              Fix the date marked in red: the list below still uses the previous dates.
+            </div>
+          )}
 
           {showForm && (
             <form onSubmit={handleSubmit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
               <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">New VAT Adjustment</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input type="date" value={form.adjustmentDate} onChange={e => setForm(f => ({ ...f, adjustmentDate: e.target.value }))} className="ff-input" required />
+                <DateField label="Adjustment Date" name="adjustmentDate" required value={form.adjustmentDate || null}
+                  onChange={dates.bind('adjustmentDate', iso => setForm(f => ({ ...f, adjustmentDate: iso })), form.adjustmentDate)} />
                 <input value={form.vatPeriod} onChange={e => setForm(f => ({ ...f, vatPeriod: e.target.value }))} className="ff-input" placeholder="VAT Period (e.g. 2026-01)" />
                 <select value={form.adjustmentType} onChange={e => setForm(f => ({ ...f, adjustmentType: e.target.value }))} className="ff-select">
                   <option value="input">Input VAT (Claimable)</option>
@@ -159,7 +171,7 @@ export default function VATAdjustmentsPage() {
               </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Cancel</button>
-                <button type="submit" disabled={busy === 'new'} className="px-6 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                <button type="submit" disabled={busy === 'new'} className="px-6 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
                   {busy === 'new' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create Adjustment'}
                 </button>
               </div>
@@ -182,7 +194,7 @@ export default function VATAdjustmentsPage() {
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{item.adjustmentNumber}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(item.adjustmentDate)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.vatPeriod || '—'}</td>
-                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${item.adjustmentType === 'input' ? 'bg-blue-500/10 text-blue-400' : 'bg-orange-500/10 text-orange-400'}`}>{item.adjustmentType}</span></td>
+                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${item.adjustmentType === 'input' ? 'bg-blue-500/10 text-blue-800 dark:text-blue-400' : 'bg-orange-500/10 text-orange-800 dark:text-orange-400'}`}>{item.adjustmentType}</span></td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(item.amount)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] truncate max-w-[200px]">{item.reason}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[item.status] || ''}`}>{item.status}</span></td>
