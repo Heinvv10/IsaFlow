@@ -5,26 +5,26 @@
  * token with the recompute's count.
  *
  * - Save: the line's kind columns (`normaliseLine`), its months inside the version
- *   (`assertDriverMonths`), what it names (`checkDriverLine`), then `assertNoCycle` over the
- *   version's drivers with this one substituted: a cycle is 400 DRIVER_CYCLE with the path, and
- *   nothing is written. The row's 'driver' cells outside the new range go back to 'manual' (the
+ *   (`assertDriverMonths`), what it names (`checkDriverLine`), then a cycle check over EVERY stored
+ *   driver of the version (skipped ones included, `fullDriverGraph`) with this one substituted:
+ *   a cycle is 400 DRIVER_CYCLE with the path, and nothing is written. The row's 'driver' cells outside the new range go back to 'manual' (the
  *   engine's re-sourcing, in the recompute); an 'override' outside it stays (spec §1.2).
  * - Delete: the row's 'override' cells become 'manual' here, its 'driver' cells in the recompute;
  *   values kept.
  * - Reset: 'override' cells (one month, or the whole row) back to 'driver', then recomputed.
- * - Refresh headcount: a recompute with every per_head row live, recording `headcountAsOf` in its
- *   audit row (payroll never pushes one). A driver save or reset reads headcount for its own row
- *   only; every other pass keeps per_head rows as they stand.
+ * - Refresh headcount: a recompute with every per_head row live (payroll never pushes one). A
+ *   driver save or reset reads headcount for its own row only; every other pass keeps per_head rows
+ *   as they stand. Each write that reads payroll audits and answers `headcountAsOf`.
  */
 import { versionYear } from '../budgetVersionScope';
 import { inputError } from '../gridErrors';
 import { assertDriverMonths, monthIndex } from './driverEngine';
-import { assertNoCycle } from './driverGraph';
+import { topoOrder } from './driverGraph';
 import { DriverCycleError } from './driverTypes';
 import { normaliseLine, rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLineInput, type StoredDriverLine } from './driverLine';
 import { deleteDriverLine, driverLineOfRow, listDriverLines, upsertDriverLine } from './driverRepository';
 import { releaseOverrideCells, resetOverrideCells } from './driverCellSources';
-import { loadVersionModel, rowLabel } from './driverModel';
+import { fullDriverGraph, loadVersionModel, rowLabel } from './driverModel';
 import { checkDriverLine } from './driverValidate';
 import { BudgetDriverError } from './driverErrors';
 import { runDriverWrite, type DriverWriteTarget } from './driverWriteScope';
@@ -54,7 +54,8 @@ export async function saveDriver(companyId: string, userId: string, target: Driv
     const unplaced = model.skipped.find((x) => x.rowKey === key);
     if (unplaced) throw new BudgetDriverError('DRIVER_REF', unplaced.message);
     try {
-      assertNoCycle(model.rows, model.defs);
+      // Over EVERY stored driver, skipped ones too: a loop through one comes back with its account.
+      topoOrder(fullDriverGraph(model));
     } catch (err) {
       if (!(err instanceof DriverCycleError)) throw err;
       throw new BudgetDriverError('DRIVER_CYCLE',
@@ -102,8 +103,9 @@ export async function resetOverride(companyId: string, userId: string, target: D
 }
 
 export async function refreshHeadcount(companyId: string, userId: string, target: DriverWriteTarget) {
-  const headcountAsOf = new Date().toISOString();
+  // The recompute's payroll read time wins; this one stands when the version has no per_head row.
+  const requestedAt = new Date().toISOString();
   return runDriverWrite(companyId, userId, target, 'headcount_refresh', async () => ({
-    value: { headcountAsOf }, audit: { headcountAsOf }, live: 'all' as const,
+    value: {}, audit: { headcountAsOf: requestedAt }, live: 'all' as const,
   }));
 }

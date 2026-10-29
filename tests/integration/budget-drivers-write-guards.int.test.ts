@@ -95,11 +95,11 @@ describe('budget driver writes: a locked version', () => {
     expect((await fx.call.headcount(viewer, 'GET', undefined, { versionId: v })).status).toBe(200);
   });
 
-  it("a viewer reads company headcount but not a cost centre's (403); a writer reads both", async () => {
+  it('a viewer reads headcount at company and cost-centre scope (viewers read budgets, decision 15)', async () => {
     const { v } = await lockedVersion();
     const cc = await fx.call.headcount(viewer, 'GET', undefined, { versionId: v, costCentreId: w.cc1 });
-    expect(cc.status, dump(cc)).toBe(403);
-    expect((await fx.call.headcount(w.u, 'GET', undefined, { versionId: v, costCentreId: w.cc1 })).status).toBe(200);
+    expect(cc.status, dump(cc)).toBe(200);
+    expect(dataOf<{ costCentreId: string }>(cc).costCentreId).toBe(w.cc1);
   });
 });
 
