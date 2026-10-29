@@ -49,7 +49,7 @@ const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !
 function run(env: Record<string, string>): { status: number | null; out: string; calls: string[] } {
   writeFileSync(LOG, '');
   const r = spawnSync('/bin/bash', ['scripts/ci/run-ci.sh'], {
-    cwd: process.cwd(), encoding: 'utf8',
+    cwd: process.cwd(), encoding: 'utf8', timeout: 120_000,
     env: { ...baseEnv, PATH: `${dir}:${process.env.PATH}`, STUB_LOG: LOG, CI_SKIP_BUILD: '0', ...env },
   });
   return { status: r.status, out: `${r.stdout}${r.stderr}`, calls: readFileSync(LOG, 'utf8').split('\n').filter(Boolean) };
@@ -81,6 +81,7 @@ describe('run-ci.sh: agent-run wrapper', () => {
     expect(r.status).toBe(0);
     expect(wrapped(r.calls)).toEqual([]);
     expect(ranBoth(r.calls)).toBe(true);
+    expect(r.out).not.toContain('CI_NO_AGENT_RUN=1');
   });
 
   it.each([
@@ -97,5 +98,6 @@ describe('run-ci.sh: agent-run wrapper', () => {
     const r = run({ AGENT_RUN_BIN: AGENT_RUN, AGENT_RUN_RC: '1' });
     expect(r.status).toBe(1);
     expect(r.out).toMatch(/\[ci\] FAILED: browser-tests build$/m);
+    expect(r.out).toContain('re-run with CI_NO_AGENT_RUN=1');
   });
 });

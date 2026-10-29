@@ -35,6 +35,11 @@ capped() {
   if [ "${GITHUB_ACTIONS:-}" != "true" ] && [ "${CI:-}" != "true" ] \
     && [ "${CI_NO_AGENT_RUN:-}" != "1" ] && [ -x "$AGENT_RUN_BIN" ]; then
     "$AGENT_RUN_BIN" "$@"
+    local rc=$?
+    # agent-run also fails when there is no systemd user session (cron, a bare
+    # ssh shell without linger); that would read like a test failure.
+    [ "$rc" -eq 0 ] || echo "[ci] note: this step ran through $AGENT_RUN_BIN; if it failed before the command started (no systemd user session), re-run with CI_NO_AGENT_RUN=1" >&2
+    return "$rc"
   else
     "$@"
   fi
