@@ -26,7 +26,7 @@
  * mapping, and they COPY figures — see `statementRows/comparators.ts`.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { apiJson } from '@/lib/apiFetch';
+import { ApiRequestError, apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { ByPolarity } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
@@ -115,12 +115,6 @@ function refusal(err: unknown): { retryAfterSecs: number | null } | null {
   return null;
 }
 
-/** The server's reason for a window it will not read (a 400): reloading cannot help, so it is said, not retried. */
-function rejection(err: unknown): string | null {
-  const e = err as { status?: unknown; message?: unknown } | null;
-  return e?.status === 400 && typeof e.message === 'string' && e.message !== '' ? e.message : null;
-}
-
 export function useStatementComparators(opts: StatementComparatorOptions): StatementComparators {
   const {
     trend, budget = false, asOf, basis, periodStart = '', periodEnd = '', costCentreId = '', businessUnitId = '',
@@ -183,9 +177,11 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
           log.warn('Failed to load budget comparator', { error: err }, 'useStatementComparators');
           if (cancelled) return;
           const limited = refusal(err);
-          const reason = rejection(err);
+          // A 400 is the server refusing the window itself: its reason is shown, and reloading cannot help.
+          const reason = err instanceof ApiRequestError && err.status === 400
+            ? apiErrorMessage(err, 'The budget window was not accepted') : '';
           if (limited) setBudgetLimited(limited);
-          else if (reason) setBudgetRefused(reason);
+          else if (reason !== '') setBudgetRefused(reason);
           else setBudgetFailed(true);
         })
         .finally(() => { if (!cancelled) setBudgetLoading(false); });
