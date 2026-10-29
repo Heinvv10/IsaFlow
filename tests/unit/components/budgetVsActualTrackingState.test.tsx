@@ -141,6 +141,25 @@ describe('coalescing, refusal and retry (browser review r1)', () => {
   });
 });
 
+describe("a refusal's wait (review r2, browser N2)", () => {
+  const refuseWith = (headers: Record<string, string>) => vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
+    (String(url).includes('reports-budget-tracking')
+      ? new Response(JSON.stringify({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' } }), { status: 429, headers })
+      : ok({})));
+
+  it('the shared reports limiter (no Retry-After) reads "about a minute"', async () => {
+    refuseWith({});
+    render(<BudgetVsActualPage />);
+    expect(await screen.findByText('Too many report requests: try again in about a minute.')).toBeTruthy();
+  });
+
+  it('a Retry-After is read as the wait', async () => {
+    refuseWith({ 'Retry-After': '45' });
+    render(<BudgetVsActualPage />);
+    expect(await screen.findByText('Too many report requests: try again in 45 seconds.')).toBeTruthy();
+  });
+});
+
 describe('controls the client can judge (browser review r1)', () => {
   afterEach(() => { vi.useRealTimers(); });
 
@@ -172,3 +191,61 @@ describe('controls the client can judge (browser review r1)', () => {
     await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'quarter', fiscal_year: '2026', quarter: '1', group_by: 'cc1' }));
   });
 });
+
+describe('review r2: retry, a late response under an inverted range, the chosen year across periods', () => {
+  it('Retry during an active limit sends exactly one request per click, and nothing on its own', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => (String(url).includes('reports-budget-tracking')
+      ? new Response(JSON.stringify({ success: false, error: { message: 'x' } }), { status: 429, headers: { 'Retry-After': '120' } })
+      : ok({})));
+    render(<BudgetVsActualPage />);
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+    await new Promise((r) => setTimeout(r, 600));
+    expect(reportQueries()).toHaveLength(1);
+    for (let i = 2; i <= 4; i++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(reportQueries()).toHaveLength(i));
+      await screen.findByRole('button', { name: 'Retry' });
+    }
+    await new Promise((r) => setTimeout(r, 600));
+    expect(reportQueries()).toHaveLength(4);
+    expect(retry).toBeTruthy();
+  });
+
+  it('a response that lands after the range was inverted is dropped, and the exports stay disabled', async () => {
+    let release: () => void = () => {};
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+      const u = String(url);
+      if (!u.includes('reports-budget-tracking')) return ok({});
+      if (u.includes('period=custom')) { await new Promise<void>((r) => { release = r; }); return ok(named('Late custom line')); }
+      return ok(named('Sales'));
+    });
+    render(<BudgetVsActualPage />);
+    await screen.findByRole('button', { name: /Sales/ });
+    fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'custom' } });
+    await waitFor(() => expect(reportQueries().some((q) => q.period === 'custom')).toBe(true));
+    fireEvent.change(screen.getByTestId('bva-from'), { target: { value: '2026-09' } });
+    fireEvent.change(screen.getByTestId('bva-to'), { target: { value: '2026-05' } });
+    await screen.findByTestId('bva-range-error');
+    release();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByRole('button', { name: /Late custom line/ })).toBeNull();
+    expect((screen.getByRole('button', { name: /Export CSV/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: /Export Excel/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a chosen financial year carries to every period that takes one, through a period that does not', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok(named('Sales')));
+    render(<BudgetVsActualPage />);
+    await screen.findByRole('button', { name: /Sales/ });
+    fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'fy' } });
+    fireEvent.change(await screen.findByTestId('report-year'), { target: { value: '2026' } });
+    await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'fy', fiscal_year: '2026', group_by: 'cc1' }));
+    fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'month' } });
+    await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'month', group_by: 'cc1' }));
+    // The month view's URL keeps the year (the request does not send it), so Back or a reload keeps it too.
+    await waitFor(() => expect(replaced.at(-1)).toBe('/accounting/reports/budget-vs-actual?period=month&fiscal_year=2026'));
+    fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'ytd' } });
+    await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'ytd', fiscal_year: '2026', group_by: 'cc1' }));
+  });
+});
+
