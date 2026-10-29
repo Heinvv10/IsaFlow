@@ -51,7 +51,9 @@ const view = (cells: Cell[] | undefined) => (cells ?? []).map(c => `${c.month}:$
 describe('closed months take actuals, open months the source', () => {
   it('company grain: actual (0 when none) in closed months, source cell kept in open months', () => {
     const actuals = { company: [act('sales', '2026-03', 250000), act('sales', '2026-06', 1)], cc1: [], cc2: [], bu: [] };
-    const out = plan({ actuals });
+    // RENT_B's override sits inside a driver's range, so it is kept (a driverless override is re-sourced).
+    const drivers: DriverDef[] = [{ kind: 'fixed', rowKey: RENT_B.key, amount: 1, fromMonth: '2026-03', toMonth: '2026-07' }];
+    const out = plan({ actuals, drivers });
     expect(view(out.cells.get(SALES.key))).toEqual([
       '2026-03:250000:actual', '2026-04:0:actual', '2026-05:100000:manual', '2026-06:100000:manual', '2026-07:100000:manual']);
     expect(view(out.cells.get(RENT_B.key)).slice(2)).toEqual(['2026-05:20000:override', '2026-06:20000:override', '2026-07:20000:override']);
@@ -98,6 +100,28 @@ describe('unplaced untagged actuals', () => {
     ]);
     expect(out.cells.has('rent|||')).toBe(false);
     expect(out.cells.get(RENT_A.key)?.[0]?.amount).toBe(0);
+  });
+});
+
+describe('a month reopened after a roll', () => {
+  it('its stale actual becomes manual (value kept) on a plain row, and is recomputed on a driver row', () => {
+    const drivers: DriverDef[] = [
+      { kind: 'growth', rowKey: SALES.key, pct: 10, baseMonth: '2026-03', fromMonth: '2026-04', toMonth: '2026-07' },
+    ];
+    const actuals = { company: [act('sales', '2026-03', 200000), act('sales', '2026-04', 500000)],
+      cc1: [act('rent', '2026-04', 33000, 'A')], cc2: [], bu: [] };
+    const roll1 = plan({ drivers, actuals });
+    expect(view(roll1.cells.get(SALES.key)).slice(0, 2)).toEqual(['2026-03:200000:actual', '2026-04:500000:actual']);
+    const roll2 = plan({ drivers, actuals, rows: roll1.rows, sourceCells: roll1.cells, closedMonths: new Set(['2026-03']) });
+    expect(view(roll2.cells.get(RENT_A.key)).slice(0, 2)).toEqual(['2026-03:0:actual', '2026-04:33000:manual']);
+    expect(view(roll2.cells.get(SALES.key)).slice(0, 3)).toEqual(['2026-03:200000:actual', '2026-04:220000:driver', '2026-05:242000:driver']);
+  });
+});
+
+describe('unplaced zero net', () => {
+  it('untagged actuals that net to zero in a month are not reported; non-zero nets are', () => {
+    const actuals = { company: [], cc1: [act('rent', '2026-03', 500), act('rent', '2026-03', -500), act('rent', '2026-04', -80)], cc2: [], bu: [] };
+    expect(plan({ actuals }).unplaced).toEqual([{ accountId: 'rent', month: '2026-04', amount: -80 }]);
   });
 });
 

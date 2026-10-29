@@ -84,7 +84,9 @@ function sharesAt(input: HeadcountInput): Map<string, number> {
   const split = new Map<string, number>();
   const hasAllocation = new Set<string>();
   for (const a of input.allocations) {
-    if (!Number.isFinite(a.percentage)) throw new RangeError(`Bad allocation percentage for ${a.employeeId}`);
+    if (!Number.isFinite(a.percentage) || a.percentage < 0 || a.percentage > 100) {
+      throw new RangeError(`Bad allocation percentage ${a.percentage} for ${a.employeeId} (0..100)`);
+    }
     hasAllocation.add(a.employeeId);
     if (a.costCentreId === scope) split.set(a.employeeId, (split.get(a.employeeId) ?? 0) + a.percentage / 100);
   }
@@ -100,7 +102,9 @@ function sharesAt(input: HeadcountInput): Map<string, number> {
 export function headcountByMonth(input: HeadcountInput): Map<string, MonthHeadcount> {
   for (const e of input.employees) {
     checked(e.startDate, DATE, `start date for ${e.id}`);
-    if (e.endDate !== null) checked(e.endDate, DATE, `end date for ${e.id}`);
+    if (e.endDate !== null && checked(e.endDate, DATE, `end date for ${e.id}`) < e.startDate) {
+      throw new RangeError(`End date ${e.endDate} is before start date ${e.startDate} for ${e.id}`);
+    }
   }
   for (const h of input.hires) {
     checked(h.startMonth, MONTH, 'hire start month');

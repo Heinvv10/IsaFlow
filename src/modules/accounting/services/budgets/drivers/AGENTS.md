@@ -10,7 +10,7 @@ Budget driver engine (Budgets P4 PR-1, spec `docs/plans/budgets/P4-drivers-forec
 - `RowKey` = `rowKeyFor({glAccountId, cc1Id, cc2Id, buId})` = grid `rowKeyOf` shape `acct|cc1|cc2|bu`. A row sets at most one dimension.
 - `rows` must list every row that cells or drivers name (unknown → `DriverRefError`). One driver per row.
 - Actuals passed to `planReforecast` are cents in budget sign, from P3's `readTrackingActuals` with groupBy null / cc1 / cc2 / bu.
-- Errors: `DriverCycleError(path)` (400 `DRIVER_CYCLE`, path first == last), `DriverRefError` (bad row / range / base / percent), `DriverRangeError` (beyond NUMERIC(15,2), bad headcount). Headcount input dates that are not `YYYY-MM-DD` throw `RangeError`.
+- Errors: `DriverCycleError(path)` (400 `DRIVER_CYCLE`, path first == last), `DriverRefError` (bad row / range / base / percent), `DriverRangeError` (beyond NUMERIC(15,2), bad headcount). Headcount input that is malformed (date not `YYYY-MM-DD`, end before start, allocation % outside 0..100) throws `RangeError`.
 
 ## Signatures
 - `driverGraph.ts`: `buildDriverGraph(rows, drivers)`, `topoOrder(graph)` (Kahn, ties by key), `assertNoCycle(rows, drivers)` (driver-save validator).
@@ -21,14 +21,15 @@ Budget driver engine (Budgets P4 PR-1, spec `docs/plans/budgets/P4-drivers-forec
 ## Business rules
 - Drivers write months in `[fromMonth, toMonth]` only; never a closed month, never an `override` or `actual` cell. Downstream rows read the effective value (whatever source).
 - Kinds: fixed = amount; pct_of_line = ref × pct/100; pct_of_section = Σ band rows at scope (same_grain or company) × pct/100 (a row in its own section is a cycle); growth = base × (1 + pct/100)^k, k = list distance from baseMonth (compounding; base strictly before fromMonth); per_head = amount × FTE.
-- Exact BigInt arithmetic, percent to 4 dp; cents half away from zero, then `roundToUnit` (R1/R100/R1000, no residue).
+- Exact BigInt arithmetic; percent to 4 dp, |pct| <= 99999.9999 (NUMERIC(9,4)), growth >= -100. ONE half-away rounding from the exact ratio straight to the unit (the driver's own `rounding`, else the caller's; R1/R100/R1000, no residue). Never cents-then-unit (R1.495 is R1, not R2).
 - Missing input reads 0 with ONE warning per ref: `REF_MISSING` (pct_of_line), `SECTION_EMPTY` (no section row has a cell that month), `BASE_MISSING` (growth).
-- `writes` = cells whose amount or source changed, topo order then month order; an unchanged recompute is `[]`.
+- A `driver` or `override` cell no driver covers (driver removed, range shrunk) is re-sourced `manual`, value kept (closed months untouched).
+- `writes` = cells whose amount or source changed: per row in topo order, its driver writes in month order, then its `manual` re-sourcings in month order. An unchanged recompute is `[]`.
 - Headcount (decision 7, Hein 2026-10-29): one full head when start <= last day of M and (end null or >= first day of M) and status ≠ `inactive`; CC scope = Σ allocation % when allocation rows exist, else 1 on the employee's own centre; NULL centre counts only at company scope; hires add FTE for startMonth <= M <= endMonth.
-- Reforecast: closed months = actual at the account's grain (0 when none, new rows for unbudgeted members/accounts); untagged actuals at a dimension grain are `unplaced` (non-zero sums per account + month), never on a company row; open months keep the source cell and source; drivers then recompute.
+- Reforecast: closed months = actual at the account's grain (0 when none, new rows for unbudgeted members/accounts); untagged actuals at a dimension grain are `unplaced` (non-zero net per account + month), never on a company row; open months keep the source cell and source, except a source `actual` (month reopened after a roll) becomes `manual`, value kept; drivers then recompute.
 
 ## Tests
 `tests/unit/services/budgets/drivers/*.test.ts`, each red under its spec §9 mutation (logs under `~/.cache/redchk/budgets-p4/pr1-mutations/`).
 
 ## Recent changes
-- 2026-10-29: created (P4 PR-1).
+- 2026-10-29: created (P4 PR-1); per-driver `rounding`; review round 1: single rounding, re-sourcing, reopened-month actuals, pct / headcount bounds.

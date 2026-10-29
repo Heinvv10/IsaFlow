@@ -93,6 +93,7 @@ function findCycle(graph: DriverGraph, ordered: ReadonlySet<RowKey>): RowKey[] {
     seenAt.set(cur, trail.length);
     trail.push(cur);
     const next = [...(graph.refs.get(cur) ?? [])].filter(r => !ordered.has(r)).sort()[0];
+    // Invariant, not input validation: reachable only if the graph code above is wrong.
     if (next === undefined) throw new Error(`Driver graph invariant broken at ${cur}`);
     cur = next;
   }
