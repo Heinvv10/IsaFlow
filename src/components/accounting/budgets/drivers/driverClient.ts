@@ -9,29 +9,17 @@ import type { DriverLine, StoredDriverLine } from '@/modules/accounting/services
 import type { PlannedHireInput, StoredPlannedHire } from '@/modules/accounting/services/budgets/drivers/driverRepository';
 import type { VersionHeadcount } from '@/modules/accounting/services/budgets/drivers/plannedHireService';
 import type { UnplacedActualLine } from '@/modules/accounting/services/budgets/drivers/reforecastInputs';
+import type { ReforecastCreated } from '@/modules/accounting/services/budgets/drivers/reforecastService';
+import type { RollOutcome } from '@/modules/accounting/services/budgets/drivers/rollingForecastService';
+import type { RollingStatus } from '@/modules/accounting/services/budgets/drivers/rollingStatus';
 import { call } from '@/components/accounting/budgets/workspace/budgetWorkspaceClient';
-import type { ApiResult, BudgetVersion } from '@/components/accounting/budgets/workspace/types';
+import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
 
-export type { StoredPlannedHire, UnplacedActualLine, VersionHeadcount };
+export type { RollingStatus, StoredPlannedHire, UnplacedActualLine, VersionHeadcount };
+/** The route's answers, typed from the services they pass through (tsc catches drift). */
+export type ReforecastCreatedView = ReforecastCreated;
+export type RollNowView = RollOutcome;
 
-/**
- * GET `budget-versions/[id]/reforecast`: the rolling status. Declared here (the route's service
- * type moves with PR-4); `reopenedMonths` and `unplaced` are optional for an answer without them.
- */
-export interface RollingStatus {
-  rolling: boolean;
-  rolledThroughMonth: string | null;
-  latestClosedMonth: string | null;
-  /** Closed months after rolledThroughMonth (a roll that did not run). */
-  staleMonths: string[];
-  /** Months up to rolledThroughMonth no longer closed that still hold actuals (spec §6 "reopened"). */
-  reopenedMonths?: string[];
-  /** Closed-month actuals the version cannot place, named, in rand. */
-  unplaced?: UnplacedActualLine[];
-  lastRolledAt: string | null;
-  /** 'version locked' / 'version is primary' when the last roll was skipped. */
-  lastError: string | null;
-}
 
 /** A recompute warning as the routes answer it (REF_MISSING, SECTION_EMPTY, BASE_MISSING, DRIVER_SKIPPED), labelled. */
 export interface DriverWarningView { code: string; rowKey: string; message: string }
@@ -118,26 +106,6 @@ export async function deleteHire(versionId: string, token: string, id: string): 
 }
 
 // ── Reforecast and the rolling forecast ──────────────────────────────────────
-
-export interface ReforecastCreatedView {
-  version: BudgetVersion;
-  rolling: boolean;
-  closedMonths: string[];
-  cells: number;
-  unplaced: UnplacedActualLine[];
-  warnings: DriverWarningView[];
-}
-
-export interface RollNowView {
-  /** 'locked' / 'primary': skipped (last_error recorded); 'not_rolling': the version does not roll. */
-  status: 'rolled' | 'locked' | 'primary' | 'not_rolling';
-  changed: number;
-  closedMonths: string[];
-  rolledThroughMonth: string | null;
-  unplaced: UnplacedActualLine[];
-  warnings: DriverWarningView[];
-  updatedAt: string | null;
-}
 
 const reforecastUrl = (id: string) => `/api/accounting/budget-versions/${enc(id)}/reforecast` as const;
 

@@ -128,8 +128,8 @@ describe('RollingControls', () => {
 
   it.each([
     ['locked', 'The version is locked: the roll was skipped.'],
-    ['primary', 'The version is primary'],
-    ['not_rolling', 'This version does not roll forward'],
+    ['primary', 'This is the primary budget: a roll never rewrites what Budget vs Actual compares against.'],
+    ['not_rolling', 'Auto-roll was turned off meanwhile: nothing was rolled.'],
   ])('a roll answered %s says so and re-reads nothing', async (rollStatus, text) => {
     const net = installNetwork();
     net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status()));
@@ -164,17 +164,41 @@ describe('RollingControls', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be read again');
   });
 
-  it('a reforecast that does not roll: closed months since the last roll, a reopened month and Roll now as a manual refresh', async () => {
+  it('a reforecast that does not roll: the reopened banner and Roll now as a manual refresh (the server reports no stale months)', async () => {
     const net = installNetwork();
-    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status({ rolling: false, rolledThroughMonth: '2026-04', staleMonths: ['2026-05'], reopenedMonths: ['2026-03'] })));
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status({ rolling: false, rolledThroughMonth: null, staleMonths: [], reopenedMonths: ['2026-03'], unplaced: [] })));
     net.on((u, m) => u === url(REFORECAST.id) && m === 'POST', () => ok({ status: 'rolled', changed: 2, closedMonths: [], rolledThroughMonth: '2026-05', unplaced: [], warnings: [], updatedAt: T2 }));
     const g = grid();
     render(<RollingControls version={REFORECAST} grid={g} editable />);
     expect(await screen.findByRole('switch', { name: /Rolling: off/ })).toBeInTheDocument();
-    expect(screen.getByTestId('rolling-stale')).toHaveTextContent('Rolled through Apr 2026 · 1 month closed since');
+    expect(screen.queryByTestId('rolling-stale')).toBeNull();
     expect(screen.getByTestId('rolling-reopened')).toHaveTextContent('Mar 2026 reopened after the roll — Roll now refreshes it');
     fireEvent.click(screen.getByTestId('roll-now'));
     await waitFor(() => expect(g.adoptToken).toHaveBeenCalledWith(T2));
     expect(net.sent.find((s) => s.method === 'POST')!.body).toEqual({ action: 'roll', expectedUpdatedAt: TOKEN });
+  });
+
+  it('Roll now shows on an up-to-date reforecast too (a manual refresh); a primary refusal (409) shows the server message', async () => {
+    const net = installNetwork();
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status({ rolling: false, staleMonths: [], reopenedMonths: [], unplaced: [] })));
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'POST', () => new Response(JSON.stringify({ success: false, error: {
+      message: 'This is the primary budget; refreshing it would change Budget vs Actual. Make another version primary first, or copy it',
+      details: { code: 'BUDGET_VERSION_STATE' } } }), { status: 409 }));
+    const g = grid();
+    render(<RollingControls version={REFORECAST} grid={g} editable />);
+    const roll = await screen.findByTestId('roll-now');
+    expect(screen.queryByTestId('rolling-stale')).toBeNull();
+    expect(screen.queryByTestId('rolling-reopened')).toBeNull();
+    fireEvent.click(roll);
+    expect(await screen.findByTestId('rolling-note')).toHaveTextContent('This is the primary budget; refreshing it would change Budget vs Actual');
+    expect(g.adoptToken).not.toHaveBeenCalled();
+  });
+
+  it('a reader sees the status but no Roll now', async () => {
+    const net = installNetwork();
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status()));
+    render(<RollingControls version={REFORECAST} grid={grid()} editable={false} />);
+    expect(await screen.findByTestId('rolling-stale')).toBeInTheDocument();
+    expect(screen.queryByTestId('roll-now')).toBeNull();
   });
 });

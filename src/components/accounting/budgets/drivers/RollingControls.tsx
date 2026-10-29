@@ -3,7 +3,8 @@
  * the auto-roll toggle (PUT); when the roll is behind the closed periods (a missed after-close
  * job) the badge "Rolled through <Mon YYYY> · N months closed since"; a month reopened after the
  * roll, "<Mon> reopened after the roll — Roll now refreshes it"; one Roll now (POST
- * `{ action: 'roll' }`) for either, on any reforecast (a non-rolling one refreshes its actuals by hand); the actuals the forecast cannot place; and a skipped roll's
+ * `{ action: 'roll' }`) on any reforecast, rolling or not (on one that does not roll it is the manual refresh from
+ * actuals, and nothing is stamped); the actuals the forecast cannot place; and a skipped roll's
  * `last_error`. Both writes send the version token and need a clean grid; a write's token is
  * adopted, the grid re-reads the version (the roll's warnings land on the rows) and the status is
  * read again (a roll that changes no cell keeps the token). A roll the server skipped (locked,
@@ -29,9 +30,8 @@ const BTN = 'inline-flex items-center gap-1 rounded-lg border border-[var(--ff-b
 const PILL = 'inline-flex items-center gap-1.5 rounded-full border border-[var(--ff-unfav)] px-2 py-0.5 text-xs text-[var(--ff-unfav)]';
 
 /**
- * "Rolled through Mar 2026 · 2 months closed since"; null when the roll is up to date. Any reforecast, rolling or
- * not: Roll now is also the manual refresh of a reforecast that does not roll (PR-4), and turning rolling on shows
- * the closed months as stale until the first roll.
+ * "Rolled through Mar 2026 · 2 months closed since"; null when up to date. The server reports stale months for a
+ * rolling version only, every closed month until its first roll (turning rolling on stamps nothing).
  */
 export function staleBadgeText(s: RollingStatus): string | null {
   if (s.staleMonths.length === 0) return null;
@@ -50,8 +50,8 @@ export function reopenedText(s: RollingStatus): string | null {
 /** What a roll the server answered without rolling means for the user. */
 export function skippedRollText(status: RollNowView['status']): string | null {
   if (status === 'locked') return 'The version is locked: the roll was skipped.';
-  if (status === 'primary') return 'The version is primary: a rolling forecast never rolls the primary budget.';
-  if (status === 'not_rolling') return 'This version does not roll forward: turn rolling on first.';
+  if (status === 'primary') return 'This is the primary budget: a roll never rewrites what Budget vs Actual compares against.';
+  if (status === 'not_rolling') return 'Auto-roll was turned off meanwhile: nothing was rolled.';
   return null;
 }
 
@@ -143,8 +143,10 @@ export function RollingControls({ version, grid, editable }: RollingControlsProp
       </button>
       {badge && <span data-testid="rolling-stale" className={PILL}>{badge}</span>}
       {reopened && <span data-testid="rolling-reopened" className={PILL}>{reopened}</span>}
-      {(badge || reopened) && editable && (
-        <button type="button" disabled={!can} className={`${BTN} underline`} data-testid="roll-now" onClick={() => { void roll(); }}>Roll now</button>
+      {editable && (
+        <button type="button" disabled={!can} className={`${BTN} underline`} data-testid="roll-now"
+          title={status.rolling ? undefined : 'Refresh the closed months from the ledger (this version does not roll by itself)'}
+          onClick={() => { void roll(); }}>Roll now</button>
       )}
       {unplaced.length > 0 && (
         <details data-testid="rolling-unplaced" className="text-xs text-[var(--ff-text-secondary)]">
