@@ -13,8 +13,9 @@
  * `lib/charts/echarts.ts`; the heatmap series is not), which also lets the
  * decal render in the SSR SVG.
  *
- * Months after `judgedThrough` (the projection cutoff's month: the last
- * complete one) hold part-month or no actuals against a whole month's budget:
+ * Months after `judgedThrough` (the engine's `projection.judgedThrough`: the
+ * last complete month, min(the projection cutoff's month, the month before
+ * today's)) hold part-month or no actuals against a whole month's budget:
  * not a variance yet. The month in progress and every month still to come are
  * drawn neutral (the axis ink), marked "*" on the axis, said so in the tooltip,
  * and left out of the colour scale, so the judged months keep their strength.
