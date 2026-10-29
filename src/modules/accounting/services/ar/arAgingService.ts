@@ -10,6 +10,7 @@ import { calculateAgingBuckets, type AgingDetailInvoice } from '../../utils/agin
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { fetchARAgingInvoices } from './arAgingInvoices';
+import { fetchUnallocatedCreditNotes } from './arAgingCreditNotes';
 type Row = DbRow;
 
 
@@ -42,39 +43,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
     // when it is open there.
     const invoices: AgingInvoice[] = await fetchARAgingInvoices(companyId, asAtStr, todayStr);
 
-    const cnRows = (await sql`
-      SELECT cn.id, cn.client_id AS entity_id, c.name AS entity_name,
-        cn.credit_date AS due_date, cn.total_amount, 0 AS amount_paid,
-        -cn.total_amount AS balance
-      FROM credit_notes cn
-      JOIN customers c ON c.id = cn.client_id
-      WHERE cn.company_id = ${companyId}
-        AND cn.type = 'customer' AND cn.status = 'approved'
-        AND cn.customer_invoice_id IS NULL
-        -- A credit note granted after the as-at date had not reduced the
-        -- customer's balance on that date.
-        --
-        -- This filter is currently INERT and kept only so it stays correct if
-        -- the behaviour below changes: these rows are pushed with a NEGATIVE
-        -- balance, and calculateAgingBuckets drops everything with balance <= 0,
-        -- so an unallocated credit note never reaches a bucket at any as-at
-        -- date. That AR aging does not net unallocated credit is pre-existing
-        -- and out of scope here — it is noted so the next reader does not
-        -- conclude from this filter that it does.
-        AND cn.credit_date <= ${asAtStr}::date
-    `) as Row[];
-
-    for (const r of cnRows) {
-      invoices.push({
-        id: String(r.id),
-        entityId: String(r.entity_id),
-        entityName: String(r.entity_name),
-        dueDate: String(r.due_date),
-        totalAmount: Number(r.total_amount),
-        amountPaid: Number(r.amount_paid),
-        balance: Number(r.balance),
-      });
-    }
+    invoices.push(...(await fetchUnallocatedCreditNotes(companyId, asAtStr)));
 
     return calculateAgingBuckets(invoices, asAt);
   } catch (err) {
