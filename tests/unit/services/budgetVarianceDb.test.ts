@@ -73,7 +73,7 @@ async function loadFixtureIds(): Promise<Fixture> {
     LIMIT 1
   `) as Array<Record<string, string>>;
   const row = rows[0];
-  if (!row) throw new Error('no company in isaflow_dev has a bank account, two active leaf expense accounts and an active leaf revenue account');
+  if (!row) throw new Error('no company in isaflow_dev has an active bank account, two active leaf expense accounts and an active leaf revenue account');
 
   const users = (await sql`
     SELECT e.created_by FROM gl_journal_entries e JOIN users u ON u.id = e.created_by::text
