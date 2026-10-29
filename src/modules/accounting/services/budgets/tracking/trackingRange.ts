@@ -119,6 +119,7 @@ export async function buildRangeTracking(
   });
   const lines = core?.lines ?? [];
   const absentYears = core?.absentYears ?? [];
+  const outsideFilterYears = core?.outsideFilterYears ?? [];
   const budgetAbsent = (core?.noVersionMonths.length ?? 0) > 0;
 
   const lastVersionId = scope.find((s) => s.fiscalYear === last.fiscalYear)?.versionId ?? null;
@@ -131,7 +132,7 @@ export async function buildRangeTracking(
     years,
     lines,
     bands: buildBands(lines, { budgetAbsent }),
-    notices: buildNotices(lines, { noVersion: fyAbsent, noVersionYears: absentYears, budgetAbsent }),
+    notices: buildNotices(lines, { noVersion: fyAbsent, noVersionYears: absentYears, budgetAbsent, outsideFilterYears }),
     budgetAbsent,
     splitsMonth,
     version: head && fyAbsent ? { ...head, empty: true } : head,

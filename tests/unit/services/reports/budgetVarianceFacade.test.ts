@@ -125,7 +125,8 @@ describe("partialWindow 'absent': the engine's rule, its verdicts copied", () =>
     const band = (k: string) => r.bands.find((b) => b.key === k)?.budget;
     expect([band('operating_expense'), band('cost_of_sales'), band('net_profit')]).toEqual([1850, null, null]);
     // Expenses holds a partial band: no expense or net-profit budget, never the sum of what is left.
-    expect([r.sections.revenue.budget, r.sections.expense.budget, r.sections.net_profit.budget]).toEqual([0, null, null]);
+    // Nothing is budgeted in revenue: its engine bands are absent, so no zero target (review r2, LB2-1).
+    expect([r.sections.revenue.budget, r.sections.expense.budget, r.sections.net_profit.budget]).toEqual([null, null, null]);
     expect(r.totals.budget).toBeNull();
   });
 

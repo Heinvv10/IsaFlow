@@ -200,6 +200,8 @@ export interface TrackingNotices {
   /** Every year with NO BUDGET IN THIS WINDOW: no version, or a version contributing no income-statement
    *  row in that year's window months (it may hold budget outside the window). Name kept for the wire. */
   noVersionYears: number[];
+  /** Years WITH a budget in the window, none of it at this filter (every row is another dimension's): "FY2027 has a budget, but none of it is at this filter". */
+  noBudgetAtFilterYears: number[];
 }
 
 export interface TrackingProjectionInfo {

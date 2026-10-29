@@ -15,7 +15,7 @@
  */
 import { loadCostCentreChains, type CostCentreNode } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 import type { VersionScope } from '../budgetVersionScope';
-import { budgetAbsentYears, readTrackingBudgets, type BudgetRow } from './trackingBudgetRead';
+import { budgetAbsentYears, budgetOutsideFilterYears, readTrackingBudgets, type BudgetRow } from './trackingBudgetRead';
 import { readAccountOrder, readTrackingActuals, type ActualRow } from './trackingActualRead';
 import { classifyBudgetRow, effectiveDims, type EffDims } from './trackingDimRollup';
 import type { ResolvedTrackingFilter } from './trackingFilter';
@@ -42,6 +42,8 @@ export interface TrackingCore {
   actualRows: ActualRow[];
   lines: TrackingLine[];
   absentYears: number[];
+  /** Years with a budget, none of it at the filter (R8). */
+  outsideFilterYears: number[];
   /** Window months whose budget is absent: any of them makes the WINDOW budget absent. */
   noVersionMonths: string[];
 }
@@ -65,9 +67,11 @@ export async function trackingCore(companyId: string, input: TrackingCoreInput):
   }
   const effs = budgetRows.map((r) => effectiveDims(r, nodes));
   const classified = budgetRows.map((r, i) => ({ accountId: r.accountId, month: r.month, amount: r.amount, cls: classifyBudgetRow(effs[i]!, budgetFilter) }));
-  // Budget-absent years are decided from what this read returned, as the filter classes it (review
-  // r4, r5): no version, or no included or coarser income-statement row in the year's window months.
+  // Budget-absent years are decided from what this read returned, BEFORE the filter (review r2, R8):
+  // no version, or no income-statement row at all in the year's window months. A year whose budget is
+  // all at other dimensions has a budget, just not at this filter (`outsideFilterYears`).
   const absentYears = budgetAbsentYears(window, scope, classified);
+  const outsideFilterYears = budgetOutsideFilterYears(window, scope, classified);
   const noVersionMonths = input.allAbsent
     ? [...window.months]
     : window.years.filter((y) => absentYears.includes(y.fiscalYear)).flatMap((y) => y.months);
@@ -81,5 +85,5 @@ export async function trackingCore(companyId: string, input: TrackingCoreInput):
     windowYears: window.years,
     order: await readAccountOrder(companyId, [...accounts.keys()]),
   });
-  return { budgetRows, effs, nodes, actualRows, lines, absentYears, noVersionMonths };
+  return { budgetRows, effs, nodes, actualRows, lines, absentYears, outsideFilterYears, noVersionMonths };
 }

@@ -9,13 +9,15 @@
  *   - `bands` are the engine's band and profit-total budgets (null when a line
  *     under them is partial, or the window budget is absent): the comparator
  *     prints them on the statement's band rows, never a sum of withheld lines;
- *   - a section or net profit whose engine bands are partial, or whose window
- *     budget is absent, has NO budget (null), never the sum of the lines that
- *     happen to be budgeted;
+ *   - a section or net profit takes its budget from the engine's bands
+ *     (`sectionBudgets`): NO budget (null) where a band under it is partial or has
+ *     its budget above the filter, or the window budget is absent; never the sum of
+ *     the lines that happen to be budgeted, and never a zero nobody set;
  *   - the partial count is the engine's (every partial account, with or
  *     without an actual), and so are the absent years and unallocated budget.
  */
 import { round2 } from '../core/budgetMonths';
+import { sectionBudgets } from '../budgets/tracking/trackingBands';
 import type { RangeTracking } from '../budgets/tracking/trackingRange';
 import type {
   BudgetVerdict, ByPolarity, TrackingBandKey, TrackingTotalKey, TrackingVersionRef,
@@ -46,8 +48,8 @@ export interface BudgetVarianceTracked {
   unbudgetedMovement: number;
   /** Years in the window with no budget in it. */
   budgetAbsentYears: number[];
-  /** Every financial year with months in the window, in order. */
-  windowYears: number[];
+  /** Years that HAVE a budget in the window, none of it at the filter (R8). */
+  budgetOutsideFilterYears: number[];
   /** The range cuts a budget month: the window budget is absent ("Budgets are set by whole month"). */
   splitsMonth: boolean;
   version: TrackingVersionRef | null;
@@ -56,12 +58,6 @@ export interface BudgetVarianceTracked {
   partialBudgetCount: number;
   bands: Array<{ key: TrackingBandKey | TrackingTotalKey; budget: number | null }>;
 }
-
-const SECTION_BANDS: Record<BudgetSectionKey, ReadonlyArray<TrackingBandKey | TrackingTotalKey>> = {
-  revenue: ['turnover', 'other_income'],
-  expense: ['cost_of_sales', 'operating_expense', 'other_expense'],
-  net_profit: ['net_profit'],
-};
 
 function withheldSection(s: BudgetVsActualSection): TrackedSection {
   return { ...s, budget: null, variance: null, movement: null, variance_pct: null, movement_pct: null, favourable: null };
@@ -83,10 +79,9 @@ export function trackedVariance(range: RangeTracking): BudgetVarianceTracked {
   const rows = lines.filter((l) => l.budget_verdict === 'budgeted');
   const unbudgeted = lines.filter((l) => l.budget_verdict === 'unbudgeted');
 
-  const partialBand = new Set(range.bands.filter((b) => b.partialBudget).map((b) => b.key));
+  const engineBudget = sectionBudgets(range.lines, { budgetAbsent: range.budgetAbsent });
   const p0 = buildBudgetVsActualSections(lines);
-  const section = (key: BudgetSectionKey): TrackedSection =>
-    (range.budgetAbsent || SECTION_BANDS[key].some((k) => partialBand.has(k)) ? withheldSection(p0[key]) : p0[key]);
+  const section = (key: BudgetSectionKey): TrackedSection => (engineBudget[key] === null ? withheldSection(p0[key]) : p0[key]);
   const sections = { revenue: section('revenue'), expense: section('expense'), net_profit: section('net_profit') };
 
   return {
@@ -98,7 +93,7 @@ export function trackedVariance(range: RangeTracking): BudgetVarianceTracked {
     universeTotal: lines.length,
     unbudgetedMovement: round2(unbudgeted.reduce((s, l) => s + Math.abs(l.actual_amount), 0)),
     budgetAbsentYears: range.notices.noVersionYears,
-    windowYears: range.years.filter((y) => y.months.length > 0).map((y) => y.fiscalYear),
+    budgetOutsideFilterYears: range.notices.noBudgetAtFilterYears,
     splitsMonth: range.splitsMonth,
     version: range.version,
     unallocatedBudget: range.notices.unallocatedBudget,

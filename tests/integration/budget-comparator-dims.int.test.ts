@@ -62,6 +62,9 @@ describe('the comparator filter = the engine', () => {
     expect(got.lines.map((l) => l.account_id).sort()).toEqual(printed);
     expect(got.unallocatedBudget).toEqual(want.notices.unallocatedBudget);
     expect(got.version).toEqual(want.version);
+    // The years with no budget, and those with one none of which is at this filter (review r2, R8):
+    // the one core says the same on the Budget vs Actual page and on the comparator.
+    expect([got.budgetAbsentYears, got.budgetOutsideFilterYears]).toEqual([want.notices.noVersionYears, want.notices.noBudgetAtFilterYears]);
   });
 
   it('either level reads cc1 OR cc2: FT includes the legacy cross-tag (cc2_id = FT) that explicit CC1 leaves out', async () => {

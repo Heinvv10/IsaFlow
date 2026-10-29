@@ -43,7 +43,7 @@ export async function buildBudgetTrackingReport(
   const versions = await resolveTrackingVersions(companyId, window, params.versionId);
   const plan = projectionPlan(window.fy, window.endDate, today);
 
-  const { budgetRows, effs, actualRows, lines, absentYears, noVersionMonths } = await trackingCore(companyId, {
+  const { budgetRows, effs, actualRows, lines, absentYears, outsideFilterYears, noVersionMonths } = await trackingCore(companyId, {
     window, scope: versions.scope, filter, plan, groupBy,
     actuals: { from: readStartOf(window), to: readEndOf(window, plan) },
   });
@@ -96,7 +96,7 @@ export async function buildBudgetTrackingReport(
     lines,
     bands: buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 }),
     notices: buildNotices(lines, {
-      noVersion: absentYears.includes(window.fy.fiscalYear), noVersionYears: absentYears, budgetAbsent: noVersionMonths.length > 0,
+      noVersion: absentYears.includes(window.fy.fiscalYear), noVersionYears: absentYears, budgetAbsent: noVersionMonths.length > 0, outsideFilterYears,
     }),
     years: await mapRegistryMiss(() => reportYearOptions(companyId, today)),
   };
