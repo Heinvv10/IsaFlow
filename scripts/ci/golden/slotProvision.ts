@@ -72,11 +72,19 @@ export async function ensureUser(db: ClientBase, n: number, id: string, userId: 
     [userId]);
 }
 
+/**
+ * Creates the slot's GoTrue user if it is missing, and returns its id. A user that exists is NOT touched: its password
+ * is reset by setGoTrueUserPassword only after the database transaction has committed, so a run that fails before the
+ * commit cannot leave a password in GoTrue that never reached the env file (the slot would be locked out until a re-run).
+ */
 export async function ensureGoTrueUser(n: number, password: string): Promise<string> {
   const user = await adminCreateUser({ email: slotEmail(n), password, email_confirm: true, user_metadata: { purpose: 'golden-paths CI slot' } });
-  // adminCreateUser answers an existing user as is, so the password is set explicitly to the one in the env file.
-  await adminUpdateUser(user.id, { password, email_confirm: true });
   return user.id;
+}
+
+/** adminCreateUser answers an existing user as is, so the password in the env file is set explicitly, after the commit. */
+export async function setGoTrueUserPassword(userId: string, password: string): Promise<void> {
+  await adminUpdateUser(userId, { password, email_confirm: true });
 }
 
 /**
