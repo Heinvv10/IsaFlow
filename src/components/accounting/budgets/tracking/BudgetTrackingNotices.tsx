@@ -9,7 +9,6 @@
 import { longDate, monthLabel } from '@/components/accounting/budgets/budgetClient';
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { BudgetTrackingReport, ByPolarity, TrackingProjectionInfo } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
-import { unbudgetedActualsTo } from '@/modules/accounting/services/budgets/tracking/trackingProjection';
 
 const NOTE = 'text-xs text-[var(--ff-text-secondary)]';
 const BOX = 'rounded-lg border px-3 py-2 text-sm';
@@ -27,11 +26,10 @@ function byPolarity(v: ByPolarity, noun: string): string {
   return parts.join(' and ');
 }
 
-/** The Projected FY header's tooltip: which months are actuals and which are budget, and the rule for a
- *  line with no budget (actuals to the month holding today), all from the response. */
+/** The Projected FY header's tooltip: which months are actuals and which are budget (from the response),
+ *  and the rule for a later month a line has no budget for (it keeps its posted actuals). */
 export function projectionHeading(p: TrackingProjectionInfo): string {
-  const to = unbudgetedActualsTo(p);
-  return `${budgetedHeading(p)}; a line with no budget: ${to ? `actuals to ${longDate(to)}` : 'no actuals yet'}`;
+  return `${budgetedHeading(p)}; a later month with no budget counts its posted actuals`;
 }
 
 function budgetedHeading(p: TrackingProjectionInfo): string {

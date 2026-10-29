@@ -77,7 +77,7 @@ describe('budget vs actual tracking page: controls → query string', () => {
     const other = screen.getByRole('button', { name: /Other income/ }).closest('tr')!;
     expect(other.querySelector('[title="No budget"]')?.textContent).toBe('—');
     expect(screen.getByText('Projected FY').getAttribute('title'))
-      .toBe('Projected FY2027 = actuals to 30 September 2026 + budget Oct 2026–Feb 2027; a line with no budget: actuals to 31 October 2026');
+      .toBe('Projected FY2027 = actuals to 30 September 2026 + budget Oct 2026–Feb 2027; a later month with no budget counts its posted actuals');
     expect(screen.getByTestId('posted-through').textContent).toBe('October 2026 is in progress; actuals posted through 26 October 2026');
   });
 

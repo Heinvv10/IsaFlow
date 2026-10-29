@@ -1,10 +1,15 @@
 /**
- * Projected FY (budgets P3 spec §2.3, contract decision 16). Pure.
+ * Projected FY (budgets P3 spec §2.3, contract decision 16), month by month
+ * over FY* (PR-B review r2 ruling, the lead's, for Hein to confirm). Pure.
  *
  *   cutoff      = min(window end, last day of the month BEFORE today's month),
  *                 clamped to [FY*.start − 1 day, FY*.end]
- *   projectedFY = actual(FY*.start .. cutoff) + Σ budget(FY* months after the cutoff's month)
- *   fyBudget    = Σ budget(every month of FY*)       -- 14 in a 14-month year
+ *   projected(m) = actual(m)                         for months up to the cutoff's month
+ *                = budget(m) if the line has a budget row for m, else actual(m)
+ *                                                    for months after it
+ *   projectedFY = Σ projected(m) over FY*
+ *   fyBudget    = Σ budget(every month of FY*)       -- 14 in a 14-month year;
+ *                 absent when the line has no budget in FY*
  *   projVar     = projectedFY − fyBudget            -- movement sign
  *
  * The cutoff is the last COMPLETE month: an in-progress month contributes its
@@ -12,14 +17,14 @@
  * November would drop the rest of October's budget and bias the projection
  * low; pro-rating a budget month invents a figure).
  *
- * An UNBUDGETED line (no included budget anywhere in FY*) has no budget to
- * stand in for the months after the cutoff, so the cutoff would only drop real
- * postings (Projected FY below the YTD actual). Its projection is its posted
- * actual from FY* start through the month holding min(today, FY* end), the
- * in-progress month whole, forward-dated postings in it included, as the
- * Actual column counts them (`unbudgetedMonths`; PR-B review r1 ruling, for
- * Hein to confirm). Budgeted lines keep the cutoff rule; band and NP
- * projections stay sums of lines.
+ * A month after the cutoff with NO budget row for the line has nothing to stand
+ * in for its actual, so it keeps its actual (posted, forward-dated included;
+ * 0 when none): the cutoff would otherwise drop real postings and put nothing
+ * in their place (Projected FY below the Actual beside it; review r2 A1, A2,
+ * B). A fully budgeted line is the spec's formula, unchanged; an unbudgeted
+ * line projects its FY* actual; a partly budgeted one mixes month by month.
+ * A budgeted zero is a budget row. Band and NP projections stay sums of lines.
+ * The actuals read therefore covers the whole of FY* (`readEndOf`).
  *
  * Every window edge is a month end (`trackingWindow`), and so is the cutoff,
  * so "after the cutoff's month" is a comparison of 'YYYY-MM' keys.
@@ -57,19 +62,13 @@ export function projectionPlan(fy: ProjectionYear, windowEnd: string, today: str
     fyMonths,
     actualMonths: fyMonths.filter((m) => m <= cutoffMonth),
     budgetMonths: fyMonths.filter((m) => m > cutoffMonth),
-    unbudgetedMonths: fyMonths.filter((m) => m <= today.slice(0, 7)),
   };
 }
 
-/** The last day an unbudgeted line's projection reads actuals to (a month end); null when FY* has not started. */
-export function unbudgetedActualsTo(p: Pick<TrackingProjectionInfo, 'unbudgetedMonths'>): string | null {
-  const last = p.unbudgetedMonths[p.unbudgetedMonths.length - 1];
-  return last === undefined ? null : monthEnd(`${last}-01`);
-}
-
-/** The last day the actuals read must cover: the window end, or the end of the last unbudgeted month when later. */
-export function readEndOf(window: { endDate: string }, plan: Pick<ProjectionPlan, 'unbudgetedMonths'>): string {
-  const end = unbudgetedActualsTo(plan) ?? window.endDate;
+/** The last day the actuals read must cover: the window end or FY*'s last month end, whichever is later. */
+export function readEndOf(window: { endDate: string }, plan: Pick<ProjectionPlan, 'fyMonths'>): string {
+  const last = plan.fyMonths[plan.fyMonths.length - 1];
+  const end = last === undefined ? window.endDate : monthEnd(`${last}-01`);
   return end > window.endDate ? end : window.endDate;
 }
 
@@ -82,8 +81,9 @@ export interface ProjectedCents {
 
 /**
  * One account's projection, in integer CENTS. `actualByMonth` holds every
- * month read (FY-to-date, not just the window's); `budgetByMonth` is null when
- * the account has no included budget anywhere in FY*.
+ * month of FY* read (not just the window's); `budgetByMonth` holds the months
+ * the line has an included budget row for, and is null when it has none
+ * anywhere in FY*.
  */
 export function projectCents(
   actualByMonth: ReadonlyMap<string, number>,
@@ -91,9 +91,10 @@ export function projectCents(
   plan: ProjectionPlan,
 ): ProjectedCents {
   const sum = (map: ReadonlyMap<string, number>, ms: readonly string[]) => ms.reduce((s, m) => s + (map.get(m) ?? 0), 0);
-  if (budgetByMonth === null) return { projected: sum(actualByMonth, plan.unbudgetedMonths), fyBudget: null, projVariance: null };
-  const toDate = sum(actualByMonth, plan.actualMonths);
-  const projected = toDate + sum(budgetByMonth, plan.budgetMonths);
+  const after = plan.budgetMonths.reduce(
+    (s, m) => s + (budgetByMonth?.has(m) ? budgetByMonth.get(m)! : actualByMonth.get(m) ?? 0), 0);
+  const projected = sum(actualByMonth, plan.actualMonths) + after;
+  if (budgetByMonth === null) return { projected, fyBudget: null, projVariance: null };
   const fyBudget = sum(budgetByMonth, plan.fyMonths);
   return { projected, fyBudget, projVariance: projected - fyBudget };
 }

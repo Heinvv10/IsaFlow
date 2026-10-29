@@ -100,7 +100,7 @@ describe('review round 3', () => {
 
   it('R1: a gap window with no window figures leaves every band unallocated absent, like the footer', async () => {
     const r = await run({ period: 'custom', from: '2025-03', to: '2025-04' });
-    // Since the PR-B r1 projection ruling an unbudgeted account projects FY* to today, so accounts posted
+    // Since the PR-B r2 projection ruling a later month with no budget keeps its actual, so accounts posted
     // later in FY2026 are listed with their projection; none has a window actual or budget.
     expect(r.lines.every((l) => l.actual === 0 && l.budget === null && l.unallocatedBudget === null)).toBe(true);
     expect(r.notices.unallocatedBudget).toBeNull();
