@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  MAX_SAVE_CELLS, fetchGridModel, previewImport, saveCells, saveChained, setVersionStatus, templateUrl,
+  MAX_SAVE_CELLS, fetchGridModel, previewImport, saveCells, saveChained, saveGridNote, setVersionStatus, templateUrl,
 } from '@/components/accounting/budgets/workspace/budgetWorkspaceClient';
 import type { SaveCell } from '@/modules/accounting/services/budgets/gridSaveValidate';
 import { gridModel, ID, TOKEN } from './gridFixture';
@@ -142,6 +142,15 @@ describe('other fetchers', () => {
     const r = await setVersionStatus(ID.version, 'approve', { expectedUpdatedAt: TOKEN });
     expect(r.ok && r.data.status).toBe('approved');
     expect(sent[0]).toMatchObject({ url: `/api/accounting/budget-versions/${ID.version}/status`, method: 'POST', body: { action: 'approve', expectedUpdatedAt: TOKEN } });
+  });
+
+  it('PUTs a note (version, account, text as typed) and answers the note as stored; a 409 locked is typed', async () => {
+    replies.push(() => ok({ note: 'Q3 rise' }));
+    const r = await saveGridNote(ID.version, ID.rev1, '  Q3 rise ');
+    expect(r).toEqual({ ok: true, data: { note: 'Q3 rise' } });
+    expect(sent[0]).toMatchObject({ url: '/api/accounting/budget-grid/note', method: 'PUT', body: { versionId: ID.version, glAccountId: ID.rev1, note: '  Q3 rise ' } });
+    replies.push(() => fail(409, 'This budget version is locked', { code: 'BUDGET_VERSION_LOCKED' }));
+    expect(await saveGridNote(ID.version, ID.rev1, 'x')).toEqual({ ok: false, kind: 'locked', message: 'This budget version is locked' });
   });
 
   it('builds the template URL', () => {

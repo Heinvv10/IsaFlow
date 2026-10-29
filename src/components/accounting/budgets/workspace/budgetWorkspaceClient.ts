@@ -188,6 +188,11 @@ export interface SeedRequest {
   includeNoActivity?: boolean;
 }
 
+/** Sets or clears (blank) an account's note for the version's financial year; every version of the year shows it. */
+export function saveGridNote(versionId: string, glAccountId: string, note: string | null): Promise<ApiResult<{ note: string | null }>> {
+  return call('/api/accounting/budget-grid/note', { method: 'PUT', body: JSON.stringify({ versionId, glAccountId, note }) }, 'Could not save the note.');
+}
+
 export function seedVersion(req: SeedRequest): Promise<ApiResult<SeedResult>> {
   return call('/api/accounting/budget-grid/seed', post(req), 'Could not create the budget.');
 }

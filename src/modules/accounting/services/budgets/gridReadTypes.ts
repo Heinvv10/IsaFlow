@@ -33,7 +33,7 @@ export interface GridAccount {
   rollup: number[] | null;
   /**
    * The account's budget note for the financial year (`accounting_budgets.notes`, one per account and
-   * year, shared by every version of the year); null when none. Read-only in the grid.
+   * year, shared by every version of the year); null when none. Edited through budgetNotes.ts `setGridNote`.
    */
   note: string | null;
 }
