@@ -31,7 +31,7 @@ export interface ReforecastDialogProps {
 
 const BTN = 'inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50';
 const INPUT = 'w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)]';
-const LEVEL: Record<UnplacedActualLine['level'], string> = { cc1: 'CC1', cc2: 'CC2', bu: 'BU' };
+const LEVEL: Record<UnplacedActualLine['level'], string> = { cc1: 'by CC1', cc2: 'by CC2', bu: 'by BU', company: 'at company level' };
 
 /** Unplaced actuals summed per account, with the months they fall in. */
 export function unplacedByAccount(lines: readonly UnplacedActualLine[]) {
@@ -54,7 +54,7 @@ export function UnplacedList({ lines }: { lines: readonly UnplacedActualLine[] }
       <p className="font-medium text-[var(--ff-text-primary)]">{UNPLACED_COPY}:</p>
       <ul className="mt-1 space-y-0.5">
         {rows.map((r) => (
-          <li key={r.label}>{r.label} (budgeted by {r.level}): {formatMoney(r.amount)} in {r.months.map((m) => monthLabel(m)).join(', ')}</li>
+          <li key={r.label}>{r.label} (budgeted {r.level}): {formatMoney(r.amount)} in {r.months.map((m) => monthLabel(m)).join(', ')}</li>
         ))}
       </ul>
     </div>
