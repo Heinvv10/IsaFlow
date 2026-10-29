@@ -9,6 +9,7 @@ Budget driver engine (Budgets P4 PR-1, spec `docs/plans/budgets/P4-drivers-forec
 - Money is integer cents; months are `'YYYY-MM'`; pass the version's month list (12, or 14 in a transition year from `gl/fiscalYearRegistry`). Never assume 12.
 - `RowKey` = `rowKeyFor({glAccountId, cc1Id, cc2Id, buId})` = grid `rowKeyOf` shape `acct|cc1|cc2|bu`. A row sets at most one dimension.
 - `rows` must list every row that cells or drivers name (unknown → `DriverRefError`). One driver per row.
+- `drivers` must be EVERY driver line of the version, never the dependents only: a row missing from it has its `driver` cells re-sourced `manual`.
 - Actuals passed to `planReforecast` are cents in budget sign, from P3's `readTrackingActuals` with groupBy null / cc1 / cc2 / bu.
 - Errors: `DriverCycleError(path)` (400 `DRIVER_CYCLE`, path first == last), `DriverRefError` (bad row / range / base / percent), `DriverRangeError` (beyond NUMERIC(15,2), bad headcount). Headcount input that is malformed (date not `YYYY-MM-DD`, end before start, allocation % outside 0..100) throws `RangeError`.
 
@@ -23,9 +24,9 @@ Budget driver engine (Budgets P4 PR-1, spec `docs/plans/budgets/P4-drivers-forec
 - Kinds: fixed = amount; pct_of_line = ref × pct/100; pct_of_section = Σ band rows at scope (same_grain or company) × pct/100 (a row in its own section is a cycle); growth = base × (1 + pct/100)^k, k = list distance from baseMonth (compounding; base strictly before fromMonth); per_head = amount × FTE.
 - Exact BigInt arithmetic; percent to 4 dp, |pct| <= 99999.9999 (NUMERIC(9,4)), growth >= -100. ONE half-away rounding from the exact ratio straight to the unit (the driver's own `rounding`, else the caller's; R1/R100/R1000, no residue). Never cents-then-unit (R1.495 is R1, not R2).
 - Missing input reads 0 with ONE warning per ref: `REF_MISSING` (pct_of_line), `SECTION_EMPTY` (no section row has a cell that month), `BASE_MISSING` (growth).
-- A `driver` or `override` cell no driver covers (driver removed, range shrunk) is re-sourced `manual`, value kept (closed months untouched).
+- A `driver` cell no driver covers (driver removed, range shrunk) is re-sourced `manual`, value kept (closed months untouched). An `override` is never touched by the engine: only Reset to driver, or deleting the driver (the service re-sources that row's overrides), ends one; a range shrunk and regrown keeps it (spec §1.2).
 - `writes` = cells whose amount or source changed: per row in topo order, its driver writes in month order, then its `manual` re-sourcings in month order. An unchanged recompute is `[]`.
-- Headcount (decision 7, Hein 2026-10-29): one full head when start <= last day of M and (end null or >= first day of M) and status ≠ `inactive`; CC scope = Σ allocation % when allocation rows exist, else 1 on the employee's own centre; NULL centre counts only at company scope; hires add FTE for startMonth <= M <= endMonth.
+- Headcount (decision 7, Hein 2026-10-29): one full head when start <= last day of M and (end null or >= first day of M) and status ≠ `inactive`; CC scope = Σ allocation % when allocation rows exist, else 1 on the employee's own centre; NULL centre counts only at company scope; hires add FTE for startMonth <= M <= endMonth. Allocations are used as payroll stores them: one employee's rows summing past 100% count more than one head (the reader logs it).
 - Reforecast: closed months = actual at the account's grain (0 when none, new rows for unbudgeted members/accounts); untagged actuals at a dimension grain are `unplaced` (non-zero net per account + month), never on a company row; open months keep the source cell and source, except a source `actual` (month reopened after a roll) becomes `manual`, value kept; drivers then recompute.
 
 ## Tests

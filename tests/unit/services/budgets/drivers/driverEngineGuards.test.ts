@@ -5,7 +5,7 @@
  * growth >= -100%), and stale driver / override cells re-sourced 'manual'.
  */
 import { describe, it, expect } from 'vitest';
-import { computeVersion, type ComputeInput } from '@/modules/accounting/services/budgets/drivers/driverEngine';
+import { assertDriverMonths, computeVersion, monthIndex, type ComputeInput } from '@/modules/accounting/services/budgets/drivers/driverEngine';
 import {
   DriverRangeError, DriverRefError, rowKeyFor,
   type Cell, type CellSource, type DriverDef, type DriverRow, type RowKey,
@@ -94,27 +94,41 @@ describe('refusals', () => {
   });
 });
 
-describe('stale driver / override cells are re-sourced manual, value kept', () => {
-  it('driver removed: every driver and override cell of the row becomes manual', () => {
+describe('stale driver cells are re-sourced manual, value kept; overrides stay', () => {
+  it('driver removed: every driver cell of the row becomes manual; an override stays an override', () => {
     const cells = new Map<RowKey, Cell[]>([[RENT.key, [
       { month: '2026-03', amount: 500, source: 'driver' }, { month: '2026-04', amount: 700, source: 'override' },
       { month: '2026-05', amount: 900, source: 'manual' }, { month: '2026-06', amount: 1100, source: 'actual' }]]]);
     expect(run({ cells, drivers: [] }).writes).toEqual([
       { rowKey: RENT.key, month: '2026-03', amount: 500, source: 'manual' },
-      { rowKey: RENT.key, month: '2026-04', amount: 700, source: 'manual' },
     ]);
   });
 
-  it('range shrunk: cells outside [from, to] become manual after the row\'s driver writes; inside stays driver', () => {
+  it('range shrunk: driver cells outside [from, to] become manual after the row\'s driver writes; the override stays', () => {
     const cells = new Map<RowKey, Cell[]>([[RENT.key, [
       { month: '2026-03', amount: 500, source: 'override' }, ...flat(1000, 'driver', ['2026-04', '2026-05', '2026-06'])]]]);
     const d: DriverDef = { kind: 'fixed', rowKey: RENT.key, amount: 2000, fromMonth: '2026-05', toMonth: '2026-05' };
     expect(run({ cells, drivers: [d] }).writes).toEqual([
       { rowKey: RENT.key, month: '2026-05', amount: 2000, source: 'driver' },
-      { rowKey: RENT.key, month: '2026-03', amount: 500, source: 'manual' },
       { rowKey: RENT.key, month: '2026-04', amount: 1000, source: 'manual' },
       { rowKey: RENT.key, month: '2026-06', amount: 1000, source: 'manual' },
     ]);
+  });
+
+  it('shrinking a range and growing it back never resets an override (spec §1.2)', () => {
+    const cells = new Map<RowKey, Cell[]>([[RENT.key, [
+      { month: '2026-03', amount: 999900, source: 'override' }, { month: '2026-04', amount: 100, source: 'driver' }]]]);
+    const shrunk: DriverDef = { kind: 'fixed', rowKey: RENT.key, amount: 100, fromMonth: '2026-04', toMonth: '2026-04' };
+    expect(run({ cells, drivers: [shrunk] }).writes).toEqual([]);
+    const regrown: DriverDef = { ...shrunk, fromMonth: '2026-03' };
+    expect(run({ cells, drivers: [regrown] }).writes).toEqual([]);
+  });
+
+  it('a driver whose rounding unit is not R1/R100/R1000 is refused at save', () => {
+    const index = monthIndex(FY);
+    expect(() => assertDriverMonths(index, { kind: 'fixed', rowKey: RENT.key, amount: 100, rounding: 7 as never, ...ALL }))
+      .toThrow(DriverRefError);
+    expect(() => assertDriverMonths(index, { kind: 'fixed', rowKey: RENT.key, amount: 100, rounding: 1000, ...ALL })).not.toThrow();
   });
 
   it('a closed month is never re-sourced; a re-run after re-sourcing writes nothing', () => {
