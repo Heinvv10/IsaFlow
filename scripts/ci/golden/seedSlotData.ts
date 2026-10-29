@@ -21,7 +21,7 @@ export interface SeedApi {
 export const SEED = { suppliers: 8, invoices: 80, journals: 10, bankRows: 200 } as const;
 export const MIGRATION_SOURCE = 'sage_cloud';
 
-export interface SeedReport { suppliers: number; invoicesCreated: number; invoicesApproved: number; journalsCreated: number; bankRowsImported: number; migrationSession: 'created' | 'kept' }
+export interface SeedReport { suppliers: number; invoicesCreated: number; invoicesApproved: number; journalsCreated: number; journalsPosted: number; bankRowsImported: number; migrationSession: 'created' | 'kept' }
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 /** Month 1..10 of 2026 (Oct is the last month already open and not in the future of any run), day 3..20. */
@@ -78,29 +78,57 @@ async function seedInvoices(api: SeedApi, supplierIds: string[]): Promise<{ crea
   return { created, approved };
 }
 
-async function seedJournals(api: SeedApi): Promise<number> {
-  const posted = rowsOf<{ description?: string }>(await api.get('/api/accounting/journal-entries?status=posted&limit=500'), 'entries');
-  const have = new Set(posted.map((e) => e.description));
+/** The journals route caps `limit` at 200 (pages/api/accounting/journal-entries.ts). */
+const JOURNAL_PAGE = 200;
+
+/**
+ * The slot's GSEED journals by description, posted ones winning over a draft of the same description. The list has no
+ * description search and sorts newest first, so the seed journals (dated months back) sit behind every journal later
+ * golden runs add: the lists are paged until exhausted, drafts included (a post that failed leaves a draft behind).
+ */
+async function findSeedJournals(api: SeedApi): Promise<Map<string, { id: string; status: 'posted' | 'draft' }>> {
+  const found = new Map<string, { id: string; status: 'posted' | 'draft' }>();
+  for (const status of ['posted', 'draft'] as const) {
+    for (let offset = 0; ; offset += JOURNAL_PAGE) {
+      const page = await api.get<{ entries?: unknown[]; total?: number }>(`/api/accounting/journal-entries?status=${status}&limit=${JOURNAL_PAGE}&offset=${offset}`);
+      const entries = rowsOf<{ id: string; description?: string }>(page, 'entries');
+      for (const e of entries) {
+        if (e.description && /^GSEED-JNL-\d+$/.test(e.description) && !found.has(e.description)) found.set(e.description, { id: e.id, status });
+      }
+      if (entries.length === 0 || (page.total !== undefined && offset + entries.length >= Number(page.total))) break;
+    }
+  }
+  return found;
+}
+
+async function seedJournals(api: SeedApi, months: string[]): Promise<{ created: number; posted: number }> {
+  const have = await findSeedJournals(api);
   const revenue = rowsOf<{ id: string; isSystemAccount?: boolean }>(await api.get('/api/accounting/chart-of-accounts?subtype=default_revenue')).find((a) => a.isSystemAccount === true);
   const bank = rowsOf<{ id: string }>(await api.get('/api/accounting/bank-accounts'))[0];
   if (!revenue || !bank) throw new Error('the slot needs a default revenue account and a bank account to seed journals');
   let created = 0;
+  let posted = 0;
   for (let m = 1; m <= SEED.journals; m++) {
     const description = `GSEED-JNL-${m}`;
-    if (have.has(description)) continue;
-    const amount = 1000 + m * 250;
-    const entry = await api.post<{ id: string }>('/api/accounting/journal-entries', {
-      entryDate: `2026-${pad(m)}-15`,
-      description,
-      lines: [
-        { glAccountId: bank.id, debit: amount, credit: 0, description: `${description} dr` },
-        { glAccountId: revenue.id, debit: 0, credit: amount, description: `${description} cr` },
-      ],
-    });
-    await api.post('/api/accounting/journal-entries-action', { id: entry.id, action: 'post' });
-    created++;
+    const existing = have.get(description);
+    if (existing?.status === 'posted') continue;
+    let id = existing?.id;
+    if (!id) {
+      const amount = 1000 + m * 250;
+      id = (await api.post<{ id: string }>('/api/accounting/journal-entries', {
+        entryDate: `${months[(m - 1) % months.length]}-15`,
+        description,
+        lines: [
+          { glAccountId: bank.id, debit: amount, credit: 0, description: `${description} dr` },
+          { glAccountId: revenue.id, debit: 0, credit: amount, description: `${description} cr` },
+        ],
+      })).id;
+      created++;
+    }
+    await api.post('/api/accounting/journal-entries-action', { id, action: 'post' });
+    posted++;
   }
-  return created;
+  return { created, posted };
 }
 
 async function seedBankRows(api: SeedApi, makeId: () => string): Promise<number> {
@@ -134,11 +162,13 @@ async function ensureMigrationSession(api: SeedApi): Promise<'created' | 'kept'>
 export async function seedSlot(api: SeedApi, makeId: () => string): Promise<SeedReport> {
   const suppliers = await ensureSuppliers(api);
   const invoices = await seedInvoices(api, suppliers);
+  const journals = await seedJournals(api, Array.from({ length: SEED.journals }, (_, i) => `2026-${pad(i + 1)}`));
   return {
     suppliers: suppliers.length,
     invoicesCreated: invoices.created,
     invoicesApproved: invoices.approved,
-    journalsCreated: await seedJournals(api),
+    journalsCreated: journals.created,
+    journalsPosted: journals.posted,
     bankRowsImported: await seedBankRows(api, makeId),
     migrationSession: await ensureMigrationSession(api),
   };
