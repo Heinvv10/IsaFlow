@@ -65,7 +65,7 @@ export function WhatIfEventRow({ event, position, gate, canRemove, onChange, onR
         )}
         <button
           type="button" onClick={onRemove} disabled={!canRemove} aria-label={`Remove event ${position}`}
-          className="mt-6 inline-flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:text-red-500 disabled:opacity-40"
+          className="mt-6 inline-flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:text-red-500 disabled:opacity-40"
         >
           <X className="h-4 w-4" />
         </button>
