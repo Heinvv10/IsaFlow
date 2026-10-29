@@ -102,11 +102,17 @@ describe('reports-budget-comparator', () => {
     ['more than 24 months', { period_start: '2024-01-01', period_end: '2026-01-31' }],
     ['a year before 1900', { period_start: '1899-12-01', period_end: '1899-12-31' }],
     ['a year after 2200', { period_start: '2201-01-01', period_end: '2201-01-31' }],
-  ])('refuses %s with a 400, before the service', async (_name, query) => {
+    ['text for the start', { period_start: 'abc', period_end: '2026-08-31' }],
+    ['a blank start', { period_start: '', period_end: '2026-08-31' }],
+    ['an unpadded start', { period_start: '2026-8-1', period_end: '2026-08-31' }],
+    ['month 13', { period_start: '2026-13-01', period_end: '2026-12-31' }],
+    ['text for the end', { period_start: '2026-08-01', period_end: 'garbage' }],
+  ])('refuses %s with a 400, before the service, and no stack reaches the client', async (_name, query) => {
     const res = mockRes();
     await handler(get(query), res);
     expect(res.statusCode).toBe(400);
     expect(getBudgetVariance).not.toHaveBeenCalled();
+    expect(JSON.stringify(res.sent)).not.toMatch(/stack|monthEnd/);
   });
 
   it('takes exactly 24 months and a leap day', async () => {
