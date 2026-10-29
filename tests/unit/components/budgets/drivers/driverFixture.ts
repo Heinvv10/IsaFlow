@@ -10,6 +10,8 @@ import { ID, MONTHS, TOKEN, gridModel } from '../workspace/gridFixture';
 
 export { ID, MONTHS, TOKEN };
 export const T2 = '2026-10-29T08:00:00.000002Z';
+/** A 14-month transition year (Jan 2026 - Feb 2027), as after a change of year end. */
+export const MONTHS14 = ['2026-01', '2026-02', ...MONTHS];
 export const T3 = '2026-10-29T08:05:00.000003Z';
 
 const NONE = { amount: null, pct: null, ref: null, section: null, scope: null, baseMonth: null, headcountCostCentreId: null } as const;
@@ -28,19 +30,26 @@ export const OPEX_DRIVER = driverLine({ glAccountId: ID.opex, kind: 'fixed', amo
 const cell = (glAccountId: string, month: string, amount: number, source: GridCell['source']): GridCell =>
   ({ glAccountId, cc1Id: null, cc2Id: null, buId: null, month, amount, source });
 
-export function driverModel(opts: { withActuals?: boolean } = {}): GridReadModel {
+/**
+ * `withActuals`: the first `closed` months (default 2) are closed; `months`: the year's months
+ * (MONTHS14 for a transition year). The drivers cover the whole year.
+ */
+export function driverModel(opts: { withActuals?: boolean; closed?: number; months?: readonly string[] } = {}): GridReadModel {
   const base = gridModel();
-  const closed = new Set(opts.withActuals ? MONTHS.slice(0, 2) : []);
+  const months = opts.months ?? MONTHS;
+  const closed = new Set(opts.withActuals ? months.slice(0, opts.closed ?? 2) : []);
   const src = (m: string, s: GridCell['source']): GridCell['source'] => (closed.has(m) ? 'actual' : s);
   const cells: GridCell[] = [
-    ...MONTHS.map((m) => cell(ID.rev1, m, 1000, src(m, 'manual'))),
-    ...MONTHS.map((m, i) => cell(ID.cos1, m, i === 2 ? 500 : 380, src(m, i === 2 ? 'override' : 'driver'))),
-    ...MONTHS.map((m) => cell(ID.opex, m, 15000, src(m, 'driver'))),
+    ...months.map((m) => cell(ID.rev1, m, 1000, src(m, 'manual'))),
+    ...months.map((m, i) => cell(ID.cos1, m, i === 2 ? 500 : 380, src(m, i === 2 ? 'override' : 'driver'))),
+    ...months.map((m) => cell(ID.opex, m, 15000, src(m, 'driver'))),
   ];
+  const span = { fromMonth: months[0]!, toMonth: months[months.length - 1]! };
   return {
     ...base,
     version: base.version && { ...base.version, kind: opts.withActuals ? 'reforecast' : 'original' },
     accounts: base.accounts.map((a) => (a.id === ID.opex ? { ...a, grain: 'company' as const } : a)),
-    cells, drivers: [COGS_DRIVER, OPEX_DRIVER],
+    year: { ...base.year, monthKeys: [...months], startDate: `${months[0]}-01`, kind: months.length === 12 ? 'normal' : 'transition' },
+    cells, drivers: [{ ...COGS_DRIVER, ...span }, { ...OPEX_DRIVER, ...span }],
   };
 }

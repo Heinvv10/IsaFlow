@@ -43,15 +43,29 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 export function useDriverActions(grid: BudgetGridApi, editable: boolean): DriverActions {
   const { model, version } = grid;
   const versionId = version?.id ?? null;
-  const [editing, setEditing] = useState<string | null>(null);
+  // The account being edited, and how to put focus back on its row when the drawer closes.
+  const [editing, setEditing] = useState<{ accountId: string; onClosed?: () => void } | null>(null);
+  const refocus = useRef<(() => void) | null>(null);
   const [notice, setNotice] = useState<DriverActions['notice']>(null);
   const [tick, setTick] = useState(0);
   const live = useRef(grid);
   useEffect(() => { live.current = grid; });
   const counts = useRef(new Map<string, ReadonlyMap<string, number>>());
+  const countErrors = useRef(new Map<string, string>());
   const loading = useRef(new Set<string>());
+  const resetting = useRef(new Set<string>());
 
-  useEffect(() => { counts.current = new Map(); setEditing(null); setNotice(null); }, [versionId]);
+  useEffect(() => { counts.current = new Map(); countErrors.current = new Map(); setEditing(null); setNotice(null); }, [versionId]);
+  // After the drawer unmounted (its focus trap hands focus back first): the row's cell takes it.
+  useEffect(() => {
+    if (editing || !refocus.current) return;
+    const back = refocus.current;
+    refocus.current = null;
+    back();
+  }, [editing]);
+  const closeEditor = useCallback(() => {
+    setEditing((e) => { refocus.current = e?.onClosed ?? null; return null; });
+  }, []);
 
   const lookup: HeadcountLookup = useCallback((scope) => counts.current.get(scope ?? ''), []);
   const loadHeadcount = useCallback(async (scope: string | null) => {
@@ -61,12 +75,15 @@ export function useDriverActions(grid: BudgetGridApi, editable: boolean): Driver
     loading.current.add(k);
     const r = await fetchHeadcount(id, scope);
     loading.current.delete(k);
-    if (!r.ok || live.current.version?.id !== id) return;
-    counts.current.set(k, new Map(r.data.months.map((m) => [m.month, m.total])));
+    if (live.current.version?.id !== id) return;
+    if (r.ok) { counts.current.set(k, new Map(r.data.months.map((m) => [m.month, m.total]))); countErrors.current.delete(k); }
+    else countErrors.current.set(k, failureText(r));
     setTick((t) => t + 1);
   }, []);
-  const needHeadcount = useCallback((scope: string | null) => { void loadHeadcount(scope); }, [loadHeadcount]);
-  const invalidateHeadcount = useCallback(() => { counts.current = new Map(); setTick((t) => t + 1); }, []);
+  // A failed read is retried when the editor asks again (a scope change, or reopening it).
+  const needHeadcount = useCallback((scope: string | null) => { countErrors.current.delete(scope ?? ''); void loadHeadcount(scope); }, [loadHeadcount]);
+  const headcountError = useCallback((scope: string | null) => countErrors.current.get(scope ?? '') ?? null, []);
+  const invalidateHeadcount = useCallback(() => { counts.current = new Map(); countErrors.current = new Map(); setTick((t) => t + 1); }, []);
 
   const context = useCallback((): DriverContext => {
     const g = live.current;
@@ -89,12 +106,13 @@ export function useDriverActions(grid: BudgetGridApi, editable: boolean): Driver
       return { message: failureText(r), ...(r.kind === 'invalid' && r.path ? { path: r.path } : {}) };
     }
     g.adoptToken(r.data.updatedAt);
-    await g.refresh(r.data.warnings);
+    // The write stands even when the re-read fails: that is said, never a refusal.
+    const reread = await g.refresh(r.data.warnings);
     const text = done(r.data);
-    g.store.announce(text);
-    setNotice(r.data.warnings.length > 0
-      ? { tone: 'error', text: `${text} ${r.data.warnings.map((w) => w.message).join(' ')}` }
-      : { tone: 'info', text });
+    g.store.announce(reread ?? text);
+    setNotice(reread ? { tone: 'error', text: `${text}. ${reread}` }
+      : r.data.warnings.length > 0 ? { tone: 'error', text: `${text} ${r.data.warnings.map((w) => w.message).join(' ')}` }
+        : { tone: 'info', text });
     return null;
   }, []);
 
@@ -104,12 +122,19 @@ export function useDriverActions(grid: BudgetGridApi, editable: boolean): Driver
     if (!labels || !versionId) return null;
     return {
       canChange: editable,
-      openEditor: (id) => setEditing(id),
-      resetOverride: (id, month) => {
+      openEditor: (id, onClosed) => setEditing({ accountId: id, onClosed }),
+      resetOverride: async (id, month) => {
         const row = grainInView(id, live.current.view);
-        void runWrite((v, t) => resetOverride(v, t, { ...row, month }),
-          (d) => `${plural(d.reset, 'override')} reset to the driver on ${labels.row(rowKeyFor(row))}`)
-          .then((f) => { if (f) { setNotice({ tone: 'error', text: f.message }); live.current.store.announce(f.message); } });
+        const key = `${rowKeyFor(row)}|${month ?? ''}`;
+        if (resetting.current.has(key)) return; // one Reset of a cell (or row) at a time
+        resetting.current.add(key);
+        try {
+          const f = await runWrite((v, t) => resetOverride(v, t, { ...row, month }),
+            (d) => `${plural(d.reset, 'override')} reset to the driver on ${labels.row(rowKeyFor(row))}`);
+          if (f) { setNotice({ tone: 'error', text: f.message }); live.current.store.announce(f.message); }
+        } finally {
+          resetting.current.delete(key);
+        }
       },
       driverValue: (id, month) => driverValueOf(context(), rowKeyFor(grainInView(id, live.current.view)), month, lookup),
       accountName: labels.accountName,
@@ -122,14 +147,14 @@ export function useDriverActions(grid: BudgetGridApi, editable: boolean): Driver
 
   let editor: ReactNode = null;
   if (editing && model && labels) {
-    const grain = grainInView(editing, grid.view);
+    const grain = grainInView(editing.accountId, grid.view);
     const key = rowKeyFor(grain);
     const existing = grid.store.driverOfRow(key);
-    const close = () => setEditing(null);
+    const close = closeEditor;
     editor = (
       <DriverEditor key={key} grain={grain} label={labels.row(key)} existing={existing} months={model.year.monthKeys}
         rows={refRowOptions(model.accounts, grid.store.driverInputs().values, key, labels)} costCentres={costCentreOptions(model.dimensions)}
-        readOnly={!editable} preview={preview} onNeedHeadcount={needHeadcount} headcountTick={tick} pathLabel={pathLabel}
+        readOnly={!editable} preview={preview} onNeedHeadcount={needHeadcount} headcountTick={tick} headcountError={headcountError} pathLabel={pathLabel}
         onSave={async (line) => {
           const f = await runWrite((v, t) => saveDriver(v, t, line), (d) => `Driver saved on ${labels.row(key)}; ${plural(d.recomputed, 'cell')} recomputed`);
           if (!f) close();

@@ -67,7 +67,7 @@ const status = (over: object = {}) => ({
 });
 
 function grid() {
-  return { token: TOKEN, dirtyCount: 0, adoptToken: vi.fn(), refresh: vi.fn(async () => undefined) };
+  return { token: TOKEN, dirtyCount: 0, adoptToken: vi.fn(), refresh: vi.fn(async (_w?: unknown) => null as string | null) };
 }
 
 describe('RollingControls', () => {
@@ -108,5 +108,59 @@ describe('RollingControls', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId('rolling-controls')).toBeNull();
     expect(net.sent.some((s) => s.url.includes('/reforecast'))).toBe(false);
+  });
+
+  it("Roll now's answer: the warnings go to the grid's re-read and the unplaced actuals are listed", async () => {
+    const net = installNetwork();
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status()));
+    const warnings = [{ code: 'REF_MISSING', rowKey: `${ID.cos1}|||`, message: 'Referenced row has no amount' }];
+    const unplaced = [{ accountId: ID.dimAcc, accountCode: '3200', accountName: 'Salaries', level: 'cc1', month: '2026-05', amount: 250 }];
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'POST', () => ok({ status: 'rolled', changed: 3, closedMonths: [], rolledThroughMonth: '2026-06', unplaced, warnings, updatedAt: T2 }));
+    const g = grid();
+    render(<RollingControls version={REFORECAST} grid={g} editable />);
+    fireEvent.click(await screen.findByTestId('roll-now'));
+    const note = await screen.findByTestId('rolling-note');
+    expect(note).toHaveTextContent('Rolled: 3 cells changed.');
+    expect(note).toHaveTextContent(`${UNPLACED_COPY}:`);
+    expect(note).toHaveTextContent('3200 Salaries (budgeted by CC1): R 250.00 in May 2026');
+    expect(g.refresh).toHaveBeenCalledWith(warnings);
+  });
+
+  it.each([
+    ['locked', 'The version is locked: the roll was skipped.'],
+    ['primary', 'The version is primary'],
+    ['not_rolling', 'This version does not roll forward'],
+  ])('a roll answered %s says so and re-reads nothing', async (rollStatus, text) => {
+    const net = installNetwork();
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status()));
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'POST', () => ok({ status: rollStatus, changed: 0, closedMonths: [], rolledThroughMonth: null, unplaced: [], warnings: [], updatedAt: null }));
+    const g = grid();
+    render(<RollingControls version={REFORECAST} grid={g} editable />);
+    fireEvent.click(await screen.findByTestId('roll-now'));
+    expect(await screen.findByTestId('rolling-note')).toHaveTextContent(text);
+    expect(g.refresh).not.toHaveBeenCalled();
+    expect(g.adoptToken).not.toHaveBeenCalled();
+  });
+
+  it('a month reopened after the roll: the spec banner and Roll now; the status unplaced actuals behind a disclosure', async () => {
+    const net = installNetwork();
+    const unplaced = [{ accountId: ID.dimAcc, accountCode: '3200', accountName: 'Salaries', level: 'cc1', month: '2026-04', amount: 99 }];
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status({ staleMonths: [], rolledThroughMonth: '2026-06', reopenedMonths: ['2026-04'], unplaced })));
+    render(<RollingControls version={REFORECAST} grid={grid()} editable />);
+    expect(await screen.findByTestId('rolling-reopened')).toHaveTextContent('Apr 2026 reopened after the roll — Roll now refreshes it');
+    expect(screen.getByTestId('roll-now')).toBeInTheDocument();
+    const details = screen.getByTestId('rolling-unplaced');
+    expect(details).toHaveTextContent('1 unplaced actual');
+    expect(details).toHaveTextContent('3200 Salaries (budgeted by CC1): R 99.00 in Apr 2026');
+  });
+
+  it("a failed re-read after the roll is said", async () => {
+    const net = installNetwork();
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status()));
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'POST', () => ok({ status: 'rolled', changed: 1, closedMonths: [], rolledThroughMonth: '2026-06', unplaced: [], warnings: [], updatedAt: T2 }));
+    const g = { ...grid(), refresh: vi.fn(async () => 'The change was saved, but the budget could not be read again.') };
+    render(<RollingControls version={REFORECAST} grid={g} editable />);
+    fireEvent.click(await screen.findByTestId('roll-now'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be read again');
   });
 });

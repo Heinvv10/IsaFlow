@@ -8,12 +8,30 @@
 import type { DriverLine, StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
 import type { PlannedHireInput, StoredPlannedHire } from '@/modules/accounting/services/budgets/drivers/driverRepository';
 import type { VersionHeadcount } from '@/modules/accounting/services/budgets/drivers/plannedHireService';
-import type { RollingStatus } from '@/modules/accounting/services/budgets/drivers/rollingForecastService';
 import type { UnplacedActualLine } from '@/modules/accounting/services/budgets/drivers/reforecastInputs';
 import { call } from '@/components/accounting/budgets/workspace/budgetWorkspaceClient';
 import type { ApiResult, BudgetVersion } from '@/components/accounting/budgets/workspace/types';
 
-export type { RollingStatus, StoredPlannedHire, UnplacedActualLine, VersionHeadcount };
+export type { StoredPlannedHire, UnplacedActualLine, VersionHeadcount };
+
+/**
+ * GET `budget-versions/[id]/reforecast`: the rolling status. Declared here (the route's service
+ * type moves with PR-4); `reopenedMonths` and `unplaced` are optional for an answer without them.
+ */
+export interface RollingStatus {
+  rolling: boolean;
+  rolledThroughMonth: string | null;
+  latestClosedMonth: string | null;
+  /** Closed months after rolledThroughMonth (a roll that did not run). */
+  staleMonths: string[];
+  /** Months up to rolledThroughMonth no longer closed that still hold actuals (spec §6 "reopened"). */
+  reopenedMonths?: string[];
+  /** Closed-month actuals the version cannot place, named, in rand. */
+  unplaced?: UnplacedActualLine[];
+  lastRolledAt: string | null;
+  /** 'version locked' / 'version is primary' when the last roll was skipped. */
+  lastError: string | null;
+}
 
 /** A recompute warning as the routes answer it (REF_MISSING, SECTION_EMPTY, BASE_MISSING, DRIVER_SKIPPED), labelled. */
 export interface DriverWarningView { code: string; rowKey: string; message: string }
@@ -111,7 +129,8 @@ export interface ReforecastCreatedView {
 }
 
 export interface RollNowView {
-  status: 'rolled' | 'locked' | 'not_rolling';
+  /** 'locked' / 'primary': skipped (last_error recorded); 'not_rolling': the version does not roll. */
+  status: 'rolled' | 'locked' | 'primary' | 'not_rolling';
   changed: number;
   closedMonths: string[];
   rolledThroughMonth: string | null;

@@ -9,10 +9,10 @@ import type { StoredDriverLine } from '@/modules/accounting/services/budgets/dri
 export interface GridDriverHandlers {
   /** A writer on an unlocked version: chips open the editor, overrides offer Reset. */
   canChange: boolean;
-  /** Open the editor for the account at the view's grain (its driver, or a new one). */
-  openEditor(accountId: string): void;
-  /** Reset one override cell (`month`), or every override of the row (`month: null`), to the driver. */
-  resetOverride(accountId: string, month: string | null): void;
+  /** Open the editor for the account at the view's grain (its driver, or a new one); `onClosed` puts focus back on the row. */
+  openEditor(accountId: string, onClosed?: () => void): void;
+  /** Reset one override cell (`month`), or every override of the row (`month: null`), to the driver; a second call while one runs is ignored. */
+  resetOverride(accountId: string, month: string | null): Promise<void>;
   /** The driver's value now (cents) for the account's cell at the view's grain in `month`; null when unknown. */
   driverValue(accountId: string, month: string): number | null;
   /** An account's name without its code (the chip's pct_of_line reference). */

@@ -48,8 +48,10 @@ export function HeadcountPanel({ versionId, months, costCentres, editable, runWr
     let gone = false;
     void Promise.all([fetchHeadcount(versionId, scope === '' ? null : scope), listHires(versionId)]).then(([c, h]) => {
       if (gone) return;
-      if (c.ok) setCounts(c.data); else setError(failureText(c));
-      if (h.ok) setHires(h.data.hires); else setError(failureText(h));
+      if (c.ok) setCounts(c.data);
+      if (h.ok) setHires(h.data.hires);
+      // A good read clears an earlier failure; a failed one says which.
+      setError(!c.ok ? failureText(c) : !h.ok ? failureText(h) : null);
     });
     return () => { gone = true; };
   }, [versionId, scope, bump]);
@@ -57,7 +59,11 @@ export function HeadcountPanel({ versionId, months, costCentres, editable, runWr
   const changed = useCallback(() => { onCountsChanged(); setBump((n) => n + 1); }, [onCountsChanged]);
   const write = useCallback(async (fn: Parameters<DriverActions['runWrite']>[0], done: string): Promise<string | null> => {
     const f = await runWrite(fn, (d) => `${done}; ${d.recomputed} cell${d.recomputed === 1 ? '' : 's'} recomputed`);
-    if (f) return f.message;
+    if (f) {
+      // A refused write (a hire someone else deleted, a stale token) may leave the list behind the server: read it again.
+      setBump((n) => n + 1);
+      return f.message;
+    }
     changed();
     return null;
   }, [runWrite, changed]);

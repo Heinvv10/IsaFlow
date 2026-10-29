@@ -141,13 +141,13 @@ function RowLabel({ row, snap, chip, grain }: { row: LineRow; snap: GridRowSnaps
 }
 
 /** The row's driver chip (P4): opens the editor for a writer; warns when the last recompute did. */
-function RowDriverChip({ snap, row, driver }: { snap: GridRowSnapshot; row: LineRow; driver: GridDriverHandlers | null }) {
+function RowDriverChip({ snap, row, handlers }: { snap: GridRowSnapshot; row: LineRow; handlers: GridCellHandlers }) {
+  const driver = handlers.driver;
   if (!driver || !snap.driver || row.role === 'rollup') return null;
-  const id = row.account.id;
   return (
     <span className="block">
       <DriverChip line={snap.driver} accountName={driver.accountName} description={driver.describe(snap.driver)} warning={snap.driverWarning}
-        onOpen={driver.canChange && snap.editable ? () => driver.openEditor(id) : null} />
+        onOpen={driver.canChange && snap.editable ? () => handlers.onRowAction(row, { type: 'driver' }) : null} />
     </span>
   );
 }
@@ -180,7 +180,7 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
       <RowLabel row={row} snap={snap} grain={grain}
         chip={row.role === 'rollup' && row.account.ownAmounts
           ? <OwnBudgetChip store={store} row={row} handlers={handlers} canChange={canChange} />
-          : <RowDriverChip snap={snap} row={row} driver={handlers.driver} />} />
+          : <RowDriverChip snap={snap} row={row} handlers={handlers} />} />
       {values.map((v, c) => {
         const isFy = c === months.length;
         const editing = snap.editing !== null && snap.editing.col === c;

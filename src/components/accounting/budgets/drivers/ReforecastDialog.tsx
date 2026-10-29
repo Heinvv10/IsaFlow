@@ -45,8 +45,23 @@ export function unplacedByAccount(lines: readonly UnplacedActualLine[]) {
   return [...out.values()];
 }
 
+/** The actuals a reforecast or a roll could not place, by account, under the fixed copy. */
+export function UnplacedList({ lines }: { lines: readonly UnplacedActualLine[] }) {
+  const rows = useMemo(() => unplacedByAccount(lines), [lines]);
+  if (rows.length === 0) return null;
+  return (
+    <div data-testid="reforecast-unplaced">
+      <p className="font-medium text-[var(--ff-text-primary)]">{UNPLACED_COPY}:</p>
+      <ul className="mt-1 space-y-0.5">
+        {rows.map((r) => (
+          <li key={r.label}>{r.label} (budgeted by {r.level}): {formatMoney(r.amount)} in {r.months.map((m) => monthLabel(m)).join(', ')}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Result({ data }: { data: ReforecastCreatedView }) {
-  const rows = useMemo(() => unplacedByAccount(data.unplaced), [data.unplaced]);
   const closed = data.closedMonths;
   return (
     <div data-testid="reforecast-result" className="space-y-2">
@@ -55,16 +70,7 @@ function Result({ data }: { data: ReforecastCreatedView }) {
         {' '}{closed.length === 0 ? 'no month is closed yet, so every month keeps the source amounts' : `${closed.length} closed month${closed.length === 1 ? '' : 's'} (${monthLabel(closed[0]!)} to ${monthLabel(closed[closed.length - 1]!)}) hold the actuals`}.
       </p>
       {data.warnings.map((w) => <p key={`${w.code}:${w.rowKey}`} className="text-[var(--ff-unfav)]">{w.message}</p>)}
-      {rows.length > 0 && (
-        <div data-testid="reforecast-unplaced">
-          <p className="font-medium text-[var(--ff-text-primary)]">{UNPLACED_COPY}:</p>
-          <ul className="mt-1 space-y-0.5">
-            {rows.map((r) => (
-              <li key={r.label}>{r.label} (budgeted by {r.level}): {formatMoney(r.amount)} in {r.months.map((m) => monthLabel(m)).join(', ')}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <UnplacedList lines={data.unplaced} />
     </div>
   );
 }

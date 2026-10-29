@@ -31,7 +31,7 @@ function statusText(s: SaveState): string {
     const d = s.drivers;
     const drivers = d && (d.recomputed > 0 || d.reset > 0)
       ? `; drivers recomputed ${plural(d.recomputed, 'cell')}${d.reset > 0 ? `, ${plural(d.reset, 'override')} reset to the driver` : ''}` : '';
-    return `Saved: ${plural(s.saved, 'cell')} changed, ${plural(s.deleted, 'cell')} cleared${drivers}`;
+    return `Saved: ${plural(s.saved, 'cell')} changed, ${plural(s.deleted, 'cell')} cleared${drivers}${s.refreshError ? `. ${s.refreshError}` : ''}`;
   }
   if (s.status === 'error') return s.retryAfter ? `${s.message} Try again in ${s.retryAfter} s.` : s.message;
   return '';
