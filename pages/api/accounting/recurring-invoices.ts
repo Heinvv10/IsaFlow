@@ -14,10 +14,10 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
-  assertEndNotBeforeNextRun,
+  assertEditDatesConsistent,
   editTotals,
-  effectiveNextRunDate,
   parseEndDateEdit,
+  parseNextRunDateEdit,
   RecurringInvoiceEditError,
   resolveEditTaxRate,
 } from '@/modules/accounting/services/ar/recurringInvoiceEdit';
@@ -55,10 +55,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PUT') {
-    const { id, templateName, frequency, nextRunDate, description, lineItems } = req.body;
+    const { id, templateName, frequency, description, lineItems } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
       const endDate = parseEndDateEdit(req.body);
+      const nextRun = parseNextRunDateEdit(req.body);
       if (req.body.taxRate != null && !lineItems) {
         return apiResponse.badRequest(res, 'taxRate can only be changed together with lineItems');
       }
@@ -72,7 +73,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (stored.status !== 'active' && stored.status !== 'paused') {
         return apiResponse.conflict(res, `A ${String(stored.status)} recurring invoice cannot be edited`);
       }
-      assertEndNotBeforeNextRun(endDate.value, effectiveNextRunDate(nextRunDate, stored.next_run_date));
+      assertEditDatesConsistent(endDate, nextRun, stored);
       if (lineItems) {
         // W1 family (P2.1): an edited template with negative lines re-mints a
         // negative APPROVED invoice every period — same guard as create.
@@ -98,7 +99,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
             THEN approval_add_author(content_authors, ${req.user.id}::UUID) ELSE content_authors END,
           template_name = COALESCE(${templateName || null}, template_name),
           frequency = COALESCE(${frequency || null}, frequency),
-          next_run_date = COALESCE(${nextRunDate || null}, next_run_date),
+          next_run_date = COALESCE(${nextRun.value}::DATE, next_run_date),
           end_date = CASE WHEN ${endDate.provided}::BOOLEAN THEN ${endDate.value}::DATE ELSE end_date END,
           description = COALESCE(${description || null}, description),
           line_items = COALESCE(${lines}::JSONB, line_items),

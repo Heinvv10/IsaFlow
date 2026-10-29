@@ -83,19 +83,39 @@ export function resolveEditTaxRate(requested: unknown, stored: unknown): number 
   }
 }
 
-/** YYYY-MM-DD of the next run an edit leaves: the body's nextRunDate if it sends one, else the stored one. */
-export function effectiveNextRunDate(requested: unknown, stored: unknown): string {
-  if (typeof requested === 'string') {
-    const m = /^\d{4}-\d{2}-\d{2}/.exec(requested.trim());
-    if (m) return m[0];
-  }
-  return fmtDate(stored as Date | string);
+/**
+ * What an edit says about the next run date. Blank (absent, null, '') keeps the
+ * stored date, as the UPDATE's COALESCE always did; anything else must be a
+ * real YYYY-MM-DD date, so the check below and the SQL cast read the same value.
+ */
+export function parseNextRunDateEdit(body: Record<string, unknown>): { provided: boolean; value: string | null } {
+  const raw = body.nextRunDate;
+  if (raw === undefined || raw === null) return { provided: false, value: null };
+  if (typeof raw !== 'string') throw new RecurringInvoiceEditError('nextRunDate must be a YYYY-MM-DD date');
+  const trimmed = raw.trim();
+  if (trimmed === '') return { provided: false, value: null };
+  if (!isCalendarDate(trimmed)) throw new RecurringInvoiceEditError('nextRunDate must be a valid YYYY-MM-DD date');
+  return { provided: true, value: trimmed };
 }
 
-/** An End Date before the next run would end the template before it ever bills (create's date input has min=nextRunDate). */
-export function assertEndNotBeforeNextRun(endDate: string | null, nextRunDate: string): void {
-  if (endDate !== null && endDate < nextRunDate) {
-    throw new RecurringInvoiceEditError(`endDate cannot be before the next run date (${nextRunDate})`);
+/**
+ * An End Date before the next run would end the template before it ever bills
+ * (create's date input has min=nextRunDate). Judged on the dates the edit
+ * LEAVES: the body's value where it sends one, else the stored one — so moving
+ * the next run past a stored End Date is refused too. An edit that touches
+ * neither date is not judged (legacy templates may already be inconsistent).
+ */
+export function assertEditDatesConsistent(
+  end: { provided: boolean; value: string | null },
+  next: { provided: boolean; value: string | null },
+  stored: { end_date?: unknown; next_run_date?: unknown },
+): void {
+  if (!end.provided && !next.provided) return;
+  const effectiveEnd = end.provided ? end.value : (stored.end_date ? fmtDate(stored.end_date as Date | string) : null);
+  const effectiveNext = next.provided ? next.value : fmtDate(stored.next_run_date as Date | string);
+  if (effectiveEnd !== null && effectiveNext !== null && effectiveEnd < effectiveNext) {
+    throw new RecurringInvoiceEditError(
+      `The end date (${effectiveEnd}) cannot be before the next run date (${effectiveNext})`);
   }
 }
 
