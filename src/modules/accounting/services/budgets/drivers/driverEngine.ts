@@ -197,7 +197,7 @@ export function computeVersion(input: ComputeInput): ComputeResult {
       const before = own.get(month);
       if (before && (before.source === 'override' || before.source === 'actual')) continue;
       const [num, den] = ratio(d, i, input, graph, index, run);
-      const amount = toAmount(num, den, input.rounding, key, month);
+      const amount = toAmount(num, den, d.rounding ?? input.rounding, key, month);
       own.set(month, { month, amount, source: 'driver' });
       if (!before || before.amount !== amount || before.source !== 'driver') writes.push({ rowKey: key, month, amount, source: 'driver' });
     }
