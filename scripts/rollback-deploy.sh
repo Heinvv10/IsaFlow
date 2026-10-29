@@ -30,6 +30,12 @@ TARGET_PORT=$(bg_other_port "$LIVE_PORT")
 LIVE_SHA=$(bg_sha "$LIVE_PORT")
 TARGET_SHA=$(bg_sha "$TARGET_PORT")
 echo "=== Rolling back: isaflow@$LIVE_PORT ($LIVE_SHA) -> isaflow@$TARGET_PORT ($TARGET_SHA) ==="
+bg_served_by "$LIVE_PORT" || { echo "ERROR: nginx is not serving isaflow@$LIVE_PORT although $BG_UPSTREAM_FILE names it; not rolling back"; exit 1; }
+if [ "$LIVE_SHA" = "$TARGET_SHA" ]; then
+  echo "ERROR: isaflow@$TARGET_PORT holds the same release ($TARGET_SHA) as the live colour (restart-colours copied it there):"
+  echo "there is no older release to roll back to. Manual recovery: git checkout <last good SHA> && bash scripts/deploy.sh"
+  exit 1
+fi
 
 if ! $BG_SUDO test -f "$(bg_release_dir "$TARGET_PORT")/server.js"; then
   echo "ERROR: isaflow@$TARGET_PORT has no build — no previous release to switch to."
@@ -49,10 +55,14 @@ if ! curl -sf --max-time 5 "http://127.0.0.1:$TARGET_PORT/api/health" >/dev/null
 fi
 
 rc=0; bg_switch_proven "$TARGET_PORT" "$LIVE_PORT" || rc=$?
-if [ "$rc" -ne 0 ]; then
+if [ "$rc" -eq 2 ]; then
+  echo "!!! ROLLBACK FAILED AND SO DID THE SWITCH BACK: nginx's state is unknown. Check $BG_UPSTREAM_FILE and nginx now. !!!"
+  exit 2
+elif [ "$rc" -ne 0 ]; then
   echo "ERROR: rollback not done (live stays isaflow@$LIVE_PORT). Look at: sudo journalctl -u isaflow@$TARGET_PORT -n 100 --no-pager"
   exit 1
 fi
-bg_record_live "$TARGET_PORT"
 bg_mark_failed "$LIVE_PORT" "$LIVE_SHA: rolled back from on $(date -Is)"
+bg_record_live "$TARGET_PORT"
+echo "Note: isaflow@$TARGET_PORT runs with the env it last started with; after an .env.local change, run scripts/deploy/restart-colours.sh."
 echo "=== Rollback complete (live: isaflow@$TARGET_PORT at $TARGET_SHA; migrations NOT reverted) ==="

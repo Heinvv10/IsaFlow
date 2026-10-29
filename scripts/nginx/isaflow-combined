@@ -5,17 +5,14 @@
 # upstream `isaflow_live` (/etc/nginx/conf.d/isaflow-live.conf, written only by
 # scripts/deploy/bluegreen.sh) names the live one. A deploy switches it with an
 # nginx reload, which lets requests already in flight finish on the old colour.
-# X-IsaFlow-Upstream names the colour that answered, only to a request that
-# sends X-IsaFlow-Probe: 1 (the deploy's check); nginx omits an empty header.
+# X-IsaFlow-Upstream names the colour that answered, only to a request whose
+# X-IsaFlow-Probe header carries the token in /etc/nginx/conf.d/isaflow-probe.conf
+# (root-only, written by cutover.sh; it defines $isaflow_upstream_probe). nginx
+# omits an empty header, so nobody else sees it.
 #
 # /_next/static/ is served from a shared folder that keeps the last few builds'
 # hashed files, so a page loaded before a switch can still fetch its chunks.
 # Cloudflare SSL: Flexible (CF terminates SSL, connects to origin on HTTP)
-map $http_x_isaflow_probe $isaflow_upstream_probe {
-    "1"     $upstream_addr;
-    default "";
-}
-
 server {
     listen 80;
     server_name isaflow.co.za www.isaflow.co.za app.isaflow.co.za;
