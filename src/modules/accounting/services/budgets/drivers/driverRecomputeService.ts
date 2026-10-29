@@ -29,11 +29,11 @@ import { BudgetVersionError } from '../budgetVersionTypes';
 import { NIL_UUID } from '../gridSaveValidate';
 import { parseKey } from '../grid/cellKey';
 import { computeVersion, type DriverWrite } from './driverEngine';
-import { DriverCycleError, DriverRangeError, DriverRefError, type DriverWarningCode, type RowKey } from './driverTypes';
+import { DriverRangeError, DriverRefError, type DriverWarningCode, type RowKey } from './driverTypes';
 import { BudgetDriverError } from './driverErrors';
 import { listDriverLines } from './driverRepository';
 import { versionHeadcount } from './driverHeadcount';
-import { labelKeys, loadVersionModel, rowLabel } from './driverModel';
+import { breakLoops, labelKeys, loadVersionModel } from './driverModel';
 
 /** An engine warning (REF_MISSING, SECTION_EMPTY, BASE_MISSING) or a skipped driver (DRIVER_SKIPPED); labelled. */
 export interface RecomputeWarning {
@@ -142,37 +142,30 @@ export async function recomputeVersion(
   // account retyped out of the income statement has no row at all, so nothing of it is computed anyway.
   const rowKeys = new Set(model.rows.map((r) => r.key));
   const frozen = new Set(model.skipped.map((s) => s.rowKey).filter((k) => rowKeys.has(k)));
-  for (const d of model.defs) if (d.kind === 'per_head' && live !== 'all' && !live.has(d.rowKey)) frozen.add(d.rowKey);
-  const readsPayroll = model.defs.some((d) => d.kind === 'per_head' && !frozen.has(d.rowKey));
+  // A stored loop is not fatal: its drivers sit out and their rows keep their cells (breakLoops).
+  const { defs, loops } = breakLoops(model);
+  for (const loop of loops) {
+    for (const key of loop.path) frozen.add(key);
+    log.warn('budget driver loop found at recompute: its rows are frozen', { companyId, versionId, path: loop.path.join(' > ') });
+  }
+  for (const d of defs) if (d.kind === 'per_head' && live !== 'all' && !live.has(d.rowKey)) frozen.add(d.rowKey);
+  const readsPayroll = defs.some((d) => d.kind === 'per_head' && !frozen.has(d.rowKey));
   const headcountAsOf = readsPayroll ? new Date().toISOString() : null;
   const heads = readsPayroll ? await versionHeadcount(companyId, versionId, months) : null;
-  let defs = model.defs;
-  const loops: RecomputeWarning[] = [];
-  let result: ReturnType<typeof computeVersion> | null = null;
-  while (result === null) {
-    try {
-      result = computeVersion({
-        months, rows: model.rows, cells: model.cells, drivers: defs, closedMonths: model.closedMonths,
-        frozenRows: frozen, rounding: 1, headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
-      });
-    } catch (err) {
-      if (err instanceof DriverRangeError) throw new BudgetDriverError('DRIVER_RANGE', `A budget driver cannot compute: ${labelKeys(err.message, model.labels)}`);
-      if (err instanceof DriverRefError) throw new BudgetDriverError('DRIVER_REF', `A budget driver cannot compute: ${labelKeys(err.message, model.labels)}`);
-      if (!(err instanceof DriverCycleError)) throw err;
-      // A stored loop (the save-time check refuses one; a skipped driver whose account came back can
-      // close it): survivable. Its drivers sit out this pass and their rows keep their cells, so every
-      // other driver still computes. Each pass removes at least one driver, so this ends.
-      const onPath = new Set(err.path);
-      defs = defs.filter((d) => !onPath.has(d.rowKey));
-      for (const key of onPath) frozen.add(key);
-      const names = err.path.map((k) => rowLabel(k, model.labels)).join(' → ');
-      loops.push({ code: 'DRIVER_SKIPPED', rowKey: err.path[0]!, message: `drivers on ${names} form a loop; change one of them` });
-      log.warn('budget driver loop found at recompute: its rows are frozen', { companyId, versionId, path: err.path.join(' > ') });
-    }
+  let result: ReturnType<typeof computeVersion>;
+  try {
+    result = computeVersion({
+      months, rows: model.rows, cells: model.cells, drivers: defs, closedMonths: model.closedMonths,
+      frozenRows: frozen, rounding: 1, headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
+    });
+  } catch (err) {
+    if (err instanceof DriverRangeError) throw new BudgetDriverError('DRIVER_RANGE', `A budget driver cannot compute: ${labelKeys(err.message, model.labels)}`);
+    if (err instanceof DriverRefError) throw new BudgetDriverError('DRIVER_REF', `A budget driver cannot compute: ${labelKeys(err.message, model.labels)}`);
+    throw err;
   }
   const warnings: RecomputeWarning[] = [
     ...model.skipped.map((s) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: s.rowKey, message: s.message })),
-    ...loops,
+    ...loops.map((l) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: l.path[0]!, message: l.message })),
     ...result.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
   ];
   return { changed: await writeDriverCells(companyId, versionId, userId, result.writes), warnings, headcountAsOf };

@@ -7,7 +7,8 @@
  * - Save: the line's kind columns (`normaliseLine`), its months inside the version
  *   (`assertDriverMonths`), what it names (`checkDriverLine`), then a cycle check over EVERY stored
  *   driver of the version (skipped ones included, `fullDriverGraph`) with this one substituted:
- *   a cycle is 400 DRIVER_CYCLE with the path, and nothing is written. The row's 'driver' cells outside the new range go back to 'manual' (the
+ *   a loop through THIS row is 400 DRIVER_CYCLE with the path, and nothing is written. A loop
+ *   stored elsewhere does not block it (it stays skipped, with its warning). The row's 'driver' cells outside the new range go back to 'manual' (the
  *   engine's re-sourcing, in the recompute); an 'override' outside it stays (spec §1.2).
  * - Delete: the row's 'override' cells become 'manual' here, its 'driver' cells in the recompute;
  *   values kept.
@@ -19,12 +20,10 @@
 import { versionYear } from '../budgetVersionScope';
 import { inputError } from '../gridErrors';
 import { assertDriverMonths, monthIndex } from './driverEngine';
-import { topoOrder } from './driverGraph';
-import { DriverCycleError } from './driverTypes';
 import { normaliseLine, rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLineInput, type StoredDriverLine } from './driverLine';
 import { deleteDriverLine, driverLineOfRow, listDriverLines, upsertDriverLine } from './driverRepository';
 import { releaseOverrideCells, resetOverrideCells } from './driverCellSources';
-import { fullDriverGraph, loadVersionModel, rowLabel } from './driverModel';
+import { cycleThrough, fullDriverGraph, loadVersionModel, rowLabel } from './driverModel';
 import { checkDriverLine } from './driverValidate';
 import { BudgetDriverError } from './driverErrors';
 import { runDriverWrite, type DriverWriteTarget } from './driverWriteScope';
@@ -53,13 +52,10 @@ export async function saveDriver(companyId: string, userId: string, target: Driv
     // checkDriverLine and assertDriverMonths refused anything the model would skip; kept as the backstop.
     const unplaced = model.skipped.find((x) => x.rowKey === key);
     if (unplaced) throw new BudgetDriverError('DRIVER_REF', unplaced.message);
-    try {
-      // Over EVERY stored driver, skipped ones too: a loop through one comes back with its account.
-      topoOrder(fullDriverGraph(model));
-    } catch (err) {
-      if (!(err instanceof DriverCycleError)) throw err;
-      throw new BudgetDriverError('DRIVER_CYCLE',
-        `This driver makes a loop: ${err.path.map((k) => rowLabel(k, model.labels)).join(' → ')}`, err.path);
+    // Over EVERY stored driver, skipped ones too: a loop through one comes back with its account.
+    const loop = cycleThrough(fullDriverGraph(model), key);
+    if (loop) {
+      throw new BudgetDriverError('DRIVER_CYCLE', `This driver makes a loop: ${loop.map((k) => rowLabel(k, model.labels)).join(' → ')}`, loop);
     }
     const { line: driver, replaced } = await upsertDriverLine(companyId, ctx.versionId, userId, line);
     return { value: { driver }, audit: { kind: line.kind, rowKey: key, replaced: String(replaced) }, live: new Set([key]) };
