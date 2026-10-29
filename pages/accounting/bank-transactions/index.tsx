@@ -32,10 +32,10 @@ import { suggestedRowSelections } from '@/components/accounting/bank-transaction
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
 import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
 import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
+import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
 
 export default function BankTransactionsPage() {
   const router = useRouter();
-  // Reference / lookup data
   const [glAccounts, setGlAccounts] = useState<SelectOption[]>([]);
   const [suppliers, setSuppliers] = useState<SelectOption[]>([]);
   const [customers, setCustomers] = useState<SelectOption[]>([]);
@@ -214,7 +214,7 @@ export default function BankTransactionsPage() {
           onRefresh={loadTransactions} onBulkAccept={actions.handleBulkAccept}
           onBatchAccept={actions.handleBatchAccept} onBatchDelete={actions.handleBatchDelete}
           onToggleBatchEdit={() => { setShowBatchEdit(s => !s); setBatchSearch(''); }}
-          onExport={() => actions.handleExport(bank?.accountCode)}
+          onExport={() => exportLoadedBankTx(transactions, bank?.accountCode, bank?.accountName)} onExportAll={() => exportAllBankTx(fromDate, toDate)}
           onApplyRules={actions.handleApplyRules}
           onDownloadReport={() => actions.handleDownloadReport(bank?.accountCode)}
           onSearchChange={setSearchTerm}
