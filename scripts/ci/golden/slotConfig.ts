@@ -33,6 +33,18 @@ export const slotCompanyId = (n: number, generation = 0): string => `601d000${ge
  */
 export const slotCompanyName = (n: number, generation = 0): string => `Golden Slot ${n}${generation ? ` g${generation}` : ''}`;
 export const slotRegistrationNumber = (n: number, generation = 0): string => `GOLDEN/SLOT/${n}${generation ? `/${generation}` : ''}`;
+/**
+ * Throws unless `id` is a company this slot owns: `slotCompanyId(n, g)` for a generation g in 0..MAX_SLOT_GENERATION.
+ * The id comes from the environment (GOLDEN_SLOT_n_COMPANY_ID), and the provisioner renames, retires and adds a golden
+ * owner to whatever company it names, so a stray value naming Demo or a real dev tenant must stop it, not be obeyed.
+ */
+export function assertSlotCompanyId(n: number, id: string): void {
+  const own = Array.from({ length: MAX_SLOT_GENERATION + 1 }, (_, g) => slotCompanyId(n, g));
+  if (!own.includes(id.toLowerCase())) {
+    throw new Error(`slot ${n}: refusing company id ${id}, which is not one of slot ${n}'s (${slotCompanyId(n, 0)} .. ${slotCompanyId(n, MAX_SLOT_GENERATION)}); fix GOLDEN_SLOT_${n}_COMPANY_ID`);
+  }
+}
+
 /** 0 for a slot's first company, the generation a `--reset-slot` replacement carries; 0 for an id that is not a slot's. */
 export const generationOf = (companyId: string): number => Number(/^601d000(\d)-0000-4000-8000-00000000000\d$/.exec(companyId)?.[1] ?? 0);
 export const slotEmail = (n: number): string => `golden-slot-${n}@isaflow.dev`;
@@ -64,6 +76,19 @@ export function assertDevDatabaseUrl(url: string, allowed: string = DEV_DATABASE
   if (name !== allowed) {
     throw new Error(`refusing to provision: the database url names "${name || '(none)'}", the provisioner only runs against ${allowed}`);
   }
+}
+
+/**
+ * The guard that matters: the url's path can be overridden by the driver, so after connecting, the server must say it is
+ * `allowed`. Takes anything with a pg-style `query`, so a test can answer for it.
+ * @returns the database name
+ */
+export async function assertConnectedToDev(
+  db: { query(sql: string): Promise<{ rows: Array<{ db: string }> }> }, allowed: string = DEV_DATABASE,
+): Promise<string> {
+  const actual = (await db.query('SELECT current_database() AS db')).rows[0]?.db;
+  if (actual !== allowed) throw new Error(`connected to "${actual ?? '(none)'}", not ${allowed}; stopping before any write`);
+  return actual;
 }
 
 /** Throws unless `url` is the GoTrue instance slot users are created in (EXPECTED_GOTRUE_URL), trailing slash aside. */

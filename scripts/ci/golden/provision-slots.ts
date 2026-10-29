@@ -27,7 +27,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import pg from 'pg';
 import { rollbackFailed } from '../../../src/lib/rollbackFailed';
 import {
-  DEV_DATABASE, GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertResetSeeds, assertGoTrueUrl, generationOf, parseEnvFile,
+  GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertConnectedToDev, assertDevDatabaseUrl, assertResetSeeds, assertSlotCompanyId, assertGoTrueUrl, generationOf, parseEnvFile,
   slotCompanyId, slotEmail, slotEnvKeys, upsertEnvKeys,
 } from './slotConfig';
 import { seedSlotViaApp } from './seedSlotClient';
@@ -72,14 +72,15 @@ async function main(): Promise<void> {
   /** The slot's current company: the env file's (a reset moves it to a new id), else the first generation's. */
   const currentId = (n: number): string => {
     const fromEnv = get(slotEnvKeys(n).companyId);
-    return fromEnv && UUID.test(fromEnv) ? fromEnv : slotCompanyId(n);
+    const id = fromEnv && UUID.test(fromEnv) ? fromEnv : slotCompanyId(n);
+    assertSlotCompanyId(n, id);
+    return id;
   };
 
   const db = new pg.Client({ connectionString: dbUrl });
   await db.connect();
   try {
-    const actual = (await db.query<{ db: string }>('SELECT current_database() AS db')).rows[0]!.db;
-    if (actual !== DEV_DATABASE) throw new Error(`connected to "${actual}", not ${DEV_DATABASE}; stopping before any write`);
+    const actual = await assertConnectedToDev(db);
     say(`database ${actual}${dryRun ? ' (dry run: everything rolls back)' : ''}`);
 
     if (verifyOnly) {
