@@ -46,14 +46,18 @@ function linesOf(seed: number): TrackingLine[] {
   }));
 }
 
-interface Painted { text: string; x: number; size: number; family: string; anchor: string }
+interface Painted { text: string; x: number; size: number; family: string; anchor: string; angle: number }
 
 function texts(svg: string): Painted[] {
   return [...svg.matchAll(/<text\b([^>]*)>([^<]*)<\/text>/g)].map((m) => {
     const attrs = m[1] ?? '';
     return {
       text: (m[2] ?? '').replace(/&#39;/g, "'").replace(/&amp;/g, '&'),
-      x: Number(/transform="translate\(([-\d.]+) /.exec(attrs)?.[1] ?? NaN),
+      x: Number(/transform="translate\(([-\d.]+) /.exec(attrs)?.[1] ?? /transform="matrix\([^,]+,[^,]+,[^,]+,[^,]+,([-\d.]+),/.exec(attrs)?.[1] ?? NaN),
+      angle: (() => {
+        const m = /transform="matrix\(([-\d.]+),([-\d.]+),/.exec(attrs);
+        return m ? Math.atan2(Number(m[2]), Number(m[1])) : 0;
+      })(),
       size: Number(/font-size:([\d.]+)px/.exec(attrs)?.[1] ?? 12),
       family: /font-family:([^;"]+)/.exec(attrs)?.[1]?.trim() ?? 'sans-serif',
       anchor: /text-anchor="(\w+)"/.exec(attrs)?.[1] ?? 'start',
@@ -72,7 +76,8 @@ function paint(option: unknown, width: number, height: number): string {
   }
 }
 
-const WIDTHS = [1280, 390];
+// 294: the chart's own width on a 390 px phone (page, card and frame padding).
+const WIDTHS = [1280, 390, 294];
 const SEEDS = [7, 1009, 424242];
 
 describe('heatmap account labels', () => {
@@ -112,5 +117,36 @@ describe('heatmap account labels', () => {
     const data = (option as { series: Array<{ data: number[][] }> }).series[0]!.data;
     const tips = data.map((_, i) => fmt({ dataIndex: i }));
     expect(tips.some((t) => t.includes(longest.accountName))).toBe(true);
+  });
+});
+
+describe('heatmap month labels (browser review r1 M3)', () => {
+  // A whole 12-month year, the most columns a phone has to label.
+  for (const px of WIDTHS) {
+    it(`never overlap at ${px}px`, () => {
+      const option = buildVarianceHeatmapOption(linesOf(7), MONTHS, DEFAULT_PALETTE, { inProgressMonth: '2026-10' })!;
+      const months = (option as { xAxis: { data: string[] } }).xAxis.data;
+      const svg = paint(option, px, 16 * 28 + 80);
+      const painted = texts(svg).filter((t) => months.includes(t.text)).sort((a, b) => a.x - b.x);
+      expect(painted.length, 'month labels painted').toBeGreaterThanOrEqual(Math.ceil(months.length / 2));
+      for (let i = 1; i < painted.length; i++) {
+        const [a, b] = [painted[i - 1]!, painted[i]!];
+        const dx = b.x - a.x;
+        // Parallel rotated labels clear each other when their perpendicular gap exceeds the font size;
+        // level ones when the half-widths fit between their centres.
+        const clear = Math.abs(a.angle) > 0.01
+          ? dx * Math.abs(Math.sin(a.angle)) >= a.size
+          : dx >= (getWidth(a.text, `${a.size}px ${a.family}`) + getWidth(b.text, `${b.size}px ${b.family}`)) / 2 + 2;
+        expect(clear, `"${a.text}" and "${b.text}" ${dx.toFixed(1)}px apart at ${px}px`).toBe(true);
+      }
+    });
+  }
+
+  it('a narrow chart keeps at least 18 characters of an account name', () => {
+    const option = buildVarianceHeatmapOption(linesOf(7), MONTHS, DEFAULT_PALETTE, { showAll: true })!;
+    const rows = (option as { yAxis: { data: string[] } }).yAxis.data;
+    const svg = paint(option, 294, rows.length * 28 + 80);
+    const labels = texts(svg).filter((t) => t.anchor === 'end' && rows.some((r) => r.startsWith(t.text.replace(/(\.\.\.|…)$/, ''))));
+    for (const l of labels) expect(l.text.replace(/(\.\.\.|…)$/, '').length, l.text).toBeGreaterThanOrEqual(Math.min(18, rows.find((r) => r.startsWith(l.text.replace(/(\.\.\.|…)$/, '')))!.length));
   });
 });

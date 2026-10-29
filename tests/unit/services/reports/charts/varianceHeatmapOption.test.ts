@@ -118,3 +118,37 @@ describe('buildVarianceHeatmapOption', () => {
     expect(buildVarianceHeatmapOption([], MONTHS, PALETTE)).toBeNull();
   });
 });
+
+describe('the in-progress month (browser review r1 L1)', () => {
+  // August is in progress: its part-month actual against a whole month's budget is not a variance yet.
+  const option = buildVarianceHeatmapOption(LINES, MONTHS, PALETTE, { inProgressMonth: '2026-08' })!;
+  const cells = paint(option);
+  const at = (code: string, m: number) => cells[rowOf(code) * MONTHS.length + m]!;
+  function rowOf(code: string) {
+    const rows = (option as { yAxis: { data: string[] } }).yAxis.data;
+    return rows.findIndex((r) => r.startsWith(code));
+  }
+
+  it('is drawn neutral, never fav or unfav, and labelled on the axis', () => {
+    const aug = at('6100', 2);
+    expect([PALETTE.fav, PALETTE.unfav]).not.toContain(aug.style.fill);
+    expect(aug.style.fill).toBe(PALETTE.axisLine);
+    expect((option as { xAxis: { data: string[] } }).xAxis.data).toEqual(['Jun 26', 'Jul 26', 'Aug 26 *']);
+  });
+
+  it('is left out of the colour scale: the largest complete-month variance is full strength', () => {
+    // Without August, the largest |variance| is Wages' June 100 (August's 0 vs a part month never counts).
+    const big = buildVarianceHeatmapOption(
+      LINES.map((l) => (l.accountCode === '4000' ? { ...l, monthly: l.monthly.map((m, i) => (i === 2 ? { ...m, budget: 20, variance: 900, favourable: false } : m)) } : l)),
+      MONTHS, PALETTE, { inProgressMonth: '2026-08' })!;
+    const drawn = paint(big);
+    const rows = (big as { yAxis: { data: string[] } }).yAxis.data;
+    const june = drawn[rows.findIndex((r) => r.startsWith('6100')) * MONTHS.length]!;
+    expect(june.style.opacity).toBe(1);
+  });
+
+  it('says so in its tooltip', () => {
+    const fmt = (option as { tooltip: { formatter: (p: { dataIndex: number }) => string } }).tooltip.formatter;
+    expect(fmt({ dataIndex: rowOf('6100') * MONTHS.length + 2 })).toContain('In progress: actuals to date against the whole month');
+  });
+});
