@@ -6,10 +6,13 @@
  * Use: `vi.mock('@/lib/neon', () => ({ sql: fakeSql }))` and the registry mock below, then fill `W`.
  */
 type Year = { fiscalYear: number; startDate: string; endDate: string };
-type JL = { account: string; date: string; amount: number }; // natural sign
-type Cell = { version: string; account: string; month: string; amount: number }; // month 'YYYY-MM'
+type JL = { account: string; date: string; amount: number; cc1?: string; cc2?: string }; // natural sign
+type Cell = { version: string; account: string; month: string; amount: number; cc1?: string; cc2?: string; bu?: string }; // month 'YYYY-MM'
+/** A cost centre: `type` 'cc1' (an FNO) or 'cc2' (a project, whose `parent` is its FNO). */
+type Centre = { code: string; type: 'cc1' | 'cc2'; parent: string | null };
 
-export const W: { years: Year[]; versions: Record<number, string>; jl: JL[]; cells: Cell[] } = { years: [], versions: {}, jl: [], cells: [] };
+export const W: { years: Year[]; versions: Record<number, string>; jl: JL[]; cells: Cell[]; centres: Record<string, Centre> } =
+  { years: [], versions: {}, jl: [], cells: [], centres: {} };
 
 export const ACCOUNTS: Record<string, { code: string; name: string; type: 'revenue' | 'expense'; subtype: string | null }> = {
   'aaaaaaaa-0000-4000-8000-000000000001': { code: '4000', name: 'Sales', type: 'revenue', subtype: null },
@@ -20,7 +23,7 @@ export const ACCOUNTS: Record<string, { code: string; name: string; type: 'reven
 export const [SALES, RENT, WAGES, COS] = Object.keys(ACCOUNTS) as [string, string, string, string];
 
 export function resetLedger(): void {
-  W.years = []; W.versions = {}; W.jl = []; W.cells = [];
+  W.years = []; W.versions = {}; W.jl = []; W.cells = []; W.centres = {};
 }
 
 const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -38,11 +41,12 @@ export function fakeSql(strings: TemplateStringsArray, ...values: unknown[]): Pr
       if (i < 0) continue;
       const d = `${c.month}-01`;
       if (d < firsts[i]! || d > lasts[i]!) continue;
-      out.set(`${c.account}|${c.month}`, (out.get(`${c.account}|${c.month}`) ?? 0) + c.amount);
+      const k = [c.account, c.month, c.cc1 ?? '', c.cc2 ?? '', c.bu ?? ''].join('|');
+      out.set(k, (out.get(k) ?? 0) + c.amount);
     }
     return Promise.resolve([...out].map(([k, v]) => {
-      const [a, m] = k.split('|');
-      return { ...meta(a!), month: m, cc1_id: null, cc2_id: null, bu_id: null, amount: v.toFixed(2) };
+      const [a, m, cc1, cc2, bu] = k.split('|');
+      return { ...meta(a!), month: m, cc1_id: cc1 || null, cc2_id: cc2 || null, bu_id: bu || null, amount: v.toFixed(2) };
     }));
   }
   if (q.includes('FROM budget_versions') && q.includes('is_primary AND fiscal_year')) {
@@ -55,9 +59,12 @@ export function fakeSql(strings: TemplateStringsArray, ...values: unknown[]): Pr
   }
   if (q.includes('FROM gl_journal_lines jl')) {
     const [s, e] = values.filter(isDate);
+    // An either-level cost-centre filter is the last bound value (null when none).
+    const cc = values[values.length - 1] as string | null;
     const out = new Map<string, { amount: number; last: string }>();
     for (const l of W.jl) {
       if (l.date < s! || l.date > e!) continue;
+      if (typeof cc === 'string' && l.cc1 !== cc && l.cc2 !== cc) continue;
       const k = `${l.account}|${l.date.slice(0, 7)}`;
       const cur = out.get(k) ?? { amount: 0, last: '' };
       out.set(k, { amount: cur.amount + l.amount, last: l.date > cur.last ? l.date : cur.last });
@@ -71,6 +78,23 @@ export function fakeSql(strings: TemplateStringsArray, ...values: unknown[]): Pr
     const [s, e] = values.filter(isDate);
     const ds = W.jl.map((l) => l.date).filter((d) => d >= s! && d <= e!).sort();
     return Promise.resolve([{ posted_through: ds.length ? ds[ds.length - 1] : null }]);
+  }
+  if (q.includes('WITH RECURSIVE chain')) {
+    const out: unknown[] = [];
+    const seen = new Set<string>();
+    for (let id of values.find(Array.isArray) as string[]) {
+      while (id && W.centres[id] && !seen.has(id)) {
+        seen.add(id);
+        const c = W.centres[id]!;
+        out.push({ id, code: c.code, parent_id: c.parent, cc_type: c.type });
+        id = c.parent!;
+      }
+    }
+    return Promise.resolve(out);
+  }
+  if (q.includes('FROM cost_centres')) {
+    const id = values.find((v) => typeof v === 'string' && W.centres[v]) as string | undefined;
+    return Promise.resolve(id ? [{ id, code: W.centres[id]!.code, name: W.centres[id]!.code, cc_type: W.centres[id]!.type }] : []);
   }
   if (q.includes('FROM gl_accounts')) {
     const ids = values.find(Array.isArray) as string[];
