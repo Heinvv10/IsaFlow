@@ -14,9 +14,10 @@ useApiJsonOverMock();
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 const route = vi.hoisted(() => ({ query: {} as Record<string, string | string[]>, isReady: true, push: vi.fn() }));
 vi.mock('next/router', () => ({ useRouter: () => route }));
+const comparator = vi.hoisted(() => ({ prior: false }));
 vi.mock('@/components/accounting/reportControls/useStatementComparatorState', () => ({
   useStatementComparatorState: () => ({
-    columns: { prior: false, budget: false, trend: false, variance: false }, setColumns: vi.fn(),
+    columns: { prior: comparator.prior, budget: false, trend: false, variance: false }, setColumns: vi.fn(),
     apply: (rows: StatementRow[]) => rows, budgetState: { status: 'idle' },
     companyWideUnavailable: false, trendFailed: false,
   }),
@@ -35,6 +36,7 @@ const lastParams = () => {
 };
 
 beforeEach(() => {
+  comparator.prior = false;
   route.query = { period_start: '2026-04-01', period_end: '2026-04-30' };
   vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
     const path = String(url);
@@ -248,10 +250,37 @@ it('Present is a link only while a report for valid dates is shown; refused text
   await waitFor(() => expect(screen.getByRole('link', { name: /Present/ })).toBeTruthy());
 });
 
-it('the notice shows only while no report is shown because a date is refused', async () => {
+it('the notice shows for refused text only, not an inverted range (its field already says so)', async () => {
   render(<IncomeStatementPage />);
   await waitFor(() => expect(heading()).not.toBeNull());
   expect(screen.queryByText('Fix the date to run the report.')).toBeNull();
   typeDate(screen.getByRole('textbox', { name: 'From' }), '1 Sep 2026');
+  await screen.findByText(/From must be on or before To/);
+  await settle();
+  expect(screen.queryByText('Fix the date to run the report.')).toBeNull();
+  typeDate(screen.getByRole('textbox', { name: 'From' }), 'garbage');
   expect(await screen.findByText('Fix the date to run the report.')).toBeTruthy();
+});
+
+it('the notice is one always-mounted status region: empty until refused text leaves no report, and silent for an empty To', async () => {
+  render(<IncomeStatementPage />);
+  const status = screen.getAllByRole('status').find((el) => el.tagName === 'P' && el.className.includes('text-sm'))!;
+  await waitFor(() => expect(heading()).not.toBeNull());
+  expect(status.textContent).toBe('');
+  typeDate(screen.getByRole('textbox', { name: 'From' }), 'garbage');
+  typeDate(screen.getByRole('textbox', { name: 'To' }), '15 Apr 2026');
+  await waitFor(() => expect(status.textContent).toBe('Fix the date to run the report.'));
+  expect(status.isConnected).toBe(true);
+  typeDate(screen.getByRole('textbox', { name: 'From' }), '1 Apr 2026');
+  await waitFor(() => expect(status.textContent).toBe(''));
+  typeDate(screen.getByRole('textbox', { name: 'To' }), '');
+  expect(await screen.findByText('Enter a To date.')).toBeTruthy();
+  expect(status.textContent).toBe('');
+});
+
+it('with Prior period on, the request carries the matching compare_start and compare_end', async () => {
+  comparator.prior = true;
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(lastParams().get('compare_end')).toBe('2026-03-31'));
+  expect(lastParams().get('compare_start')).toBe('2026-03-02');
 });

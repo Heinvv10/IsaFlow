@@ -247,9 +247,11 @@ export default function IncomeStatementPage() {
                 onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
               />
             </div>
-          ) : !datesOk ? (
-            <p role="status" className="text-sm text-[var(--ff-text-secondary)]">Fix the date to run the report.</p>
           ) : null}
+          {/* Always mounted so a screen reader hears the change. Empty and inverted ranges already say so on the field. */}
+          <p role="status" className="text-sm text-[var(--ff-text-secondary)]">
+            {!report && !datesOk && (badDate.from || badDate.to) ? 'Fix the date to run the report.' : ''}
+          </p>
         </div>
       </div>
       {evidenceTarget && (
