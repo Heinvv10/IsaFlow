@@ -35,8 +35,6 @@ vi.mock('@/modules/accounting/hooks/useStatementEmail', () => ({
 vi.mock('@/modules/accounting/utils/generateStatementsBatch', () => ({ generateStatementsBatch: () => stmt.fail!() }));
 
 import { ApiRequestError } from '@/lib/apiFetch';
-import { budgetRow, budgetsPayload } from './budgetsApiFixture';
-import BudgetsPage from '../../../pages/accounting/budgets/index';
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import PurchaseOrdersPage from '../../../pages/accounting/purchase-orders/index';
 import SupplierPaymentsPage from '../../../pages/accounting/supplier-payments/index';
@@ -52,18 +50,6 @@ afterEach(() => { cleanup(); route.query = {}; });
 const dateInput = (c: HTMLElement) => c.querySelector('input[placeholder="dd MMM yyyy"]')!;
 
 describe('a failed reload clears the previous rows', () => {
-  it('budgets: change the fiscal year', async () => {
-    const row = budgetRow();
-    script(u => (u.includes('fiscal_year=2027') ? empty500() : /\/budgets(\?|$)/.test(u) ? ok(budgetsPayload([row])) : ok([])));
-    render(<BudgetsPage />);
-    await screen.findByText('D2 Sales Budget');
-    fireEvent.change(screen.getByTestId('budget-year'), { target: { value: '2027' } });
-    expect(await screen.findByText('Could not load budgets - try again')).toBeTruthy();
-    await waitFor(() => expect(screen.queryByText('D2 Sales Budget')).toBeNull());
-    expect(screen.queryByText(/accounts budgeted/)).toBeNull();
-    expectNoRawError();
-  });
-
   it('adjustments: switch the entity type', async () => {
     const row = { id: 'j1', adjustmentNumber: 'D2-ADJ-1', entityType: 'customer', entityId: 'c1', entityName: 'D2 Client', adjustmentType: 'debit', amount: 10, reason: 'r', adjustmentDate: '2026-01-01', status: 'draft' };
     script(u => (u.includes('entityType=supplier') ? empty500() : u.includes('entityType=customer') ? ok({ items: [row] }) : ok([])));

@@ -13,6 +13,12 @@ vi.mock('@/modules/accounting/services/core/migrationCoaRoleMap', async (orig) =
   return { ...actual, holderParentConflicts: (...args: Parameters<typeof actual.holderParentConflicts>) =>
     (lastLine.only ? Promise.resolve([]) : actual.holderParentConflicts(...args)) };
 });
+// The import's per-row parent check (assertParentUsable, 2026-10-28) refuses a holder as a parent too.
+vi.mock('@/modules/accounting/services/gl/roleTargetRules', async (orig) => {
+  const actual = await orig<typeof import('../../src/modules/accounting/services/gl/roleTargetRules')>();
+  return { ...actual, roleBarringChildren: (...args: Parameters<typeof actual.roleBarringChildren>) =>
+    (lastLine.only ? null : actual.roleBarringChildren(...args)) };
+});
 vi.mock('@/modules/accounting/services/gl/accountMergeRoleGuard', async (orig) => {
   const actual = await orig<typeof import('../../src/modules/accounting/services/gl/accountMergeRoleGuard')>();
   return { ...actual, assertTargetMayTakeChildren: (...args: Parameters<typeof actual.assertTargetMayTakeChildren>) =>
