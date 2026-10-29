@@ -195,7 +195,7 @@ export default function IncomeStatementPage() {
       const json = await res.json();
       if (requestId === reportRequestRef.current) {
         shownKeyRef.current = liveKey;
-        setShown({ key: liveKey, report: json.data || json, ...live });
+        setShown({ key: liveKey, report: json.data || json, start: periodStart, end: periodEnd, cc: costCentreId, bu: businessUnitId, cmp: showComparative });
       }
     } catch (err) {
       if (requestId === reportRequestRef.current) { requestedKeyRef.current = null; shownKeyRef.current = null; setShown(null); setError(apiErrorMessage(err, 'Could not load income statement - try again')); }
