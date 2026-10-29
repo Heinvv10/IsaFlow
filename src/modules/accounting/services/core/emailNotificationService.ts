@@ -124,6 +124,9 @@ export async function sendInvoiceEmail(
 }
 
 export interface InviteEmailOptions {
+  /** The inviting company. The email_log row is written inside the inviter's request,
+   *  as app_user, whose policy admits only rows for the request's own company. */
+  companyId: string;
   recipientEmail: string;
   inviteToken: string;
   companyName: string;
@@ -147,6 +150,6 @@ export async function sendInviteEmail(options: InviteEmailOptions): Promise<Emai
     to: options.recipientEmail,
     subject: `You've been invited to join ${options.companyName} on ISAFlow`,
     html: inviteEmailHtml(inviteData),
-    _log: { companyId: null, emailType: 'invite' },
+    _log: { companyId: options.companyId, emailType: 'invite' },
   });
 }
