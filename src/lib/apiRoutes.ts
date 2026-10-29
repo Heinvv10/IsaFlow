@@ -120,6 +120,8 @@ interface StaticRoutes {
   '/api/accounting/budget-grid/save': SaveCellsResult;
   '/api/accounting/budget-grid/seed': SeedResult;
   '/api/accounting/budget-grid/import-preview': ImportPreview;
+  // PUT: the note as stored (trimmed; null when cleared). Year-scoped (P2 follow-up F1).
+  '/api/accounting/budget-grid/note': { note: string | null };
   '/api/accounting/setup-checklist': Awaited<ReturnType<typeof getSetupProgress>>;
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
