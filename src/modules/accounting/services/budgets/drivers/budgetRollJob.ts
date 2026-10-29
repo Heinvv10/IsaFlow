@@ -6,7 +6,11 @@
  *
  * For each fiscal year an end date falls in: the company's rolling version of that year, if any,
  * rolled in 'auto' mode (one transaction per version). A failure is logged and recorded as the
- * row's last_error in a fresh transaction, so the versions bar shows why; it is never thrown.
+ * row's last_error in a fresh transaction, so the versions bar shows why: a fixed phrase per error
+ * class (`lastErrorText`; the roll itself records 'version locked' / 'version is primary'), never
+ * exception text (database messages name ids). An end date
+ * whose fiscal year cannot be found is logged (no version is identifiable) and the rest still roll.
+ * Nothing is ever thrown out of the job.
  */
 import type { PoolClient } from 'pg';
 import { getPool, sql, type DbRow } from '@/lib/neon';
@@ -15,6 +19,9 @@ import { runOwnedContext } from '@/lib/afterCommit';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { tightenStatementTimeout } from '../../audit/auditTx';
 import { fiscalYearForDate } from '../../gl/fiscalYearRegistry';
+import { driverRefusal } from './driverErrors';
+import { DriverRangeError } from './driverTypes';
+import { ForecastCellRefusal } from './reforecastInputs';
 import { rollVersion } from './rollingForecastService';
 
 export interface RollPrincipal {
@@ -49,6 +56,15 @@ async function inCompanyTx<T>(p: RollPrincipal, fn: () => Promise<T>): Promise<T
   }
 }
 
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** What last_error may say: a fixed phrase per error class, never exception text (database messages name ids). */
+export function lastErrorText(err: unknown): string {
+  if (err instanceof DriverRangeError || driverRefusal(err)?.code === 'DRIVER_RANGE') return 'a driver result is beyond the budget range';
+  if (err instanceof ForecastCellRefusal) return 'invalid dimension on actuals';
+  return 'roll failed; see logs';
+}
+
 /** The company's rolling version of each fiscal year holding one of `endDates`. */
 async function rollingVersions(p: RollPrincipal, endDates: readonly string[]): Promise<string[]> {
   return inCompanyTx(p, async () => {
@@ -59,14 +75,30 @@ async function rollingVersions(p: RollPrincipal, endDates: readonly string[]): P
     // Most companies roll nothing: the registry is read only when one does.
     if (rows.length === 0) return [];
     const labels = new Set<number>();
-    for (const d of endDates) labels.add((await fiscalYearForDate(p.companyId, d)).fiscalYear);
+    for (const endDate of endDates) {
+      try {
+        labels.add((await fiscalYearForDate(p.companyId, endDate)).fiscalYear);
+      } catch (err) {
+        // In a savepoint (fiscalYearForDate's own): the transaction stays usable for the other dates.
+        log.warn('budgets: no fiscal year for a closed period end; its rolling forecast is not rolled', {
+          companyId: p.companyId, endDate, error: message(err),
+        }, 'accounting');
+      }
+    }
     return rows.filter((r) => labels.has(Number(r.fiscal_year))).map((r) => String(r.id));
   });
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export async function runBudgetRolls(p: RollPrincipal, endDates: readonly string[]): Promise<void> {
+  try {
+    await rollAll(p, endDates);
+  } catch (err) {
+    log.error('budgets: rolling forecast job failed', { companyId: p.companyId, error: message(err) }, 'accounting');
+  }
+}
+
+async function rollAll(p: RollPrincipal, endDates: readonly string[]): Promise<void> {
   let versions: string[];
   try {
     versions = await rollingVersions(p, endDates);
@@ -84,7 +116,7 @@ export async function runBudgetRolls(p: RollPrincipal, endDates: readonly string
       log.error('budgets: rolling forecast roll failed', { companyId: p.companyId, versionId, error: message(err) }, 'accounting');
       try {
         await inCompanyTx(p, () => sql`
-          UPDATE budget_rolling_forecasts SET last_error = ${message(err).slice(0, 500)}
+          UPDATE budget_rolling_forecasts SET last_error = ${lastErrorText(err)}
            WHERE company_id = ${p.companyId}::UUID AND version_id = ${versionId}::UUID
         `);
       } catch (recordErr) {

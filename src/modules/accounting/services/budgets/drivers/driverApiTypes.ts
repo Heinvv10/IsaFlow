@@ -6,7 +6,8 @@
 import type { deleteDriver, listDrivers, refreshHeadcount, resetOverride, saveDriver } from './driverWriteService';
 import type { createHire, deleteHire, listHires, readHeadcount, updateHire } from './plannedHireService';
 import type { createReforecastFromActuals } from './reforecastService';
-import type { rollingStatus, rollVersion, setRolling } from './rollingForecastService';
+import type { rollVersion, setRolling } from './rollingForecastService';
+import type { rollingStatus } from './rollingStatus';
 
 type Answer<F extends (...args: never[]) => Promise<unknown>> = Awaited<ReturnType<F>>;
 

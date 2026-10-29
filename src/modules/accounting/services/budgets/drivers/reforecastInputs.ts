@@ -14,7 +14,7 @@
 import { sql, type DbRow } from '@/lib/neon';
 import { getFiscalYear, type FiscalYearRecord } from '../../gl/fiscalYearRegistry';
 import { budgetMonthKeysInWindow, monthEnd, monthKeyToDate } from '../../reports/budgetPeriodWindow';
-import { BudgetVersionError } from '../budgetVersionTypes';
+import { BudgetVersionError, budgetDbRefusal } from '../budgetVersionTypes';
 import { grainOf, parseKey } from '../grid/cellKey';
 import { fromCents, toCents } from '../grid/cents';
 import { bandOf } from '../grid/subtotals';
@@ -22,8 +22,11 @@ import { NIL_UUID } from '../gridSaveValidate';
 import { readTrackingActuals, type ActualRow } from '../tracking/trackingActualRead';
 import type { TrackingGroupBy } from '../tracking/trackingTypes';
 import { versionHeadcount } from './driverHeadcount';
-import type { VersionModel } from './driverModel';
-import { DriverRangeError, type Cell, type RowKey } from './driverTypes';
+import { log } from '@/lib/logger';
+import { BudgetDriverError } from './driverErrors';
+import { labelKeys, rowLabel, type VersionModel } from './driverModel';
+import type { RecomputeWarning } from './driverRecomputeService';
+import { DriverCycleError, DriverRangeError, DriverRefError, type Cell, type RowKey } from './driverTypes';
 import { planReforecast, type ReforecastActual, type ReforecastActuals, type ReforecastResult } from './reforecast';
 
 type Level = keyof ReforecastActuals;
@@ -41,8 +44,8 @@ export interface UnplacedActualLine {
   accountId: string;
   accountCode: string;
   accountName: string;
-  /** The dimension the account is budgeted by, which these actuals carry no member of. */
-  level: 'cc1' | 'cc2' | 'bu';
+  /** The grain the account is budgeted at, which these actuals carry no member of ('company': no row; never in practice). */
+  level: 'company' | 'cc1' | 'cc2' | 'bu';
   month: string;
   amount: number;
 }
@@ -83,7 +86,39 @@ function cents(r: ActualRow): number {
   }
 }
 
-/** The closed months' actuals at every level, in cents and budget sign. Sequential: withAuth binds one client. */
+type Dim = Exclude<Level, 'company'>;
+
+/**
+ * The members a budget cell may name at each level (947's triggers): the company's cost centres of
+ * that cc_type for CC1 / CC2, its business units for BU. A journal line can name others (a centre
+ * retyped since, legacy data).
+ */
+async function budgetableMembers(companyId: string, named: Record<Dim, Set<string>>): Promise<Record<Dim, Set<string>>> {
+  const out: Record<Dim, Set<string>> = { cc1: new Set(), cc2: new Set(), bu: new Set() };
+  const centres = [...new Set([...named.cc1, ...named.cc2])];
+  if (centres.length > 0) {
+    const rows = (await sql`
+      SELECT id::text AS id, cc_type FROM cost_centres WHERE company_id = ${companyId}::UUID AND id = ANY(${centres}::UUID[])
+    `) as DbRow[];
+    for (const r of rows) {
+      const kind = String(r.cc_type);
+      if (kind === 'cc1' || kind === 'cc2') out[kind].add(String(r.id).toLowerCase());
+    }
+  }
+  if (named.bu.size > 0) {
+    const rows = (await sql`
+      SELECT id::text AS id FROM business_units WHERE company_id = ${companyId}::UUID AND id = ANY(${[...named.bu]}::UUID[])
+    `) as DbRow[];
+    for (const r of rows) out.bu.add(String(r.id).toLowerCase());
+  }
+  return out;
+}
+
+/**
+ * The closed months' actuals at every level, in cents and budget sign. Sequential: withAuth binds
+ * one client. A member no budget cell may name at its level (`budgetableMembers`) reads as
+ * untagged: on an account budgeted at that level its actual is UNPLACED, reported, never written.
+ */
 export async function readClosedActuals(companyId: string, year: FiscalYearRecord, closed: readonly string[]): Promise<ClosedActuals> {
   const actuals: Record<Level, ReforecastActual[]> = { company: [], cc1: [], cc2: [], bu: [] };
   const accounts = new Map<string, AccountMeta>();
@@ -92,11 +127,18 @@ export async function readClosedActuals(companyId: string, year: FiscalYearRecor
   // An open month between two closed ones is read too; the planner takes closed months only.
   const start = later(monthKeyToDate(sorted[0]!), year.startDate);
   const end = earlier(monthEnd(monthKeyToDate(sorted[sorted.length - 1]!)), year.endDate);
+  const named: Record<Dim, Set<string>> = { cc1: new Set(), cc2: new Set(), bu: new Set() };
   for (const [level, groupBy] of LEVELS) {
     for (const r of await readTrackingActuals(companyId, start, end, {}, groupBy)) {
       accounts.set(r.accountId, r);
-      actuals[level].push({ accountId: r.accountId, month: r.month, memberId: groupBy ? r.memberId : null, amount: cents(r) });
+      const memberId = groupBy ? r.memberId : null;
+      if (level !== 'company' && memberId !== null) named[level].add(memberId);
+      actuals[level].push({ accountId: r.accountId, month: r.month, memberId, amount: cents(r) });
     }
+  }
+  const valid = await budgetableMembers(companyId, named);
+  for (const level of ['cc1', 'cc2', 'bu'] as const) {
+    actuals[level] = actuals[level].map((a) => (a.memberId === null || valid[level].has(a.memberId) ? a : { ...a, memberId: null }));
   }
   return { actuals, accounts };
 }
@@ -107,40 +149,92 @@ export async function readClosedActuals(companyId: string, year: FiscalYearRecor
  * account, as `loadVersionModel` bands the rest. A reforecast create and a roll REFRESH headcount
  * (ruling 2026-10-29): no row is frozen, so per_head rows recompute from payroll as it is now;
  * `headcountAsOf` is when payroll was read (null when no per_head driver needed it), for the audit row.
+ * A driver `loadVersionModel` skipped (it cannot compute: its account retyped, its months outside
+ * the year) is not in `defs`, so its row is planned as having no driver; it is reported as a
+ * DRIVER_SKIPPED warning, and the engine's warnings are labelled by account, as the recompute does.
+ * A stored driver loop is survivable, as in the recompute: the drivers on it sit out (their rows
+ * plan as driverless, so open-month 'driver' cells become 'manual', values kept) with one
+ * DRIVER_SKIPPED warning per loop. A range or reference refusal is 400 DRIVER_RANGE / DRIVER_REF,
+ * labelled by account.
  */
 export async function planOver(
   companyId: string, model: VersionModel, hiresVersionId: string, closed: readonly string[], read: ClosedActuals,
-): Promise<{ plan: ReforecastResult; headcountAsOf: string | null }> {
+): Promise<{ plan: ReforecastResult; headcountAsOf: string | null; warnings: RecomputeWarning[] }> {
   const needsHeads = model.defs.some((d) => d.kind === 'per_head');
   const headcountAsOf = needsHeads ? new Date().toISOString() : null;
   const heads = needsHeads ? await versionHeadcount(companyId, hiresVersionId, model.months) : null;
   const bands = new Map(model.rows.map((r) => [r.glAccountId, r.band]));
-  const plan = planReforecast({
-    months: model.months, rows: model.rows, sourceCells: model.cells, actuals: read.actuals, closedMonths: new Set(closed),
-    drivers: model.defs, rounding: 1,
-    headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
-    accountBand: (accountId) => {
-      const known = bands.get(accountId);
-      if (known) return known;
-      const a = read.accounts.get(accountId);
-      if (!a) throw new Error(`reforecast: no account details for actual on ${accountId}`);
-      return bandOf(a.accountType, a.accountSubtype);
-    },
-  });
-  return { plan, headcountAsOf };
+  const accountBand = (accountId: string) => {
+    const known = bands.get(accountId);
+    if (known) return known;
+    const a = read.accounts.get(accountId);
+    if (!a) throw new Error(`reforecast: no account details for actual on ${accountId}`);
+    return bandOf(a.accountType, a.accountSubtype);
+  };
+  let defs = model.defs;
+  const loops: RecomputeWarning[] = [];
+  let plan: ReforecastResult | null = null;
+  while (plan === null) {
+    try {
+      plan = planReforecast({
+        months: model.months, rows: model.rows, sourceCells: model.cells, actuals: read.actuals, closedMonths: new Set(closed),
+        drivers: defs, rounding: 1, headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0, accountBand,
+      });
+    } catch (err) {
+      if (err instanceof DriverRangeError) throw new BudgetDriverError('DRIVER_RANGE', `The reforecast cannot compute: ${labelKeys(err.message, model.labels)}`);
+      if (err instanceof DriverRefError) throw new BudgetDriverError('DRIVER_REF', `The reforecast cannot compute: ${labelKeys(err.message, model.labels)}`);
+      if (!(err instanceof DriverCycleError)) throw err;
+      // Each pass removes at least one driver, so this ends.
+      const onPath = new Set(err.path);
+      defs = defs.filter((d) => !onPath.has(d.rowKey));
+      const names = err.path.map((k) => rowLabel(k, model.labels)).join(' → ');
+      loops.push({ code: 'DRIVER_SKIPPED', rowKey: err.path[0]!, message: `drivers on ${names} form a loop; change one of them` });
+      log.warn('budget driver loop found at reforecast: its drivers sit out', { companyId, path: err.path.join(' > ') });
+    }
+  }
+  const warnings: RecomputeWarning[] = [
+    ...model.skipped.map((x) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: x.rowKey, message: x.message })),
+    ...loops,
+    ...plan.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
+  ];
+  return { plan, headcountAsOf, warnings };
+}
+
+/** Unplaced amounts for an audit row: "code month amount" per account and month ('none' when there are none), at most 40. */
+export function unplacedSummary(lines: readonly UnplacedActualLine[]): string {
+  if (lines.length === 0) return 'none';
+  const shown = lines.slice(0, 40).map((u) => `${u.accountCode} ${u.month} ${u.amount.toFixed(2)}`).join('; ');
+  return lines.length > 40 ? `${shown}; +${lines.length - 40} more` : shown;
 }
 
 /** The plan's unplaced actuals, named (code, name, the dimension the account is budgeted by), in rand. */
-export function describeUnplaced(plan: ReforecastResult, read: ClosedActuals): UnplacedActualLine[] {
+export function describeUnplaced(plan: Pick<ReforecastResult, 'rows' | 'unplaced'>, read: ClosedActuals): UnplacedActualLine[] {
   const level = new Map(plan.rows.map((r) => [r.glAccountId, grainOf(r)]));
   return plan.unplaced.map((u) => {
     const a = read.accounts.get(u.accountId);
     const g = level.get(u.accountId);
     return {
       accountId: u.accountId, accountCode: a?.accountCode ?? '', accountName: a?.accountName ?? '',
-      level: g === 'cc1' || g === 'cc2' || g === 'bu' ? g : 'cc1', month: u.month, amount: fromCents(u.amount),
+      level: g === 'cc1' || g === 'cc2' || g === 'bu' ? g : 'company', month: u.month, amount: fromCents(u.amount),
     };
   });
+}
+
+/** A cell the database refused (a member or account no budget cell may name): a 409 STATE with a fixed message. */
+export class ForecastCellRefusal extends BudgetVersionError {
+  constructor() {
+    super('BUDGET_VERSION_STATE', 'The forecast could not be written: a cell names an account, cost centre or business unit that cannot be budgeted');
+  }
+}
+
+/** A database refusal of a cell write as a typed refusal, never raw database text (its message names ids). */
+export function cellWriteRefusal(companyId: string, versionId: string, err: unknown): unknown {
+  const known = budgetDbRefusal(err);
+  if (known) return known;
+  const e = err as { code?: string; constraint?: string } | null;
+  if (e?.code !== '23514' && e?.code !== '23503') return err;
+  log.warn('budget forecast cell write refused', { companyId, versionId, code: e.code, constraint: e.constraint ?? null }, 'accounting');
+  return new ForecastCellRefusal();
 }
 
 /**
@@ -173,6 +267,6 @@ export async function writePlannedCells(
       RETURNING 1
     )
     SELECT COUNT(*)::int AS n FROM up
-  `) as DbRow[];
+  `.catch((err: unknown) => { throw cellWriteRefusal(companyId, versionId, err); })) as DbRow[];
   return Number(rows[0]?.n ?? 0);
 }

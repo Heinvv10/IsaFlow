@@ -72,7 +72,7 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     const rolledAt = (await fx.rollingRow(rf))!.rolled_at;
     const again = await rollNow(w, rf);
     expect(again.status, dump(again)).toBe(200);
-    expect(dataOf(again)).toMatchObject({ status: 'rolled', changed: 0, rolledThroughMonth: m[0], updatedAt: token });
+    expect(dataOf(again)).toMatchObject({ status: 'rolled', changed: 0, rolledThroughMonth: m[0], updatedAt: token, headcountAsOf: null });
     expect(await fx.token(rf)).toBe(token);
     expect(await fx.snapshot(rf)).toEqual(before);
     expect((await fx.audits(rf)).length).toBe(auditsBefore + 1);
@@ -94,10 +94,11 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     await pool.query(`UPDATE budget_versions SET status = 'approved', approved_by = $2, approved_at = clock_timestamp() WHERE id = $1`, [rf, w.u.userId]);
     await pool.query(`UPDATE budget_versions SET status = 'locked', locked_by = $2, locked_at = clock_timestamp() WHERE id = $1`, [rf, w.u.userId]);
     const before = await fx.snapshot(rf);
+    const created = await fx.rollingRow(rf);
     await fx.close(w, [m[0]!]);
     await fx.until(async () => (await fx.rollingRow(rf))?.last_error === 'version locked', 'the skipped roll');
     expect(await fx.snapshot(rf)).toEqual(before);
-    expect(await fx.rollingRow(rf)).toMatchObject({ through: null, rolled_at: null });
+    expect(await fx.rollingRow(rf)).toMatchObject({ through: null, rolled_at: created!.rolled_at });
     const r = await rollNow(w, rf);
     expect([r.status, details(r).code], dump(r)).toEqual([409, 'BUDGET_VERSION_LOCKED']);
     expect(await fx.snapshot(rf)).toEqual(before);
@@ -107,12 +108,13 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     const { w, m, rf } = await rollingWorld();
     await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE id = $1`, [w.periods.get(m[0]!)]);
     const before = await fx.snapshot(rf);
+    const created = await fx.rollingRow(rf);
     const current = await fx.token(rf);
     const r = await rollNow(w, rf, '2020-01-01T00:00:00.000000Z');
     expect([r.status, details(r).code], dump(r)).toEqual([409, 'BUDGET_VERSION_STALE']);
     expect(details(r).currentUpdatedAt).toBe(current);
     expect(await fx.snapshot(rf)).toEqual(before);
-    expect(await fx.rollingRow(rf)).toMatchObject({ through: null, rolled_at: null });
+    expect(await fx.rollingRow(rf)).toEqual(created);
   });
 
   it("a month reopened after a roll becomes 'manual' on the next roll, value kept, and the driver covering it recomputes", async () => {
@@ -146,14 +148,16 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     expect(await values(rf, w.sales)).toEqual(['1200.00:actual', '1500.00:actual', ...Array(10).fill('0.00:actual')]);
   });
 
-  it('auto-roll toggles off and on under the token; only a reforecast can roll', async () => {
+  it('auto-roll toggles off and on under the token; Roll now refreshes a non-rolling reforecast; only a reforecast rolls', async () => {
     const { w, rf } = await rollingWorld();
     const off = await fx.call.reforecast(w.u, rf, 'PUT', { rolling: false, expectedUpdatedAt: await fx.token(rf) });
     expect(off.status, dump(off)).toBe(200);
     expect(dataOf(off)).toMatchObject({ rolling: false, changed: true });
     expect(await fx.rollingRow(rf)).toBeUndefined();
-    const notRolling = await rollNow(w, rf);
-    expect([notRolling.status, details(notRolling).code], dump(notRolling)).toEqual([409, 'BUDGET_VERSION_STATE']);
+    // Roll now on a reforecast that does not roll: a manual refresh, nothing stamped.
+    const refresh = await rollNow(w, rf);
+    expect(refresh.status, dump(refresh)).toBe(200);
+    expect(await fx.rollingRow(rf)).toBeUndefined();
     const on = await fx.call.reforecast(w.u, rf, 'PUT', { rolling: true, expectedUpdatedAt: await fx.token(rf) });
     expect(dataOf(on)).toMatchObject({ rolling: true, changed: true });
     expect(await fx.rollingRow(rf)).toMatchObject({ through: null });
@@ -161,5 +165,7 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     const refused = await fx.call.reforecast(w.u, scenario, 'PUT', { rolling: true, expectedUpdatedAt: await fx.token(scenario) });
     expect([refused.status, details(refused).code], dump(refused)).toEqual([409, 'BUDGET_VERSION_STATE']);
     expect(await fx.rollingRow(scenario)).toBeUndefined();
+    const scenarioRoll = await rollNow(w, scenario);
+    expect([scenarioRoll.status, details(scenarioRoll).code], dump(scenarioRoll)).toEqual([409, 'BUDGET_VERSION_STATE']);
   });
 });

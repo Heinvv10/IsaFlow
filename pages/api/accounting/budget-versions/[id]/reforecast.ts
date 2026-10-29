@@ -1,15 +1,19 @@
 /**
  * Reforecast from actuals and the rolling forecast (Budgets P4 spec §5, §6), on version [id]
- * GET                                       → rolling status { rolling, rolledThroughMonth, latestClosedMonth, staleMonths, lastRolledAt, lastError }
+ * GET                                       → status { rolling, rolledThroughMonth, latestClosedMonth, staleMonths, reopenedMonths,
+ *                                             unplaced, lastRolledAt, lastError }
  * POST { name, rolling? }                   → 201 { version, rolling, closedMonths, cells, unplaced, warnings }: a new draft
  *                                             reforecast based on [id], closed months = actuals, open months = [id]'s cells
  * POST { action: 'roll', expectedUpdatedAt } → Roll now { status, changed, closedMonths, rolledThroughMonth, unplaced, warnings, updatedAt }
- * PUT  { rolling, expectedUpdatedAt }        → { rolling, changed, updatedAt }: auto-roll on (a reforecast; one per year) or off
+ * PUT  { rolling, expectedUpdatedAt }        → { rolling, changed, updatedAt }: auto-roll on (a non-primary reforecast; one per
+ *                                             year) or off
  * Months 'YYYY-MM'; unplaced amounts in rand. Roll now and the toggle compare-and-set the version's token first
  * (409 BUDGET_VERSION_LOCKED, or BUDGET_VERSION_STALE with `currentUpdatedAt` and `status`); a second rolling
- * forecast in a year, or Roll now on a version that does not roll, is 409 BUDGET_VERSION_STATE; 404 for another
+ * forecast in a year, or Roll now on a version that is not a reforecast, is 409 BUDGET_VERSION_STATE (Roll now on a
+ * non-rolling reforecast is a manual refresh); 404 for another
  * company's version. Writes are charged to the user's `budget-reforecast:<userId>` bucket (30 a minute; each
- * reads the year's actuals four times; 429 with Retry-After past it). Any member may read.
+ * reads the year's actuals four times), the status to `budget-reforecast-status:<userId>` (120 a minute; it
+ * recomputes the unplaced actuals); 429 with Retry-After past either. Any member may read.
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -21,7 +25,8 @@ import { isUuidParam } from '@/lib/validation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { respondBudgetDriverError } from '@/lib/budgetDriverResponse';
 import { createReforecastFromActuals } from '@/modules/accounting/services/budgets/drivers/reforecastService';
-import { rollingStatus, rollVersion, setRolling } from '@/modules/accounting/services/budgets/drivers/rollingForecastService';
+import { rollVersion, setRolling } from '@/modules/accounting/services/budgets/drivers/rollingForecastService';
+import { rollingStatus } from '@/modules/accounting/services/budgets/drivers/rollingStatus';
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
 
 const Token = z.string().max(40).refine(isVersionToken, 'expectedUpdatedAt must be the updatedAt the version was read with');
@@ -37,6 +42,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!['GET', 'POST', 'PUT'].includes(method)) return apiResponse.methodNotAllowed(res, method, ['GET', 'POST', 'PUT']);
   const { id } = req.query;
   if (!isUuidParam(id)) return apiResponse.badRequest(res, 'id must be a version id');
+  // The status recomputes the unplaced actuals (four actuals reads): its own, larger bucket.
+  if (method === 'GET' && !(await checkRateLimit(`budget-reforecast-status:${userId}`, { max: 120, windowSecs: 60 }))) {
+    res.setHeader('Retry-After', '60');
+    return apiResponse.tooManyRequests(res, 'Too many reforecast status reads; wait a minute and try again.');
+  }
   if (method !== 'GET' && !(await checkRateLimit(`budget-reforecast:${userId}`, { max: 30, windowSecs: 60 }))) {
     res.setHeader('Retry-After', '60');
     return apiResponse.tooManyRequests(res, 'Too many reforecast changes; wait a minute and try again.');
