@@ -9,7 +9,8 @@
  *                                             year) or off
  * Months 'YYYY-MM'; unplaced amounts in rand. Roll now and the toggle compare-and-set the version's token first
  * (409 BUDGET_VERSION_LOCKED, or BUDGET_VERSION_STALE with `currentUpdatedAt` and `status`); a second rolling
- * forecast in a year, or Roll now on a version that does not roll, is 409 BUDGET_VERSION_STATE; 404 for another
+ * forecast in a year, or Roll now on a version that is not a reforecast, is 409 BUDGET_VERSION_STATE (Roll now on a
+ * non-rolling reforecast is a manual refresh); 404 for another
  * company's version. Writes are charged to the user's `budget-reforecast:<userId>` bucket (30 a minute; each
  * reads the year's actuals four times), the status to `budget-reforecast-status:<userId>` (120 a minute; it
  * recomputes the unplaced actuals); 429 with Retry-After past either. Any member may read.

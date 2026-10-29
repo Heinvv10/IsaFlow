@@ -17,7 +17,7 @@ The only version-lifecycle routes in the budgets programme (P1, migration 947). 
 | `POST /api/accounting/budget-versions/[id]/copy` | `[id]/copy.ts` | `{ name, kind }` → 201 draft copy, same year, every amount. |
 | `POST /api/accounting/budget-versions/[id]/primary` | `[id]/primary.ts` | Owner/admin: make it the year's primary; owner only when the current primary is locked. |
 | `GET /api/accounting/budget-versions/[id]/reforecast` | `[id]/reforecast.ts` | P4: status `{ rolling, rolledThroughMonth, latestClosedMonth, staleMonths, reopenedMonths, unplaced, lastRolledAt, lastError }`; recomputes unplaced, so `budget-reforecast-status:<userId>` bucket, 120/min, 429 + Retry-After. |
-| `POST /api/accounting/budget-versions/[id]/reforecast` | `[id]/reforecast.ts` | P4: `{ name, rolling? }` → 201 draft reforecast from actuals (`unplaced` named); `{ action: 'roll', expectedUpdatedAt }` = Roll now. |
+| `POST /api/accounting/budget-versions/[id]/reforecast` | `[id]/reforecast.ts` | P4: `{ name, rolling? }` → 201 draft reforecast from actuals (`unplaced` named); `{ action: 'roll', expectedUpdatedAt }` = Roll now (any reforecast; a non-rolling one is a manual refresh, nothing stamped). |
 | `PUT /api/accounting/budget-versions/[id]/reforecast` | `[id]/reforecast.ts` | P4: `{ rolling, expectedUpdatedAt }` auto-roll on (non-primary reforecast only, one per year) or off. Writes: `budget-reforecast:<userId>` bucket, 30/min. |
 
 ## Auth

@@ -1,6 +1,8 @@
 /**
  * The rolling forecast (Budgets P4 spec §6): a reforecast with a `budget_rolling_forecasts` row is
- * re-rolled after each period close (`budgetRollQueue`, after commit) and on "Roll now".
+ * re-rolled after each period close (`budgetRollQueue`, after commit) and on "Roll now". Roll now
+ * also refreshes a reforecast that does NOT roll (a manual refresh: the same path and CAS, no
+ * rolling row, so nothing is stamped); any other kind of version is a 409.
  *
  * A roll: holdYearRegistry → the rolling row → ONE savepoint: the version lock (auto: P1's
  * `lockVersionForWrite`, no token; Roll now: the grid's compare-and-set `takeVersion`, 409 STALE /
@@ -22,7 +24,7 @@
  */
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { auditBudgetWrite, holdYearRegistry, lockVersionForWrite, versionYear } from '../budgetVersionScope';
+import { auditBudgetWrite, holdYearRegistry, lockVersionForWrite } from '../budgetVersionScope';
 import { BudgetVersionError, budgetDbRefusal } from '../budgetVersionTypes';
 import { inputError, isVersionToken, tokenSql } from '../gridErrors';
 import { takeVersion } from '../versionTake';
@@ -116,18 +118,22 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
   }
   await holdYearRegistry(companyId);
   const row = await rollingRow(companyId, id);
-  if (!row) {
+  let fiscalYear = row?.fiscalYear ?? null;
+  if (fiscalYear === null) {
     if (mode === 'auto') return skipped('not_rolling');
-    await versionYear(companyId, id); // another company's version: 404
-    throw new BudgetVersionError('BUDGET_VERSION_STATE', 'This version is not a rolling forecast: turn its auto-roll on first');
+    const v = (await sql`SELECT kind, fiscal_year FROM budget_versions WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+    if (!v[0]) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found');
+    if (v[0].kind !== 'reforecast') throw new BudgetVersionError('BUDGET_VERSION_STATE', 'Only a reforecast can be refreshed from actuals');
+    fiscalYear = Number(v[0].fiscal_year);
   }
+  const fy = fiscalYear;
   try {
     return await withSavepoint('budget_roll', async () => {
       if (mode === 'auto') await lockVersionForWrite(companyId, id);
       else await takeVersion(companyId, id, mode.expectedUpdatedAt);
       // Read under the version lock: setPrimary locks the year's versions first, so it cannot slip in.
       if (await isPrimary(companyId, id)) throw new PrimarySkipped();
-      const { year, months } = await reforecastYear(companyId, row.fiscalYear);
+      const { year, months } = await reforecastYear(companyId, fy);
       const closed = await closedMonthsOf(companyId, year, months);
       const read = await readClosedActuals(companyId, year, closed);
       const model = await loadVersionModel(companyId, id, months, await listDriverLines(companyId, id));
@@ -138,7 +144,7 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       const outcome = { status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings, headcountAsOf };
       if (changed === 0) throw new NothingRolled(outcome);
       await markRolled(companyId, id, through);
-      await auditBudgetWrite(companyId, userId, 'update', id, row.fiscalYear, {
+      await auditBudgetWrite(companyId, userId, 'update', id, fy, {
         rolled: mode === 'auto' ? 'auto' : 'roll_now', closedMonths: closed.join(',') || 'none', cells: String(changed),
         unplaced: unplacedSummary(unplaced), headcountAsOf: headcountAsOf ?? 'none',
       });
@@ -169,27 +175,11 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
 }
 
 /**
- * What turning auto-roll on finds the version already rolled through (it does not roll): the
- * closed months, in order, while each still holds the version's 'actual' cells: rolled through the
- * last of that run (all of them, or none closed: fully rolled), stamped now. A closed month without
- * actuals ends the run, so it and every later one read as stale (Roll now). The FIRST closed month
- * without actuals: nothing is stamped (not rolled yet).
- */
-async function heldRoll(companyId: string, versionId: string, fiscalYear: number): Promise<{ through: string | null } | null> {
-  const { year, months } = await reforecastYear(companyId, fiscalYear);
-  const closed = await closedMonthsOf(companyId, year, months);
-  const held = new Set(((await sql`
-    SELECT DISTINCT to_char(month, 'YYYY-MM') AS m FROM budget_month_amounts
-     WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID AND amount_source = 'actual'
-  `) as DbRow[]).map((r) => String(r.m)));
-  const run = closed.findIndex((m) => !held.has(m));
-  if (run === -1) return { through: closed.length > 0 ? closed[closed.length - 1]! : null };
-  return run === 0 ? null : { through: closed[run - 1]! };
-}
-
-/**
- * Turns auto-roll on (a non-primary reforecast only; one per company and year) or off (the row deleted) for
- * the version, under its compare-and-set token, in one savepoint. Returns the new token.
+ * Turns auto-roll on (a non-primary reforecast only; one per company and year) or off (the row
+ * deleted) for the version, under its compare-and-set token, in one savepoint. Returns the new
+ * token. On stamps NOTHING (ruling 2026-10-29): an 'actual' cell is no proof its actual is current
+ * (a copied reforecast; a reopen and re-close while not rolling), so every closed month reads stale
+ * until a roll (Roll now, or the next close). Only a create with rolling:true stamps: it rolled.
  */
 export async function setRolling(
   companyId: string, userId: string, versionId: string, rolling: boolean, expectedUpdatedAt: string,
@@ -208,7 +198,7 @@ export async function setRolling(
           throw new BudgetVersionError('BUDGET_VERSION_STATE',
             'The primary budget cannot roll forward: a roll would rewrite what the reports compare against. Make another version primary first');
         }
-        await insertRollingRow(companyId, v.fiscalYear, id, userId, await heldRoll(companyId, id, v.fiscalYear));
+        await insertRollingRow(companyId, v.fiscalYear, id, userId, null);
       }
       if (!rolling && had) {
         await sql`DELETE FROM budget_rolling_forecasts WHERE company_id = ${companyId}::UUID AND version_id = ${id}::UUID`;
