@@ -22,6 +22,7 @@ import { GrainChangeDialog, type GrainChangeTarget } from './GrainChangeDialog';
 import { NoteDialog, type NoteTarget } from './NoteDialog';
 import type { ApiResult } from './types';
 import { type CellWriteByKey, clearWrites, grainChangeWrites, rowWrites } from './rowActionWrites';
+import type { GridDriverHandlers } from '@/components/accounting/budgets/drivers/gridDriverHandlers';
 
 export interface DimensionMember { id: string; code: string; name: string }
 
@@ -38,20 +39,22 @@ export interface UseRowActionsArgs {
   fiscalYear: number;
   /** Saves one account's note for the viewed version's year; the result is the note as stored. */
   onSaveNote(accountId: string, note: string | null): Promise<ApiResult<{ note: string | null }>>;
+  /** P4: the drivers layer ('driver' opens its editor, 'resetOverrides' resets); null wires none. */
+  driver?: GridDriverHandlers | null;
 }
 
 const DIM_LABEL = { cc1: 'CC1', cc2: 'CC2', bu: 'BU' } as const;
 const rowLabel = (row: LineRow) => `${row.account.code} ${row.account.name}`;
 
-export function useRowActions({ store, layout, roundingUnit, view, members, focusPos, fiscalYear, onSaveNote }: UseRowActionsArgs): {
+export function useRowActions({ store, layout, roundingUnit, view, members, focusPos, fiscalYear, onSaveNote, driver = null }: UseRowActionsArgs): {
   onRowAction(row: LineRow, action: RowAction): void;
   dialogs: ReactNode;
 } {
   const [spread, setSpread] = useState<{ target: SpreadTarget; r: number } | null>(null);
   const [grain, setGrain] = useState<{ target: GrainChangeTarget; r: number } | null>(null);
   const [note, setNote] = useState<{ target: NoteTarget; r: number } | null>(null);
-  const live = useRef({ layout, view, members, focusPos, onSaveNote });
-  useEffect(() => { live.current = { layout, view, members, focusPos, onSaveNote }; });
+  const live = useRef({ layout, view, members, focusPos, onSaveNote, driver });
+  useEffect(() => { live.current = { layout, view, members, focusPos, onSaveNote, driver }; });
 
   const cellsOf = useCallback((row: LineRow): RowCells => {
     const keys = live.current.layout.months.map((_, c) => store.cellKeyAt({ r: row.index, c })).filter((k): k is CellKey => k !== null);
@@ -99,6 +102,12 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
         setSpread({ r: row.index, target });
         return;
       }
+      case 'driver':
+        live.current.driver?.openEditor(row.account.id);
+        return;
+      case 'resetOverrides':
+        live.current.driver?.resetOverride(row.account.id, action.month);
+        return;
       case 'note':
         setNote({ r: row.index, target: { accountId: row.account.id, accountLabel: label, note: snap.note, readOnly: action.readOnly } });
         return;
