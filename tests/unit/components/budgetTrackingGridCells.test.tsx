@@ -54,6 +54,16 @@ describe('zero budget vs absent budget (budgetTracking)', () => {
     expect(cellsOf(html(true), 'ZeroBudgetWithSpend')[4]).toBe('—');
   });
 
+  // Ledger-breaker r2 C: "—" is the absent glyph, which carries no colour (spec §2.1); Var R keeps its.
+  it('the "—" in Var % of a zero budget carries no favourable / unfavourable colour', () => {
+    const m = html(true);
+    const tr = m.slice(m.indexOf('>ZeroBudgetWithSpend<'));
+    const tds = [...tr.matchAll(/<td([^>]*)>(.*?)<\/td>/g)];
+    expect(tds[4]![2]).toBe('—');
+    expect(tds[4]![1]).not.toMatch(/--ff-unfav|--ff-fav/);
+    expect(tds[2]![1]).toContain('var(--ff-unfav)');
+  });
+
   it('without the opt-in a zero keeps the statement zero dash and Var % stays blank', () => {
     const m = html(false);
     expect(cellsOf(m, 'ZeroBudget')[1]).toBe('–');
