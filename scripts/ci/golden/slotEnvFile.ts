@@ -24,5 +24,10 @@ export function writeEnvFileAtomic(path: string, text: string): void {
     writeFileSync(real, text);
     return;
   }
-  renameSync(temp, real);
+  try {
+    renameSync(temp, real);
+  } catch (err) {
+    rmSync(temp, { force: true });
+    throw err;
+  }
 }
