@@ -10,6 +10,9 @@
  * same-company triggers watch other columns); `INSERT … ON CONFLICT DO UPDATE` ran every BEFORE
  * INSERT trigger first and the lock trigger twice. A cell whose amount does not change is not
  * touched, so its updated_at keeps saying when it last changed. Only new cells are INSERTed.
+ *
+ * P4 (drivers): `firstActualCell` finds a typed or cleared closed month's actual (refused), and
+ * `markOverrides` marks typed cells inside a driver's range 'override'.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { monthKeyToDate } from '../reports/budgetPeriodWindow';
@@ -91,4 +94,53 @@ export async function writeCells(companyId: string, versionId: string, userId: s
     SELECT COUNT(*)::int AS n FROM ins
   `) as DbRow[];
   return Number(updated[0]?.n ?? 0) + Number(inserted[0]?.n ?? 0);
+}
+
+/**
+ * The first cell of the batch (typed or cleared) that holds a closed month's ledger actual
+ * ('actual', a reforecast's), or null: actual cells are read-only (P4 spec §1.3; the next roll
+ * refreshes them).
+ */
+export async function firstActualCell(companyId: string, versionId: string, cells: readonly SaveCell[]): Promise<SaveCell | null> {
+  if (cells.length === 0) return null;
+  const k = keyArrays(cells);
+  const rows = (await sql`
+    SELECT bm.gl_account_id::text AS a, to_char(bm.month, 'YYYY-MM') AS m FROM budget_month_amounts bm
+      JOIN unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[]) AS t(a, c1, c2, b, m)
+        ON bm.gl_account_id = t.a AND bm.month = t.m AND COALESCE(bm.cc1_id, ${NIL}::UUID) = t.c1
+       AND COALESCE(bm.cc2_id, ${NIL}::UUID) = t.c2 AND COALESCE(bm.bu_id, ${NIL}::UUID) = t.b
+     WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID AND bm.amount_source = 'actual'
+     ORDER BY 1, 2
+     LIMIT 1
+  `) as DbRow[];
+  if (!rows[0]) return null;
+  return cells.find((c) => c.glAccountId === String(rows[0]!.a) && c.month === String(rows[0]!.m)) ?? null;
+}
+
+/**
+ * Marks the upserted cells that lie inside their row's driver range [from, to] as 'override'
+ * (P4 spec §1.2: a typed value over a driver keeps the typed value; the recompute never touches it).
+ * Cells outside any range keep their source; a new one is 'manual' (the column default). Returns
+ * the cells whose source moved.
+ */
+export async function markOverrides(companyId: string, versionId: string, cells: ValidatedBatch['upserts']): Promise<number> {
+  if (cells.length === 0) return 0;
+  const k = keyArrays(cells);
+  const rows = (await sql`
+    WITH marked AS (
+    UPDATE budget_month_amounts bm SET amount_source = 'override'
+      FROM unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[]) AS t(a, c1, c2, b, m),
+           budget_driver_lines d
+     WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID
+       AND bm.gl_account_id = t.a AND bm.month = t.m AND COALESCE(bm.cc1_id, ${NIL}::UUID) = t.c1
+       AND COALESCE(bm.cc2_id, ${NIL}::UUID) = t.c2 AND COALESCE(bm.bu_id, ${NIL}::UUID) = t.b
+       AND d.company_id = ${companyId}::UUID AND d.version_id = ${versionId}::UUID AND d.gl_account_id = t.a
+       AND COALESCE(d.cc1_id, ${NIL}::UUID) = t.c1 AND COALESCE(d.cc2_id, ${NIL}::UUID) = t.c2
+       AND COALESCE(d.bu_id, ${NIL}::UUID) = t.b AND t.m BETWEEN d.from_month AND d.to_month
+       AND bm.amount_source <> 'override'
+    RETURNING 1
+    )
+    SELECT COUNT(*)::int AS n FROM marked
+  `) as DbRow[];
+  return Number(rows[0]?.n ?? 0);
 }
