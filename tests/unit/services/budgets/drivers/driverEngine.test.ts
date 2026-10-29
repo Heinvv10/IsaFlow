@@ -45,7 +45,7 @@ describe('arithmetic per kind', () => {
     expect(writes.every(w => w.source === 'driver')).toBe(true);
   });
 
-  it('pct_of_line: 38% of Sales, cents half away from zero then the unit', () => {
+  it('pct_of_line: 38% of Sales, rounded once (half away from zero) to the unit', () => {
     const cells = new Map([[SALES.key, flat(123457)]]);
     const d: DriverDef = { kind: 'pct_of_line', rowKey: COGS.key, refRowKey: SALES.key, pct: 38, ...ALL };
     expect(amountsOf(run({ cells, drivers: [d] }).writes, COGS.key)[0]).toBe(46900);

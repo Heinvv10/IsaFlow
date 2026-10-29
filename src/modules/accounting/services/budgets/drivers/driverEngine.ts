@@ -7,13 +7,17 @@
  * - Rows read the EFFECTIVE value of the rows they reference (after those rows'
  *   own computation, whatever the source). A referenced row with no cell in a
  *   month reads 0 and warns once per referenced row.
- * - Each value is rounded to cents half away from zero (exact, BigInt), then to
- *   the caller's rounding unit (decision 5; no residue: drivers have no total).
- * - `writes` holds only cells whose amount or source differ from the input, in
- *   topo order then month order: an unchanged recompute returns [].
+ * - Each value is rounded ONCE, half away from zero, from the exact ratio
+ *   straight to the rounding unit (the driver's own, else the caller's;
+ *   decision 5; no residue: drivers have no total). Never cents-then-unit.
+ * - A 'driver' or 'override' cell with no driver covering it (driver removed,
+ *   range shrunk) is re-sourced 'manual', value kept.
+ * - `writes` holds only cells whose amount or source differ from the input: per
+ *   row in topo order, its driver writes in month order, then its re-sourced
+ *   cells in month order. An unchanged recompute returns [].
  */
 import {
-  MAX_CENTS, divRoundHalfAway, isCents, roundToUnit, type RoundingUnit,
+  MAX_CENTS, ROUNDING_UNITS, divRoundHalfAway, isCents, type RoundingUnit,
 } from '@/modules/accounting/services/budgets/grid/cents';
 import { buildDriverGraph, topoOrder, type DriverGraph } from './driverGraph';
 import {
@@ -37,7 +41,8 @@ export interface DriverWrite {
   rowKey: RowKey;
   month: string;
   amount: number;
-  source: 'driver';
+  /** 'driver': computed; 'manual': a stale driver/override cell re-sourced, value kept. */
+  source: 'driver' | 'manual';
 }
 
 export interface ComputeResult {
@@ -48,6 +53,8 @@ export interface ComputeResult {
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const PCT_SCALE = 10_000n; // percent to 4 dp
 const RATE_DEN = 100n * PCT_SCALE; // pct / 100 as an integer ratio
+/** NUMERIC(9,4): the largest percent a driver line stores. */
+export const MAX_PCT = 99999.9999;
 
 /** Month → position. Refuses a malformed, repeated or out-of-order list. */
 export function monthIndex(months: readonly string[]): Map<string, number> {
@@ -63,8 +70,8 @@ export function monthIndex(months: readonly string[]): Map<string, number> {
 function scaledPct(pct: number, rowKey: RowKey): bigint {
   const scaled = pct * Number(PCT_SCALE);
   const whole = Math.round(scaled);
-  if (!Number.isFinite(scaled) || Math.abs(scaled - whole) > 1e-4) {
-    throw new DriverRefError(`Row ${rowKey}: percent ${pct} is not a number with at most 4 decimals`, rowKey);
+  if (!Number.isFinite(scaled) || Math.abs(scaled - whole) > 1e-4 || Math.abs(pct) > MAX_PCT) {
+    throw new DriverRefError(`Row ${rowKey}: percent ${pct} is not a number within ±${MAX_PCT} with at most 4 decimals`, rowKey);
   }
   return BigInt(whole);
 }
@@ -87,6 +94,7 @@ export function assertDriverMonths(index: ReadonlyMap<string, number>, d: Driver
     if (!isCents(d.amount)) throw new DriverRangeError(`Row ${d.rowKey}: amount ${d.amount} is not whole cents in range`, d.rowKey);
   } else {
     scaledPct(d.pct, d.rowKey);
+    if (d.kind === 'growth' && d.pct < -100) throw new DriverRefError(`Row ${d.rowKey}: growth ${d.pct}% is below -100%`, d.rowKey);
   }
 }
 
@@ -106,14 +114,15 @@ function loadCells(cells: ComputeInput['cells'], graph: DriverGraph, index: Read
   return out;
 }
 
-/** Exact num/den → cents (half away from zero) → the rounding unit, within NUMERIC(15,2). */
+/** Exact num/den cents → ONE half-away rounding to the unit (as grid/spread uplift), within NUMERIC(15,2). */
 function toAmount(num: bigint, den: bigint, unit: RoundingUnit, rowKey: RowKey, month: string): number {
-  const cents = divRoundHalfAway(num, den);
+  if (!ROUNDING_UNITS.includes(unit)) throw new DriverRefError(`Row ${rowKey}: unknown rounding unit ${String(unit)}`, rowKey);
+  const step = BigInt(unit * 100);
+  const cents = divRoundHalfAway(num, den * step) * step;
   const limit = BigInt(MAX_CENTS);
   if (cents > limit || cents < -limit) throw new DriverRangeError(`Row ${rowKey} ${month}: result beyond the budget range`, rowKey, month);
-  const out = roundToUnit(Number(cents), unit);
-  if (!isCents(out)) throw new DriverRangeError(`Row ${rowKey} ${month}: result beyond the budget range`, rowKey, month);
-  return out;
+  const out = Number(cents);
+  return out === 0 ? 0 : out;
 }
 
 interface RowRun {
@@ -166,6 +175,16 @@ function warningText(code: DriverWarningCode, ref: string, months: readonly stri
   return `Growth base month ${ref} has no amount; ${when} read as 0`;
 }
 
+/** Re-sources to 'manual' (value kept) every 'driver' / 'override' cell no driver covers; closed months untouched. */
+function resource(key: RowKey, own: Map<string, Cell>, covered: (month: string) => boolean, input: ComputeInput, writes: DriverWrite[]): void {
+  for (const month of input.months) {
+    const cell = own.get(month);
+    if (!cell || (cell.source !== 'driver' && cell.source !== 'override') || covered(month) || input.closedMonths.has(month)) continue;
+    own.set(cell.month, { ...cell, source: 'manual' });
+    writes.push({ rowKey: key, month: cell.month, amount: cell.amount, source: 'manual' });
+  }
+}
+
 export function computeVersion(input: ComputeInput): ComputeResult {
   const index = monthIndex(input.months);
   const graph = buildDriverGraph(input.rows, input.drivers);
@@ -178,7 +197,11 @@ export function computeVersion(input: ComputeInput): ComputeResult {
   for (const key of order) {
     const d = graph.driverOf.get(key);
     const own = effective.get(key);
-    if (!d || !own) continue;
+    if (!own) continue;
+    if (!d) {
+      resource(key, own, () => false, input, writes);
+      continue;
+    }
     const missing = new Map<string, { code: DriverWarningCode; ref: string; months: string[] }>();
     const run: RowRun = {
       read: (ref, month) => effective.get(ref)?.get(month)?.amount ?? null,
@@ -201,6 +224,7 @@ export function computeVersion(input: ComputeInput): ComputeResult {
       own.set(month, { month, amount, source: 'driver' });
       if (!before || before.amount !== amount || before.source !== 'driver') writes.push({ rowKey: key, month, amount, source: 'driver' });
     }
+    resource(key, own, m => (index.get(m) as number) >= from && (index.get(m) as number) <= to, input, writes);
     for (const m of missing.values()) warnings.push({ code: m.code, rowKey: key, message: warningText(m.code, m.ref, m.months) });
   }
   return { writes, warnings };
