@@ -12,9 +12,13 @@
  * that changes NO cell rolls its savepoint back (gridSave's NothingChanged), so the version's token
  * bump goes with it and no open grid turns stale; only the rolling row is then updated, outside it.
  *
- * A locked version is not rolled: last_error = 'version locked' is written OUTSIDE the savepoint
- * (which the refusal rolled back), so it persists, and nothing else changes. A month reopened
- * after a roll: its 'actual' cells become 'manual' (value kept) and a driver covering it recomputes.
+ * A locked version is not rolled, nor a PRIMARY one (ruling 2026-10-29: a silent rewrite would move
+ * what BvA compares against; auto-roll cannot be turned on for a primary, and a version made
+ * primary since is skipped). last_error ('version locked' / 'version is primary') is written
+ * OUTSIDE the savepoint (which the refusal rolled back, the token bump with it), so it persists,
+ * and nothing else changes; Roll now then answers 409. An approved non-primary version rolls
+ * (audited; decision 2). A month reopened after a roll: its 'actual' cells become 'manual' (value
+ * kept) and a driver covering it recomputes. The status the versions bar reads is rollingStatus.ts.
  */
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -22,12 +26,13 @@ import { auditBudgetWrite, holdYearRegistry, lockVersionForWrite, versionYear } 
 import { BudgetVersionError, budgetDbRefusal } from '../budgetVersionTypes';
 import { inputError, isVersionToken, tokenSql } from '../gridErrors';
 import { takeVersion } from '../versionTake';
-import { budgetMonthKeysInWindow, monthKeyToDate } from '../../reports/budgetPeriodWindow';
+import { monthKeyToDate } from '../../reports/budgetPeriodWindow';
 import { loadVersionModel } from './driverModel';
 import type { RecomputeWarning } from './driverRecomputeService';
 import { listDriverLines } from './driverRepository';
 import {
-  closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, writePlannedCells, type UnplacedActualLine,
+  closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, unplacedSummary, writePlannedCells,
+  type UnplacedActualLine,
 } from './reforecastInputs';
 import { insertRollingRow } from './reforecastService';
 
@@ -35,8 +40,8 @@ import { insertRollingRow } from './reforecastService';
 export type RollMode = 'auto' | { expectedUpdatedAt: string };
 
 export interface RollOutcome {
-  /** 'locked': skipped, last_error recorded; 'not_rolling': an auto roll found no rolling row. */
-  status: 'rolled' | 'locked' | 'not_rolling';
+  /** 'locked' / 'primary': skipped, last_error recorded; 'not_rolling': an auto roll found no rolling row. */
+  status: 'rolled' | 'locked' | 'primary' | 'not_rolling';
   /** Cells written. */
   changed: number;
   closedMonths: string[];
@@ -49,20 +54,21 @@ export interface RollOutcome {
   updatedAt: string | null;
 }
 
-export interface RollingStatus {
-  rolling: boolean;
-  /** 'YYYY-MM' months. */
-  rolledThroughMonth: string | null;
-  latestClosedMonth: string | null;
-  /** Closed months after rolledThroughMonth: closed since the last roll (a roll that did not run). */
-  staleMonths: string[];
-  lastRolledAt: string | null;
-  lastError: string | null;
-}
-
-interface RollingRow { fiscalYear: number; rolledThrough: string | null; lastRolledAt: string | null; lastError: string | null }
+export interface RollingRow { fiscalYear: number; rolledThrough: string | null; lastRolledAt: string | null; lastError: string | null }
 
 const VERSION_LOCKED = 'version locked';
+const VERSION_PRIMARY = 'version is primary';
+
+/** Thrown out of the roll's savepoint for a primary version: nothing it did (the token bump included) stands. */
+class PrimarySkipped extends Error {
+  constructor() {
+    super(VERSION_PRIMARY);
+  }
+}
+
+const isPrimary = async (companyId: string, versionId: string): Promise<boolean> => Boolean(((await sql`
+  SELECT is_primary FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
+`) as DbRow[])[0]?.is_primary);
 
 /** Thrown out of the roll's savepoint when no cell changed: the savepoint (and its token bump) is rolled back. */
 class NothingRolled extends Error {
@@ -83,7 +89,7 @@ const versionToken = async (companyId: string, versionId: string): Promise<strin
   SELECT ${tokenSql()} AS token FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
 `) as DbRow[])[0]?.token ?? '');
 
-async function rollingRow(companyId: string, versionId: string): Promise<RollingRow | null> {
+export async function rollingRow(companyId: string, versionId: string): Promise<RollingRow | null> {
   const rows = (await sql`
     SELECT fiscal_year, to_char(rolled_through_month, 'YYYY-MM') AS through, last_error,
            to_char(last_rolled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS rolled_at
@@ -95,7 +101,7 @@ async function rollingRow(companyId: string, versionId: string): Promise<Rolling
   return { fiscalYear: Number(r.fiscal_year), rolledThrough: text(r.through), lastRolledAt: text(r.rolled_at), lastError: text(r.last_error) };
 }
 
-const skipped = (status: 'locked' | 'not_rolling'): RollOutcome =>
+const skipped = (status: 'locked' | 'primary' | 'not_rolling'): RollOutcome =>
   ({ status, changed: 0, closedMonths: [], rolledThroughMonth: null, unplaced: [], warnings: [], headcountAsOf: null, updatedAt: null });
 
 export async function rollVersion(companyId: string, userId: string, versionId: string, mode: RollMode): Promise<RollOutcome> {
@@ -114,6 +120,8 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
     return await withSavepoint('budget_roll', async () => {
       if (mode === 'auto') await lockVersionForWrite(companyId, id);
       else await takeVersion(companyId, id, mode.expectedUpdatedAt);
+      // Read under the version lock: setPrimary locks the year's versions first, so it cannot slip in.
+      if (await isPrimary(companyId, id)) throw new PrimarySkipped();
       const { year, months } = await reforecastYear(companyId, row.fiscalYear);
       const closed = await closedMonthsOf(companyId, year, months);
       const read = await readClosedActuals(companyId, year, closed);
@@ -127,7 +135,7 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       await markRolled(companyId, id, through);
       await auditBudgetWrite(companyId, userId, 'update', id, row.fiscalYear, {
         rolled: mode === 'auto' ? 'auto' : 'roll_now', closedMonths: closed.join(',') || 'none', cells: String(changed),
-        unplaced: String(unplaced.length), headcountAsOf: headcountAsOf ?? 'none',
+        unplaced: unplacedSummary(unplaced), headcountAsOf: headcountAsOf ?? 'none',
       });
       log.info('Rolled budget forecast', { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now', changed, through }, 'accounting');
       return { ...outcome, updatedAt: await versionToken(companyId, id) } satisfies RollOutcome;
@@ -140,36 +148,22 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       return { ...err.outcome, updatedAt: await versionToken(companyId, id) };
     }
     const refusal = budgetDbRefusal(err) ?? err;
-    if (!(refusal instanceof BudgetVersionError) || refusal.code !== 'BUDGET_VERSION_LOCKED') throw refusal;
+    const primary = refusal instanceof PrimarySkipped;
+    if (!primary && (!(refusal instanceof BudgetVersionError) || refusal.code !== 'BUDGET_VERSION_LOCKED')) throw refusal;
     await sql`
-      UPDATE budget_rolling_forecasts SET last_error = ${VERSION_LOCKED}
+      UPDATE budget_rolling_forecasts SET last_error = ${primary ? VERSION_PRIMARY : VERSION_LOCKED}
        WHERE company_id = ${companyId}::UUID AND version_id = ${id}::UUID
     `;
-    log.warn('Budget roll skipped: the version is locked', { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now' }, 'accounting');
-    if (mode === 'auto') return skipped('locked');
-    throw refusal;
+    log.warn(`Budget roll skipped: ${primary ? VERSION_PRIMARY : VERSION_LOCKED}`, { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now' }, 'accounting');
+    if (mode === 'auto') return skipped(primary ? 'primary' : 'locked');
+    throw primary
+      ? new BudgetVersionError('BUDGET_VERSION_STATE', 'This rolling forecast is the primary budget: a roll would rewrite what the reports compare against. Make another version primary, or turn its auto-roll off')
+      : refusal;
   }
 }
 
-/** What the versions bar shows: "Rolled through <month> · N closed since". Another company's version is a 404. */
-export async function rollingStatus(companyId: string, versionId: string): Promise<RollingStatus> {
-  const id = versionId.toLowerCase();
-  const year = await versionYear(companyId, id);
-  const row = await rollingRow(companyId, id);
-  const closed = await closedMonthsOf(companyId, year, budgetMonthKeysInWindow(year.startDate, year.endDate));
-  const through = row?.rolledThrough ?? null;
-  return {
-    rolling: row !== null,
-    rolledThroughMonth: through,
-    latestClosedMonth: closed.length > 0 ? closed[closed.length - 1]! : null,
-    staleMonths: row ? closed.filter((m) => through === null || m > through) : [],
-    lastRolledAt: row?.lastRolledAt ?? null,
-    lastError: row?.lastError ?? null,
-  };
-}
-
 /**
- * Turns auto-roll on (a reforecast only; one per company and year) or off (the row deleted) for
+ * Turns auto-roll on (a non-primary reforecast only; one per company and year) or off (the row deleted) for
  * the version, under its compare-and-set token, in one savepoint. Returns the new token.
  */
 export async function setRolling(
@@ -183,8 +177,12 @@ export async function setRolling(
       const v = await takeVersion(companyId, id, expectedUpdatedAt);
       const had = (await rollingRow(companyId, id)) !== null;
       if (rolling && !had) {
-        const kind = (await sql`SELECT kind FROM budget_versions WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+        const kind = (await sql`SELECT kind, is_primary FROM budget_versions WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
         if (kind[0]?.kind !== 'reforecast') throw new BudgetVersionError('BUDGET_VERSION_STATE', 'Only a reforecast can roll forward');
+        if (kind[0]?.is_primary) {
+          throw new BudgetVersionError('BUDGET_VERSION_STATE',
+            'The primary budget cannot roll forward: a roll would rewrite what the reports compare against. Make another version primary first');
+        }
         await insertRollingRow(companyId, v.fiscalYear, id, userId);
       }
       if (!rolling && had) {

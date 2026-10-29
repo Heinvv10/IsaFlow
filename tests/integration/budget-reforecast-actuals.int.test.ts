@@ -128,6 +128,12 @@ describe('budget reforecast from actuals', () => {
     ]);
   });
 
+  it("the version's status recomputes the same unplaced actuals the create reported", async () => {
+    const r = await fx.call.reforecast(w.u, rf.version.id, 'GET');
+    expect(r.status, dump(r)).toBe(200);
+    expect(dataOf<{ unplaced: unknown[]; rolling: boolean }>(r)).toMatchObject({ rolling: false, unplaced: rf.unplaced });
+  });
+
   it("closed-month cells equal P3's actuals reader at each grain, and BvA's actual is the cells plus the unplaced amount", async () => {
     const v = rf.version.id;
     const c = w.u.homeCompanyId;
@@ -177,8 +183,12 @@ describe('budget reforecast from actuals', () => {
     expect((await drivers(v)).length).toBe(3);
     expect(await hires(v)).toEqual(await hires(source));
     expect((await hires(v)).length).toBe(2);
-    expect((await fx.audits(v)).at(-1)!.changes.metadata).toMatchObject({
-      reforecastFrom: source, closedMonths: `${m[0]},${m[1]}`, cells: String(rf.cells), unplaced: '2', unplacedTotal: '450', rolling: 'false',
+    // createVersion's 'create' row and this one share the transaction's now(): find it by content, not order.
+    const rows = (await fx.audits(v)).filter((a) => a.changes.metadata?.reforecastFrom);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.changes.metadata).toMatchObject({
+      reforecastFrom: source, closedMonths: `${m[0]},${m[1]}`, cells: String(rf.cells),
+      unplaced: `GS-6500 ${m[0]} 200.00; GS-6500 ${m[1]} 250.00`, unplacedTotal: '450', rolling: 'false',
       headcountAsOf: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     });
   });

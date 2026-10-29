@@ -1,10 +1,12 @@
 /**
  * Reforecast from actuals and the rolling forecast (Budgets P4 spec §5, §6), on version [id]
- * GET                                       → rolling status { rolling, rolledThroughMonth, latestClosedMonth, staleMonths, lastRolledAt, lastError }
+ * GET                                       → status { rolling, rolledThroughMonth, latestClosedMonth, staleMonths, reopenedMonths,
+ *                                             unplaced, lastRolledAt, lastError }
  * POST { name, rolling? }                   → 201 { version, rolling, closedMonths, cells, unplaced, warnings }: a new draft
  *                                             reforecast based on [id], closed months = actuals, open months = [id]'s cells
  * POST { action: 'roll', expectedUpdatedAt } → Roll now { status, changed, closedMonths, rolledThroughMonth, unplaced, warnings, updatedAt }
- * PUT  { rolling, expectedUpdatedAt }        → { rolling, changed, updatedAt }: auto-roll on (a reforecast; one per year) or off
+ * PUT  { rolling, expectedUpdatedAt }        → { rolling, changed, updatedAt }: auto-roll on (a non-primary reforecast; one per
+ *                                             year) or off
  * Months 'YYYY-MM'; unplaced amounts in rand. Roll now and the toggle compare-and-set the version's token first
  * (409 BUDGET_VERSION_LOCKED, or BUDGET_VERSION_STALE with `currentUpdatedAt` and `status`); a second rolling
  * forecast in a year, or Roll now on a version that does not roll, is 409 BUDGET_VERSION_STATE; 404 for another
@@ -21,7 +23,8 @@ import { isUuidParam } from '@/lib/validation';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { respondBudgetDriverError } from '@/lib/budgetDriverResponse';
 import { createReforecastFromActuals } from '@/modules/accounting/services/budgets/drivers/reforecastService';
-import { rollingStatus, rollVersion, setRolling } from '@/modules/accounting/services/budgets/drivers/rollingForecastService';
+import { rollVersion, setRolling } from '@/modules/accounting/services/budgets/drivers/rollingForecastService';
+import { rollingStatus } from '@/modules/accounting/services/budgets/drivers/rollingStatus';
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
 
 const Token = z.string().max(40).refine(isVersionToken, 'expectedUpdatedAt must be the updatedAt the version was read with');

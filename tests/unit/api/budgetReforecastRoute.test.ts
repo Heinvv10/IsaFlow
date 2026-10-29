@@ -25,9 +25,8 @@ vi.mock('@/lib/auth', async () => ({
 }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/budgets/drivers/reforecastService', () => ({ createReforecastFromActuals: svc.create }));
-vi.mock('@/modules/accounting/services/budgets/drivers/rollingForecastService', () => ({
-  rollVersion: svc.roll, rollingStatus: svc.status, setRolling: svc.toggle,
-}));
+vi.mock('@/modules/accounting/services/budgets/drivers/rollingForecastService', () => ({ rollVersion: svc.roll, setRolling: svc.toggle }));
+vi.mock('@/modules/accounting/services/budgets/drivers/rollingStatus', () => ({ rollingStatus: svc.status }));
 
 import route from '../../../pages/api/accounting/budget-versions/[id]/reforecast';
 import { DriverRangeError } from '@/modules/accounting/services/budgets/drivers/driverTypes';
