@@ -231,22 +231,25 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
     expect(overdue.map((i) => i.clientName)).not.toContain('K058 other ' + TAG);
   });
 
-  it('records the one case where debtors and AR aging still disagree', async () => {
-    // KNOWN LIMIT, asserted rather than only written down (fix.md Limits).
-    // getARAging joins customers with an UNSCOPED INNER JOIN, so an id matching
-    // no customers row at all is dropped there while the outer join here keeps
-    // it. The foreign id is not affected: aging's unscoped join finds company
-    // B's customer and keeps that money (and renders that name, which is the
-    // other half of the same limit). Scoping arAgingService belongs to K-053,
-    // which owns that file.
+  it('debtors and AR aging agree, orphan id and foreign id included', async () => {
+    // The gap this test used to record is closed: arAgingInvoices now LEFT JOINs
+    // customers, scoped to the invoice's company, so an invoice whose client id
+    // matches no customer of this company stays in aging under "Unknown customer"
+    // instead of being dropped. Foreign id: its money is kept, and company B's
+    // customer name is no longer lent to company C's aging.
     const summary = await getDebtorsSummary(NAMELESS_COMPANY);
     const aging = await getARAging(NAMELESS_COMPANY);
     const summaryTotal = summary.reduce((s, d) => s + d.totalOutstanding, 0);
     const agingTotal = aging.reduce((s, b) => s + b.total, 0);
     expect(summaryTotal).toBeCloseTo(ORPHAN + FOREIGN_C, 2);
-    expect(agingTotal).toBeCloseTo(FOREIGN_C, 2);
-    // The gap is exactly the orphan row, and nothing else.
-    expect(summaryTotal - agingTotal).toBeCloseTo(ORPHAN, 2);
-    expect(aging.some((b) => b.entityId === ORPHAN_ID)).toBe(false);
+    expect(agingTotal).toBeCloseTo(ORPHAN + FOREIGN_C, 2);
+    expect(summaryTotal - agingTotal).toBeCloseTo(0, 2);
+    const orphan = aging.find((b) => b.entityId === ORPHAN_ID);
+    const foreign = aging.find((b) => b.entityId === otherCustomer);
+    expect(orphan?.total).toBeCloseTo(ORPHAN, 2);
+    expect(foreign?.total).toBeCloseTo(FOREIGN_C, 2);
+    expect(orphan?.entityName).toBe('Unknown customer');
+    expect(foreign?.entityName).toBe('Unknown customer');
+    expect(aging.map((b) => b.entityName)).not.toContain('K058 other ' + TAG);
   });
 });
