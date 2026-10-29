@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS budget_driver_lines (
   base_month DATE CHECK (EXTRACT(DAY FROM base_month) = 1),
   -- per_head: the headcount scope; NULL = the whole company.
   headcount_cost_centre_id UUID,
+  -- The unit this driver's values round to (decision 5: R1, R100, R1000).
+  rounding_unit SMALLINT NOT NULL DEFAULT 1 CHECK (rounding_unit IN (1, 100, 1000)),
   created_by VARCHAR(255) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by VARCHAR(255),
