@@ -8,6 +8,9 @@
  *  4. a rolling version is never the primary (ruling 2026-10-29): auto-roll cannot be turned on for
  *     a primary; a rolling version made primary since is skipped ('version is primary', nothing
  *     changes, the token included; Roll now 409); an approved non-primary version still rolls;
+ *  5. an auto roll that fails for another reason (a driver result beyond the budget range) records a
+ *     fixed last_error and changes nothing, the token included; Roll now with no change answers the
+ *     client's token in P1's form;
  * plus probes: an open-month override survives a roll; Roll now racing the toggle on one token is
  * one 200 and one 409 STALE; closing the year writes one roll audit row.
  *
@@ -159,6 +162,40 @@ describe('budget rolling forecast: edges', { timeout: 90000 }, () => {
     const on = await fx.call.reforecast(w.u, rf, 'PUT', { rolling: true, expectedUpdatedAt: await fx.token(rf) });
     expect([on.status, details(on).code], dump(on)).toEqual([409, 'BUDGET_VERSION_STATE']);
     expect(await fx.rollingRow(rf)).toBeUndefined();
+  });
+
+  it('an auto roll failing on a driver result beyond the range records a fixed last_error and changes nothing', async () => {
+    const w = await fx.world();
+    const m = w.months;
+    const s = await source(w);
+    // Rent x1000 a month from month 1's value: harmless while month 1 holds no actual (base 0).
+    const put = await fx.call.drivers(w.u, 'PUT', {
+      versionId: s, glAccountId: w.rent, kind: 'growth', pct: 99900, baseMonth: m[0], fromMonth: m[1], toMonth: m[11],
+    });
+    expect(put.status, dump(put)).toBe(200);
+    const rf = await rolling(w, s);
+    await fx.journal(w, `${m[0]}-15`, [[w.rent, 1000, 0]]);
+    const cells = await fx.snapshot(rf);
+    const token = await fx.token(rf);
+    await fx.close(w, [m[0]!]);
+    await fx.until(async () => (await fx.rollingRow(rf))?.last_error != null, 'the failed roll');
+    expect(await fx.rollingRow(rf)).toMatchObject({ last_error: 'a driver result is beyond the budget range', through: null, rolled_at: null });
+    expect(await fx.snapshot(rf)).toEqual(cells);
+    expect(await fx.token(rf)).toBe(token);
+  });
+
+  it("Roll now with no change answers the client's token (proven by the compare-and-set) in P1's form", async () => {
+    const w = await fx.world();
+    const rf = await rolling(w, await source(w));
+    const token = await fx.token(rf);
+    // The same instant written as Postgres prints it at +02:00.
+    const local = String((await pool.query(
+      `SELECT to_char(updated_at AT TIME ZONE 'Africa/Johannesburg', 'YYYY-MM-DD HH24:MI:SS.US') || '+02' AS t FROM budget_versions WHERE id = $1`,
+      [rf])).rows[0].t);
+    const r = await fx.call.reforecast(w.u, rf, 'POST', { action: 'roll', expectedUpdatedAt: local });
+    expect(r.status, dump(r)).toBe(200);
+    expect(dataOf(r)).toMatchObject({ changed: 0, updatedAt: token });
+    expect(await fx.token(rf)).toBe(token);
   });
 
   it('probe: an override in an open month survives the auto roll', async () => {

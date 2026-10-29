@@ -17,7 +17,9 @@ vi.mock('@/modules/accounting/services/budgets/drivers/rollingForecastService', 
 
 import { log } from '@/lib/logger';
 import { runBudgetRolls } from '@/modules/accounting/services/budgets/drivers/budgetRollJob';
-import { cellWriteRefusal } from '@/modules/accounting/services/budgets/drivers/reforecastInputs';
+import { ForecastCellRefusal, cellWriteRefusal, describeUnplaced } from '@/modules/accounting/services/budgets/drivers/reforecastInputs';
+import { BudgetDriverError } from '@/modules/accounting/services/budgets/drivers/driverErrors';
+import { DriverRangeError } from '@/modules/accounting/services/budgets/drivers/driverTypes';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 
 const P = { userId: 'u1', companyId: 'c1', claims: { sub: 'u1' } };
@@ -47,13 +49,22 @@ describe('runBudgetRolls', () => {
     expect(m.roll).toHaveBeenCalledWith('c1', 'u1', 'v1', 'auto');
   });
 
-  it("a failed roll records a typed refusal's message, or a fixed text for anything else, and never throws", async () => {
+  it('a failed roll records a fixed phrase per error class, never exception text, and never throws', async () => {
     m.fyForDate.mockResolvedValue({ fiscalYear: 2027 });
-    m.roll.mockRejectedValueOnce(Object.assign(new Error('insert on table "x" violates key (company_id)=(c1)'), { code: '23505' }));
-    await expect(runBudgetRolls(P, ['2026-03-31'])).resolves.toBeUndefined();
-    m.roll.mockRejectedValueOnce(new BudgetVersionError('BUDGET_VERSION_STATE', 'The forecast could not be written'));
-    await expect(runBudgetRolls(P, ['2026-03-31'])).resolves.toBeUndefined();
-    expect(recorded()).toEqual(['the roll failed; see the server log', 'The forecast could not be written']);
+    for (const err of [
+      Object.assign(new Error('insert on table "x" violates key (company_id)=(c1)'), { code: '23505' }),
+      new BudgetVersionError('BUDGET_VERSION_STATE', 'some state of company c1'),
+      new BudgetDriverError('DRIVER_RANGE', 'A budget driver cannot compute: 6100 Rent beyond range'),
+      new DriverRangeError('Actuals of 6100 in 2026-03 exceed the budget range', 'a', '2026-03'),
+      new ForecastCellRefusal(),
+    ]) {
+      m.roll.mockRejectedValueOnce(err);
+      await expect(runBudgetRolls(P, ['2026-03-31'])).resolves.toBeUndefined();
+    }
+    expect(recorded()).toEqual([
+      'roll failed; see logs', 'roll failed; see logs', 'a driver result is beyond the budget range',
+      'a driver result is beyond the budget range', 'invalid dimension on actuals',
+    ]);
   });
 
   it('a job that cannot even take a connection is logged, not thrown', async () => {
@@ -75,5 +86,19 @@ describe('cellWriteRefusal', () => {
     expect(cellWriteRefusal('c1', 'v1', Object.assign(new Error('locked'), { code: 'BV001' }))).toMatchObject({ code: 'BUDGET_VERSION_LOCKED' });
     const other = new Error('boom');
     expect(cellWriteRefusal('c1', 'v1', other)).toBe(other);
+  });
+});
+
+describe('describeUnplaced', () => {
+  it('names the grain the account is budgeted at, and company (never CC1) for an account with no row', () => {
+    const plan = {
+      rows: [{ key: 'a1|c|| ', glAccountId: 'a1', cc1Id: null, cc2Id: null, buId: 'b1', band: 'operating_expense' as const }],
+      cells: new Map(), warnings: [],
+      unplaced: [{ accountId: 'a1', month: '2026-03', amount: 12345 }, { accountId: 'a2', month: '2026-03', amount: -100 }],
+    };
+    const read = { actuals: { company: [], cc1: [], cc2: [], bu: [] }, accounts: new Map([
+      ['a1', { accountId: 'a1', accountCode: '6100', accountName: 'Rent', accountType: 'expense' as const, accountSubtype: null }],
+    ]) };
+    expect(describeUnplaced(plan, read).map((u) => [u.accountCode, u.level, u.amount])).toEqual([['6100', 'bu', 123.45], ['', 'company', -1]]);
   });
 });
