@@ -154,7 +154,12 @@ export default function IncomeStatementPage() {
   const loadReport = useCallback(async () => {
     if (router.isReady === false || !periodStart || !periodEnd || !periodResolved || !datesOk) {
       reportRequestRef.current += 1;
-      if (!datesOk) { setReport(null); setIsLoading(false); }
+      if (!datesOk) {
+        // Refused text leaves state on the last good range, so its report stays (export is off); an empty or
+        // inverted range is the new state, and a report headed by it would be a lie.
+        if (!periodStart || !periodEnd || rangeInverted) setReport(null);
+        setIsLoading(false);
+      }
       return;
     }
     const requestId = ++reportRequestRef.current;
@@ -183,7 +188,7 @@ export default function IncomeStatementPage() {
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }
-  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved, datesOk]);
+  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved, datesOk, rangeInverted]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
@@ -199,11 +204,11 @@ export default function IncomeStatementPage() {
           actions={
             <>
               <PresentLink from={periodStart} to={periodEnd} />
-              <button onClick={handleXlsxExport} disabled={!report}
+              <button onClick={handleXlsxExport} disabled={!report || !datesOk}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
                 <FileSpreadsheet className="h-4 w-4" /> Export Excel
               </button>
-              <button onClick={handleExport} disabled={!report}
+              <button onClick={handleExport} disabled={!report || !datesOk}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>

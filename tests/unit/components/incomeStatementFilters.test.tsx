@@ -76,15 +76,23 @@ it('To may not be before From: "-7" from 1 Apr is refused, and no report is requ
   expect(lastParams().get('period_end')).toBe('2026-04-30');
 });
 
-it('while a date is refused the old report is not shown and cannot be exported; a valid date brings it back', async () => {
+it('refused text in To keeps the last good report and its heading, fires no request, and cannot be exported; a valid date resumes', async () => {
   render(<IncomeStatementPage />);
   const csv = () => screen.getByRole('button', { name: /Export CSV/ }) as HTMLButtonElement;
+  const xlsx = () => screen.getByRole('button', { name: /Export (XLSX|Excel)/ }) as HTMLButtonElement;
   await waitFor(() => expect(csv().disabled).toBe(false));
-  typeDate(screen.getByRole('textbox', { name: 'From' }), 'garbage');
+  await settle();
+  expect(screen.getByRole('heading', { name: /Profit & Loss — 01 Apr 2026 to 30 Apr 2026/ })).toBeTruthy();
+  const before = vi.mocked(apiFetch).mock.calls.length;
+  typeDate(screen.getByRole('textbox', { name: 'To' }), 'zz');
   await waitFor(() => expect(csv().disabled).toBe(true));
-  expect(screen.queryByText(/Profit & Loss —/)).toBeNull();
-  typeDate(screen.getByRole('textbox', { name: 'From' }), '1 Apr 2026');
+  await settle();
+  expect(xlsx().disabled).toBe(true);
+  expect(screen.getByRole('heading', { name: /Profit & Loss — 01 Apr 2026 to 30 Apr 2026/ })).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.length).toBe(before);
+  typeDate(screen.getByRole('textbox', { name: 'To' }), '15 Apr 2026');
   await waitFor(() => expect(csv().disabled).toBe(false));
+  expect(lastParams().get('period_end')).toBe('2026-04-15');
 });
 
 it.each([
