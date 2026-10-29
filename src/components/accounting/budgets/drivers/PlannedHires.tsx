@@ -45,7 +45,10 @@ function HireRow({ initial, months, costCentres, editable, onSave, onDelete }: R
   const [confirming, setConfirming] = useState(false);
   const set = (p: Partial<HireDraft>) => { setD((x) => ({ ...x, ...p })); setError(null); };
   const name = d.label.trim() || 'new hire';
-  const run = async (fn: () => Promise<string | null>) => { setBusy(true); const e = await fn(); setBusy(false); setError(e); };
+  const run = async (fn: () => Promise<string | null>) => {
+    setBusy(true);
+    try { setError(await fn()); } finally { setBusy(false); }
+  };
   const save = () => {
     const c = checkHire(d);
     if (!c.ok) { setError(c.message); return; }

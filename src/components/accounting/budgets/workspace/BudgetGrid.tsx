@@ -145,7 +145,7 @@ export function BudgetGrid(props: BudgetGridProps) {
         <th key={m} role="columnheader" scope="col" aria-label={closed.has(m) ? `${longMonth(m)}, actual` : longMonth(m)}
           data-actual={closed.has(m) ? 'true' : undefined} className={`${STICKY_HEAD} ${HEAD}`}>
           {shortMonth(m)}
-          {closed.has(m) && <span className="block text-[10px] font-medium uppercase tracking-wide text-[var(--ff-text-tertiary)]">Actual</span>}
+          {closed.has(m) && <span className="block text-xs font-medium uppercase tracking-wide text-[var(--ff-text-tertiary)]">Actual</span>}
         </th>
       ))}
       <th role="columnheader" scope="col" aria-label="Full year total" className={`${STICKY_HEAD} ${HEAD}`}>FY</th>

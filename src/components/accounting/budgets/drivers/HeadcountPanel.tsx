@@ -70,8 +70,11 @@ export function HeadcountPanel({ versionId, months, costCentres, editable, runWr
 
   const refresh = async () => {
     setBusy(true);
-    setError(await write((v, t) => refreshHeadcount(v, t), 'Headcount refreshed'));
-    setBusy(false);
+    try {
+      setError(await write((v, t) => refreshHeadcount(v, t), 'Headcount refreshed'));
+    } finally {
+      setBusy(false);
+    }
   };
   const onSave = (h: HireInput) => write((v, t) => saveHire(v, t, h), h.id ? 'Planned hire saved' : 'Planned hire added');
   const onDelete = (id: string) => write((v, t) => deleteHire(v, t, id), 'Planned hire deleted');
