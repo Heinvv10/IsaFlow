@@ -164,10 +164,10 @@ describe('useStatementComparators — the budget follows the filter (budgets P3 
   });
 
   it('carries what the service said about the window: no-budget years, unallocated budget, partial accounts', async () => {
-    apiJson.mockResolvedValue(BUDGET({ budgetedCount: 0, noBudgetYears: [2026], unallocatedBudget: null, partialBudgetCount: 0 }));
+    apiJson.mockResolvedValue(BUDGET({ budgetedCount: 0, budgetAbsentYears: [2026], unallocatedBudget: null, partialBudgetCount: 0 }));
     const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
     await waitFor(() => expect(result.current.budgetState).toBe('none'));
-    expect(result.current.budgetInfo).toEqual({ noBudgetYears: [2026], unallocatedBudget: null, partialBudgetCount: 0, retryAfterSecs: null });
+    expect(result.current.budgetInfo).toEqual({ budgetAbsentYears: [2026], unallocatedBudget: null, partialBudgetCount: 0, retryAfterSecs: null });
   });
 
   it('coalesces a run of period and filter changes into ONE request, for the last of them', async () => {

@@ -7,7 +7,7 @@ import {
 } from '@/components/accounting/reportControls/ComparatorNotices';
 
 const INFO = (over: Partial<BudgetInfo> = {}): BudgetInfo => ({
-  noBudgetYears: [], unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, retryAfterSecs: null, ...over,
+  budgetAbsentYears: [], unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, retryAfterSecs: null, ...over,
 });
 
 afterEach(cleanup);
@@ -76,9 +76,9 @@ describe('comparatorNotices: the budget under a filter (budgets P3 PR-C)', () =>
   });
 
   it('a year with no budget in the window is named, never "no budget captured"', () => {
-    const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ noBudgetYears: [2026] }) });
+    const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026] }) });
     expect(n).toEqual([{ tone: 'info', text: 'No budget for FY2026 in this window, so the Budget column is empty.' }]);
-    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ noBudgetYears: [2026, 2028] }) })[0]!.text)
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026, 2028] }) })[0]!.text)
       .toBe('No budget for FY2026 and FY2028 in this window, so the Budget column is empty.');
   });
 

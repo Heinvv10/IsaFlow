@@ -28,8 +28,9 @@ afterAll(async () => {
   try { await dropTrackingFixture(pool, f); } finally { await pool.end(); }
 });
 
+/** As the comparator route calls it: the filter, the version, and the engine's partial-window rule. */
 const facade = (opts: BudgetVarianceOptions, start = '2026-03-01', end = '2026-08-31') =>
-  asRequest(pool, f.a, f.userA, () => getBudgetVariance(f.a, start, end, opts));
+  asRequest(pool, f.a, f.userA, () => getBudgetVariance(f.a, start, end, { ...opts, partialWindow: 'absent' }));
 const engine = (opts: Omit<TrackingParams, 'period'>) =>
   asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2026-03', to: '2026-08', ...opts }, NOW));
 

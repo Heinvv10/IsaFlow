@@ -47,7 +47,7 @@ import type { getAccountLedger } from '@/modules/accounting/services/reports/acc
 import type { getAccountTransactions } from '@/modules/accounting/services/gl/accountTransactionsService';
 import type { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
-import type { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
+import type { BudgetVarianceTrackedResult, getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
@@ -161,10 +161,11 @@ interface StaticRoutes {
      *  moves with it. */
     budgetedCount: number;
     postedThrough: Awaited<ReturnType<typeof getBudgetVariance>>['postedThrough'];
-    version: Awaited<ReturnType<typeof getBudgetVariance>>['version'];
-    unallocatedBudget: Awaited<ReturnType<typeof getBudgetVariance>>['unallocatedBudget'];
-    noBudgetYears: Awaited<ReturnType<typeof getBudgetVariance>>['noBudgetYears'];
-    partialBudgetCount: Awaited<ReturnType<typeof getBudgetVariance>>['partialBudgetCount'];
+    version: BudgetVarianceTrackedResult['version'];
+    unallocatedBudget: BudgetVarianceTrackedResult['unallocatedBudget'];
+    budgetAbsentYears: BudgetVarianceTrackedResult['budgetAbsentYears'];
+    /** Lines with `budget_partial`, counted in the handler like `budgetedCount`. */
+    partialBudgetCount: number;
   };
   '/api/accounting/reports-income-statement': Awaited<ReturnType<typeof getIncomeStatement>>;
   '/api/accounting/reports-pack': {

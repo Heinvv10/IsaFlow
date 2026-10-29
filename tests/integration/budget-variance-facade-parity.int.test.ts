@@ -1,15 +1,17 @@
 /**
  * Budgets P3 PR-C, on real PostgreSQL: `getBudgetVariance` is a facade over the
- * tracking engine, and with no options its P0 fields are DEEP-EQUAL to the
- * pre-facade (P0 + P1) service for the same ledger. The oracle below is P0's
- * own SQL, verbatim from the merge-base's `reports/budgetWindowActuals.ts`
- * (`loadWindowActuals`) and `reports/budgetWindowService.ts` (`loadWindowBudgets`
- * with the primary scope), composed exactly as the old `getBudgetVariance` did.
+ * tracking engine, and with no options its result is DEEP-EQUAL (strictly: no
+ * added field) to the pre-facade (P0 + P1) service for the same ledger, on every
+ * window, multi-year and partly budgeted ones included (P0 sums the budgeted
+ * months). The oracle below is P0's own SQL, verbatim from the merge-base's
+ * `reports/budgetWindowActuals.ts` (`loadWindowActuals`) and
+ * `reports/budgetWindowService.ts` (`loadWindowBudgets` with the primary scope),
+ * composed exactly as the old `getBudgetVariance` did.
  *
- * Where the engine deliberately differs (a year in the window with no budget in
- * it, a line budgeted for only part of the window) the difference is pinned,
- * not hidden: those lines keep their actual, carry no budget, and are in
- * neither `rows` nor `unbudgeted`.
+ * `partialWindow: 'absent'` (the statement comparator's opt-in) applies the
+ * engine's rule instead, pinned below: a year in the window with no budget in
+ * it, or a line budgeted for only part of the window, keeps its actual, carries
+ * no budget, and is in neither `rows` nor `unbudgeted`.
  *
  * Seed: helpers/budgetTrackingFixture.ts, plus per-test rows written inside the
  * request's transaction (always rolled back). Fixture route: isaflow_schema_fixture
@@ -89,9 +91,7 @@ async function oracleBudgets(companyId: string, startDate: string, endDate: stri
   return budgets;
 }
 
-type P0Fields = Omit<BudgetVarianceResult, 'version' | 'unallocatedBudget' | 'noBudgetYears' | 'partialBudgetCount'>;
-
-async function oracle(companyId: string, periodStart: string, periodEnd: string): Promise<P0Fields> {
+async function oracle(companyId: string, periodStart: string, periodEnd: string): Promise<BudgetVarianceResult> {
   const monthKeys = budgetMonthKeysInWindow(periodStart, periodEnd);
   const fiscalYear = (await fiscalYearForDate(companyId, periodStart)).fiscalYear;
   const budgets = await oracleBudgets(companyId, periodStart, periodEnd);
@@ -119,16 +119,12 @@ async function oracle(companyId: string, periodStart: string, periodEnd: string)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const p0 = (r: BudgetVarianceResult): P0Fields => {
-  const { version: _v, unallocatedBudget: _u, noBudgetYears: _n, partialBudgetCount: _p, ...rest } = r;
-  return rest;
-};
-
 type Before = (c: PoolClient) => Promise<unknown>;
 
 /** The facade and the oracle on ONE request transaction, after `before` (rolled back with it). */
 const both = (start: string, end: string, before?: Before) => asRequest(pool, f.a, f.userA, async () => ({
   facade: await getBudgetVariance(f.a, start, end),
+  absent: await getBudgetVariance(f.a, start, end, { partialWindow: 'absent' }),
   oracle: await oracle(f.a, start, end),
 }), before ? { before } : {});
 
@@ -160,23 +156,25 @@ describe('no options: deep-equal to the P0 + P1 oracle', () => {
     ['FY2026, no version: every movement unbudgeted', '2026-01-01', '2026-02-28'],
     ['before the ledger: nothing', '2025-06-01', '2025-12-31'],
     ['an inverted range', '2026-10-31', '2026-10-01'],
+    ['across FY2026 (no version) and FY2027: the budgeted months summed', '2026-01-01', '2026-06-30'],
+    ['across FY2027 and FY2028: lines budgeted in FY2027 only summed', '2027-04-01', '2027-05-31'],
+    ['across three years, FY2026 .. FY2028', '2026-02-15', '2027-06-15'],
   ])('%s (%s .. %s)', async (_name, start, end) => {
     const { facade, oracle: want } = await both(start, end);
-    expect(p0(facade)).toEqual(want);
+    expect(facade).toStrictEqual(want);
   });
 
   it('a budgeted zero with no actuals stays a budgeted row (the P0 keep rule)', async () => {
     const { facade, oracle: want } = await both('2026-06-01', '2026-06-30', zeroBudget);
     const zero = want.rows.find((l) => l.account_code === 'BT-6500');
     expect(zero).toMatchObject({ budgeted: true, budget_amount: 0, actual_amount: 0, variance_pct: null });
-    expect(p0(facade)).toEqual(want);
+    expect(facade).toStrictEqual(want);
   });
 
   it('a window across FY2027 and FY2028, budgeted in full in both, mid-month at both ends', async () => {
     const { facade, oracle: want } = await both('2027-04-10', '2027-05-20', fullyBudgeted28);
     expect(want.rows.length).toBe(5);
-    expect(p0(facade)).toEqual(want);
-    expect(facade.noBudgetYears).toEqual([]);
+    expect(facade).toStrictEqual(want);
   });
 
   it('a registry year that starts mid-month is read as P1 scopes it (a shared month counts in the earlier year), not refused', async () => {
@@ -187,43 +185,53 @@ describe('no options: deep-equal to the P0 + P1 oracle', () => {
     };
     const { facade, oracle: want } = await both('2027-04-01', '2027-05-31', midMonth);
     expect(want.rows.length).toBeGreaterThan(0);
-    expect(p0(facade)).toEqual(want);
+    expect(facade).toStrictEqual(want);
     // The Budget vs Actual page's own windows still refuse that registry (409): only the range entry reads it.
     const page = asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from: '2027-04', to: '2027-05' }), { before: midMonth });
     await expect(page).rejects.toMatchObject({ name: 'TrackingError', status: 409 });
   });
 
-  it('names the version of the year holding the end, and no unallocated budget without a filter', async () => {
-    const { facade } = await both('2026-03-01', '2026-08-31');
-    expect(facade.version).toMatchObject({ id: f.v.primary27, name: 'Original', status: 'approved', isPrimary: true });
-    expect(facade.unallocatedBudget).toEqual({ income: 0, expense: 0 });
+  it('adds no field: the result has exactly P0\'s keys, and no line carries budget_partial', async () => {
+    const { facade } = await both('2027-04-01', '2027-05-31');
+    expect(Object.keys(facade).sort()).toEqual(['fiscalYear', 'lines', 'monthKeys', 'postedThrough', 'rows', 'sections', 'totals',
+      'unbudgeted', 'unbudgetedMovement', 'universeTotal']);
+    expect(facade.lines.some((l) => 'budget_partial' in l)).toBe(false);
   });
 });
 
 // ── Where the engine differs, pinned ─────────────────────────────────────────
 
-describe('the engine withholds a partial-window budget (P0 summed the part)', () => {
-  it('FY2026 has no budget in Jan 2026 .. Jun 2026: no line carries a budget, none is called unbudgeted', async () => {
-    const { facade, oracle: want } = await both('2026-01-01', '2026-06-30');
-    expect(want.rows.map((l) => l.account_code)).toEqual(['BT-4000', 'BT-4900', 'BT-5000', 'BT-6000', 'BT-7000']);
-    expect(facade.noBudgetYears).toEqual([2026]);
-    expect(facade.rows).toEqual([]);
-    expect(facade.unbudgeted).toEqual([]);
-    expect(facade.lines.map((l) => [l.account_code, l.actual_amount, l.budgeted, l.budget_amount]))
-      .toEqual(want.lines.map((l) => [l.account_code, l.actual_amount, false, 0]));
-    expect(facade.unallocatedBudget).toBeNull();
-    expect(facade.version).toMatchObject({ id: f.v.primary27 });
+describe("partialWindow: 'absent' (the comparator's opt-in): the engine withholds a partial-window budget", () => {
+  it('on a window P0 and the engine agree on, the P0 fields are the default\'s; it adds the version and no unallocated budget', async () => {
+    const { facade, absent } = await both('2026-03-01', '2026-08-31');
+    const { budgetAbsentYears, version, unallocatedBudget, ...p0 } = absent;
+    expect(p0).toStrictEqual(facade);
+    expect(budgetAbsentYears).toEqual([]);
+    expect(version).toMatchObject({ id: f.v.primary27, name: 'Original', status: 'approved', isPrimary: true });
+    expect(unallocatedBudget).toEqual({ income: 0, expense: 0 });
   });
 
-  it('Apr .. May 2027: opex (budgeted in both years) is equal; lines budgeted in FY2027 only are withheld', async () => {
-    const { facade, oracle: want } = await both('2027-04-01', '2027-05-31');
-    const opex = (r: P0Fields) => r.lines.find((l) => l.account_code === 'BT-6000');
-    expect(opex(facade)).toEqual(opex(want));
-    expect(opex(facade)).toMatchObject({ budgeted: true, budget_amount: 410 });
-    expect(facade.rows.map((l) => l.account_code)).toEqual(['BT-6000']);
-    expect(facade.unbudgeted).toEqual([]);
-    expect(facade.partialBudgetCount).toBe(4);
-    expect(facade.noBudgetYears).toEqual([]);
-    expect(facade.version).toMatchObject({ id: f.v.primary28 });
+  it('FY2026 has no budget in Jan 2026 .. Jun 2026: no line carries a budget, none is called unbudgeted', async () => {
+    const { absent, oracle: want } = await both('2026-01-01', '2026-06-30');
+    expect(want.rows.map((l) => l.account_code)).toEqual(['BT-4000', 'BT-4900', 'BT-5000', 'BT-6000', 'BT-7000']);
+    expect(absent.budgetAbsentYears).toEqual([2026]);
+    expect(absent.rows).toEqual([]);
+    expect(absent.unbudgeted).toEqual([]);
+    expect(absent.lines.map((l) => [l.account_code, l.actual_amount, l.budgeted, l.budget_amount, l.budget_partial]))
+      .toEqual(want.lines.map((l) => [l.account_code, l.actual_amount, false, 0, true]));
+    expect(absent.unallocatedBudget).toBeNull();
+    expect(absent.version).toMatchObject({ id: f.v.primary27 });
+  });
+
+  it('Apr .. May 2027: opex (budgeted in both years) is equal; lines budgeted in FY2027 only are withheld as partial', async () => {
+    const { absent, oracle: want } = await both('2027-04-01', '2027-05-31');
+    const opex = (r: BudgetVarianceResult) => r.lines.find((l) => l.account_code === 'BT-6000');
+    expect(opex(absent)).toEqual(opex(want));
+    expect(opex(absent)).toMatchObject({ budgeted: true, budget_amount: 410 });
+    expect(absent.rows.map((l) => l.account_code)).toEqual(['BT-6000']);
+    expect(absent.unbudgeted).toEqual([]);
+    expect(absent.lines.filter((l) => l.budget_partial).map((l) => l.account_code)).toEqual(['BT-4000', 'BT-4900', 'BT-5000', 'BT-7000']);
+    expect(absent.budgetAbsentYears).toEqual([]);
+    expect(absent.version).toMatchObject({ id: f.v.primary28 });
   });
 });
