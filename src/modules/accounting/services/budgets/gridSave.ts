@@ -12,11 +12,18 @@
  * Decision 18: a cell is refused on a header (an account another account, active or not, names
  * as its parent) or an inactive account unless that account already holds amounts in the version.
  *
- * Drivers (P4 spec §1.2, §5; P4 owns this hook): a closed month's 'actual' cell is read-only (typing
- * over it or clearing it is refused); a typed cell inside its row's driver range becomes 'override' (the recompute never
- * touches it); then, once per batch that changed something, the version's drivers recompute in
- * the same savepoint (`recomputeDependents`), so rows reading an edited row follow it. A clear
- * inside a driver range is refilled by that recompute (the driver computes its whole range).
+ * Drivers (P4 spec §1.2, §1.3, §5; P4 owns this hook), all inside the savepoint:
+ * - a closed month (one where the version holds an 'actual' cell, a reforecast's) takes no typed
+ *   cell, and an 'actual' cell cannot be cleared: 400;
+ * - a 'driver' cell inside its driver's range cannot be cleared (the driver computes it; change or
+ *   delete the driver): 400. Clearing an 'override' there IS "reset to driver": the recompute
+ *   refills it with the driver's value (`reset` counts them);
+ * - a typed cell inside its row's driver range that changes the driver's value (or is new) becomes
+ *   'override', which the recompute never touches; typing the value the driver holds changes
+ *   nothing (no override, no token bump when nothing else changed);
+ * - once per batch that changed something, the version's drivers recompute (`recomputeDependents`,
+ *   per_head rows frozen: headcount is read on demand only), so rows reading an edited row follow
+ *   it. The result and the audit row carry `recomputed` and `driverWarnings` (labelled).
  */
 import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { isHeaderSql } from './headerSql';
@@ -26,8 +33,10 @@ import { auditBudgetWrite, holdYearRegistry } from './budgetVersionScope';
 import { BudgetVersionError, mapBudgetDbError } from './budgetVersionTypes';
 import { inputError } from './gridErrors';
 import { takeVersion } from './versionTake';
-import { deleteCells, firstActualCell, markOverrides, versionSum, writeCells } from './gridSaveWrite';
-import { recomputeDependents } from './drivers/driverRecomputeService';
+import {
+  cellsTypedOverDrivers, classifyClears, deleteCells, firstClosedMonthCell, markOverrides, versionSum, writeCells,
+} from './gridSaveWrite';
+import { recomputeDependents, type RecomputeWarning } from './drivers/driverRecomputeService';
 import { accountWithTwoGrains, assertMonthsInYear, validateBatch, type SaveCell, type ValidatedBatch } from './gridSaveValidate';
 
 export { MAX_IMPORT_CELLS, MAX_SAVE_CELLS, type SaveCell } from './gridSaveValidate';
@@ -45,8 +54,12 @@ export interface SaveCellsResult {
   updatedAt: string;
   saved: number;
   deleted: number;
-  /** Cells the version's drivers rewrote after the batch; absent when the batch changed nothing. */
+  /** Cells the version's drivers rewrote after the batch; absent (as are the two below) when the batch changed nothing. */
   recomputed?: number;
+  /** Override cells the batch cleared: each reset to its driver's value. */
+  reset?: number;
+  /** The recompute's warnings (REF_MISSING, SECTION_EMPTY, BASE_MISSING, DRIVER_SKIPPED), as the driver routes answer them. */
+  driverWarnings?: RecomputeWarning[];
 }
 
 const unique = <T>(xs: T[]): T[] => [...new Set(xs)];
@@ -100,24 +113,42 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
   await checkDimensions(companyId, input.cells);
   const twoGrains = accountWithTwoGrains(batch.upserts);
   if (twoGrains) throw grainClash(labels.get(twoGrains)!);
-  const actual = await firstActualCell(companyId, versionId, [...batch.upserts, ...batch.deletes]);
-  if (actual) throw inputError(`Account ${labels.get(actual.glAccountId)!} month ${actual.month} is a closed month's actual: it cannot be typed over or cleared`);
+  const cleared = await assertDriverCells(companyId, versionId, batch, labels);
 
   const sumBefore = await versionSum(companyId, versionId);
   const deleted = await deleteCells(companyId, versionId, batch.deletes);
   await assertOneGrain(companyId, versionId, batch.upserts, labels);
+  const typedOver = await cellsTypedOverDrivers(companyId, versionId, batch.upserts);
   const changed = await writeCells(companyId, versionId, userId, batch.upserts);
-  const overrides = await markOverrides(companyId, versionId, batch.upserts);
+  const overrides = await markOverrides(companyId, versionId, typedOver);
   if (deleted === 0 && changed === 0 && overrides === 0) throw new NothingChanged();
-  const recomputed = await recomputeDependents(companyId, versionId, userId);
+  const { changed: recomputed, warnings } = await recomputeDependents(companyId, versionId, userId, cleared.overrideRows);
   const sumAfter = await versionSum(companyId, versionId);
 
   // `saved` and the audit count the rows the batch changed (updated or inserted), not the cells sent.
   await auditBudgetWrite(companyId, userId, 'update', versionId, version.fiscalYear, {
     upserts: String(changed), deletes: String(deleted), sumBefore, sumAfter, versionStatus: version.status,
-    overrides: String(overrides), recomputed: String(recomputed),
+    overrides: String(overrides), reset: String(cleared.overrides), recomputed: String(recomputed),
+    driverWarnings: JSON.stringify(warnings),
   });
-  return { updatedAt: version.updatedAt, saved: changed, deleted, recomputed };
+  return { updatedAt: version.updatedAt, saved: changed, deleted, recomputed, reset: cleared.overrides, driverWarnings: warnings };
+}
+
+/** The P4 refusals (header, bullets 1-2), raised before any delete or write; returns the overrides the clears reset. */
+async function assertDriverCells(companyId: string, versionId: string, batch: ValidatedBatch, labels: Map<string, string>) {
+  const label = (c: SaveCell) => labels.get(c.glAccountId) ?? c.glAccountId;
+  const closed = await firstClosedMonthCell(companyId, versionId, batch.upserts);
+  if (closed) {
+    throw inputError(`Month ${closed.month} is a closed month of this budget (it holds the ledger's actuals): account ${label(closed)} cannot be typed in it`);
+  }
+  const cleared = await classifyClears(companyId, versionId, batch.deletes);
+  if (cleared.actual) {
+    throw inputError(`Account ${label(cleared.actual)} month ${cleared.actual.month} is a closed month's actual: it cannot be cleared`);
+  }
+  if (cleared.computed) {
+    throw inputError(`Account ${label(cleared.computed)} month ${cleared.computed.month} is computed by the driver on ${label(cleared.computed)}: change or delete the driver`);
+  }
+  return cleared;
 }
 
 /**

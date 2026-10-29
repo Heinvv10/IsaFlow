@@ -97,7 +97,19 @@ export function budgetDriverRouteFixture(pool: Pool) {
   const token = async (versionId: string) =>
     String((await pool.query(`SELECT ${TOKEN_SQL} AS t FROM budget_versions WHERE id = $1`, [versionId])).rows[0].t);
 
-  return { ...grid, world, call, cells, row, state, token };
+  /** A version with Sales 1 000 in months 0-2 and COGS = 38% of Sales over the whole year (PUT through the route). */
+  async function cogsOfSales(w: DriverWorld): Promise<{ v: string; put: RouteOut }> {
+    const v = await grid.version(w);
+    for (const m of w.months.slice(0, 3)) await grid.amount(w, v, w.sales, m, 1000);
+    const put = await call.drivers(w.u, 'PUT', {
+      versionId: v, glAccountId: w.cogs, kind: 'pct_of_line', pct: 38, fromMonth: w.months[0], toMonth: w.months[11],
+      ref: { glAccountId: w.sales },
+    });
+    if (put.status !== 200) throw new Error(`cogsOfSales: ${put.status} ${JSON.stringify(put.body).slice(0, 300)}`);
+    return { v, put };
+  }
+
+  return { ...grid, world, call, cells, row, state, token, cogsOfSales };
 }
 
 export type { RouteOut };

@@ -1,12 +1,12 @@
 /**
  * Planned hires and the headcount read (P4 decision 7). A hire is a role label, an optional cost
  * centre of the company, a month range and an FTE, stored per version; a change recomputes the
- * version (per_head drivers move) through `runDriverWrite`. The headcount read answers COUNTS
+ * version with every per_head row live (they move) through `runDriverWrite`. The headcount read answers COUNTS
  * only: per month payroll actives, hires and their total at a scope, and when payroll was read.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { budgetMonthKeysInWindow } from '../../reports/budgetPeriodWindow';
-import { BudgetVersionError } from '../budgetVersionTypes';
+import { BudgetDriverError } from './driverErrors';
 import { versionYear } from '../budgetVersionScope';
 import { inputError } from '../gridErrors';
 import {
@@ -55,7 +55,7 @@ export async function createHire(companyId: string, userId: string, target: Driv
     const h = checkedHire(input, ctx.months);
     await assertCostCentre(companyId, h.costCentreId);
     const hire = await insertPlannedHire(companyId, ctx.versionId, userId, h);
-    return { value: { hire }, audit: { hireId: hire.id } };
+    return { value: { hire }, audit: { hireId: hire.id }, live: 'all' as const };
   });
 }
 
@@ -64,17 +64,17 @@ export async function updateHire(companyId: string, userId: string, target: Driv
     const h = checkedHire(input, ctx.months);
     await assertCostCentre(companyId, h.costCentreId);
     const hire = await updatePlannedHire(companyId, ctx.versionId, hireId.toLowerCase(), h);
-    if (!hire) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Planned hire not found');
-    return { value: { hire }, audit: { hireId: hire.id } };
+    if (!hire) throw new BudgetDriverError('PLANNED_HIRE_NOT_FOUND', 'Planned hire not found in this version');
+    return { value: { hire }, audit: { hireId: hire.id }, live: 'all' as const };
   });
 }
 
 export async function deleteHire(companyId: string, userId: string, target: DriverWriteTarget, hireId: string) {
   return runDriverWrite(companyId, userId, target, 'hire_deleted', async (ctx) => {
     if (!(await deletePlannedHire(companyId, ctx.versionId, hireId.toLowerCase()))) {
-      throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Planned hire not found');
+      throw new BudgetDriverError('PLANNED_HIRE_NOT_FOUND', 'Planned hire not found in this version');
     }
-    return { value: { deleted: true as const, id: hireId.toLowerCase() }, audit: { hireId: hireId.toLowerCase() } };
+    return { value: { deleted: true as const, id: hireId.toLowerCase() }, audit: { hireId: hireId.toLowerCase() }, live: 'all' as const };
   });
 }
 

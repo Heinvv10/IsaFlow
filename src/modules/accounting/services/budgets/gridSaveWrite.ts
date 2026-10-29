@@ -11,8 +11,8 @@
  * INSERT trigger first and the lock trigger twice. A cell whose amount does not change is not
  * touched, so its updated_at keeps saying when it last changed. Only new cells are INSERTed.
  *
- * P4 (drivers): `firstActualCell` finds a typed or cleared closed month's actual (refused), and
- * `markOverrides` marks typed cells inside a driver's range 'override'.
+ * P4 (drivers): typing in a closed month, clearing an actual or a driver-computed cell are refused;
+ * clearing an override is a reset; a typed cell that changes a driver's value is marked 'override'.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { monthKeyToDate } from '../reports/budgetPeriodWindow';
@@ -96,48 +96,98 @@ export async function writeCells(companyId: string, versionId: string, userId: s
   return Number(updated[0]?.n ?? 0) + Number(inserted[0]?.n ?? 0);
 }
 
+/** The match of a version cell `bm` to the batch row `t` (dimensions COALESCEd, hashable). */
+const cellMatch = (companyId: string, versionId: string) => sql`
+  bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID
+  AND bm.gl_account_id = t.a AND bm.month = t.m AND COALESCE(bm.cc1_id, ${NIL}::UUID) = t.c1
+  AND COALESCE(bm.cc2_id, ${NIL}::UUID) = t.c2 AND COALESCE(bm.bu_id, ${NIL}::UUID) = t.b`;
+
+/** The driver line `d` covering the batch row `t`'s row and month. */
+const driverCovers = (companyId: string, versionId: string) => sql`
+  d.company_id = ${companyId}::UUID AND d.version_id = ${versionId}::UUID AND d.gl_account_id = t.a
+  AND COALESCE(d.cc1_id, ${NIL}::UUID) = t.c1 AND COALESCE(d.cc2_id, ${NIL}::UUID) = t.c2
+  AND COALESCE(d.bu_id, ${NIL}::UUID) = t.b AND t.m BETWEEN d.from_month AND d.to_month`;
+
 /**
- * The first cell of the batch (typed or cleared) that holds a closed month's ledger actual
- * ('actual', a reforecast's), or null: actual cells are read-only (P4 spec §1.3; the next roll
- * refreshes them).
+ * The first upserted cell in a CLOSED month: one in which the version holds an 'actual' cell (a
+ * reforecast's closed months hold the ledger's figures; the next roll refreshes them). Typing in
+ * one is refused, over an actual or into a new cell alike.
  */
-export async function firstActualCell(companyId: string, versionId: string, cells: readonly SaveCell[]): Promise<SaveCell | null> {
+export async function firstClosedMonthCell(companyId: string, versionId: string, cells: ValidatedBatch['upserts']): Promise<SaveCell | null> {
   if (cells.length === 0) return null;
+  const rows = (await sql`
+    SELECT DISTINCT to_char(month, 'YYYY-MM') AS m FROM budget_month_amounts
+     WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID AND amount_source = 'actual'
+  `) as DbRow[];
+  const closed = new Set(rows.map((r) => String(r.m)));
+  return cells.find((c) => closed.has(c.month)) ?? null;
+}
+
+export interface ClearedSources {
+  /** A cleared 'actual' cell (refused: read-only). */
+  actual: SaveCell | null;
+  /** A cleared 'driver' cell inside its driver's range (refused: the driver computes it). */
+  computed: SaveCell | null;
+  /** Cleared 'override' cells inside their driver's range: a reset to driver, refilled by the recompute. */
+  overrides: number;
+  /** The rows of those overrides (`acct|cc1|cc2|bu`). */
+  overrideRows: Set<string>;
+}
+
+/** What the batch's clears would remove that is not a plain typed figure. */
+export async function classifyClears(companyId: string, versionId: string, cells: readonly SaveCell[]): Promise<ClearedSources> {
+  const out: ClearedSources = { actual: null, computed: null, overrides: 0, overrideRows: new Set() };
+  if (cells.length === 0) return out;
   const k = keyArrays(cells);
   const rows = (await sql`
-    SELECT bm.gl_account_id::text AS a, to_char(bm.month, 'YYYY-MM') AS m FROM budget_month_amounts bm
-      JOIN unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[]) AS t(a, c1, c2, b, m)
-        ON bm.gl_account_id = t.a AND bm.month = t.m AND COALESCE(bm.cc1_id, ${NIL}::UUID) = t.c1
-       AND COALESCE(bm.cc2_id, ${NIL}::UUID) = t.c2 AND COALESCE(bm.bu_id, ${NIL}::UUID) = t.b
-     WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID AND bm.amount_source = 'actual'
-     ORDER BY 1, 2
-     LIMIT 1
+    SELECT t.a::text AS a, NULLIF(t.c1, ${NIL}::UUID)::text AS c1, NULLIF(t.c2, ${NIL}::UUID)::text AS c2,
+           NULLIF(t.b, ${NIL}::UUID)::text AS b, to_char(t.m, 'YYYY-MM') AS m, bm.amount_source AS src,
+           EXISTS (SELECT 1 FROM budget_driver_lines d WHERE ${driverCovers(companyId, versionId)}) AS covered
+      FROM unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[]) AS t(a, c1, c2, b, m)
+      JOIN budget_month_amounts bm ON ${cellMatch(companyId, versionId)}
+     WHERE bm.amount_source IN ('actual', 'driver', 'override')
+     ORDER BY 1, 5
   `) as DbRow[];
-  if (!rows[0]) return null;
-  return cells.find((c) => c.glAccountId === String(rows[0]!.a) && c.month === String(rows[0]!.m)) ?? null;
+  const find = (r: DbRow) => cells.find((c) => c.glAccountId === String(r.a) && c.month === String(r.m)) ?? null;
+  for (const r of rows) {
+    if (r.src === 'actual') out.actual ??= find(r);
+    else if (r.src === 'driver' && r.covered) out.computed ??= find(r);
+    else if (r.src === 'override' && r.covered) {
+      out.overrides += 1;
+      out.overrideRows.add([r.a, r.c1 ?? '', r.c2 ?? '', r.b ?? ''].join('|'));
+    }
+  }
+  return out;
 }
 
 /**
- * Marks the upserted cells that lie inside their row's driver range [from, to] as 'override'
- * (P4 spec §1.2: a typed value over a driver keeps the typed value; the recompute never touches it).
- * Cells outside any range keep their source; a new one is 'manual' (the column default). Returns
- * the cells whose source moved.
+ * The upserted cells that type over a driver: inside their row's driver range, and either new or
+ * holding a different amount (a value equal to the driver's stays the driver's: no override, and
+ * no write). Read BEFORE `writeCells`; `markOverrides` marks them after it.
  */
+export async function cellsTypedOverDrivers(companyId: string, versionId: string, cells: ValidatedBatch['upserts']): Promise<ValidatedBatch['upserts']> {
+  if (cells.length === 0) return [];
+  const k = keyArrays(cells);
+  const cents = cells.map((c) => toCents(c.amount));
+  const rows = (await sql`
+    SELECT t.i FROM unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[], ${cents}::BIGINT[],
+                           ${cells.map((_, i) => i)}::INT[]) AS t(a, c1, c2, b, m, cents, i)
+     WHERE EXISTS (SELECT 1 FROM budget_driver_lines d WHERE ${driverCovers(companyId, versionId)})
+       AND NOT EXISTS (SELECT 1 FROM budget_month_amounts bm WHERE ${cellMatch(companyId, versionId)}
+                          AND (bm.amount_source = 'override' OR bm.amount = t.cents::NUMERIC / 100))
+  `) as DbRow[];
+  return rows.map((r) => cells[Number(r.i)]!);
+}
+
+/** Marks the typed-over cells 'override' (P4 spec §1.2: the recompute never touches one). Returns how many. */
 export async function markOverrides(companyId: string, versionId: string, cells: ValidatedBatch['upserts']): Promise<number> {
   if (cells.length === 0) return 0;
   const k = keyArrays(cells);
   const rows = (await sql`
     WITH marked AS (
     UPDATE budget_month_amounts bm SET amount_source = 'override'
-      FROM unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[]) AS t(a, c1, c2, b, m),
-           budget_driver_lines d
-     WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID
-       AND bm.gl_account_id = t.a AND bm.month = t.m AND COALESCE(bm.cc1_id, ${NIL}::UUID) = t.c1
-       AND COALESCE(bm.cc2_id, ${NIL}::UUID) = t.c2 AND COALESCE(bm.bu_id, ${NIL}::UUID) = t.b
-       AND d.company_id = ${companyId}::UUID AND d.version_id = ${versionId}::UUID AND d.gl_account_id = t.a
-       AND COALESCE(d.cc1_id, ${NIL}::UUID) = t.c1 AND COALESCE(d.cc2_id, ${NIL}::UUID) = t.c2
-       AND COALESCE(d.bu_id, ${NIL}::UUID) = t.b AND t.m BETWEEN d.from_month AND d.to_month
-       AND bm.amount_source <> 'override'
+      FROM unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[]) AS t(a, c1, c2, b, m)
+     WHERE ${cellMatch(companyId, versionId)} AND bm.amount_source <> 'override'
     RETURNING 1
     )
     SELECT COUNT(*)::int AS n FROM marked

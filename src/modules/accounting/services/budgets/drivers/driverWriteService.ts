@@ -12,31 +12,24 @@
  * - Delete: the row's 'override' cells become 'manual' here, its 'driver' cells in the recompute;
  *   values kept.
  * - Reset: 'override' cells (one month, or the whole row) back to 'driver', then recomputed.
- * - Refresh headcount: a recompute that records `headcountAsOf` in its audit row (payroll never
- *   pushes one; headcount is read when a write or this runs).
+ * - Refresh headcount: a recompute with every per_head row live, recording `headcountAsOf` in its
+ *   audit row (payroll never pushes one). A driver save or reset reads headcount for its own row
+ *   only; every other pass keeps per_head rows as they stand.
  */
-import { BudgetVersionError } from '../budgetVersionTypes';
 import { versionYear } from '../budgetVersionScope';
 import { inputError } from '../gridErrors';
 import { assertDriverMonths, monthIndex } from './driverEngine';
 import { assertNoCycle } from './driverGraph';
-import { DriverCycleError, type RowKey } from './driverTypes';
+import { DriverCycleError } from './driverTypes';
 import { normaliseLine, rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLineInput, type StoredDriverLine } from './driverLine';
 import { deleteDriverLine, driverLineOfRow, listDriverLines, upsertDriverLine } from './driverRepository';
 import { releaseOverrideCells, resetOverrideCells } from './driverCellSources';
-import { loadVersionModel } from './driverRecomputeService';
+import { loadVersionModel, rowLabel } from './driverModel';
 import { checkDriverLine } from './driverValidate';
 import { BudgetDriverError } from './driverErrors';
 import { runDriverWrite, type DriverWriteTarget } from './driverWriteScope';
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
-
-/** "5000 Cost of sales (CC1)" for a row key, for messages. */
-function rowLabel(key: RowKey, labels: ReadonlyMap<string, string>): string {
-  const [acct = '', cc1, cc2, bu] = key.split('|');
-  const dim = cc1 ? ' (CC1)' : cc2 ? ' (CC2)' : bu ? ' (BU)' : '';
-  return `${labels.get(acct) ?? acct}${dim}`;
-}
 
 const lowerGrain = (g: DriverGrain): DriverGrain => ({
   glAccountId: g.glAccountId.toLowerCase(), cc1Id: g.cc1Id?.toLowerCase() ?? null,
@@ -57,6 +50,9 @@ export async function saveDriver(companyId: string, userId: string, target: Driv
     const others = (await listDriverLines(companyId, ctx.versionId)).filter((d) => rowKeyOfGrain(d) !== key);
     await checkDriverLine(companyId, ctx.versionId, line, others);
     const model = await loadVersionModel(companyId, ctx.versionId, ctx.months, [...others, line]);
+    // checkDriverLine and assertDriverMonths refused anything the model would skip; kept as the backstop.
+    const unplaced = model.skipped.find((x) => x.rowKey === key);
+    if (unplaced) throw new BudgetDriverError('DRIVER_REF', unplaced.message);
     try {
       assertNoCycle(model.rows, model.defs);
     } catch (err) {
@@ -65,14 +61,14 @@ export async function saveDriver(companyId: string, userId: string, target: Driv
         `This driver makes a loop: ${err.path.map((k) => rowLabel(k, model.labels)).join(' → ')}`, err.path);
     }
     const { line: driver, replaced } = await upsertDriverLine(companyId, ctx.versionId, userId, line);
-    return { value: { driver }, audit: { kind: line.kind, rowKey: key, replaced: String(replaced) } };
+    return { value: { driver }, audit: { kind: line.kind, rowKey: key, replaced: String(replaced) }, live: new Set([key]) };
   });
 }
 
 export async function deleteDriver(companyId: string, userId: string, target: DriverWriteTarget, driverId: string) {
   return runDriverWrite(companyId, userId, target, 'driver_deleted', async (ctx) => {
     const gone = await deleteDriverLine(companyId, ctx.versionId, driverId.toLowerCase());
-    if (!gone) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget driver not found');
+    if (!gone) throw new BudgetDriverError('DRIVER_NOT_FOUND', 'Budget driver not found in this version');
     const released = await releaseOverrideCells(companyId, ctx.versionId, gone);
     return {
       value: { deleted: true as const, id: gone.id },
@@ -100,6 +96,7 @@ export async function resetOverride(companyId: string, userId: string, target: D
     return {
       value: { reset },
       audit: { rowKey: rowKeyOfGrain(g), resetCells: String(reset), ...(month === null ? {} : { month }) },
+      live: new Set([rowKeyOfGrain(g)]),
     };
   });
 }
@@ -107,6 +104,6 @@ export async function resetOverride(companyId: string, userId: string, target: D
 export async function refreshHeadcount(companyId: string, userId: string, target: DriverWriteTarget) {
   const headcountAsOf = new Date().toISOString();
   return runDriverWrite(companyId, userId, target, 'headcount_refresh', async () => ({
-    value: { headcountAsOf }, audit: { headcountAsOf },
+    value: { headcountAsOf }, audit: { headcountAsOf }, live: 'all' as const,
   }));
 }
