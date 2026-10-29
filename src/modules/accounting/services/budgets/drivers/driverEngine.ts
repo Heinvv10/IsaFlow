@@ -10,8 +10,8 @@
  * - Each value is rounded ONCE, half away from zero, from the exact ratio
  *   straight to the rounding unit (the driver's own, else the caller's;
  *   decision 5; no residue: drivers have no total). Never cents-then-unit.
- * - A 'driver' or 'override' cell with no driver covering it (driver removed,
- *   range shrunk) is re-sourced 'manual', value kept.
+ * - A 'driver' cell with no driver covering it (driver removed, range shrunk)
+ *   is re-sourced 'manual', value kept. An 'override' is never touched.
  * - `writes` holds only cells whose amount or source differ from the input: per
  *   row in topo order, its driver writes in month order, then its re-sourced
  *   cells in month order. An unchanged recompute returns [].
@@ -31,6 +31,10 @@ export interface ComputeInput {
   months: readonly string[];
   rows: readonly DriverRow[];
   cells: ReadonlyMap<RowKey, readonly Cell[]>;
+  /**
+   * EVERY driver line of the version, never a subset: a row without a driver here has its
+   * 'driver' cells re-sourced 'manual', so passing only the dependents would strip the others.
+   */
   drivers: readonly DriverDef[];
   headcount: HeadcountFn;
   closedMonths: ReadonlySet<string>;
@@ -89,6 +93,9 @@ export function assertDriverMonths(index: ReadonlyMap<string, number>, d: Driver
     if (base === undefined || base >= from) {
       throw new DriverRefError(`Row ${d.rowKey}: growth base ${d.baseMonth} must be a version month before ${d.fromMonth}`, d.rowKey);
     }
+  }
+  if (d.rounding !== undefined && !ROUNDING_UNITS.includes(d.rounding)) {
+    throw new DriverRefError(`Row ${d.rowKey}: unknown rounding unit ${String(d.rounding)}`, d.rowKey);
   }
   if (d.kind === 'fixed' || d.kind === 'per_head') {
     if (!isCents(d.amount)) throw new DriverRangeError(`Row ${d.rowKey}: amount ${d.amount} is not whole cents in range`, d.rowKey);
@@ -175,11 +182,15 @@ function warningText(code: DriverWarningCode, ref: string, months: readonly stri
   return `Growth base month ${ref} has no amount; ${when} read as 0`;
 }
 
-/** Re-sources to 'manual' (value kept) every 'driver' / 'override' cell no driver covers; closed months untouched. */
+/**
+ * Re-sources to 'manual' (value kept) every 'driver' cell no driver covers; closed months untouched.
+ * An 'override' is left as it is: only "Reset to driver" (or deleting the driver, a service act)
+ * ends one, so shrinking a range and growing it back never resets a typed value (spec §1.2).
+ */
 function resource(key: RowKey, own: Map<string, Cell>, covered: (month: string) => boolean, input: ComputeInput, writes: DriverWrite[]): void {
   for (const month of input.months) {
     const cell = own.get(month);
-    if (!cell || (cell.source !== 'driver' && cell.source !== 'override') || covered(month) || input.closedMonths.has(month)) continue;
+    if (!cell || cell.source !== 'driver' || covered(month) || input.closedMonths.has(month)) continue;
     own.set(cell.month, { ...cell, source: 'manual' });
     writes.push({ rowKey: key, month: cell.month, amount: cell.amount, source: 'manual' });
   }

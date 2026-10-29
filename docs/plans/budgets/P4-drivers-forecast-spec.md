@@ -62,6 +62,13 @@ read-only — headcount refreshes on demand), MCP driver tools, a cron job (see 
   `budget_rolling_forecasts`: that row holds no budget figure, and a roll that meets a locked version must record
   `last_error = 'version locked'` on it (§6), which the trigger would refuse.
 
+- **Engine rules settled in review (2026-10-29):** (a) an override survives a driver range shrunk and regrown; only
+  Reset to driver or deleting the driver ends it. (b) A month reopened after a roll: on the next roll its `actual` cell
+  becomes `manual` with the last actual kept (the rolled version no longer holds the original budget figure), and a driver
+  covering it recomputes it; that is what "Roll now refreshes it" (§6) means here. (c) Each driver stores its own rounding
+  unit (`rounding_unit`; decision 5); nothing is stored on the version. (d) Payroll allocations are used as stored; a sum
+  over 100% for one employee counts more than one head.
+
 ## 2. Phase-start decision 7 — CONFIRMED by Hein 2026-10-29 ("yes", the default below, unchanged)
 
 Headcount driver = active payroll employees per month + planned hires entered in the budget tool;
