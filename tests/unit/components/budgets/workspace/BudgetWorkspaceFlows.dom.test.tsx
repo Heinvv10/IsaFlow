@@ -35,7 +35,7 @@ async function typeIntoMarchRev2(value: string) {
 describe('BudgetWorkspace flows', () => {
   it('no financial year at all: a panel saying so, not a skeleton forever', async () => {
     const net = installNetwork();
-    net.on((u) => u === '/api/accounting/budgets', () => ok({ items: [], fiscalYear: null, years: [] }));
+    net.on((u) => u === '/api/accounting/budgets?years_only=1', () => ok({ items: [], fiscalYear: null, years: [] }));
     render(<BudgetWorkspace />);
     expect(await screen.findByTestId('workspace-no-year')).toHaveTextContent(/no financial year/i);
     expect(screen.queryByTestId('workspace-loading')).toBeNull();
