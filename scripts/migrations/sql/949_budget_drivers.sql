@@ -67,16 +67,20 @@ CREATE TABLE IF NOT EXISTS budget_driver_lines (
   -- pct_of_line / pct_of_section: percent of the reference; growth: percent per month.
   pct NUMERIC(9, 4),
   -- pct_of_line: the referenced row (same version).
-  ref_gl_account_id UUID REFERENCES gl_accounts(id) ON DELETE CASCADE,
+  -- NO ACTION, not CASCADE: deleting the referenced account must not silently delete ANOTHER
+  -- account's driver (its computed cells would stay, sourced 'driver', with nothing producing them).
+  ref_gl_account_id UUID REFERENCES gl_accounts(id),
   ref_cc1_id UUID,
   ref_cc2_id UUID,
   ref_bu_id UUID,
   -- pct_of_section: a band of the grid (budgets/grid/subtotals.ts BAND_ORDER) at a scope.
   ref_section TEXT CHECK (ref_section IN ('turnover', 'cost_of_sales', 'other_income', 'operating_expense', 'other_expense')),
   ref_scope TEXT CHECK (ref_scope IN ('same_grain', 'company')),
-  -- growth: the month the compounding starts from (before from_month).
+  -- growth: the month the compounding starts from: a month of the same year, before from_month
+  -- (so a growth driver starts in the year's second month at the earliest; by design).
   base_month DATE CHECK (EXTRACT(DAY FROM base_month) = 1),
-  -- per_head: the headcount scope; NULL = the whole company.
+  -- per_head: the headcount scope; NULL = the whole company. Any kind of centre (CC1 or CC2):
+  -- payroll_employees.cost_centre_id names either, and the scope matches it as payroll does.
   headcount_cost_centre_id UUID,
   -- The unit this driver's values round to (decision 5: R1, R100, R1000).
   rounding_unit SMALLINT NOT NULL DEFAULT 1 CHECK (rounding_unit IN (1, 100, 1000)),
@@ -105,6 +109,10 @@ CREATE TABLE IF NOT EXISTS budget_driver_lines (
     WHEN 'per_head' THEN amount IS NOT NULL AND pct IS NULL AND ref_gl_account_id IS NULL
       AND ref_section IS NULL AND ref_scope IS NULL AND base_month IS NULL
     ELSE false END),
+  -- A row's % of itself (the engine refuses every cycle at save; this one the table refuses too).
+  CONSTRAINT budget_driver_lines_not_self CHECK (NOT (ref_gl_account_id IS NOT DISTINCT FROM gl_account_id
+    AND ref_cc1_id IS NOT DISTINCT FROM cc1_id AND ref_cc2_id IS NOT DISTINCT FROM cc2_id
+    AND ref_bu_id IS NOT DISTINCT FROM bu_id)),
   CONSTRAINT budget_driver_lines_ref_dims_only_for_line CHECK (
     ref_gl_account_id IS NOT NULL OR num_nonnulls(ref_cc1_id, ref_cc2_id, ref_bu_id) = 0),
   CONSTRAINT budget_driver_lines_one_per_row
@@ -157,6 +165,15 @@ BEGIN
        SELECT 1 FROM gl_accounts ga WHERE ga.id = NEW.ref_gl_account_id AND ga.company_id = NEW.company_id) THEN
     RAISE EXCEPTION 'budget driver reference account % does not belong to company %', NEW.ref_gl_account_id, NEW.company_id
       USING ERRCODE = '23514';
+  END IF;
+  -- The referenced row's CC1/CC2 must be of that kind (947's kinds trigger reads only cc1_id/cc2_id).
+  IF NEW.ref_cc1_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM cost_centres cc WHERE cc.id = NEW.ref_cc1_id AND cc.company_id = NEW.company_id AND cc.cc_type = 'cc1') THEN
+    RAISE EXCEPTION 'budget driver ref_cc1_id % is not a CC1 cost centre of company %', NEW.ref_cc1_id, NEW.company_id USING ERRCODE = '23514';
+  END IF;
+  IF NEW.ref_cc2_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM cost_centres cc WHERE cc.id = NEW.ref_cc2_id AND cc.company_id = NEW.company_id AND cc.cc_type = 'cc2') THEN
+    RAISE EXCEPTION 'budget driver ref_cc2_id % is not a CC2 cost centre of company %', NEW.ref_cc2_id, NEW.company_id USING ERRCODE = '23514';
   END IF;
   SELECT v.fiscal_year INTO fy FROM budget_versions v WHERE v.id = NEW.version_id AND v.company_id = NEW.company_id;
   IF NOT FOUND THEN
@@ -214,6 +231,7 @@ CREATE TABLE IF NOT EXISTS budget_planned_hires (
   version_id UUID NOT NULL,
   -- A role ("Sales rep"), never a person's name (decision 7).
   label TEXT NOT NULL CHECK (length(btrim(label)) BETWEEN 1 AND 120),
+  -- Any kind of centre, as per_head's scope (payroll names either).
   cost_centre_id UUID,
   start_month DATE NOT NULL CHECK (EXTRACT(DAY FROM start_month) = 1),
   end_month DATE CHECK (EXTRACT(DAY FROM end_month) = 1),
@@ -285,6 +303,61 @@ DROP TRIGGER IF EXISTS trg_budget_rolling_forecasts_updated_at ON budget_rolling
 CREATE TRIGGER trg_budget_rolling_forecasts_updated_at BEFORE UPDATE ON budget_rolling_forecasts
   FOR EACH ROW EXECUTE FUNCTION accounting_updated_at();
 
+-- ── Decision 4 the other way: an amount at another grain than the account's driver ──
+-- budget_driver_lines_check refuses a driver at another grain than the version's amounts; this
+-- refuses an amount at another grain than the version's driver for that account (a driver whose
+-- range does not cover the month typed, or one just saved). Neither check locks: the services
+-- serialise every writer of a version on its row first (lockVersionForWrite / gridSave's CAS,
+-- an UPDATE), so two app writers of one version never race here.
+CREATE INDEX IF NOT EXISTS idx_budget_driver_lines_account ON budget_driver_lines (version_id, gl_account_id);
+CREATE OR REPLACE FUNCTION public.budget_month_amounts_driver_grain()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM budget_driver_lines d
+              WHERE d.version_id = NEW.version_id AND d.gl_account_id = NEW.gl_account_id
+                AND d.company_id = NEW.company_id
+                AND d.dim_grain <> ((CASE WHEN NEW.cc1_id IS NOT NULL THEN 1 ELSE 0 END)
+                                  + (CASE WHEN NEW.cc2_id IS NOT NULL THEN 2 ELSE 0 END)
+                                  + (CASE WHEN NEW.bu_id IS NOT NULL THEN 4 ELSE 0 END))) THEN
+    RAISE EXCEPTION 'budget account % has a driver at another level in version %', NEW.gl_account_id, NEW.version_id
+      USING ERRCODE = '23P01', CONSTRAINT = 'budget_month_amounts_one_grain';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_budget_month_amounts_driver_grain ON budget_month_amounts;
+CREATE TRIGGER trg_budget_month_amounts_driver_grain
+  BEFORE INSERT OR UPDATE OF version_id, gl_account_id, cc1_id, cc2_id, bu_id ON budget_month_amounts
+  FOR EACH ROW EXECUTE FUNCTION public.budget_month_amounts_driver_grain();
+ALTER TABLE budget_month_amounts ENABLE ALWAYS TRIGGER trg_budget_month_amounts_driver_grain;
+
+-- ── A centre a driver uses keeps its kind (947's guard covers the amounts only) ──
+CREATE OR REPLACE FUNCTION public.cost_centres_keep_driver_kind()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  -- Under RLS a session sees only the active company's drivers; 947's guard (same trigger
+  -- point) already refuses a change from another company, so this one only needs the lookup.
+  IF EXISTS (SELECT 1 FROM budget_driver_lines d
+              WHERE d.company_id = OLD.company_id
+                AND OLD.id IN (d.cc1_id, d.cc2_id, d.ref_cc1_id, d.ref_cc2_id)) THEN
+    RAISE EXCEPTION 'cost centre % is used by a budget driver; its kind (cc_type) cannot change', OLD.id USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_cost_centres_keep_driver_kind ON cost_centres;
+CREATE TRIGGER trg_cost_centres_keep_driver_kind BEFORE UPDATE OF cc_type ON cost_centres
+  FOR EACH ROW WHEN (OLD.cc_type IS DISTINCT FROM NEW.cc_type) EXECUTE FUNCTION public.cost_centres_keep_driver_kind();
+ALTER TABLE cost_centres ENABLE ALWAYS TRIGGER trg_cost_centres_keep_driver_kind;
+
 -- ── Tenancy: 944's policy, verbatim, on each new table ──────────────────────
 
 DO $$
@@ -299,10 +372,19 @@ BEGIN
       'CREATE POLICY tenant_isolation ON %I FOR ALL TO app_user '
       'USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies())) '
       'WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))', t);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO app_user', t);
+    EXECUTE format('GRANT SELECT, INSERT, DELETE ON %I TO app_user', t);
+    EXECUTE format('REVOKE UPDATE ON %I FROM app_user', t);
   END LOOP;
 END;
 $$;
+-- UPDATE per column: never id, company_id or the creation stamps (a writable stamp gets forged).
+GRANT UPDATE (version_id, gl_account_id, cc1_id, cc2_id, bu_id, kind, from_month, to_month, amount, pct,
+  ref_gl_account_id, ref_cc1_id, ref_cc2_id, ref_bu_id, ref_section, ref_scope, base_month,
+  headcount_cost_centre_id, rounding_unit, updated_by, updated_at) ON budget_driver_lines TO app_user;
+GRANT UPDATE (version_id, label, cost_centre_id, start_month, end_month, fte, updated_at) ON budget_planned_hires TO app_user;
+GRANT UPDATE (rolled_through_month, last_rolled_at, last_error, updated_at) ON budget_rolling_forecasts TO app_user;
 
 REVOKE ALL ON FUNCTION public.budget_driver_lines_check() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_rolling_forecasts_check() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_month_amounts_driver_grain() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cost_centres_keep_driver_kind() FROM PUBLIC;

@@ -51,7 +51,7 @@ describe('949: a locked version refuses driver, hire and amount-source writes', 
     });
   });
 
-  it('as the table owner, the same writes are refused', async () => {
+  it('as the fixture owner (a superuser that bypasses RLS), the same writes are refused', async () => {
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
@@ -69,8 +69,7 @@ describe('949: a locked version refuses driver, hire and amount-source writes', 
     try {
       await c.query('BEGIN');
       await c.query('SET LOCAL session_replication_role = replica');
-      expect(await codeOf(c, `DELETE FROM budget_driver_lines WHERE id = $1`, [driverId])).toBe('BV001');
-      expect(await codeOf(c, `DELETE FROM budget_planned_hires WHERE id = $1`, [hireId])).toBe('BV001');
+      for (const [what, text, params] of writes(locked, open)) expect(await codeOf(c, text, params), what).toBe('BV001');
     } finally {
       await c.query('ROLLBACK');
       c.release();
