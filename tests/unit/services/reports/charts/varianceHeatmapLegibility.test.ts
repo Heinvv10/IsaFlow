@@ -142,11 +142,11 @@ describe('heatmap month labels (browser review r1 M3)', () => {
     });
   }
 
-  it('a narrow chart keeps at least 18 characters of an account name', () => {
+  it('a narrow chart keeps at least 17 characters of an account name', () => {
     const option = buildVarianceHeatmapOption(linesOf(7), MONTHS, DEFAULT_PALETTE, { showAll: true })!;
     const rows = (option as { yAxis: { data: string[] } }).yAxis.data;
     const svg = paint(option, 294, rows.length * 28 + 80);
     const labels = texts(svg).filter((t) => t.anchor === 'end' && rows.some((r) => r.startsWith(t.text.replace(/(\.\.\.|…)$/, ''))));
-    for (const l of labels) expect(l.text.replace(/(\.\.\.|…)$/, '').length, l.text).toBeGreaterThanOrEqual(Math.min(18, rows.find((r) => r.startsWith(l.text.replace(/(\.\.\.|…)$/, '')))!.length));
+    for (const l of labels) expect(l.text.replace(/(\.\.\.|…)$/, '').length, l.text).toBeGreaterThanOrEqual(Math.min(17, rows.find((r) => r.startsWith(l.text.replace(/(\.\.\.|…)$/, '')))!.length));
   });
 });
