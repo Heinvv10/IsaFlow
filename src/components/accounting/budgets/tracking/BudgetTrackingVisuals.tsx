@@ -28,8 +28,8 @@ export function BudgetTrackingVisuals({ report, filtered, groupBy, onGroupBy }: 
 }) {
   const steps = useMemo(() => budgetBridgeSteps(report), [report]);
   const bullets = useMemo(() => (report.members ? toBulletLines(report.members) : []), [report]);
-  // The heatmap judges a month only once it is complete: through the projection cutoff's month.
-  const judgedThrough = report.projection.cutoff.slice(0, 7);
+  // The heatmap judges a month only once it is complete (the engine's judgedThrough, review r3 M1).
+  const judgedThrough = report.projection.judgedThrough;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <p className="lg:col-span-2 text-xs text-[var(--ff-text-secondary)]">

@@ -42,7 +42,7 @@ export function trackingReport(rows: FixtureRow[], over: Partial<BudgetTrackingR
     },
     version: { id: 'v-primary', name: 'Original budget', kind: 'original', status: 'approved', isPrimary: true },
     filter: {},
-    projection: { fiscalYear: 2027, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
+    projection: { fiscalYear: 2027, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths, judgedThrough: plan.judgedThrough },
     lines,
     bands: buildBands(lines),
     notices: {

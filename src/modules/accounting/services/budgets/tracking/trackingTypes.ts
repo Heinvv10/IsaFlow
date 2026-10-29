@@ -196,6 +196,8 @@ export interface TrackingProjectionInfo {
   cutoff: string;
   actualMonths: string[];
   budgetMonths: string[];
+  /** 'YYYY-MM': the last complete month a window is judged through (the heatmap): min(cutoff month, the month before today's). */
+  judgedThrough: string;
 }
 
 export interface BudgetTrackingReport {

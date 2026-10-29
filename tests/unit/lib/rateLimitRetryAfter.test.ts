@@ -66,6 +66,11 @@ describe('chargeReportRateLimit', () => {
     expect(query.mock.calls[0]![1][0]).toBe('report:reports-budget-tracking:co:co-1');
   });
 
+  it('a window that has just ended is never "0 seconds": the wait is at least 1 (review r3 L2)', async () => {
+    full(0);
+    expect((await chargeReportRateLimit('co-1', 'z', { max: 3, windowSecs: 900 })).retryAfterSecs).toBe(1);
+  });
+
   it('an admission has no wait; a wait past the window is the window', async () => {
     query.mockResolvedValueOnce(row(true, 1, 899_000));
     expect(await chargeReportRateLimit('co-1', 'x')).toEqual({ admitted: true, retryAfterSecs: null });
