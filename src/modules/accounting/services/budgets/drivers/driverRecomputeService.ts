@@ -135,7 +135,10 @@ export async function recomputeVersion(
   const months = await versionMonths(companyId, Number(found[0].fiscal_year));
   const model = await loadVersionModel(companyId, versionId, months, lines);
   const live = opts.live ?? NONE;
-  const frozen = new Set(model.skipped.map((s) => s.rowKey));
+  // Only rows of the model may be frozen (the engine refuses an unknown key): a skipped driver on an
+  // account retyped out of the income statement has no row at all, so nothing of it is computed anyway.
+  const rowKeys = new Set(model.rows.map((r) => r.key));
+  const frozen = new Set(model.skipped.map((s) => s.rowKey).filter((k) => rowKeys.has(k)));
   for (const d of model.defs) if (d.kind === 'per_head' && live !== 'all' && !live.has(d.rowKey)) frozen.add(d.rowKey);
   const heads = model.defs.some((d) => d.kind === 'per_head' && !frozen.has(d.rowKey))
     ? await versionHeadcount(companyId, versionId, months) : null;
