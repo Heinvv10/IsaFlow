@@ -10,11 +10,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  assertEndNotBeforeNextRun,
   editTotals,
+  effectiveNextRunDate,
   parseEndDateEdit,
+  parseTaxRate,
   RecurringInvoiceEditError,
   resolveEditTaxRate,
 } from '@/modules/accounting/services/ar/recurringInvoiceEdit';
+import { RecurringInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/recurringInvoiceLock';
 
 describe('parseEndDateEdit', () => {
   it('leaves the stored value alone when the key is absent', () => {
@@ -78,5 +82,54 @@ describe('editTotals', () => {
 
   it('rounds tax to cents once, as create does', () => {
     expect(editTotals([{ quantity: 1, unitPrice: 33.33 }], 15).taxAmount).toBe(5);
+  });
+});
+
+describe('tax rate scale (tax_rate is NUMERIC(5,2))', () => {
+  it.each([7.555, '7.555', 0.001, 14.999, 15.001])('refuses %j: it would round differently in the column', (v) => {
+    expect(() => parseTaxRate(v)).toThrow(RecurringInvoiceEditError);
+    expect(() => resolveEditTaxRate(v, '15.00')).toThrow(/2 decimal/);
+  });
+
+  it.each([[7.55, 7.55], ['7.5', 7.5], [14.5, 14.5], [1.15, 1.15], [0.07, 0.07], [100, 100], [0, 0]])(
+    'accepts %j', (v, expected) => {
+      expect(parseTaxRate(v)).toBe(expected);
+    });
+});
+
+describe('effectiveNextRunDate', () => {
+  it('prefers a next run date in the body, reading only its date part', () => {
+    expect(effectiveNextRunDate('2027-05-01', '2027-01-01')).toBe('2027-05-01');
+    expect(effectiveNextRunDate('2027-05-01T00:00:00.000Z', '2027-01-01')).toBe('2027-05-01');
+  });
+
+  it('falls back to the stored date (string or Date) when the body sends none', () => {
+    expect(effectiveNextRunDate(undefined, '2027-01-01')).toBe('2027-01-01');
+    expect(effectiveNextRunDate('', new Date(2027, 0, 1))).toBe('2027-01-01');
+  });
+});
+
+describe('assertEndNotBeforeNextRun', () => {
+  it('refuses an End Date before the next run', () => {
+    expect(() => assertEndNotBeforeNextRun('2027-01-31', '2027-02-01')).toThrow(RecurringInvoiceEditError);
+  });
+
+  it('allows the same day, a later day, and clearing', () => {
+    expect(() => assertEndNotBeforeNextRun('2027-02-01', '2027-02-01')).not.toThrow();
+    expect(() => assertEndNotBeforeNextRun('2027-03-01', '2027-02-01')).not.toThrow();
+    expect(() => assertEndNotBeforeNextRun(null, '2027-02-01')).not.toThrow();
+  });
+});
+
+describe('RecurringInvoiceLockTimeoutError', () => {
+  it('says an edit is blocked by another request, not that the template is being run', () => {
+    const edit = new RecurringInvoiceLockTimeoutError('ri-1', 'edit');
+    expect(edit.message).not.toMatch(/being run/);
+    expect(edit.message).toMatch(/edit/i);
+    expect(edit.code).toBe('RECURRING_INVOICE_LOCK_TIMEOUT');
+  });
+
+  it('keeps the run wording by default', () => {
+    expect(new RecurringInvoiceLockTimeoutError('ri-1').message).toMatch(/being run by another request/);
   });
 });
