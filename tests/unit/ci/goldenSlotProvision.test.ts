@@ -1,7 +1,7 @@
 // Resetting a slot retires its company by renaming it, never by deleting, and picks the first free generation.
 import { describe, expect, it } from 'vitest';
 import type { ClientBase } from 'pg';
-import { retireSlotCompany } from '../../../scripts/ci/golden/slotProvision';
+import { ensureCompany, retireSlotCompany } from '../../../scripts/ci/golden/slotProvision';
 import { MAX_SLOT_GENERATION, slotCompanyId } from '../../../scripts/ci/golden/slotConfig';
 
 function fakeDb(existing: string[]): { db: ClientBase; statements: Array<{ text: string; params: unknown[] }> } {
@@ -40,5 +40,20 @@ describe('retireSlotCompany', () => {
     const { db, statements } = fakeDb(all);
     await expect(retireSlotCompany(db, 1, slotCompanyId(1, 9))).rejects.toThrow(/all 9 generations/);
     expect(statements.some((s) => s.text.startsWith('UPDATE'))).toBe(false);
+  });
+});
+
+describe('ensureCompany', () => {
+  it('refuses a company that was retired, and writes nothing: the rename must not bring it back', async () => {
+    const statements: string[] = [];
+    const db = {
+      query: async (text: string) => {
+        statements.push(text);
+        if (text.startsWith('SELECT name FROM companies')) return { rowCount: 1, rows: [{ name: 'RETIRED 2026-10-29 slot 2 (poisoned, replaced by generation 1)' }] };
+        return { rowCount: 1, rows: [] };
+      },
+    } as unknown as ClientBase;
+    await expect(ensureCompany(db, 2, slotCompanyId(2, 0), 0)).rejects.toThrow(/company 601d0000-0000-4000-8000-000000000002 is retired.*GOLDEN_SLOT_2_COMPANY_ID/);
+    expect(statements).toHaveLength(1);
   });
 });
