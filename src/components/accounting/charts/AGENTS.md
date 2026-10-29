@@ -63,11 +63,14 @@ source of `--ff-fav` / `--ff-unfav`. A category is never coloured by name —
   |window variance| with "show all"; below `NARROW_WIDTH` names truncate at
   124 px (104 px at ≤ 280 px) with the full name in the escaped tooltip, and
   month labels stand vertical; past six months every other one is labelled,
-  counted back from the latest so the in-progress "*" stays. All at the
+  counted back from the latest so a "*" month stays labelled. All at the
   on-scale 12 px (this file is not on the type-scale census's pack-chart
   allowlist; never hide an off-scale size in a constant). Pinned by the
-  painted `varianceHeatmapLegibility.test.ts` (1280 / 390 / 294 / 260 px). `inProgressMonth`: that month is drawn
-  neutral, labelled "*", left out of the colour scale.
+  painted `varianceHeatmapLegibility.test.ts` (1280 / 390 / 294 / 260 px). `judgedThrough` (the projection
+  cutoff's month): every later month (in progress or still to come) is drawn
+  neutral, marked "*", "not yet judged" in the tooltip and the unit line, and
+  left out of the colour scale. A judged nonzero variance is drawn at no less
+  than 0.25 opacity (visible on dark); on budget stays clear.
 - `cashPositionOption.ts` / `CashPositionChart.tsx` — the executive dashboard
   bar. Colour says one thing: below zero is unfavourable. A non-negative bar
   stays actual ink and is never painted favourable — these are four measures,
