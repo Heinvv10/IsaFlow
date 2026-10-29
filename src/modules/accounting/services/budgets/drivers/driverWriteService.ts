@@ -12,9 +12,9 @@
  * - Delete: the row's 'override' cells become 'manual' here, its 'driver' cells in the recompute;
  *   values kept.
  * - Reset: 'override' cells (one month, or the whole row) back to 'driver', then recomputed.
- * - Refresh headcount: a recompute with every per_head row live, recording `headcountAsOf` in its
- *   audit row (payroll never pushes one). A driver save or reset reads headcount for its own row
- *   only; every other pass keeps per_head rows as they stand.
+ * - Refresh headcount: a recompute with every per_head row live (payroll never pushes one). A
+ *   driver save or reset reads headcount for its own row only; every other pass keeps per_head rows
+ *   as they stand. Each write that reads payroll audits and answers `headcountAsOf`.
  */
 import { versionYear } from '../budgetVersionScope';
 import { inputError } from '../gridErrors';
@@ -102,8 +102,9 @@ export async function resetOverride(companyId: string, userId: string, target: D
 }
 
 export async function refreshHeadcount(companyId: string, userId: string, target: DriverWriteTarget) {
-  const headcountAsOf = new Date().toISOString();
+  // The recompute's payroll read time wins; this one stands when the version has no per_head row.
+  const requestedAt = new Date().toISOString();
   return runDriverWrite(companyId, userId, target, 'headcount_refresh', async () => ({
-    value: { headcountAsOf }, audit: { headcountAsOf }, live: 'all' as const,
+    value: {}, audit: { headcountAsOf: requestedAt }, live: 'all' as const,
   }));
 }

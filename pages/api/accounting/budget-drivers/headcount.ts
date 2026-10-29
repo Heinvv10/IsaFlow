@@ -2,9 +2,8 @@
  * Budget headcount (Budgets P4 decision 7)
  * GET  ?versionId=<uuid>[&costCentreId=<uuid>] → { costCentreId, months: [{ month, payroll, hires, total }], asOf }
  *      COUNTS ONLY: payroll actives (read-only) + the version's planned hires per month of its year, at
- *      the company or one cost centre. Never names, ID numbers or pay. Any member may read the company
- *      scope; a cost-centre scope needs a role that writes budgets (403 otherwise): a one-person centre's
- *      count beside its per_head rate discloses pay.
+ *      the company or one cost centre. Never names, ID numbers or pay. Any member may read either scope
+ *      (budget readers see budget figures, decision 15; see this folder's .claude.md on one-person centres).
  * POST { versionId, expectedUpdatedAt } → { headcountAsOf, updatedAt, recomputed, warnings }: "Refresh headcount", a
  *      recompute of the version's drivers (per_head reads payroll again) whose audit row records
  *      `headcountAsOf`. Token compared-and-set first (409 BUDGET_VERSION_LOCKED / STALE); charged to `budget-driver:<userId>`
@@ -16,7 +15,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
-import { canWrite } from '@/lib/auth/writeRoles';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { isUuidParam } from '@/lib/validation';
@@ -32,7 +30,7 @@ const RefreshSchema = z.object({
 });
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId, companyRole } = req as CompanyAuthedRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   try {
     if (req.method === 'GET') {
@@ -42,7 +40,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, 'costCentreId must be a cost centre id');
       }
       const scope = typeof costCentreId === 'string' && costCentreId !== '' ? costCentreId : null;
-      if (scope !== null && !canWrite(companyRole)) return apiResponse.forbidden(res, 'Headcount by cost centre needs a role that can edit budgets');
       return apiResponse.success(res, await readHeadcount(companyId, versionId, scope));
     }
     if (req.method === 'POST') {

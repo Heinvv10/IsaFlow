@@ -1,7 +1,7 @@
 /**
  * Budgets P4: the grid save's driver hook (P2 `saveCells` through its route, real members through
- * withAuth). Closed months (any month holding an 'actual' cell) take no typed cell and no driver
- * figure, and an 'actual' cannot be cleared; a 'driver' cell cannot be cleared, an 'override' clear
+ * withAuth). Closed months (any month holding an 'actual' cell) are read-only (no cell typed or
+ * cleared there, an override included) and take no driver figure; a 'driver' cell cannot be cleared, an 'override' clear
  * is a reset to driver; typing the driver's own value changes nothing; the recompute's warnings
  * reach the answer and the audit row; a driver that can no longer compute (its account retyped
  * out of the income statement) is skipped with a labelled warning instead of blocking every save;
@@ -50,11 +50,28 @@ describe('grid save hook: closed months', () => {
     const v = await reforecast();
     const [m0, m1] = w.months;
     const over = await refused(v, [cell(w.rent, m1!, 5), cell(w.sales, m0!, 9)]);
-    expect(String(over.body.error?.message)).toMatch(/closed month .*BR-5000 Rent|closed month .*GS-4000 Sales/);
+    expect(String(over.body.error?.message)).toMatch(/closed month .*GS-4000 Sales/);
     const fresh = await refused(v, [cell(w.rent, m0!, 5)]);
-    expect(String(fresh.body.error?.message)).toBe(`Month ${m0} is a closed month of this budget (it holds the ledger's actuals): account BR-5000 Rent cannot be typed in it`);
+    expect(String(fresh.body.error?.message)).toBe(`Month ${m0} is a closed month of this budget (it holds the ledger's actuals): account BR-5000 Rent cannot be typed in or cleared there`);
     const clear = await refused(v, [cell(w.sales, m0!, null)]);
-    expect(String(clear.body.error?.message)).toMatch(/closed month's actual: it cannot be cleared/);
+    expect(String(clear.body.error?.message)).toMatch(/closed month .*GS-4000 Sales cannot be typed in or cleared there/);
+  });
+
+  it('clearing an override (or any cell) in a closed month is 400: it would never be refilled', async () => {
+    const v = await reforecast();
+    const put = await fx.call.drivers(w.u, 'PUT', {
+      versionId: v, glAccountId: w.rent, kind: 'fixed', amount: 1500, fromMonth: w.months[0], toMonth: w.months[11],
+    });
+    expect(put.status, dump(put)).toBe(200);
+    // An override and a manual cell left in the closed month (from before it closed).
+    await fx.amount(w, v, w.rent, w.months[0]!, 99);
+    await fx.amount(w, v, w.cogs, w.months[0]!, 11);
+    await pool.query(`UPDATE budget_month_amounts SET amount_source = 'override' WHERE version_id = $1 AND gl_account_id = $2 AND month = $3`,
+      [v, w.rent, `${w.months[0]}-01`]);
+    for (const acct of [w.rent, w.cogs]) {
+      const r = await refused(v, [cell(acct, w.months[0]!, null)]);
+      expect(String(r.body.error?.message)).toMatch(/is a closed month of this budget/);
+    }
   });
 
   it('a driver added to a reforecast never writes a closed month (REPRO 3)', async () => {
@@ -147,6 +164,19 @@ describe('grid save hook: warnings and drivers that cannot compute', () => {
       expect(dataOf<{ driverWarnings: Warning[] }>(r).driverWarnings.map((x) => x.message)).toEqual([
         'driver on GS-5100 Cost of sales cannot compute: the account it reads (GS-4000 Sales) is no longer an income-statement account; change or delete the driver',
       ]);
+    } finally {
+      await pool.query(`UPDATE gl_accounts SET account_type = 'revenue', account_subtype = NULL WHERE id = $1`, [w.sales]);
+    }
+  });
+
+  it('a skipped driver (the account it reads retyped) can still be deleted, and its cells go manual (R2-D)', async () => {
+    const { v, put } = await fx.cogsOfSales(w);
+    await pool.query(`UPDATE gl_accounts SET account_type = 'asset', account_subtype = NULL WHERE id = $1`, [w.sales]);
+    try {
+      const id = dataOf<{ driver: { id: string } }>(put).driver.id;
+      const r = await fx.call.drivers(w.u, 'DELETE', undefined, { versionId: v, id });
+      expect(r.status, dump(r)).toBe(200);
+      expect(new Set([...(await fx.row(v, w.cogs)).values()].map((x) => x.source))).toEqual(new Set(['manual']));
     } finally {
       await pool.query(`UPDATE gl_accounts SET account_type = 'revenue', account_subtype = NULL WHERE id = $1`, [w.sales]);
     }

@@ -11,7 +11,7 @@
  * INSERT trigger first and the lock trigger twice. A cell whose amount does not change is not
  * touched, so its updated_at keeps saying when it last changed. Only new cells are INSERTed.
  *
- * P4 (drivers): typing in a closed month, clearing an actual or a driver-computed cell are refused;
+ * P4 (drivers): typing in or clearing a closed month, clearing a driver-computed cell are refused;
  * clearing an override is a reset; a typed cell that changes a driver's value is marked 'override'.
  */
 import { sql, type DbRow } from '@/lib/neon';
@@ -109,11 +109,12 @@ const driverCovers = (companyId: string, versionId: string) => sql`
   AND COALESCE(d.bu_id, ${NIL}::UUID) = t.b AND t.m BETWEEN d.from_month AND d.to_month`;
 
 /**
- * The first upserted cell in a CLOSED month: one in which the version holds an 'actual' cell (a
- * reforecast's closed months hold the ledger's figures; the next roll refreshes them). Typing in
- * one is refused, over an actual or into a new cell alike.
+ * The first cell of the batch (typed or cleared) in a CLOSED month: one in which the version holds
+ * an 'actual' cell (a reforecast's closed months hold the ledger's figures; the next roll refreshes
+ * them). Closed months are read-only: typing over an actual or into a new cell, and clearing any
+ * cell there (an override would be deleted and never refilled: no driver writes a closed month).
  */
-export async function firstClosedMonthCell(companyId: string, versionId: string, cells: ValidatedBatch['upserts']): Promise<SaveCell | null> {
+export async function firstClosedMonthCell(companyId: string, versionId: string, cells: readonly SaveCell[]): Promise<SaveCell | null> {
   if (cells.length === 0) return null;
   const rows = (await sql`
     SELECT DISTINCT to_char(month, 'YYYY-MM') AS m FROM budget_month_amounts
@@ -124,8 +125,6 @@ export async function firstClosedMonthCell(companyId: string, versionId: string,
 }
 
 export interface ClearedSources {
-  /** A cleared 'actual' cell (refused: read-only). */
-  actual: SaveCell | null;
   /** A cleared 'driver' cell inside its driver's range (refused: the driver computes it). */
   computed: SaveCell | null;
   /** Cleared 'override' cells inside their driver's range: a reset to driver, refilled by the recompute. */
@@ -134,9 +133,9 @@ export interface ClearedSources {
   overrideRows: Set<string>;
 }
 
-/** What the batch's clears would remove that is not a plain typed figure. */
+/** What the batch's clears (outside closed months) would remove that is not a plain typed figure. */
 export async function classifyClears(companyId: string, versionId: string, cells: readonly SaveCell[]): Promise<ClearedSources> {
-  const out: ClearedSources = { actual: null, computed: null, overrides: 0, overrideRows: new Set() };
+  const out: ClearedSources = { computed: null, overrides: 0, overrideRows: new Set() };
   if (cells.length === 0) return out;
   const k = keyArrays(cells);
   const rows = (await sql`
@@ -145,13 +144,12 @@ export async function classifyClears(companyId: string, versionId: string, cells
            EXISTS (SELECT 1 FROM budget_driver_lines d WHERE ${driverCovers(companyId, versionId)}) AS covered
       FROM unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[]) AS t(a, c1, c2, b, m)
       JOIN budget_month_amounts bm ON ${cellMatch(companyId, versionId)}
-     WHERE bm.amount_source IN ('actual', 'driver', 'override')
+     WHERE bm.amount_source IN ('driver', 'override')
      ORDER BY 1, 5
   `) as DbRow[];
   const find = (r: DbRow) => cells.find((c) => c.glAccountId === String(r.a) && c.month === String(r.m)) ?? null;
   for (const r of rows) {
-    if (r.src === 'actual') out.actual ??= find(r);
-    else if (r.src === 'driver' && r.covered) out.computed ??= find(r);
+    if (r.src === 'driver' && r.covered) out.computed ??= find(r);
     else if (r.src === 'override' && r.covered) {
       out.overrides += 1;
       out.overrideRows.add([r.a, r.c1 ?? '', r.c2 ?? '', r.b ?? ''].join('|'));
