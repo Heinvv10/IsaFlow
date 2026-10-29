@@ -1,6 +1,6 @@
 // Slot seeding goes through the app's routes and creates only what a search does not find (idempotent per slot).
 import { describe, expect, it } from 'vitest';
-import { MIGRATION_SOURCE, SEED, seedSlot, type SeedApi } from '../../../scripts/ci/golden/seedSlotData';
+import { MIGRATION_SOURCE, SEED, seedMonths, seedSlot, type SeedApi } from '../../../scripts/ci/golden/seedSlotData';
 import { assertLocalBaseUrl, seedThroughContext, type SeedContext } from '../../../scripts/ci/golden/seedSlotClient';
 
 /** An in-memory stand-in for the app: it stores what the seeder posts and answers the searches the seeder makes. */
@@ -10,6 +10,7 @@ function fakeApp() {
   const journals: Array<{ id: string; description: string; status: string; entryDate: string }> = [];
   const bank: Array<{ description: string }> = [];
   const posts: string[] = [];
+  const statements: Array<{ csvContent: string; statementDate: string }> = [];
   let session: unknown = null;
   const api: SeedApi = {
     get: async (path: string) => {
@@ -45,6 +46,7 @@ function fakeApp() {
       }
       if (path === '/api/accounting/journal-entries-action') { journals.find((j) => j.id === body.id)!.status = 'posted'; return {}; }
       if (path === '/api/accounting/bank-transactions-bulk-commit') {
+        statements.push({ csvContent: body.csvContent, statementDate: body.statementDate });
         for (const line of String(body.csvContent).split('\n').slice(1)) bank.push({ description: line.split(',')[1]! });
         return {};
       }
@@ -52,7 +54,7 @@ function fakeApp() {
       throw new Error(`unexpected POST ${path}`);
     },
   };
-  return { api, suppliers, invoices, journals, bank, posts, session: () => session };
+  return { api, suppliers, invoices, journals, bank, posts, statements, session: () => session };
 }
 
 describe('seedSlot', () => {
@@ -69,13 +71,24 @@ describe('seedSlot', () => {
     expect(app.session()).toEqual({ sourceSystem: MIGRATION_SOURCE });
   });
 
-  it('writes only into periods that are open (2026-01 onward) and never in the future of a 2026-10 run', async () => {
+  it('writes only into the last 10 complete months, none before 2026-01 (closed periods) and none in the future', async () => {
     const app = fakeApp();
-    await seedSlot(app.api, () => 'import-id');
-    for (const d of [...app.invoices.map((i) => i.invoiceDate), ...app.journals.map((j) => j.entryDate)]) {
-      expect(d >= '2026-01-01' && d <= '2026-10-31').toBe(true);
-    }
+    const now = new Date('2026-10-29T10:00:00Z');
+    await seedSlot(app.api, () => 'import-id', now);
+    const dates = [...app.invoices.map((i) => i.invoiceDate), ...app.journals.map((j) => j.entryDate),
+      ...app.statements.flatMap((st) => st.csvContent.split('\n').slice(1).map((l) => l.split(',')[0]!.replace(/\//g, '-')))];
+    expect(dates).toHaveLength(SEED.invoices + SEED.journals + SEED.bankRows);
+    for (const d of dates) expect(d >= '2026-01-01' && d <= '2026-09-30', d).toBe(true);
+    expect(app.statements[0]!.statementDate).toBe('2026-10-29');
     expect(app.invoices.map((i) => i.invoiceNumber)).toEqual(Array.from({ length: SEED.invoices }, (_, k) => `GSEED-AP-${k + 1}`));
+  });
+
+  it('follows the run date: a run in March 2027 seeds 2026-05 to 2027-02, not the fixed 2026 months', async () => {
+    const app = fakeApp();
+    await seedSlot(app.api, () => 'import-id', new Date('2027-03-05T10:00:00Z'));
+    const dates = [...app.invoices.map((i) => i.invoiceDate), ...app.journals.map((j) => j.entryDate)];
+    for (const d of dates) expect(d >= '2026-05-01' && d <= '2027-02-28', d).toBe(true);
+    expect(new Set(dates.map((d) => d.slice(0, 7))).size).toBe(10);
   });
 
   it('a second run creates and posts nothing', async () => {
@@ -95,6 +108,19 @@ describe('seedSlot', () => {
     const again = await seedSlot(app.api, () => 'import-id');
     expect(again.invoicesCreated).toBe(0);
     expect(again.invoicesApproved).toBe(2);
+  });
+});
+
+describe('seedMonths', () => {
+  it('is the last 10 complete months, floored at the first open period', () => {
+    expect(seedMonths(new Date('2027-03-05T00:00:00Z'))).toEqual(['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02']);
+    expect(seedMonths(new Date('2026-10-29T00:00:00Z'))).toEqual(['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09']);
+    expect(seedMonths(new Date('2026-02-01T00:00:00Z'))).toEqual(['2026-01']);
+  });
+
+  it('crosses a year end and refuses when no complete month is open yet', () => {
+    expect(seedMonths(new Date('2028-01-01T00:00:00Z')).at(-1)).toBe('2027-12');
+    expect(() => seedMonths(new Date('2026-01-31T00:00:00Z'))).toThrow(/first open period/);
   });
 });
 

@@ -2,8 +2,8 @@
  * Seeds a Golden Paths slot with the transactions the suite's read-only specs need (x-contrast-sweep, p-type-money,
  * n-a11y-main-screens), THROUGH THE APP: the same routes and services a user's clicks reach, so every gate, trigger,
  * numbering rule and posting path runs and the subledgers and the GL stay in step. Nothing is written to a table
- * directly and no period is touched: dates fall in the periods that are open (2026-01 onward; the slot's earlier
- * periods are closed, as Demo's are).
+ * directly and no period is touched: dates fall in the last 10 complete months, none before 2026-01 (the slot's
+ * earlier periods are closed, as Demo's are).
  *
  * Idempotent per slot: every record carries a GSEED marker (invoice number, journal description, bank description)
  * and a run creates only what its search does not find, so a re-run, or one that crashed half way, tops up and stops.
@@ -24,8 +24,27 @@ export const MIGRATION_SOURCE = 'sage_cloud';
 export interface SeedReport { suppliers: number; invoicesCreated: number; invoicesApproved: number; journalsCreated: number; journalsPosted: number; bankRowsImported: number; migrationSession: 'created' | 'kept' }
 
 const pad = (n: number): string => String(n).padStart(2, '0');
-/** Month 1..10 of 2026 (Oct is the last month already open and not in the future of any run), day 3..20. */
-const seedDate = (i: number): string => `2026-${pad(((i - 1) % 10) + 1)}-${pad(3 + ((i * 7) % 18))}`;
+/** The slots' first open period: Demo's periods before 2026 are closed, and a slot never unlocks one. */
+const FIRST_OPEN_MONTH = '2026-01';
+
+/**
+ * The last 10 complete calendar months before `now` (UTC), none earlier than the first open period, so the seed
+ * always lands in the recent past (date-window specs read it) and never in a closed period or the future.
+ */
+export function seedMonths(now: Date): string[] {
+  const here = now.getUTCFullYear() * 12 + now.getUTCMonth();
+  const months: string[] = [];
+  for (let back = 10; back >= 1; back--) {
+    const at = here - back;
+    months.push(`${Math.floor(at / 12)}-${pad((at % 12) + 1)}`);
+  }
+  const open = months.filter((m) => m >= FIRST_OPEN_MONTH);
+  if (open.length === 0) throw new Error(`no complete month since the first open period (${FIRST_OPEN_MONTH}) to seed into yet`);
+  return open;
+}
+
+/** Item i (1-based) on day 3..20 of one of `months`, round robin. */
+const seedDate = (months: string[], i: number): string => `${months[(i - 1) % months.length]}-${pad(3 + ((i * 7) % 18))}`;
 const addDays = (iso: string, days: number): string => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 const rowsOf = <T>(body: any, ...keys: string[]): T[] => {
   if (Array.isArray(body)) return body as T[];
@@ -45,7 +64,7 @@ async function ensureSuppliers(api: SeedApi): Promise<string[]> {
   return [...ids.values()];
 }
 
-async function seedInvoices(api: SeedApi, supplierIds: string[]): Promise<{ created: number; approved: number }> {
+async function seedInvoices(api: SeedApi, supplierIds: string[], months: string[]): Promise<{ created: number; approved: number }> {
   const existing = rowsOf<{ id: string; invoiceNumber: string; status: string }>(
     await api.get('/api/accounting/supplier-invoices?search=GSEED-AP&limit=500'), 'invoices', 'items', 'data');
   const byNumber = new Map(existing.map((r) => [r.invoiceNumber, r]));
@@ -55,7 +74,7 @@ async function seedInvoices(api: SeedApi, supplierIds: string[]): Promise<{ crea
     const invoiceNumber = `GSEED-AP-${i}`;
     let row = byNumber.get(invoiceNumber);
     if (!row) {
-      const date = seedDate(i);
+      const date = seedDate(months, i);
       const made = await api.post<{ id: string; status: string }>('/api/accounting/supplier-invoices', {
         invoiceNumber,
         supplierId: supplierIds[i % supplierIds.length],
@@ -131,7 +150,7 @@ async function seedJournals(api: SeedApi, months: string[]): Promise<{ created: 
   return { created, posted };
 }
 
-async function seedBankRows(api: SeedApi, makeId: () => string): Promise<number> {
+async function seedBankRows(api: SeedApi, makeId: () => string, months: string[], statementDate: string): Promise<number> {
   const bank = rowsOf<{ id: string }>(await api.get('/api/accounting/bank-accounts'))[0];
   if (!bank) throw new Error('the slot needs a bank account to import a statement into');
   const found = await api.get<{ total?: number }>(`/api/accounting/bank-transactions?bank_account_id=${bank.id}&search=GSEED-BNK&limit=1`);
@@ -141,12 +160,12 @@ async function seedBankRows(api: SeedApi, makeId: () => string): Promise<number>
   for (let i = 1; i <= SEED.bankRows; i++) {
     const amount = i % 3 === 0 ? 400 + i : -(25 + ((i * 13) % 300));
     balance += amount;
-    const date = seedDate(i).replace(/-/g, '/');
+    const date = seedDate(months, i).replace(/-/g, '/');
     lines.push(`${date},GSEED-BNK ${i} ${amount > 0 ? 'customer deposit' : 'supplies'},${amount.toFixed(2)},${balance.toFixed(2)},GSEED-BNK-${i}`);
   }
   await api.post('/api/accounting/bank-transactions-bulk-commit', {
     bankAccountId: bank.id, bulkImportId: makeId(), bulkSequence: 1, filename: 'gseed-statement.csv', fileType: 'csv',
-    statementDate: '2026-10-20', csvContent: lines.join('\n'), bankFormat: 'fnb', applyBankRules: false,
+    statementDate, csvContent: lines.join('\n'), bankFormat: 'fnb', applyBankRules: false,
   });
   return SEED.bankRows;
 }
@@ -158,18 +177,22 @@ async function ensureMigrationSession(api: SeedApi): Promise<'created' | 'kept'>
   return 'created';
 }
 
-/** @param makeId a uuid source for the statement's import id (injected so a test can pin it) */
-export async function seedSlot(api: SeedApi, makeId: () => string): Promise<SeedReport> {
+/**
+ * @param makeId a uuid source for the statement's import id (injected so a test can pin it)
+ * @param now the run's date, from which the seed's months are taken (injected so a test can pin it)
+ */
+export async function seedSlot(api: SeedApi, makeId: () => string, now: Date = new Date()): Promise<SeedReport> {
+  const months = seedMonths(now);
   const suppliers = await ensureSuppliers(api);
-  const invoices = await seedInvoices(api, suppliers);
-  const journals = await seedJournals(api, Array.from({ length: SEED.journals }, (_, i) => `2026-${pad(i + 1)}`));
+  const invoices = await seedInvoices(api, suppliers, months);
+  const journals = await seedJournals(api, months);
   return {
     suppliers: suppliers.length,
     invoicesCreated: invoices.created,
     invoicesApproved: invoices.approved,
     journalsCreated: journals.created,
     journalsPosted: journals.posted,
-    bankRowsImported: await seedBankRows(api, makeId),
+    bankRowsImported: await seedBankRows(api, makeId, months, now.toISOString().slice(0, 10)),
     migrationSession: await ensureMigrationSession(api),
   };
 }
