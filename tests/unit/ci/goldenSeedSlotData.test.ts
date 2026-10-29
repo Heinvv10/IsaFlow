@@ -15,7 +15,14 @@ function fakeApp() {
     get: async (path: string) => {
       if (path.startsWith('/api/accounting/suppliers-list')) return { suppliers };
       if (path.startsWith('/api/accounting/supplier-invoices')) return { invoices, total: invoices.length };
-      if (path.startsWith('/api/accounting/journal-entries')) return { entries: journals.filter((j) => j.status === 'posted') };
+      if (path.startsWith('/api/accounting/journal-entries')) {
+        // As the route behaves: limit capped at 200, entry_date DESC, the status filter exact.
+        const q = new URL(path, 'http://x').searchParams;
+        const matching = journals.filter((j) => j.status === q.get('status')).sort((a, b) => b.entryDate.localeCompare(a.entryDate));
+        const limit = Math.min(Number(q.get('limit') ?? 50), 200);
+        const offset = Number(q.get('offset') ?? 0);
+        return { entries: matching.slice(offset, offset + limit), total: matching.length };
+      }
       if (path.startsWith('/api/accounting/chart-of-accounts')) return [{ id: 'rev', isSystemAccount: true }];
       if (path.startsWith('/api/accounting/bank-accounts')) return [{ id: 'bank-gl' }];
       if (path.startsWith('/api/accounting/bank-transactions')) return { total: bank.length };
@@ -54,7 +61,7 @@ describe('seedSlot', () => {
     const report = await seedSlot(app.api, () => 'import-id');
     expect(report).toEqual({
       suppliers: SEED.suppliers, invoicesCreated: SEED.invoices, invoicesApproved: SEED.invoices,
-      journalsCreated: SEED.journals, bankRowsImported: SEED.bankRows, migrationSession: 'created',
+      journalsCreated: SEED.journals, journalsPosted: SEED.journals, bankRowsImported: SEED.bankRows, migrationSession: 'created',
     });
     expect(app.invoices.every((i) => i.status === 'approved')).toBe(true);
     expect(app.journals.every((j) => j.status === 'posted')).toBe(true);
@@ -76,7 +83,7 @@ describe('seedSlot', () => {
     await seedSlot(app.api, () => 'import-id');
     const before = app.posts.length;
     const again = await seedSlot(app.api, () => 'import-id');
-    expect(again).toEqual({ suppliers: SEED.suppliers, invoicesCreated: 0, invoicesApproved: 0, journalsCreated: 0, bankRowsImported: 0, migrationSession: 'kept' });
+    expect(again).toEqual({ suppliers: SEED.suppliers, invoicesCreated: 0, invoicesApproved: 0, journalsCreated: 0, journalsPosted: 0, bankRowsImported: 0, migrationSession: 'kept' });
     expect(app.posts.length).toBe(before);
   });
 
@@ -88,6 +95,49 @@ describe('seedSlot', () => {
     const again = await seedSlot(app.api, () => 'import-id');
     expect(again.invoicesCreated).toBe(0);
     expect(again.invoicesApproved).toBe(2);
+  });
+});
+
+describe('seedSlot journals: idempotent however many journals later runs add', () => {
+  /** What golden runs add after the seed: journals dated after every GSEED one, so they sort in front of them. */
+  const laterJournals = (app: ReturnType<typeof fakeApp>, count: number, status: string): void => {
+    for (let k = 0; k < count; k++) app.journals.push({ id: `later-${status}-${k}`, description: `golden journal ${k}`, status, entryDate: '2026-10-28' });
+  };
+
+  it('finds its posted journals behind 450 newer ones and creates none again', async () => {
+    const app = fakeApp();
+    await seedSlot(app.api, () => 'import-id');
+    laterJournals(app, 450, 'posted');
+    const before = app.journals.length;
+    const again = await seedSlot(app.api, () => 'import-id');
+    expect(again.journalsCreated).toBe(0);
+    expect(again.journalsPosted).toBe(0);
+    expect(app.journals).toHaveLength(before);
+  });
+
+  it('posts a GSEED draft left by a failed post instead of creating another, even behind 450 newer drafts', async () => {
+    const app = fakeApp();
+    await seedSlot(app.api, () => 'import-id');
+    app.journals.find((j) => j.description === 'GSEED-JNL-4')!.status = 'draft';
+    laterJournals(app, 450, 'draft');
+    laterJournals(app, 450, 'posted');
+    const before = app.journals.length;
+    const again = await seedSlot(app.api, () => 'import-id');
+    expect(again.journalsCreated).toBe(0);
+    expect(again.journalsPosted).toBe(1);
+    expect(app.journals).toHaveLength(before);
+    expect(app.journals.find((j) => j.description === 'GSEED-JNL-4')!.status).toBe('posted');
+  });
+
+  it('a post that fails leaves a draft the next run finishes, and never a second draft', async () => {
+    const app = fakeApp();
+    const failing: SeedApi = { get: app.api.get, post: async (path, body) => { if (path.endsWith('journal-entries-action')) throw new Error('post refused'); return app.api.post(path, body); } };
+    await expect(seedSlot(failing, () => 'import-id')).rejects.toThrow('post refused');
+    expect(app.journals).toHaveLength(1);
+    await seedSlot(app.api, () => 'import-id');
+    expect(app.journals.filter((j) => j.description === 'GSEED-JNL-1')).toHaveLength(1);
+    expect(app.journals).toHaveLength(SEED.journals);
+    expect(app.journals.every((j) => j.status === 'posted')).toBe(true);
   });
 });
 
