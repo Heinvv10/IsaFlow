@@ -54,6 +54,11 @@ describe('employment boundaries', () => {
   it('refuses a malformed date', () => {
     expect(() => totals({ employees: [emp('e1', '2026-4-1')] })).toThrow(RangeError);
   });
+
+  it('refuses an end date before the start date; the same day is one head', () => {
+    expect(() => totals({ employees: [emp('e1', '2026-04-10', { endDate: '2026-04-09' })] })).toThrow(RangeError);
+    expect(totals({ employees: [emp('e1', '2026-04-10', { endDate: '2026-04-10' })] })).toEqual([0, 1, 0]);
+  });
 });
 
 describe('cost-centre scope', () => {
@@ -79,6 +84,17 @@ describe('cost-centre scope', () => {
 
   it('a NULL centre counts only in the company scope', () => {
     expect(totals({ employees: [emp('none', '2020-01-01')], scope: 'A' })).toEqual([0, 0, 0]);
+  });
+
+  it.each([-0.01, 100.01, Number.NaN])('refuses allocation percentage %s (0..100 only)', pct => {
+    const alloc = [{ employeeId: 'split', costCentreId: 'A', percentage: pct }];
+    expect(() => totals({ employees, allocations: alloc, scope: 'A' })).toThrow(RangeError);
+    expect(() => totals({ employees, allocations: alloc, scope: null })).toThrow(RangeError);
+  });
+
+  it('accepts the 0 and 100 bounds', () => {
+    const alloc = [{ employeeId: 'split', costCentreId: 'A', percentage: 100 }, { employeeId: 'split', costCentreId: 'B', percentage: 0 }];
+    expect(totals({ employees, allocations: alloc, scope: 'A' })).toEqual([2, 2, 2]);
   });
 
   it('rounds to 2 dp (3 × 33.33% = 1.00)', () => {

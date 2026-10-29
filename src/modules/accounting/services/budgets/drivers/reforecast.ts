@@ -8,9 +8,11 @@
  * - Closed months: every row gets source 'actual' = the actual at its grain
  *   (0 when none). An actual for an account + member with no source row makes a
  *   new row at that grain, with closed-month cells only. At a dimension grain an
- *   untagged actual (memberId null) is UNPLACED: summed per account + month and
- *   reported, never dropped and never put on a company row (decision 4).
- * - Open months: the source cell, source kept.
+ *   untagged actual (memberId null) is UNPLACED: reported as the non-zero net
+ *   per account + month, never dropped and never put on a company row (decision 4).
+ * - Open months: the source cell, source kept, except a source 'actual' (a month
+ *   reopened after an earlier roll): it becomes 'manual', value kept (the last
+ *   actual known), so a driver covering it recomputes and the user can edit it.
  * - Then computeVersion runs over the result and its writes are applied, so a
  *   growth or % driver in an open month feeds off closed-month actuals.
  */
@@ -130,10 +132,13 @@ export function planReforecast(input: ReforecastInput): ReforecastResult {
   for (const [key, list] of input.sourceCells) {
     const own = grid.get(key);
     if (!own) throw new DriverRefError(`Source cells for unknown row ${key}`, key);
+    const seen = new Set<string>();
     for (const c of list) {
       if (!index.has(c.month)) throw new DriverRefError(`Row ${key}: source cell month ${c.month} is outside the version`, key);
-      if (own.has(c.month)) throw new DriverRefError(`Row ${key}: two source cells for ${c.month}`, key);
-      if (!isClosed(c.month)) own.set(c.month, { month: c.month, amount: c.amount, source: c.source });
+      if (seen.has(c.month)) throw new DriverRefError(`Row ${key}: two source cells for ${c.month}`, key);
+      seen.add(c.month);
+      if (isClosed(c.month)) continue; // closed months take the actual below
+      own.set(c.month, { month: c.month, amount: c.amount, source: c.source === 'actual' ? 'manual' : c.source });
     }
   }
   for (const r of rows) {
