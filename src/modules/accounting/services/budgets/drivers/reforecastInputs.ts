@@ -22,7 +22,8 @@ import { NIL_UUID } from '../gridSaveValidate';
 import { readTrackingActuals, type ActualRow } from '../tracking/trackingActualRead';
 import type { TrackingGroupBy } from '../tracking/trackingTypes';
 import { versionHeadcount } from './driverHeadcount';
-import type { VersionModel } from './driverRecomputeService';
+import { labelKeys, type VersionModel } from './driverModel';
+import type { RecomputeWarning } from './driverRecomputeService';
 import { DriverRangeError, type Cell, type RowKey } from './driverTypes';
 import { planReforecast, type ReforecastActual, type ReforecastActuals, type ReforecastResult } from './reforecast';
 
@@ -107,10 +108,13 @@ export async function readClosedActuals(companyId: string, year: FiscalYearRecor
  * account, as `loadVersionModel` bands the rest. A reforecast create and a roll REFRESH headcount
  * (ruling 2026-10-29): no row is frozen, so per_head rows recompute from payroll as it is now;
  * `headcountAsOf` is when payroll was read (null when no per_head driver needed it), for the audit row.
+ * A driver `loadVersionModel` skipped (it cannot compute: its account retyped, its months outside
+ * the year) is not in `defs`, so its row is planned as having no driver; it is reported as a
+ * DRIVER_SKIPPED warning, and the engine's warnings are labelled by account, as the recompute does.
  */
 export async function planOver(
   companyId: string, model: VersionModel, hiresVersionId: string, closed: readonly string[], read: ClosedActuals,
-): Promise<{ plan: ReforecastResult; headcountAsOf: string | null }> {
+): Promise<{ plan: ReforecastResult; headcountAsOf: string | null; warnings: RecomputeWarning[] }> {
   const needsHeads = model.defs.some((d) => d.kind === 'per_head');
   const headcountAsOf = needsHeads ? new Date().toISOString() : null;
   const heads = needsHeads ? await versionHeadcount(companyId, hiresVersionId, model.months) : null;
@@ -127,7 +131,11 @@ export async function planOver(
       return bandOf(a.accountType, a.accountSubtype);
     },
   });
-  return { plan, headcountAsOf };
+  const warnings: RecomputeWarning[] = [
+    ...model.skipped.map((x) => ({ code: 'DRIVER_SKIPPED' as const, rowKey: x.rowKey, message: x.message })),
+    ...plan.warnings.map((w) => ({ ...w, message: labelKeys(w.message, model.labels) })),
+  ];
+  return { plan, headcountAsOf, warnings };
 }
 
 /** The plan's unplaced actuals, named (code, name, the dimension the account is budgeted by), in rand. */

@@ -24,9 +24,9 @@ import { RowLockTimeoutError, withRowLockBudget } from '../../core/rowLockBudget
 import { auditBudgetWrite, holdYearRegistry, lockVersionForWrite } from '../budgetVersionScope';
 import { createVersion, getVersion, type VersionActor } from '../budgetVersions';
 import { BudgetVersionError, mapBudgetDbError, type BudgetVersion } from '../budgetVersionTypes';
-import type { DriverWarning } from './driverTypes';
 import { fromCents } from '../grid/cents';
-import { loadVersionModel } from './driverRecomputeService';
+import { loadVersionModel } from './driverModel';
+import type { RecomputeWarning } from './driverRecomputeService';
 import { listDriverLines } from './driverRepository';
 import {
   closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, writePlannedCells, type UnplacedActualLine,
@@ -39,7 +39,7 @@ export interface ReforecastCreated {
   /** Cells written. */
   cells: number;
   unplaced: UnplacedActualLine[];
-  warnings: DriverWarning[];
+  warnings: RecomputeWarning[];
 }
 
 /** The source row, share-locked (bounded wait); another company's is BUDGET_VERSION_NOT_FOUND. */
@@ -114,7 +114,7 @@ export async function createReforecastFromActuals(
       const closed = await closedMonthsOf(companyId, year, months);
       const read = await readClosedActuals(companyId, year, closed);
       const model = await loadVersionModel(companyId, sourceId, months, await listDriverLines(companyId, sourceId));
-      const { plan, headcountAsOf } = await planOver(companyId, model, id, closed, read);
+      const { plan, headcountAsOf, warnings } = await planOver(companyId, model, id, closed, read);
       const cells = await writePlannedCells(companyId, id, actor.userId, plan.cells);
       if (input.rolling) await insertRollingRow(companyId, fiscalYear, id, actor.userId);
 
@@ -128,7 +128,7 @@ export async function createReforecastFromActuals(
         companyId, sourceId, versionId: id, closedMonths: closed.length, cells, unplaced: unplaced.length,
       }, 'accounting');
       return {
-        version: await getVersion(companyId, id), rolling: input.rolling, closedMonths: closed, cells, unplaced, warnings: plan.warnings,
+        version: await getVersion(companyId, id), rolling: input.rolling, closedMonths: closed, cells, unplaced, warnings,
       };
     });
   } catch (err) {

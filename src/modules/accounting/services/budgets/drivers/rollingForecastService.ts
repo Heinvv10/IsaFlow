@@ -23,8 +23,8 @@ import { BudgetVersionError, budgetDbRefusal } from '../budgetVersionTypes';
 import { inputError, isVersionToken, tokenSql } from '../gridErrors';
 import { takeVersion } from '../versionTake';
 import { budgetMonthKeysInWindow, monthKeyToDate } from '../../reports/budgetPeriodWindow';
-import type { DriverWarning } from './driverTypes';
-import { loadVersionModel } from './driverRecomputeService';
+import { loadVersionModel } from './driverModel';
+import type { RecomputeWarning } from './driverRecomputeService';
 import { listDriverLines } from './driverRepository';
 import {
   closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, writePlannedCells, type UnplacedActualLine,
@@ -42,7 +42,7 @@ export interface RollOutcome {
   closedMonths: string[];
   rolledThroughMonth: string | null;
   unplaced: UnplacedActualLine[];
-  warnings: DriverWarning[];
+  warnings: RecomputeWarning[];
   /** The version's token after the roll (null when not rolled). */
   updatedAt: string | null;
 }
@@ -116,11 +116,11 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       const closed = await closedMonthsOf(companyId, year, months);
       const read = await readClosedActuals(companyId, year, closed);
       const model = await loadVersionModel(companyId, id, months, await listDriverLines(companyId, id));
-      const { plan, headcountAsOf } = await planOver(companyId, model, id, closed, read);
+      const { plan, headcountAsOf, warnings } = await planOver(companyId, model, id, closed, read);
       const changed = await writePlannedCells(companyId, id, userId, plan.cells);
       const through = closed.length > 0 ? closed[closed.length - 1]! : null;
       const unplaced = describeUnplaced(plan, read);
-      const outcome = { status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings: plan.warnings };
+      const outcome = { status: 'rolled' as const, changed, closedMonths: closed, rolledThroughMonth: through, unplaced, warnings };
       if (changed === 0) throw new NothingRolled(outcome);
       await markRolled(companyId, id, through);
       await auditBudgetWrite(companyId, userId, 'update', id, row.fiscalYear, {
