@@ -148,8 +148,8 @@ describe('budget vs actual tracking page: version picker across years', () => {
     change('bva-from', '2026-01');
     change('bva-to', '2026-05');
     await waitFor(() => expect(lastQuery()).toEqual({ period: 'custom', from: '2026-01', to: '2026-05', group_by: 'cc1' }));
-    const picker = screen.getByTestId('bva-version') as HTMLSelectElement;
-    expect(picker.disabled).toBe(true);
+    // The request is sent before its response renders: wait for the disabled picker itself (review r2 N1).
+    await waitFor(() => expect((screen.getByTestId('bva-version') as HTMLSelectElement).disabled).toBe(true));
     expect(screen.getByTestId('bva-version-reason').textContent)
       .toBe('This window spans FY2026 and FY2027: each year reads its own primary version.');
     expect(YEARS.map((y) => y.fiscalYear)).toEqual([2026, 2027]);
@@ -215,7 +215,7 @@ describe('budget vs actual tracking page: drill, visuals and export', () => {
     const drill = screen.getByTestId('drill');
     expect(drill.textContent).toBe(`4000|2026-10-01|2026-10-31|${tail}`);
     expect(drill.dataset.tracking).toBe('true');
-    expect(drill.dataset.return).toBe(`/accounting/reports/budget-vs-actual?period=ytd&${param}=${id}`);
+    expect(drill.dataset.return).toBe('undefined');
   });
 
   it('the Var R cell opens the same drill as the label', async () => {

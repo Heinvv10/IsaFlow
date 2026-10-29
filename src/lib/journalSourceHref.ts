@@ -3,8 +3,8 @@
  * → source document). A journal posted from a document (the account
  * transactions service reports it as `document` when asked) links to that
  * document's page; any other posted journal links to its own journal-entry
- * page; a derived row (a year-end close) links nowhere. `returnTo`, an in-app
- * path ('/accounting/…'), rides along as `return_to`; anything else is dropped.
+ * page; a derived row (a year-end close) links nowhere. No `return_to`: no
+ * document page reads one, and Back reopens the report from its own URL.
  * Pure and browser-safe.
  */
 import type { JournalDocumentKind, JournalDocumentRef } from '@/modules/accounting/services/gl/journalDocuments';
@@ -18,16 +18,11 @@ const DOCUMENT_ROUTE: Record<JournalDocumentKind, { path: string; label: string 
   supplier_payment: { path: '/accounting/supplier-payments', label: 'Supplier payment' },
 };
 
-const inApp = (path: string) => path.startsWith('/accounting/') && !path.startsWith('//');
-
-export function journalSourceHref(
-  row: { journalId?: string; document?: JournalDocumentRef | null }, returnTo?: string,
-): { href: string; label: string } | null {
-  const back = returnTo && inApp(returnTo) ? `?return_to=${encodeURIComponent(returnTo)}` : '';
+export function journalSourceHref(row: { journalId?: string; document?: JournalDocumentRef | null }): { href: string; label: string } | null {
   if (row.document) {
     const route = DOCUMENT_ROUTE[row.document.kind];
-    return { href: `${route.path}/${encodeURIComponent(row.document.id)}${back}`, label: route.label };
+    return { href: `${route.path}/${encodeURIComponent(row.document.id)}`, label: route.label };
   }
-  if (row.journalId) return { href: `/accounting/journal-entries/${encodeURIComponent(row.journalId)}${back}`, label: 'Journal entry' };
+  if (row.journalId) return { href: `/accounting/journal-entries/${encodeURIComponent(row.journalId)}`, label: 'Journal entry' };
   return null;
 }

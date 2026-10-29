@@ -33,13 +33,8 @@ describe('journalSourceHref', () => {
       .toBe('/accounting/customer-invoices/x%2F..%2Fy%3Fz%3D1%23w');
   });
 
-  it('carries the report it was opened from as return_to, encoded; an outside URL is dropped', () => {
-    const back = '/accounting/reports/budget-vs-actual?period=fy&fiscal_year=2027&cc1_id=abc';
-    expect(journalSourceHref({ journalId: J, document: { kind: 'supplier_invoice', id: D } }, back)?.href)
-      .toBe(`/accounting/supplier-invoices/${D}?return_to=${encodeURIComponent(back)}`);
-    expect(journalSourceHref({ journalId: J }, back)?.href).toBe(`/accounting/journal-entries/${J}?return_to=${encodeURIComponent(back)}`);
-    for (const bad of ['https://evil.example/accounting', '//evil.example/x', 'javascript:alert(1)']) {
-      expect(journalSourceHref({ journalId: J }, bad)?.href).toBe(`/accounting/journal-entries/${J}`);
-    }
+  it('carries no return_to: nothing reads it, and Back reopens the report from its URL (review r2 N6)', () => {
+    expect(journalSourceHref({ journalId: J, document: { kind: 'supplier_invoice', id: D } })?.href).toBe(`/accounting/supplier-invoices/${D}`);
+    expect(journalSourceHref.length).toBe(1);
   });
 });

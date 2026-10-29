@@ -125,7 +125,7 @@ export default function BudgetVsActualPage() {
                 renderDrill={(code) => (
                   <AccountDrillDown accountCode={code} periodStart={report.window.startDate} periodEnd={report.window.endDate}
                     cc1Id={report.filter.cc1?.id} cc2Id={report.filter.cc2?.id}
-                    businessUnitId={report.filter.bu?.id} budgetTracking returnTo={t.returnTo} asTableRow={false} />
+                    businessUnitId={report.filter.bu?.id} budgetTracking asTableRow={false} />
                 )} />
               </div>
               <BudgetTrackingVisuals report={report} filtered={filtered} groupBy={controls.groupBy}
