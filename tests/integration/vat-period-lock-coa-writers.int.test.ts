@@ -153,9 +153,10 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
     const retype = (code: string, over: Partial<AccountImportRow> = {}): Partial<AccountImportRow> =>
       ({ accountCode: code, accountName: code, accountType: 'expense' as never, normalBalance: 'debit' as never, ...over });
 
-    /** M1 worked case: the debtors line keeps its class (settlement) but the
-     *  journal LEAVES the return — its zero-rated sale leaves box 2. */
-    it('refuses re-typing debtors to expense when that takes a zero-rated sale out of the filed return', async () => {
+    /** M1 worked case: re-typed, the debtors line would keep its class (settlement) but the journal would
+     *  LEAVE the return — its zero-rated sale leaves box 2. Since 2026-10-28 an import never re-types an
+     *  account: the row is refused on its own and the filed return cannot move. */
+    it('refuses the row re-typing debtors to expense, so a zero-rated sale stays in the filed return', async () => {
       const debtors = await addAccount('1410', 'asset', 'receivable');
       const sales = await addAccount('4100', 'revenue', 'revenue');
       await lockedJournal([
@@ -164,15 +165,14 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
       ]);
       const session = await createSession(fx.companyId, 'sage', fx.userId);
       const out = await inTx(fx, () => importChartOfAccounts(fx.companyId, session.id, rows('1140', [retype('1410')]), map('1140')));
-      expect(out.imported).toBe(0);
-      expect(out.errors[0]!.message).toMatch(/1410.*2026-05-01 to 2026-06-30/);
+      expect(out.errors.filter((e) => e.severity !== 'warning').map((e) => e.message))
+        .toEqual([expect.stringMatching(/^Account 1410 is an existing asset account; the file makes it expense\./)]);
       expect(await attrs(debtors)).toMatchObject({ account_type: 'asset', account_subtype: 'receivable' });
     });
 
-    /** Each re-type alone keeps the journal in the return (the other account
-     *  still carries it); together they take it out. Judged with ALL of the
-     *  import's changes applied at once. */
-    it('refuses two re-types that are harmless apart but take a journal out of the return together', async () => {
+    /** Each re-type alone would keep the journal in the return (the other account still carries it);
+     *  together they would take it out. Both rows are refused, so neither account moves. */
+    it('refuses both rows of two re-types that would take a journal out of the return together', async () => {
       const a = await addAccount('1420', 'asset', 'receivable');
       const b = await addAccount('2420', 'liability', 'payable');
       await lockedJournal([
@@ -182,8 +182,7 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
       const session = await createSession(fx.companyId, 'sage', fx.userId);
       const out = await inTx(fx, () => importChartOfAccounts(fx.companyId, session.id,
         rows('1140', [retype('1420'), retype('2420')]), map('1140')));
-      expect(out.imported).toBe(0);
-      expect(out.errors[0]!.message).toMatch(/locked VAT period 2026-05-01 to 2026-06-30/);
+      expect(out.errors.filter((e) => e.severity !== 'warning').map((e) => e.message.slice(0, 13))).toEqual(['Account 1420 ', 'Account 2420 ']);
       expect(await attrs(a)).toMatchObject({ account_type: 'asset' });
       expect(await attrs(b)).toMatchObject({ account_type: 'liability' });
     });
@@ -215,8 +214,9 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
 
   // A VAT-coded line on an asset with no VAT treatment is 'unmapped' in the
   // filed return; re-typed to an expense (its NULL subtype filled from the
-  // mapping) it would be a base line — a different box.
-  it('executeMigration: refuses re-importing a source whose own account would be re-typed under a locked VAT line', async () => {
+  // mapping) it would be a base line — a different box. A re-run never
+  // re-types (2026-10-28): the row is refused and nothing about it is written.
+  it('executeMigration: refuses the row that would re-type a source\'s own account under a locked VAT line', async () => {
     const acct = await addAccount('XV1', 'asset', null, 'xero');
     await lockedLine(acct, 'standard');
     const out = await inTx(fx, () => executeMigration(fx.companyId, fx.userId, 'xero', [{
@@ -224,15 +224,57 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
       mappedType: 'expense', mappedNormalBalance: 'debit', mappedSubtype: 'operating_expense',
     }], [], []));
     expect(out.accountsImported).toBe(0);
-    expect(out.errors.join(' ')).toMatch(/XV1.*2026-05-01 to 2026-06-30/);
+    expect(out.errors.join(' ')).toMatch(/XV1 VAT": is an existing asset account; the file makes it expense/);
     expect(await attrs(acct)).toMatchObject({ account_type: 'asset', account_subtype: null });
   });
 
-  /** Pre-write callers read every OTHER account's current attributes, so
-   *  "together" is theirs to get right: each of these re-types alone leaves the
-   *  journal in the return (the other account still carries it); both together
-   *  take it out. */
-  it('executeMigration: refuses two same-source re-types that take a journal out of the return only together', async () => {
+  // A same-type re-run still fills a NULL subtype: one that makes a locked line VAT-class moves it into
+  // another box of the filed return, so the whole migration is refused before any write.
+  it('executeMigration: refuses a same-type re-run whose subtype fill moves a locked VAT line', async () => {
+    const acct = await addAccount('XV2', 'asset', null, 'xero');
+    await lockedLine(acct, 'standard');
+    const out = await inTx(fx, () => executeMigration(fx.companyId, fx.userId, 'xero', [{
+      sourceCode: 'XV2', sourceName: 'VAT in', sourceType: 'ASSET', openingBalance: 0,
+      mappedType: 'asset', mappedNormalBalance: 'debit', mappedSubtype: 'vat_input',
+    }], [], []));
+    expect(out.accountsImported).toBe(0);
+    expect(out.errors.join(' ')).toMatch(/XV2.*2026-05-01 to 2026-06-30/);
+    expect(await attrs(acct)).toMatchObject({ account_type: 'asset', account_subtype: null });
+  });
+
+  // Two code-less rows derive one code from a 20-character name. The first (same type) fills the
+  // subtype and the second (a re-type) is refused, so the check must judge the FIRST, not the last.
+  it('executeMigration: judges the first same-type row of a shared derived code against the lock', async () => {
+    const name = 'VAT Control Account ';
+    const acct = await addAccount(name, 'asset', null, 'xero');
+    await lockedLine(acct, 'standard');
+    const row = (sourceName: string, mappedType: 'asset' | 'expense', mappedSubtype: string) => ({
+      sourceCode: '', sourceName, sourceType: 'X', openingBalance: 0, mappedType,
+      mappedNormalBalance: 'debit' as const, mappedSubtype });
+    const out = await inTx(fx, () => executeMigration(fx.companyId, fx.userId, 'xero',
+      [row(`${name}Input`, 'asset', 'vat_input'), row(`${name}Clearing`, 'expense', 'operating_expense')], [], []));
+    expect(out.errors.join(' ')).toMatch(/2026-05-01 to 2026-06-30/);
+    expect(await attrs(acct)).toMatchObject({ account_type: 'asset', account_subtype: null });
+  });
+
+  // Same shared code, both rows of the account's type: the first carries no subtype, so the
+  // second row's subtype is the one the COALESCE fill writes, and that is what the check judges.
+  it('executeMigration: judges the fill a later same-type row of a shared code makes', async () => {
+    const name = 'VAT Suspense Account';
+    const acct = await addAccount(name, 'asset', null, 'xero');
+    await lockedLine(acct, 'standard');
+    const row = (sourceName: string, mappedSubtype?: string) => ({
+      sourceCode: '', sourceName, sourceType: 'X', openingBalance: 0, mappedType: 'asset' as const,
+      mappedNormalBalance: 'debit' as const, mappedSubtype });
+    const out = await inTx(fx, () => executeMigration(fx.companyId, fx.userId, 'xero',
+      [row(`${name} A`), row(`${name} B`, 'vat_input')], [], []));
+    expect(out.errors.join(' ')).toMatch(/2026-05-01 to 2026-06-30/);
+    expect(await attrs(acct)).toMatchObject({ account_type: 'asset', account_subtype: null });
+  });
+
+  /** Each of these re-types alone would leave the journal in the return (the other account still
+   *  carries it); both together would take it out. Both rows are refused, so neither account moves. */
+  it('executeMigration: refuses both rows of two same-source re-types that would take a journal out of the return together', async () => {
     const a = await addAccount('XR1', 'asset', 'receivable', 'xero');
     const b = await addAccount('XP1', 'liability', 'payable', 'xero');
     await lockedJournal([
@@ -245,7 +287,8 @@ describeIfDb('bulk account-attribute writers against a locked VAT period', () =>
     });
     const out = await inTx(fx, () => executeMigration(fx.companyId, fx.userId, 'xero', [asExpense('XR1'), asExpense('XP1')], [], []));
     expect(out.accountsImported).toBe(0);
-    expect(out.errors.join(' ')).toMatch(/into or out of that period's filed VAT201/);
+    expect(out.errors.filter((e) => /is an existing (asset|liability) account; the file makes it expense/.test(e))).toHaveLength(2);
     expect(await attrs(a)).toMatchObject({ account_type: 'asset' });
+    expect(await attrs(b)).toMatchObject({ account_type: 'liability' });
   });
 });
