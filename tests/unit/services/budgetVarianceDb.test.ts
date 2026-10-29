@@ -64,7 +64,7 @@ async function loadFixtureIds(): Promise<Fixture> {
     JOIN gl_accounts e2 ON e2.company_id = bank.company_id AND e2.account_type = 'expense'
                         AND e2.id <> e1.id
     JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue'
-    WHERE bank.account_subtype = 'bank'
+    WHERE bank.account_subtype = 'bank' AND bank.is_active
       -- Budgetable accounts only: active leaves. writeBudget refuses a header (decision 18,
       -- budgets/headerSql.ts), and the first expense account on dev is the 5000 header.
       AND e1.is_active AND e2.is_active AND r.is_active
