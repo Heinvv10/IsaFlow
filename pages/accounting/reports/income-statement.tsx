@@ -222,36 +222,39 @@ export default function IncomeStatementPage() {
             </div>
           )}
 
-          {isLoading ? (
-            <ListSkeleton rows={14} label="Loading profit and loss" />
-          ) : report ? (
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-              <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
-                <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
-                  Profit &amp; Loss — {formatDisplayDate(vw.start)} to {formatDisplayDate(vw.end)}
-                </h2>
+          {/* The status <p> shares a wrapper with the report so, empty, it adds no space-y gap. */}
+          <div>
+            {/* Always mounted so a screen reader hears the change. Empty and inverted ranges already say so on the field. */}
+            <p role="status" className="text-sm text-[var(--ff-text-secondary)]">
+              {!report && !datesOk && (badDate.from || badDate.to) ? 'Fix the date to run the report.' : ''}
+            </p>
+            {isLoading ? (
+              <ListSkeleton rows={14} label="Loading profit and loss" />
+            ) : report ? (
+              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
+                <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
+                  <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
+                    Profit &amp; Loss — {formatDisplayDate(vw.start)} to {formatDisplayDate(vw.end)}
+                  </h2>
+                </div>
+                <p className="sm:hidden mb-1 text-xs text-[var(--ff-text-tertiary)]">Swipe the statement sideways for the prior period and variance columns.</p>
+                <IncomeStatementSections
+                  costCentreId={vw.cc}
+                  businessUnitId={vw.bu}
+                  returnTo={returnTo}
+                  report={report}
+                  periodStart={vw.start}
+                  periodEnd={vw.end}
+                  expandedAccount={expandedAccount}
+                  onToggleAccount={toggleAccount}
+                  showComparative={vw.cmp}
+                  columns={columns}
+                  applyComparators={apply}
+                  onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
+                />
               </div>
-              <p className="sm:hidden mb-1 text-xs text-[var(--ff-text-tertiary)]">Swipe the statement sideways for the prior period and variance columns.</p>
-              <IncomeStatementSections
-                costCentreId={vw.cc}
-                businessUnitId={vw.bu}
-                returnTo={returnTo}
-                report={report}
-                periodStart={vw.start}
-                periodEnd={vw.end}
-                expandedAccount={expandedAccount}
-                onToggleAccount={toggleAccount}
-                showComparative={vw.cmp}
-                columns={columns}
-                applyComparators={apply}
-                onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
-              />
-            </div>
-          ) : null}
-          {/* Always mounted so a screen reader hears the change. Empty and inverted ranges already say so on the field. */}
-          <p role="status" className="text-sm text-[var(--ff-text-secondary)]">
-            {!report && !datesOk && (badDate.from || badDate.to) ? 'Fix the date to run the report.' : ''}
-          </p>
+            ) : null}
+          </div>
         </div>
       </div>
       {evidenceTarget && (
