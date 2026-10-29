@@ -15,6 +15,28 @@ function runnerSlotArms(workflow: string): Array<{ runner: string; slot: number 
   return [...body.matchAll(/^\s*([A-Za-z0-9_.-]+)\)\s*slot=(\d+)\s*;;/gm)].map((m) => ({ runner: m[1]!, slot: Number(m[2]) }));
 }
 
+describe('ci.yml slot port window and orphan clean-up', () => {
+  const step = CI.slice(CI.indexOf('slot_lo=$((3300'));
+
+  it('draws the dev-server port from the same window the orphan clean-up covers', () => {
+    expect(CI).toContain('slot_lo=$((3300 + (slot - 1) * 166))');
+    expect(CI).toContain('slot_hi=$((slot_lo + 165))');
+    expect(CI).toContain('candidate=$((slot_lo + RANDOM % 166))');
+    expect(CI).toContain('killSlotOrphans.ts "$slot_lo" "$slot_hi"');
+  });
+
+  it('cleans the window before it picks a port and boots the dev server', () => {
+    const at = (needle: string): number => step.indexOf(needle);
+    expect(at('killSlotOrphans.ts')).toBeGreaterThan(-1);
+    expect(at('killSlotOrphans.ts')).toBeLessThan(at('candidate=$((slot_lo'));
+    expect(at('killSlotOrphans.ts')).toBeLessThan(at('bunx next dev'));
+  });
+
+  it('never kills by pattern', () => {
+    expect(CI).not.toMatch(/\b(pkill|killall)\b|fuser\s+-k|kill\s+\$\(\s*pgrep/);
+  });
+});
+
 describe('ci.yml runner to slot mapping', () => {
   const arms = runnerSlotArms(CI);
 
