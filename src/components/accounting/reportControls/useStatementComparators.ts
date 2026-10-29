@@ -99,8 +99,9 @@ interface BudgetData {
 /** A refusal by a report limiter: the route's own (with Retry-After) or withAuth's shared one (without). */
 function refusal(err: unknown): { retryAfterSecs: number | null } | null {
   const e = err as { status?: unknown; retryAfterSecs?: unknown } | null;
-  if (e?.status !== 429) return null;
-  return { retryAfterSecs: typeof e.retryAfterSecs === 'number' ? e.retryAfterSecs : null };
+  if (e?.status === 429) return { retryAfterSecs: typeof e.retryAfterSecs === 'number' ? e.retryAfterSecs : null };
+  // Any other failure is the caller's to report (it logs it and shows BUDGET_FAILED).
+  return null;
 }
 
 export function useStatementComparators(opts: StatementComparatorOptions): StatementComparators {
