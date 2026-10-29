@@ -5,7 +5,7 @@
  * and clearing a driver-computed cell (a clear of an override is "reset to driver", allowed).
  */
 import { describe, expect, it } from 'vitest';
-import { driverValueOf, type DriverContext } from '@/components/accounting/budgets/drivers/driverPreview';
+import { driverValueOf, previewDriver, type DriverContext } from '@/components/accounting/budgets/drivers/driverPreview';
 import { GridStore } from '@/components/accounting/budgets/workspace/gridStore';
 import { clearCells, DRIVER_CLEAR_REASON } from '@/components/accounting/budgets/workspace/gridCommands';
 import { buildLayout } from '@/components/accounting/budgets/workspace/gridLayout';
@@ -33,6 +33,16 @@ describe('driverValueOf', () => {
     expect(driverValueOf(c, `${ID.opex}|||`, MONTHS[4]!, () => undefined)).toBeNull();
     const heads = new Map(MONTHS.map((m) => [m, 2.5]));
     expect(driverValueOf(c, `${ID.opex}|||`, MONTHS[4]!, (scope) => (scope === null ? heads : undefined))).toBe(8_000_000);
+  });
+
+  it("another row's per_head driver never blanks this row's value: it is read as it stands (no headcount needed)", () => {
+    const store = storeOf();
+    const perHead = driverLine({ glAccountId: ID.opex, kind: 'per_head', amount: 32_000 });
+    const c = { ...ctx(store), drivers: [...ctx(store).drivers.filter((d) => d.glAccountId !== ID.opex), perHead] };
+    expect(driverValueOf(c, `${ID.cos1}|||`, MONTHS[2]!, () => undefined)).toBe(38_000);
+    const p = previewDriver(c, { ...c.drivers[0]!, pct: 40 }, () => undefined);
+    expect(p.ok && p.headcountMissing).toBe(false);
+    expect(p.ok && p.values[1]).toBe(40_000);
   });
 
   it('a closed month has no driver value', () => {
