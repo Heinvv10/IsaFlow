@@ -6,9 +6,10 @@
 import { useRef } from 'react';
 import Link from 'next/link';
 import {
-  Loader2, RefreshCw, CheckCheck, Upload, Download, Search, Trash2, Layers, Zap, Plus, FileText,
+  Loader2, RefreshCw, CheckCheck, Upload, Search, Trash2, Layers, Zap, Plus, FileText,
 } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
+import { BankTxExportButtons } from './BankTxExportButtons';
 
 type Tab = 'new' | 'reviewed' | 'excluded';
 
@@ -121,19 +122,7 @@ export function BankTxFilters({
       >
         <Upload className="h-3.5 w-3.5" /> Import Bank Statements
       </Link>
-      <button
-        onClick={onExport}
-        className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
-      >
-        <Download className="h-3.5 w-3.5" /> Export
-      </button>
-      <button
-        onClick={onExportAll}
-        title="Every bank account, every posted transaction between the From and To dates, as one CSV (pending bank-feed lines are left out)"
-        className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
-      >
-        <Download className="h-3.5 w-3.5" /> Export all accounts
-      </button>
+      <BankTxExportButtons onExport={onExport} onExportAll={onExportAll} />
       <button
         onClick={onApplyRules}
         disabled={!selectedBank || smartRunning}
