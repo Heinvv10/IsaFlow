@@ -62,7 +62,7 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     expect(await fx.rollingRow(rf)).toMatchObject({ last_error: null });
     const audits = await fx.audits(rf);
     expect(audits.length).toBe(auditsBefore + 1);
-    expect(audits.at(-1)!.changes.metadata).toMatchObject({ rolled: 'auto', closedMonths: m[0], cells: '2' });
+    expect(audits.at(-1)!.changes.metadata).toMatchObject({ rolled: 'auto', closedMonths: m[0], cells: '2', headcountAsOf: 'none' });
 
     const before = await fx.snapshot(rf);
     const again = await rollNow(w, rf);

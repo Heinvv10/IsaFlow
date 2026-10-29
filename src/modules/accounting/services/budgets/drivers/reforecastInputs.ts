@@ -104,14 +104,18 @@ export async function readClosedActuals(companyId: string, year: FiscalYearRecor
 /**
  * The plan for `model` (the source's rows, cells and EVERY driver) over the closed months; headcount
  * from `hiresVersionId`'s planned hires and payroll. Rows created for actuals are banded by their
- * account, as `loadVersionModel` bands the rest.
+ * account, as `loadVersionModel` bands the rest. A reforecast create and a roll REFRESH headcount
+ * (ruling 2026-10-29): no row is frozen, so per_head rows recompute from payroll as it is now;
+ * `headcountAsOf` is when payroll was read (null when no per_head driver needed it), for the audit row.
  */
 export async function planOver(
   companyId: string, model: VersionModel, hiresVersionId: string, closed: readonly string[], read: ClosedActuals,
-): Promise<ReforecastResult> {
-  const heads = model.defs.some((d) => d.kind === 'per_head') ? await versionHeadcount(companyId, hiresVersionId, model.months) : null;
+): Promise<{ plan: ReforecastResult; headcountAsOf: string | null }> {
+  const needsHeads = model.defs.some((d) => d.kind === 'per_head');
+  const headcountAsOf = needsHeads ? new Date().toISOString() : null;
+  const heads = needsHeads ? await versionHeadcount(companyId, hiresVersionId, model.months) : null;
   const bands = new Map(model.rows.map((r) => [r.glAccountId, r.band]));
-  return planReforecast({
+  const plan = planReforecast({
     months: model.months, rows: model.rows, sourceCells: model.cells, actuals: read.actuals, closedMonths: new Set(closed),
     drivers: model.defs, rounding: 1,
     headcount: (scope, month) => heads?.(scope).get(month)?.total ?? 0,
@@ -123,6 +127,7 @@ export async function planOver(
       return bandOf(a.accountType, a.accountSubtype);
     },
   });
+  return { plan, headcountAsOf };
 }
 
 /** The plan's unplaced actuals, named (code, name, the dimension the account is budgeted by), in rand. */

@@ -5,7 +5,8 @@
  * A roll: holdYearRegistry → the rolling row → ONE savepoint: the version lock (auto: P1's
  * `lockVersionForWrite`, no token; Roll now: the grid's compare-and-set `takeVersion`, 409 STALE /
  * LOCKED) → `planReforecast` over ALL closed months of the year with the version's OWN cells,
- * drivers and hires as the source → only the cells whose amount or source differ written → the
+ * drivers and hires as the source (headcount refreshed: nothing frozen; the audit row records
+ * headcountAsOf) → only the cells whose amount or source differ written → the
  * row's rolled_through_month / last_rolled_at, last_error cleared → an audit row when cells changed.
  * Re-rolling unchanged books writes no cell: the output is a function of committed state.
  *
@@ -94,7 +95,7 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       const closed = await closedMonthsOf(companyId, year, months);
       const read = await readClosedActuals(companyId, year, closed);
       const model = await loadVersionModel(companyId, id, months, await listDriverLines(companyId, id));
-      const plan = await planOver(companyId, model, id, closed, read);
+      const { plan, headcountAsOf } = await planOver(companyId, model, id, closed, read);
       const changed = await writePlannedCells(companyId, id, userId, plan.cells);
       const through = closed.length > 0 ? closed[closed.length - 1]! : null;
       await sql`
@@ -106,7 +107,7 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       if (changed > 0) {
         await auditBudgetWrite(companyId, userId, 'update', id, row.fiscalYear, {
           rolled: mode === 'auto' ? 'auto' : 'roll_now', closedMonths: closed.join(',') || 'none', cells: String(changed),
-          unplaced: String(unplaced.length),
+          unplaced: String(unplaced.length), headcountAsOf: headcountAsOf ?? 'none',
         });
       }
       const token = (await sql`
