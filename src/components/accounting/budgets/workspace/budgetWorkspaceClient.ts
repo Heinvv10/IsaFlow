@@ -120,8 +120,11 @@ export function saveCells(versionId: string, expectedUpdatedAt: string, cells: r
   return call('/api/accounting/budget-grid/save', post({ versionId, expectedUpdatedAt, cells }), 'Could not save the budget.');
 }
 
+/** What the saves' driver recomputes did (P4), summed over the chain; absent when they did nothing. */
+export interface ChainDrivers { recomputed: number; reset: number; warnings: NonNullable<SaveCellsResult['driverWarnings']> }
+
 export type ChainResult =
-  | { ok: true; updatedAt: string; saved: number; deleted: number; chunks: number }
+  | { ok: true; updatedAt: string; saved: number; deleted: number; chunks: number; drivers?: ChainDrivers }
   | {
     ok: false; failure: ApiFailure;
     /** 0-based index of the refused chunk; the chunks before it were saved. */
@@ -172,14 +175,20 @@ export async function saveChained(versionId: string, cells: readonly SaveCell[],
   let updatedAt = token;
   let saved = 0;
   let deleted = 0;
+  const drivers: ChainDrivers = { recomputed: 0, reset: 0, warnings: [] };
   for (let i = 0; i < chunks; i++) {
     const r = await saveCells(versionId, updatedAt, requests[i]!);
     if (!r.ok) return { ok: false, failure: r, failedChunk: i, chunks, committed: requests.slice(0, i).flat(), updatedAt, saved, deleted };
     updatedAt = r.data.updatedAt;
     saved += r.data.saved;
     deleted += r.data.deleted;
+    drivers.recomputed += r.data.recomputed ?? 0;
+    drivers.reset += r.data.reset ?? 0;
+    // Each save recomputes the whole version: the last answer's warnings are the version's now.
+    if (r.data.driverWarnings) drivers.warnings = r.data.driverWarnings;
   }
-  return { ok: true, updatedAt, saved, deleted, chunks };
+  const moved = drivers.recomputed > 0 || drivers.reset > 0 || drivers.warnings.length > 0;
+  return moved ? { ok: true, updatedAt, saved, deleted, chunks, drivers } : { ok: true, updatedAt, saved, deleted, chunks };
 }
 
 export interface SeedRequest {

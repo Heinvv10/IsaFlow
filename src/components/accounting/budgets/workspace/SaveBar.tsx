@@ -7,7 +7,8 @@
  * scroll container (stickyTable rule). Saving shows a spinner and the grid stays editable (the save sends a snapshot); a
  * failed save (not a 409, which is StaleVersionDialog's) is said inline and the dirty cells stay.
  * Hidden when the version is read-only (locked, or the role cannot write). Ctrl+S is the grid's
- * (useGridKeyboard `onSave`); Discard asks first.
+ * (useGridKeyboard `onSave`); Discard asks first. P4: a save the drivers recomputed says how many
+ * cells moved and lists the recompute's warnings (a skipped driver, an input read as 0).
  */
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { Loader2, Save } from 'lucide-react';
@@ -26,7 +27,12 @@ export interface SaveBarProps {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function statusText(s: SaveState): string {
-  if (s.status === 'saved') return `Saved: ${plural(s.saved, 'cell')} changed, ${plural(s.deleted, 'cell')} cleared`;
+  if (s.status === 'saved') {
+    const d = s.drivers;
+    const drivers = d && (d.recomputed > 0 || d.reset > 0)
+      ? `; drivers recomputed ${plural(d.recomputed, 'cell')}${d.reset > 0 ? `, ${plural(d.reset, 'override')} reset to the driver` : ''}` : '';
+    return `Saved: ${plural(s.saved, 'cell')} changed, ${plural(s.deleted, 'cell')} cleared${drivers}`;
+  }
   if (s.status === 'error') return s.retryAfter ? `${s.message} Try again in ${s.retryAfter} s.` : s.message;
   return '';
 }
@@ -81,6 +87,11 @@ export function SaveBar({ dirtyCount, saveState, readOnly, onSave, onDiscard }: 
         className={`text-sm ${saveState.status === 'error' ? 'text-error-700 dark:text-error-400' : 'text-[var(--ff-text-secondary)]'}`}>
         {status}
       </span>
+      {saveState.status === 'saved' && (saveState.drivers?.warnings.length ?? 0) > 0 && (
+        <ul data-testid="save-bar-driver-warnings" className="w-full space-y-0.5 text-xs text-[var(--ff-unfav)]">
+          {saveState.drivers!.warnings.map((w, i) => <li key={i}>{w.message}</li>)}
+        </ul>
+      )}
       <div className="ml-auto flex items-center gap-2">
         <button type="button" onClick={() => setConfirming(true)} disabled={dirtyCount === 0 || saving}
           className="rounded-lg border border-[var(--ff-border-light)] px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] disabled:opacity-50">
