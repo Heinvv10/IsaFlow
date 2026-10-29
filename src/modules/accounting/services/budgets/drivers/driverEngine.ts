@@ -211,6 +211,9 @@ export function computeVersion(input: ComputeInput): ComputeResult {
   const effective = loadCells(input.cells, graph, index);
   const writes: DriverWrite[] = [];
   const warnings: DriverWarning[] = [];
+  for (const key of input.frozenRows ?? []) {
+    if (!graph.rows.has(key)) throw new DriverRefError(`Frozen row ${key} is not a row of the version`, key);
+  }
 
   for (const key of order) {
     const d = graph.driverOf.get(key);
