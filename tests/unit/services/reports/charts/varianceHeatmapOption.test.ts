@@ -164,7 +164,7 @@ describe('months not yet judged (browser review r1 L1, r2 N1)', () => {
 });
 
 describe('small variances stay visible (browser review r2 N4)', () => {
-  it('a nonzero variance is drawn at no less than the floor; an on-budget month (0) stays clear', () => {
+  it('a nonzero variance is drawn at no less than the floor; an on-budget month (0) is an outline', () => {
     const tiny = buildVarianceHeatmapOption([
       line('6000', 'Small', [[100.5, 100, false], [100, 100, true], [0, null, null]], 1),
       line('6100', 'Large', [[10_000, 100, false], [100, 100, true], [0, null, null]], 9900),
