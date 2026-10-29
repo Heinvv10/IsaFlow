@@ -107,6 +107,8 @@ async function seedInvoices(api: SeedApi, supplierIds: string[], months: string[
 
 /** The journals route caps `limit` at 200 (pages/api/accounting/journal-entries.ts). */
 const JOURNAL_PAGE = 200;
+/** A bound on the paging: a route that ignored `offset` would answer the same full page forever. */
+const MAX_JOURNAL_PAGES = 100;
 
 /**
  * The slot's GSEED journals by description, posted ones winning over a draft of the same description. The list has no
@@ -116,7 +118,8 @@ const JOURNAL_PAGE = 200;
 async function findSeedJournals(api: SeedApi): Promise<Map<string, { id: string; status: 'posted' | 'draft' }>> {
   const found = new Map<string, { id: string; status: 'posted' | 'draft' }>();
   for (const status of ['posted', 'draft'] as const) {
-    for (let offset = 0; ; offset += JOURNAL_PAGE) {
+    for (let pageNo = 0, offset = 0; ; pageNo++, offset += JOURNAL_PAGE) {
+      if (pageNo >= MAX_JOURNAL_PAGES) throw new Error(`the ${status} journal list did not end within ${MAX_JOURNAL_PAGES} pages of ${JOURNAL_PAGE}; the route may be ignoring offset`);
       const page = await api.get<{ entries?: unknown[]; total?: number }>(`/api/accounting/journal-entries?status=${status}&limit=${JOURNAL_PAGE}&offset=${offset}`);
       const entries = rowsOf<{ id: string; description?: string }>(page, 'entries');
       for (const e of entries) {

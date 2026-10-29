@@ -131,6 +131,25 @@ describe('seedSlot refuses a list response of a shape it does not know', () => {
   });
 });
 
+describe('seedSlot journal paging is bounded', () => {
+  it('throws instead of looping when the route ignores offset and answers the same full page for ever', async () => {
+    const app = fakeApp();
+    let pages = 0;
+    const api: SeedApi = {
+      get: async (p: string) => {
+        if (!p.startsWith('/api/accounting/journal-entries')) return app.api.get(p);
+        pages++;
+        // Yield to the timer queue, so a loop that never ends fails the test's timeout rather than hanging the run.
+        await new Promise((r) => setTimeout(r, 0));
+        return { entries: Array.from({ length: 200 }, (_, k) => ({ id: `x${k}`, description: `golden journal ${k}` })) };
+      },
+      post: app.api.post,
+    };
+    await expect(seedSlot(api, () => 'import-id')).rejects.toThrow(/did not end within 100 pages/);
+    expect(pages).toBe(100);
+  });
+});
+
 describe('seedMonths', () => {
   it('is the last 10 complete months, floored at the first open period', () => {
     expect(seedMonths(new Date('2027-03-05T00:00:00Z'))).toEqual(['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02']);
