@@ -162,8 +162,10 @@ export function readers(t: G01Tenant, user: string, pool: Pool): Reader[] {
     R('ratio inputs', () => readExtendedRatioInputs(c, ...FY25, 0), REVENUE_25),
     // Home's revenue is TURNOVER, the income statement's Revenue line (REVENUE_25 = 1750), so it excludes
     // the fixture's 100 of other income (journal OI): 1850 - 100 = 1750. Net profit still counts it (1050).
-    R('dashboard KPIs', () => getDashboardKPIs(c, ...FY25), /"revenue":\{"total":1750,"priorTotal":600,/, /"netProfit":\{"amount":1050,/),
-    R('dashboard KPIs FY26 (prior = FY25)', () => getDashboardKPIs(c, ...FY26), /"revenue":\{"total":600,"priorTotal":1750,/),
+    R('dashboard KPIs', () => getDashboardKPIs(c, ...FY25),
+      /"revenue":\{[^}]*"total":1750[,}]/, /"revenue":\{[^}]*"priorTotal":600[,}]/, /"netProfit":\{[^}]*"amount":1050[,}]/),
+    R('dashboard KPIs FY26 (prior = FY25)', () => getDashboardKPIs(c, ...FY26),
+      /"revenue":\{[^}]*"total":600[,}]/, /"revenue":\{[^}]*"priorTotal":1750[,}]/, /"netProfit":\{[^}]*"amount":400[,}]/),
     R('revenue chart', () => getRevenueChart(c, 60), /1000/),
     R('top expense categories', () => getTopExpenseCategories(c, 5), /Rent/),
     R('consolidated income statement', () => getConsolidatedIncomeStatement(t.group, ...FY25), REVENUE_25),
