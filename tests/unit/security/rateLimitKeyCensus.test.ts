@@ -35,6 +35,7 @@ const PINNED: Record<string, string> = {
   "pages/api/accounting/annotations/index.ts | annotationRateLimitKey('create', user.id)": 'per-action, per-user name; default options',
   "pages/api/accounting/annotations/[id]/resolve.ts | annotationRateLimitKey('resolve', user.id)": 'per-action, per-user name; default options',
   'src/lib/rateLimitQuota.ts | key': 'refunds a key this request charged, taken from the request context',
+  "pages/api/accounting/reports-budget-tracking.ts | 'reports-budget-tracking'": 'literal report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit used by this route only',
   'scripts/generate-closeout-report.mjs | ?': 'prose in a description string, not a call',
 };
 
