@@ -28,6 +28,8 @@ export interface BudgetGridApi {
   version: BudgetVersion | null;
   /** The version token: what the next save (or a status move) sends as `expectedUpdatedAt`. */
   token: string | null;
+  /** Take the token another write answered (a driver, hire or roll write), before the grid reloads. */
+  adoptToken(token: string): void;
   dirtyCount: number;
   /** Any budgeted cell in the store now (the "no amounts yet" hint). */
   hasAmounts: boolean;
@@ -241,6 +243,7 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     return null;
   }, [store, show]);
 
+  const adoptToken = useCallback((t: string) => { live.current = { ...live.current, token: t }; setToken(t); }, []);
   const discard = useCallback(() => { store.discard(); setSaveState({ status: 'idle' }); }, [store]);
   const discardAndReload = useCallback(async () => { store.discard(); setStale(null); await reload(); }, [store, reload]);
   const dismissStale = useCallback(() => setStale(null), []);
@@ -279,7 +282,7 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
   }, [store, model, view.kind, revision]);
 
   return {
-    store, status, error, model, version: model?.version ?? null, token, dirtyCount, hasAmounts, view, setView, members,
+    store, status, error, model, version: model?.version ?? null, token, adoptToken, dirtyCount, hasAmounts, view, setView, members,
     roundingUnit, setRoundingUnit, priorStatus, selectVersion, reload, save, saveState, discard, stale,
     reapplyMine, discardAndReload, dismissStale, compareVersionId, compareError, setCompareVersion, commitImport,
   };

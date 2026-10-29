@@ -26,7 +26,7 @@ export type { SaveCell, PriorGrain };
 /** The server's per-request cap; the type ties it to PR-B's constant (a change there fails tsc here). */
 export const MAX_SAVE_CELLS: typeof SERVER_MAX_SAVE_CELLS = 20_000;
 
-interface ErrorBody { message?: string; error?: { message?: string; details?: { code?: unknown; currentUpdatedAt?: unknown; status?: unknown } } }
+interface ErrorBody { message?: string; error?: { message?: string; details?: { code?: unknown; currentUpdatedAt?: unknown; status?: unknown; path?: unknown } } }
 
 const retryAfterOf = (res: Response): number | null => {
   const n = Number(res.headers.get('Retry-After'));
@@ -53,15 +53,19 @@ function failureOf(res: Response, text: string, fallback: string): ApiFailure {
       return { ok: false, kind: 'conflict', message, code };
     case 429: return { ok: false, kind: 'rateLimited', message, retryAfter: retryAfterOf(res) };
     case 503: return { ok: false, kind: 'busy', message, retryAfter: retryAfterOf(res) };
-    case 400: case 413: case 422: return { ok: false, kind: 'invalid', message, code };
+    case 400: case 413: case 422: {
+      // A budget driver loop (400 DRIVER_CYCLE) names the rows around it.
+      const path = Array.isArray(details?.path) && details.path.every((k) => typeof k === 'string') ? details.path as string[] : undefined;
+      return path ? { ok: false, kind: 'invalid', message, code, path } : { ok: false, kind: 'invalid', message, code };
+    }
     case 403: return { ok: false, kind: 'forbidden', message };
     case 404: return { ok: false, kind: 'notFound', message };
     default: return { ok: false, kind: 'failed', message, status: res.status };
   }
 }
 
-/** One request, as an ApiResult typed by the route registry. */
-async function call<U extends string>(url: U, init: RequestInit | undefined, fallback: string): Promise<ApiResult<ResponseFor<U>>> {
+/** One request, as an ApiResult typed by the route registry (the budget drivers' fetchers use it too). */
+export async function call<U extends string>(url: U, init: RequestInit | undefined, fallback: string): Promise<ApiResult<ResponseFor<U>>> {
   let res: Response;
   try {
     res = await apiFetch(url, init);

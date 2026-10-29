@@ -24,6 +24,7 @@ import { BudgetGridRow, type GridCellHandlers } from './BudgetGridRow';
 import { BudgetSectionRow, BudgetSubtotalRow, type GridColumns } from './BudgetSubtotalRow';
 import { useRowActions, type DimensionMember, type UseRowActionsArgs } from './useRowActions';
 import { useMobileSheet } from './useMobileSheet';
+import type { GridDriverHandlers } from '@/components/accounting/budgets/drivers/gridDriverHandlers';
 
 export interface BudgetGridProps {
   store: GridStore;
@@ -49,6 +50,8 @@ export interface BudgetGridProps {
   fiscalYear: number;
   /** Saves an account's year-scoped note (PUT /api/accounting/budget-grid/note), outside the grid's save. */
   onSaveNote: UseRowActionsArgs['onSaveNote'];
+  /** P4 drivers (chips, overrides, the editor); absent wires none. Keep its identity stable (render-count gate). */
+  driver?: GridDriverHandlers | null;
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -81,7 +84,7 @@ function groups(rows: readonly LayoutRow[]): LayoutRow[][] {
 }
 
 export function BudgetGrid(props: BudgetGridProps) {
-  const { store, view, roundingUnit, density, showPy, compareLabel, canWrite, members, onSave, onExit, fiscalYear, onSaveNote } = props;
+  const { store, view, roundingUnit, density, showPy, compareLabel, canWrite, members, onSave, onExit, fiscalYear, onSaveNote, driver = null } = props;
   const layout = useGridLayout(store);
   const meta = useGridMeta(store);
   const palette = useChartPalette();
@@ -89,7 +92,7 @@ export function BudgetGrid(props: BudgetGridProps) {
   const gridRef = useRef<HTMLTableElement>(null);
   const keys = useGridKeyboard({ store, gridRef, roundingUnit, onSave, onExit });
   const clip = useGridClipboard(store);
-  const { onRowAction, dialogs } = useRowActions({ store, layout, roundingUnit, view, members, focusPos: keys.focusPos, fiscalYear, onSaveNote });
+  const { onRowAction, dialogs } = useRowActions({ store, layout, roundingUnit, view, members, focusPos: keys.focusPos, fiscalYear, onSaveNote, driver });
   const sheet = useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction });
 
   // Shift+F10 / the context-menu key on a cell opens that row's ⋯ menu, so a keyboard user reaches
@@ -126,7 +129,10 @@ export function BudgetGrid(props: BudgetGridProps) {
     onCellTap: compact ? sheet.open : null,
     onRowAction,
     grainOf: (id: string) => accountGrains(new Map(store.heldCells(id))).get(id) ?? null,
-  }), [keys, compact, sheet.open, onRowAction, store]);
+    driver,
+  }), [keys, compact, sheet.open, onRowAction, store, driver]);
+  // Changes only when a load replaces the store's model (the layout listeners re-render this).
+  const closed = store.getClosedMonths();
 
   // An entry can stand for many cells (a paste clipped at the edge): the heading counts cells.
   const noticeCells = meta.notice ? meta.notice.reduce((n, e) => n + (e.cells ?? 1), 0) : 0;
@@ -136,7 +142,11 @@ export function BudgetGrid(props: BudgetGridProps) {
     <tr aria-rowindex={1}>
       <th role="columnheader" scope="col" className={`${STICKY_FIRST_HEAD} ${HEAD} text-left px-3`}>Account</th>
       {layout.months.map(m => (
-        <th key={m} role="columnheader" scope="col" aria-label={longMonth(m)} className={`${STICKY_HEAD} ${HEAD}`}>{shortMonth(m)}</th>
+        <th key={m} role="columnheader" scope="col" aria-label={closed.has(m) ? `${longMonth(m)}, actual` : longMonth(m)}
+          data-actual={closed.has(m) ? 'true' : undefined} className={`${STICKY_HEAD} ${HEAD}`}>
+          {shortMonth(m)}
+          {closed.has(m) && <span className="block text-[10px] font-medium uppercase tracking-wide text-[var(--ff-text-tertiary)]">Actual</span>}
+        </th>
       ))}
       <th role="columnheader" scope="col" aria-label="Full year total" className={`${STICKY_HEAD} ${HEAD}`}>FY</th>
       {cols.py && <th role="columnheader" scope="col" aria-label="Prior year actual" className={`${STICKY_HEAD} ${HEAD}`}>PY</th>}
@@ -152,7 +162,7 @@ export function BudgetGrid(props: BudgetGridProps) {
     if (row.kind === 'section') return <BudgetSectionRow key={row.key} row={row} colCount={colCount} />;
     if (row.kind === 'line') {
       return <BudgetGridRow key={row.key} store={store} row={row} months={layout.months} cols={cols} palette={palette}
-        handlers={handlers} canChange={canWrite} view={view} />;
+        handlers={handlers} canChange={canWrite} view={view} closed={closed} />;
     }
     return <BudgetSubtotalRow key={row.key} store={store} row={row} months={layout.months} cols={cols} palette={palette} />;
   };
