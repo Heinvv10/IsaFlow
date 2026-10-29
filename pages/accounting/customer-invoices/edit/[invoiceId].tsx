@@ -3,19 +3,20 @@
  * Mirrors the new.tsx layout but loads the existing invoice and submits PUT.
  */
 import { useState, useEffect } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, AlertCircle, Receipt } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { discountFromAmount, previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
-import { CodingPicker, InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
+import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
+import { invoiceDateProblem, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 
-interface Client { id: string; name: string }
-interface Currency { code: string; name: string; symbol: string }
 // CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
 // otherwise null, so derivation sets it (the project's FNO, else the customer's: dimensionKeepStored).
 type LineItem = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string };
@@ -35,32 +36,26 @@ type InvoiceDetail = {
   items?: InvoiceItemRow[];
 };
 
-const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
-const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
-
 export default function EditCustomerInvoicePage() {
   const router = useRouter();
   const { invoiceId } = router.query;
-  const [clients, setClients] = useState<Client[]>([]);
-  const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [currencies, setCurrencies] = useState<InvoiceCurrency[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
 
-  const [form, setForm] = useState({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
+  const dates = useInvoiceDateValidity();
+  const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([]);
 
   useEffect(() => {
     if (!invoiceId) return;
     const id = String(invoiceId);
     void Promise.all([
-      apiFetch('/api/accounting/customers', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }),
       apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }),
       apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`, { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load the invoice - try again'); return r.json(); }),
-    ]).then(([cRes, curRes, invRes]) => {
-      const cData = cRes.data || cRes; setClients(Array.isArray(cData) ? cData : cData.clients || []);
+    ]).then(([curRes, invRes]) => {
       const curData = curRes.data || curRes; setCurrencies(Array.isArray(curData) ? curData : []);
       const invoice: InvoiceDetail = invRes.data || invRes;
       if (!invoice || !invoice.id) { setError('Invoice not found'); setLoading(false); return; }
@@ -123,12 +118,13 @@ export default function EditCustomerInvoicePage() {
   // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
   const lineTotal = (l: LineItem) => previewLineAmount(l.quantity, l.unitPrice, l.discount || 0);
   const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), form.taxRate);
-  const isFx = form.currencyCode !== 'ZAR';
 
   const handleSubmit = async () => {
     if (!form.clientId) return setError('Select a client');
     const validLines = lines.filter(l => l.description && l.unitPrice >= 0 && l.quantity > 0);
     if (validLines.length === 0) return setError('Add at least one line item');
+    const dateProblem = invoiceDateProblem(form, dates.refused);
+    if (dateProblem) return setError(dateProblem);
     setSubmitting(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-invoices-detail', {
@@ -164,11 +160,12 @@ export default function EditCustomerInvoicePage() {
     finally { setSubmitting(false); }
   };
 
-  if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div></AppLayout>;
+  if (loading) return <AppLayout><Head><title>Edit invoice · Sales · IsaFlow</title></Head><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div></AppLayout>;
 
   if (error && !invoiceNumber) {
     return (
       <AppLayout>
+        <Head><title>Edit invoice · Sales · IsaFlow</title></Head>
         <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6">
           <AlertCircle className="h-10 w-10 text-red-400" />
           <p className="text-center text-sm text-slate-600 dark:text-slate-300 max-w-md">{error}</p>
@@ -185,6 +182,7 @@ export default function EditCustomerInvoicePage() {
 
   return (
     <AppLayout>
+      <Head><title>{`Edit ${invoiceNumber} · Sales · IsaFlow`}</title></Head>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
         <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
           <div className="relative z-10">
@@ -201,85 +199,29 @@ export default function EditCustomerInvoicePage() {
           </div>
         </div>
 
-        <div className="p-6 xl:p-8">
-          <div className="max-w-6xl mx-auto flex gap-6 items-start">
-            <div className="flex-1 min-w-0 space-y-5">
-              {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</div>}
+        <div className="p-4 sm:p-6 xl:p-8">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
+            <div className="min-w-0 space-y-5">
+              {error && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</div>}
 
-              <div className={`${card} p-5`}>
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2"><span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">1</span>Client &amp; Settings</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={lbl}>Client *</label>
-                    <select value={form.clientId} onChange={e => setForm(p => ({ ...p, clientId: e.target.value }))} className={inp}>
-                      <option value="">Select client…</option>
-                      {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={lbl}>VAT Rate %</label>
-                    <input type="number" value={form.taxRate} onChange={e => setForm(p => ({ ...p, taxRate: Number(e.target.value) }))} className={inp} />
-                  </div>
-                  <div>
-                    <label className={lbl}>Currency</label>
-                    <select value={form.currencyCode} onChange={e => setForm(p => ({ ...p, currencyCode: e.target.value, exchangeRate: e.target.value === 'ZAR' ? 1 : p.exchangeRate }))} className={inp}>
-                      <option value="ZAR">ZAR — South African Rand</option>
-                      {currencies.filter(c => c.code !== 'ZAR').map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={lbl}>Job <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
-                    <CodingPicker label="Invoice job" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No job" onChange={v => setForm(p => ({ ...p, projectId: v }))} />
-                  </div>
-                  {isFx && (
-                    <div>
-                      <label className={lbl}>Exchange Rate ({form.currencyCode} → ZAR)</label>
-                      <input type="number" min={0.000001} step={0.000001} value={form.exchangeRate} onChange={e => setForm(p => ({ ...p, exchangeRate: Number(e.target.value) }))} className={inp} />
-                    </div>
-                  )}
-                </div>
-              </div>
+              <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} />
 
-              <div className={`${card} p-5`}>
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2"><span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>Dates &amp; Period</h3>
-                <div className="grid grid-cols-4 gap-4">
-                  <div><label className={lbl}>Invoice Date</label><input type="date" value={form.invoiceDate} onChange={e => setForm(p => ({ ...p, invoiceDate: e.target.value }))} className={inp} /></div>
-                  <div><label className={lbl}>Due Date</label><input type="date" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className={inp} /></div>
-                  <div><label className={lbl}>Period Start</label><input type="date" value={form.billingPeriodStart} onChange={e => setForm(p => ({ ...p, billingPeriodStart: e.target.value }))} className={inp} /></div>
-                  <div><label className={lbl}>Period End</label><input type="date" value={form.billingPeriodEnd} onChange={e => setForm(p => ({ ...p, billingPeriodEnd: e.target.value }))} className={inp} /></div>
-                </div>
-              </div>
-
-              <div className={`${card} overflow-hidden`}>
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
                   onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} />
               </div>
 
-              <div className={`${card} p-5`}>
-                <label className={lbl}>Notes</label>
-                <textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} rows={3} placeholder="Notes or payment instructions…" className={`${inp} resize-none`} />
-              </div>
+              <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Notes or payment instructions…" />
             </div>
 
-            <div className="w-72 shrink-0">
-              <div className="sticky top-6 space-y-4">
-                <div className={`${card} p-5`}>
-                  <div className="flex items-center gap-2 mb-5">
-                    <Receipt className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Invoice Summary</h3>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-slate-400">Subtotal</span><span className="tabular-nums">{formatCurrencyAmount(subtotal, form.currencyCode)}</span></div>
-                    <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-slate-400">VAT ({form.taxRate}%)</span><span className="tabular-nums">{formatCurrencyAmount(tax, form.currencyCode)}</span></div>
-                    <div className="h-px bg-slate-100 dark:bg-slate-800" />
-                    <div className="flex justify-between"><span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span><span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrencyAmount(total, form.currencyCode)}</span></div>
-                  </div>
-                  <button onClick={handleSubmit} disabled={submitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                    {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
-                  </button>
-                  <Link href={`/accounting/customer-invoices/${String(invoiceId)}`} className="block w-full mt-2 py-2.5 text-center border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold rounded-xl transition-colors text-sm">Cancel</Link>
-                </div>
-              </div>
+            <div className="lg:sticky lg:top-6 space-y-4">
+              <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={form.taxRate} currencyCode={form.currencyCode}>
+                <button onClick={handleSubmit} disabled={submitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
+                </button>
+                <Link href={`/accounting/customer-invoices/${String(invoiceId)}`} className="block w-full mt-2 py-2.5 text-center border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold rounded-xl transition-colors text-sm">Cancel</Link>
+              </InvoiceSummaryCard>
             </div>
           </div>
         </div>
