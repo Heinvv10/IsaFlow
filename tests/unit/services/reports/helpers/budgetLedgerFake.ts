@@ -23,7 +23,7 @@ export const ACCOUNTS: Record<string, { code: string; name: string; type: 'reven
 export const [SALES, RENT, WAGES, COS] = Object.keys(ACCOUNTS) as [string, string, string, string];
 
 export function resetLedger(): void {
-  W.years = []; W.versions = {}; W.jl = []; W.cells = []; W.centres = {};
+  W.years = []; W.versions = {}; W.jl = []; W.cells = []; W.centres = {}; registry.lookups = 0;
 }
 
 const isDate = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -103,8 +103,12 @@ export function fakeSql(strings: TemplateStringsArray, ...values: unknown[]): Pr
   throw new Error(`unexpected query: ${q.slice(0, 120)}`);
 }
 
+/** How many registry lookups (`fiscalYearForDate`) a read made: each is a savepointed query. */
+export const registry = { lookups: 0 };
+
 /** `fiscalYearForDate` over `W.years`. */
 export async function fakeFiscalYearForDate(_c: string, date: string) {
+  registry.lookups += 1;
   const y = W.years.find((r) => date >= r.startDate && date <= r.endDate);
   if (!y) throw new Error(`fiscalYearForDate: no fiscal year for company x on ${date}`);
   return { ...y, id: `fy${y.fiscalYear}`, status: 'open', kind: 'normal', stored: true, assumed: false };
