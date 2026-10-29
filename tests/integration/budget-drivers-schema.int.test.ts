@@ -142,7 +142,7 @@ describe('949: review round 1 rules', () => {
     }
   });
 
-  it('app_user cannot rewrite id, company or creation stamps', async () => {
+  it('app_user cannot write id, company (on update) or creation stamps', async () => {
     await asAppUser(A, async (q) => {
       const d = (await driver(q, A, v)).rows[0].id as string;
       for (const col of ['created_by', 'created_at', 'company_id', 'id']) {
@@ -150,6 +150,11 @@ describe('949: review round 1 rules', () => {
         expect(await codeOf(q, `UPDATE budget_driver_lines SET ${col} = ${val} WHERE id = $1`, [d]), col).toBe('42501');
       }
       expect(await codeOf(q, `UPDATE budget_driver_lines SET amount = 3, updated_by = 'me' WHERE id = $1`, [d])).toBe('ok');
+      // INSERT per column too: id and the timestamps take their defaults.
+      expect(await codeOf(q, `INSERT INTO budget_planned_hires (company_id, version_id, label, start_month, created_by, created_at)
+                              VALUES ($1, $2, 'Role', '2026-06-01', $3, '2001-01-01')`, [A.id, v, A.user])).toBe('42501');
+      expect(await codeOf(q, `INSERT INTO budget_planned_hires (id, company_id, version_id, label, start_month, created_by)
+                              VALUES (gen_random_uuid(), $1, $2, 'Role', '2026-06-01', $3)`, [A.id, v, A.user])).toBe('42501');
     });
   });
 });
