@@ -7,11 +7,20 @@ import { adminCreateUser, adminUpdateUser } from '../../../src/lib/auth/gotrue';
 import { cloneCompany } from './cloneCompany';
 import { MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, slotCompanyId, slotCompanyName, slotEmail, slotRegistrationNumber } from './slotConfig';
 
+/** What retireSlotCompany puts in front of a retired company's name. */
+const RETIRED_PREFIX = 'RETIRED';
 const say = (line: string): void => { process.stdout.write(`${line}\n`); };
 
 /** @returns true when this run created the company */
 export async function ensureCompany(db: ClientBase, n: number, id: string, generation: number): Promise<boolean> {
   const name = slotCompanyName(n, generation);
+  // A reset that crashed after its COMMIT and before the env file was written leaves GOLDEN_SLOT_n_COMPANY_ID on the
+  // retired company; the rename below would quietly bring it back and the next reset would retire the new one.
+  const held = await db.query<{ name: string }>('SELECT name FROM companies WHERE id = $1::uuid', [id]);
+  if (held.rows[0]?.name.startsWith(RETIRED_PREFIX)) {
+    throw new Error(`slot ${n}: company ${id} is retired ("${held.rows[0].name}"); a --reset-slot stopped before it wrote GOLDEN_SLOT_${n}_COMPANY_ID. `
+      + `Set that key in the env file to the newest generation of slot ${n} that is not retired (601d000<g>-0000-4000-8000-00000000000${n}), then run again`);
+  }
   const { created, copied, skippedChildren } = await cloneCompany(db, {
     sourceId: SOURCE_COMPANY_ID,
     targetId: id,
@@ -89,6 +98,6 @@ export async function retireSlotCompany(db: ClientBase, n: number, currentId: st
   // company's only owner from any role that is not a superuser (RC011), and the retired company has no other owner.
   await db.query(
     `UPDATE companies SET name = $2, registered_name = $2, trading_name = $2, is_demo = false WHERE id = $1::uuid`,
-    [currentId, `RETIRED ${stamp} slot ${n} (poisoned, replaced by generation ${generation})`]);
+    [currentId, `${RETIRED_PREFIX} ${stamp} slot ${n} (poisoned, replaced by generation ${generation})`]);
   return { generation, id: slotCompanyId(n, generation) };
 }

@@ -89,6 +89,9 @@ post-deploy verify, local runs) it is the old E2E_ADMIN_* / default-company path
   server by its exact PID (`ss -ltnp`), then `--verify`. The retired company gets `is_demo = false` (the
   specs' demo-company lookup must not find it); the golden user's membership in it stays, because
   `company_users_role_guard` refuses removing a company's only owner from a non-superuser role (RC011).
+- A `--reset-slot` that crashed after its commit and before the env write leaves the env key on the
+  retired company; the next run refuses it ("is retired"). Set `GOLDEN_SLOT_n_COMPANY_ID` to the newest
+  generation of slot n that is not named `RETIRED ...` and run again.
 - If `/home/hein/Workspace/IsaFlow/.env.local` (the file the symlink points at) is regenerated,
   the `GOLDEN_SLOT_*` keys are lost: the job then fails with "missing from ... isaflow-ci.env".
   Re-run `provision-slots.ts`: it reuses the existing passwords only if they are still in the
