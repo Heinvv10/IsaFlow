@@ -4,8 +4,10 @@
  * real period closes (the fiscal-period route's closePeriod).
  *
  * The source: Sales 1 000 a month (company level), Salaries 500 a month at CC1 (labour budgeted by
- * cost centre), COGS = 38% of Sales, Rent growing 10% a month from April's value (from May), a
- * planned hire. The ledger (March and April closed, May open):
+ * cost centre), COGS = 38% of Sales, Rent growing 10% a month from April's value (from May),
+ * Stationery at R100 a head (company headcount), one planned hire from month 4 through the route
+ * and a second from month 6 written directly (so the source's per-head cells are stale: a
+ * reforecast refreshes headcount, nothing is frozen). The ledger (March and April closed, May open):
  *   March  Sales 1 200 untagged + 100 tagged CC1 (Sales is budgeted at company level: 1 300);
  *          COGS 400; Salaries 300 at CC1, 150 at the second CC1 (a member the source never budgeted),
  *          and 200 untagged posted by payroll ('auto_payroll' carries no CC1, as on dev 2026-10-29);
@@ -14,7 +16,8 @@
  *   May    Sales 999 (an open month: never an actual).
  * Expected, by hand: Sales 1 300 / 1 500 actual then 1 000 manual; COGS 400 / 0 actual then 380
  * driver; Salaries CC1 300 / 0 actual then 500 manual; second CC1 150 / 0 actual (new row, closed
- * months only); Rent 40 / 50 actual, then 55, 61 (60.50 → R61) driver; unplaced Salaries 200 (March)
+ * months only); Rent 40 / 50 actual, then 55, 61 (60.50 → R61) driver; Stationery 0 / 0 actual, 0
+ * in month 3, 100 in months 4-5 and 200 from month 6 (the source still holds 100 there); unplaced Salaries 200 (March)
  * and 250 (April). Closed-month cells equal P3's actuals reader at each grain, and the BvA report's
  * actual per account and month equals the cells plus the unplaced amount, to the cent.
  */
@@ -59,6 +62,14 @@ beforeAll(async () => {
   expect(rent.status, dump(rent)).toBe(200);
   const hire = await fx.call.hires(w.u, 'POST', { versionId: source, label: 'Sales rep', startMonth: m[3], fte: 1 });
   expect(hire.status, dump(hire)).toBe(200);
+  const perHead = await fx.call.drivers(w.u, 'PUT', {
+    versionId: source, glAccountId: w.child1, kind: 'per_head', amount: 100, headcountCostCentreId: null, fromMonth: m[0], toMonth: m[11],
+  });
+  expect(perHead.status, dump(perHead)).toBe(200);
+  // A hire the source's cells never saw (no recompute): the reforecast must read it.
+  await pool.query(
+    `INSERT INTO budget_planned_hires (company_id, version_id, label, start_month, fte, created_by) VALUES ($1, $2, 'Engineer', $3, 1, $4)`,
+    [w.u.homeCompanyId, source, `${m[5]}-01`, w.u.userId]);
 
   await fx.journal(w, `${m[0]}-15`, [
     [w.sales, 0, 1200], [w.sales, 0, 100, { cc1: w.cc1 }], [w.cogs, 400, 0],
@@ -98,6 +109,14 @@ describe('budget reforecast from actuals', () => {
     // Growth feeds off April's actual: 50 → 55 → 60.50, rounded once to R61.
     const rent = await fx.cellsOf(v, w.rent);
     expect([rent.get(m[0]!), rent.get(m[1]!), rent.get(m[2]!), rent.get(m[3]!)]).toEqual(['40.00:actual', '50.00:actual', '55.00:driver', '61.00:driver']);
+    // Every row holds an 'actual' cell in every closed month (PR-3 reads such a month as closed).
+    const missing = (await pool.query(
+      `SELECT DISTINCT gl_account_id, cc1_id, cc2_id, bu_id, mm FROM budget_month_amounts r CROSS JOIN unnest($2::DATE[]) AS mm
+        WHERE r.version_id = $1 AND NOT EXISTS (SELECT 1 FROM budget_month_amounts a WHERE a.version_id = r.version_id
+          AND a.gl_account_id = r.gl_account_id AND a.cc1_id IS NOT DISTINCT FROM r.cc1_id AND a.cc2_id IS NOT DISTINCT FROM r.cc2_id
+          AND a.bu_id IS NOT DISTINCT FROM r.bu_id AND a.month = mm AND a.amount_source = 'actual')`,
+      [v, [`${m[0]}-01`, `${m[1]}-01`]])).rows;
+    expect(missing).toEqual([]);
     expect(rf.cells).toBe(Number((await pool.query('SELECT count(*)::int AS n FROM budget_month_amounts WHERE version_id = $1', [v])).rows[0].n));
   });
 
@@ -137,6 +156,14 @@ describe('budget reforecast from actuals', () => {
     expect(report.lines.length).toBeGreaterThanOrEqual(4);
   });
 
+  it('refreshes headcount (nothing frozen): per-head cells follow the hires as they are now, not the source', async () => {
+    const v = rf.version.id;
+    expect((await fx.cellsOf(source, w.child1)).get(m[5]!)).toBe('100.00:driver');
+    expect([...(await fx.cellsOf(v, w.child1)).values()]).toEqual([
+      '0.00:actual', '0.00:actual', '0.00:driver', '100.00:driver', '100.00:driver', ...Array(7).fill('200.00:driver'),
+    ]);
+  });
+
   it('copies the drivers and planned hires (recomputed over the result) and audits the reforecast', async () => {
     const v = rf.version.id;
     const drivers = async (id: string) => (await pool.query(
@@ -145,11 +172,12 @@ describe('budget reforecast from actuals', () => {
     const hires = async (id: string) => (await pool.query(
       'SELECT label, cost_centre_id, start_month::text, end_month::text, fte::text FROM budget_planned_hires WHERE version_id = $1', [id])).rows;
     expect(await drivers(v)).toEqual(await drivers(source));
-    expect((await drivers(v)).length).toBe(2);
+    expect((await drivers(v)).length).toBe(3);
     expect(await hires(v)).toEqual(await hires(source));
-    expect((await hires(v)).length).toBe(1);
+    expect((await hires(v)).length).toBe(2);
     expect((await fx.audits(v)).at(-1)!.changes.metadata).toMatchObject({
       reforecastFrom: source, closedMonths: `${m[0]},${m[1]}`, cells: String(rf.cells), unplaced: '2', unplacedTotal: '450', rolling: 'false',
+      headcountAsOf: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
     });
   });
 

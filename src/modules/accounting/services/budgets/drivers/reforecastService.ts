@@ -11,8 +11,10 @@
  *   read, and the share lock keeps its writers out until this commits) → createVersion (draft,
  *   based_on = source; its own audit row) → lockVersionForWrite on the new version → drivers, hires
  *   and the cells of accounts the grid does not show copied as they are → closed months → actuals
- *   (P3's reader) → plan → cells written with their source → the rolling row → one audit row
- *   (source, closed months, cells, unplaced).
+ *   (P3's reader) → plan (headcount refreshed, nothing frozen) → cells written with their source
+ *   (an 'actual' cell, 0 when none, for EVERY row in every closed month: PR-3's recompute reads a
+ *   month holding an 'actual' as closed) → the rolling row → one audit row (source, closed months,
+ *   cells, unplaced, headcountAsOf).
  * Untagged actuals on an account budgeted by a dimension are never dropped: they are returned as
  * `unplaced`, named (spec §5, §11: payroll's labour lines carry no CC1).
  */
@@ -112,7 +114,7 @@ export async function createReforecastFromActuals(
       const closed = await closedMonthsOf(companyId, year, months);
       const read = await readClosedActuals(companyId, year, closed);
       const model = await loadVersionModel(companyId, sourceId, months, await listDriverLines(companyId, sourceId));
-      const plan = await planOver(companyId, model, id, closed, read);
+      const { plan, headcountAsOf } = await planOver(companyId, model, id, closed, read);
       const cells = await writePlannedCells(companyId, id, actor.userId, plan.cells);
       if (input.rolling) await insertRollingRow(companyId, fiscalYear, id, actor.userId);
 
@@ -120,7 +122,7 @@ export async function createReforecastFromActuals(
       await auditBudgetWrite(companyId, actor.userId, 'update', id, fiscalYear, {
         reforecastFrom: sourceId, closedMonths: closed.join(',') || 'none', cells: String(cells),
         unplaced: String(unplaced.length), unplacedTotal: String(fromCents(plan.unplaced.reduce((s, u) => s + u.amount, 0))),
-        rolling: String(input.rolling),
+        rolling: String(input.rolling), headcountAsOf: headcountAsOf ?? 'none',
       });
       log.info('Created budget reforecast from actuals', {
         companyId, sourceId, versionId: id, closedMonths: closed.length, cells, unplaced: unplaced.length,
