@@ -1,7 +1,7 @@
 // Slot seeding goes through the app's routes and creates only what a search does not find (idempotent per slot).
 import { describe, expect, it } from 'vitest';
 import { MIGRATION_SOURCE, SEED, seedSlot, type SeedApi } from '../../../scripts/ci/golden/seedSlotData';
-import { assertLocalBaseUrl } from '../../../scripts/ci/golden/seedSlotClient';
+import { assertLocalBaseUrl, seedThroughContext, type SeedContext } from '../../../scripts/ci/golden/seedSlotClient';
 
 /** An in-memory stand-in for the app: it stores what the seeder posts and answers the searches the seeder makes. */
 function fakeApp() {
@@ -92,12 +92,46 @@ describe('seedSlot', () => {
 });
 
 describe('assertLocalBaseUrl', () => {
-  it('accepts a local dev server only', () => {
-    expect(() => assertLocalBaseUrl('http://localhost:3450')).not.toThrow();
-    expect(() => assertLocalBaseUrl('http://127.0.0.1:3450')).not.toThrow();
+  it.each(['http://localhost:3450', 'http://127.0.0.1:3450', 'http://localhost:3200', 'http://localhost:3239', 'http://localhost:3300', 'http://localhost:3799'])('accepts %s', (url) => {
+    expect(() => assertLocalBaseUrl(url)).not.toThrow();
   });
 
   it.each(['https://app.isaflow.co.za', 'https://dev.isaflow.co.za', 'http://100.96.203.105:3200', 'http://localhost.evil.test', 'nope'])('refuses %s', (url) => {
     expect(() => assertLocalBaseUrl(url)).toThrow();
+  });
+
+  // Production's next-server runs on this box at :3101; any other port is not a dev server either.
+  it.each(['http://localhost:3101', 'http://127.0.0.1:3101', 'http://localhost:3199', 'http://localhost:3240', 'http://localhost:3299', 'http://localhost:3800', 'http://localhost:80', 'http://localhost', 'http://localhost:7770'])('refuses the local port of %s', (url) => {
+    expect(() => assertLocalBaseUrl(url)).toThrow(/port/);
+  });
+});
+
+/** A fake request context that logs in and, when `scopedTo` differs from the slot's company, reports the wrong active company. */
+function fakeContext(scopedTo: string, calls: string[]): SeedContext {
+  const reply = (data: unknown, status = 200) => ({ status: () => status, text: async () => JSON.stringify({ data }), json: async () => ({ success: true, data }) });
+  return {
+    get: async (path: string) => { calls.push(`GET ${path}`); return reply(path.includes('user-companies') ? { activeCompanyId: scopedTo } : []); },
+    post: async (path: string) => { calls.push(`POST ${path}`); return reply({}); },
+    storageState: async () => ({ cookies: [{ name: 'isaflow_csrf', value: 'tok' }] }),
+  };
+}
+
+describe('seedThroughContext', () => {
+  const slot = { companyId: '601d0000-0000-4000-8000-000000000002', email: 'golden-slot-2@isaflow.dev', password: 'pw' };
+
+  it('writes nothing when the session is scoped to another company than the slot\'s', async () => {
+    const calls: string[] = [];
+    await expect(seedThroughContext(fakeContext('00000000-0000-0000-0000-000000000001', calls), slot)).rejects.toThrow(/not the slot company/);
+    const writes = calls.filter((c) => c.startsWith('POST') && !c.includes('/api/auth/'));
+    expect(writes).toEqual([]);
+  });
+
+  it('switches into the slot company before its first write', async () => {
+    const calls: string[] = [];
+    // Every list the seeder reads comes back empty, so it goes on to write; the point is the order.
+    await seedThroughContext(fakeContext(slot.companyId, calls), slot).catch(() => undefined);
+    const firstWrite = calls.findIndex((c) => c.startsWith('POST /api/accounting/'));
+    expect(calls.indexOf('POST /api/auth/switch-company')).toBeGreaterThan(-1);
+    expect(calls.indexOf('POST /api/auth/switch-company')).toBeLessThan(firstWrite);
   });
 });
