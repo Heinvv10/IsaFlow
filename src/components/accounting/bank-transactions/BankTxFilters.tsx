@@ -39,6 +39,7 @@ export interface BankTxFiltersProps {
   onBatchDelete: () => void;
   onToggleBatchEdit: () => void;
   onExport: () => void;
+  onExportAll: () => void;
   onApplyRules: () => void;
   onDownloadReport: () => void;
   onSearchChange: (v: string) => void;
@@ -61,7 +62,7 @@ export function BankTxFilters({
   searchTerm, fromDate, toDate, fromAmount, toAmount,
   sortOrder, allocationFilter, txType, allocType, hasSuggestion,
   onRefresh, onBulkAccept, onBatchAccept, onBatchDelete, onToggleBatchEdit,
-  onExport, onApplyRules, onDownloadReport,
+  onExport, onExportAll, onApplyRules, onDownloadReport,
   onSearchChange, onFromDateChange, onToDateChange, onFromAmountChange, onToAmountChange,
   onSortOrderChange, onAllocationFilterChange, onTxTypeChange, onAllocTypeChange,
   onHasSuggestionChange, onToggleCC, onToggleBU,
@@ -125,6 +126,13 @@ export function BankTxFilters({
         className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
       >
         <Download className="h-3.5 w-3.5" /> Export
+      </button>
+      <button
+        onClick={onExportAll}
+        title="Every bank account, every posted transaction between the From and To dates, as one CSV (pending bank-feed lines are left out)"
+        className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
+      >
+        <Download className="h-3.5 w-3.5" /> Export all accounts
       </button>
       <button
         onClick={onApplyRules}
