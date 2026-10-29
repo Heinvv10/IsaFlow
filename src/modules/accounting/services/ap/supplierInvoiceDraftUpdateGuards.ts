@@ -5,6 +5,7 @@
  * any write. Split from supplierInvoiceDraftUpdate.ts for the 300-line cap.
  */
 import { sql } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { DbRow } from '@/lib/neon';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
@@ -93,7 +94,7 @@ export async function planLines(
   const lost = kept[lostAt];
   if (lost) {
     throw new SupplierInvoiceDraftUpdateRefusal(
-      `Supplier invoice ${number} has stored line ${lostAt + 1} (R${Number(lost.line_total).toFixed(2)}) that carries a purchase-order link, `
+      `Supplier invoice ${number} has stored line ${lostAt + 1} (${formatMoney(Number(lost.line_total))}) that carries a purchase-order link, `
       + 'project, cost centre or VAT classification that replacing the lines would drop. '
       + 'Edit it in the app instead, or cancel and re-enter it.',
     );
