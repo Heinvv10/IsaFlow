@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, script } from '../helpers/d2R3a5';
+import { pickOption } from '../helpers/kitPick';
 
 configure({ asyncUtilTimeout: 4000 });
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -26,8 +27,7 @@ async function preview(unitPrice: string, taxRate: string, rate: string): Promis
   script((u) => (u.endsWith('/customers') ? ok([{ id: 'c-1', name: 'FX Client' }])
     : u.includes('currencies') ? ok([{ code: 'USD', name: 'US Dollar', symbol: '$' }]) : undefined));
   render(<NewInvoicePage />);
-  await screen.findByRole('option', { name: /USD/ });
-  fireEvent.change(document.querySelector('select[name="currencyCode"]')!, { target: { value: 'USD' } });
+  await pickOption('Currency', /USD/);
   fireEvent.change(document.querySelector('input[name="taxRate"]')!, { target: { value: taxRate } });
   fireEvent.change(document.querySelector('input[name="exchangeRate"]')!, { target: { value: rate } });
   fireEvent.change(document.querySelector('input[name="unitPrice"]')!, { target: { value: unitPrice } });
