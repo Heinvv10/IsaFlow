@@ -25,6 +25,7 @@ import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
 import { resolveConsentCompany } from '@/lib/auth/consentCompany';
+import { connectorEnabledMemberships, NO_CONNECTOR_COMPANY_MESSAGE } from '@/lib/auth/connectorCompanies';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
 import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
@@ -264,11 +265,13 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   // The grant is pinned to ONE company for the life of the token, so the user
   // has to see (and for a multi-company user, choose) which one. Options come
   // from real memberships; consent.ts re-checks the submitted value anyway.
+  // Only companies with the connector on are offered (connectorCompanies.ts).
   const memberships = await getUserCompanies(userId);
-  const choice = resolveConsentCompany(memberships, cookies[ACTIVE_COMPANY_COOKIE]);
-  if (!choice) {
+  if (memberships.length === 0) {
     return { props: { ok: false, error: 'Your account is not linked to a company, so there is nothing to authorise.' } };
   }
+  const choice = resolveConsentCompany(await connectorEnabledMemberships(memberships), cookies[ACTIVE_COMPANY_COOKIE]);
+  if (!choice) return { props: { ok: false, error: NO_CONNECTOR_COMPANY_MESSAGE } };
 
   return {
     props: {

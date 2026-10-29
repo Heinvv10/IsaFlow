@@ -24,6 +24,7 @@ import {
 import { partitionRequestedScopes, buildGrantedScopes } from '@/lib/auth/consentScopes';
 import { checkResourceIndicator, oauthIssuer } from '@/lib/auth/oauthResource';
 import { scopesRoleMayNotHold } from '@/lib/auth/writeRoles';
+import { CONNECTOR_COMPANY_REFUSED_MESSAGE, isConnectorEnabled } from '@/lib/auth/connectorCompanies';
 
 const VALID_SCOPES = new Set<string>(OAUTH_SCOPES);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -102,6 +103,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.error(res, ErrorCode.FORBIDDEN, 'Not a member of this company');
     }
     targetRole = member[0]!.role;
+  }
+
+  // Connector gate (incident 2026-10-28): /api/mcp refuses every call for a
+  // company without mcp_connector, so a grant to one signs in and then fails.
+  // Checked after membership so a non-member learns nothing about the flag.
+  if (!(await isConnectorEnabled(targetCompanyId))) {
+    log.warn('OAuth consent: company without the MCP connector rejected', {
+      userId: req.user.id, targetCompanyId,
+    }, 'oauth');
+    return apiResponse.error(res, ErrorCode.FORBIDDEN, CONNECTOR_COMPANY_REFUSED_MESSAGE);
   }
 
   // Role gate (audit 2026-10-18 S-01): a role that cannot write in the target company is granted the
