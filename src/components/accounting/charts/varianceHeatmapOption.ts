@@ -13,10 +13,13 @@
  * `lib/charts/echarts.ts`; the heatmap series is not), which also lets the
  * decal render in the SSR SVG.
  *
- * The month in progress (`inProgressMonth`) holds part-month actuals against a
- * whole month's budget: not a variance yet. Its cells are drawn neutral (the
- * axis ink), labelled "*" on the axis, said so in the tooltip, and left out of
- * the colour scale, so the complete months keep their strength.
+ * Months after `judgedThrough` (the projection cutoff's month: the last
+ * complete one) hold part-month or no actuals against a whole month's budget:
+ * not a variance yet. The month in progress and every month still to come are
+ * drawn neutral (the axis ink), marked "*" on the axis, said so in the tooltip,
+ * and left out of the colour scale, so the judged months keep their strength.
+ * A judged nonzero variance is drawn at no less than MIN_OPACITY, so a small
+ * one still shows against a dark background; an on-budget month stays clear.
  *
  * Labels: account names are ledger data. The tooltip escapes them
  * (`escapeHtml`); the axis is drawn as text by zrender, not HTML. Below
@@ -37,6 +40,8 @@ import { roleStyle, varianceColor } from './ibcs';
 import { NARROW_WIDTH } from './waterfallOption';
 
 export const HEATMAP_DEFAULT_LIMIT = 15;
+/** The faintest a judged nonzero variance is drawn. */
+const MIN_OPACITY = 0.25;
 /** Label width (px) wide and below NARROW_WIDTH; past it a name truncates with an ellipsis. */
 const WIDE_LABEL_WIDTH = 260;
 const NARROW_LABEL_WIDTH = 124;
@@ -66,9 +71,10 @@ export function buildVarianceHeatmapOption(
   lines: readonly TrackingLine[],
   months: readonly string[],
   palette: ChartPalette,
-  opts: { limit?: number; showAll?: boolean; inProgressMonth?: string | null } = {},
+  opts: { limit?: number; showAll?: boolean; judgedThrough?: string | null } = {},
 ): EChartsCoreOption | null {
-  const inProgress = (month: string) => month === opts.inProgressMonth;
+  // Not yet judged: after the last judged month (absent: every month is judged).
+  const unjudged = (month: string) => opts.judgedThrough != null && month > opts.judgedThrough;
   // ECharts draws category index 0 at the BOTTOM: reversed, the largest |variance| is on top.
   const rows = heatmapAccounts(lines, opts).reverse();
   if (rows.length === 0 || months.length === 0) return null;
@@ -82,8 +88,8 @@ export function buildVarianceHeatmapOption(
       });
     });
   });
-  // The month in progress is not on the scale: its part-month figure would wash out the complete months.
-  const max = Math.max(0, ...cells.map((c) => (c.variance === null || inProgress(c.month) ? 0 : Math.abs(c.variance))));
+  // Months not yet judged are not on the scale: a part or empty month would wash out the judged ones.
+  const max = Math.max(0, ...cells.map((c) => (c.variance === null || unjudged(c.month) ? 0 : Math.abs(c.variance))));
   const forecast = roleStyle('forecast', palette);
 
   const renderItem = (params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) => {
@@ -96,8 +102,9 @@ export function buildVarianceHeatmapOption(
     if (c.variance === null) {
       return { type: 'rect' as const, shape, style: { fill: forecast.color, stroke: forecast.borderColor, lineWidth: forecast.borderWidth, decal: forecast.decal } };
     }
-    if (inProgress(c.month)) return { type: 'rect' as const, shape, style: { fill: palette.axisLine, opacity: 0.35 } };
-    const opacity = max === 0 ? 0 : Math.round((Math.abs(c.variance) / max) * 1000) / 1000;
+    if (unjudged(c.month)) return { type: 'rect' as const, shape, style: { fill: palette.axisLine, opacity: 0.35 } };
+    const share = max === 0 ? 0 : Math.abs(c.variance) / max;
+    const opacity = share === 0 ? 0 : Math.round(Math.max(MIN_OPACITY, share) * 1000) / 1000;
     return { type: 'rect' as const, shape, style: { fill: varianceColor(c.favourable ?? undefined, palette), opacity } };
   };
 
@@ -122,8 +129,8 @@ export function buildVarianceHeatmapOption(
         if (!c) return '';
         const head = `${escapeHtml(`${c.line.accountCode} ${c.line.accountName}`)}<br/>${monthLabel(c.month)}`;
         const actual = `Actual ${formatStatementFigure(c.actual, { symbol: true })}`;
-        if (inProgress(c.month) && c.budget !== null) {
-          return `${head}<br/>${actual}<br/>Budget ${formatStatementFigure(c.budget, { symbol: true })}<br/>In progress: actuals to date against the whole month's budget, not yet a variance`;
+        if (unjudged(c.month) && c.budget !== null) {
+          return `${head}<br/>${actual}<br/>Budget ${formatStatementFigure(c.budget, { symbol: true })}<br/>Not yet judged: the month is in progress or still to come, so its actuals are not set against its budget`;
         }
         if (c.budget === null || c.variance === null) {
           // A month budgeted only above the filter has a budget, just not one this filter can split.
@@ -134,7 +141,7 @@ export function buildVarianceHeatmapOption(
     },
     xAxis: {
       type: 'category',
-      data: months.map((m) => (inProgress(m) ? `${monthLabel(m)} *` : monthLabel(m))),
+      data: months.map((m) => (unjudged(m) ? `${monthLabel(m)} *` : monthLabel(m))),
       axisLabel: { color: palette.axisLabel, interval: 0 },
       axisLine: { lineStyle: { color: palette.axisLine } },
     },

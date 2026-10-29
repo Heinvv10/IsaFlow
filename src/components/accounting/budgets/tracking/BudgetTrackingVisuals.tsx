@@ -28,7 +28,8 @@ export function BudgetTrackingVisuals({ report, filtered, groupBy, onGroupBy }: 
 }) {
   const steps = useMemo(() => budgetBridgeSteps(report), [report]);
   const bullets = useMemo(() => (report.members ? toBulletLines(report.members) : []), [report]);
-  const inProgressMonth = report.window.inProgress?.month ?? null;
+  // The heatmap judges a month only once it is complete: through the projection cutoff's month.
+  const judgedThrough = report.projection.cutoff.slice(0, 7);
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <p className="lg:col-span-2 text-xs text-[var(--ff-text-secondary)]">
@@ -51,8 +52,8 @@ export function BudgetTrackingVisuals({ report, filtered, groupBy, onGroupBy }: 
           : <BudgetBulletRow lines={bullets} limit={12} summary={bulletSummary(bullets)} />}
       </div>
       <div data-testid="bva-heatmap" className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-3 lg:col-span-2">
-        <VarianceHeatmap lines={report.lines} months={report.window.months} inProgressMonth={inProgressMonth}
-          summary={heatmapSummary(report.lines, report.window.months, inProgressMonth)} />
+        <VarianceHeatmap lines={report.lines} months={report.window.months} judgedThrough={judgedThrough}
+          summary={heatmapSummary(report.lines, report.window.months, judgedThrough)} />
       </div>
     </div>
   );
