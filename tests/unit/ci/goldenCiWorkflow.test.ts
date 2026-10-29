@@ -1,3 +1,6 @@
+// TEXT GUARDS: these assert on ci.yml's source, not on what the job does when it runs. They stop the mapping and the
+// clean-up step drifting apart in review; the behaviour proof for the clean-up is the real-listener test in
+// goldenKillSlotOrphans.test.ts.
 // The golden-paths job in ci.yml maps a runner to a slot with a shell `case`; slotConfig.ts owns the slot numbers. Nothing
 // else ties them together, so a copy-pasted runner arm that reuses a slot (two runners on one company, the thing slots
 // exist to prevent) or a slot with no runner would pass every other test.
