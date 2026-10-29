@@ -35,7 +35,7 @@ describe('planLines: a stored line the replacement would drop', () => {
     const err = await planLines('co', 'inv', 'INV-9', [{ description: 'Something else', quantity: 2, unitPrice: 10, taxRate: 15 }] as never, 15)
       .then(() => null, (e: unknown) => e as Error);
     expect(err).toBeInstanceOf(SupplierInvoiceDraftUpdateRefusal);
-    expect(err!.message).toMatch(/^Supplier invoice INV-9 has stored line 2 \(R250\.00\) that carries a purchase-order link, /);
+    expect(err!.message).toMatch(/^Supplier invoice INV-9 has stored line 2 \(R\u00A0250\.00\) that carries a purchase-order link, /);
     expect(err!.message).not.toMatch(/SMITH|0123456789/);
   });
 });
