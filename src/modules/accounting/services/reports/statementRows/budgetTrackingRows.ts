@@ -46,6 +46,12 @@ function figureRow(id: string, kind: StatementRow['kind'], label: string, depth:
   return { id, kind, label, depth, actual: f.actual, budget: budgetOf(f), projection: projectionOf(f), unallocatedBudget: f.unallocatedBudget };
 }
 
+/** A band or total row: its absent budget says "partial" when the engine says a line under it is partial. */
+const bandRow = (id: string, kind: StatementRow['kind'], label: string, b: TrackingBand): BudgetTrackingRow => {
+  const row = figureRow(id, kind, label, 0, b);
+  return row.budget.absent && b.partialBudget ? { ...row, budget: { ...row.budget, absentReason: 'partial' } } : row;
+};
+
 const lineRow = (l: TrackingLine): BudgetTrackingRow => {
   const row: BudgetTrackingRow = { ...figureRow(`acc:${l.accountCode}`, 'line', l.accountName, 1, l), accountCode: l.accountCode, partialBudget: l.partialBudget };
   // Why a line's budget is "—", when the engine knows: the grid's marker.
@@ -70,11 +76,11 @@ export function toBudgetTrackingRows(report: Pick<BudgetTrackingReport, 'lines' 
     // The band header carries the band actual, as incomeStatementRows does; the HTML view blanks it.
     rows.push({ id: `sec:${key}`, kind: 'section', label: b.label, depth: 0, actual: b.actual, budget: budgetOf(b), projection: projectionOf(b), unallocatedBudget: b.unallocatedBudget });
     rows.push(...lines.map(lineRow));
-    rows.push(figureRow(`sub:${key}`, 'subtotal', `Total ${b.label}`, 0, b));
+    rows.push(bandRow(`sub:${key}`, 'subtotal', `Total ${b.label}`, b));
   };
   const total = (key: 'gross_profit' | 'operating_profit' | 'net_profit') => {
     const b = bandOf(key);
-    rows.push(figureRow(`${b.kind === 'grand' ? 'grand' : 'total'}:${key}`, b.kind === 'grand' ? 'grand' : 'total', b.label, 0, b));
+    rows.push(bandRow(`${b.kind === 'grand' ? 'grand' : 'total'}:${key}`, b.kind === 'grand' ? 'grand' : 'total', b.label, b));
   };
   section('turnover', true);
   section('cost_of_sales', false);

@@ -140,6 +140,8 @@ export interface TrackingBand extends TrackingFigures {
   label: string;
   kind: 'band' | 'total' | 'grand';
   polarity: 'income' | 'expense';
+  /** A line under it budgets only part of the window, which is why its window budget is absent. */
+  partialBudget: boolean;
 }
 
 export interface TrackingMemberRef {

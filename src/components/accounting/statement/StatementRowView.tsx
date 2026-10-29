@@ -77,6 +77,8 @@ function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey,
   // An absent comparator prints "—" in every cell, with no bar and no colour.
   const absent = show && c.absent === true;
   const figure = show && !absent && c.variance !== undefined ? varianceAmount(c.variance, cents) : '';
+  // Var % of a zero budget is "—" on Budget vs Actual: the absent glyph, so it carries no colour either.
+  const pctDash = tracking && show && !absent && c.variancePct === undefined && c.value === 0 && c.variance !== undefined;
   return (
     <>
       <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
@@ -95,9 +97,8 @@ function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey,
               <VarianceBar value={c.variance} max={maxVariance[comparatorKey]} favourable={c.favourable} />
             )}
           </td>
-          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent ? undefined : favColour(c?.favourable) }}>
-            {absent ? ABSENT : show && c.variancePct !== undefined ? formatPct(c.variancePct)
-              : tracking && show && c.value === 0 && c.variance !== undefined ? ABSENT : ''}
+          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: absent || pctDash ? undefined : favColour(c?.favourable) }}>
+            {absent || pctDash ? ABSENT : show && c.variancePct !== undefined ? formatPct(c.variancePct) : ''}
           </td>
         </>
       )}

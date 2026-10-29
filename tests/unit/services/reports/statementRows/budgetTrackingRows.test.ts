@@ -71,6 +71,17 @@ describe('toBudgetTrackingRows', () => {
     expect(rows.find((r) => r.id === 'acc:4000')!.partialBudget).toBe(false);
   });
 
+  it('PR-B r2: a band or total whose budget is absent because of a partial line is marked partial, not "No budget"', () => {
+    const bands = BANDS.map((b) => (['turnover', 'gross_profit', 'net_profit'].includes(b.key)
+      ? { ...b, budget: null, variance: null, variancePct: null, favourable: null, partialBudget: true } : b));
+    const rows = toBudgetTrackingRows({ lines: LINES, bands });
+    expect(['sub:turnover', 'total:gross_profit', 'grand:net_profit'].map((id) => rows.find((r) => r.id === id)!.budget.absentReason))
+      .toEqual(['partial', 'partial', 'partial']);
+    // An absent band budget with no partial line keeps the plain "No budget" (no reason).
+    const plain = toBudgetTrackingRows({ lines: LINES, bands: BANDS.map((b) => (b.key === 'turnover' ? { ...b, budget: null, variance: null, partialBudget: false } : b)) });
+    expect(plain.find((r) => r.id === 'sub:turnover')!.budget).toEqual({ value: 0, absent: true });
+  });
+
   it('an unbudgeted line is absent (no value printed, no colour); a zero budget is a 0', () => {
     // 4100's only budget is above the filter: absent, and the grid's marker says why (PR-B).
     expect(row('acc:4100').budget).toEqual({ value: 0, absent: true, absentReason: 'above-filter' });
