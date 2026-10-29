@@ -12,7 +12,12 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 const checkReportRateLimit = vi.fn(async () => true);
-vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: (...a: unknown[]) => checkReportRateLimit(...(a as [])) }));
+const reportRateLimitRetryAfter = vi.fn(async () => 300);
+vi.mock('@/lib/rateLimit', () => ({
+  checkReportRateLimit: (...a: unknown[]) => checkReportRateLimit(...(a as [])),
+  reportRateLimitRetryAfter: (...a: unknown[]) => reportRateLimitRetryAfter(...(a as [])),
+  INTERACTIVE_REPORT_LIMIT: { max: 120, windowSecs: 900 },
+}));
 const buildBudgetTrackingReport = vi.fn();
 vi.mock('@/modules/accounting/services/budgets/tracking/budgetTrackingService', () => ({
   buildBudgetTrackingReport: (...a: unknown[]) => buildBudgetTrackingReport(...a),
@@ -57,8 +62,20 @@ describe('reports-budget-tracking', () => {
     checkReportRateLimit.mockResolvedValue(false);
     const res = await get({ period: 'ytd' });
     expect(res.statusCode).toBe(429);
-    expect(checkReportRateLimit).toHaveBeenCalledWith(COMPANY, 'reports-budget-tracking');
+    expect(checkReportRateLimit).toHaveBeenCalledWith(COMPANY, 'reports-budget-tracking', { max: 120, windowSecs: 900 });
     expect(buildBudgetTrackingReport).not.toHaveBeenCalled();
+  });
+
+  it('a refusal says how long to wait, in Retry-After and in the message (browser review r1 M1)', async () => {
+    checkReportRateLimit.mockResolvedValue(false);
+    reportRateLimitRetryAfter.mockResolvedValueOnce(250);
+    const res = await get({ period: 'ytd' });
+    expect(res.statusCode).toBe(429);
+    expect(reportRateLimitRetryAfter).toHaveBeenCalledWith(COMPANY, 'reports-budget-tracking', 900);
+    expect(res.headers['Retry-After']).toBe('250');
+    expect(JSON.stringify(res.sent)).toContain('Too many report requests: try again in 5 minutes.');
+    reportRateLimitRetryAfter.mockResolvedValueOnce(40);
+    expect(JSON.stringify((await get({ period: 'ytd' })).sent)).toContain('try again in 40 seconds.');
   });
 
   const BAD: Array<[string, Record<string, unknown>]> = [

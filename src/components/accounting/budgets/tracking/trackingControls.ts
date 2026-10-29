@@ -79,6 +79,20 @@ export function quarterOptions(y: Pick<ReportYearOption, 'startDate' | 'endDate'
   return out;
 }
 
+/**
+ * The quarter a Quarter view opens on: the one holding today ('YYYY-MM') when the year holds it, as
+ * Month opens on the month holding today; Q1 for a year that does not (past or future).
+ */
+export function quarterHolding(y: Pick<ReportYearOption, 'startDate' | 'endDate'> | undefined, today: string): number {
+  if (!y || today < y.startDate.slice(0, 7) || today > y.endDate.slice(0, 7)) return 1;
+  return Math.floor((monthOrdinal(today) - monthOrdinal(y.startDate.slice(0, 7))) / 3) + 1;
+}
+
+/** Why the controls cannot be sent as they stand (checked before any request), or null. */
+export function controlsProblem(c: TrackingControls): string | null {
+  return c.period === 'custom' && c.from && c.to && c.from > c.to ? 'The From month is after the To month.' : null;
+}
+
 /** The report's query string: the period, its own parameters, the version, the filter, the bullets. */
 export function trackingSearch(c: TrackingControls, opts: { bullets: boolean }): URLSearchParams {
   const q = new URLSearchParams({ period: c.period });

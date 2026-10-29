@@ -75,17 +75,24 @@ export default function BudgetVsActualPage() {
           <BudgetTrackingControls controls={controls} years={t.years} shownYear={report?.window.fiscalYear ?? null}
             today={t.today} versions={t.versions} versionsError={t.versionsError}
             crossYears={report?.versionsByFy ? Object.keys(report.versionsByFy).map(Number) : null}
-            centres={t.centres} units={t.units} update={t.update} setPeriod={t.setPeriod} />
+            centres={t.centres} units={t.units} update={t.update} setPeriod={t.setPeriod} setFiscalYear={t.setFiscalYear}
+            problem={t.problem} />
           {Object.keys(t.refError).length > 0 && (
             <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">{Object.values(t.refError).join(' ')}</p>
           )}
 
-          {t.isLoading ? (
+          {t.problem ? (
+            <p className="py-8 text-center text-sm text-[var(--ff-text-secondary)]">Correct the period above to load the report.</p>
+          ) : t.isLoading ? (
             <ListSkeleton rows={14} label="Loading budget vs actual" />
           ) : t.error ? (
-            <div className="flex items-center gap-2 text-red-500 py-8 justify-center">
+            <div className="flex flex-wrap items-center gap-3 text-red-500 py-8 justify-center">
               <AlertCircle className="h-5 w-5" />
               <span>{t.error}</span>
+              <button type="button" onClick={t.retry}
+                className="px-3 py-1.5 rounded-lg border border-[var(--ff-border-light)] text-sm font-medium text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)]">
+                Retry
+              </button>
             </div>
           ) : report?.window.notStarted ? (
             <div className="text-center py-12">

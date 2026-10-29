@@ -8,7 +8,12 @@
  *
  * A response that arrives after a newer request is dropped, so a slow
  * earlier window never overwrites a later one. A failed load clears the
- * report, so the export buttons cannot export the previous window.
+ * report, so the export buttons cannot export the previous window; `retry`
+ * re-sends the same request (a 429 says how long to wait). Control changes
+ * are coalesced: a request goes out once they have been still for
+ * COALESCE_MS, so a run of clicks costs the company's report limit one
+ * request. Controls the client can judge wrong (an inverted custom range)
+ * send nothing and say why (`problem`).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
@@ -19,13 +24,15 @@ import type { BudgetVersion } from '@/modules/accounting/services/budgets/budget
 import type { BudgetTrackingReport, TrackingPeriod } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import type { ReportYearOption } from '@/modules/accounting/services/reports/budgetReportYear';
 import {
-  controlsFromQuery, controlsToQuery, DEFAULT_CONTROLS, trackingSearch, withPatch, type TrackingControls,
+  controlsFromQuery, controlsProblem, controlsToQuery, DEFAULT_CONTROLS, quarterHolding, trackingSearch, withPatch,
+  type TrackingControls,
 } from './trackingControls';
 
 export interface DimensionOption { id: string; code: string; name: string; ccType?: string }
 
 export const BVA_PATH = '/accounting/reports/budget-vs-actual';
 const LOAD_FAILED = 'Could not load the budget report - try again';
+const COALESCE_MS = 350;
 
 async function listOf(url: string, failure: string): Promise<DimensionOption[]> {
   const res = await apiFetch(url, { credentials: 'include' });
@@ -51,11 +58,15 @@ export function useBudgetTracking() {
   const [refError, setRefError] = useState<Record<string, string>>({});
   const [today] = useState(() => localISODate().slice(0, 7));
   const latest = useRef(0);
+  // The query actually requested (after coalescing) and a counter Retry bumps to send it again.
+  const [requested, setRequested] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   const query = trackingSearch(controls, { bullets: true }).toString();
   const exportQuery = trackingSearch(controls, { bullets: false }).toString();
   const urlQuery = new URLSearchParams(controlsToQuery(controls)).toString();
   const returnTo = `${BVA_PATH}?${urlQuery}`;
+  const problem = controlsProblem(controls);
 
   useEffect(() => {
     if (hydrated || !router.isReady) return;
@@ -70,12 +81,29 @@ export function useBudgetTracking() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, urlQuery]);
 
+  // The first request goes at once; later control changes wait until they have been still.
   useEffect(() => {
     if (!hydrated) return;
+    if (problem) {
+      latest.current += 1;
+      setRequested(null);
+      setReport(null);
+      setIsLoading(false);
+      return;
+    }
+    if (requested === null && latest.current === 0) { setRequested(query); return; }
+    const timer = setTimeout(() => setRequested(query), COALESCE_MS);
+    return () => clearTimeout(timer);
+    // `requested` is read only to tell the first request apart.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, query, problem]);
+
+  useEffect(() => {
+    if (requested === null) return;
     const request = ++latest.current;
     setIsLoading(true);
     setError('');
-    apiJson(`/api/accounting/reports-budget-tracking?${query}`, undefined, LOAD_FAILED)
+    apiJson(`/api/accounting/reports-budget-tracking?${requested}`, undefined, LOAD_FAILED)
       .then((data) => {
         if (request !== latest.current) return;
         setReport(data);
@@ -87,7 +115,9 @@ export function useBudgetTracking() {
         setError(apiErrorMessage(err, LOAD_FAILED));
       })
       .finally(() => { if (request === latest.current) setIsLoading(false); });
-  }, [hydrated, query]);
+  }, [requested, attempt]);
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   // The version picker lists FY*'s versions, primary first.
   const fy = report?.window.fiscalYear ?? null;
@@ -126,16 +156,29 @@ export function useBudgetTracking() {
   /** A custom window opens on the months on screen, so switching to it changes nothing until edited. */
   const setPeriod = useCallback((period: TrackingPeriod) => {
     setControls((c) => {
+      if (period === 'quarter') return withPatch(c, { period, quarter: quarterHolding(yearRecord(c.fiscalYear), today) });
       if (period !== 'custom' || (c.from && c.to)) return withPatch(c, { period });
       const months = report?.window.months ?? [];
       return withPatch(c, { period, from: months[0] ?? today, to: months[months.length - 1] ?? today });
     });
-  }, [report, today]);
+  }, [report, today, years]);
+
+  /** The registry year a label names; null = the year holding today. */
+  function yearRecord(label: number | null): ReportYearOption | undefined {
+    return label === null
+      ? years.find((y) => y.startDate.slice(0, 7) <= today && today <= y.endDate.slice(0, 7))
+      : years.find((y) => y.fiscalYear === label);
+  }
+
+  /** Another financial year: a Quarter view opens on that year's quarter holding today (Q1 if none). */
+  const setFiscalYear = useCallback((fiscalYear: number) => {
+    setControls((c) => withPatch(c, { fiscalYear, quarter: quarterHolding(years.find((y) => y.fiscalYear === fiscalYear), today) }));
+  }, [years, today]);
 
   const clearFilter = useCallback(() => update({ cc1Id: '', cc2Id: '', buId: '' }), [update]);
 
   return {
-    controls, update, setPeriod, clearFilter, report, years, isLoading, error,
+    controls, update, setPeriod, setFiscalYear, clearFilter, retry, problem, report, years, isLoading, error,
     versions, versionsError, centres, units, refError, today, exportQuery, returnTo,
   };
 }

@@ -6,6 +6,11 @@
  * - M4: a response that arrives after a newer request is dropped, so a slow
  *   earlier window never replaces a later one; a load that fails after a good
  *   one clears the report: no rows, the error, and the exports disabled.
+ * - Browser review r1: rapid control changes are coalesced into one request;
+ *   a refusal (429) shows the server's wait and a Retry button that re-sends
+ *   the same request; an inverted custom range says so and sends nothing; the
+ *   Quarter period opens on the quarter holding today (Q1 for a year that
+ *   does not hold today), as Month opens on the month holding today.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -103,5 +108,67 @@ describe('responses that race or fail', () => {
     expect(await screen.findByText('Could not load the budget report - try again')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Good line/ })).toBeNull();
     expect([exportCsv().disabled, exportXlsx().disabled]).toEqual([true, true]);
+  });
+});
+
+describe('coalescing, refusal and retry (browser review r1)', () => {
+  it('three rapid changes make one request, for the last of them', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok(named('Sales')));
+    render(<BudgetVsActualPage />);
+    await screen.findByRole('button', { name: /Sales/ });
+    fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'month' } });
+    fireEvent.change(screen.getByTestId('bva-month'), { target: { value: '2026-07' } });
+    fireEvent.change(screen.getByTestId('bva-month'), { target: { value: '2026-08' } });
+    await waitFor(() => expect(reportQueries()).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 600));
+    expect(reportQueries()).toEqual([{ period: 'ytd', group_by: 'cc1' }, { period: 'month', month: '2026-08', group_by: 'cc1' }]);
+  });
+
+  it("a 429 shows the server's wait and Retry, which re-sends the same request", async () => {
+    let refuse = true;
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+      if (!String(url).includes('reports-budget-tracking')) return ok({});
+      return refuse
+        ? new Response(JSON.stringify({ success: false, error: { code: 'RATE_LIMIT', message: 'Too many report requests: try again in 4 minutes.' } }), { status: 429, headers: { 'Retry-After': '240' } })
+        : ok(named('Back again'));
+    });
+    render(<BudgetVsActualPage />);
+    expect(await screen.findByText('Too many report requests: try again in 4 minutes.')).toBeTruthy();
+    refuse = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await screen.findByRole('button', { name: /Back again/ });
+    expect(reportQueries()).toEqual([{ period: 'ytd', group_by: 'cc1' }, { period: 'ytd', group_by: 'cc1' }]);
+  });
+});
+
+describe('controls the client can judge (browser review r1)', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('an inverted custom range says so inline and sends no request', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok(named('Sales')));
+    render(<BudgetVsActualPage />);
+    await screen.findByRole('button', { name: /Sales/ });
+    fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'custom' } });
+    await waitFor(() => expect(reportQueries()).toHaveLength(2));
+    fireEvent.change(screen.getByTestId('bva-from'), { target: { value: '2026-09' } });
+    fireEvent.change(screen.getByTestId('bva-to'), { target: { value: '2026-05' } });
+    expect((await screen.findByTestId('bva-range-error')).textContent).toBe('The From month is after the To month.');
+    await new Promise((r) => setTimeout(r, 600));
+    expect(reportQueries().filter((q) => q.from === '2026-09')).toEqual([]);
+    expect(screen.queryByRole('button', { name: /Sales/ })).toBeNull();
+    expect((screen.getByRole('button', { name: /Export CSV/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('Quarter opens on the quarter holding today; a year that does not hold today opens on Q1', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 7, 15, 12));
+    vi.mocked(apiFetch).mockReset().mockImplementation(async () => ok(named('Sales')));
+    render(<BudgetVsActualPage />);
+    await screen.findByRole('button', { name: /Sales/ });
+    fireEvent.change(screen.getByTestId('bva-period'), { target: { value: 'quarter' } });
+    // FY2027 runs Mar 2026 - Feb 2027: August 2026 is in Q2.
+    await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'quarter', quarter: '2', group_by: 'cc1' }));
+    fireEvent.change(screen.getByTestId('report-year'), { target: { value: '2026' } });
+    await waitFor(() => expect(reportQueries().at(-1)).toEqual({ period: 'quarter', fiscal_year: '2026', quarter: '1', group_by: 'cc1' }));
   });
 });
