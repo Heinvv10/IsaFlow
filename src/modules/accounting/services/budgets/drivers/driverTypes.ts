@@ -7,6 +7,7 @@
  */
 import { cellKey, rowKeyOf, type CellRef } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { Band } from '@/modules/accounting/services/budgets/grid/subtotals';
+import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 
 export type RowKey = string;
 
@@ -31,6 +32,8 @@ export interface DriverRow {
 
 interface DriverBase {
   rowKey: RowKey;
+  /** The unit this driver's values round to (decision 5); stored on the driver line. Absent: the caller's unit. */
+  rounding?: RoundingUnit;
   /** 'YYYY-MM', inclusive, a version month, <= toMonth. */
   fromMonth: string;
   /** 'YYYY-MM', inclusive, a version month. */

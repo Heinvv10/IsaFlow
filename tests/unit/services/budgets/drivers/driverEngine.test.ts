@@ -55,6 +55,13 @@ describe('arithmetic per kind', () => {
     expect(amountsOf(run({ cells: neg, drivers: [d] }).writes, COGS.key)[0]).toBe(-46900);
   });
 
+  it("a driver's own rounding unit wins over the caller's (decision 5, stored per driver)", () => {
+    const cells = new Map([[SALES.key, flat(123457)]]);
+    const d: DriverDef = { kind: 'pct_of_line', rowKey: COGS.key, refRowKey: SALES.key, pct: 38, rounding: 100, ...ALL };
+    expect(amountsOf(run({ cells, drivers: [d], rounding: 1 }).writes, COGS.key)[0]).toBe(50000);
+    expect(amountsOf(run({ cells, drivers: [{ ...d, rounding: undefined }], rounding: 1 }).writes, COGS.key)[0]).toBe(46900);
+  });
+
   it('pct_of_line: 4-dp percent is exact', () => {
     const cells = new Map([[SALES.key, flat(100000000)]]);
     const d: DriverDef = { kind: 'pct_of_line', rowKey: COGS.key, refRowKey: SALES.key, pct: 12.3456, ...ALL };
