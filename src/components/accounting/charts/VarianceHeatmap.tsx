@@ -18,7 +18,7 @@ export function VarianceHeatmap({ lines, months, judgedThrough = null, summary }
     <div>
       <ChartFrame
         title="Variance by month"
-        unit={`Rand, actual − budget. Colour = favourable or not; hatched = no budget that month${
+        unit={`Rand, actual − budget. Colour = favourable or not; outline = on budget; hatched = no budget that month${
           judgedThrough !== null && months.some((m) => m > judgedThrough) ? '; * = not yet judged (in progress or still to come)' : ''}.`}
         height={Math.max(160, drawn * 28 + 72)}
         unavailable="No account carries actuals or a budget in this window."

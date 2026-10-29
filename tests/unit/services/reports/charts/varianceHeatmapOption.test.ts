@@ -52,9 +52,10 @@ describe('buildVarianceHeatmapOption', () => {
     expect((option as Record<string, unknown>).visualMap).toBeUndefined();
   });
 
-  it('colours every budgeted cell fav or unfav by its own favourable, nothing else', () => {
-    const budgeted = cells.filter((c) => c.style.decal === undefined);
-    expect(budgeted.length).toBe(7);
+  it('colours every budgeted cell with a variance fav or unfav by its own favourable, nothing else', () => {
+    // 7 budgeted cells: 5 with a variance, 2 exactly on budget (outlined, below).
+    const budgeted = cells.filter((c) => c.style.decal === undefined && c.style.stroke === undefined);
+    expect(budgeted.length).toBe(5);
     for (const c of budgeted) expect([PALETTE.fav, PALETTE.unfav]).toContain(c.style.fill);
     // Wages, June: actual 400 vs 300 on an expense = unfavourable.
     const wages = LINES.findIndex((l) => l.accountCode === '6100');
@@ -68,10 +69,19 @@ describe('buildVarianceHeatmapOption', () => {
     expect(cells[at]!.style.opacity).toBe(1);
   });
 
-  it('opacity is |v| / max|v|, never below the floor (0.25) for a nonzero variance; 0 stays clear', () => {
-    const opacities = cells.filter((c) => c.style.decal === undefined).map((c) => c.style.opacity).sort();
-    // |v| / max is 0, 0, 0.1, 0.1, 0.2, 0.2, 1: the four small ones are raised to the floor (review r2 N4).
-    expect(opacities).toEqual([0, 0, 0.25, 0.25, 0.25, 0.25, 1].sort());
+  it('opacity is |v| / max|v|, never below the floor (0.25) for a nonzero variance', () => {
+    const opacities = cells.filter((c) => c.style.decal === undefined && c.style.stroke === undefined).map((c) => c.style.opacity).sort();
+    // |v| / max is 0.1, 0.1, 0.2, 0.2, 1: the four small ones are raised to the floor (review r2 N4).
+    expect(opacities).toEqual([0.25, 0.25, 0.25, 0.25, 1].sort());
+  });
+
+  it('an on-budget month (variance 0) is an outline in the axis ink, never coloured, never invisible (review r3 L3)', () => {
+    const onBudget = cells.filter((c) => c.style.stroke !== undefined && c.style.decal === undefined);
+    expect(onBudget.length).toBe(2);
+    for (const c of onBudget) {
+      expect(c.style.stroke).toBe(PALETTE.axisLabel);
+      expect([PALETTE.fav, PALETTE.unfav]).not.toContain(c.style.fill);
+    }
   });
 
   it("hatches a month with no budget with the forecast decal, uncoloured", () => {
@@ -163,6 +173,6 @@ describe('small variances stay visible (browser review r2 N4)', () => {
     const rows = (tiny as { yAxis: { data: string[] } }).yAxis.data;
     const small = drawn[rows.findIndex((r) => r.startsWith('6000')) * MONTHS.length]!;
     expect(small.style.opacity).toBeGreaterThanOrEqual(0.25);
-    expect(drawn[rows.findIndex((r) => r.startsWith('6000')) * MONTHS.length + 1]!.style.opacity).toBe(0);
+    expect(drawn[rows.findIndex((r) => r.startsWith('6000')) * MONTHS.length + 1]!.style.stroke).toBe(PALETTE.axisLabel);
   });
 });
