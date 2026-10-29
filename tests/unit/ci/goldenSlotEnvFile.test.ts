@@ -1,7 +1,7 @@
 // The shared CI env file is replaced by rename, so a runner copying it never sees half a file; the symlink it is
 // reached through, and its mode, survive.
 import { afterEach, describe, expect, it } from 'vitest';
-import { chmodSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, readdirSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeEnvFileAtomic } from '../../../scripts/ci/golden/slotEnvFile';
@@ -38,6 +38,15 @@ describe('writeEnvFileAtomic', () => {
     writeEnvFileAtomic(real, 'A=2\n');
     const after = statSync(real);
     expect([after.uid, after.gid]).toEqual([before.uid, before.gid]);
+  });
+
+  it('removes its temp file when the rename fails, and still reports the failure', () => {
+    const dir = scratch();
+    // A directory where the file should be: the temp file is written beside it and cannot be renamed over it.
+    const target = join(dir, 'isaflow-ci.env');
+    mkdirSync(target);
+    expect(() => writeEnvFileAtomic(target, 'A=1\n')).toThrow();
+    expect(readdirSync(dir)).toEqual(['isaflow-ci.env']);
   });
 
   it('fails on a path that does not exist instead of creating a file nobody reads', () => {
