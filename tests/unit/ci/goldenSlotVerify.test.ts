@@ -2,7 +2,8 @@
 // specs check, as a pure judgement over counts so the provisioner can refuse to commit an unusable slot.
 import { describe, expect, it } from 'vitest';
 import { SEED } from '../../../scripts/ci/golden/seedSlotData';
-import { REQUIRED_SYSTEM_SUBTYPES, seedProblems, slotProblems, slotWarnings, type SlotReport } from '../../../scripts/ci/golden/slotVerify';
+import type { ClientBase } from 'pg';
+import { REQUIRED_SYSTEM_SUBTYPES, readSlotReport, seedProblems, slotProblems, slotWarnings, type SlotReport } from '../../../scripts/ci/golden/slotVerify';
 
 const good: SlotReport = {
   companyId: '601d0000-0000-4000-8000-000000000001',
@@ -82,5 +83,38 @@ describe('seedProblems', () => {
 
   it('is kept out of slotProblems: a company created this run is seeded only after its commit', () => {
     expect(slotProblems({ ...good, seededInvoices: 0, seededJournals: 0, seededBankRows: 0, migrationSessions: 0 }, true)).toEqual([]);
+  });
+});
+
+describe('readSlotReport binds its dates and sandbox month', () => {
+  const COMPANY = '601d0000-0000-4000-8000-000000000002';
+  async function readWithRecording() {
+    const seen: Array<{ text: string; params: unknown[] }> = [];
+    const db = {
+      query: async (text: string, params: unknown[] = []) => {
+        seen.push({ text, params });
+        return { rows: text.includes('GROUP BY') ? [] : [{ n: '1' }] };
+      },
+    } as unknown as ClientBase;
+    await readSlotReport(db, COMPANY);
+    return seen;
+  }
+
+  it('has no date or sandbox-month literal in any statement', async () => {
+    for (const { text } of await readWithRecording()) {
+      expect(text, text).not.toMatch(/20\d\d-\d\d-\d\d/);
+      expect(text, text).not.toMatch(/period_(year|month)\s*=\s*\d/);
+    }
+  });
+
+  it('passes the company first, then the sandbox year, month and the 2027 dates as parameters', async () => {
+    const seen = await readWithRecording();
+    const periods = seen.find((s) => /status = 'open' AND start_date >= \$2::date AND start_date < \$3::date/.test(s.text))!;
+    expect(periods.params).toEqual([COMPANY, '2027-01-01', '2028-01-01']);
+    const sandbox = seen.find((s) => /start_date <= \$3::date AND end_date >= \$2::date/.test(s.text))!;
+    expect(sandbox.params).toEqual([COMPANY, '2027-02-01', '2027-02-28']);
+    const runs = seen.find((s) => /FROM payroll_run_headers/.test(s.text))!;
+    expect(runs.params).toEqual([COMPANY, 2027, 2]);
+    expect(seen.every((s) => s.params[0] === COMPANY)).toBe(true);
   });
 });
