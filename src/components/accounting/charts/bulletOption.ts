@@ -19,13 +19,15 @@
  * string: ECharts never honoured a label colour given as a function, so the
  * label was painted in the default ink. The grid's right margin holds the
  * widest label (a conservative width per character), so none is clipped. Below NARROW_WIDTH the value axis has
- * fewer ticks at a smaller size (and hides any that would still touch), and
- * long names truncate (full name in the tooltip). Proved painted by
+ * fewer ticks at a smaller size in the compact money form (R 1.0M), hiding any
+ * that would still touch, and long names truncate (full name in the tooltip);
+ * on a phone's own width (PHONE_WIDTH) the names take less still. Proved painted by
  * tests/unit/services/reports/charts/bulletLegibility.test.ts.
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
 import { formatStatementFigure } from '@/lib/format/money';
+import { formatMoneyCompact } from '@/lib/money/formatMoney';
 import type { ChartPalette } from './chartTypes';
 import { escapeHtml } from './escapeHtml';
 import { axisDomain, roleStyle, varianceColor } from './ibcs';
@@ -36,6 +38,9 @@ import { NARROW_WIDTH } from './waterfallOption';
 // reads the literal; this constant only sizes the right margin.
 const LABEL_FONT = 10;
 const NARROW_NAME_WIDTH = 110;
+/** A phone's own chart width (a 390 px screen leaves the chart about 260 px). */
+const PHONE_WIDTH = 280;
+const PHONE_NAME_WIDTH = 90;
 
 export function buildBudgetBulletOption(
   lines: BudgetVsActualLine[],
@@ -76,9 +81,15 @@ export function buildBudgetBulletOption(
     media: [{
       query: { maxWidth: NARROW_WIDTH },
       option: {
-        xAxis: { splitNumber: 2, axisLabel: { fontSize: 10, hideOverlap: true } },
+        xAxis: {
+          splitNumber: 2,
+          axisLabel: { fontSize: 10, hideOverlap: true, formatter: (v: number) => (v === 0 ? '0' : formatMoneyCompact(v)) },
+        },
         yAxis: { axisLabel: { fontSize: 10, width: NARROW_NAME_WIDTH, overflow: 'truncate' } },
       },
+    }, {
+      query: { maxWidth: PHONE_WIDTH },
+      option: { yAxis: { axisLabel: { width: PHONE_NAME_WIDTH } } },
     }],
     grid: { left: 8, right: Math.ceil(widest) + 12, top: 8, bottom: 8, containLabel: true },
     tooltip: {

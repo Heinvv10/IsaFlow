@@ -71,7 +71,7 @@ function paint(option: unknown, width: number, height: number): string {
 }
 
 for (const [name, lines] of SETS) {
-  for (const px of [1280, 390, 294]) {
+  for (const px of [1280, 390, 294, 260]) {
     describe(`${name} at ${px}px`, () => {
       const option = buildBudgetBulletOption(lines, PALETTE);
       const svg = paint(option, px, Math.max(160, lines.length * 34 + 40));

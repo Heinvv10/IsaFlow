@@ -76,8 +76,9 @@ function paint(option: unknown, width: number, height: number): string {
   }
 }
 
-// 294: the chart's own width on a 390 px phone (page, card and frame padding).
-const WIDTHS = [1280, 390, 294];
+// 260: the chart's own width on a 390 px phone (page, card and frame padding; measured off the
+// browser proof's 326 px card); 294 for a slightly wider phone.
+const WIDTHS = [1280, 390, 294, 260];
 const SEEDS = [7, 1009, 424242];
 
 describe('heatmap account labels', () => {
@@ -141,6 +142,12 @@ describe('heatmap month labels (browser review r1 M3)', () => {
       }
     });
   }
+
+  it('a narrow chart always labels the latest month, so the in-progress "*" is on the axis', () => {
+    const option = buildVarianceHeatmapOption(linesOf(7), MONTHS.slice(0, 8), DEFAULT_PALETTE, { inProgressMonth: '2026-10' })!;
+    const svg = paint(option, 260, 16 * 28 + 80);
+    expect(texts(svg).map((t) => t.text)).toContain('Oct 26 *');
+  });
 
   it('a narrow chart keeps at least 17 characters of an account name', () => {
     const option = buildVarianceHeatmapOption(linesOf(7), MONTHS, DEFAULT_PALETTE, { showAll: true })!;

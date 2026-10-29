@@ -23,8 +23,8 @@
  * `NARROW_WIDTH` the names truncate (full name in the
  * tooltip) so the cells keep the width: `containLabel` alone would keep a long
  * name inside the box by squeezing the plot to nothing. The month labels stand
- * vertical there, labelled as many as clear each other (every other month in a
- * twelve-month window on a phone). Proved painted
+ * vertical there; past six months every other one is labelled, counted back from
+ * the latest, so the month in progress keeps its "*". Proved painted
  * by tests/unit/services/reports/charts/varianceHeatmapLegibility.test.ts.
  */
 import type { EChartsCoreOption } from 'echarts/core';
@@ -40,6 +40,9 @@ export const HEATMAP_DEFAULT_LIMIT = 15;
 /** Label width (px) wide and below NARROW_WIDTH; past it a name truncates with an ellipsis. */
 const WIDE_LABEL_WIDTH = 260;
 const NARROW_LABEL_WIDTH = 124;
+/** A phone's own chart width (a 390 px screen leaves the chart about 260 px): names take less still. */
+const PHONE_WIDTH = 280;
+const PHONE_LABEL_WIDTH = 104;
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (key: string) => `${MONTH_NAMES[Number(key.slice(5, 7)) - 1] ?? key} ${key.slice(2, 4)}`;
@@ -103,8 +106,13 @@ export function buildVarianceHeatmapOption(
       query: { maxWidth: NARROW_WIDTH },
       option: {
         yAxis: { axisLabel: { width: NARROW_LABEL_WIDTH, overflow: 'truncate' } },
-        xAxis: { axisLabel: { rotate: 90, interval: 'auto' } },
+        // Past six months every other one is labelled, counted back from the latest so the month in
+        // progress (always the last one a window can reach) keeps its "*".
+        xAxis: { axisLabel: { rotate: 90, interval: months.length > 6 ? (i: number) => (months.length - 1 - i) % 2 === 0 : 0 } },
       },
+    }, {
+      query: { maxWidth: PHONE_WIDTH },
+      option: { yAxis: { axisLabel: { width: PHONE_LABEL_WIDTH } } },
     }],
     grid: { left: 8, right: 8, top: 8, bottom: 8, containLabel: true },
     tooltip: {
