@@ -2,11 +2,11 @@
 // must stop that and nothing else: the window also holds other worktrees' dev servers and docker-proxy.
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inWorkspace, parseListeners, selectOrphans } from '../../../scripts/ci/golden/killSlotOrphans';
+import { inWorkspace, parentOf, parseListeners, selectOrphans, selfAndAncestors, stopOrphan, workspaceProblem, type ProcessOps } from '../../../scripts/ci/golden/killSlotOrphans';
 
 const SS = [
   'State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
@@ -33,6 +33,89 @@ describe('inWorkspace', () => {
     expect(inWorkspace('/home/hein/Workspace/IsaFlow', '/w/IsaFlow/IsaFlow')).toBe(false);
     expect(inWorkspace(null, '/w/IsaFlow/IsaFlow')).toBe(false);
     expect(inWorkspace('/anything', '')).toBe(false);
+  });
+});
+
+describe('a workspace that is too broad matches nothing', () => {
+  it.each(['/', '/home', '/home/runner', '', 'relative/path/with/parts'])('workspaceProblem refuses %j', (ws) => {
+    expect(workspaceProblem(ws)).toEqual(expect.any(String));
+  });
+
+  it('accepts a real runner workspace', () => {
+    expect(workspaceProblem('/home/gha-isaflow/actions-runner-isaflow-2/_work/IsaFlow/IsaFlow')).toBeNull();
+    expect(workspaceProblem('/a/b/c')).toBeNull();
+  });
+
+  it('inWorkspace is false for every cwd when the workspace is "/" or shallow', () => {
+    for (const ws of ['/', '/home', '/home/runner']) {
+      expect(inWorkspace('/home/hein/Workspace/IsaFlow', ws)).toBe(false);
+      expect(inWorkspace(ws, ws)).toBe(false);
+    }
+  });
+
+  it('selectOrphans picks nothing under GITHUB_WORKSPACE="/"', () => {
+    const all = parseListeners(SS);
+    expect(selectOrphans(all, 3300, 3799, '/', () => '/anywhere/at/all', new Set())).toEqual([]);
+  });
+});
+
+describe('stopOrphan re-checks the pid before each signal', () => {
+  const WS = '/w/IsaFlow/IsaFlow';
+  function fakeOps(cwds: Array<string | null>, aliveAnswers: boolean[]) {
+    const sent: string[] = [];
+    let c = 0;
+    let a = 0;
+    const ops: ProcessOps = {
+      cwdOf: () => cwds[Math.min(c++, cwds.length - 1)] ?? null,
+      alive: () => aliveAnswers[Math.min(a++, aliveAnswers.length - 1)] ?? false,
+      kill: (_pid, signal) => { sent.push(signal); },
+      sleep: async () => undefined,
+    };
+    return { ops, sent };
+  }
+
+  it('sends nothing when the pid no longer belongs to the workspace by the time it is signalled (pid reuse)', async () => {
+    const { ops, sent } = fakeOps(['/home/hein/other'], [true]);
+    await expect(stopOrphan(4242, WS, ops)).resolves.toBe('reused');
+    expect(sent).toEqual([]);
+  });
+
+  it('sends SIGTERM only when the process exits on it', async () => {
+    const { ops, sent } = fakeOps([WS], [true, false]);
+    await expect(stopOrphan(4242, WS, ops)).resolves.toBe('stopped');
+    expect(sent).toEqual(['SIGTERM']);
+  });
+
+  it('escalates to SIGKILL for a process of the workspace that ignores SIGTERM', async () => {
+    const { ops, sent } = fakeOps([WS, WS], [true]);
+    await expect(stopOrphan(4242, WS, ops)).resolves.toBe('stopped');
+    expect(sent).toEqual(['SIGTERM', 'SIGKILL']);
+  });
+
+  it('does not SIGKILL when the pid was reused during the wait', async () => {
+    const { ops, sent } = fakeOps([WS, '/home/hein/other'], [true]);
+    await expect(stopOrphan(4242, WS, ops)).resolves.toBe('reused');
+    expect(sent).toEqual(['SIGTERM']);
+  });
+});
+
+describe('the /proc walk that protects this process and its ancestors', () => {
+  it('parentOf reads the parent pid from /proc/<pid>/stat, not its neighbours (a detached child leads its own process group)', () => {
+    expect(parentOf(process.pid)).toBe(process.ppid);
+    const child = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
+    try {
+      // The child's process group id is its own pid, so a parse that took the wrong field would answer child.pid.
+      expect(parentOf(child.pid!)).toBe(process.pid);
+    } finally {
+      child.kill('SIGKILL');
+    }
+  });
+
+  it('selfAndAncestors holds this process, its parent and the chain up to init', () => {
+    const chain = selfAndAncestors();
+    expect(chain.has(process.pid)).toBe(true);
+    expect(chain.has(process.ppid)).toBe(true);
+    expect(chain.size).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -69,7 +152,14 @@ describe('the script, against real listeners', () => {
     s.listen(0, '127.0.0.1', () => { const p = (s.address() as { port: number }).port; s.close(() => resolve(p)); });
     s.on('error', reject);
   });
-  const scratch = (): string => { const d = mkdtempSync(join(tmpdir(), 'golden-orphan-')); dirs.push(d); return d; };
+  // Three or more components deep, as a runner workspace is (a shallower one is refused by the script).
+  const scratch = (): string => {
+    const d = mkdtempSync(join(tmpdir(), 'golden-orphan-'));
+    dirs.push(d);
+    const ws = join(d, '_work', 'IsaFlow');
+    mkdirSync(ws, { recursive: true });
+    return ws;
+  };
   const listenerIn = async (cwd: string, port: number): Promise<ChildProcess> => {
     const c = spawn(process.execPath, ['-e', `require('net').createServer().listen(${port}, '127.0.0.1', () => process.stdout.write('up\\n'))`], { cwd, stdio: ['ignore', 'pipe', 'ignore'] });
     children.push(c);
@@ -94,6 +184,15 @@ describe('the script, against real listeners', () => {
     expect(await gone(orphan)).toBe(true);
     expect(peer.exitCode === null && peer.signalCode === null).toBe(true);
     expect(outsider.exitCode === null && outsider.signalCode === null).toBe(true);
+  }, 90_000);
+
+  it('does nothing, and exits 0, with GITHUB_WORKSPACE="/" (every cwd would match)', async () => {
+    const port = await freePort();
+    const c = await listenerIn(scratch(), port);
+    const res = run(port, port, '/');
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('GITHUB_WORKSPACE "/"');
+    expect(c.exitCode === null && c.signalCode === null).toBe(true);
   }, 90_000);
 
   it('does nothing, and exits 0, without GITHUB_WORKSPACE', async () => {
