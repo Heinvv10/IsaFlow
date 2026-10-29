@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { RecurringInvoiceTemplateError } from './recurringInvoiceTemplate';
 import { RecurringInvoiceLockTimeoutError } from './recurringInvoiceLock';
+import { parseTaxRate } from './recurringInvoiceEdit';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type {
   RecurringInvoice,
@@ -70,7 +71,9 @@ export async function createRecurringInvoice(companyId: string,
   // a foreign client_id accepted here becomes a recurring cross-tenant document.
   await assertCustomerInCompany(companyId, input.clientId);
 
-  const taxRate = input.taxRate ?? 15;
+  // Validated like an edit's: tax_rate is NUMERIC(5,2), so a 3-decimal rate would be
+  // stored rounded while this header used the unrounded one.
+  const taxRate = input.taxRate == null ? 15 : parseTaxRate(input.taxRate);
   // W1 family (P2.1): a template with negative lines re-mints a negative
   // approved invoice EVERY period.
   for (const li of input.lineItems || []) {

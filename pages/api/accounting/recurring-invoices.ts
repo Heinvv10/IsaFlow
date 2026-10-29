@@ -14,7 +14,9 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
+  assertEndNotBeforeNextRun,
   editTotals,
+  effectiveNextRunDate,
   parseEndDateEdit,
   RecurringInvoiceEditError,
   resolveEditTaxRate,
@@ -45,6 +47,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await createRecurringInvoice(companyId, req.body, userId);
       return apiResponse.success(res, item);
     } catch (err) {
+      if (err instanceof RecurringInvoiceEditError) return apiResponse.badRequest(res, err.message);
       if (respondIfLockTimeout(res, err)) return;
       log.error('Recurring invoice create failed', { error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Create failed');
@@ -62,8 +65,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // Row-locked read of the stored template: the tax basis an edit without
       // taxRate keeps is its stored tax_rate, and nothing may change it between
       // this read and the UPDATE.
-      const stored = await lockRecurringTemplate(companyId, id);
+      const stored = await lockRecurringTemplate(companyId, id, 'edit');
       if (!stored) return apiResponse.notFound(res, 'Recurring invoice', id);
+      // The UPDATE below only matches active/paused rows; without this a
+      // cancelled or completed template answered {updated:true} and wrote nothing.
+      if (stored.status !== 'active' && stored.status !== 'paused') {
+        return apiResponse.conflict(res, `A ${String(stored.status)} recurring invoice cannot be edited`);
+      }
+      assertEndNotBeforeNextRun(endDate.value, effectiveNextRunDate(nextRunDate, stored.next_run_date));
       if (lineItems) {
         // W1 family (P2.1): an edited template with negative lines re-mints a
         // negative APPROVED invoice every period — same guard as create.

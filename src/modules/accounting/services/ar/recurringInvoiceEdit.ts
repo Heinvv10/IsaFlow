@@ -8,7 +8,9 @@
  * (assertAggregateAgrees then refuses the template).
  */
 
-/** A request the edit refuses; the route answers it with a 400 and this message. */
+import { fmtDate } from '@/lib/fmtDate';
+
+/** A create or edit request the template refuses; the route answers it with a 400 and this message. */
 export class RecurringInvoiceEditError extends Error {
   constructor(message: string) {
     super(message);
@@ -49,24 +51,52 @@ function asRate(value: unknown): number | null {
 }
 
 /**
+ * A tax rate the table can hold: finite, 0-100, at most 2 decimals. tax_rate is
+ * NUMERIC(5,2), so 7.555 is stored as 7.56 while a header computed from the
+ * request would use 7.555 — the run then derives a different tax from the
+ * stored rate and assertAggregateAgrees refuses the template.
+ */
+export function parseTaxRate(value: unknown): number {
+  const rate = asRate(value);
+  if (rate === null || !Number.isFinite(rate) || rate < 0 || rate > 100) {
+    throw new RecurringInvoiceEditError('taxRate must be a number between 0 and 100');
+  }
+  const cents = rate * 100;
+  if (Math.abs(cents - Math.round(cents)) > 1e-7) {
+    throw new RecurringInvoiceEditError('taxRate can have at most 2 decimal places');
+  }
+  return rate;
+}
+
+/**
  * The tax rate an edit applies. A rate in the request wins (0 included); an
  * edit that sends none keeps the template's STORED rate — create stored it in
  * tax_rate, and the page that edits lines never resends it. There is no
  * fallback: a stored value that is not a rate is refused, not guessed at 15.
  */
 export function resolveEditTaxRate(requested: unknown, stored: unknown): number {
-  if (requested !== undefined && requested !== null) {
-    const rate = asRate(requested);
-    if (rate === null || !Number.isFinite(rate) || rate < 0 || rate > 100) {
-      throw new RecurringInvoiceEditError('taxRate must be a number between 0 and 100');
-    }
-    return rate;
-  }
-  const rate = asRate(stored);
-  if (rate === null || !Number.isFinite(rate) || rate < 0 || rate > 100) {
+  if (requested !== undefined && requested !== null) return parseTaxRate(requested);
+  try {
+    return parseTaxRate(stored);
+  } catch {
     throw new RecurringInvoiceEditError('The template has no usable stored tax rate; send taxRate');
   }
-  return rate;
+}
+
+/** YYYY-MM-DD of the next run an edit leaves: the body's nextRunDate if it sends one, else the stored one. */
+export function effectiveNextRunDate(requested: unknown, stored: unknown): string {
+  if (typeof requested === 'string') {
+    const m = /^\d{4}-\d{2}-\d{2}/.exec(requested.trim());
+    if (m) return m[0];
+  }
+  return fmtDate(stored as Date | string);
+}
+
+/** An End Date before the next run would end the template before it ever bills (create's date input has min=nextRunDate). */
+export function assertEndNotBeforeNextRun(endDate: string | null, nextRunDate: string): void {
+  if (endDate !== null && endDate < nextRunDate) {
+    throw new RecurringInvoiceEditError(`endDate cannot be before the next run date (${nextRunDate})`);
+  }
 }
 
 /** Header totals for an edited template — the arithmetic createRecurringInvoice uses. */
