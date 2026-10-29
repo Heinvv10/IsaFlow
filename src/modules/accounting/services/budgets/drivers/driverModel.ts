@@ -16,9 +16,9 @@ import { monthKeyToDate } from '../../reports/budgetPeriodWindow';
 import { toCents } from '../grid/cents';
 import { bandOf } from '../grid/subtotals';
 import { assertDriverMonths, monthIndex } from './driverEngine';
-import { buildDriverGraph, type DriverGraph } from './driverGraph';
+import { buildDriverGraph, topoOrder, type DriverGraph } from './driverGraph';
 import {
-  DriverRangeError, DriverRefError, rowKeyFor,
+  DriverCycleError, DriverRangeError, DriverRefError, rowKeyFor,
   type Cell, type CellSource, type DriverDef, type DriverRow, type RowKey,
 } from './driverTypes';
 import { rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLine } from './driverLine';
@@ -180,16 +180,53 @@ export function fullDriverGraph(model: VersionModel): DriverGraph {
   return { ...graph, refs, dependents };
 }
 
-/** The rows whose driver is skipped this pass (for the grid save's clear rules); reads no cells. */
-export async function skippedDriverRows(companyId: string, lines: readonly DriverLine[], months: readonly string[]): Promise<Set<RowKey>> {
-  if (lines.length === 0) return new Set();
-  const grains = lines.flatMap((l) => (l.ref ? [l, l.ref] : [l]));
-  const accounts = (await sql`
-    SELECT id::text AS id, account_code, account_name, account_type FROM gl_accounts
-     WHERE company_id = ${companyId}::UUID AND id = ANY(${[...new Set(grains.map((g) => g.glAccountId))]}::UUID[])
-  `) as DbRow[];
-  const income = new Set(accounts.filter((a) => a.account_type === 'revenue' || a.account_type === 'expense').map((a) => String(a.id)));
-  const labels = new Map(accounts.map((a) => [String(a.id), `${String(a.account_code)} ${String(a.account_name ?? '')}`.trim()]));
-  const placed = new Set(grains.filter((g) => income.has(g.glAccountId)).map(rowKeyOfGrain));
-  return new Set(placeDrivers(lines, placed, labels, months).skipped.map((x) => x.rowKey));
+/**
+ * The drivers that compute once stored loops are taken out. A loop can be stored behind the save
+ * check (a skipped driver's account comes back, an account moves into a section a driver reads):
+ * its drivers sit out the pass and their rows stay frozen, each loop named in a labelled message.
+ * Each round removes at least one driver, so it ends. The recompute and the grid save's clear rules
+ * both use this, so "skipped" means the same in both.
+ */
+export function breakLoops(model: VersionModel): { defs: DriverDef[]; loops: Array<{ path: RowKey[]; message: string }> } {
+  let defs = model.defs;
+  const loops: Array<{ path: RowKey[]; message: string }> = [];
+  for (;;) {
+    try {
+      topoOrder(buildDriverGraph(model.rows, defs));
+      return { defs, loops };
+    } catch (err) {
+      if (!(err instanceof DriverCycleError)) throw err;
+      const onPath = new Set(err.path);
+      defs = defs.filter((d) => !onPath.has(d.rowKey));
+      const names = err.path.map((k) => rowLabel(k, model.labels)).join(' → ');
+      loops.push({ path: err.path, message: `drivers on ${names} form a loop; change one of them` });
+    }
+  }
+}
+
+/** Every row a driver skipped this pass sits on: unplaced, out of its months, or in a stored loop. */
+export function skippedRows(model: VersionModel): Set<RowKey> {
+  return new Set([...model.skipped.map((x) => x.rowKey), ...breakLoops(model).loops.flatMap((l) => l.path)]);
+}
+
+/**
+ * A loop through `key` in the graph, in data-flow order (first == last), or null. The save refuses
+ * only a loop its own driver is part of: one stored elsewhere stays skipped with its warning.
+ */
+export function cycleThrough(graph: DriverGraph, key: RowKey): RowKey[] | null {
+  // Depth-first along the rows each row reads; reaching `key` again closes a loop through it.
+  const seen = new Set<RowKey>();
+  const walk = (row: RowKey, trail: RowKey[]): RowKey[] | null => {
+    for (const next of [...(graph.refs.get(row) ?? [])].sort()) {
+      if (next === key) return [...trail, key];
+      if (seen.has(next)) continue;
+      seen.add(next);
+      const found = walk(next, [...trail, next]);
+      if (found) return found;
+    }
+    return null;
+  };
+  const reads = walk(key, [key]);
+  // `reads` runs reader → read; data flows the other way.
+  return reads ? reads.reverse() : null;
 }

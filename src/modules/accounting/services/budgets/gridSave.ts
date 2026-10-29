@@ -37,7 +37,7 @@ import { takeVersion } from './versionTake';
 import {
   cellsTypedOverDrivers, clearedDriverCells, deleteCells, firstClosedMonthCell, markOverrides, versionSum, writeCells,
 } from './gridSaveWrite';
-import { skippedDriverRows } from './drivers/driverModel';
+import { loadVersionModel, skippedRows } from './drivers/driverModel';
 import { listDriverLines } from './drivers/driverRepository';
 import { recomputeDependents, type RecomputeWarning } from './drivers/driverRecomputeService';
 import { accountWithTwoGrains, assertMonthsInYear, validateBatch, type SaveCell, type ValidatedBatch } from './gridSaveValidate';
@@ -140,8 +140,8 @@ async function write(companyId: string, userId: string, input: SaveCellsInput, b
 
 /**
  * The P4 refusals (header, bullets 1-2), raised before any delete or write; returns the overrides
- * the clears reset. A driver skipped this pass (its account retyped out of the income statement)
- * computes nothing, so its cells are plain figures: clearing one is a clear (P2: a retyped account's
+ * the clears reset. A driver skipped this pass (its account retyped out of the income statement,
+ * or caught in a stored loop) computes nothing, so its cells are plain figures: clearing one is a clear (P2: a retyped account's
  * stale budget can be cleared), not a refusal or a reset.
  */
 async function assertDriverCells(companyId: string, versionId: string, batch: ValidatedBatch, labels: Map<string, string>, months: string[]) {
@@ -152,7 +152,8 @@ async function assertDriverCells(companyId: string, versionId: string, batch: Va
   }
   const touched = await clearedDriverCells(companyId, versionId, batch.deletes);
   if (touched.length === 0) return { reset: 0, resetRows: new Set<string>() };
-  const skipped = await skippedDriverRows(companyId, await listDriverLines(companyId, versionId), months);
+  // "Skipped" as the recompute decides it (unplaced, out of its months, or in a stored loop): read only when a clear touches a driver row.
+  const skipped = skippedRows(await loadVersionModel(companyId, versionId, months, await listDriverLines(companyId, versionId)));
   const live = touched.filter((c) => !skipped.has(c.row));
   const computed = live.find((c) => c.source === 'driver');
   if (computed) {
