@@ -83,6 +83,11 @@ export function BudgetTrackingNotices({ report, filtered, onViewUnfiltered }: {
           {`No budget for FY${fy} in this window: its Budget and variance columns are shown as —, never as zero.`}
         </p>
       ))}
+      {n.noBudgetAtFilterYears.map((fy) => (
+        <p key={fy} role="status" data-testid={`bva-budget-elsewhere-${fy}`} className={INFO}>
+          {`FY${fy} has a budget, but none of it is at this filter.`}
+        </p>
+      ))}
       {n.partialBudget && (
         <p role="status" data-testid="bva-partial-budget" className={AMBER}>
           {`${accounts(n.partialBudget.count)} ${n.partialBudget.count === 1 ? 'is' : 'are'} budgeted for only part of this window (marked ½): their Budget and variance are shown as —.`}

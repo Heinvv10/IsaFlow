@@ -51,16 +51,20 @@ import { getBudgetVariance, type BudgetVarianceTrackedOptions } from '@/modules/
 const blankIsAbsent = (v: unknown) => (v === '' ? undefined : v);
 const Id = z.preprocess(blankIsAbsent, UUID.optional());
 
-/** A real calendar date (2026-02-31 is not one) in YEAR_MIN..YEAR_MAX; read as text, no Date built. */
-// The shape check ABORTS: a continuable failure would still run the refines, and `monthEnd` throws on a
-// string that is not a date (a 500 with a stack trace for user input).
-const Day = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, { error: 'Must be a date, YYYY-MM-DD', abort: true })
-  .refine((d) => d <= monthEnd(`${d.slice(0, 7)}-01`), 'Must be a real calendar date')
-  .refine((d) => Number(d.slice(0, 4)) >= YEAR_MIN && Number(d.slice(0, 4)) <= YEAR_MAX, `Year must lie in ${YEAR_MIN}-${YEAR_MAX}`);
+/**
+ * A real calendar date (2026-02-31 is not one) in YEAR_MIN..YEAR_MAX; read as text, no Date built.
+ * Each message is a sentence on its own: the page shows the server's reason as it is.
+ */
+const day = (label: string) =>
+  // The shape check ABORTS: a continuable failure would still run the refines, and `monthEnd` throws on a
+  // string that is not a date (a 500 with a stack trace for user input).
+  z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, { error: `${label} must be a date, YYYY-MM-DD`, abort: true })
+    .refine((d) => d <= monthEnd(`${d.slice(0, 7)}-01`), `${label} must be a real calendar date`)
+    .refine((d) => Number(d.slice(0, 4)) >= YEAR_MIN && Number(d.slice(0, 4)) <= YEAR_MAX, `${label}'s year must lie in ${YEAR_MIN}-${YEAR_MAX}`);
 
 const Query = z.object({
-  period_start: Day,
-  period_end: Day,
+  period_start: day('The start date'),
+  period_end: day('The end date'),
   version_id: Id,
   cost_centre_id: Id,
   cc1_id: Id,
@@ -68,10 +72,10 @@ const Query = z.object({
   bu_id: Id,
   business_unit_id: Id,
 })
-  .refine((q) => q.period_end >= q.period_start, { message: 'period_end must not precede period_start', path: ['period_end'] })
+  .refine((q) => q.period_end >= q.period_start, { message: 'The end date must not precede the start date', path: ['period_end'] })
   // The Budget vs Actual page's own cap on a custom range: a window is a report, not a ledger dump.
   .refine((q) => budgetMonthKeysInWindow(q.period_start, q.period_end).length <= MAX_CUSTOM_MONTHS,
-    { message: `A window is at most ${MAX_CUSTOM_MONTHS} months`, path: ['period_end'] });
+    { message: `A window can be at most ${MAX_CUSTOM_MONTHS} months`, path: ['period_end'] });
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET']);
@@ -88,7 +92,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) {
     const fieldErrors = parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>;
     const first = Object.entries(fieldErrors).find(([, v]) => v && v.length > 0);
-    return apiResponse.badRequest(res, first ? `${first[0]}: ${first[1]![0]}` : 'Invalid query', fieldErrors);
+    // The window's messages are whole sentences (the page prints them as they are); an id's names its field.
+    const message = first ? (first[0].startsWith('period_') ? first[1]![0]! : `${first[0]}: ${first[1]![0]}`) : 'Invalid query';
+    return apiResponse.badRequest(res, message, fieldErrors);
   }
 
   const q = parsed.data;
@@ -126,7 +132,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     version: result.version,
     unallocatedBudget: result.unallocatedBudget,
     budgetAbsentYears: result.budgetAbsentYears,
-    windowYears: result.windowYears,
+    budgetOutsideFilterYears: result.budgetOutsideFilterYears,
     splitsMonth: result.splitsMonth,
     partialBudgetCount: result.partialBudgetCount,
     // The engine's band and profit-total budgets, for the statement's band rows (null: absent).

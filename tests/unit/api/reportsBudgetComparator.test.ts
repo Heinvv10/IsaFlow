@@ -67,7 +67,7 @@ beforeEach(() => {
     version: VERSION,
     unallocatedBudget: { income: 0, expense: 1200 },
     budgetAbsentYears: [],
-    windowYears: [2027],
+    budgetOutsideFilterYears: [2027],
     splitsMonth: false,
     // The engine's count: it includes a partial account the facade's lines no longer carry (no actual).
     partialBudgetCount: 3,
@@ -113,6 +113,18 @@ describe('reports-budget-comparator', () => {
     expect(res.statusCode).toBe(400);
     expect(getBudgetVariance).not.toHaveBeenCalled();
     expect(JSON.stringify(res.sent)).not.toMatch(/stack|monthEnd/);
+  });
+
+  it("says why in a sentence the page can print as it is: the server's reason, no field name, no stack", async () => {
+    const reason = async (query: Record<string, unknown>) => {
+      const res = mockRes();
+      await handler(get(query), res);
+      return (res.sent as { error: { message: string } }).error.message;
+    };
+    expect(await reason({ period_start: '2024-01-01', period_end: '2026-12-31' })).toBe('A window can be at most 24 months');
+    expect(await reason({ period_start: '2026-08-31', period_end: '2026-08-01' })).toBe('The end date must not precede the start date');
+    expect(await reason({ period_start: 'abc', period_end: '2026-08-31' })).toBe('The start date must be a date, YYYY-MM-DD');
+    expect(await reason({ ...WINDOW, cost_centre_id: 'nope' })).toMatch(/^cost_centre_id: /);
   });
 
   it('takes exactly 24 months and a leap day', async () => {
@@ -183,7 +195,7 @@ describe('reports-budget-comparator', () => {
     // Copied from the engine (3), never counted from the lines (which would say 2).
     expect(body.data.partialBudgetCount).toBe(3);
     expect(body.data.bands).toEqual(BANDS);
-    expect([body.data.splitsMonth, body.data.windowYears]).toEqual([false, [2027]]);
+    expect([body.data.splitsMonth, body.data.budgetOutsideFilterYears]).toEqual([false, [2027]]);
     expect(body.data.budgetedCount).toBe(1);
   });
 

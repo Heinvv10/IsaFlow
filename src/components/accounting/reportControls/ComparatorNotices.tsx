@@ -69,25 +69,31 @@ export function comparatorNotices(
   if (companyWideUnavailable) out.push({ tone: 'info', text: COMPANY_WIDE_UNAVAILABLE });
   if (trendFailed) out.push({ tone: 'error', text: TREND_FAILED });
   if (budgetState === 'failed') out.push({ tone: 'error', text: BUDGET_FAILED });
+  if (budgetState === 'refused') {
+    // The server's own reason (the window is not one it will read): no advice to reload, it cannot help.
+    out.push({ tone: 'error', text: `The Budget column is empty: ${(budget?.rejection ?? 'the window was refused').replace(/\.$/, '')}.` });
+  }
   if (budgetState === 'limited') {
     out.push({ tone: 'error', text: `Too many report requests, so the Budget column is empty: try again in ${waitWords(budget?.retryAfterSecs ?? null)}.`, retry: true });
   }
   if (budgetState !== 'none' && budgetState !== 'available') return out;
   const unallocated = budget?.unallocatedBudget ? unallocatedText(budget.unallocatedBudget) : null;
   const partial = budget?.partialBudgetCount ?? 0;
+  const outside = budget?.budgetOutsideFilterYears ?? [];
   if (budgetState === 'none') {
     // A window with no budget in one of its years, a budget only above the filter, or only for part
     // of the window is not "no budget captured": the sentences below say which it is.
     if (budget?.splitsMonth) {
       out.push({ tone: 'info', text: BUDGET_WHOLE_MONTHS });
     } else if (budget && budget.budgetAbsentYears.length > 0) {
-      // A year that does have a budget is named too: its budget alone would cover only part of the window.
-      const others = budget.windowYears.filter((y) => !budget.budgetAbsentYears.includes(y));
-      const rest = others.length === 0 ? '' : ` ${yearsText(others)}'s budget alone would cover only part of it.`;
-      out.push({ tone: 'info', text: `No budget for ${yearsText(budget.budgetAbsentYears)} in this window, so the Budget column is empty.${rest}` });
-    } else if (unallocated === null && partial === 0) {
+      out.push({ tone: 'info', text: `No budget for ${yearsText(budget.budgetAbsentYears)} in this window, so the Budget column is empty.` });
+    } else if (unallocated === null && partial === 0 && outside.length === 0) {
       out.push({ tone: 'info', text: BUDGET_NONE });
     }
+  }
+  // A year that has a budget, none of it at this filter: not "no budget" (it is set at other cost centres).
+  if (outside.length > 0 && !budget?.splitsMonth) {
+    out.push({ tone: 'info', text: `${yearsText(outside)} ${outside.length === 1 ? 'has' : 'have'} a budget, but none of it is at this filter.` });
   }
   if (unallocated !== null) out.push({ tone: 'info', text: unallocated });
   if (partial > 0) {

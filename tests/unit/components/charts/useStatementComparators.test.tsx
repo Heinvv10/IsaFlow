@@ -21,7 +21,7 @@ const budgetLines = (amount: number) => buildBudgetVsActualLines(
 );
 /** The comparator's whole response (the route's shape), so no field is read off a fixture that lacks it. */
 const RESPONSE = (over: Record<string, unknown> = {}) => ({
-  lines: budgetLines(1000), budgetedCount: 1, budgetAbsentYears: [], windowYears: [2026], unallocatedBudget: { income: 0, expense: 0 },
+  lines: budgetLines(1000), budgetedCount: 1, budgetAbsentYears: [], budgetOutsideFilterYears: [], unallocatedBudget: { income: 0, expense: 0 },
   partialBudgetCount: 0, splitsMonth: false, bands: [], ...over,
 });
 const ROW = (): StatementRow[] => ([
@@ -174,7 +174,8 @@ describe('useStatementComparators — the budget follows the filter (budgets P3 
     const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
     await waitFor(() => expect(result.current.budgetState).toBe('none'));
     expect(result.current.budgetInfo).toEqual({
-      budgetAbsentYears: [2026], windowYears: [2026], unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false, retryAfterSecs: null,
+      budgetAbsentYears: [2026], budgetOutsideFilterYears: [], unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false,
+      retryAfterSecs: null, rejection: null,
     });
   });
 
@@ -207,6 +208,26 @@ describe('useStatementComparators — the budget follows the filter (budgets P3 
     act(() => { result.current.retryBudget(); });
     await waitFor(() => expect(result.current.budgetState).toBe('available'));
     expect(budgetCalls()).toHaveLength(2);
+  });
+
+  it("a 400 is 'refused' with the server's reason, never 'failed' (a reload cannot help) and never 'none'", async () => {
+    apiJson.mockRejectedValueOnce(new ApiRequestError('A window is at most 24 months', 400));
+    const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
+    await waitFor(() => expect(result.current.budgetState).toBe('refused'));
+    expect(result.current.budgetInfo.rejection).toBe('A window is at most 24 months');
+    expect(result.current.apply(ROW())[0]!.budget).toBeUndefined();
+    // A 500 stays a failure, and a window the server accepts clears the refusal.
+    apiJson.mockRejectedValueOnce(new ApiRequestError('boom', 500));
+    act(() => { result.current.retryBudget(); });
+    await waitFor(() => expect(result.current.budgetState).toBe('failed'));
+    expect(result.current.budgetInfo.rejection).toBeNull();
+  });
+
+  it("carries the years whose budget is all at other dimensions", async () => {
+    apiJson.mockResolvedValue(BUDGET({ budgetedCount: 0, budgetOutsideFilterYears: [2026] }));
+    const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
+    await waitFor(() => expect(result.current.budgetState).toBe('none'));
+    expect(result.current.budgetInfo.budgetOutsideFilterYears).toEqual([2026]);
   });
 
   it("withAuth's shared limiter (no Retry-After) is limited too, with no known wait", async () => {

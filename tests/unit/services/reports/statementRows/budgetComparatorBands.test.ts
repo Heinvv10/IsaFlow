@@ -109,3 +109,23 @@ describe('applyBudgetBands: the engine band budgets, never a sum of lines', () =
     expect(out.find((r) => r.id === 'total:operatingProfit')!.budget).toBeUndefined();
   });
 });
+
+describe('applyBudgetBands: favourable follows each row\'s polarity (review r2, verify L3)', () => {
+  const WITH_COS = {
+    ...REPORT, costOfSales: [item('5000', 'Goods', 300)], totalCostOfSales: 300, grossProfit: 700, operatingProfit: 100, netProfit: 100,
+  } as unknown as IncomeStatementReport;
+  const fav = (bands: Array<{ key: 'cost_of_sales' | 'gross_profit' | 'operating_profit'; budget: number }>) => {
+    const out = applyBudgetBands(toIncomeStatementRows(WITH_COS, { comparative: false }), bands);
+    const f = (id: string) => out.find((r) => r.id === id)!.budget!.favourable;
+    return [f('sub:costOfSales'), f('total:grossProfit'), f('total:operatingProfit')];
+  };
+
+  it('cost of sales is an expense band (under budget is good); gross and operating profit are income rows (over budget is good)', () => {
+    // COS 300 against 400, gross profit 700 against 800 (worse), operating profit 100 against 50 (better).
+    expect(fav([{ key: 'cost_of_sales', budget: 400 }, { key: 'gross_profit', budget: 800 }, { key: 'operating_profit', budget: 50 }]))
+      .toEqual([true, false, true]);
+    // And the mirror: COS over budget is bad, profit over budget is good.
+    expect(fav([{ key: 'cost_of_sales', budget: 200 }, { key: 'gross_profit', budget: 600 }, { key: 'operating_profit', budget: 150 }]))
+      .toEqual([false, true, false]);
+  });
+});
