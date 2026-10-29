@@ -7,7 +7,10 @@
  * Budget vs Actual on the tracking engine: income-statement bands, Actual /
  * Budget / Var R / Var %, Projected FY, the dimension filter and its
  * unallocated budget. Read-only, like the income statement: viewer roles may
- * open it (contract decision 15), so no withWriteAccess.
+ * open it (contract decision 15), so no withWriteAccess. Rate limited per
+ * company at INTERACTIVE_REPORT_LIMIT (every control change reloads it; the
+ * page coalesces them); a refusal is a 429 with Retry-After and the wait in
+ * its message.
  *
  * 400 a malformed value, a quarter past the year, from > to, > 24 months, a
  * version from another year; 404 a year label, version or dimension id that
