@@ -5,8 +5,9 @@
  * rolling row, so nothing is stamped); any other kind of version is a 409.
  *
  * A roll: holdYearRegistry → the rolling row → ONE savepoint: the version lock (auto: P1's
- * `lockVersionForWrite`, no token; Roll now: the grid's compare-and-set `takeVersion`, 409 STALE /
- * LOCKED) → `planReforecast` over ALL closed months of the year with the version's OWN cells,
+ * `lockVersionForWrite`, no token, then the rolling row re-read under it, since a toggle-off takes
+ * the version first and may have committed since: gone = skipped, nothing stands; Roll now: the
+ * grid's compare-and-set `takeVersion`, 409 STALE / LOCKED) → `planReforecast` over ALL closed months of the year with the version's OWN cells,
  * drivers and hires as the source (headcount refreshed: nothing frozen; the audit row records
  * headcountAsOf) → only the cells whose amount or source differ written → the
  * row's rolled_through_month / last_rolled_at, last_error cleared → an audit row.
@@ -60,6 +61,13 @@ export interface RollingRow { fiscalYear: number; rolledThrough: string | null; 
 
 const VERSION_LOCKED = 'version locked';
 const VERSION_PRIMARY = 'version is primary';
+
+/** Thrown out of an auto roll's savepoint when auto-roll was turned off before the lock: nothing it did stands. */
+class NotRolling extends Error {
+  constructor() {
+    super('not rolling');
+  }
+}
 
 /** Thrown out of the roll's savepoint for a primary version: nothing it did (the token bump included) stands. */
 class PrimarySkipped extends Error {
@@ -129,8 +137,13 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
   const fy = fiscalYear;
   try {
     return await withSavepoint('budget_roll', async () => {
-      if (mode === 'auto') await lockVersionForWrite(companyId, id);
-      else await takeVersion(companyId, id, mode.expectedUpdatedAt);
+      if (mode === 'auto') {
+        await lockVersionForWrite(companyId, id);
+        // Re-read under the lock: a toggle-off (which takes the version first) may have committed since the read above.
+        if (!(await rollingRow(companyId, id))) throw new NotRolling();
+      } else {
+        await takeVersion(companyId, id, mode.expectedUpdatedAt);
+      }
       // Read under the version lock: setPrimary locks the year's versions first, so it cannot slip in.
       if (await isPrimary(companyId, id)) throw new PrimarySkipped();
       const { year, months } = await reforecastYear(companyId, fy);
@@ -152,6 +165,10 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       return { ...outcome, updatedAt: await versionToken(companyId, id) } satisfies RollOutcome;
     });
   } catch (err) {
+    if (err instanceof NotRolling) {
+      log.info('Budget roll skipped: auto-roll was turned off', { companyId, versionId: id }, 'accounting');
+      return skipped('not_rolling');
+    }
     if (err instanceof NothingRolled) {
       // The savepoint (the version lock's token bump included) is rolled back: only the rolling row moves.
       await markRolled(companyId, id, err.outcome.rolledThroughMonth);
