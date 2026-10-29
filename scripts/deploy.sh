@@ -146,6 +146,9 @@ IDLE_PORT=$(bg_other_port "$LIVE_PORT")
 echo "Live colour: isaflow@$LIVE_PORT; this deploy builds isaflow@$IDLE_PORT"
 # The file must agree with what nginx actually serves, or "idle" could be live.
 bg_served_by "$LIVE_PORT" || exit 1
+# The idle colour must be free of requests (one may outlive an earlier switch);
+# find out now, not after CI, the build and the migrations.
+bg_drain "$IDLE_PORT" || exit 1
 EARLY_DB=$(owner_database_url_for "$DEPLOY_DIR/.env.local" sudo || true)
 bg_midday_migration_check "$EARLY_DB" "$REPO_DIR" || exit 1
 unset EARLY_DB
@@ -241,8 +244,12 @@ verify_idle() {
   DATABASE_URL="$PROD_DB" bash "$REPO_DIR/scripts/verify-deploy.sh" "$1"
 }
 BG_VERIFY=verify_idle
-bg_lock || exit 1
-if ! bg_deploy_release "$REPO_DIR" "$GIT_SHA"; then
+bg_lock 3600 || exit 1   # a rollback or restart-colours in progress (drain + verify) finishes first
+DEPLOY_RC=0; bg_deploy_release "$REPO_DIR" "$GIT_SHA" || DEPLOY_RC=$?
+if [ "$DEPLOY_RC" -eq 2 ]; then
+  echo "!!! The switch to $GIT_SHA failed AND so did the switch back: nginx's state is unknown. Check it now. !!!"
+  exit 2
+elif [ "$DEPLOY_RC" -ne 0 ]; then
   echo ""
   echo "Deploy of $GIT_SHA was NOT switched in (DB migrations, if any, stay"
   echo "applied: they are additive by project rule). Read the reason above, fix, then redeploy."

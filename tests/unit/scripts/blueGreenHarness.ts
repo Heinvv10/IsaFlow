@@ -5,7 +5,7 @@
  * as nginx does after a reload.
  */
 import { execFileSync, spawn, type ChildProcess } from 'child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { createServer, type AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -13,6 +13,7 @@ import { join } from 'path';
 export const LIB = join(process.cwd(), 'scripts', 'deploy', 'bluegreen.sh');
 
 export class Box {
+  static readonly TOKEN = 'probetokenfortests';
   readonly root = mkdtempSync(join(tmpdir(), 'bluegreen-'));
   private servers: ChildProcess[] = [];
   env: Record<string, string>;
@@ -20,27 +21,33 @@ export class Box {
   constructor() {
     for (const d of ['bin', 'conf.d', 'envhome', 'rel']) mkdirSync(join(this.root, d));
     this.stub('nginx', `echo "nginx $*" >> "${this.root}/calls"
+[ "$1" = "-t" ] && [ -n "$NGINX_KILL_PARENT_IF" ] && grep -q "$NGINX_KILL_PARENT_IF" "$CUTOVER_SITE" 2>/dev/null && { kill -TERM $PPID; exit 0; }
 [ "$1" = "-t" ] && { [ -n "$NGINX_T_FAIL_IF" ] && grep -q "$NGINX_T_FAIL_IF" "$CUTOVER_SITE" 2>/dev/null && exit 1; exit "\${NGINX_T_RC:-0}"; }
 [ "$1" = "-s" ] && exit "\${NGINX_RELOAD_RC:-0}"; exit 0`);
-    // systemctl: logs; isaflow.service is "active" while $root/old-active exists.
+    // systemctl: logs. isaflow.service is "active" while $root/old-active exists. A colour isaflow@P is a node
+    // process whose pid is in $root/pid-P: stop/disable --now kill it, restart replaces it.
     this.stub('systemctl', `echo "systemctl $*" >> "${this.root}/calls"
+kill_colour() { [ -f "${this.root}/pid-$1" ] && { kill "$(cat "${this.root}/pid-$1")" 2>/dev/null; rm -f "${this.root}/pid-$1"; sleep 0.3; }; true; }
 case "$*" in
   "is-active --quiet isaflow.service") [ -f "${this.root}/old-active" ];;
   "disable --now isaflow.service") rm -f "${this.root}/old-active";;
   "enable --now isaflow.service") touch "${this.root}/old-active";;
   "cat isaflow.service") echo "# /etc/systemd/system/isaflow.service";;
-  "restart isaflow@"*) [ -f "${this.root}/start-colours" ] || exit 0
-    port=\${2#isaflow@}
-    nohup "${process.execPath}" -e "require('http').createServer((q,s)=>s.end('ok')).listen($port,'127.0.0.1')" >/dev/null 2>&1 &
-    echo $! >> "${this.root}/pids"; sleep 0.5;;
+  "is-active --quiet isaflow@"*) [ -f "${this.root}/pid-\${3#isaflow@}" ];;
+  "stop isaflow@"*) kill_colour "\${2#isaflow@}";;
+  "disable --now isaflow@"*) kill_colour "\${3#isaflow@}";;
+  "restart isaflow@"*) port=\${2#isaflow@}; kill_colour "$port"
+    nohup "${process.execPath}" -e "require('http').createServer((q,s)=>s.end('ok')).listen($port,'127.0.0.1')" >/dev/null 2>&1 8>&- 9>&- &
+    echo $! > "${this.root}/pid-$port"; sleep 0.5;;
 esac`);
     this.env = {
       PATH: `${join(this.root, 'bin')}:${process.env.PATH}`, HOME: this.root, BG_SUDO: '', BG_OWNER: `${process.getuid!()}`,
       BG_RELEASE_ROOT: join(this.root, 'rel'), BG_STATIC_ROOT: join(this.root, 'static'), BG_ENV_HOME: join(this.root, 'envhome'),
       BG_UPSTREAM_FILE: this.upstreamFile, BG_LOCK_FILE: join(this.root, 'colours.lock'),
       BG_UNIT_FILE: join(this.root, 'isaflow@.service'), BG_KEEP_BUILDS: '2', BG_HEALTH_TRIES: '2', BG_DRAIN_SECS: '1',
-      BG_BUN: join(this.root, 'bin', 'bun'),
+      BG_BUN: join(this.root, 'bin', 'bun'), BG_PROBE_FILE: join(this.root, 'conf.d', 'isaflow-probe.conf'),
     };
+    writeFileSync(this.env.BG_PROBE_FILE, `map $http_x_isaflow_probe $isaflow_upstream_probe {\n    "${Box.TOKEN}" $upstream_addr;\n    default "";\n}\n`);
   }
 
   get upstreamFile() { return join(this.root, 'conf.d', 'isaflow-live.conf'); }
@@ -50,6 +57,13 @@ esac`);
     const p = join(this.root, 'bin', name);
     writeFileSync(p, `#!/bin/bash\n${body}\n`);
     chmodSync(p, 0o755);
+  }
+
+  /** Replaces the stub systemctl with `cases` (bash case arms) in front of the standard stub. */
+  wrapSystemctl(cases: string) {
+    const bin = join(this.root, 'bin');
+    if (!existsSync(join(bin, 'systemctl-base'))) writeFileSync(join(bin, 'systemctl-base'), readFileSync(join(bin, 'systemctl')), { mode: 0o755 });
+    this.stub('systemctl', `case "$*" in\n${cases}\nesac\nexec "${join(bin, 'systemctl-base')}" "$@"`);
   }
 
   /** Runs a bash command (stderr folded into stdout); returns the output, or throws an Error whose message is it. */
@@ -95,15 +109,39 @@ esac`);
     return repo;
   }
 
-  /** A colour stand-in: 200 on every path. Resolves its port. */
-  colour(): Promise<number> { return this.spawnServer(''); }
+  /** A running colour stand-in (200 on every path) that the stub systemctl can stop and restart. Resolves its port. */
+  async colour(): Promise<number> {
+    const port = await this.freePort();
+    this.bash(`nohup "${process.execPath}" -e "require('http').createServer((q,s)=>s.end('ok')).listen(${port},'127.0.0.1')" >/dev/null 2>&1 &
+echo $! > "${this.root}/pid-${port}"; for i in $(seq 1 50); do curl -sf "http://127.0.0.1:${port}/" >/dev/null && break; sleep 0.1; done`);
+    return port;
+  }
 
-  /** nginx stand-in: answers 200 with X-IsaFlow-Upstream naming the port in the upstream file (or `fixed`). */
+  /** nginx stand-in: to a request carrying the probe token, X-IsaFlow-Upstream names the port in the upstream file (or `fixed`). */
   front(fixed = ''): Promise<number> {
+    const probe = JSON.stringify(this.env.BG_PROBE_FILE);
+    const probed = `((/"([A-Za-z0-9]+)"\\s+\\$upstream_addr/.exec(require('fs').existsSync(${probe}) ? require('fs').readFileSync(${probe}, 'utf8') : '') || [])[1] || '-none-') === q.headers['x-isaflow-probe']`;
     return this.spawnServer(fixed
-      ? `s.setHeader('x-isaflow-upstream', ${JSON.stringify(fixed)});`
+      ? `if (${probed}) s.setHeader('x-isaflow-upstream', ${JSON.stringify(fixed)});`
       : `const m = /127\\.0\\.0\\.1:(\\d+)/.exec(require('fs').readFileSync(${JSON.stringify(this.upstreamFile)}, 'utf8') || '');
-         if (m) s.setHeader('x-isaflow-upstream', '127.0.0.1:' + m[1]);`);
+         if (m && ${probed}) s.setHeader('x-isaflow-upstream', '127.0.0.1:' + m[1]);`);
+  }
+
+  /** A colour stand-in that answers with what it received: its name, the Host and X-Forwarded-For headers. */
+  echoColour(name: string): Promise<number> {
+    return this.spawnServer(`s.setHeader('content-type', 'application/json');
+      s.end(JSON.stringify({ colour: ${JSON.stringify(name)}, host: q.headers.host, xff: q.headers['x-forwarded-for'] ?? null })); return;`);
+  }
+
+  /** nginx :80 stand-in: like front(), but drops any request not for Host app.isaflow.co.za (as this box's default server does). */
+  front80(): Promise<number> {
+    return this.front().then(async (inner) => this.spawnServer(`if (q.headers.host !== 'app.isaflow.co.za') { s.destroy(); return; }
+      return require('http').get({ host: '127.0.0.1', port: ${inner}, path: q.url, headers: q.headers }, (r) => { s.writeHead(r.statusCode, r.headers); r.pipe(s); });`));
+  }
+
+  /** isaflow.service stand-in: 200 only while the stub systemctl has it active ($root/old-active), else 503. */
+  oldService(): Promise<number> {
+    return this.spawnServer(`if (!require('fs').existsSync(${JSON.stringify(this.path('old-active'))})) s.statusCode = 503;`);
   }
 
   private spawnServer(handler: string): Promise<number> {
@@ -127,10 +165,8 @@ esac`);
 
   dispose() {
     for (const s of this.servers) s.kill();
-    if (existsSync(this.path('pids'))) {
-      for (const pid of readFileSync(this.path('pids'), 'utf8').split('\n').filter(Boolean)) {
-        try { process.kill(Number(pid)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') throw e; }
-      }
+    for (const f of readdirSync(this.root).filter((n) => n.startsWith('pid-'))) {
+      try { process.kill(Number(readFileSync(this.path(f), 'utf8'))); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') throw e; }
     }
     rmSync(this.root, { recursive: true, force: true });
   }

@@ -140,12 +140,29 @@ describe('bg_start / bg_stop_idle / bg_retire_failed / bg_served_by / bg_drain',
     expect(() => b.run('bg_served_by 3112', { BG_FRONT_URL: `http://127.0.0.1:${front}` })).toThrow(/answers from '127.0.0.1:3111'/);
   }, 30_000);
 
-  it('bg_drain waits while a connection is open to the colour', () => {
+  it('a colour still serving a request is never stopped or restarted: drain waits, then refuses', () => {
     b.stub('ss', `[ -f "${b.root}/busy" ] && echo "ESTAB 0 0 127.0.0.1:3112 127.0.0.1:5555"; true`);
     writeFileSync(b.path('busy'), '');
+    b.upstream(3111);
     const t0 = Date.now();
-    expect(b.run('bg_drain 3112', { BG_DRAIN_SECS: '2' })).toMatch(/still has connections after 2s/);
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(1900);
+    expect(() => b.run('bg_stop_idle 3112', { BG_DRAIN_SECS: '2' })).toThrow(/still has connections after 2s; not stopping it/);
+    expect(() => b.run('bg_start 3112', { BG_DRAIN_SECS: '1' })).toThrow(/still has connections/);
+    expect({ waited: Date.now() - t0 >= 2900, calls: b.calls() }).toEqual({ waited: true, calls: [] });
+  });
+
+  it('bg_stop_idle fails when something else still holds the port, or when ss itself fails', async () => {
+    b.upstream(3111);
+    const stray = await b.colour();
+    b.wrapSystemctl(`  "stop isaflow@"*) exit 0;;\n  "is-active --quiet isaflow@"*) exit 1;;`);   // the unit stops, the stray on its port stays
+    expect(() => b.run(`bg_stop_idle ${stray}`, { BG_PORTS: `3111 ${stray}` })).toThrow(/something still listens on :\d+ after/);
+    b.stub('ss', 'exit 1');
+    expect(() => b.run('bg_stop_idle 3112', { BG_DRAIN_SECS: '1' })).toThrow(/still has connections/);
+  }, 30_000);
+
+  it('bg_stop_idle fails when the colour is still running after the stop', () => {
+    b.upstream(3111);
+    b.stub('systemctl', 'echo "systemctl $*" >> "$HOME/calls"; exit 0');   // is-active answers "running"
+    expect(() => b.run('bg_stop_idle 3112')).toThrow(/still running after stop/);
   });
 });
 
@@ -183,15 +200,18 @@ case "$1" in +%u) echo ${dow};; +%H) echo ${hour};; esac`);
 
 describe('the nginx site config', () => {
   const site = join(process.cwd(), 'scripts', 'nginx', 'isaflow-combined');
-  it('the stripped config (cutover\'s middle step) keeps :80 and drops only the :3101 server; the colour header is probe-only', () => {
+  it('the stripped config (cutover\'s middle step) keeps :80 and drops only the :3101 server; the probe token is not in the repo', () => {
     const full = readFileSync(site, 'utf8');
     const stripped = b.run(`bg_site_without_3101 "${site}"`);
     expect({
       fullHas3101: /listen 3101;/.test(full), strippedHas3101: /listen\s+3101/.test(stripped),
       strippedKeeps80: /listen 80;/.test(stripped) && stripped.includes('server_name isaflow.co.za'),
       probeHeaders: (full.match(/add_header X-IsaFlow-Upstream \$isaflow_upstream_probe always;/g) ?? []).length,
-      anyUnconditional: /add_header X-IsaFlow-Upstream \$upstream_addr/.test(full),
-      probeMap: /map \$http_x_isaflow_probe \$isaflow_upstream_probe \{\s*"1"\s+\$upstream_addr;\s*default "";/.test(full),
-    }).toEqual({ fullHas3101: true, strippedHas3101: false, strippedKeeps80: true, probeHeaders: 4, anyUnconditional: false, probeMap: true });
+      anyUnconditional: /add_header X-IsaFlow-Upstream \$upstream_addr/.test(full), mapInRepo: /^\s*map /m.test(full),
+    }).toEqual({ fullHas3101: true, strippedHas3101: false, strippedKeeps80: true, probeHeaders: 4, anyUnconditional: false, mapInRepo: false });
+  });
+
+  it('bg_probe_token reads the token from the root-only probe file', () => {
+    expect(b.run('bg_probe_token').trim()).toBe(Box.TOKEN);
   });
 });
