@@ -46,6 +46,8 @@ describe('describeGoldenCompany', () => {
     expect(text).toContain(SLOT_ID);
     expect(text).toContain('golden-slot-2@isaflow.dev');
     expect(text).toContain('--reset-slot 2');
+    // The CLI refuses a reset without a seed url, so the advice must carry one.
+    expect(text).toMatch(/--reset-slot 2 --seed-url http:\/\/localhost:/);
   });
 
   it('still names the company for a slot user whose email is not a slot email, without a rebuild hint', () => {
