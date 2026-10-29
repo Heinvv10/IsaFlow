@@ -44,6 +44,7 @@ import { skippedForRoleLock } from '@/lib/mcp/batchSkip';
 import { isRoleLockRefusal } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import { discoverResult, initializeResult, serverInfoDocument } from '@/lib/mcp/serverInfo';
 import { setMcpCors } from '@/lib/mcp/httpCors';
+import { MCP_CONNECTOR_FEATURE } from '@/lib/auth/connectorCompanies';
 import {
   RPC_CODES,
   isNotification,
@@ -134,7 +135,7 @@ async function handleRpc(
 const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Promise<void> => {
   setMcpCors(res);
 
-  const enabled = await hasFeature(req.companyId, 'mcp_connector');
+  const enabled = await hasFeature(req.companyId, MCP_CONNECTOR_FEATURE);
   if (!enabled) {
     res.status(200).json(connectorNotEnabled(req.body));
     return;

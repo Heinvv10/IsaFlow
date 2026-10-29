@@ -17,6 +17,10 @@ vi.mock('@/lib/auth/oauth', async () => {
   return { getOauthAppByClientId: vi.fn(), OAUTH_SCOPES: scopes.OAUTH_SCOPES };
 });
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getUserCompanies: vi.fn() }));
+vi.mock('@/modules/admin/services/featureFlagService', () => ({
+  hasFeature: vi.fn(async () => true),
+  companiesWithFeature: vi.fn(async (ids: readonly string[]) => new Set(ids)),
+}));
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(), apiErrorMessage: vi.fn(), assertOk: vi.fn() }));
 
 import { getOauthAppByClientId } from '@/lib/auth/oauth';

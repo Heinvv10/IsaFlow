@@ -27,9 +27,16 @@ const fx = loginAsFixture(pool, 'R032 creds');
 const REDIRECT = 'https://connector.r032.example/callback';
 let clientId = '';
 let appId = '';
+let createdFlag: string | null = null;
 
 beforeAll(async () => {
   await fx.setUp();
+  // Consent is refused for a company without the MCP connector (connectorCompanies.ts).
+  const flag = await pool.query(`INSERT INTO feature_flags (code, name) SELECT 'mcp_connector', 'MCP connector'
+    WHERE NOT EXISTS (SELECT 1 FROM feature_flags WHERE code = 'mcp_connector') RETURNING id`);
+  createdFlag = (flag.rows[0]?.id as string | undefined) ?? null;
+  await pool.query(`INSERT INTO company_feature_overrides (company_id, feature_id, enabled, set_by)
+    SELECT $1, id, true, $2 FROM feature_flags WHERE code = 'mcp_connector'`, [fx.company, fx.platformAdmin]);
   // A dynamic (RFC 7591) client, as an MCP connector registers itself — readable by any member at consent.
   const app = await registerOauthApp({ ownerUserId: null, dynamic: true, name: 'R032 connector', redirectUris: [REDIRECT] });
   clientId = app.clientId;
@@ -41,6 +48,8 @@ afterAll(async () => {
     await pool.query('DELETE FROM oauth_authorisation_codes WHERE company_id=$1', [fx.company]);
     await pool.query('DELETE FROM oauth_apps WHERE id=$1 OR owner_user_id=$2', [appId, fx.target]);
     await pool.query('DELETE FROM capture_api_keys WHERE company_id=$1', [fx.company]);
+    await pool.query('DELETE FROM company_feature_overrides WHERE company_id=$1', [fx.company]);
+    if (createdFlag) await pool.query('DELETE FROM feature_flags WHERE id=$1', [createdFlag]);
     await pool.query('DELETE FROM bank_feed_connections WHERE company_id=$1', [fx.company]);
     await fx.tearDown();
   } finally { await pool.end(); }

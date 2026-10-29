@@ -24,7 +24,8 @@ vi.mock('@/lib/neon', () => {
   });
   return {
     sql: sqlMock,
-    transaction: vi.fn().mockResolvedValue([]),
+    // One result per statement, as Postgres answers: every account row upserted.
+    transaction: vi.fn(async (build: (tx: unknown) => unknown[]) => build(() => null).map(() => [{ account_code: 'x' }])),
     withTransaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(sqlMock)),
     withSavepoint: vi.fn((_n: string, fn: () => unknown) => fn()),
     fmtDate: (d: unknown) => String(d),
@@ -87,7 +88,9 @@ function withResolvableAccounts(missing: string[] = [], notOwned: string[] = [])
       const code = vals.find(v => typeof v === 'string' && /^\d+$/.test(v)) as string | undefined;
       if (code && missing.includes(code)) return Promise.resolve([]);
       const owner = code && notOwned.includes(code) ? null : 'xero';
-      return Promise.resolve([{ id: `gl-${code ?? 'x'}`, imported_from: owner }]);
+      // The type each fixture account was imported with (the re-run never re-types one).
+      const type = code === '3000' ? 'equity' : 'asset';
+      return Promise.resolve([{ id: `gl-${code ?? 'x'}`, imported_from: owner, account_type: type }]);
     }
     return Promise.resolve([]);
   }) as never);
