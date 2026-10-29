@@ -79,3 +79,18 @@ describe('a company that is not the slot\'s own is never touched', () => {
     expect(statements).toEqual([]);
   });
 });
+
+describe('retireSlotCompany on a company that is already retired', () => {
+  it('refuses, and burns no generation: nothing is renamed and no generation is probed', async () => {
+    const statements: string[] = [];
+    const db = {
+      query: async (text: string) => {
+        statements.push(text);
+        if (text.startsWith('SELECT name FROM companies')) return { rowCount: 1, rows: [{ name: 'RETIRED 2026-10-29 slot 2 (poisoned, replaced by generation 1)' }] };
+        return { rowCount: 0, rows: [] };
+      },
+    } as unknown as ClientBase;
+    await expect(retireSlotCompany(db, 2, slotCompanyId(2, 0))).rejects.toThrow(/already retired.*GOLDEN_SLOT_2_COMPANY_ID/);
+    expect(statements).toEqual(['SELECT name FROM companies WHERE id = $1::uuid']);
+  });
+});

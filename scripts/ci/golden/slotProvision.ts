@@ -88,6 +88,21 @@ export async function setGoTrueUserPassword(userId: string, password: string): P
 }
 
 /**
+ * Gives the golden user the password from the env file, then writes the env file. Not atomic across GoTrue and the file:
+ * if the write fails GoTrue already holds the new password, so the failure says so and names the cure (a re-run reads
+ * the password from the file, or makes a new one, and sets it again).
+ */
+export async function publishSlotLogin(opts: { n: number; email: string; userId: string; password: string; envFile: string; write: () => void }): Promise<void> {
+  await setGoTrueUserPassword(opts.userId, opts.password);
+  try {
+    opts.write();
+  } catch (err) {
+    throw new Error(`slot ${opts.n}: the password of ${opts.email} was set in GoTrue but writing ${opts.envFile} failed (${(err as Error).message}); `
+      + 'GoTrue and the file now disagree until provision-slots.ts is run again, which heals it', { cause: err });
+  }
+}
+
+/**
  * Retires a slot's company and picks the id of the next generation for its replacement. Nothing is deleted: the 111
  * foreign keys into companies are NO ACTION, the ledger tables refuse deletes of posted rows, and the retired company
  * keeps whatever state poisoned it for a human to read. The retired company is renamed (never matched again by
@@ -97,6 +112,12 @@ export async function setGoTrueUserPassword(userId: string, password: string): P
  */
 export async function retireSlotCompany(db: ClientBase, n: number, currentId: string): Promise<{ generation: number; id: string }> {
   assertSlotCompanyId(n, currentId);
+  // A reset that crashed after its commit leaves the env key on the retired company; retiring it again would burn
+  // another generation and rename a company nobody uses.
+  const held = await db.query<{ name: string }>('SELECT name FROM companies WHERE id = $1::uuid', [currentId]);
+  if (held.rows[0]?.name.startsWith(RETIRED_PREFIX)) {
+    throw new Error(`slot ${n}: company ${currentId} is already retired ("${held.rows[0].name}"); set GOLDEN_SLOT_${n}_COMPANY_ID to the slot's newest generation that is not retired, then run again`);
+  }
   let generation = 1;
   for (; generation <= MAX_SLOT_GENERATION; generation++) {
     const taken = await db.query('SELECT 1 FROM companies WHERE id = $1::uuid', [slotCompanyId(n, generation)]);
