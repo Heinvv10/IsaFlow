@@ -12,7 +12,6 @@ import { neutralizeCsvCell } from '@/lib/csvSafe';
 import { toBudgetTrackingRows, type BudgetTrackingRow } from '@/modules/accounting/services/reports/statementRows/budgetTrackingRows';
 import { NON_FIGURE_KINDS } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { BudgetTrackingReport, TrackingMemberRef } from './trackingTypes';
-import { unbudgetedActualsTo } from './trackingProjection';
 
 export const TRACKING_EXPORT_COLUMNS = [
   'Code', 'Account', 'Band', 'Actual', 'Budget', 'Var R', 'Var %', 'Favourable', 'Projected FY', 'FY budget', 'Proj. var R', 'Unallocated budget',
@@ -87,13 +86,12 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
     : report.version
       ? `${report.version.name} · ${report.version.status}${report.version.empty ? ' (no budget in this window)' : ''}`
       : `None (no budget for FY${w.fiscalYear})`;
-  const unbudgetedTo = unbudgetedActualsTo(report.projection);
   const head: Array<[string, string]> = [
     ['Company', companyName],
     ['Window', w.notStarted ? `${w.label} (not started)` : `${w.label} (${w.startDate} to ${w.endDate})`],
     ['Version', version],
     ['Dimension filter', filter === '' ? 'None (company total)' : filter],
-    ['Projection cutoff', `Actuals to ${report.projection.cutoff}, budget after; a line with no budget: ${unbudgetedTo ? `actuals to ${unbudgetedTo}` : 'no actuals yet'}`],
+    ['Projection cutoff', `Actuals to ${report.projection.cutoff}, budget after; a later month with no budget: its posted actuals`],
   ];
   // A window reaching a year with no version prints no budget at all (F1): say why, or the blank
   // Budget column beside a named version reads as an export fault.

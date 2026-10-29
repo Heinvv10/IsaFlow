@@ -8,8 +8,8 @@
  *   2. the dimension filter, looked up under the company (404 on a miss);
  *   3. versions (primary per year unless one is named; 404 / 400 per §2.5);
  *   4. budget rows at their grain, the CC2 chains (loaded once), classified;
- *   5. actuals per account x month (FY* start .. window end, or the month holding today when later,
- *      for the projection of an unbudgeted line);
+ *   5. actuals per account x month (the window and the whole of FY*: a projected month with no
+ *      budget keeps its actual);
  *   6. lines, bands, notices, members; the in-progress month's posted-through date.
  *
  * Every figure is computed here or in the pure modules it calls, never by a
@@ -118,10 +118,7 @@ export async function buildBudgetTrackingReport(
     // FY*'s version that holds no budget in this window is marked, never presented as a budget (G2).
     version: versions.version && absentYears.includes(window.fy.fiscalYear) ? { ...versions.version, empty: true } : versions.version,
     filter: filter.members,
-    projection: {
-      fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths,
-      unbudgetedMonths: plan.unbudgetedMonths,
-    },
+    projection: { fiscalYear: plan.fiscalYear, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
     lines,
     bands: buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 }),
     notices: buildNotices(lines, {

@@ -142,7 +142,7 @@ describe('budget-tracking-export', () => {
     const lead = Object.fromEntries(csv.slice(0, csv.findIndex((r) => r[0] === 'Code')).filter((r) => r.length >= 2).map((r) => [r[0], r[1]]));
     expect(lead).toMatchObject({
       Company: 'Acme (Pty) Ltd', Window: '2026-06 to 2026-07 (2026-06-01 to 2026-07-31)', Version: 'Reforecast 1 · draft',
-      'Dimension filter': 'None (company total)', 'Projection cutoff': 'Actuals to 2026-07-31, budget after; a line with no budget: actuals to 2026-10-31',
+      'Dimension filter': 'None (company total)', 'Projection cutoff': 'Actuals to 2026-07-31, budget after; a later month with no budget: its posted actuals',
     });
   });
 
