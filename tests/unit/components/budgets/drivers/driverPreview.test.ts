@@ -4,8 +4,10 @@
  * store refusing what the server refuses: typing, pasting or clearing a closed month's actual,
  * and clearing a driver-computed cell (a clear of an override is "reset to driver", allowed).
  */
-import { describe, expect, it } from 'vitest';
-import { driverValueOf, previewDriver, type DriverContext } from '@/components/accounting/budgets/drivers/driverPreview';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { driverValueOf, previewDriver, previewRefusal, type DriverContext } from '@/components/accounting/budgets/drivers/driverPreview';
+import { log } from '@/lib/logger';
+import { DriverRangeError, DriverRefError } from '@/modules/accounting/services/budgets/drivers/driverTypes';
 import { GridStore } from '@/components/accounting/budgets/workspace/gridStore';
 import { clearCells, DRIVER_CLEAR_REASON } from '@/components/accounting/budgets/workspace/gridCommands';
 import { buildLayout } from '@/components/accounting/budgets/workspace/gridLayout';
@@ -88,5 +90,27 @@ describe('the grid store and P4 sources', () => {
     expect(snap.sources.slice(0, 3)).toEqual(['driver', 'driver', 'override']);
     expect(snap.driver?.kind).toBe('pct_of_line');
     expect(store.getRow(`acct:${ID.rev2}`).driver).toBeNull();
+  });
+});
+
+describe('previewRefusal', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("names the engine's refusals in plain words, without row keys, and logs nothing", () => {
+    const logged = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const key = `${ID.cos1}|||`;
+    expect(previewRefusal(new DriverRangeError(`Row ${key}: result beyond the budget range`, key)))
+      .toBe('An amount this driver computes is beyond the budget range: use a smaller amount or percentage.');
+    expect(previewRefusal(new DriverRefError(`Row ${key}: range 2026-01..2026-02 is outside the version`, key)))
+      .toBe('This driver cannot compute with these months, line or base month: check them, or Save to see what the server says.');
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it('an unexpected error keeps the generic sentence on screen and is logged with the error', () => {
+    const logged = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const boom = new TypeError('cannot read properties of undefined');
+    expect(previewRefusal(boom)).toBe('The preview could not be computed for this driver.');
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(logged).toHaveBeenCalledWith('Driver preview failed unexpectedly', { error: boom }, 'budget-drivers');
   });
 });

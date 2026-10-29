@@ -10,6 +10,7 @@
  * them outside a refresh; that row's headcount not read yet counts 0 and the preview says so
  * (`headcountMissing`).
  */
+import { log } from '@/lib/logger';
 import { computeVersion } from '@/modules/accounting/services/budgets/drivers/driverEngine';
 import {
   normaliseLine, rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLineInput, type StoredDriverLine,
@@ -121,11 +122,13 @@ function rowAfter(ctx: DriverContext, pass: Pass, key: RowKey, writes: ReturnTyp
 
 /**
  * A plain sentence for a preview the engine refused. The engine's own text names rows by key (`acct|cc1|cc2|bu`),
- * which means nothing on screen; the server's 400 on Save says exactly what to change.
+ * which means nothing on screen; the server's 400 on Save says exactly what to change. Anything that is not one
+ * of the engine's refusals is a defect: it is logged, and the screen keeps the generic sentence.
  */
 export function previewRefusal(err: unknown): string {
   if (err instanceof DriverRangeError) return 'An amount this driver computes is beyond the budget range: use a smaller amount or percentage.';
   if (err instanceof DriverRefError) return 'This driver cannot compute with these months, line or base month: check them, or Save to see what the server says.';
+  log.error('Driver preview failed unexpectedly', { error: err }, 'budget-drivers');
   return 'The preview could not be computed for this driver.';
 }
 
