@@ -28,10 +28,8 @@
  * version (404 foreign; 400 when the range reaches another year). Queries are
  * sequential (one pg client under withAuth).
  */
-import { addDaysISO } from '@/lib/dateUtils';
-import { fiscalYearForDate, type FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { budgetMonthKeysInWindow, monthEnd } from '@/modules/accounting/services/reports/budgetPeriodWindow';
-import { primaryVersionScope } from '../budgetVersionScope';
+import { primaryVersionScopeAndYears } from '../budgetVersionScope';
 import { buildBands, buildNotices } from './trackingBands';
 import { namedVersionScopeOf, versionHeads } from './trackingBudgetRead';
 import { readPostedThrough } from './trackingActualRead';
@@ -72,16 +70,6 @@ export interface RangeTracking {
   postedThrough: string | null;
 }
 
-/** Every registry year [start, end] touches by date, in order (the year holding `start` first, always). */
-async function yearsByDate(companyId: string, startDate: string, endDate: string): Promise<FiscalYearRecord[]> {
-  const out = [await mapRegistryMiss(() => fiscalYearForDate(companyId, startDate))];
-  for (let day = addDaysISO(out[0]!.endDate, 1); day <= endDate; day = addDaysISO(out[out.length - 1]!.endDate, 1)) {
-    if (out.length > 200) throw new Error(`budget range ${startDate}..${endDate} spans too many years`);
-    out.push(await mapRegistryMiss(() => fiscalYearForDate(companyId, day)));
-  }
-  return out;
-}
-
 /** Pure: the range cuts a budget month at its own edges or at a registry year's mid-month edge inside it. */
 export function splitsBudgetMonth(startDate: string, endDate: string, years: ReadonlyArray<{ startDate: string; endDate: string }>): boolean {
   if (endDate < startDate) return false;
@@ -98,8 +86,8 @@ export async function buildRangeTracking(
 ): Promise<RangeTracking> {
   const months = budgetMonthKeysInWindow(startDate, endDate);
   const filter = await resolveTrackingFilter(companyId, opts);
-  const dateYears = await yearsByDate(companyId, startDate, endDate);
-  const primary = await mapRegistryMiss(() => primaryVersionScope(companyId, startDate, endDate));
+  // ONE registry walk: P1's scope and the years the range touches by date come from the same lookups.
+  const { scope: primary, years: dateYears } = await mapRegistryMiss(() => primaryVersionScopeAndYears(companyId, startDate, endDate));
   const scope = opts.versionId ? await namedVersionScopeOf(companyId, opts.versionId, primary) : primary;
   // Each scoped year with its months. The year holding the end is FY*: when P1 gave it no month (it
   // starts mid-month inside the range), `budgetAbsentYears` judges it over the range all the same.

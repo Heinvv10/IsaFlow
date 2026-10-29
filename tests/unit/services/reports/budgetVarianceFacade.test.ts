@@ -5,7 +5,7 @@
  * budget-variance-facade-parity.int.test.ts; this catches the same mistakes in the local gate.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ACCOUNTS, COS, RENT, SALES, WAGES, W, fakeFiscalYearForDate, fakeSql, resetLedger } from './helpers/budgetLedgerFake';
+import { ACCOUNTS, COS, RENT, SALES, WAGES, W, fakeFiscalYearForDate, fakeSql, registry, resetLedger } from './helpers/budgetLedgerFake';
 
 vi.mock('@/lib/neon', () => ({ sql: (s: TemplateStringsArray, ...v: unknown[]) => fakeSql(s, ...v) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
@@ -51,6 +51,17 @@ describe("default mode: P0's rule", () => {
     const r = await getBudgetVariance(CO, '2026-03-16', '2026-04-15');
     expect(line(r, SALES)?.actual_amount).toBe(110);
     expect(r.fiscalYear).toBe(2027);
+  });
+
+  it('walks the registry ONCE per year the window touches (review r2, verify L6): MCP\'s uncapped range doubled it', async () => {
+    const FY29 = { fiscalYear: 2029, startDate: '2028-03-01', endDate: '2029-02-28' };
+    W.years = [FY27, FY28, FY29];
+    W.versions = { 2027: 'v27' };
+    await getBudgetVariance(CO, '2026-03-01', '2029-02-28');
+    expect(registry.lookups).toBe(3);
+    registry.lookups = 0;
+    await getBudgetVariance(CO, '2027-03-01', '2027-03-31', { partialWindow: 'absent' });
+    expect(registry.lookups).toBe(1);
   });
 
   it('refuses a filter or a version: under P0\'s rule they would hide budget set above the filter', async () => {

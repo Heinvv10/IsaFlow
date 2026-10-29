@@ -119,35 +119,53 @@ function clip(year: FiscalYearRecord, first: string, last: string): { first: str
  * walk starts at the window's first DAY and steps to the day after each year ends, so a year that
  * starts mid-month keeps its first month (as the budgets page writes it). A month two years share
  * (one ends and the next starts inside it) counts once, in the earlier year of the window.
+ *
+ * `visited` is every registry year the walk touched by DATE, the year holding the first day always
+ * first (even for an inverted window): one lookup per year, shared with the callers that need the
+ * years themselves (`primaryVersionScopeAndYears`), so no read walks the registry twice. It is longer
+ * than the parts when a year starts mid-month inside the window's last month and so owns no month.
  */
 async function yearsInWindow(companyId: string, startDate: string, endDate: string) {
   const bounds = budgetMonthBounds(startDate, endDate);
-  if (!bounds) return [];
-  const out: Array<{ year: FiscalYearRecord; first: string; last: string }> = [];
+  const parts: Array<{ year: FiscalYearRecord; first: string; last: string }> = [];
+  const visited: FiscalYearRecord[] = [];
   let day = startDate;
-  let first = bounds.first;
-  while (day <= endDate && first <= bounds.last) {
-    if (out.length >= MAX_YEARS_IN_WINDOW) throw new Error(`budget window ${startDate}..${endDate} spans too many years`);
+  let first = bounds?.first ?? startDate;
+  while (visited.length === 0 || day <= endDate) {
+    if (visited.length >= MAX_YEARS_IN_WINDOW) throw new Error(`budget window ${startDate}..${endDate} spans too many years`);
     const year = await fiscalYearForDate(companyId, day);
-    const part = clip(year, first, bounds.last);
-    if (part) out.push({ year, ...part });
-    if (part) first = monthKeyToDate(addMonthsToKey(part.last.slice(0, 7), 1));
+    visited.push(year);
+    const part = bounds && day <= endDate && first <= bounds.last ? clip(year, first, bounds.last) : null;
+    if (part) {
+      parts.push({ year, ...part });
+      first = monthKeyToDate(addMonthsToKey(part.last.slice(0, 7), 1));
+    }
     day = dayAfter(year.endDate);
   }
-  return out;
+  return { parts, visited };
 }
 
 /** Each registry year overlapping the window, with its primary version (or null) and its months in the window. */
 export async function primaryVersionScope(companyId: string, startDate: string, endDate: string): Promise<VersionScope[]> {
-  const years = await yearsInWindow(companyId, startDate, endDate);
-  if (years.length === 0) return [];
-  const labels = years.map((y) => y.year.fiscalYear);
+  return (await primaryVersionScopeAndYears(companyId, startDate, endDate)).scope;
+}
+
+/** `primaryVersionScope` and the registry years the window touches by date (see `yearsInWindow`), in ONE walk. */
+export async function primaryVersionScopeAndYears(
+  companyId: string, startDate: string, endDate: string,
+): Promise<{ scope: VersionScope[]; years: FiscalYearRecord[] }> {
+  const { parts, visited } = await yearsInWindow(companyId, startDate, endDate);
+  if (parts.length === 0) return { scope: [], years: visited };
+  const labels = parts.map((y) => y.year.fiscalYear);
   const prim = (await sql`
     SELECT id, fiscal_year FROM budget_versions
      WHERE company_id = ${companyId}::UUID AND is_primary AND fiscal_year = ANY(${labels}::INT[])
   `) as DbRow[];
   const byLabel = new Map(prim.map((r) => [Number(r.fiscal_year), String(r.id)]));
-  return years.map((y) => ({ fiscalYear: y.year.fiscalYear, versionId: byLabel.get(y.year.fiscalYear) ?? null, first: y.first, last: y.last }));
+  return {
+    scope: parts.map((y) => ({ fiscalYear: y.year.fiscalYear, versionId: byLabel.get(y.year.fiscalYear) ?? null, first: y.first, last: y.last })),
+    years: visited,
+  };
 }
 
 /** The version a read of `fiscalYear` uses: the named one (which must be that year's) or the primary. */
