@@ -35,6 +35,8 @@ export function RollingControls({ version, grid, editable }: RollingControlsProp
   const [read, setRead] = useState<{ versionId: string; status: RollingStatus } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A roll that changes no cell keeps the version token, so a write re-reads the status itself.
+  const [reread, setReread] = useState(0);
   const { token } = grid;
   const reforecast = version.kind === 'reforecast';
 
@@ -46,7 +48,7 @@ export function RollingControls({ version, grid, editable }: RollingControlsProp
       if (r.ok) { setRead({ versionId: version.id, status: r.data }); setError(null); } else setError(failureText(r));
     });
     return () => { gone = true; };
-  }, [version.id, reforecast, token]);
+  }, [version.id, reforecast, token, reread]);
 
   const run = useCallback(async (write: (token: string) => Promise<ApiResult<{ updatedAt: string | null }>>) => {
     if (!grid.token) return;
@@ -62,6 +64,7 @@ export function RollingControls({ version, grid, editable }: RollingControlsProp
     }
     if (r.data.updatedAt) grid.adoptToken(r.data.updatedAt);
     await grid.refresh();
+    setReread((n) => n + 1);
   }, [grid]);
 
   const status = read?.versionId === version.id ? read.status : null;

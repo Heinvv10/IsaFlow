@@ -73,7 +73,9 @@ function grid() {
 describe('RollingControls', () => {
   it('stale: "Rolled through Apr 2026 · 2 months closed since"; Roll now POSTs the token, adopts the answer and re-reads', async () => {
     const net = installNetwork();
-    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(status()));
+    let reads = 0;
+    // After the roll the status is up to date; the grid token is unchanged (a roll that changed no cell keeps it).
+    net.on((u, m) => u === url(REFORECAST.id) && m === 'GET', () => ok(++reads === 1 ? status() : status({ rolledThroughMonth: '2026-06', staleMonths: [] })));
     net.on((u, m) => u === url(REFORECAST.id) && m === 'POST', () => ok({ status: 'rolled', changed: 6, closedMonths: [], rolledThroughMonth: '2026-06', unplaced: [], warnings: [], updatedAt: T2 }));
     const g = grid();
     render(<RollingControls version={REFORECAST} grid={g} editable />);
@@ -82,6 +84,8 @@ describe('RollingControls', () => {
     await waitFor(() => expect(g.refresh).toHaveBeenCalled());
     expect(net.sent.find((s) => s.method === 'POST')!.body).toEqual({ action: 'roll', expectedUpdatedAt: TOKEN });
     expect(g.adoptToken).toHaveBeenCalledWith(T2);
+    await waitFor(() => expect(screen.queryByTestId('rolling-stale')).toBeNull());
+    expect(reads).toBe(2);
   });
 
   it('up to date: no badge; the toggle PUTs rolling off with the token; a locked roll shows last_error', async () => {
