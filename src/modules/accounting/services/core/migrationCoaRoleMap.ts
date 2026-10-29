@@ -105,8 +105,9 @@ export async function roleMapConflicts(
   const parentCodes = new Set(accounts.map((a) => a.parentCode).filter(Boolean));
   return entries.flatMap(([role, code]) => {
     const r = existing.get(code);
-    // The type the row will HAVE: the upsert keeps a system account's own type and re-types any other.
-    const type = r && r.is_system_account === true ? String(r.account_type) : String(byCode.get(code)?.accountType ?? r?.account_type);
+    // The type the account will HAVE: the upsert never re-types an existing account (a row that
+    // would is refused), so an existing one keeps its own; a new one takes the file's.
+    const type = r ? String(r.account_type) : String(byCode.get(code)?.accountType);
     const message = roleTargetRefusal(role, role, {
       code, type, isActive: r ? r.is_active === true : true,
       hasChildren: r?.has_children === true || parentCodes.has(code),
@@ -123,8 +124,8 @@ export async function roleMapConflicts(
  * leave bank without exactly one usable account", which names nothing to fix.
  * A holder the map moves its role away from in this same import is not one;
  * an account the map MAKES a balance-sheet holder in this import is (judged
- * by the type it will have: a system account keeps its own, any other takes
- * the file's);
+ * by the type it will have: an existing account keeps its own, a new one
+ * takes the file's);
  * and a row that is ALREADY that holder's sub-account (an existing chart that
  * breaks the rule, re-imported) is not being given to it: only a new one is.
  */
@@ -149,7 +150,7 @@ export async function holderParentConflicts(
     const held = r && roleBarringChildren(r);
     // What the parent will be once this import has run.
     const role = held && (mapped[held] === undefined || mapped[held] === code) ? held : roleBarringChildren({
-      account_type: r?.is_system_account === true ? r.account_type : fileType.get(code) ?? r?.account_type,
+      account_type: r ? r.account_type : fileType.get(code),
       account_subtype: roleGiven.get(code), is_system_account: roleGiven.has(code),
     });
     return role ? [[code, { role, children: new Set((r?.child_codes as string[] | null) ?? []) }] as const] : [];
