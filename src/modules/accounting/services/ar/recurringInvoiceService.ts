@@ -9,7 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { RecurringInvoiceTemplateError } from './recurringInvoiceTemplate';
 import { RecurringInvoiceLockTimeoutError } from './recurringInvoiceLock';
-import { parseTaxRate } from './recurringInvoiceEdit';
+import { parseTaxRate, validateCreateDates } from './recurringInvoiceEdit';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type {
   RecurringInvoice,
@@ -67,6 +67,10 @@ export async function createRecurringInvoice(companyId: string,
   input: RecurringInvoiceCreateInput,
   userId: string
 ): Promise<RecurringInvoice> {
+  // Strict dates, End Date not before the next run: POST used to take anything the
+  // SQL cast accepted, which is where legacy rows with End Date < next run came from.
+  const dates = validateCreateDates(input);
+
   // R-067: the runner re-mints an invoice from this template EVERY period, so
   // a foreign client_id accepted here becomes a recurring cross-tenant document.
   await assertCustomerInCompany(companyId, input.clientId);
@@ -97,8 +101,8 @@ export async function createRecurringInvoice(companyId: string,
       total_amount, payment_terms, created_by, content_authors
     ) VALUES (
       ${companyId}, ${input.templateName}, ${input.clientId}::UUID,
-      ${input.projectId || null}, ${input.frequency}, ${input.nextRunDate},
-      ${input.endDate || null}, ${input.description || null},
+      ${input.projectId || null}, ${input.frequency}, ${dates.nextRunDate},
+      ${dates.endDate}, ${input.description || null},
       ${JSON.stringify(input.lineItems)}::JSONB, ${subtotal}, ${taxRate},
       ${taxAmount}, ${totalAmount}, ${input.paymentTerms || '30 days'}, ${userId}::UUID,
       ARRAY[${userId}::UUID]

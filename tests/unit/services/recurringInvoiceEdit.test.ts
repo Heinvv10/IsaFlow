@@ -17,6 +17,7 @@ import {
   parseTaxRate,
   RecurringInvoiceEditError,
   resolveEditTaxRate,
+  validateCreateDates,
 } from '@/modules/accounting/services/ar/recurringInvoiceEdit';
 import { RecurringInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/recurringInvoiceLock';
 
@@ -140,6 +141,51 @@ describe('assertEditDatesConsistent', () => {
   it('does not judge an edit that touches neither date, nor a template with no End Date', () => {
     expect(() => assertEditDatesConsistent(keep, keep, { end_date: '2020-01-01', next_run_date: '2030-12-01' })).not.toThrow();
     expect(() => assertEditDatesConsistent(keep, set('2040-01-01'), { end_date: null, next_run_date: '2030-12-01' })).not.toThrow();
+  });
+});
+
+describe('assertEditDatesConsistent: only a CHANGED date counts as supplied', () => {
+  const legacy = { end_date: '2020-01-01', next_run_date: '2030-12-01' }; // POST never validated this
+  const set = (value: string | null) => ({ provided: true, value });
+  const keep = { provided: false, value: null };
+
+  it('does not judge dates resent unchanged (the edit page resends nextRunDate on every save)', () => {
+    expect(() => assertEditDatesConsistent(keep, set('2030-12-01'), legacy)).not.toThrow();
+    expect(() => assertEditDatesConsistent(set('2020-01-01'), set('2030-12-01'), legacy)).not.toThrow();
+    expect(() => assertEditDatesConsistent(set('2020-01-01'), keep, legacy)).not.toThrow();
+  });
+
+  it('compares a stored Date column to the body as YYYY-MM-DD', () => {
+    const stored = { end_date: new Date(2020, 0, 1), next_run_date: new Date(2030, 11, 1) };
+    expect(() => assertEditDatesConsistent(set('2020-01-01'), set('2030-12-01'), stored)).not.toThrow();
+  });
+
+  it('treats null vs a stored null End Date as unchanged', () => {
+    expect(() => assertEditDatesConsistent(set(null), keep, { end_date: null, next_run_date: '2030-12-01' })).not.toThrow();
+  });
+
+  it('still judges a changed date against the legacy row', () => {
+    expect(() => assertEditDatesConsistent(keep, set('2031-06-01'), legacy)).toThrow(RecurringInvoiceEditError);
+    expect(() => assertEditDatesConsistent(set('2020-02-01'), keep, legacy)).toThrow(RecurringInvoiceEditError);
+  });
+});
+
+describe('validateCreateDates', () => {
+  it('returns the parsed dates', () => {
+    expect(validateCreateDates({ nextRunDate: '2031-01-01', endDate: '2031-12-31' }))
+      .toEqual({ nextRunDate: '2031-01-01', endDate: '2031-12-31' });
+    expect(validateCreateDates({ nextRunDate: '2031-01-01' })).toEqual({ nextRunDate: '2031-01-01', endDate: null });
+    expect(validateCreateDates({ nextRunDate: '2031-01-01', endDate: '' }).endDate).toBeNull();
+    expect(validateCreateDates({ nextRunDate: '2031-01-01', endDate: '2031-01-01' }).endDate).toBe('2031-01-01');
+  });
+
+  it.each([undefined, null, '', '2031-06-01T00:00:00Z', 'garbage', '2031-02-30', 20310601])('refuses nextRunDate %j', (v) => {
+    expect(() => validateCreateDates({ nextRunDate: v })).toThrow(RecurringInvoiceEditError);
+  });
+
+  it('refuses a malformed endDate and an End Date before the next run', () => {
+    expect(() => validateCreateDates({ nextRunDate: '2031-01-01', endDate: '2031-02-30' })).toThrow(RecurringInvoiceEditError);
+    expect(() => validateCreateDates({ nextRunDate: '2031-01-02', endDate: '2031-01-01' })).toThrow(/cannot be before/);
   });
 });
 
