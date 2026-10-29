@@ -31,7 +31,7 @@ describe('BudgetTrackingVisuals', () => {
     expect(images).toEqual([
       bridgeSummary(budgetBridgeSteps(REPORT)),
       bulletSummary(toBulletLines(REPORT.members!)),
-      heatmapSummary(REPORT.lines, REPORT.window.months, '2026-10'),
+      heatmapSummary(REPORT.lines, REPORT.window.months, REPORT.projection.cutoff.slice(0, 7)),
     ]);
   });
 
@@ -40,7 +40,7 @@ describe('BudgetTrackingVisuals', () => {
     expect(screen.getByRole('link', { name: /figures behind these charts/i }).getAttribute('href')).toBe('#bva-statement');
   });
 
-  it('the heatmap labels the month in progress', () => {
+  it('the heatmap marks every month after the projection cutoff (here the month in progress) as not yet judged', () => {
     render(<BudgetTrackingVisuals report={REPORT} filtered={false} groupBy="cc1" onGroupBy={vi.fn()} />);
     expect(screen.getAllByTestId('echart').map((e) => e.textContent)).toContain('Oct 26 *');
   });

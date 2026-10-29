@@ -35,7 +35,7 @@ describe('chart summaries', () => {
     expect(bulletSummary([])).toBe('Budget variance by member: no member carries a budget in this window.');
   });
 
-  it('the heatmap reads its size, the month in progress, and the largest variance either way', () => {
+  it('the heatmap reads its size, the months not yet judged, and the largest judged variance either way (review r2 N1)', () => {
     const lines = REPORT.lines.map((l) => ({
       ...l,
       monthly: [
@@ -43,8 +43,22 @@ describe('chart summaries', () => {
         { month: '2026-10', actual: 0, budget: 0, budgetAboveFilter: false, variance: 9999, favourable: false },
       ],
     }));
-    expect(heatmapSummary(lines, ['2026-09', '2026-10'], '2026-10')).toBe(
-      'Variance by month for 2 accounts over 2 months (Sep 2026 to Oct 2026); Oct 2026 is in progress and not judged. '
+    expect(heatmapSummary(lines, ['2026-09', '2026-10'], '2026-09')).toBe(
+      'Variance by month for 2 accounts over 2 months (Sep 2026 to Oct 2026); Oct 2026 not yet judged. '
       + `Largest unfavourable: 6000 Rent, Sep 2026, ${f(70)}. Largest favourable: 4000 Sales, Sep 2026, ${f(30)}.`);
   });
+
+  it('several months still to come are named as a span, and none of them is called the largest miss', () => {
+    const lines = REPORT.lines.map((l) => ({
+      ...l,
+      monthly: ['2026-09', '2026-10', '2026-11'].map((month, i) => ({
+        month, actual: 0, budget: 100, budgetAboveFilter: false, variance: i === 0 ? -5 : -100, favourable: false,
+      })),
+    }));
+    const s = heatmapSummary(lines, ['2026-09', '2026-10', '2026-11'], '2026-09');
+    expect(s).toContain('; Oct 2026 to Nov 2026 not yet judged.');
+    expect(s).toContain(`Largest unfavourable: 4000 Sales, Sep 2026, ${f(-5)}.`);
+    expect(s).not.toContain('Nov 2026,');
+  });
 });
+

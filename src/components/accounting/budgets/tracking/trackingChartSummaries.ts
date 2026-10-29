@@ -3,8 +3,9 @@
  * chart is an image to a screen reader (`ChartFrame summary` → role="img"), so
  * its aria-label carries the figures the chart shows, read off the same data
  * the chart draws: the bridge's steps, the bullets' ranked members, the
- * heatmap's largest variance either way. The month in progress is named and
- * left out of the extremes, as it is left out of the heatmap's colour scale.
+ * heatmap's largest judged variance either way. The months not yet judged (in
+ * progress or still to come) are named and left out of the extremes, as they
+ * are left out of the heatmap's colour scale.
  * Pure; every figure through `formatStatementFigure`, as on the statement.
  */
 import { formatStatementFigure } from '@/lib/format/money';
@@ -28,11 +29,14 @@ export function bulletSummary(lines: readonly BudgetVsActualLine[], limit = 12):
     + `variance ${fig(l.movement)}${l.favourable === null ? '' : l.favourable ? ', favourable' : ', unfavourable'}`).join('; ')}.`;
 }
 
-export function heatmapSummary(lines: readonly TrackingLine[], months: readonly string[], inProgressMonth: string | null): string {
+export function heatmapSummary(lines: readonly TrackingLine[], months: readonly string[], judgedThrough: string | null): string {
   const span = months.length === 0 ? '' : ` (${monthLabel(months[0]!)} to ${monthLabel(months[months.length - 1]!)})`;
-  const progress = inProgressMonth && months.includes(inProgressMonth) ? `; ${monthLabel(inProgressMonth)} is in progress and not judged` : '';
+  const judged = (m: string) => judgedThrough === null || m <= judgedThrough;
+  const later = months.filter((m) => !judged(m));
+  const progress = later.length === 0 ? ''
+    : `; ${monthLabel(later[0]!)}${later.length > 1 ? ` to ${monthLabel(later[later.length - 1]!)}` : ''} not yet judged`;
   const cells = lines.flatMap((l) => l.monthly
-    .filter((m) => m.variance !== null && m.favourable !== null && m.month !== inProgressMonth && months.includes(m.month))
+    .filter((m) => m.variance !== null && m.favourable !== null && judged(m.month) && months.includes(m.month))
     .map((m) => ({ name: `${l.accountCode} ${l.accountName}`, month: m.month, variance: m.variance!, favourable: m.favourable! })));
   const largest = (favourable: boolean) => cells.filter((c) => c.favourable === favourable)
     .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))[0];

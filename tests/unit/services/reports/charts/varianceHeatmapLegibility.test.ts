@@ -125,7 +125,7 @@ describe('heatmap month labels (browser review r1 M3)', () => {
   // A whole 12-month year, the most columns a phone has to label.
   for (const px of WIDTHS) {
     it(`never overlap at ${px}px`, () => {
-      const option = buildVarianceHeatmapOption(linesOf(7), MONTHS, DEFAULT_PALETTE, { inProgressMonth: '2026-10' })!;
+      const option = buildVarianceHeatmapOption(linesOf(7), MONTHS, DEFAULT_PALETTE, { judgedThrough: '2026-09' })!;
       const months = (option as { xAxis: { data: string[] } }).xAxis.data;
       const svg = paint(option, px, 16 * 28 + 80);
       const painted = texts(svg).filter((t) => months.includes(t.text)).sort((a, b) => a.x - b.x);
@@ -144,7 +144,7 @@ describe('heatmap month labels (browser review r1 M3)', () => {
   }
 
   it('a narrow chart always labels the latest month, so the in-progress "*" is on the axis', () => {
-    const option = buildVarianceHeatmapOption(linesOf(7), MONTHS.slice(0, 8), DEFAULT_PALETTE, { inProgressMonth: '2026-10' })!;
+    const option = buildVarianceHeatmapOption(linesOf(7), MONTHS.slice(0, 8), DEFAULT_PALETTE, { judgedThrough: '2026-09' })!;
     const svg = paint(option, 260, 16 * 28 + 80);
     expect(texts(svg).map((t) => t.text)).toContain('Oct 26 *');
   });
