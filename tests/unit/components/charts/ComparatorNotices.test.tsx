@@ -7,8 +7,8 @@ import {
 } from '@/components/accounting/reportControls/ComparatorNotices';
 
 const INFO = (over: Partial<BudgetInfo> = {}): BudgetInfo => ({
-  budgetAbsentYears: [], windowYears: [], unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, splitsMonth: false,
-  retryAfterSecs: null, ...over,
+  budgetAbsentYears: [], budgetOutsideFilterYears: [], unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, splitsMonth: false,
+  retryAfterSecs: null, rejection: null, ...over,
 });
 
 afterEach(cleanup);
@@ -119,15 +119,30 @@ describe('<ComparatorNotices /> retry', () => {
   });
 });
 
-describe('comparatorNotices: whole months and the years that do have a budget (PR-C review r1, R4, browser F4)', () => {
+describe('comparatorNotices: whole months, absent years, a budget elsewhere, a refused window (PR-C review r1 R4; r2 R8, R10)', () => {
   it('a window that splits a budget month says budgets are set by whole month, and nothing else about the budget', () => {
     expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ splitsMonth: true, budgetAbsentYears: [2027] }) }))
       .toEqual([{ tone: 'info', text: BUDGET_WHOLE_MONTHS }]);
     expect(BUDGET_WHOLE_MONTHS).toBe('Budgets are set by whole month. Choose a window from the 1st to a month end to compare.');
   });
 
-  it('a year with no budget names the year that has one: its budget alone covers only part of the window', () => {
-    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2028], windowYears: [2027, 2028] }) })[0]!.text)
-      .toBe("No budget for FY2028 in this window, so the Budget column is empty. FY2027's budget alone would cover only part of it.");
+  it('a year with no budget says so in the sentence Budget vs Actual uses: nothing about the years that do (R10 F2)', () => {
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2028] }) }))
+      .toEqual([{ tone: 'info', text: 'No budget for FY2028 in this window, so the Budget column is empty.' }]);
+  });
+
+  it('a year whose budget is all at other dimensions is not "no budget": it says the budget is not at this filter (R8)', () => {
+    const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetOutsideFilterYears: [2027] }) });
+    expect(n).toEqual([{ tone: 'info', text: 'FY2027 has a budget, but none of it is at this filter.' }]);
+    expect(comparatorNotices({ budgetState: 'available', trendFailed: false, budget: INFO({ budgetOutsideFilterYears: [2026, 2027] }) }))
+      .toEqual([{ tone: 'info', text: 'FY2026 and FY2027 have a budget, but none of it is at this filter.' }]);
+  });
+
+  it("a window the server refused shows the server's reason as an error, with no advice to reload (R10 F4)", () => {
+    const n = comparatorNotices({ budgetState: 'refused', trendFailed: false, budget: INFO({ rejection: 'A window is at most 24 months' }) });
+    expect(n).toEqual([{ tone: 'error', text: 'The Budget column is empty: A window is at most 24 months.' }]);
+    expect(n[0]!.text).not.toMatch(/reload|loading failure/i);
+    expect(comparatorNotices({ budgetState: 'refused', trendFailed: false, budget: INFO({ rejection: 'Ends first.' }) })[0]!.text)
+      .toBe('The Budget column is empty: Ends first.');
   });
 });

@@ -42,6 +42,9 @@ describe('the Budget column under budgetCells', () => {
     expect(c[8]).toBe('—');
     expect(pctCellStyle(m, 'ZeroBudgetWithSpend')).not.toMatch(/color:/);
     expect(c[1]).not.toBe('0.00');
+    // Review r2 (verify L2): the zero rules are the BUDGET column's. The Prior column's Var % of a zero
+    // prior stays blank as on every statement; "—" there would be the Budget rule leaking sideways.
+    expect(c[4]).toBe('');
   });
 
   it('an absent budget prints "—" in every Budget cell; a partial one carries its marker', () => {

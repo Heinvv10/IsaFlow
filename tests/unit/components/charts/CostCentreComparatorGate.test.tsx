@@ -53,7 +53,7 @@ function stubFetches() {
   });
   // One stub answers both comparators: the trend's fields and the budget comparator's whole response.
   apiJson.mockResolvedValue({
-    months: [], byAccountCode: {}, unavailable: {}, lines: [], budgetedCount: 0, budgetAbsentYears: [], windowYears: [],
+    months: [], byAccountCode: {}, unavailable: {}, lines: [], budgetedCount: 0, budgetAbsentYears: [], budgetOutsideFilterYears: [],
     unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, splitsMonth: false, bands: [],
   });
 }

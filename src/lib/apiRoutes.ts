@@ -47,7 +47,7 @@ import type { getAccountLedger } from '@/modules/accounting/services/reports/acc
 import type { getAccountTransactions } from '@/modules/accounting/services/gl/accountTransactionsService';
 import type { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
-import type { BudgetVarianceTrackedResult, getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
+import type { BudgetComparatorResponse } from './apiRoutesBudgetComparator';
 import type { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
@@ -155,24 +155,7 @@ interface StaticRoutes {
   // Budgets P3: Budget vs Actual on the tracking engine. Its export (`budget-tracking-export`) is a file
   // (CSV / XLSX) opened in a new tab, never parsed as JSON, so it is not registered here.
   '/api/accounting/reports-budget-tracking': Awaited<ReturnType<typeof buildBudgetTrackingReport>>;
-  '/api/accounting/reports-budget-comparator': {
-    fiscalYear: Awaited<ReturnType<typeof getBudgetVariance>>['fiscalYear'];
-    monthKeys: Awaited<ReturnType<typeof getBudgetVariance>>['monthKeys'];
-    lines: BudgetVarianceTrackedResult['lines'];
-    /** `result.rows.length` — how many accounts the SERVICE classified as
-     *  budgeted. Derived in the handler, so it is written out here rather
-     *  than projected off the service type; it is a count of that array and
-     *  moves with it. */
-    budgetedCount: number;
-    postedThrough: Awaited<ReturnType<typeof getBudgetVariance>>['postedThrough'];
-    version: BudgetVarianceTrackedResult['version'];
-    unallocatedBudget: BudgetVarianceTrackedResult['unallocatedBudget'];
-    budgetAbsentYears: BudgetVarianceTrackedResult['budgetAbsentYears'];
-    windowYears: BudgetVarianceTrackedResult['windowYears'];
-    splitsMonth: BudgetVarianceTrackedResult['splitsMonth'];
-    partialBudgetCount: BudgetVarianceTrackedResult['partialBudgetCount'];
-    bands: BudgetVarianceTrackedResult['bands'];
-  };
+  '/api/accounting/reports-budget-comparator': BudgetComparatorResponse;
   '/api/accounting/reports-income-statement': Awaited<ReturnType<typeof getIncomeStatement>>;
   '/api/accounting/reports-pack': {
     pack: ReturnType<typeof buildReportPack>;

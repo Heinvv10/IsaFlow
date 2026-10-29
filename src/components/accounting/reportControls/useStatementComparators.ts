@@ -39,15 +39,16 @@ import { applyBudgetBands, withBudgetedLines } from '@/modules/accounting/servic
 
 /** What the budget fetch has established so far. `unknown` covers both "not
  *  asked for" and "still in flight"; `failed` must never be shown as `none`;
- *  `limited` is a refusal by the report limiter, which a retry can answer. */
-export type BudgetState = 'unknown' | 'failed' | 'limited' | 'none' | 'available';
+ *  `limited` is a refusal by the report limiter, which a retry can answer;
+ *  `refused` is the server saying the window itself is not acceptable (a 400), with its reason. */
+export type BudgetState = 'unknown' | 'failed' | 'limited' | 'refused' | 'none' | 'available';
 
 /** What the budget fetch said about the window beyond its lines. */
 export interface BudgetInfo {
   /** Years of the window with no budget in it. */
   budgetAbsentYears: number[];
-  /** Every financial year with months in the window. */
-  windowYears: number[];
+  /** Years that have a budget, none of it at the dimension filter. */
+  budgetOutsideFilterYears: number[];
   /** Budget set above the dimension filter, per polarity; null when the window budget is absent. */
   unallocatedBudget: ByPolarity | null;
   /** Accounts budgeted for only part of the window, whose Budget is blank. */
@@ -56,6 +57,8 @@ export interface BudgetInfo {
   splitsMonth: boolean;
   /** The limiter's wait, when `budgetState` is `limited` and the server named one. */
   retryAfterSecs: number | null;
+  /** The server's reason, when `budgetState` is `refused`. */
+  rejection: string | null;
 }
 
 /** How long the budget fetch waits after the last period or filter change. */
@@ -97,7 +100,7 @@ interface BudgetData {
   lines: TrackedLine[];
   budgetedCount: number;
   budgetAbsentYears: number[];
-  windowYears: number[];
+  budgetOutsideFilterYears: number[];
   unallocatedBudget: ByPolarity | null;
   partialBudgetCount: number;
   splitsMonth: boolean;
@@ -112,6 +115,12 @@ function refusal(err: unknown): { retryAfterSecs: number | null } | null {
   return null;
 }
 
+/** The server's reason for a window it will not read (a 400): reloading cannot help, so it is said, not retried. */
+function rejection(err: unknown): string | null {
+  const e = err as { status?: unknown; message?: unknown } | null;
+  return e?.status === 400 && typeof e.message === 'string' && e.message !== '' ? e.message : null;
+}
+
 export function useStatementComparators(opts: StatementComparatorOptions): StatementComparators {
   const {
     trend, budget = false, asOf, basis, periodStart = '', periodEnd = '', costCentreId = '', businessUnitId = '',
@@ -123,6 +132,7 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
   const [budgetFailed, setBudgetFailed] = useState(false);
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [budgetLimited, setBudgetLimited] = useState<{ retryAfterSecs: number | null } | null>(null);
+  const [budgetRefused, setBudgetRefused] = useState<string | null>(null);
   const [budgetAttempt, setBudgetAttempt] = useState(0);
 
   useEffect(() => {
@@ -148,6 +158,7 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     setBudgetData(null);
     setBudgetFailed(false);
     setBudgetLimited(null);
+    setBudgetRefused(null);
     if (!budget || !periodStart || !periodEnd) {
       setBudgetLoading(false);
       return;
@@ -162,8 +173,8 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
         .then((data) => {
           if (!cancelled) {
             setBudgetData({
-              lines: data.lines, budgetedCount: data.budgetedCount, budgetAbsentYears: data.budgetAbsentYears, windowYears: data.windowYears,
-              unallocatedBudget: data.unallocatedBudget, partialBudgetCount: data.partialBudgetCount,
+              lines: data.lines, budgetedCount: data.budgetedCount, budgetAbsentYears: data.budgetAbsentYears,
+              budgetOutsideFilterYears: data.budgetOutsideFilterYears, unallocatedBudget: data.unallocatedBudget, partialBudgetCount: data.partialBudgetCount,
               splitsMonth: data.splitsMonth, bands: data.bands,
             });
           }
@@ -171,8 +182,10 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
         .catch((err) => {
           log.warn('Failed to load budget comparator', { error: err }, 'useStatementComparators');
           if (cancelled) return;
-          const refused = refusal(err);
-          if (refused) setBudgetLimited(refused);
+          const limited = refusal(err);
+          const reason = rejection(err);
+          if (limited) setBudgetLimited(limited);
+          else if (reason) setBudgetRefused(reason);
           else setBudgetFailed(true);
         })
         .finally(() => { if (!cancelled) setBudgetLoading(false); });
@@ -204,17 +217,20 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
       ? 'failed'
       : budgetLimited
         ? 'limited'
-        : budgetData === null
+        : budgetRefused !== null
+          ? 'refused'
+          : budgetData === null
           ? 'unknown'
           : hasBudgetData(budgetData.budgetedCount) ? 'available' : 'none';
 
   const budgetInfo: BudgetInfo = {
     budgetAbsentYears: budgetData?.budgetAbsentYears ?? [],
-    windowYears: budgetData?.windowYears ?? [],
+    budgetOutsideFilterYears: budgetData?.budgetOutsideFilterYears ?? [],
     unallocatedBudget: budgetData?.unallocatedBudget ?? null,
     partialBudgetCount: budgetData?.partialBudgetCount ?? 0,
     splitsMonth: budgetData?.splitsMonth ?? false,
     retryAfterSecs: budgetLimited?.retryAfterSecs ?? null,
+    rejection: budgetRefused,
   };
 
   return {
