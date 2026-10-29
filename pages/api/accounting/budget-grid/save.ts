@@ -8,8 +8,9 @@
  * version, a month outside its year, a grain clash), 404 for another company's version, 409
  * BUDGET_VERSION_LOCKED / BUDGET_VERSION_STALE (with `currentUpdatedAt` and `status`). Every
  * refusal leaves the version, its amounts and its token as they were. Budget drivers (P4): a closed
- * month, an 'actual' or a driver-computed cell refused (400); a driver that cannot hold the result
- * 400 DRIVER_RANGE; the answer adds `recomputed`, `reset` and `driverWarnings`. The Excel import commits here.
+ * month typed or cleared, or a driver-computed cell cleared, is 400 BUDGET_VERSION_INPUT; only the
+ * recompute's own refusals are DRIVER_* (400 DRIVER_RANGE when a driver cannot hold the result). The
+ * answer adds `recomputed`, `reset` and `driverWarnings`. The Excel import commits here.
  * Next's own body parser reads the JSON (at most 4 MB: 413 past it); one request carries at most
  * MAX_SAVE_CELLS (20 000) cells, so a bigger commit (an import of up to MAX_IMPORT_CELLS) is
  * CHAINED by the client, each chunk sent with the token the previous save returned. Each save is

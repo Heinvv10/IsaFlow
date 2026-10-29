@@ -124,38 +124,35 @@ export async function firstClosedMonthCell(companyId: string, versionId: string,
   return cells.find((c) => closed.has(c.month)) ?? null;
 }
 
-export interface ClearedSources {
-  /** A cleared 'driver' cell inside its driver's range (refused: the driver computes it). */
-  computed: SaveCell | null;
-  /** Cleared 'override' cells inside their driver's range: a reset to driver, refilled by the recompute. */
-  overrides: number;
-  /** The rows of those overrides (`acct|cc1|cc2|bu`). */
-  overrideRows: Set<string>;
+export interface ClearedDriverCell {
+  cell: SaveCell;
+  /** Its row, `acct|cc1|cc2|bu`. */
+  row: string;
+  source: 'driver' | 'override';
 }
 
-/** What the batch's clears (outside closed months) would remove that is not a plain typed figure. */
-export async function classifyClears(companyId: string, versionId: string, cells: readonly SaveCell[]): Promise<ClearedSources> {
-  const out: ClearedSources = { computed: null, overrides: 0, overrideRows: new Set() };
-  if (cells.length === 0) return out;
+/**
+ * The batch's clears that would remove a 'driver' or 'override' cell inside its driver's range (the
+ * caller decides: a driver cell is refused, an override clear is a reset, unless that driver is
+ * skipped this pass and so computes nothing).
+ */
+export async function clearedDriverCells(companyId: string, versionId: string, cells: readonly SaveCell[]): Promise<ClearedDriverCell[]> {
+  if (cells.length === 0) return [];
   const k = keyArrays(cells);
   const rows = (await sql`
     SELECT t.a::text AS a, NULLIF(t.c1, ${NIL}::UUID)::text AS c1, NULLIF(t.c2, ${NIL}::UUID)::text AS c2,
-           NULLIF(t.b, ${NIL}::UUID)::text AS b, to_char(t.m, 'YYYY-MM') AS m, bm.amount_source AS src,
-           EXISTS (SELECT 1 FROM budget_driver_lines d WHERE ${driverCovers(companyId, versionId)}) AS covered
+           NULLIF(t.b, ${NIL}::UUID)::text AS b, to_char(t.m, 'YYYY-MM') AS m, bm.amount_source AS src
       FROM unnest(${k.a}::UUID[], ${k.c1}::UUID[], ${k.c2}::UUID[], ${k.b}::UUID[], ${k.m}::DATE[]) AS t(a, c1, c2, b, m)
       JOIN budget_month_amounts bm ON ${cellMatch(companyId, versionId)}
      WHERE bm.amount_source IN ('driver', 'override')
+       AND EXISTS (SELECT 1 FROM budget_driver_lines d WHERE ${driverCovers(companyId, versionId)})
      ORDER BY 1, 5
   `) as DbRow[];
-  const find = (r: DbRow) => cells.find((c) => c.glAccountId === String(r.a) && c.month === String(r.m)) ?? null;
-  for (const r of rows) {
-    if (r.src === 'driver' && r.covered) out.computed ??= find(r);
-    else if (r.src === 'override' && r.covered) {
-      out.overrides += 1;
-      out.overrideRows.add([r.a, r.c1 ?? '', r.c2 ?? '', r.b ?? ''].join('|'));
-    }
-  }
-  return out;
+  return rows.map((r) => ({
+    cell: cells.find((c) => c.glAccountId === String(r.a) && c.month === String(r.m))!,
+    row: [r.a, r.c1 ?? '', r.c2 ?? '', r.b ?? ''].join('|'),
+    source: String(r.src) as ClearedDriverCell['source'],
+  }));
 }
 
 /**

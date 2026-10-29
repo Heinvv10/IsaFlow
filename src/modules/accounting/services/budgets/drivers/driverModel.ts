@@ -16,6 +16,7 @@ import { monthKeyToDate } from '../../reports/budgetPeriodWindow';
 import { toCents } from '../grid/cents';
 import { bandOf } from '../grid/subtotals';
 import { assertDriverMonths, monthIndex } from './driverEngine';
+import { buildDriverGraph, type DriverGraph } from './driverGraph';
 import {
   DriverRangeError, DriverRefError, rowKeyFor,
   type Cell, type CellSource, type DriverDef, type DriverRow, type RowKey,
@@ -34,6 +35,10 @@ export interface VersionModel {
   cells: Map<RowKey, Cell[]>;
   /** The drivers that can compute this pass. */
   defs: DriverDef[];
+  /** Every stored driver (skipped ones included), for the save-time cycle check. */
+  allDefs: DriverDef[];
+  /** Grains a driver names that are not rows (not income-statement accounts). */
+  unplaced: Array<DriverGrain & { key: RowKey }>;
   skipped: SkippedDriver[];
   /** Months in which the version holds an 'actual' cell. */
   closedMonths: Set<string>;
@@ -104,6 +109,28 @@ export async function loadVersionModel(
   }
 
   const placed = new Set(rows.map((r) => r.key));
+  const { defs, skipped } = placeDrivers(lines, placed, labels, months);
+  const unplaced = [...grains].filter(([key]) => !placed.has(key)).map(([key, g]) => ({ key, ...g }));
+  const allDefs = lines.flatMap((l) => {
+    try {
+      return [toDriverDef(l)];
+    } catch (err) {
+      // A line the engine cannot read is skipped by placeDrivers (with its reason); no edge to draw.
+      if (err instanceof DriverRefError || err instanceof DriverRangeError) return [];
+      throw err;
+    }
+  });
+  return { months, rows, cells, defs, allDefs, unplaced, skipped, closedMonths, labels };
+}
+
+/**
+ * Splits the version's drivers into those that compute and those skipped, with the reason. A
+ * driver is skipped when its row or the row it reads is not `placed` (not an income-statement
+ * account), or its months do not lie inside the version.
+ */
+export function placeDrivers(
+  lines: readonly DriverLine[], placed: ReadonlySet<RowKey>, labels: ReadonlyMap<string, string>, months: readonly string[],
+): { defs: DriverDef[]; skipped: SkippedDriver[] } {
   const index = monthIndex(months);
   const defs: DriverDef[] = [];
   const skipped: SkippedDriver[] = [];
@@ -129,5 +156,40 @@ export async function loadVersionModel(
       defs.push(def);
     }
   }
-  return { months, rows, cells, defs, skipped, closedMonths, labels };
+  return { defs, skipped };
+}
+
+/**
+ * The graph of EVERY stored driver, skipped ones included, for the save-time cycle check: a loop
+ * through a driver skipped today (its account retyped) comes back the day the account does. A row
+ * that is not an income-statement account sits in no section, so section drivers read none of it.
+ */
+export function fullDriverGraph(model: VersionModel): DriverGraph {
+  const placed = new Set(model.rows.map((r) => r.key));
+  // Any band will do for a row no section driver may read: its section edges are dropped below.
+  const rows: DriverRow[] = [...model.rows, ...model.unplaced.map((g) => ({ ...g, band: 'other_expense' as const }))];
+  const graph = buildDriverGraph(rows, model.allDefs);
+  const refs = new Map<RowKey, Set<RowKey>>();
+  const dependents = new Map<RowKey, Set<RowKey>>(graph.nodes.map((n) => [n, new Set<RowKey>()]));
+  for (const [key, read] of graph.refs) {
+    const section = graph.driverOf.get(key)?.kind === 'pct_of_section';
+    const kept = [...read].filter((r) => !section || placed.has(r));
+    refs.set(key, new Set(kept));
+    for (const r of kept) dependents.get(r)?.add(key);
+  }
+  return { ...graph, refs, dependents };
+}
+
+/** The rows whose driver is skipped this pass (for the grid save's clear rules); reads no cells. */
+export async function skippedDriverRows(companyId: string, lines: readonly DriverLine[], months: readonly string[]): Promise<Set<RowKey>> {
+  if (lines.length === 0) return new Set();
+  const grains = lines.flatMap((l) => (l.ref ? [l, l.ref] : [l]));
+  const accounts = (await sql`
+    SELECT id::text AS id, account_code, account_name, account_type FROM gl_accounts
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${[...new Set(grains.map((g) => g.glAccountId))]}::UUID[])
+  `) as DbRow[];
+  const income = new Set(accounts.filter((a) => a.account_type === 'revenue' || a.account_type === 'expense').map((a) => String(a.id)));
+  const labels = new Map(accounts.map((a) => [String(a.id), `${String(a.account_code)} ${String(a.account_name ?? '')}`.trim()]));
+  const placed = new Set(grains.filter((g) => income.has(g.glAccountId)).map(rowKeyOfGrain));
+  return new Set(placeDrivers(lines, placed, labels, months).skipped.map((x) => x.rowKey));
 }
