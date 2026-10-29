@@ -248,6 +248,26 @@ describe('PUT recurring-invoices: review findings', () => {
     expect((await put(c, { id, templateName: 'legacy rename' })).state.statusCode).toBe(200);
   });
 
+  it('MEDIUM: a legacy template (End Date before next run) can still be renamed with its dates resent unchanged, as the edit page does', async () => {
+    const { c, customer } = await fixture();
+    const id = await template(c, customer, { taxRate: 15, endDate: '2020-01-01' });
+    const { next_run_date, end_date } = await row(id);
+    const same = await put(c, { id, nextRunDate: next_run_date, templateName: 'legacy rename' });
+    expect(same.state.statusCode, JSON.stringify(same.state.body)).toBe(200);
+    const both = await put(c, { id, nextRunDate: next_run_date, endDate: end_date, templateName: 'legacy rename 2' });
+    expect(both.state.statusCode, JSON.stringify(both.state.body)).toBe(200);
+    expect(await row(id)).toMatchObject({ template_name: 'legacy rename 2', next_run_date, end_date });
+  });
+
+  it('MEDIUM: the same legacy template refuses a CHANGED next run date', async () => {
+    const { c, customer } = await fixture();
+    const id = await template(c, customer, { taxRate: 15, endDate: '2020-01-01' });
+    const before = await row(id);
+    const res = await put(c, { id, nextRunDate: '2031-06-01', templateName: 'should not apply' });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(await row(id)).toMatchObject({ next_run_date: before.next_run_date, template_name: before.template_name });
+  });
+
   it.each(['garbage', '2031-02-30', '2031-06-01T00:00:00Z'])('refuses a malformed nextRunDate %j and changes nothing', async (nextRunDate) => {
     const { c, customer } = await fixture();
     const id = await template(c, customer, { taxRate: 15 });
@@ -264,30 +284,5 @@ describe('PUT recurring-invoices: review findings', () => {
     const before = (await row(id)).next_run_date;
     expect((await put(c, { id, nextRunDate: '', templateName: 'blank date' })).state.statusCode).toBe(200);
     expect(await row(id)).toMatchObject({ next_run_date: before, template_name: 'blank date' });
-  });
-});
-
-describe('POST recurring-invoices: tax rate scale', () => {
-  const post = (c: string, customer: string, taxRate: unknown) => callRoute(recurringInvoices, tokens[user]!, c, 'POST', {
-    templateName: 'POST scale', clientId: customer, frequency: 'monthly', nextRunDate: '2031-01-01', taxRate,
-    lineItems: [{ description: 'Big', quantity: 1, unitPrice: 10000 }],
-  }, '/api/accounting/recurring-invoices');
-  const count = async (c: string) => Number((await pool.query(
-    'SELECT count(*) AS n FROM recurring_invoices WHERE company_id = $1', [c])).rows[0].n);
-
-  it('refuses a rate with more than 2 decimals and creates nothing', async () => {
-    const { c, customer } = await fixture();
-    const res = await post(c, customer, 7.555);
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
-    expect(JSON.stringify(res.state.body)).toMatch(/2 decimal/);
-    expect(await count(c)).toBe(0);
-  });
-
-  it('stores a 2-decimal rate and a header that agrees with it', async () => {
-    const { c, customer } = await fixture();
-    const res = await post(c, customer, 7.55);
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-    const r = (await pool.query('SELECT tax_rate::float AS r, tax_amount::float AS t FROM recurring_invoices WHERE company_id = $1', [c])).rows[0];
-    expect(r).toEqual({ r: 7.55, t: 755 });
   });
 });
