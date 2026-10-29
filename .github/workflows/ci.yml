@@ -166,7 +166,10 @@ jobs:
           # Ephemeral port: avoids collisions with stale servers from earlier
           # cancelled runs on this long-lived runner (a stale next dev on a
           # fixed port would pass the health check and test OLD code).
+          # Next.js refuses fetch-spec "bad ports"; 3659 (apple-sasl) is the
+          # only one in this range and failed a boot on 2026-10-28.
           GOLDEN_PORT=$((3300 + RANDOM % 500))
+          [ "$GOLDEN_PORT" -eq 3659 ] && GOLDEN_PORT=3660
           bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
           DEVPID=$!
           trap 'kill $DEVPID 2>/dev/null || true' EXIT
