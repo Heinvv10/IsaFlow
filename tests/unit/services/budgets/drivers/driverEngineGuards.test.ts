@@ -143,11 +143,20 @@ describe('stale driver cells are re-sourced manual, value kept; overrides stay',
 
 describe('frozen rows (headcount refreshes on demand)', () => {
   it('a frozen row keeps its cells, is not re-sourced, and feeds its dependents as it stands', () => {
-    const cells = new Map<RowKey, Cell[]>([[RENT.key, flat(700, 'driver')]]);
-    const perHead: DriverDef = { kind: 'per_head', rowKey: RENT.key, amount: 100, headcountScope: null, ...ALL };
+    const cells = new Map<RowKey, Cell[]>([[RENT.key, flat(70000, 'driver')]]);
+    const perHead: DriverDef = { kind: 'per_head', rowKey: RENT.key, amount: 10000, headcountScope: null, ...ALL };
     const heads = { headcount: () => 3 };
     expect(run({ cells, drivers: [perHead], ...heads, frozenRows: new Set([RENT.key]) }).writes).toEqual([]);
     expect(run({ cells, drivers: [], frozenRows: new Set([RENT.key]) }).writes).toEqual([]);
-    expect(run({ cells, drivers: [perHead], ...heads }).writes.map(w => w.amount)).toEqual(FY.map(() => 300));
+    expect(run({ cells, drivers: [perHead], ...heads }).writes.map(w => w.amount)).toEqual(FY.map(() => 30000));
+    // A dependent reads the frozen row's STORED cells (R700), not its computed value (R300) or nothing.
+    const half: DriverDef = { kind: 'pct_of_line', rowKey: COGS.key, refRowKey: RENT.key, pct: 50, ...ALL };
+    const out = run({ cells, drivers: [perHead, half], ...heads, frozenRows: new Set([RENT.key]) }).writes;
+    expect(out.filter(w => w.rowKey === COGS.key).map(w => w.amount)).toEqual(FY.map(() => 35000));
+    expect(out.some(w => w.rowKey === RENT.key)).toBe(false);
+  });
+
+  it('a frozen key that is not a row is refused like every unknown key', () => {
+    expect(() => run({ drivers: [], frozenRows: new Set(['nope|||']) })).toThrow(DriverRefError);
   });
 });
