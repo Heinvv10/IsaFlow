@@ -131,23 +131,6 @@
     },
     "maxHint": 1
    }
-  ],
-  "/accounting/supplier-payments/new": [
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[type=\"number\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"invoiceId\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
-    "max": 1
-   }
   ]
  }
 }
