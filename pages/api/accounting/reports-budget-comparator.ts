@@ -20,7 +20,8 @@
  * fell into, and dropping the unbudgeted half would silently hide accounts.
  * `budgetedCount` preserves where the split fell, which is the only thing in
  * the response that says whether a budget was ever captured; `noBudgetYears`
- * says which years of the window have none in it.
+ * says which years of the window have none in it, and `partialBudgetCount` how
+ * many accounts are budgeted for only part of it (their budget is withheld).
  *
  * Rate limited per company at the interactive limit (120 per 15 minutes, as
  * Budget vs Actual): the page reloads it on every period and filter change, so
@@ -103,6 +104,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     version: result.version,
     unallocatedBudget: result.unallocatedBudget,
     noBudgetYears: result.noBudgetYears,
+    partialBudgetCount: result.partialBudgetCount,
   });
 }
 

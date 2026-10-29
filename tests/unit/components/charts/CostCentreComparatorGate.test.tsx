@@ -1,15 +1,11 @@
 /**
- * The trend and the budget are COMPANY-WIDE figures.
+ * The trend is a COMPANY-WIDE figure; the budget follows the filter.
  *
  * `trendRowsService` applies no cost-centre filter — its own header says so —
- * and `getBudgetVariance` takes no cost centre either. Both statement pages
- * nonetheless kept a cost-centre selector and passed `cost_centre_id` to the
- * statement fetch, so a filtered statement could print a company-wide
- * sparkline and a company-wide budget in the same row as a departmental
- * figure. Nothing in the code prevented it.
- *
- * With a cost centre selected the two columns are switched off, not fetched,
- * and the page says why.
+ * so with a dimension selected the trend column is switched off, not fetched,
+ * and the page says why. The budget column (budgets P3 PR-C) is fetched with
+ * the statement's own filter (`cost_centre_id` either level, `business_unit_id`),
+ * so it stays on and is re-read for the filtered view.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
@@ -61,11 +57,13 @@ function stubFetches() {
 const comparatorCalls = () =>
   apiJson.mock.calls.map(c => String(c[0]))
     .filter(u => u.includes('reports-account-trends') || u.includes('reports-budget-comparator'));
+const trendCalls = () => comparatorCalls().filter(u => u.includes('reports-account-trends'));
+const budgetCalls = () => comparatorCalls().filter(u => u.includes('reports-budget-comparator'));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('the income statement with a cost centre selected', () => {
-  it('switches the company-wide columns off, fetches neither, and says why', async () => {
+  it('switches the trend off (not fetched, and says why); the budget stays and is read for the cost centre', async () => {
     stubFetches();
     render(<IncomeStatementPage />);
 
@@ -74,7 +72,7 @@ describe('the income statement with a cost centre selected', () => {
     fireEvent.click(trend);
     fireEvent.click(budget);
     await waitFor(() => expect(comparatorCalls().length).toBe(2));
-    const beforeFilter = comparatorCalls().length;
+    const trendsBefore = trendCalls().length;
 
     // Wait for the option: changing a select to a value it has no option for
     // leaves it at '' — the cost-centre list is its own fetch (R-138).
@@ -83,11 +81,12 @@ describe('the income statement with a cost centre selected', () => {
 
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByLabelText('Budget') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByLabelText('Budget') as HTMLInputElement).checked).toBe(false);
-    // No further trend/budget request was issued for the filtered view.
-    expect(comparatorCalls().length).toBe(beforeFilter);
+    expect((screen.getByLabelText('Budget') as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByLabelText('Budget') as HTMLInputElement).checked).toBe(true);
+    // The budget is re-read with the statement's filter; the trend is not fetched for the filtered view.
+    await waitFor(() => expect(budgetCalls().some(u => u.includes('cost_centre_id=cc-1'))).toBe(true));
+    expect(trendCalls().length).toBe(trendsBefore);
   });
 
   it(`restores the reader own choice when the cost centre is cleared`, async () => {
@@ -108,7 +107,7 @@ describe('the income statement with a cost centre selected', () => {
 });
 
 describe('the income statement with a business unit selected', () => {
-  it('switches company-wide comparators off without losing the reader choices', async () => {
+  it('switches the trend off without losing the reader choice; the budget is read for the unit', async () => {
     stubFetches();
     render(<IncomeStatementPage />);
 
@@ -120,7 +119,8 @@ describe('the income statement with a business unit selected', () => {
     fireEvent.change(screen.getByDisplayValue('All Business Units'), { target: { value: 'bu-1' } });
     expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
     expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByLabelText('Budget') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Budget') as HTMLInputElement).disabled).toBe(false);
+    await waitFor(() => expect(budgetCalls().some(u => u.includes('business_unit_id=bu-1'))).toBe(true));
 
     fireEvent.change(screen.getByDisplayValue('SALES — Sales'), { target: { value: '' } });
     await waitFor(() => expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(true));
@@ -132,8 +132,8 @@ describe('touching a live checkbox while the gate is on', () => {
   it('does not write the gate own zeros back over the reader choice', async () => {
     // `ComparatorControls` is handed the GATED columns and sends back a whole
     // StatementColumns. Written straight through, this first click would
-    // carry `budget: false, trend: false` into the stored choice and clearing
-    // the filter would restore nothing.
+    // carry `trend: false` into the stored choice and clearing the filter
+    // would restore nothing.
     stubFetches();
     render(<IncomeStatementPage />);
 

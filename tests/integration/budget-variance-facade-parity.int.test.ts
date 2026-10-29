@@ -89,7 +89,7 @@ async function oracleBudgets(companyId: string, startDate: string, endDate: stri
   return budgets;
 }
 
-type P0Fields = Omit<BudgetVarianceResult, 'version' | 'unallocatedBudget' | 'noBudgetYears'>;
+type P0Fields = Omit<BudgetVarianceResult, 'version' | 'unallocatedBudget' | 'noBudgetYears' | 'partialBudgetCount'>;
 
 async function oracle(companyId: string, periodStart: string, periodEnd: string): Promise<P0Fields> {
   const monthKeys = budgetMonthKeysInWindow(periodStart, periodEnd);
@@ -120,7 +120,7 @@ async function oracle(companyId: string, periodStart: string, periodEnd: string)
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const p0 = (r: BudgetVarianceResult): P0Fields => {
-  const { version: _v, unallocatedBudget: _u, noBudgetYears: _n, ...rest } = r;
+  const { version: _v, unallocatedBudget: _u, noBudgetYears: _n, partialBudgetCount: _p, ...rest } = r;
   return rest;
 };
 
@@ -222,6 +222,7 @@ describe('the engine withholds a partial-window budget (P0 summed the part)', ()
     expect(opex(facade)).toMatchObject({ budgeted: true, budget_amount: 410 });
     expect(facade.rows.map((l) => l.account_code)).toEqual(['BT-6000']);
     expect(facade.unbudgeted).toEqual([]);
+    expect(facade.partialBudgetCount).toBe(4);
     expect(facade.noBudgetYears).toEqual([]);
     expect(facade.version).toMatchObject({ id: f.v.primary28 });
   });

@@ -161,6 +161,10 @@ interface StaticRoutes {
      *  moves with it. */
     budgetedCount: number;
     postedThrough: Awaited<ReturnType<typeof getBudgetVariance>>['postedThrough'];
+    version: Awaited<ReturnType<typeof getBudgetVariance>>['version'];
+    unallocatedBudget: Awaited<ReturnType<typeof getBudgetVariance>>['unallocatedBudget'];
+    noBudgetYears: Awaited<ReturnType<typeof getBudgetVariance>>['noBudgetYears'];
+    partialBudgetCount: Awaited<ReturnType<typeof getBudgetVariance>>['partialBudgetCount'];
   };
   '/api/accounting/reports-income-statement': Awaited<ReturnType<typeof getIncomeStatement>>;
   '/api/accounting/reports-pack': {

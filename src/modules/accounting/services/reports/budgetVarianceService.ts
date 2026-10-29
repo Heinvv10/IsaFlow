@@ -65,6 +65,8 @@ export interface BudgetVarianceResult {
   unallocatedBudget: ByPolarity | null;
   /** Years in the window with no budget in it: while any is listed, no line carries a window budget. */
   noBudgetYears: number[];
+  /** Accounts budgeted for only part of the window (some of its years, or a grain change): their budget is withheld. */
+  partialBudgetCount: number;
 }
 
 /** The engine has a budget for the account in a window month that it does not print as the window's. */
@@ -117,5 +119,6 @@ export async function getBudgetVariance(
     version: range.version,
     unallocatedBudget: range.notices.unallocatedBudget,
     noBudgetYears: range.notices.noVersionYears,
+    partialBudgetCount: range.notices.partialBudget?.count ?? 0,
   };
 }
