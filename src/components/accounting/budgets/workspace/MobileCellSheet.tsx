@@ -1,6 +1,6 @@
 /**
  * The phone / coarse-pointer editor (spec §12): a bottom sheet for ONE cell, opened by tapping it.
- * It names the account and month (and shows the account's budget note, read-only), takes the amount (`MoneyField`, the kit parser), and offers
+ * It names the account and month (and shows the account's budget note; "Edit note…" is among the row's actions), takes the amount (`MoneyField`, the kit parser), and offers
  * Save cell, Next month (saves, then moves on) and the row's actions. No range selection, clipboard or fill here.
  * A saved cell joins the normal dirty / undo / save-bar flow.
  */
@@ -14,7 +14,7 @@ export interface MobileCellTarget {
   accountLabel: string;
   /** "Mar 2026" / "Full year" */
   monthLabel: string;
-  /** The account's budget note for the year, shown read-only; null when none. */
+  /** The account's budget note for the year (shown as text; edited through the row's actions); null when none. */
   note: string | null;
   cents: number | null;
   editable: boolean;
@@ -49,13 +49,14 @@ export function MobileCellSheet({ target, onSave, onNext, onClose, actions }: Mo
         aria-modal="true"
         aria-label={`${title} budget`}
         onClick={e => e.stopPropagation()}
-        className="w-full rounded-t-xl border-t border-[var(--ff-border-secondary)] bg-[var(--ff-bg-secondary)] p-4 pb-6 space-y-3"
+        className="w-full max-h-[90vh] overflow-y-auto rounded-t-xl border-t border-[var(--ff-border-secondary)] bg-[var(--ff-bg-secondary)] p-4 pb-6 space-y-3"
       >
         <div>
           <p className="text-sm font-semibold text-[var(--ff-text-primary)]">{target.accountLabel}</p>
           <p className="text-xs text-[var(--ff-text-tertiary)]">{target.monthLabel}{target.isTotal ? ' (spread evenly over the months)' : ''}</p>
           {target.note && (
-            <p data-testid="sheet-note" className="mt-1 text-xs text-[var(--ff-text-secondary)] whitespace-pre-line">
+            // A long note scrolls inside its own box, so the title and the amount stay on screen.
+            <p data-testid="sheet-note" tabIndex={0} className="mt-1 max-h-24 overflow-y-auto break-words text-xs text-[var(--ff-text-secondary)] whitespace-pre-line">
               <span className="font-medium">Note:</span> {target.note}
             </p>
           )}
