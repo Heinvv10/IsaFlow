@@ -44,4 +44,11 @@ describe('BudgetTrackingVisuals', () => {
     render(<BudgetTrackingVisuals report={REPORT} filtered={false} groupBy="cc1" onGroupBy={vi.fn()} />);
     expect(screen.getAllByTestId('echart').map((e) => e.textContent)).toContain('Oct 26 *');
   });
+
+  it('with no budget the bridge says so, never "nothing posted" (Demo has actuals and no budget)', () => {
+    const none = trackingReport([{ code: '4000', name: 'Sales', type: 'revenue', actual: 1200 }], { version: null });
+    render(<BudgetTrackingVisuals report={none} filtered={false} groupBy="cc1" onGroupBy={vi.fn()} />);
+    expect(screen.getByTestId('bva-bridge').textContent).toContain('No budget for net profit in this window, so there is no bridge.');
+    expect(screen.getByTestId('bva-bridge').textContent).not.toContain('Nothing posted');
+  });
 });

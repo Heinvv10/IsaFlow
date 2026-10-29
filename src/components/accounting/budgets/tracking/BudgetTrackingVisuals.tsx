@@ -35,7 +35,8 @@ export function BudgetTrackingVisuals({ report, filtered, groupBy, onGroupBy }: 
         <a href="#bva-statement" className="underline hover:no-underline">The figures behind these charts are in the statement table above.</a>
       </p>
       <div data-testid="bva-bridge" className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-3">
-        <ProfitWaterfall steps={steps} title="Budget to actual net profit" unit="Rand, effect on profit per band" summary={bridgeSummary(steps)} />
+        <ProfitWaterfall steps={steps} title="Budget to actual net profit" unit="Rand, effect on profit per band" summary={bridgeSummary(steps)}
+          unavailable="No budget for net profit in this window, so there is no bridge." />
       </div>
       <div data-testid="bva-bullets" className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-3">
         <div className="mb-2 flex items-center justify-end gap-2">
