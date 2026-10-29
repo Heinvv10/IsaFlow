@@ -11,7 +11,7 @@ import type { BudgetYearsAnswer } from './budgetWorkspace';
 export interface Version { id: string; fiscalYear: number; name: string; kind: string; status: string; isPrimary: boolean }
 export interface GridAccount { id: string; code: string; name: string; band: string; isActive: boolean; isHeader: boolean }
 interface GridRead { year: { monthKeys: string[] }; accounts: GridAccount[] }
-interface Period { startDate: string; status: string }
+interface Period { startDate: string; endDate: string; status: string }
 
 export interface DriverPlan {
   fiscalYear: number;
@@ -19,8 +19,11 @@ export interface DriverPlan {
   sales: GridAccount;
   cogs: GridAccount;
   salaries: GridAccount;
-  /** The year's months whose fiscal periods are closed or locked (step 5 needs one; the spec never closes one). */
-  closedMonths: string[];
+  /**
+   * Some closed or locked fiscal period overlaps the year: only whether step 5 is worth TRYING. Which months the
+   * reforecast treats as closed is the server's answer (`closedMonths`), never re-derived here.
+   */
+  anyClosedPeriod: boolean;
 }
 
 /** Versions this run created and has not yet deleted, in creation order. */
@@ -88,12 +91,12 @@ export async function precheck(api: Api): Promise<DriverPlan | string> {
     const cogs = line(grid.accounts, 'cost_of_sales');
     const salaries = line(grid.accounts, 'operating_expense', /salar|wage|staff/i);
     if (!sales || !cogs || !salaries) { reasons.push(`${fiscalYear}: needs an active turnover, cost-of-sales and operating-expense line`); continue; }
-    // By date, as the reforecast reads it (legacy period labels can differ from the budget year's).
+    // By date, not label (legacy period labels can differ from the budget year's).
     const months = grid.year.monthKeys;
-    const closed = new Set(periods.filter((p) => p.status === 'closed' || p.status === 'locked').map((p) => p.startDate.slice(0, 7)));
-    // Only the reforecast reads them: the GP scenario holds no actuals, so all its months take typing.
-    const closedMonths = months.filter((m) => closed.has(m));
-    return { fiscalYear, months, sales, cogs, salaries, closedMonths };
+    const from = `${months[0]}-01`;
+    const to = `${months[months.length - 1]}-31`;
+    const anyClosedPeriod = periods.some((p) => (p.status === 'closed' || p.status === 'locked') && p.startDate <= to && p.endDate >= from);
+    return { fiscalYear, months, sales, cogs, salaries, anyClosedPeriod };
   }
   return `no usable financial year (${reasons.join('; ')})`;
 }
