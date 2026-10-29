@@ -1,0 +1,213 @@
+/**
+ * Budgets P3 PR-C, on real PostgreSQL: `getBudgetVariance` is a facade over the
+ * tracking engine, and with no options its P0 fields are DEEP-EQUAL to the
+ * pre-facade (P0 + P1) service for the same ledger. The oracle below is P0's
+ * own SQL, verbatim from the merge-base's `reports/budgetWindowActuals.ts`
+ * (`loadWindowActuals`) and `reports/budgetWindowService.ts` (`loadWindowBudgets`
+ * with the primary scope), composed exactly as the old `getBudgetVariance` did.
+ *
+ * Where the engine deliberately differs (a year in the window with no budget in
+ * it, a line budgeted for only part of the window) the difference is pinned,
+ * not hidden: those lines keep their actual, carry no budget, and are in
+ * neither `rows` nor `unbudgeted`.
+ *
+ * Seed: helpers/budgetTrackingFixture.ts, plus per-test rows written inside the
+ * request's transaction (always rolled back). Fixture route: isaflow_schema_fixture
+ * (assertDisposable). Never skips.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool, type PoolClient } from 'pg';
+import { sql } from '@/lib/neon';
+import { round2 } from '@/modules/accounting/services/core/budgetMonths';
+import { primaryVersionScope } from '@/modules/accounting/services/budgets/budgetVersionScope';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { budgetMonthBounds, budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
+import { buildBudgetVsActualLines, type RawActualRow } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import { buildBudgetVsActualSections } from '@/modules/accounting/services/reports/budgetVsActualSections';
+import { getBudgetVariance, type BudgetVarianceResult } from '@/modules/accounting/services/reports/budgetVarianceService';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { asRequest, dropTrackingFixture, seedTrackingFixture, type TrackingFixture } from './helpers/budgetTrackingFixture';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+let f: TrackingFixture;
+
+beforeAll(async () => { f = await seedTrackingFixture(pool); }, 120_000);
+afterAll(async () => {
+  try { await dropTrackingFixture(pool, f); } finally { await pool.end(); }
+});
+
+// ── The oracle: P0 + P1, verbatim ────────────────────────────────────────────
+
+async function oracleActuals(companyId: string, startDate: string, endDate: string): Promise<RawActualRow[]> {
+  return (await sql`
+    SELECT ga.id, ga.account_code, ga.account_name, ga.account_type,
+           COALESCE(
+             CASE WHEN ga.account_type = 'revenue' THEN b.credit_less_debit
+                  ELSE b.debit_less_credit END
+           , 0)::numeric AS actual_amount
+    FROM gl_accounts ga
+    LEFT JOIN (
+      SELECT jl.gl_account_id,
+             SUM(jl.debit - jl.credit) AS debit_less_credit,
+             SUM(jl.credit - jl.debit) AS credit_less_debit
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      WHERE jl.company_id = ${companyId}::UUID
+        AND je.company_id = ${companyId}::UUID
+        AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+        AND je.entry_date >= ${startDate}
+        AND je.entry_date <= ${endDate}
+      GROUP BY jl.gl_account_id
+    ) b ON b.gl_account_id = ga.id
+    WHERE ga.company_id = ${companyId}::UUID
+      AND ga.account_type IN ('expense', 'revenue')
+    ORDER BY ga.account_code
+  `) as RawActualRow[];
+}
+
+async function oracleBudgets(companyId: string, startDate: string, endDate: string): Promise<Record<string, number>> {
+  const bounds = budgetMonthBounds(startDate, endDate);
+  if (!bounds) return {};
+  const scope = (await primaryVersionScope(companyId, startDate, endDate))
+    .filter((s): s is typeof s & { versionId: string } => s.versionId !== null);
+  if (scope.length === 0) return {};
+  const rows = (await sql`
+    SELECT bm.gl_account_id, SUM(bm.amount)::numeric AS total
+    FROM budget_month_amounts bm
+    JOIN unnest(${scope.map((s) => s.versionId)}::UUID[], ${scope.map((s) => s.first)}::DATE[], ${scope.map((s) => s.last)}::DATE[])
+      AS sc(version_id, first_month, last_month)
+      ON bm.version_id = sc.version_id AND bm.month >= sc.first_month AND bm.month <= sc.last_month
+    JOIN gl_accounts ga ON ga.id = bm.gl_account_id AND ga.company_id = ${companyId}::UUID
+    WHERE bm.company_id = ${companyId}::UUID
+    GROUP BY bm.gl_account_id
+  `) as Array<{ gl_account_id: string; total: string | number }>;
+  const budgets: Record<string, number> = {};
+  for (const row of rows) budgets[String(row.gl_account_id)] = round2(Number(row.total));
+  return budgets;
+}
+
+type P0Fields = Omit<BudgetVarianceResult, 'version' | 'unallocatedBudget' | 'noBudgetYears'>;
+
+async function oracle(companyId: string, periodStart: string, periodEnd: string): Promise<P0Fields> {
+  const monthKeys = budgetMonthKeysInWindow(periodStart, periodEnd);
+  const fiscalYear = (await fiscalYearForDate(companyId, periodStart)).fiscalYear;
+  const budgets = await oracleBudgets(companyId, periodStart, periodEnd);
+  const actuals = await oracleActuals(companyId, periodStart, periodEnd);
+  const postedRows = (await sql`
+    SELECT MAX(je.entry_date)::text AS posted_through
+    FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+      AND je.entry_date >= ${periodStart}
+      AND je.entry_date <= ${periodEnd}
+  `) as Array<{ posted_through: string | null }>;
+  const lines = buildBudgetVsActualLines(actuals, budgets);
+  const rows = lines.filter((l) => l.budgeted);
+  const unbudgeted = lines.filter((l) => !l.budgeted);
+  const sections = buildBudgetVsActualSections(lines);
+  return {
+    fiscalYear, monthKeys, lines, rows, unbudgeted, sections,
+    universeTotal: lines.length,
+    totals: { budget: sections.net_profit.budget, actual: sections.net_profit.actual, variance: sections.net_profit.variance },
+    unbudgetedMovement: round2(unbudgeted.reduce((s, l) => s + Math.abs(l.actual_amount), 0)),
+    postedThrough: postedRows[0]?.posted_through ?? null,
+  };
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const p0 = (r: BudgetVarianceResult): P0Fields => {
+  const { version: _v, unallocatedBudget: _u, noBudgetYears: _n, ...rest } = r;
+  return rest;
+};
+
+type Before = (c: PoolClient) => Promise<unknown>;
+
+/** The facade and the oracle on ONE request transaction, after `before` (rolled back with it). */
+const both = (start: string, end: string, before?: Before) => asRequest(pool, f.a, f.userA, async () => ({
+  facade: await getBudgetVariance(f.a, start, end),
+  oracle: await oracle(f.a, start, end),
+}), before ? { before } : {});
+
+/** A dormant expense account budgeted at exactly 0 for one FY2027 month: P0 keeps it as a budgeted row. */
+const zeroBudget: Before = async (c) => {
+  await c.query(`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+                 VALUES ('00000000-0000-4000-8000-00000000b650', $1, 'BT-6500', 'Dormant, budgeted 0', 'expense', 'debit', 3, true)`, [f.a]);
+  await c.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+                 VALUES ($1, $2, '00000000-0000-4000-8000-00000000b650', '2026-06-01', 0)`, [f.a, f.v.primary27]);
+};
+
+/** FY2028 budgets for every FY2027-budgeted account in May 2027, so a window across the two is budgeted in full. */
+const fullyBudgeted28: Before = async (c) => {
+  for (const [acct, amount] of [[f.acc.sales, 160], [f.acc.cos, 71], [f.acc.interest, 6], [f.acc.fin, 8]] as const) {
+    await c.query(`INSERT INTO budget_month_amounts (company_id, version_id, gl_account_id, month, amount)
+                   VALUES ($1, $2, $3, '2027-05-01', $4)`, [f.a, f.v.primary28, acct, amount]);
+  }
+};
+
+// ── Parity ───────────────────────────────────────────────────────────────────
+
+describe('no options: deep-equal to the P0 + P1 oracle', () => {
+  it.each([
+    ['FY2027 whole (14 months)', '2026-03-01', '2027-04-30'],
+    ['day-level edges inside FY2027', '2026-03-15', '2026-10-29'],
+    ['one day, the inclusive month-end journal', '2026-04-30', '2026-04-30'],
+    ['a quarter', '2026-06-01', '2026-08-31'],
+    ['FY2028 to date: opex budgeted, the rest unbudgeted', '2027-05-01', '2027-07-31'],
+    ['FY2026, no version: every movement unbudgeted', '2026-01-01', '2026-02-28'],
+    ['before the ledger: nothing', '2025-06-01', '2025-12-31'],
+    ['an inverted range', '2026-10-31', '2026-10-01'],
+  ])('%s (%s .. %s)', async (_name, start, end) => {
+    const { facade, oracle: want } = await both(start, end);
+    expect(p0(facade)).toEqual(want);
+  });
+
+  it('a budgeted zero with no actuals stays a budgeted row (the P0 keep rule)', async () => {
+    const { facade, oracle: want } = await both('2026-06-01', '2026-06-30', zeroBudget);
+    const zero = want.rows.find((l) => l.account_code === 'BT-6500');
+    expect(zero).toMatchObject({ budgeted: true, budget_amount: 0, actual_amount: 0, variance_pct: null });
+    expect(p0(facade)).toEqual(want);
+  });
+
+  it('a window across FY2027 and FY2028, budgeted in full in both, mid-month at both ends', async () => {
+    const { facade, oracle: want } = await both('2027-04-10', '2027-05-20', fullyBudgeted28);
+    expect(want.rows.length).toBe(5);
+    expect(p0(facade)).toEqual(want);
+    expect(facade.noBudgetYears).toEqual([]);
+  });
+
+  it('names the version of the year holding the end, and no unallocated budget without a filter', async () => {
+    const { facade } = await both('2026-03-01', '2026-08-31');
+    expect(facade.version).toMatchObject({ id: f.v.primary27, name: 'Original', status: 'approved', isPrimary: true });
+    expect(facade.unallocatedBudget).toEqual({ income: 0, expense: 0 });
+  });
+});
+
+// ── Where the engine differs, pinned ─────────────────────────────────────────
+
+describe('the engine withholds a partial-window budget (P0 summed the part)', () => {
+  it('FY2026 has no budget in Jan 2026 .. Jun 2026: no line carries a budget, none is called unbudgeted', async () => {
+    const { facade, oracle: want } = await both('2026-01-01', '2026-06-30');
+    expect(want.rows.map((l) => l.account_code)).toEqual(['BT-4000', 'BT-4900', 'BT-5000', 'BT-6000', 'BT-7000']);
+    expect(facade.noBudgetYears).toEqual([2026]);
+    expect(facade.rows).toEqual([]);
+    expect(facade.unbudgeted).toEqual([]);
+    expect(facade.lines.map((l) => [l.account_code, l.actual_amount, l.budgeted, l.budget_amount]))
+      .toEqual(want.lines.map((l) => [l.account_code, l.actual_amount, false, 0]));
+    expect(facade.unallocatedBudget).toBeNull();
+    expect(facade.version).toMatchObject({ id: f.v.primary27 });
+  });
+
+  it('Apr .. May 2027: opex (budgeted in both years) is equal; lines budgeted in FY2027 only are withheld', async () => {
+    const { facade, oracle: want } = await both('2027-04-01', '2027-05-31');
+    const opex = (r: P0Fields) => r.lines.find((l) => l.account_code === 'BT-6000');
+    expect(opex(facade)).toEqual(opex(want));
+    expect(opex(facade)).toMatchObject({ budgeted: true, budget_amount: 410 });
+    expect(facade.rows.map((l) => l.account_code)).toEqual(['BT-6000']);
+    expect(facade.unbudgeted).toEqual([]);
+    expect(facade.noBudgetYears).toEqual([]);
+    expect(facade.version).toMatchObject({ id: f.v.primary28 });
+  });
+});
