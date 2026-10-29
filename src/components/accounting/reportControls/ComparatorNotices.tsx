@@ -76,8 +76,8 @@ export function comparatorNotices(
   if (budgetState === 'none') {
     // A window with no budget in one of its years, a budget only above the filter, or only for part
     // of the window is not "no budget captured": the sentences below say which it is.
-    if (budget && budget.noBudgetYears.length > 0) {
-      out.push({ tone: 'info', text: `No budget for ${yearsText(budget.noBudgetYears)} in this window, so the Budget column is empty.` });
+    if (budget && budget.budgetAbsentYears.length > 0) {
+      out.push({ tone: 'info', text: `No budget for ${yearsText(budget.budgetAbsentYears)} in this window, so the Budget column is empty.` });
     } else if (unallocated === null && partial === 0) {
       out.push({ tone: 'info', text: BUDGET_NONE });
     }

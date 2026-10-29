@@ -67,11 +67,15 @@ type Raw = { code: string; type: 'revenue' | 'expense'; actual: number };
 
 /** The engine's lines for a ledger and its budgets (keyed by code for readability), as the facade reads them. */
 function ledger(raws: Raw[], budgets: Record<string, number>, postedThrough = '2026-05-29') {
-  const lines = raws.map((r) => ({
-    accountId: `id-${r.code}`, accountCode: r.code, accountName: `Account ${r.code}`, accountType: r.type,
-    actual: r.actual, budget: Object.hasOwn(budgets, r.code) ? budgets[r.code]! : null,
-    partialBudget: false, budgetAboveFilter: false, monthly: [],
-  })) as unknown as TrackingLine[];
+  // The default (P0) mode sums the line's budgeted months: one month carries the whole budget here.
+  const lines = raws.map((r) => {
+    const budget = Object.hasOwn(budgets, r.code) ? budgets[r.code]! : null;
+    return {
+      accountId: `id-${r.code}`, accountCode: r.code, accountName: `Account ${r.code}`, accountType: r.type,
+      actual: r.actual, budget, partialBudget: false, budgetAboveFilter: false,
+      monthly: budget === null ? [] : [{ month: '2026-03', budget }],
+    };
+  }) as unknown as TrackingLine[];
   vi.mocked(buildRangeTracking).mockImplementation(async (_c, start, end) => ({
     months: budgetMonthKeysInWindow(start, end), years: [], lines,
     notices: { unbudgetedCount: 0, unbudgetedActual: { income: 0, expense: 0 }, unallocatedBudget: { income: 0, expense: 0 },

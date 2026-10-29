@@ -43,6 +43,7 @@ function mockRes() {
 
 const BUDGETED = { account_id: 'a1', account_code: '4000', budget: 100 };
 const UNBUDGETED = { account_id: 'a2', account_code: '5000', budget: 0 };
+const PARTIAL = { account_id: 'a3', account_code: '6000', budget: 0, budgeted: false, budget_partial: true };
 const VERSION = { id: 'v1', name: 'Original', kind: 'original', status: 'approved', isPrimary: true };
 const CC = '22222222-2222-4222-8222-222222222222';
 const BU = '33333333-3333-4333-8333-333333333333';
@@ -64,8 +65,8 @@ beforeEach(() => {
     postedThrough: '2026-08-31',
     version: VERSION,
     unallocatedBudget: { income: 0, expense: 1200 },
-    noBudgetYears: [],
-    partialBudgetCount: 2,
+    budgetAbsentYears: [],
+    lines: [BUDGETED, UNBUDGETED, PARTIAL, { ...PARTIAL, account_id: 'a4' }],
   });
 });
 
@@ -97,7 +98,7 @@ describe('reports-budget-comparator', () => {
     } as unknown as NextApiRequest;
     const res = mockRes();
     await handler(req, res);
-    expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', {});
+    expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', { partialWindow: 'absent' });
     expect(res.statusCode).toBe(200);
   });
 
@@ -118,14 +119,14 @@ describe('reports-budget-comparator', () => {
 
   it('passes the filter and the version: cost_centre_id (either level), cc1_id, cc2_id, bu_id, version_id', async () => {
     await handler(get({ ...WINDOW, cost_centre_id: CC, bu_id: BU, version_id: V }), mockRes());
-    expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', { costCentreId: CC, buId: BU, versionId: V });
+    expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', { partialWindow: 'absent', costCentreId: CC, buId: BU, versionId: V });
     await handler(get({ ...WINDOW, cc1_id: CC, cc2_id: BU }), mockRes());
-    expect(getBudgetVariance).toHaveBeenLastCalledWith(COMPANY, '2026-08-01', '2026-08-31', { cc1Id: CC, cc2Id: BU });
+    expect(getBudgetVariance).toHaveBeenLastCalledWith(COMPANY, '2026-08-01', '2026-08-31', { partialWindow: 'absent', cc1Id: CC, cc2Id: BU });
   });
 
   it('business_unit_id (the income statement page\'s name) is bu_id; both naming different units is a 400', async () => {
     await handler(get({ ...WINDOW, business_unit_id: BU }), mockRes());
-    expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', { buId: BU });
+    expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', { partialWindow: 'absent', buId: BU });
     const res = mockRes();
     await handler(get({ ...WINDOW, business_unit_id: BU, bu_id: CC }), res);
     expect(res.statusCode).toBe(400);
@@ -134,20 +135,20 @@ describe('reports-budget-comparator', () => {
 
   it('a blank filter value is absent; a malformed id is refused before the service', async () => {
     await handler(get({ ...WINDOW, cost_centre_id: '', business_unit_id: '' }), mockRes());
-    expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', {});
+    expect(getBudgetVariance).toHaveBeenCalledWith(COMPANY, '2026-08-01', '2026-08-31', { partialWindow: 'absent' });
     const res = mockRes();
     await handler(get({ ...WINDOW, cost_centre_id: 'not-a-uuid' }), res);
     expect(res.statusCode).toBe(422);
     expect(getBudgetVariance).toHaveBeenCalledTimes(1);
   });
 
-  it('answers with the version, the unallocated budget and the years with no budget in the window', async () => {
+  it("asks the facade for the engine's partial-window rule (the budget Budget vs Actual shows), and answers with the version, the unallocated budget, the years with no budget in the window and the partial count", async () => {
     const res = mockRes();
     await handler(get(WINDOW), res);
     const body = res.sent as { data: Record<string, unknown> };
     expect(body.data.version).toEqual(VERSION);
     expect(body.data.unallocatedBudget).toEqual({ income: 0, expense: 1200 });
-    expect(body.data.noBudgetYears).toEqual([]);
+    expect(body.data.budgetAbsentYears).toEqual([]);
     expect(body.data.partialBudgetCount).toBe(2);
     expect(body.data.budgetedCount).toBe(1);
   });

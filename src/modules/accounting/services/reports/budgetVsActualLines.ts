@@ -44,6 +44,9 @@ export interface BudgetVsActualLine {
   movement_pct: number | null;
   /** variance ≥ 0; null when nothing was budgeted. */
   favourable: boolean | null;
+  /** `getBudgetVariance` with `partialWindow: 'absent'` only: the account has a budget for PART of the
+   *  window, which is withheld (`budgeted: false`); never present otherwise. */
+  budget_partial?: true;
 }
 
 /**

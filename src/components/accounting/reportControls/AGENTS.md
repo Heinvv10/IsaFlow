@@ -24,7 +24,7 @@ changed an amount would make two screens disagree about the same period.
   `apply` decorates `StatementRow[]`. `budgetState` is
   `unknown | failed | limited | none | available` — `failed` must never be
   shown as `none`, and `limited` (a 429) is neither. `budgetInfo` carries the
-  window's `noBudgetYears`, `unallocatedBudget`, `partialBudgetCount` and a
+  window's `budgetAbsentYears`, `unallocatedBudget`, `partialBudgetCount` and a
   refusal's `retryAfterSecs`; `retryBudget()` asks again (nothing retries on
   its own). Optional `costCentreId` / `businessUnitId` are the statement's
   filter, sent with the budget fetch. The two loading flags are per fetch; one

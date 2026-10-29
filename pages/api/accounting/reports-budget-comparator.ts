@@ -19,9 +19,13 @@
  * statement needs to look an account up by code regardless of which half it
  * fell into, and dropping the unbudgeted half would silently hide accounts.
  * `budgetedCount` preserves where the split fell, which is the only thing in
- * the response that says whether a budget was ever captured; `noBudgetYears`
+ * the response that says whether a budget was ever captured; `budgetAbsentYears`
  * says which years of the window have none in it, and `partialBudgetCount` how
- * many accounts are budgeted for only part of it (their budget is withheld).
+ * many accounts are budgeted for only part of it. The route asks the facade for
+ * the engine's partial-window rule (`partialWindow: 'absent'`), so this column
+ * shows the budget Budget vs Actual shows for the same window and filter: a
+ * budget for part of the window is withheld, never summed as if it were the
+ * window's.
  *
  * Rate limited per company at the interactive limit (120 per 15 minutes, as
  * Budget vs Actual): the page reloads it on every period and filter change, so
@@ -74,7 +78,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (q.bu_id !== undefined && q.business_unit_id !== undefined && q.bu_id.toLowerCase() !== q.business_unit_id.toLowerCase()) {
     return apiResponse.badRequest(res, 'bu_id and business_unit_id name different business units');
   }
-  const opts: BudgetVarianceOptions = {};
+  // The engine's partial-window rule, as Budget vs Actual prints it (spec §8.2: the same budget figure).
+  const opts: BudgetVarianceOptions & { partialWindow: 'absent' } = { partialWindow: 'absent' };
   if (q.version_id !== undefined) opts.versionId = q.version_id;
   if (q.cost_centre_id !== undefined) opts.costCentreId = q.cost_centre_id;
   if (q.cc1_id !== undefined) opts.cc1Id = q.cc1_id;
@@ -103,8 +108,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     postedThrough: result.postedThrough,
     version: result.version,
     unallocatedBudget: result.unallocatedBudget,
-    noBudgetYears: result.noBudgetYears,
-    partialBudgetCount: result.partialBudgetCount,
+    budgetAbsentYears: result.budgetAbsentYears,
+    // Accounts whose budget covers only part of the window: withheld, so in neither half of `lines`.
+    partialBudgetCount: result.lines.filter((l) => l.budget_partial).length,
   });
 }
 

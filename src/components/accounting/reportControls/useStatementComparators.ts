@@ -44,7 +44,7 @@ export type BudgetState = 'unknown' | 'failed' | 'limited' | 'none' | 'available
 /** What the budget fetch said about the window beyond its lines. */
 export interface BudgetInfo {
   /** Years of the window with no budget in it. */
-  noBudgetYears: number[];
+  budgetAbsentYears: number[];
   /** Budget set above the dimension filter, per polarity; null when the window budget is absent. */
   unallocatedBudget: ByPolarity | null;
   /** Accounts budgeted for only part of the window, whose Budget is blank. */
@@ -91,7 +91,7 @@ export interface StatementComparatorOptions {
 interface BudgetData {
   lines: BudgetVsActualLine[];
   budgetedCount: number;
-  noBudgetYears: number[];
+  budgetAbsentYears: number[];
   unallocatedBudget: ByPolarity | null;
   partialBudgetCount: number;
 }
@@ -153,7 +153,7 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
         .then((data) => {
           if (!cancelled) {
             setBudgetData({
-              lines: data.lines, budgetedCount: data.budgetedCount, noBudgetYears: data.noBudgetYears ?? [],
+              lines: data.lines, budgetedCount: data.budgetedCount, budgetAbsentYears: data.budgetAbsentYears ?? [],
               unallocatedBudget: data.unallocatedBudget ?? null, partialBudgetCount: data.partialBudgetCount ?? 0,
             });
           }
@@ -196,7 +196,7 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
           : hasBudgetData(budgetData.budgetedCount) ? 'available' : 'none';
 
   const budgetInfo: BudgetInfo = {
-    noBudgetYears: budgetData?.noBudgetYears ?? [],
+    budgetAbsentYears: budgetData?.budgetAbsentYears ?? [],
     unallocatedBudget: budgetData?.unallocatedBudget ?? null,
     partialBudgetCount: budgetData?.partialBudgetCount ?? 0,
     retryAfterSecs: budgetLimited?.retryAfterSecs ?? null,
