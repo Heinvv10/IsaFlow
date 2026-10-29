@@ -85,6 +85,11 @@ async function markRolled(companyId: string, versionId: string, through: string 
   `;
 }
 
+/** A verified token in P1's form (UTC ISO, microseconds), whichever accepted form the client sent. */
+const canonicalToken = async (token: string): Promise<string> => String(((await sql`
+  SELECT to_char(${token}::TIMESTAMPTZ AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS token
+`) as DbRow[])[0]?.token ?? token);
+
 const versionToken = async (companyId: string, versionId: string): Promise<string> => String(((await sql`
   SELECT ${tokenSql()} AS token FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID
 `) as DbRow[])[0]?.token ?? '');
@@ -145,7 +150,8 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
       // The savepoint (the version lock's token bump included) is rolled back: only the rolling row moves.
       await markRolled(companyId, id, err.outcome.rolledThroughMonth);
       log.info('Rolled budget forecast: nothing changed', { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now' }, 'accounting');
-      return { ...err.outcome, updatedAt: await versionToken(companyId, id) };
+      // Roll now: the client's token, which the CAS proved current (the bump was rolled back), in P1's form.
+      return { ...err.outcome, updatedAt: mode === 'auto' ? await versionToken(companyId, id) : await canonicalToken(mode.expectedUpdatedAt) };
     }
     const refusal = budgetDbRefusal(err) ?? err;
     const primary = refusal instanceof PrimarySkipped;

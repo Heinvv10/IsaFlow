@@ -1,7 +1,7 @@
 /**
  * The rolling-forecast roll never blocks a close (Budgets P4 spec §6): queueing it only appends to
  * the request's after-commit list, never throws, and one request queues ONE job holding every end
- * date per company, run as the request principal.
+ * date, run as the request principal and company; a company other than the request's is refused.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +30,13 @@ describe('scheduleBudgetRoll', () => {
     drainAfterCommit(c);
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     expect(run).toHaveBeenCalledWith({ userId: 'u1', companyId: 'c1', claims: { sub: 'u1', session_id: 's' } }, ['2026-03-31', '2026-04-30']);
+  });
+
+  it("refuses (logged) a company other than the request's, queueing nothing", () => {
+    const c = ctx();
+    als.run(c, () => scheduleBudgetRoll('c2', '2026-03-31'));
+    expect(c.afterCommit).toHaveLength(0);
+    expect(vi.mocked(log.error)).toHaveBeenCalledWith(expect.stringMatching(/not the request's/), expect.objectContaining({ companyId: 'c2', requestCompanyId: 'c1' }), 'accounting');
   });
 
   it('never throws: no request (logged, nothing queued), a finished request, a request that runs no after-commit work', () => {

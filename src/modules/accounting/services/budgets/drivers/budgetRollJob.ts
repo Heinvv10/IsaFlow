@@ -6,8 +6,9 @@
  *
  * For each fiscal year an end date falls in: the company's rolling version of that year, if any,
  * rolled in 'auto' mode (one transaction per version). A failure is logged and recorded as the
- * row's last_error in a fresh transaction, so the versions bar shows why: a typed refusal's own
- * message (safe to show), anything else a fixed text (database messages name ids). An end date
+ * row's last_error in a fresh transaction, so the versions bar shows why: a fixed phrase per error
+ * class (`lastErrorText`; the roll itself records 'version locked' / 'version is primary'), never
+ * exception text (database messages name ids). An end date
  * whose fiscal year cannot be found is logged (no version is identifiable) and the rest still roll.
  * Nothing is ever thrown out of the job.
  */
@@ -17,10 +18,10 @@ import { log } from '@/lib/logger';
 import { runOwnedContext } from '@/lib/afterCommit';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { tightenStatementTimeout } from '../../audit/auditTx';
-import { RowLockTimeoutError } from '../../core/rowLockBudget';
 import { fiscalYearForDate } from '../../gl/fiscalYearRegistry';
-import { BudgetVersionError } from '../budgetVersionTypes';
 import { driverRefusal } from './driverErrors';
+import { DriverRangeError } from './driverTypes';
+import { ForecastCellRefusal } from './reforecastInputs';
 import { rollVersion } from './rollingForecastService';
 
 export interface RollPrincipal {
@@ -57,10 +58,11 @@ async function inCompanyTx<T>(p: RollPrincipal, fn: () => Promise<T>): Promise<T
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-/** What last_error may say: a typed refusal's message, else a fixed text (never database text, which names ids). */
-function lastErrorText(err: unknown): string {
-  const typed = driverRefusal(err) ?? (err instanceof BudgetVersionError || err instanceof RowLockTimeoutError ? err : null);
-  return (typed ? typed.message : 'the roll failed; see the server log').slice(0, 500);
+/** What last_error may say: a fixed phrase per error class, never exception text (database messages name ids). */
+export function lastErrorText(err: unknown): string {
+  if (err instanceof DriverRangeError || driverRefusal(err)?.code === 'DRIVER_RANGE') return 'a driver result is beyond the budget range';
+  if (err instanceof ForecastCellRefusal) return 'invalid dimension on actuals';
+  return 'roll failed; see logs';
 }
 
 /** The company's rolling version of each fiscal year holding one of `endDates`. */

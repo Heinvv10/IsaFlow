@@ -70,7 +70,7 @@ export function unplacedAt(grains: ReadonlyMap<string, Grain>, read: ClosedActua
       const meta = read.accounts.get(accountId);
       return {
         accountId, accountCode: meta?.accountCode ?? '', accountName: meta?.accountName ?? '',
-        level: grains.get(accountId) as 'cc1' | 'cc2' | 'bu', month, amount: fromCents(cents),
+        level: grains.get(accountId) ?? 'company', month, amount: fromCents(cents),
       };
     })
     .sort((x, y) => (x.accountId < y.accountId ? -1 : x.accountId > y.accountId ? 1 : x.month < y.month ? -1 : x.month > y.month ? 1 : 0));

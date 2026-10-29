@@ -44,8 +44,8 @@ export interface UnplacedActualLine {
   accountId: string;
   accountCode: string;
   accountName: string;
-  /** The dimension the account is budgeted by, which these actuals carry no member of. */
-  level: 'cc1' | 'cc2' | 'bu';
+  /** The grain the account is budgeted at, which these actuals carry no member of ('company': no row; never in practice). */
+  level: 'company' | 'cc1' | 'cc2' | 'bu';
   month: string;
   amount: number;
 }
@@ -215,9 +215,16 @@ export function describeUnplaced(plan: ReforecastResult, read: ClosedActuals): U
     const g = level.get(u.accountId);
     return {
       accountId: u.accountId, accountCode: a?.accountCode ?? '', accountName: a?.accountName ?? '',
-      level: g === 'cc1' || g === 'cc2' || g === 'bu' ? g : 'cc1', month: u.month, amount: fromCents(u.amount),
+      level: g === 'cc1' || g === 'cc2' || g === 'bu' ? g : 'company', month: u.month, amount: fromCents(u.amount),
     };
   });
+}
+
+/** A cell the database refused (a member or account no budget cell may name): a 409 STATE with a fixed message. */
+export class ForecastCellRefusal extends BudgetVersionError {
+  constructor() {
+    super('BUDGET_VERSION_STATE', 'The forecast could not be written: a cell names an account, cost centre or business unit that cannot be budgeted');
+  }
 }
 
 /** A database refusal of a cell write as a typed refusal, never raw database text (its message names ids). */
@@ -227,8 +234,7 @@ export function cellWriteRefusal(companyId: string, versionId: string, err: unkn
   const e = err as { code?: string; constraint?: string } | null;
   if (e?.code !== '23514' && e?.code !== '23503') return err;
   log.warn('budget forecast cell write refused', { companyId, versionId, code: e.code, constraint: e.constraint ?? null }, 'accounting');
-  return new BudgetVersionError('BUDGET_VERSION_STATE',
-    'The forecast could not be written: a cell names an account, cost centre or business unit that cannot be budgeted');
+  return new ForecastCellRefusal();
 }
 
 /**
