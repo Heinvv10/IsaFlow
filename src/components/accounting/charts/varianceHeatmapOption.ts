@@ -20,10 +20,11 @@
  *
  * Labels: account names are ledger data. The tooltip escapes them
  * (`escapeHtml`); the axis is drawn as text by zrender, not HTML. Below
- * `NARROW_WIDTH` the names truncate at a smaller size (full name in the
+ * `NARROW_WIDTH` the names truncate (full name in the
  * tooltip) so the cells keep the width: `containLabel` alone would keep a long
  * name inside the box by squeezing the plot to nothing. The month labels stand
- * vertical there, so twelve months clear each other on a phone. Proved painted
+ * vertical there, labelled as many as clear each other (every other month in a
+ * twelve-month window on a phone). Proved painted
  * by tests/unit/services/reports/charts/varianceHeatmapLegibility.test.ts.
  */
 import type { EChartsCoreOption } from 'echarts/core';
@@ -38,8 +39,7 @@ import { NARROW_WIDTH } from './waterfallOption';
 export const HEATMAP_DEFAULT_LIMIT = 15;
 /** Label width (px) wide and below NARROW_WIDTH; past it a name truncates with an ellipsis. */
 const WIDE_LABEL_WIDTH = 260;
-const NARROW_LABEL_WIDTH = 120;
-const NARROW_FONT = 10;
+const NARROW_LABEL_WIDTH = 124;
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (key: string) => `${MONTH_NAMES[Number(key.slice(5, 7)) - 1] ?? key} ${key.slice(2, 4)}`;
@@ -102,8 +102,8 @@ export function buildVarianceHeatmapOption(
     media: [{
       query: { maxWidth: NARROW_WIDTH },
       option: {
-        yAxis: { axisLabel: { width: NARROW_LABEL_WIDTH, overflow: 'truncate', fontSize: NARROW_FONT } },
-        xAxis: { axisLabel: { rotate: 90, fontSize: NARROW_FONT } },
+        yAxis: { axisLabel: { width: NARROW_LABEL_WIDTH, overflow: 'truncate' } },
+        xAxis: { axisLabel: { rotate: 90, interval: 'auto' } },
       },
     }],
     grid: { left: 8, right: 8, top: 8, bottom: 8, containLabel: true },
