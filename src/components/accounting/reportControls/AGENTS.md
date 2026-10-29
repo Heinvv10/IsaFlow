@@ -72,6 +72,7 @@ changed an amount would make two screens disagree about the same period.
   window with no budget prints "—" on every row, never a zero. A window that
   splits a budget month has no budget: "Budgets are set by whole
   month. Choose a window from the 1st to a month end to compare."
+- **No `version_id` from the page (spec §6 deviation).** The route accepts `version_id`, but the statement has no version picker, so the hook sends none and each year's primary version is read. Add it with the picker.
 - **The dimension gate is derived from the filter ids** passed to
   `useStatementComparatorState` (`costCentreId`, `businessUnitId`), so the
   trend gate and the budget fetch read one source.
