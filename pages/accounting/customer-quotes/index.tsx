@@ -92,7 +92,7 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
                       <td className="px-2 py-2"><input type="number" value={l.qty} min={1} onChange={e => { const n = [...lines]; n[i] = { ...l, qty: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
                       <td className="px-2 py-2"><input type="number" value={l.price} min={0} step={0.01} onChange={e => { const n = [...lines]; n[i] = { ...l, price: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
                       <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(l.qty * l.price)}</td>
-                      <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 rounded text-slate-700 dark:text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
+                      <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 rounded text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                     </tr>
                   ))}
                 </tbody>

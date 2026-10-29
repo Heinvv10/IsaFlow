@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui/DateField';
 
 interface Pkg {
   id: string;
@@ -18,6 +19,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
   const [packages, setPackages] = useState<Pkg[]>([]);
   const [selected, setSelected] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState(localISODate());
+  const [fromRefused, setFromRefused] = useState(false); // a refused date arrives as null: never post it
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
@@ -86,11 +88,11 @@ export function ApplyPackageCard({ employeeId }: Props) {
               <option value="">Select package...</option>
               {packages.map(p => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
             </select>
-            <input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)}
-              className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+            <DateField label="Effective from" required value={effectiveFrom || null}
+              onChange={(iso, v) => { setFromRefused(!v.valid); if (v.valid) setEffectiveFrom(iso ?? ''); }} />
           </div>
           <div className="mt-3">
-            <button onClick={apply} disabled={!selected || applying}
+            <button onClick={apply} disabled={!selected || applying || fromRefused}
               className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
               {applying ? 'Applying...' : 'Apply package'}
             </button>

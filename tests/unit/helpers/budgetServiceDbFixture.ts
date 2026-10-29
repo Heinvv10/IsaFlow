@@ -33,6 +33,10 @@ async function loadFixtureIds(): Promise<Fixture> {
     JOIN gl_accounts revenue
       ON revenue.company_id = expense.company_id AND revenue.account_type = 'revenue'
     WHERE expense.account_type = 'expense'
+      -- Budgets go on active leaf accounts only (decision 18): a header or inactive pick is refused.
+      AND expense.is_active AND revenue.is_active
+      AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = expense.id)
+      AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = revenue.id)
     ORDER BY expense.company_id, expense.account_code, revenue.account_code
     LIMIT 1
   `) as Array<{ company_id: string; expense_account_id: string; revenue_account_id: string }>;
@@ -72,9 +76,6 @@ async function loadFixtureIds(): Promise<Fixture> {
 //    while pointing at THIS company's `expenseAccountId`. A fixture with one
 //    company, or with the planted row on the other company's own account, is
 //    excluded by the gl_accounts join for an unrelated reason and proves nothing.
-//  · An annual amount that does NOT divide by the year's month count (100000,
-//    not 120000), or a correct even spread is indistinguishable from one that
-//    drops the last month's remainder entirely.
 /** BEGIN → run → ROLLBACK on an ALS-bound client, exactly as withAuth does. */
 export async function inRequestTx(run: (f: Fixture) => Promise<void>): Promise<void> {
   assertNotProductionDb('This test INSERTs into budget_month_amounts.');
@@ -89,14 +90,6 @@ export async function inRequestTx(run: (f: Fixture) => Promise<void>): Promise<v
     await client.query('ROLLBACK').catch(() => undefined);
     client.release();
   }
-}
-
-/** The stored month rows exactly as Postgres holds them: the shape the read path depends on. */
-export async function storedMonths(companyId: string, accountId: string): Promise<Array<{ month: string; amount: string }>> {
-  return (await sql`
-    SELECT TO_CHAR(month, 'YYYY-MM-DD') AS month, amount::text AS amount FROM budget_month_amounts
-    WHERE company_id = ${companyId}::uuid AND gl_account_id = ${accountId}::uuid ORDER BY month
-  `) as Array<{ month: string; amount: string }>;
 }
 
 /** The year's 'YYYY-MM' months, from the registry. */

@@ -22,6 +22,7 @@ vi.mock('@/components/accounting/ScanAndFillButton', () => ({
   ),
 }));
 
+import { pickOption } from '../helpers/kitPick';
 import NewCustomerInvoicePage from '../../../pages/accounting/customer-invoices/new';
 import EditCustomerInvoicePage from '../../../pages/accounting/customer-invoices/edit/[invoiceId]';
 import { lineCoding } from '@/components/invoices/CustomerInvoiceSummary';
@@ -79,8 +80,7 @@ const dimensions = () => screen.getByRole('button', { name: /Dimensions/ });
 
 async function fillNewInvoice() {
   await waitFor(() => expect(optionTexts(screen.getByLabelText('Revenue account'))).toContain('4100 Commercials'));
-  await waitFor(() => expect(screen.getAllByRole('option', { name: 'Acme' }).length).toBe(1));
-  fireEvent.change(screen.getByDisplayValue('Select client…'), { target: { value: 'cust-1' } });
+  await pickOption('Client', 'Acme');
   fireEvent.change(screen.getAllByLabelText('Description')[0]!, { target: { value: 'TV spot' } });
   fireEvent.change(screen.getAllByLabelText('Unit price')[0]!, { target: { value: '1000' } });
 }

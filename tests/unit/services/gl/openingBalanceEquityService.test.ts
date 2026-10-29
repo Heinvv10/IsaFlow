@@ -11,6 +11,9 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ clear
 vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', () => ({
   lockSystemRoleWrites: vi.fn(), boundedRowWait: <T>(take: () => PromiseLike<T>) => take(),
 }));
+// Whether 3000 may take a first child is its own locked read, proven against Postgres in
+// tests/integration/header-account-import-seed-group.int.test.ts.
+vi.mock('@/modules/accounting/services/gl/accountParentRules', () => ({ firstChildWouldHideBalance: vi.fn(async () => false) }));
 vi.mock('@/modules/accounting/services/gl/systemRoleInvariant', () => ({
   snapshotRoles: vi.fn(async () => ({})), assertRolesKept: vi.fn(async () => undefined),
 }));

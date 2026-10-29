@@ -213,3 +213,33 @@ export async function hasFeature(
   // Then plan membership
   return r.in_plan as boolean;
 }
+
+/**
+ * The companies among `companyIds` for which `hasFeature(companyId, featureCode)`
+ * is true, in one query: override first, then the global flag, then the plan.
+ * For a caller asking about many companies at once (the OAuth consent picker),
+ * where one hasFeature per company would be one query per membership.
+ */
+export async function companiesWithFeature(
+  companyIds: readonly string[],
+  featureCode: string
+): Promise<Set<string>> {
+  if (companyIds.length === 0) return new Set();
+  const rows = (await sql`
+    SELECT c.id
+    FROM public.companies c
+    JOIN public.feature_flags ff ON ff.code = ${featureCode}
+    LEFT JOIN public.company_feature_overrides cfo
+      ON cfo.feature_id = ff.id
+      AND cfo.company_id = c.id
+    WHERE c.id = ANY(${[...companyIds]}::uuid[])
+      AND COALESCE(
+        cfo.enabled,
+        COALESCE(ff.is_global, false) OR EXISTS (
+          SELECT 1 FROM public.plan_features pf
+          WHERE pf.plan_id = c.plan_id AND pf.feature_id = ff.id
+        )
+      )
+  `) as Row[];
+  return new Set(rows.map((r) => String(r.id)));
+}
