@@ -244,20 +244,6 @@ export function buildBankTxActions(deps: ActionDeps) {
       loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not reverse the transaction - try again')); }
   };
-  const handleExport = (bankAccountCode: string | undefined) => {
-    const rows = transactions.map(tx => ({
-      Date: tx.transactionDate, Description: tx.description || '', Reference: tx.reference || '',
-      Spent: tx.amount < 0 ? Math.abs(tx.amount) : '', Received: tx.amount > 0 ? tx.amount : '',
-      Status: tx.status,
-    }));
-    const header = Object.keys(rows[0] || {}).join(',');
-    const csv = [header, ...rows.map(r => Object.values(r).map(v => `"${v}"`).join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `bank-transactions-${bankAccountCode || 'export'}.csv`;
-    a.click(); URL.revokeObjectURL(url);
-  };
   const handleDownloadReport = async (bankAccountCode: string | undefined) => {
     if (!selectedBank) return;
     try {
@@ -334,7 +320,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     saveSelection, saveDimensions,
     handleAccept, handleExclude, handleExcludeConfirm, handleUnmatch, handleUpdateNotes,
     handleBatchAccept, handleBatchDelete, handleBulkAccept, handleApplyRules, handleReverse,
-    handleExport, handleDownloadReport, handleCreateEntityDone, handleApplyBatchEdit,
+    handleDownloadReport, handleCreateEntityDone, handleApplyBatchEdit,
     handleRowTypeChange, handleRowEntityChange, handleRowVatChange, handleRowDimensionChange,
   };
 }

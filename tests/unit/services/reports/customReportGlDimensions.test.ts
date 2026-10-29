@@ -27,3 +27,15 @@ describe('custom report gl_transactions fields', () => {
     expect(q).toMatch(/LEFT JOIN business_units bu ON bu\.id = jl\.bu_id AND bu\.company_id = je\.company_id/);
   });
 });
+
+describe('custom report bank_transactions fields', () => {
+  it('exposes the bank row CC1, CC2 and BU codes through joins scoped to the company', () => {
+    expect(getFieldDef('bank_transactions', 'cost_centre')?.sqlExpr).toBe('cc1.code');
+    expect(getFieldDef('bank_transactions', 'project_cc2')?.sqlExpr).toBe('cc2.code');
+    expect(getFieldDef('bank_transactions', 'business_unit')?.sqlExpr).toBe('bu.code');
+    const q = getBaseQuery('bank_transactions');
+    expect(q).toMatch(/LEFT JOIN cost_centres cc1 ON cc1\.id = bt\.cc1_id AND cc1\.company_id = \$1/);
+    expect(q).toMatch(/LEFT JOIN cost_centres cc2 ON cc2\.id = bt\.cc2_id AND cc2\.company_id = \$1/);
+    expect(q).toMatch(/LEFT JOIN business_units bu ON bu\.id = bt\.bu_id AND bu\.company_id = \$1/);
+  });
+});
