@@ -69,6 +69,20 @@ export class GridStore extends GridStoreCore {
   setPrior(prior: PriorActuals | null): void { this.prior = prior; this.rebuildAll(); }
   setCompare(cells: readonly GridCell[] | null): void { this.compare = cells ? byAccount(cellsInCents(cells)) : null; this.rebuildAll(); }
 
+  /**
+   * A note the server saved (year-scoped, not an amount): the account's rows show it. Values,
+   * dirty cells, undo and the revision stay as they are; nothing here is part of a grid save.
+   */
+  setNote(accountId: string, note: string | null): void {
+    const account = this.accounts.get(accountId);
+    if (!account) return;
+    this.accounts.set(accountId, { ...account, note });
+    for (const row of this.layout.rows) {
+      const old = row.kind === 'line' && row.account.id === accountId ? this.rows.get(row.key) : undefined;
+      if (old && old.note !== note) this.setRow(row.key, { ...old, note });
+    }
+  }
+
   // ── Writes ────────────────────────────────────────────────────────────────
   valueAt(key: CellKey): number | null { return this.values.get(key.slice(0, key.indexOf('|')))?.get(key) ?? null; }
 
