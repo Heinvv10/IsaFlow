@@ -27,6 +27,14 @@ describe('retireSlotCompany', () => {
     expect(statements.some((s) => /DELETE/i.test(s.text))).toBe(false);
   });
 
+  it('stops the retired company being a demo company, so a spec that looks one up never lands on it', async () => {
+    const { db, statements } = fakeDb([slotCompanyId(1, 0)]);
+    await retireSlotCompany(db, 1, slotCompanyId(1, 0));
+    const update = statements.find((s) => s.text.startsWith('UPDATE companies'))!;
+    expect(update.text).toMatch(/is_demo\s*=\s*false/);
+    expect(update.params[0]).toBe(slotCompanyId(1, 0));
+  });
+
   it('refuses when every generation is used, before renaming anything', async () => {
     const all = Array.from({ length: MAX_SLOT_GENERATION }, (_, i) => slotCompanyId(1, i + 1));
     const { db, statements } = fakeDb(all);

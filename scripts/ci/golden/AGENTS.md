@@ -23,8 +23,11 @@ migration session. The specs that read volume need them (x-contrast ap-aging/sup
 income statement, n-a11y bank transactions and migration landing); cloning ledger rows would bypass the
 posting paths. The server must be a local dev server from a checkout whose `.env.local` points at
 `isaflow_dev` (only localhost is accepted). Idempotent: every record has a `GSEED` marker and a run
-creates only what its search does not find. Dates are 2026-01..2026-10: the slot's periods before 2026
-are closed (as Demo's) and are never unlocked.
+creates only what its search does not find. Dates are relative to the run: the last 10 complete
+months, none before 2026-01 (the slot's periods before 2026 are closed, as Demo's, and never unlocked), so a
+fresh slot's data is always recent; p-type-money's income-statement window runs to today for the same reason.
+Journals are found by paging the posted and draft lists (the route caps `limit` at 200 and sorts newest
+first); a GSEED draft is posted, never duplicated.
 
 **Contract:** `bun scripts/ci/golden/provision-slots.ts [--dry-run|--verify|--reset-slot n]`
 creates companies `601d0000-0000-4000-8000-00000000000{1,2,3}`, one golden user
@@ -71,14 +74,21 @@ post-deploy verify, local runs) it is the old E2E_ADMIN_* / default-company path
   accept only that range) and skips any bound port.
 
 **Operating a slot (humans):**
-- `--verify` prints each slot's preconditions (read-only). `--dry-run` runs everything in a
-  rolled-back transaction.
+- `--verify` prints each slot's preconditions and its GSEED volume (80 approved supplier invoices, 10
+  posted journals, 200 bank rows, a migration session), read-only; it prints a `PROBLEM:` line for each
+  shortfall and exits 1. `--dry-run` runs everything in a rolled-back transaction.
 - A slot is poisoned when the h-payroll spec reports the sandbox payroll run is not reusable,
   or its data is otherwise stuck. `--reset-slot n` retires slot n's company (renamed
   `RETIRED <date> ...`, nothing deleted: 111 NO ACTION foreign keys into companies and
   append-only ledger tables make a hard delete unsafe), builds the next generation
   (`601d000<g>-...`, g 1..9) from Demo and rewrites `GOLDEN_SLOT_n_COMPANY_ID`. Run it on the
-  runner box while no job is using that slot.
+  runner box while no job is using that slot. It REQUIRES `--seed-url <local dev server>` (a bare
+  clone fails the volume specs; refused without it, a dry run excepted): start `bun run dev` on a port
+  in 3300-3799 from a checkout on isaflow_dev, run
+  `bun scripts/ci/golden/provision-slots.ts --reset-slot n --seed-url http://localhost:<port>`, stop that
+  server by its exact PID (`ss -ltnp`), then `--verify`. The retired company gets `is_demo = false` (the
+  specs' demo-company lookup must not find it); the golden user's membership in it stays, because
+  `company_users_role_guard` refuses removing a company's only owner from a non-superuser role (RC011).
 - If `/home/hein/Workspace/IsaFlow/.env.local` (the file the symlink points at) is regenerated,
   the `GOLDEN_SLOT_*` keys are lost: the job then fails with "missing from ... isaflow-ci.env".
   Re-run `provision-slots.ts`: it reuses the existing passwords only if they are still in the
