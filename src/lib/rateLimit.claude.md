@@ -14,6 +14,7 @@ Postgres-backed (DB-persisted) rate limiter with a refuse-only in-process cache 
 - `refundRateLimit(key, units, windowStart?) → Promise<void>` — gives units back; floors at zero, never moves `window_start`. Same pool as the charge. With `windowStart` (from `chargeRateLimit`) it is a no-op once the window has rolled over: a refund must only reduce the window it was charged in.
 - `clearRateLimitCache()` — forgets every remembered refusal. Tests call it between cases; it can only cause a database call.
 - `REFUSAL_TTL_MS` (5000) — the longest a refusal is remembered.
+- `checkReportRateLimit(companyId, name, opts?)` — per-company report throttle, default 25 per 900 s. `INTERACTIVE_REPORT_LIMIT` (120 per 900 s) is for a page whose controls each reload it (Budget vs Actual, 2026-10-29: 25 locked a reviewer out after ~20 control changes). `reportRateLimitRetryAfter(companyId, name, windowSecs)` reads the seconds left in that company's report window for a refusal's `Retry-After` (refused path only; clamped to [1, window]; a vanished key waits the whole window). It only reads `rate_limit_counters`; the core charge is unchanged.
 - `src/lib/rateLimitCore.ts` holds `checkRateLimit`, `refundRateLimit`, `clampCost`, the cache and `REFUSAL_TTL_MS`; this file re-exports them. Always import from `@/lib/rateLimit`.
 - `checkAiRateLimit` / `checkSendRateLimit` take `refundUnused?: boolean` — see "Abuse limit or usage quota" below.
 - `RateLimitOptions` — `{ max: number; windowSecs: number; cost?: number }`.
