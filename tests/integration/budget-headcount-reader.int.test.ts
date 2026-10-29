@@ -4,13 +4,15 @@
  * employee, a cost-centre split and a planned hire; the reader's and the headcount answer's keys
  * hold no personal field; company A's reader never sees company B's employees, even for a user who
  * belongs to both (payroll's RLS admits every company the user belongs to), on an owner connection
- * and as app_user. Real PostgreSQL.
+ * and as app_user; an end before the start is left out and an allocation summing past 100% is kept
+ * and logged once, by employee id only. Real PostgreSQL.
  *
  * FY2027 = March 2026 - February 2027. Expected counts are worked by hand in the comments.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { als } from '@/lib/als';
+import { log } from '@/lib/logger';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { budgetVersionFixture, type Co } from './helpers/budgetVersionFixture';
 import { readPayrollHeadcount } from '@/modules/accounting/services/budgets/drivers/payrollHeadcountReader';
@@ -47,6 +49,11 @@ beforeAll(async () => {
   await pool.query(
     `INSERT INTO payroll_employee_cost_allocations (company_id, employee_id, cost_centre_id, percentage)
      VALUES ($1, $2, $3, 60), ($1, $2, $4, 40)`, [A.id, ids.e5, A.cc1, A.cc1b]);
+  // e7: from January 2027 (outside the months counted below), split 70% + 50%: 120%, kept, and logged.
+  await employee(A, 'e7', { start: '2027-01-01' });
+  await pool.query(
+    `INSERT INTO payroll_employee_cost_allocations (company_id, employee_id, cost_centre_id, percentage)
+     VALUES ($1, $2, $3, 70), ($1, $2, $4, 50)`, [A.id, ids.e7, A.cc1, A.cc1b]);
   // Company B: three employees active all year in its own Cape Town, one with a split.
   for (const k of ['b1', 'b2', 'b3']) await employee(B, k, { start: '2025-01-01', cc: B.cc1 });
   await pool.query(
@@ -79,11 +86,11 @@ const keysOf = (xs: object[]) => [...new Set(xs.flatMap((x) => Object.keys(x)))]
 
 describe('payroll headcount reader', () => {
   it("reads only company A's employees and allocations, on an owner connection and as app_user (an end before the start left out)", async () => {
-    const own = [ids.e1, ids.e2, ids.e3, ids.e4, ids.e5].sort();
+    const own = [ids.e1, ids.e2, ids.e3, ids.e4, ids.e5, ids.e7].sort();
     for (const read of [() => readPayrollHeadcount(A.id), () => asA(() => readPayrollHeadcount(A.id))]) {
       const got = await read();
       expect(got.employees.map((e) => e.id).sort()).toEqual(own);
-      expect(got.allocations.map((a) => a.employeeId)).toEqual([ids.e5, ids.e5]);
+      expect(got.allocations.map((a) => a.employeeId).sort()).toEqual([ids.e5, ids.e5, ids.e7, ids.e7].sort());
     }
     // The RLS policy alone would have let B's rows through to A's session.
     const visible = await asAppUser(A, async (q) => (await q.query('SELECT count(*)::int AS n FROM payroll_employees WHERE company_id = $1', [B.id])).rows[0].n);
@@ -97,6 +104,23 @@ describe('payroll headcount reader', () => {
     expect(JSON.stringify(got)).not.toMatch(/Zanele|Secret|8001015009087|0123456789/);
     const e2 = got.employees.find((e) => e.id === ids.e2)!;
     expect(e2).toEqual({ id: ids.e2, startDate: '2025-06-01', endDate: '2026-04-01', status: 'active', costCentreId: A.cc1 });
+  });
+});
+
+describe('payroll data the headcount rule cannot use as is', () => {
+  it('an allocation past 100% is kept as stored and warned once per employee, by id only; 100% exactly is silent', async () => {
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      const got = await readPayrollHeadcount(A.id);
+      expect(got.allocations.filter((a) => a.employeeId === ids.e7).map((a) => a.percentage).sort()).toEqual([50, 70]);
+      const past = warn.mock.calls.filter(([msg]) => String(msg).includes('allocation sums past 100%'));
+      expect(past).toEqual([[expect.any(String), { companyId: A.id, employeeId: ids.e7 }]]);
+      const backwards = warn.mock.calls.filter(([msg]) => String(msg).includes('end before they start'));
+      expect(backwards).toEqual([[expect.any(String), { companyId: A.id, employeeIds: [ids.e6] }]]);
+      expect(JSON.stringify(warn.mock.calls)).not.toMatch(/Zanele|Secret|8001015009087|0123456789/);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

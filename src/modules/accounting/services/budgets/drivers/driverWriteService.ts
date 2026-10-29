@@ -7,9 +7,10 @@
  * - Save: the line's kind columns (`normaliseLine`), its months inside the version
  *   (`assertDriverMonths`), what it names (`checkDriverLine`), then `assertNoCycle` over the
  *   version's drivers with this one substituted: a cycle is 400 DRIVER_CYCLE with the path, and
- *   nothing is written. Cells of the row outside the new range go back to 'manual' (the engine's
- *   re-sourcing, in the recompute).
- * - Delete: the row's 'driver' and 'override' cells become 'manual', values kept (likewise).
+ *   nothing is written. The row's 'driver' cells outside the new range go back to 'manual' (the
+ *   engine's re-sourcing, in the recompute); an 'override' outside it stays (spec §1.2).
+ * - Delete: the row's 'override' cells become 'manual' here, its 'driver' cells in the recompute;
+ *   values kept.
  * - Reset: 'override' cells (one month, or the whole row) back to 'driver', then recomputed.
  * - Refresh headcount: a recompute that records `headcountAsOf` in its audit row (payroll never
  *   pushes one; headcount is read when a write or this runs).
@@ -22,7 +23,7 @@ import { assertNoCycle } from './driverGraph';
 import { DriverCycleError, type RowKey } from './driverTypes';
 import { normaliseLine, rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLineInput, type StoredDriverLine } from './driverLine';
 import { deleteDriverLine, driverLineOfRow, listDriverLines, upsertDriverLine } from './driverRepository';
-import { resetOverrideCells } from './driverCellSources';
+import { releaseOverrideCells, resetOverrideCells } from './driverCellSources';
 import { loadVersionModel } from './driverRecomputeService';
 import { checkDriverLine } from './driverValidate';
 import { BudgetDriverError } from './driverErrors';
@@ -72,7 +73,11 @@ export async function deleteDriver(companyId: string, userId: string, target: Dr
   return runDriverWrite(companyId, userId, target, 'driver_deleted', async (ctx) => {
     const gone = await deleteDriverLine(companyId, ctx.versionId, driverId.toLowerCase());
     if (!gone) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget driver not found');
-    return { value: { deleted: true as const, id: gone.id }, audit: { kind: gone.kind, rowKey: rowKeyOfGrain(gone) } };
+    const released = await releaseOverrideCells(companyId, ctx.versionId, gone);
+    return {
+      value: { deleted: true as const, id: gone.id },
+      audit: { kind: gone.kind, rowKey: rowKeyOfGrain(gone), releasedOverrides: String(released) },
+    };
   });
 }
 

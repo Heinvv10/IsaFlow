@@ -134,24 +134,27 @@ describe('budget drivers: recompute', () => {
     const values = [...(await fx.row(v, w.cogs)).values()].map((c) => c.amount);
     const r = await fx.call.drivers(w.u, 'DELETE', undefined, { versionId: v, id: put.driver.id });
     expect(r.status, dump(r)).toBe(200);
-    expect(dataOf(r)).toMatchObject({ deleted: true, id: put.driver.id, recomputed: 12 });
+    // 11 driver cells re-sourced by the engine; the override released by the delete itself.
+    expect(dataOf(r)).toMatchObject({ deleted: true, id: put.driver.id, recomputed: 11 });
     const after = [...(await fx.row(v, w.cogs)).values()];
     expect(after.map((c) => c.amount)).toEqual(values);
     expect(new Set(after.map((c) => c.source))).toEqual(new Set(['manual']));
     expect((await pool.query('SELECT count(*)::int AS n FROM budget_driver_lines WHERE version_id = $1', [v])).rows[0].n).toBe(0);
-    expect((await fx.audits(v)).at(-1)!.changes.metadata).toMatchObject({ driverAction: 'driver_deleted', recomputed: '12' });
+    expect((await fx.audits(v)).at(-1)!.changes.metadata).toMatchObject({ driverAction: 'driver_deleted', recomputed: '11', releasedOverrides: '1' });
   });
 
-  it('narrowing a driver range sets the cells outside it back to manual', async () => {
+  it('narrowing a driver range sets its driver cells outside it back to manual; an override outside it stays', async () => {
     const { v } = await cogsOfSales();
+    expect((await fx.call.save(w.u, v, [cell(w.cogs, w.months[5]!, 42)])).status).toBe(200);
     const r = await fx.call.drivers(w.u, 'PUT', {
       versionId: v, glAccountId: w.cogs, kind: 'pct_of_line', pct: 38, fromMonth: w.months[0], toMonth: w.months[1],
       ref: { glAccountId: w.sales },
     });
     expect(r.status, dump(r)).toBe(200);
     const cogs = await fx.row(v, w.cogs);
-    expect(w.months.map((m) => cogs.get(m)!.source)).toEqual(['driver', 'driver', ...Array(10).fill('manual')]);
-    expect((await fx.audits(v)).at(-1)!.changes.metadata).toMatchObject({ replaced: 'true', recomputed: '10' });
+    expect(w.months.map((m) => cogs.get(m)!.source)).toEqual(['driver', 'driver', 'manual', 'manual', 'manual', 'override', ...Array(6).fill('manual')]);
+    expect(cogs.get(w.months[5]!)!.amount).toBe('42.00');
+    expect((await fx.audits(v)).at(-1)!.changes.metadata).toMatchObject({ replaced: 'true', recomputed: '9' });
   });
 
   it('the grid read model carries each cell source and the version drivers', async () => {

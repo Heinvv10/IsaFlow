@@ -12,7 +12,9 @@
  * relaxed, an employee with no start date has no month to place them in, so they are not counted
  * (as an `inactive` one is not), rather than failing the whole recompute. Likewise an end date
  * before the start date (payroll has no CHECK for it, and the engine refuses one): no day employed,
- * so not counted, and logged by employee id so it can be corrected in payroll.
+ * so not counted, and logged by employee id so it can be corrected in payroll. Allocations are
+ * used as payroll stores them; one employee's rows summing past 100% (payroll checks the sum in
+ * the app, not the table) count more than one head, and are logged once per employee, by id.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -46,10 +48,14 @@ export async function readPayrollHeadcount(companyId: string): Promise<PayrollHe
   if (backwards.length > 0) {
     log.warn('payroll employees end before they start: not counted in budget headcount', { companyId, employeeIds: backwards });
   }
-  return {
-    employees: all.filter((e) => !backwards.includes(e.id)),
-    allocations: allocations.map((r) => ({
-      employeeId: String(r.employee_id), costCentreId: String(r.cost_centre_id), percentage: Number(r.percentage),
-    })),
-  };
+  const split = allocations.map((r) => ({
+    employeeId: String(r.employee_id), costCentreId: String(r.cost_centre_id), percentage: Number(r.percentage),
+  }));
+  // In hundredths of a percent (NUMERIC(5,2)), so 33.33 + 33.33 + 33.34 is exactly 100.
+  const sums = new Map<string, number>();
+  for (const a of split) sums.set(a.employeeId, (sums.get(a.employeeId) ?? 0) + Math.round(a.percentage * 100));
+  for (const [employeeId, sum] of sums) {
+    if (sum > 10_000) log.warn('payroll cost-centre allocation sums past 100%: counted as stored in budget headcount', { companyId, employeeId });
+  }
+  return { employees: all.filter((e) => !backwards.includes(e.id)), allocations: split };
 }

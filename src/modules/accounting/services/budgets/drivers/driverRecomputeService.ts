@@ -10,7 +10,7 @@
  * `amount_source`, the drivers, and headcount (payroll actives + the version's planned hires, each
  * scope computed once). closedMonths is empty: only reforecasts hold 'actual' cells, and the engine
  * never writes those. A changed cell is UPDATEd (amount + the engine's source: 'driver', or 'manual'
- * for a driver / override cell no driver covers any more), a new one INSERTed as 'driver'; an
+ * for a 'driver' cell no driver covers any more), a new one INSERTed as 'driver'; an
  * unchanged cell is not touched, so its updated_at keeps saying when it last changed.
  *
  * Cells on an account that is not revenue or expense are not rows (the grid does not show them);
@@ -108,10 +108,7 @@ export async function loadVersionModel(
   return { months, rows, cells, defs: lines.map(toDriverDef), labels };
 }
 
-/**
- * Writes the engine's changed cells with their source. Never an 'actual' cell, and an 'override'
- * only to re-source it 'manual' (the engine skips both otherwise; the UPDATE refuses them too).
- */
+/** Writes the engine's changed cells with their source. Never an 'override' or 'actual' cell (the engine skips them; the UPDATE refuses them too). */
 async function writeDriverCells(companyId: string, versionId: string, userId: string, writes: readonly DriverWrite[]): Promise<number> {
   if (writes.length === 0) return 0;
   const refs = writes.map((w) => parseKey(`${w.rowKey}|${w.month}`));
@@ -130,7 +127,7 @@ async function writeDriverCells(companyId: string, versionId: string, userId: st
      WHERE bm.company_id = ${companyId}::UUID AND bm.version_id = ${versionId}::UUID
        AND bm.gl_account_id = t.a AND bm.month = t.m AND COALESCE(bm.cc1_id, ${NIL}::UUID) = t.c1
        AND COALESCE(bm.cc2_id, ${NIL}::UUID) = t.c2 AND COALESCE(bm.bu_id, ${NIL}::UUID) = t.b
-       AND bm.amount_source <> 'actual' AND (bm.amount_source <> 'override' OR t.src = 'manual')
+       AND bm.amount_source NOT IN ('override', 'actual')
     RETURNING 1
     )
     SELECT COUNT(*)::int AS n FROM up
@@ -157,7 +154,7 @@ async function writeDriverCells(companyId: string, versionId: string, userId: st
 async function holdsDriverCells(companyId: string, versionId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT EXISTS (SELECT 1 FROM budget_month_amounts WHERE company_id = ${companyId}::UUID AND version_id = ${versionId}::UUID
-                      AND amount_source IN ('driver', 'override')) AS held
+                      AND amount_source = 'driver') AS held
   `) as DbRow[];
   return Boolean(rows[0]?.held);
 }
@@ -169,7 +166,7 @@ async function holdsDriverCells(companyId: string, versionId: string): Promise<b
  */
 export async function recomputeVersion(companyId: string, versionId: string, userId: string): Promise<RecomputeResult> {
   const lines = await listDriverLines(companyId, versionId);
-  // No driver and no cell a driver left behind: nothing to compute or re-source (the grid save's
+  // No driver and no 'driver' cell left behind: nothing to compute or re-source (the grid save's
   // usual case, so it reads no cells). A deleted last driver still re-sources its cells 'manual'.
   if (lines.length === 0 && !(await holdsDriverCells(companyId, versionId))) return { changed: 0, warnings: [] };
   const found = (await sql`
