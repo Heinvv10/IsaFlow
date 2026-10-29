@@ -66,8 +66,9 @@ Adding a fourth exception needs a reason in the file and a test that pins it.
   exceptions above for the sign rules on `variance` and `variancePct`. Adding
   a third comparator goes here, not into the report adapters. A comparator
   line carrying the engine's `budget_verdict` (budgets P3 PR-C) that has no
-  budget prints absent, with `absentReason` 'partial' / 'above-filter'; a P0
-  line (no verdict) leaves the cells empty, as before.
+  budget prints absent, with `absentReason` 'partial' / 'above-filter', and
+  so does a statement row those lines do not name; a P0 line (no verdict)
+  leaves the cells empty, as before.
 - `budgetComparatorBands.ts` (budgets P3 PR-C) — the statement Budget column
   beyond account rows, copies only: `withBudgetedLines` adds an account the
   engine budgets but the statement does not list (no actual), in its band's

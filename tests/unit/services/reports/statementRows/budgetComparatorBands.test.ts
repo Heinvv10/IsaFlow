@@ -43,6 +43,11 @@ describe('applyBudgetComparator with the engine verdicts', () => {
     expect(b('5400')).toEqual({ value: 0, absent: true, absentReason: 'above-filter' });
   });
 
+  it('a statement row the comparator does not name (no budget, no actual) prints absent too', () => {
+    const out = applyBudgetComparator(rows(), [tracked('4100', 'Sales', 'turnover', 'budgeted', 900, 1000)]);
+    expect(out.find((r) => r.accountCode === '5300')!.budget).toEqual({ value: 0, absent: true });
+  });
+
   it("P0's lines (no verdict) leave an unbudgeted row's cells empty, as before", () => {
     const p0 = { ...tracked('5200', 'Wages', 'operating_expense', 'unbudgeted', 0, 600) } as Partial<TrackedLine>;
     delete p0.budget_verdict;
