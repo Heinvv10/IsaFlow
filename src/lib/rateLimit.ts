@@ -12,6 +12,7 @@ import { noteQuotaCharge } from '@/lib/quotaUse';
 import {
   chargeRateLimit, checkRateLimit, clampCost, isKnownFull, refundRateLimit, type RateLimitCharge, type RateLimitOptions,
 } from '@/lib/rateLimitCore';
+import { getRateLimitPool } from '@/lib/rateLimitPool';
 
 export {
   chargeRateLimit, checkRateLimit, clampCost, clearRateLimitCache, refundRateLimit, REFUSAL_TTL_MS,
@@ -131,6 +132,29 @@ export async function checkReportRateLimit(
   const max = opts.max ?? 25;
   const windowSecs = opts.windowSecs ?? 900;
   return checkRateLimit(`report:${name}:co:${companyId}`, { max, windowSecs });
+}
+
+/**
+ * The report limit for a page whose controls each reload it (Budget vs Actual):
+ * the default 25 a window locked a reviewer out after about twenty control
+ * changes. Still a per-company cap on the engine, sized for interactive use;
+ * the page debounces and coalesces control changes on top of it.
+ */
+export const INTERACTIVE_REPORT_LIMIT = { max: 120, windowSecs: 900 } as const;
+
+/**
+ * Seconds until a company's report window ends, for a refused request's
+ * Retry-After. Read only on the refused path; clamped to [1, window]; a key the
+ * database no longer holds waits the whole window.
+ */
+export async function reportRateLimitRetryAfter(companyId: string, name: string, windowSecs = 900): Promise<number> {
+  const { rows } = await getRateLimitPool().query<{ secs: number | null }>(
+    `SELECT CEIL(EXTRACT(EPOCH FROM (window_start + make_interval(secs => $2) - NOW())))::int AS secs
+       FROM rate_limit_counters WHERE key = $1`,
+    [`report:${name}:co:${companyId}`, windowSecs],
+  );
+  const secs = rows[0]?.secs;
+  return secs == null ? windowSecs : Math.min(windowSecs, Math.max(1, secs));
 }
 
 // ---------------------------------------------------------------------------

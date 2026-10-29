@@ -15,6 +15,9 @@ import type { DimensionOption } from './useBudgetTracking';
 
 const LABEL = 'block text-xs text-[var(--ff-text-tertiary)] mb-1';
 const INPUT = 'ff-input text-sm';
+// Long centre and version names must not wrap the bar at 1280: the box is capped, the name
+// truncates inside it, and the full name is the box's title (browser review r1 L6).
+const CAPPED = 'w-[11rem] max-w-full truncate';
 
 export interface BudgetTrackingControlsProps {
   controls: TrackingControls;
@@ -30,15 +33,20 @@ export interface BudgetTrackingControlsProps {
   units: DimensionOption[];
   update: (patch: Partial<TrackingControls>) => void;
   setPeriod: (p: TrackingPeriod) => void;
+  setFiscalYear: (fy: number) => void;
+  /** Why the controls cannot be sent (an inverted custom range), shown under them. */
+  problem: string | null;
 }
 
 function DimensionSelect({ label, testId, value, options, onChange }: {
   label: string; testId: string; value: string; options: DimensionOption[]; onChange: (id: string) => void;
 }) {
+  const chosen = options.find((o) => o.id === value);
   return (
     <div>
       <label htmlFor={testId} className={LABEL}>{label}</label>
-      <select id={testId} data-testid={testId} value={value} onChange={(e) => onChange(e.target.value)} className={`${INPUT} min-w-[150px]`}>
+      <select id={testId} data-testid={testId} value={value} onChange={(e) => onChange(e.target.value)}
+        title={chosen ? `${chosen.code} — ${chosen.name}` : undefined} className={`${INPUT} ${CAPPED}`}>
         <option value="">All</option>
         {value && !options.some((o) => o.id === value) && <option value={value}>Selected (unavailable)</option>}
         {options.map((o) => <option key={o.id} value={o.id}>{o.code} — {o.name}</option>)}
@@ -57,7 +65,7 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
   const versionReason = p.crossYears ? crossYearReason(p.crossYears) : p.versionsError || undefined;
 
   return (
-    <div className="flex flex-wrap items-end gap-4">
+    <div className="flex flex-wrap items-end gap-3">
       <div>
         <label htmlFor="bva-period" className={LABEL}>Period</label>
         <select id="bva-period" data-testid="bva-period" value={c.period}
@@ -76,7 +84,7 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
         <div>
           <label htmlFor="report-year" className={LABEL}>Financial year</label>
           <select id="report-year" data-testid="report-year" value={yearValue}
-            onChange={(e) => update({ fiscalYear: Number(e.target.value), quarter: 1 })} className={INPUT}>
+            onChange={(e) => p.setFiscalYear(Number(e.target.value))} className={INPUT}>
             {!year && <option value={yearValue}>{yearValue}</option>}
             {p.years.map((y) => (
               <option key={y.fiscalYear} value={y.fiscalYear}>
@@ -105,15 +113,19 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
           <div>
             <label htmlFor="bva-to" className={LABEL}>To month</label>
             <input id="bva-to" data-testid="bva-to" type="month" value={c.to}
-              onChange={(e) => { if (e.target.value) update({ to: e.target.value }); }} className={INPUT} />
+              onChange={(e) => { if (e.target.value) update({ to: e.target.value }); }} className={INPUT}
+              aria-invalid={p.problem !== null} aria-describedby={p.problem ? 'bva-range-error' : undefined} />
           </div>
+          {p.problem && (
+            <p id="bva-range-error" data-testid="bva-range-error" role="alert" className="self-center text-xs text-red-600 dark:text-red-400">{p.problem}</p>
+          )}
         </>
       )}
       <div>
         <label htmlFor="bva-version" className={LABEL}>Version</label>
         <select id="bva-version" data-testid="bva-version" value={c.versionId === primary?.id ? '' : c.versionId}
-          disabled={crossYear} title={versionReason} aria-describedby={crossYear ? 'bva-version-reason' : undefined}
-          onChange={(e) => update({ versionId: e.target.value })} className={`${INPUT} min-w-[170px] disabled:opacity-60`}>
+          disabled={crossYear} title={versionReason ?? p.versions.find((v) => v.id === c.versionId)?.name ?? primary?.name} aria-describedby={crossYear ? 'bva-version-reason' : undefined}
+          onChange={(e) => update({ versionId: e.target.value })} className={`${INPUT} ${CAPPED} disabled:opacity-60`}>
           <option value="">{primary ? `Primary: ${primary.name}` : 'Primary version'}</option>
           {c.versionId && !p.versions.some((v) => v.id === c.versionId) && <option value={c.versionId}>Selected version</option>}
           {p.versions.filter((v) => !v.isPrimary).map((v) => (

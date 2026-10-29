@@ -18,7 +18,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { checkReportRateLimit } from '@/lib/rateLimit';
+import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT, reportRateLimitRetryAfter } from '@/lib/rateLimit';
 import { respondTrackingError } from '@/lib/budgetTrackingResponse';
 import { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import { parseTrackingQuery } from '@/modules/accounting/services/budgets/tracking/trackingQuery';
@@ -28,9 +28,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
 
-  if (!(await checkReportRateLimit(companyId, 'reports-budget-tracking'))) {
+  if (!(await checkReportRateLimit(companyId, 'reports-budget-tracking', { ...INTERACTIVE_REPORT_LIMIT }))) {
     log.warn('Budget tracking rate limit exceeded', { companyId }, 'rateLimit');
-    return apiResponse.tooManyRequests(res, 'Too many report requests. Please try again shortly.');
+    const secs = await reportRateLimitRetryAfter(companyId, 'reports-budget-tracking', INTERACTIVE_REPORT_LIMIT.windowSecs);
+    res.setHeader('Retry-After', String(secs));
+    const wait = secs < 60 ? `${secs} second${secs === 1 ? '' : 's'}` : `${Math.ceil(secs / 60)} minute${Math.ceil(secs / 60) === 1 ? '' : 's'}`;
+    return apiResponse.tooManyRequests(res, `Too many report requests: try again in ${wait}.`);
   }
 
   const parsed = parseTrackingQuery(req.query);
