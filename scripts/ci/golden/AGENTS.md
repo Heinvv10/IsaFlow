@@ -47,7 +47,12 @@ post-deploy verify, local runs) it is the old E2E_ADMIN_* / default-company path
 **Rules:**
 - The company id for a slot comes from `GOLDEN_SLOT_n_COMPANY_ID` and must be one of that slot's own ids
   (`601d000<g>-0000-4000-8000-00000000000<n>`, g 0..9): anything else, Demo included, is refused before any write.
-- The GoTrue password is set only after the database commit, then written to the env file.
+- The GoTrue password is set only after the database commit, then written to the env file. The two are not
+  atomic: if the file write fails, GoTrue holds the new password and the file the old (or none), and the
+  failure message says so. Re-running `provision-slots.ts` heals it (it reads the password from the file, or
+  makes a new one, and sets it in GoTrue again before writing it).
+- `--reset-slot` on a company that is already `RETIRED ...` is refused (a crashed reset must not burn another
+  generation); set `GOLDEN_SLOT_n_COMPANY_ID` to the newest live generation instead.
 - Idempotent; an existing slot company is kept (its data is the suite's to grow).
   A company and its membership are created in one transaction. A table the slot already
   holds rows in is not topped up, and neither is a child of such a table.

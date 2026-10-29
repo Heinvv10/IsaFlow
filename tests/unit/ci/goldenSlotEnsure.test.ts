@@ -7,7 +7,7 @@ const clone = vi.hoisted(() => ({ cloneCompany: vi.fn() }));
 vi.mock('../../../src/lib/auth/gotrue', () => gotrue);
 vi.mock('../../../scripts/ci/golden/cloneCompany', () => clone);
 
-import { ensureCompany, ensureGoTrueUser, ensureUser, setGoTrueUserPassword } from '../../../scripts/ci/golden/slotProvision';
+import { ensureCompany, ensureGoTrueUser, ensureUser, publishSlotLogin, setGoTrueUserPassword } from '../../../scripts/ci/golden/slotProvision';
 import { SOURCE_COMPANY_ID, slotCompanyId, slotCompanyName, slotEmail, slotRegistrationNumber } from '../../../scripts/ci/golden/slotConfig';
 
 interface Statement { text: string; params: unknown[] }
@@ -111,5 +111,35 @@ describe('GoTrue user', () => {
     gotrue.adminUpdateUser.mockResolvedValue({});
     await setGoTrueUserPassword('gt-1', 'pw-from-env');
     expect(gotrue.adminUpdateUser).toHaveBeenCalledWith('gt-1', { password: 'pw-from-env', email_confirm: true });
+  });
+});
+
+describe('publishSlotLogin', () => {
+  const opts = { n: 2, email: 'golden-slot-2@isaflow.dev', userId: 'gt-2', password: 'pw', envFile: '/home/hein/isaflow-ci.env' };
+
+  it('sets the GoTrue password first and then writes the env file', async () => {
+    const order: string[] = [];
+    gotrue.adminUpdateUser.mockImplementation(async () => { order.push('gotrue'); return {}; });
+    await publishSlotLogin({ ...opts, write: () => { order.push('file'); } });
+    expect(order).toEqual(['gotrue', 'file']);
+  });
+
+  it('says that GoTrue and the file now disagree, and that a re-run heals it, when the file write fails', async () => {
+    gotrue.adminUpdateUser.mockResolvedValue({});
+    const failing = () => { throw new Error('EACCES: permission denied'); };
+    const err = await publishSlotLogin({ ...opts, write: failing }).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('golden-slot-2@isaflow.dev');
+    expect((err as Error).message).toContain('/home/hein/isaflow-ci.env');
+    expect((err as Error).message).toContain('EACCES: permission denied');
+    expect((err as Error).message).toMatch(/disagree until provision-slots\.ts is run again, which heals it/);
+    expect(((err as Error).cause as Error).message).toBe('EACCES: permission denied');
+  });
+
+  it('writes nothing when GoTrue refuses the password', async () => {
+    gotrue.adminUpdateUser.mockRejectedValue(new Error('gotrue down'));
+    let wrote = false;
+    await expect(publishSlotLogin({ ...opts, write: () => { wrote = true; } })).rejects.toThrow('gotrue down');
+    expect(wrote).toBe(false);
   });
 });

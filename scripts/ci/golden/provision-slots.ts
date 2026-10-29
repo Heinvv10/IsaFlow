@@ -32,7 +32,7 @@ import {
 } from './slotConfig';
 import { seedSlotViaApp } from './seedSlotClient';
 import { writeEnvFileAtomic } from './slotEnvFile';
-import { ensureCompany, ensureGoTrueUser, ensureUser, retireSlotCompany, setGoTrueUserPassword } from './slotProvision';
+import { ensureCompany, ensureGoTrueUser, ensureUser, publishSlotLogin, retireSlotCompany } from './slotProvision';
 import { formatSlotReport, readSlotReport, seedProblems, slotProblems, slotWarnings } from './slotVerify';
 
 const DEFAULT_ENV_FILE = '/home/hein/isaflow-ci.env';
@@ -125,9 +125,13 @@ async function main(): Promise<void> {
       if (!dryRun) {
         // Per slot, right after its commit: GoTrue gets the password only now (a run that failed before the commit must
         // not have changed it), and then it must reach the file.
-        await setGoTrueUserPassword(userId, password);
-        envText = upsertEnvKeys(envText, { [keys.companyId]: companyId, [keys.email]: slotEmail(n), [keys.password]: password });
-        writeEnvFileAtomic(envFile, envText);
+        await publishSlotLogin({
+          n, email: slotEmail(n), userId, password, envFile,
+          write: () => {
+            envText = upsertEnvKeys(envText, { [keys.companyId]: companyId, [keys.email]: slotEmail(n), [keys.password]: password });
+            writeEnvFileAtomic(envFile, envText);
+          },
+        });
         say(`slot ${n}: ${keys.companyId}, ${keys.email}, ${keys.password} written to ${envFile}`);
         if (seedUrl) {
           const report = await seedSlotViaApp(seedUrl, { companyId, email: slotEmail(n), password });
