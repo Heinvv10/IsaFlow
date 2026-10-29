@@ -46,7 +46,11 @@ const MAP: SystemAccountMap = {
   retained_earnings: '3200', default_revenue: '4100', default_expense: '5100', admin_expense: '5400',
 };
 
-beforeEach(() => { vi.clearAllMocks(); mockSql.mockResolvedValue([]); });
+// The upsert returns its row (Postgres returns none only when DO UPDATE ... WHERE refuses a re-type);
+// every other statement returns no rows.
+const upsertAnswers = (strings: TemplateStringsArray, ...vals: unknown[]) =>
+  Promise.resolve(strings.join('').includes('INSERT INTO gl_accounts') ? [{ account_type: vals[3], account_subtype: vals[4] }] : []);
+beforeEach(() => { vi.clearAllMocks(); mockSql.mockImplementation(upsertAnswers as never); });
 
 describe('validateSystemAccountMap', () => {
   it('accepts a well-typed map', () => {

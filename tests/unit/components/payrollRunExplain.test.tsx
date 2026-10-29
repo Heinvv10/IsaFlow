@@ -96,7 +96,8 @@ describe('payroll runs list — journal link (PAY-24)', () => {
     });
     render(<PayrollRunsListPage />);
     const links = await screen.findAllByRole('link', { name: /journal/i });
-    expect(links).toHaveLength(1);
-    expect(links[0]!.getAttribute('href')).toBe('/accounting/journal-entries/je-9');
+    // One per layout (card list below md, table from md): only the posted run has one.
+    expect(links).toHaveLength(2);
+    for (const l of links) expect(l.getAttribute('href')).toBe('/accounting/journal-entries/je-9');
   });
 });
