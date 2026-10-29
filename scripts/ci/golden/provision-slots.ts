@@ -7,9 +7,10 @@
  * Idempotent. A slot company that exists is kept (its data is the suite's to grow); its user, membership, GoTrue
  * password and env keys are re-asserted. A company is created with its membership in ONE transaction, so a failure
  * leaves nothing half-made. --dry-run does everything in a transaction it rolls back and touches neither GoTrue nor
- * the env file. --verify only reads and prints each slot's preconditions. --reset-slot n retires slot n's company (a
- * poisoned one: a payroll run stuck in the sandbox month, say) and builds a fresh generation under a new id, which
- * replaces GOLDEN_SLOT_n_COMPANY_ID in the env file; nothing is deleted.
+ * the env file. --verify only reads and prints each slot's preconditions and seed volume, and exits 1 when a slot lacks
+ * one. --reset-slot n retires slot n's company (a poisoned one: a payroll run stuck in the sandbox month, say) and
+ * builds a fresh generation under a new id, which replaces GOLDEN_SLOT_n_COMPANY_ID in the env file; nothing is
+ * deleted. A reset needs --seed-url (a bare clone fails the volume specs).
  *
  * --seed-url <local dev server> then seeds each provisioned slot with transactions through the app's own routes
  * (seedSlotData.ts): 80 approved supplier invoices, 10 posted journals, a 200-row bank statement, a migration session.
@@ -26,13 +27,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import pg from 'pg';
 import { rollbackFailed } from '../../../src/lib/rollbackFailed';
 import {
-  DEV_DATABASE, GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertGoTrueUrl, generationOf, parseEnvFile,
+  DEV_DATABASE, GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertResetSeeds, assertGoTrueUrl, generationOf, parseEnvFile,
   slotCompanyId, slotEmail, slotEnvKeys, upsertEnvKeys,
 } from './slotConfig';
 import { seedSlotViaApp } from './seedSlotClient';
 import { writeEnvFileAtomic } from './slotEnvFile';
 import { ensureCompany, ensureGoTrueUser, ensureUser, retireSlotCompany } from './slotProvision';
-import { formatSlotReport, readSlotReport, slotProblems, slotWarnings } from './slotVerify';
+import { formatSlotReport, readSlotReport, seedProblems, slotProblems, slotWarnings } from './slotVerify';
 
 const DEFAULT_ENV_FILE = '/home/hein/isaflow-ci.env';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -52,6 +53,7 @@ async function main(): Promise<void> {
   const resetArg = option('--reset-slot');
   const resetSlot = resetArg === undefined ? undefined : Number(resetArg);
   if (resetSlot !== undefined && !(GOLDEN_SLOTS as readonly number[]).includes(resetSlot)) throw new Error(`--reset-slot takes one of ${GOLDEN_SLOTS.join(', ')}`);
+  assertResetSeeds(resetSlot, seedUrl, dryRun);
   if (!existsSync(envFile)) throw new Error(`env file ${envFile} not found`);
   let envText = readFileSync(envFile, 'utf8');
   const fileEnv = parseEnvFile(envText);
@@ -81,8 +83,14 @@ async function main(): Promise<void> {
     say(`database ${actual}${dryRun ? ' (dry run: everything rolls back)' : ''}`);
 
     if (verifyOnly) {
-      say(formatSlotReport('demo  ', await readSlotReport(db, SOURCE_COMPANY_ID)).replace(/, members \d+$/, ''));
-      for (const n of GOLDEN_SLOTS) say(formatSlotReport(`slot ${n}`, await readSlotReport(db, currentId(n))));
+      say(formatSlotReport('demo  ', await readSlotReport(db, SOURCE_COMPANY_ID)).replace(/, members \d+(?=, seed:)/, ''));
+      let failing = 0;
+      for (const n of GOLDEN_SLOTS) {
+        const report = await readSlotReport(db, currentId(n));
+        say(formatSlotReport(`slot ${n}`, report));
+        for (const p of [...slotProblems(report, false), ...seedProblems(report)]) { say(`slot ${n}: PROBLEM: ${p}`); failing++; }
+      }
+      if (failing) process.exitCode = 1;
       return;
     }
 
@@ -121,6 +129,8 @@ async function main(): Promise<void> {
         if (seedUrl) {
           const report = await seedSlotViaApp(seedUrl, { companyId, email: slotEmail(n), password });
           say(`slot ${n}: seeded ${JSON.stringify(report)}`);
+          const missing = seedProblems(await readSlotReport(db, companyId));
+          if (missing.length) throw new Error(`slot ${n} is still short of its seed: ${missing.join('; ')}`);
         }
       }
     }
@@ -129,7 +139,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().then(() => process.exit(0), (err: unknown) => {
+main().then(() => process.exit(process.exitCode ?? 0), (err: unknown) => {
   process.stderr.write(`provision-slots failed: ${(err as Error).message}\n`);
   process.exit(1);
 });

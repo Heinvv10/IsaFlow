@@ -1,7 +1,8 @@
 // What a slot must hold before the golden suite can run in it: the same preconditions _global-setup.ts and the
 // specs check, as a pure judgement over counts so the provisioner can refuse to commit an unusable slot.
 import { describe, expect, it } from 'vitest';
-import { REQUIRED_SYSTEM_SUBTYPES, slotProblems, slotWarnings, type SlotReport } from '../../../scripts/ci/golden/slotVerify';
+import { SEED } from '../../../scripts/ci/golden/seedSlotData';
+import { REQUIRED_SYSTEM_SUBTYPES, seedProblems, slotProblems, slotWarnings, type SlotReport } from '../../../scripts/ci/golden/slotVerify';
 
 const good: SlotReport = {
   companyId: '601d0000-0000-4000-8000-000000000001',
@@ -12,6 +13,10 @@ const good: SlotReport = {
   sandboxPeriodOpen: true,
   payrollRunsInSandboxMonth: 0,
   members: 1,
+  seededInvoices: SEED.invoices,
+  seededJournals: SEED.journals,
+  seededBankRows: SEED.bankRows,
+  migrationSessions: 1,
 };
 
 describe('slotProblems', () => {
@@ -48,5 +53,34 @@ describe('slotProblems', () => {
     expect(slotWarnings({ ...good, members: 2 }, true)).toEqual([]);
     expect(slotWarnings(good, false)).toEqual([]);
     expect(slotProblems({ ...good, members: 0 }, false)).toEqual([expect.stringContaining('no member')]);
+  });
+});
+
+describe('seedProblems', () => {
+  it('is empty for a fully seeded slot, and a slot that has since grown past the seed', () => {
+    expect(seedProblems(good)).toEqual([]);
+    expect(seedProblems({ ...good, seededInvoices: SEED.invoices + 40, seededJournals: SEED.journals + 5, migrationSessions: 2 })).toEqual([]);
+  });
+
+  it('flags a bare slot (a fresh clone of Demo) on every count', () => {
+    const bare = { ...good, seededInvoices: 0, seededJournals: 0, seededBankRows: 0, migrationSessions: 0 };
+    expect(seedProblems(bare)).toEqual([
+      expect.stringContaining('supplier invoices'), expect.stringContaining('journals'), expect.stringContaining('bank rows'), expect.stringContaining('migration session'),
+    ]);
+  });
+
+  it.each([
+    ['one invoice short', { seededInvoices: SEED.invoices - 1 }, 'supplier invoices'],
+    ['one journal short', { seededJournals: SEED.journals - 1 }, 'journals'],
+    ['one bank row short', { seededBankRows: SEED.bankRows - 1 }, 'bank rows'],
+    ['no migration session', { migrationSessions: 0 }, 'migration session'],
+  ])('flags %s and nothing else', (_label, patch, word) => {
+    const problems = seedProblems({ ...good, ...patch });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(word);
+  });
+
+  it('is kept out of slotProblems: a company created this run is seeded only after its commit', () => {
+    expect(slotProblems({ ...good, seededInvoices: 0, seededJournals: 0, seededBankRows: 0, migrationSessions: 0 }, true)).toEqual([]);
   });
 });

@@ -72,7 +72,8 @@ export async function ensureGoTrueUser(n: number, password: string): Promise<str
  * Retires a slot's company and picks the id of the next generation for its replacement. Nothing is deleted: the 111
  * foreign keys into companies are NO ACTION, the ledger tables refuse deletes of posted rows, and the retired company
  * keeps whatever state poisoned it for a human to read. The retired company is renamed (never matched again by
- * name) and the golden user is moved off it when ensureUser makes the new company the default.
+ * name, and no longer a demo company) and the golden user is moved off it when ensureUser makes the new company the
+ * default.
  * @returns the new generation and company id
  */
 export async function retireSlotCompany(db: ClientBase, n: number, currentId: string): Promise<{ generation: number; id: string }> {
@@ -83,8 +84,11 @@ export async function retireSlotCompany(db: ClientBase, n: number, currentId: st
   }
   if (generation > MAX_SLOT_GENERATION) throw new Error(`slot ${n} has used all ${MAX_SLOT_GENERATION} generations; remove the retired companies by hand first`);
   const stamp = new Date().toISOString().slice(0, 10);
+  // is_demo goes false so the demo-company lookups of the specs (v-empty-states: the golden user's first isDemo company)
+  // can never pick the retired one. The golden user's membership stays: company_users_role_guard refuses removing a
+  // company's only owner from any role that is not a superuser (RC011), and the retired company has no other owner.
   await db.query(
-    `UPDATE companies SET name = $2, registered_name = $2, trading_name = $2 WHERE id = $1::uuid`,
+    `UPDATE companies SET name = $2, registered_name = $2, trading_name = $2, is_demo = false WHERE id = $1::uuid`,
     [currentId, `RETIRED ${stamp} slot ${n} (poisoned, replaced by generation ${generation})`]);
   return { generation, id: slotCompanyId(n, generation) };
 }

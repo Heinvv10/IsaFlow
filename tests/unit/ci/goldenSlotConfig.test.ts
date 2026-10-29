@@ -2,7 +2,7 @@
 // numbers its runners, and it adds keys to the shared env file without touching anything else in it.
 import { describe, expect, it } from 'vitest';
 import {
-  EXPECTED_GOTRUE_URL, GOLDEN_SLOTS, MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertGoTrueUrl, generationOf,
+  EXPECTED_GOTRUE_URL, GOLDEN_SLOTS, MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertGoTrueUrl, assertResetSeeds, generationOf,
   parseEnvFile, slotCompanyId, slotCompanyName, slotEnvKeys, upsertEnvKeys,
 } from '../../../scripts/ci/golden/slotConfig';
 
@@ -69,6 +69,19 @@ describe('slots', () => {
 
   it('use the key names ci.yml reads', () => {
     expect(slotEnvKeys(2)).toEqual({ companyId: 'GOLDEN_SLOT_2_COMPANY_ID', email: 'GOLDEN_SLOT_2_EMAIL', password: 'GOLDEN_SLOT_2_PASSWORD' });
+  });
+});
+
+describe('assertResetSeeds', () => {
+  it('refuses a reset without a seed url: a bare clone fails the volume specs', () => {
+    expect(() => assertResetSeeds(2, undefined, false)).toThrow(/--reset-slot 2 needs --seed-url/);
+    expect(() => assertResetSeeds(1, '', false)).toThrow(/--seed-url/);
+  });
+
+  it('lets a reset with a seed url, a dry-run reset (it seeds nothing) and a run with no reset through', () => {
+    expect(() => assertResetSeeds(2, 'http://localhost:3450', false)).not.toThrow();
+    expect(() => assertResetSeeds(2, undefined, true)).not.toThrow();
+    expect(() => assertResetSeeds(undefined, undefined, false)).not.toThrow();
   });
 });
 

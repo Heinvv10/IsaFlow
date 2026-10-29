@@ -4,6 +4,7 @@
  * run in it), f-bank-import-reconcile (a bank account), the close-agent specs (a second open 2027 period).
  */
 import type { ClientBase } from 'pg';
+import { SEED } from './seedSlotData';
 
 export const REQUIRED_SYSTEM_SUBTYPES = ['receivable', 'default_revenue', 'vat_output', 'payable', 'vat_input', 'default_expense'] as const;
 /** The payroll sandbox month (tests/e2e/golden-paths/_api.ts PAYROLL_SANDBOX_MONTH). */
@@ -18,6 +19,11 @@ export interface SlotReport {
   sandboxPeriodOpen: boolean;
   payrollRunsInSandboxMonth: number;
   members: number;
+  /** The GSEED volume (seedSlotData.ts): approved supplier invoices, posted journals, bank rows, migration sessions. */
+  seededInvoices: number;
+  seededJournals: number;
+  seededBankRows: number;
+  migrationSessions: number;
 }
 
 export async function readSlotReport(db: ClientBase, companyId: string): Promise<SlotReport> {
@@ -33,6 +39,10 @@ export async function readSlotReport(db: ClientBase, companyId: string): Promise
     sandboxPeriodOpen: (await count(`SELECT count(*) AS n FROM fiscal_periods WHERE company_id = $1::uuid AND status = 'open' AND start_date <= '2027-02-28' AND end_date >= '2027-02-01'`)) > 0,
     payrollRunsInSandboxMonth: await count(`SELECT count(*) AS n FROM payroll_run_headers WHERE company_id = $1::uuid AND period_year = ${SANDBOX.year} AND period_month = ${SANDBOX.month}`),
     members: await count(`SELECT count(*) AS n FROM company_users WHERE company_id = $1::uuid`),
+    seededInvoices: await count(`SELECT count(*) AS n FROM supplier_invoices WHERE company_id = $1::uuid AND invoice_number ~ '^GSEED-AP-[0-9]+$' AND status NOT IN ('draft', 'pending_approval')`),
+    seededJournals: await count(`SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1::uuid AND description ~ '^GSEED-JNL-[0-9]+$' AND status = 'posted'`),
+    seededBankRows: await count(`SELECT count(*) AS n FROM bank_transactions WHERE company_id = $1::uuid AND description LIKE 'GSEED-BNK %'`),
+    migrationSessions: await count(`SELECT count(*) AS n FROM migration_sessions WHERE company_id = $1::uuid`),
   };
 }
 
@@ -55,6 +65,19 @@ export function slotProblems(r: SlotReport, fresh: boolean): string[] {
   return out;
 }
 
+/**
+ * One message per part of the seed the volume specs read that a slot lacks. Not part of slotProblems: a company the
+ * provisioner has just created is seeded only after its commit, so this is judged by --verify and after the seed.
+ */
+export function seedProblems(r: SlotReport): string[] {
+  const out: string[] = [];
+  if (r.seededInvoices < SEED.invoices) out.push(`${r.seededInvoices} of ${SEED.invoices} GSEED supplier invoices approved (x-contrast ap-aging and supplier-invoices need them)`);
+  if (r.seededJournals < SEED.journals) out.push(`${r.seededJournals} of ${SEED.journals} GSEED journals posted (p-type-money's income statement needs them)`);
+  if (r.seededBankRows < SEED.bankRows) out.push(`${r.seededBankRows} of ${SEED.bankRows} GSEED bank rows (n-a11y bank transactions needs them)`);
+  if (r.migrationSessions < 1) out.push('no migration session (n-a11y migration landing needs one)');
+  return out;
+}
+
 /** What a re-run notes but does not fail on: someone added a member to a slot that exists. */
 export function slotWarnings(r: SlotReport, fresh: boolean): string[] {
   return !fresh && r.members > 1 ? [`${r.members} members; a slot is meant to have one, its golden user (kept as is)`] : [];
@@ -63,5 +86,6 @@ export function slotWarnings(r: SlotReport, fresh: boolean): string[] {
 export function formatSlotReport(label: string, r: SlotReport): string {
   const sys = REQUIRED_SYSTEM_SUBTYPES.map((s) => `${s}=${r.systemAccounts[s]}`).join(' ');
   return `${label} ${r.companyId}: system accounts [${sys}], employees ${r.employees}, bank accounts ${r.bankAccounts}, `
-    + `open 2027 periods ${r.open2027Periods} (2027-02 open: ${r.sandboxPeriodOpen}), payroll runs in 2027-02: ${r.payrollRunsInSandboxMonth}, members ${r.members}`;
+    + `open 2027 periods ${r.open2027Periods} (2027-02 open: ${r.sandboxPeriodOpen}), payroll runs in 2027-02: ${r.payrollRunsInSandboxMonth}, members ${r.members}, `
+    + `seed: invoices ${r.seededInvoices}, journals ${r.seededJournals}, bank rows ${r.seededBankRows}, migration sessions ${r.migrationSessions}`;
 }

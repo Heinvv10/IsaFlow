@@ -98,3 +98,13 @@ export function upsertEnvKeys(text: string, entries: Record<string, string>): st
   }
   return `${lines.join('\n')}\n`;
 }
+
+/**
+ * A reset slot is a bare clone of Demo's setup data: without the seed the specs that read volume (x-contrast, p-type-money,
+ * n-a11y) fail on it, so --reset-slot refuses to run without --seed-url (a dry run seeds nothing, so it is let through).
+ */
+export function assertResetSeeds(resetSlot: number | undefined, seedUrl: string | undefined, dryRun: boolean): void {
+  if (resetSlot !== undefined && !seedUrl && !dryRun) {
+    throw new Error(`--reset-slot ${resetSlot} needs --seed-url <local dev server, port 3300-3799>: a rebuilt slot without the GSEED data fails the volume specs`);
+  }
+}
