@@ -13,8 +13,8 @@ Driver lines, override reset, headcount and planned hires for one budget version
 | `PUT /api/accounting/budget-drivers` | `index.ts` | Set or replace the row's ONE driver: `{ versionId, glAccountId, cc1Id, cc2Id, buId, kind, fromMonth, toMonth, rounding?, … }` (fixed `amount`; per_head `amount`, `headcountCostCentreId`; pct_of_line `pct`, `ref`; pct_of_section `pct`, `section`, `scope`; growth `pct`, `baseMonth`). Rand amounts, 'YYYY-MM' months. |
 | `DELETE /api/accounting/budget-drivers?versionId=&expectedUpdatedAt=&id=` | `index.ts` | Delete a driver; its driver and override cells become 'manual', values kept. Shrinking a range keeps an override outside it. |
 | `POST /api/accounting/budget-drivers/override` | `override.ts` | `{ versionId, glAccountId, cc1Id?, cc2Id?, buId?, month? }`: reset one override cell (or the row's) to the driver. |
-| `GET /api/accounting/budget-drivers/headcount?versionId=&costCentreId=` | `headcount.ts` | Months × `{ payroll, hires, total }` + `asOf`. COUNTS ONLY. |
-| `POST /api/accounting/budget-drivers/headcount` | `headcount.ts` | `{ versionId }`: "Refresh headcount" (a recompute; audit `headcountAsOf`). |
+| `GET /api/accounting/budget-drivers/headcount?versionId=&costCentreId=` | `headcount.ts` | Months × `{ payroll, hires, total }` + `asOf`. COUNTS ONLY. Any member reads the company scope; a cost-centre scope needs owner/admin/manager (`canWrite`, 403): a one-person centre's count beside its rate discloses pay. |
+| `POST /api/accounting/budget-drivers/headcount` | `headcount.ts` | `{ versionId, expectedUpdatedAt }`: "Refresh headcount" (a recompute with every per_head row reading payroll; audit `headcountAsOf`). |
 | `GET/POST/PUT/DELETE /api/accounting/budget-drivers/planned-hires` | `planned-hires.ts` | `{ hires }` / one hire `{ versionId, [id], label, costCentreId?, startMonth, endMonth?, fte? }` / DELETE `?versionId=&id=`. |
 
 Every write carries `expectedUpdatedAt` (in the body; in the query for DELETE), the version's token as last read, and answers `{ …, updatedAt, recomputed, warnings }`: the version's new token, the cells the recompute changed, the engine's REF_MISSING / SECTION_EMPTY / BASE_MISSING warnings.
@@ -23,9 +23,10 @@ Every write carries `expectedUpdatedAt` (in the body; in the query for DELETE), 
 Every file: `withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))`. GETs pass the CSRF and role gate (any member reads, viewers included); writes need owner/admin/manager. Writes are charged to `budget-driver:<userId>` (120 a minute, one bucket for all four files; 429 + Retry-After).
 
 ## Response contract
-`respondBudgetDriverError` (`@/lib/budgetDriverResponse`): 400 `DRIVER_CYCLE` (+ `path`, row keys, first == last), `DRIVER_REF`, `DRIVER_RANGE`; then `respondBudgetVersionError`: 400 BUDGET_VERSION_INPUT / BUDGET_GRAIN_CONFLICT, 403, 404 (another tenant's version, driver or hire), 409 BUDGET_VERSION_LOCKED, 409 BUDGET_VERSION_STALE (`{ currentUpdatedAt, status }`, as the grid save), 503 on a held version row. A missing or unreadable DELETE token is 400. Body shape errors are zod's 422. Types: `src/lib/apiRoutes.ts` via `drivers/driverApiTypes.ts`.
+`respondBudgetDriverError` (`@/lib/budgetDriverResponse`): 400 `DRIVER_CYCLE` (+ `path`, row keys, first == last), `DRIVER_REF`, `DRIVER_RANGE` (messages name accounts), 404 `DRIVER_NOT_FOUND` / `PLANNED_HIRE_NOT_FOUND`; then `respondBudgetVersionError`: 400 BUDGET_VERSION_INPUT / BUDGET_GRAIN_CONFLICT, 403, 404 (another tenant's version, driver or hire), 409 BUDGET_VERSION_LOCKED, 409 BUDGET_VERSION_STALE (`{ currentUpdatedAt, status }`, as the grid save), 503 on a held version row. A missing or unreadable DELETE token is 400. Body shape errors are zod's 422. Types: `src/lib/apiRoutes.ts` via `drivers/driverApiTypes.ts`.
 
 ## Gotchas
 - A write takes the version (compare-and-set) FIRST: a locked version is 409 even when the body names a bad account; locked wins over stale.
 - Reload the grid's cells after a driver write (the recompute moved them) and carry the returned token into the next save.
-- Headcount is never pushed by payroll: it is read when a driver write, a grid save on a per_head version, or Refresh runs.
+- Headcount is never pushed by payroll: per_head rows read it only on Refresh headcount, a planned-hire write, or their own driver save/reset. A grid save or another row's driver write keeps them as they stand.
+- A driver that can no longer compute (its account retyped out of the income statement) never blocks other writes: every recompute skips it, keeps its cells, and answers a DRIVER_SKIPPED warning naming the account.

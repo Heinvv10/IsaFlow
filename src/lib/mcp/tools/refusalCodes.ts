@@ -103,10 +103,12 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
   'DOCUMENT_LINE_ACCOUNT_REFUSED',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
-  // Budget driver refusals (budgets/drivers/driverTypes, P4): a loop, a row / month / base the driver
-  // may not name, an amount or result beyond the budget range. They name only the caller's own row
-  // keys, months and figures; refused before the write (or rolled back with it).
+  // Budget driver refusals (budgets/drivers/driverTypes + driverErrors, P4): a loop, a row / month /
+  // base the driver may not name, an amount or result beyond the budget range, a driver or planned
+  // hire this version does not hold. They name only the caller's own accounts, months and figures;
+  // refused before the write (or rolled back with it).
   'DRIVER_CYCLE',
+  'DRIVER_NOT_FOUND',
   'DRIVER_RANGE',
   'DRIVER_REF',
   // R-035 review HIGH-1, invoices and bills since FX PR0 (shared/documentCurrency):
@@ -152,6 +154,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PAYROLL_RUN_JOURNAL_POSTED',
   // W3-01 round 6: the payroll reversal guard's 5s wait ran out (payrollJournalReversalGuard).
   'PAYROLL_RUN_LOCK_TIMEOUT',
+  // A planned hire (budgets/drivers/plannedHireService, P4) this version does not hold; pre-write.
+  'PLANNED_HIRE_NOT_FOUND',
   // R-073 practice client fence: names only the id the caller passed; raised before any write.
   'PRACTICE_CLIENT_NOT_FOUND',
   // Engagement Budgets job fence (assertJobForPracticeClient): names only the job id the caller passed (and, for

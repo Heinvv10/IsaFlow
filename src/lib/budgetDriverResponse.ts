@@ -1,6 +1,6 @@
 /**
  * The HTTP answer for a budget-driver refusal (Budgets P4 spec §5): 400 with `error.details.code`
- * DRIVER_CYCLE (plus `path`), DRIVER_REF or DRIVER_RANGE; a stale token 409 BUDGET_VERSION_STALE with
+ * DRIVER_CYCLE (plus `path`), DRIVER_REF or DRIVER_RANGE, 404 DRIVER_NOT_FOUND / PLANNED_HIRE_NOT_FOUND; a stale token 409 BUDGET_VERSION_STALE with
  * `currentUpdatedAt` and `status` (as the grid save answers it); anything else a version write
  * refuses goes through `respondBudgetVersionError` (400 / 403 / 404 / 409 / 503). Anything else is
  * not answered.
@@ -15,7 +15,7 @@ import { BudgetVersionStaleError } from '@/modules/accounting/services/budgets/v
 export function respondBudgetDriverError(res: NextApiResponse, err: unknown): boolean {
   const refusal = driverRefusal(err);
   if (refusal) {
-    apiResponse.error(res, ErrorCode.BAD_REQUEST, refusal.message,
+    apiResponse.error(res, refusal.status === 404 ? ErrorCode.NOT_FOUND : ErrorCode.BAD_REQUEST, refusal.message,
       refusal.path ? { code: refusal.code, path: refusal.path } : { code: refusal.code });
     return true;
   }
