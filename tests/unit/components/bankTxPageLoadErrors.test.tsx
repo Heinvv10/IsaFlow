@@ -40,16 +40,33 @@ function script(list: (offset: string) => Promise<Response> | Response) {
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-/** Holds the page's own 500ms timers (the search debounce) so the test decides when they fire, not the box's load. */
-function holdDebounceTimers(): { fireAll: () => Promise<void> } {
-  const real = globalThis.setTimeout;
-  const held: Array<() => void> = [];
+/** Holds the page's own 500ms timers (the search debounce) so the test decides when they fire, not the box's load.
+ *  Held timers honour clearTimeout, so a missing cleanup in the page shows up as a late fire. */
+function holdDebounceTimers(): { fireAll: () => Promise<void>; pending: () => number } {
+  const realSet = globalThis.setTimeout, realClear = globalThis.clearTimeout;
+  const held = new Map<number, () => void>();
+  let nextId = 1_000_000;
   vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
-    if (ms === 500) { held.push(fn); return 0 as unknown as ReturnType<typeof setTimeout>; }
-    return real(fn, ms, ...rest);
+    if (ms !== 500) return realSet(fn, ms, ...rest);
+    held.set(++nextId, fn);
+    return nextId as unknown as ReturnType<typeof setTimeout>;
   }) as typeof setTimeout);
-  return { fireAll: () => act(async () => { held.splice(0).forEach(fn => fn()); await new Promise(r => real(r, 50)); }) };
+  vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((id?: number) => {
+    if (typeof id === 'number' && held.delete(id)) return;
+    realClear(id);
+  }) as typeof clearTimeout);
+  return {
+    pending: () => held.size,
+    fireAll: () => act(async () => {
+      const fns = [...held.values()]; held.clear();
+      fns.forEach(fn => fn());
+      await new Promise(r => realSet(r, 50));
+    }),
+  };
 }
+
+const searchBox = () => screen.getByPlaceholderText(/search/i);
+const typeSearch = (value: string) => fireEvent.change(searchBox(), { target: { value } });
 
 it('a failed load on page 3 shows the error on page 3: no skeleton, no jump back to page 1', async () => {
   const debounce = holdDebounceTimers();
@@ -72,13 +89,47 @@ it('a changed search still returns to page 1 once the debounce fires', async () 
   script(() => txPage('ROW-P1'));
   render(<BankTransactionsPage />);
   await screen.findByText('ROW-P1');
-  await debounce.fireAll(); // the mount-time timer: nothing changed, so nothing moves
+  expect(debounce.pending()).toBe(0); // an unchanged search arms no timer, so nothing can move the page
   fireEvent.click(screen.getByRole('button', { name: '3' }));
   await waitFor(() => expect(offsets()).toEqual(['0', '50']));
 
-  fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'rent' } });
+  typeSearch('rent');
   await debounce.fireAll();
   await waitFor(() => expect(txCalls().at(-1)).toMatch(/offset=0.*search=rent|search=rent.*offset=0/));
+});
+
+it('typing a search and reverting it within the debounce neither resets the page nor refetches', async () => {
+  const debounce = holdDebounceTimers();
+  script(() => txPage('ROW-P1'));
+  render(<BankTransactionsPage />);
+  await screen.findByText('ROW-P1');
+  fireEvent.click(screen.getByRole('button', { name: '3' }));
+  await waitFor(() => expect(offsets()).toEqual(['0', '50']));
+
+  typeSearch('rent');
+  expect(debounce.pending()).toBe(1);
+  typeSearch(''); // back to what is applied: the armed timer is cancelled, none is re-armed
+  expect(debounce.pending()).toBe(0);
+  await debounce.fireAll();
+  expect(offsets()).toEqual(['0', '50']);
+});
+
+it('clearing an applied search returns to page 1 and fetches without it', async () => {
+  const debounce = holdDebounceTimers();
+  script(() => txPage('ROW-P1'));
+  render(<BankTransactionsPage />);
+  await screen.findByText('ROW-P1');
+
+  typeSearch('rent');
+  await debounce.fireAll();
+  await waitFor(() => expect(txCalls().at(-1)).toContain('search=rent'));
+  fireEvent.click(screen.getByRole('button', { name: '3' }));
+  await waitFor(() => expect(offsets().at(-1)).toBe('50'));
+
+  typeSearch('');
+  await debounce.fireAll();
+  await waitFor(() => expect(offsets().at(-1)).toBe('0'));
+  expect(txCalls().at(-1)).not.toContain('search=');
 });
 
 it('a slow older response does not overwrite a newer one', async () => {
