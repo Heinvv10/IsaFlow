@@ -22,7 +22,7 @@ import { useGridClipboard } from './useGridClipboard';
 import type { LayoutRow } from './types';
 import { BudgetGridRow, type GridCellHandlers } from './BudgetGridRow';
 import { BudgetSectionRow, BudgetSubtotalRow, type GridColumns } from './BudgetSubtotalRow';
-import { useRowActions, type DimensionMember } from './useRowActions';
+import { useRowActions, type DimensionMember, type UseRowActionsArgs } from './useRowActions';
 import { useMobileSheet } from './useMobileSheet';
 
 export interface BudgetGridProps {
@@ -45,6 +45,10 @@ export interface BudgetGridProps {
    * is nowhere to go (save bar hidden) and the browser's own Tab moves on (no keyboard trap).
    */
   onExit(): boolean;
+  /** The version's financial-year label (the note dialog says every version of it shows a note). */
+  fiscalYear: number;
+  /** Saves an account's year-scoped note (PUT /api/accounting/budget-grid/note), outside the grid's save. */
+  onSaveNote: UseRowActionsArgs['onSaveNote'];
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -77,7 +81,7 @@ function groups(rows: readonly LayoutRow[]): LayoutRow[][] {
 }
 
 export function BudgetGrid(props: BudgetGridProps) {
-  const { store, view, roundingUnit, density, showPy, compareLabel, canWrite, members, onSave, onExit } = props;
+  const { store, view, roundingUnit, density, showPy, compareLabel, canWrite, members, onSave, onExit, fiscalYear, onSaveNote } = props;
   const layout = useGridLayout(store);
   const meta = useGridMeta(store);
   const palette = useChartPalette();
@@ -85,7 +89,7 @@ export function BudgetGrid(props: BudgetGridProps) {
   const gridRef = useRef<HTMLTableElement>(null);
   const keys = useGridKeyboard({ store, gridRef, roundingUnit, onSave, onExit });
   const clip = useGridClipboard(store);
-  const { onRowAction, dialogs } = useRowActions({ store, layout, roundingUnit, view, members, focusPos: keys.focusPos });
+  const { onRowAction, dialogs } = useRowActions({ store, layout, roundingUnit, view, members, focusPos: keys.focusPos, fiscalYear, onSaveNote });
   const sheet = useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction });
 
   // Shift+F10 / the context-menu key on a cell opens that row's ⋯ menu, so a keyboard user reaches
