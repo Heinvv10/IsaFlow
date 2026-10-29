@@ -87,8 +87,12 @@ export function ReforecastDialog({ versions, current, create, onCreated, onClose
   const submit = async () => {
     if (trimmed.length < 1 || trimmed.length > 120) { setError('Name the reforecast (1 to 120 characters).'); return; }
     setBusy(true);
-    const r = await create(sourceId, { name: trimmed, rolling });
-    setBusy(false);
+    let r: Awaited<ReturnType<typeof create>>;
+    try {
+      r = await create(sourceId, { name: trimmed, rolling });
+    } finally {
+      setBusy(false);
+    }
     if (!r.ok) { setError(failureText(r)); return; }
     setDone(r.data);
     onCreated(r.data.version);

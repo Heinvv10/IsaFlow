@@ -86,37 +86,47 @@ export function RollingControls({ version, grid, editable }: RollingControlsProp
   const roll = useCallback(async () => {
     const blocked = blockedBy(grid);
     if (blocked || !grid.token) { setNote({ tone: 'error', text: blocked ?? '' }); return; }
+    const token = grid.token;
     setBusy(true);
     setNote(null);
-    const r = await rollNow(version.id, grid.token);
-    let next: Note;
-    if (!r.ok) {
-      next = { tone: 'error', text: failureText(r) };
-      if (r.kind === 'stale') await grid.refresh();
-    } else {
+    try {
+      const r = await rollNow(version.id, token);
+      if (!r.ok) {
+        if (r.kind === 'stale') await grid.refresh();
+        setNote({ tone: 'error', text: failureText(r) });
+        return;
+      }
       const skipped = skippedRollText(r.data.status);
       if (r.data.updatedAt) grid.adoptToken(r.data.updatedAt);
       const failed = skipped ? null : await grid.refresh(r.data.warnings);
-      next = skipped ? { tone: 'error', text: skipped }
-        : { tone: failed ? 'error' : 'info', text: failed ?? `Rolled: ${r.data.changed} cell${r.data.changed === 1 ? '' : 's'} changed.`, unplaced: r.data.unplaced };
+      setNote(skipped ? { tone: 'error', text: skipped }
+        : { tone: failed ? 'error' : 'info', text: failed ?? `Rolled: ${r.data.changed} cell${r.data.changed === 1 ? '' : 's'} changed.`, unplaced: r.data.unplaced });
+    } finally {
+      setBusy(false);
+      setReread((n) => n + 1);
     }
-    setBusy(false);
-    setNote(next);
-    setReread((n) => n + 1);
   }, [grid, version.id]);
 
   const toggle = useCallback(async (rolling: boolean) => {
     const blocked = blockedBy(grid);
     if (blocked || !grid.token) { setNote({ tone: 'error', text: blocked ?? '' }); return; }
+    const token = grid.token;
     setBusy(true);
     setNote(null);
-    const r = await setRolling(version.id, grid.token, rolling);
-    if (r.ok) grid.adoptToken(r.data.updatedAt);
-    const failed = r.ok ? await grid.refresh() : failureText(r);
-    if (!r.ok && r.kind === 'stale') await grid.refresh();
-    setBusy(false);
-    setNote(failed ? { tone: 'error', text: failed } : null);
-    setReread((n) => n + 1);
+    try {
+      const r = await setRolling(version.id, token, rolling);
+      if (!r.ok) {
+        if (r.kind === 'stale') await grid.refresh();
+        setNote({ tone: 'error', text: failureText(r) });
+        return;
+      }
+      grid.adoptToken(r.data.updatedAt);
+      const failed = await grid.refresh();
+      if (failed) setNote({ tone: 'error', text: failed });
+    } finally {
+      setBusy(false);
+      setReread((n) => n + 1);
+    }
   }, [grid, version.id]);
 
   const status = read?.versionId === version.id ? read.status : null;

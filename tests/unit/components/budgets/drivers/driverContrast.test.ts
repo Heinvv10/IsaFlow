@@ -1,6 +1,6 @@
 /**
  * Contrast of a reforecast's closed-month cells (P4 review round 1, item 13), computed from the
- * theme tokens in styles/globals.css: the cell figure and its 9px "A" marker are
+ * theme tokens in styles/globals.css: the cell figure and its 12px (text-xs) "A" marker are
  * `--ff-text-tertiary` on `--ff-bg-tertiary` (on `--ff-cell-selected-bg` when selected). WCAG AA
  * for normal-size text is 4.5:1, in light and dark.
  */

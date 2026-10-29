@@ -215,7 +215,7 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
               <BudgetCellEditor draft={snap.editing.draft} label={`${label} ${month} budget`} align={c < months.length / 2 ? 'left' : 'right'}
                 onDraftChange={handlers.onDraftChange} onBlur={handlers.onEditorBlur} />
             ) : fig(v ?? null, cols.cents)}
-            {shut && <span aria-hidden="true" className="absolute left-0.5 top-0 text-[9px] font-semibold not-italic leading-none text-[var(--ff-text-tertiary)]">A</span>}
+            {shut && <span aria-hidden="true" className="absolute left-0.5 top-0 text-xs font-semibold not-italic leading-none text-[var(--ff-text-tertiary)]">A</span>}
             {override && drv && (
               <OverrideMark focused={snap.focusCol === c} valueOf={() => drv.driverValue(row.account.id, monthKey)}
                 onReset={canReset ? () => drv.resetOverride(row.account.id, monthKey) : null} />

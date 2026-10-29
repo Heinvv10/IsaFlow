@@ -15,7 +15,7 @@ import {
   normaliseLine, rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLineInput, type StoredDriverLine,
 } from '@/modules/accounting/services/budgets/drivers/driverLine';
 import {
-  DriverCycleError, type Cell, type CellSource, type DriverDef, type DriverRow, type HeadcountFn, type RowKey,
+  DriverCycleError, DriverRangeError, DriverRefError, type Cell, type CellSource, type DriverDef, type DriverRow, type HeadcountFn, type RowKey,
 } from '@/modules/accounting/services/budgets/drivers/driverTypes';
 import { type CellKey, parseKey, rowKeyOf } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
@@ -119,6 +119,16 @@ function rowAfter(ctx: DriverContext, pass: Pass, key: RowKey, writes: ReturnTyp
   };
 }
 
+/**
+ * A plain sentence for a preview the engine refused. The engine's own text names rows by key (`acct|cc1|cc2|bu`),
+ * which means nothing on screen; the server's 400 on Save says exactly what to change.
+ */
+export function previewRefusal(err: unknown): string {
+  if (err instanceof DriverRangeError) return 'An amount this driver computes is beyond the budget range: use a smaller amount or percentage.';
+  if (err instanceof DriverRefError) return 'This driver cannot compute with these months, line or base month: check them, or Save to see what the server says.';
+  return 'The preview could not be computed for this driver.';
+}
+
 /** The months `candidate` would compute, with the version's other drivers as they stand. */
 export function previewDriver(ctx: DriverContext, candidate: DriverLineInput, headcount: HeadcountLookup): PreviewResult {
   try {
@@ -139,7 +149,7 @@ export function previewDriver(ctx: DriverContext, candidate: DriverLineInput, he
     return { ok: true, ...after, warnings, headcountMissing: missing.any };
   } catch (err) {
     if (err instanceof DriverCycleError) return { ok: false, kind: 'cycle', path: err.path };
-    return { ok: false, kind: 'invalid', message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, kind: 'invalid', message: previewRefusal(err) };
   }
 }
 

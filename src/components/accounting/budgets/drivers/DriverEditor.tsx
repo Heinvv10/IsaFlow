@@ -93,18 +93,23 @@ export function DriverEditor(props: DriverEditorProps) {
 
   const save = async () => {
     setTried(true);
-    if (!check.ok || readOnly) return;
+    if (readOnly) return;
+    if (!check.ok) { setFailure({ message: 'Fix the fields marked above before saving.' }); return; }
     setBusy(true);
-    const f = await onSave(check.line);
-    setBusy(false);
-    setFailure(f);
+    try {
+      setFailure(await onSave(check.line));
+    } finally {
+      setBusy(false);
+    }
   };
   const remove = async () => {
     setConfirming(false);
     setBusy(true);
-    const f = await onDelete();
-    setBusy(false);
-    setFailure(f);
+    try {
+      setFailure(await onDelete());
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
