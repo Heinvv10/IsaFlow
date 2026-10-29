@@ -29,7 +29,8 @@ import { loadVersionModel } from './driverModel';
 import type { RecomputeWarning } from './driverRecomputeService';
 import { listDriverLines } from './driverRepository';
 import {
-  closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, writePlannedCells, type UnplacedActualLine,
+  closedMonthsOf, describeUnplaced, planOver, readClosedActuals, reforecastYear, unplacedSummary, writePlannedCells,
+  type UnplacedActualLine,
 } from './reforecastInputs';
 
 export interface ReforecastCreated {
@@ -123,7 +124,7 @@ export async function createReforecastFromActuals(
       const unplaced = describeUnplaced(plan, read);
       await auditBudgetWrite(companyId, actor.userId, 'update', id, fiscalYear, {
         reforecastFrom: sourceId, closedMonths: closed.join(',') || 'none', cells: String(cells),
-        unplaced: String(unplaced.length), unplacedTotal: String(fromCents(plan.unplaced.reduce((s, u) => s + u.amount, 0))),
+        unplaced: unplacedSummary(unplaced), unplacedTotal: String(fromCents(plan.unplaced.reduce((s, u) => s + u.amount, 0))),
         rolling: String(input.rolling), headcountAsOf: headcountAsOf ?? 'none',
       });
       log.info('Created budget reforecast from actuals', {
