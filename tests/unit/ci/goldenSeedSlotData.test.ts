@@ -111,6 +111,26 @@ describe('seedSlot', () => {
   });
 });
 
+describe('seedSlot refuses a list response of a shape it does not know', () => {
+  const paths = ['suppliers-list', 'supplier-invoices', 'journal-entries', 'chart-of-accounts', 'bank-accounts'];
+
+  it.each(paths)('stops on an unreadable %s response instead of reading it as empty and creating again', async (path) => {
+    const app = fakeApp();
+    const api: SeedApi = {
+      get: async (p: string) => (p.startsWith(`/api/accounting/${path}`) ? { renamed: [] } : app.api.get(p)),
+      post: app.api.post,
+    };
+    await expect(seedSlot(api, () => 'import-id')).rejects.toThrow(/unexpected list response/);
+    if (path === 'suppliers-list') expect(app.suppliers).toHaveLength(0);
+  });
+
+  it('still reads an empty list in a known shape as empty', async () => {
+    const app = fakeApp();
+    const report = await seedSlot(app.api, () => 'import-id');
+    expect(report.suppliers).toBe(SEED.suppliers);
+  });
+});
+
 describe('seedMonths', () => {
   it('is the last 10 complete months, floored at the first open period', () => {
     expect(seedMonths(new Date('2027-03-05T00:00:00Z'))).toEqual(['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02']);

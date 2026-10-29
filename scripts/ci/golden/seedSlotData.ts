@@ -14,8 +14,8 @@
  *   1 migration session (the migration landing page's Sage state)
  */
 export interface SeedApi {
-  get<T = any>(path: string): Promise<T>;
-  post<T = any>(path: string, body?: unknown): Promise<T>;
+  get<T = unknown>(path: string): Promise<T>;
+  post<T = unknown>(path: string, body?: unknown): Promise<T>;
 }
 
 export const SEED = { suppliers: 8, invoices: 80, journals: 10, bankRows: 200 } as const;
@@ -46,11 +46,19 @@ export function seedMonths(now: Date): string[] {
 /** Item i (1-based) on day 3..20 of one of `months`, round robin. */
 const seedDate = (months: string[], i: number): string => `${months[(i - 1) % months.length]}-${pad(3 + ((i * 7) % 18))}`;
 const addDays = (iso: string, days: number): string => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
-const rowsOf = <T>(body: any, ...keys: string[]): T[] => {
+/**
+ * The rows of a list response: a bare array, or the first of `keys` that holds one. A shape it does not know is an
+ * error, not an empty list: read as empty, a list that merely changed shape would make the seeder re-create what exists.
+ */
+function rowsOf<T>(body: unknown, ...keys: string[]): T[] {
   if (Array.isArray(body)) return body as T[];
-  for (const k of keys) if (Array.isArray(body?.[k])) return body[k] as T[];
-  return [];
-};
+  const object = (body ?? {}) as Record<string, unknown>;
+  for (const k of keys) {
+    const rows = object[k];
+    if (Array.isArray(rows)) return rows as T[];
+  }
+  throw new Error(`unexpected list response (wanted an array${keys.length ? ` or one of ${keys.join(', ')}` : ''}): ${(JSON.stringify(body) ?? 'undefined').slice(0, 200)}`);
+}
 
 async function ensureSuppliers(api: SeedApi): Promise<string[]> {
   const found = rowsOf<{ id: string; name: string }>(await api.get('/api/accounting/suppliers-list?q=GSEED%20Supplier'), 'suppliers');

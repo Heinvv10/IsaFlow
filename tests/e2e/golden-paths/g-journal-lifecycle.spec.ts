@@ -8,6 +8,10 @@
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
 
+interface JournalRow { id: string; status: string; entryDate?: string; description?: string }
+interface JournalLine { glAccountId: string }
+interface AccountRow { id: string; isSystemAccount?: boolean }
+
 /**
  * Two GL accounts that already accept postings in this company: the first two lines of its latest posted journal.
  * A company with no posted journal yet (a golden slot before its first run: slots copy setup data, never
@@ -15,20 +19,20 @@ import { Api, gpRef, today } from './_api';
  * the fallback is only ever taken once per company.
  */
 async function postableAccounts(api: Api): Promise<[string, string]> {
-  const posted = await api.get<{ entries: any[] }>('/api/accounting/journal-entries?status=posted&limit=1');
+  const posted = await api.get<{ entries: JournalRow[] }>('/api/accounting/journal-entries?status=posted&limit=1');
   if (posted.entries.length > 0) {
-    const sample = await api.get<{ lines: any[] }>(
-      `/api/accounting/journal-entries-detail?id=${posted.entries[0].id}`,
+    const sample = await api.get<{ lines: JournalLine[] }>(
+      `/api/accounting/journal-entries-detail?id=${posted.entries[0]!.id}`,
     );
     expect(sample.lines.length).toBeGreaterThanOrEqual(2);
-    return [sample.lines[0].glAccountId, sample.lines[1].glAccountId];
+    return [sample.lines[0]!.glAccountId, sample.lines[1]!.glAccountId];
   }
-  const expense = await api.get<any[]>('/api/accounting/chart-of-accounts?subtype=default_expense');
-  const banks = await api.get<any[]>('/api/accounting/bank-accounts');
+  const expense = await api.get<AccountRow[]>('/api/accounting/chart-of-accounts?subtype=default_expense');
+  const banks = await api.get<AccountRow[]>('/api/accounting/bank-accounts');
   const expenseId = expense.find((a) => a.isSystemAccount === true)?.id;
   expect(expenseId, 'a company with no posted journal needs a default expense account to borrow').toBeTruthy();
   expect(banks.length, 'a company with no posted journal needs a bank account to borrow').toBeGreaterThan(0);
-  return [expenseId, banks[0].id];
+  return [expenseId!, banks[0]!.id];
 }
 
 test('journal entry: draft → post → reverse nets to zero', async ({ baseURL }) => {
