@@ -103,6 +103,9 @@ jobs:
     # 187 tests take ~29 min of test time alone (run 40962446042: 172 passed,
     # 0 failed, cut at 30m with 15 to go), so 30 cancelled every queue run and
     # the queue ejected each PR after three "cancelled" attempts (#938, #940).
+    # 60 is ~2x that. Re-measure when specs are added: sum the per-test times
+    # in a green run's log; keep this at >= 2x. Cost: a hung run holds the
+    # golden-paths-dev-demo group up to 60 min.
     timeout-minutes: 60
     # The suite writes to the SHARED isaflow_dev Demo company; the workflow's
     # ci-${{ github.ref }} group only serialises same-ref runs, so two branches

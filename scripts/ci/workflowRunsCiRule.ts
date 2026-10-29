@@ -194,7 +194,7 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     }
     const gpt = isObj(gp) ? gp['timeout-minutes'] : undefined;
     if (!Number.isInteger(gpt) || (gpt as number) < MIN_GOLDEN_TIMEOUT_MINUTES) {
-      errors.push(`jobs.golden-paths.timeout-minutes must be an integer >= ${MIN_GOLDEN_TIMEOUT_MINUTES}; the suite needs ~30 min, and a job that cannot finish ends cancelled, never red`);
+      errors.push(`jobs.golden-paths.timeout-minutes must be an integer >= ${MIN_GOLDEN_TIMEOUT_MINUTES}; the suite needs ~30 min of test time and the floor leaves 2x headroom; a job that cannot finish ends cancelled, never red`);
     }
   }
   const job = isObj(jobs) ? jobs[QUALITY_JOB] : undefined;
