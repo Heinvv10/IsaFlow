@@ -194,6 +194,7 @@ it('after refused text, a changed cost centre hides the report instead of re-hea
   fireEvent.change(screen.getByRole('combobox', { name: 'Cost Centre' }), { target: { value: 'cc1' } });
   await settle();
   expect(heading()).toBeNull();
+  expect(screen.getByText('Fix the date to run the report.')).toBeTruthy();
 });
 
 it('refused text typed while the load is in flight does not drop the response: the report lands under its own range', async () => {
@@ -235,4 +236,22 @@ it('an inverted range shows no report heading at all', async () => {
   await screen.findByText(/From must be on or before To/);
   await settle();
   expect(heading()).toBeNull();
+});
+
+it('Present is a link only while a report for valid dates is shown; refused text turns it inert', async () => {
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(screen.getByRole('link', { name: /Present/ }).getAttribute('href')).toContain('from=2026-04-01'));
+  typeDate(screen.getByRole('textbox', { name: 'To' }), 'zz');
+  await waitFor(() => expect(screen.queryByRole('link', { name: /Present/ })).toBeNull());
+  expect(screen.getByText('Present').closest('[aria-disabled="true"]')).not.toBeNull();
+  typeDate(screen.getByRole('textbox', { name: 'To' }), '30 Apr 2026');
+  await waitFor(() => expect(screen.getByRole('link', { name: /Present/ })).toBeTruthy());
+});
+
+it('the notice shows only while no report is shown because a date is refused', async () => {
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(heading()).not.toBeNull());
+  expect(screen.queryByText('Fix the date to run the report.')).toBeNull();
+  typeDate(screen.getByRole('textbox', { name: 'From' }), '1 Sep 2026');
+  expect(await screen.findByText('Fix the date to run the report.')).toBeTruthy();
 });

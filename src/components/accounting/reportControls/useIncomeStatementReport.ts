@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
+import { localISODate } from '@/lib/dateUtils';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface ShownReport { key: string; report: IncomeStatementReport; start: string; end: string; cc: string; bu: string; cmp: boolean }
@@ -7,6 +8,13 @@ interface Inputs {
   ready: boolean; periodStart: string; periodEnd: string; periodResolved: boolean; datesOk: boolean;
   costCentreId: string; businessUnitId: string; showComparative: boolean;
 }
+
+function localDate(iso: string): Date {
+  const [y = 0, m = 1, d = 1] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+const addDays = (iso: string, n: number): string => { const d = localDate(iso); d.setDate(d.getDate() + n); return localISODate(d); };
+const daysBetween = (a: string, b: string): number => Math.round((localDate(b).getTime() - localDate(a).getTime()) / 86_400_000);
 
 /**
  * Loads the P&L. The report is stored with the inputs it was run for and shown only while they equal the live
@@ -45,13 +53,11 @@ export function useIncomeStatementReport(i: Inputs) {
       if (costCentreId) params.set('cost_centre_id', costCentreId);
       if (businessUnitId) params.set('business_unit_id', businessUnitId);
       if (showComparative) {
-        const start = new Date(periodStart);
-        const end = new Date(periodEnd);
-        const durationMs = end.getTime() - start.getTime();
-        const priorEnd = new Date(start.getTime() - 1);
-        const priorStart = new Date(priorEnd.getTime() - durationMs);
-        params.set('compare_start', priorStart.toISOString().split('T')[0] ?? '');
-        params.set('compare_end', priorEnd.toISOString().split('T')[0] ?? '');
+        const days = daysBetween(periodStart, periodEnd);
+        const priorEnd = addDays(periodStart, -1);
+        const priorStart = addDays(priorEnd, -days);
+        params.set('compare_start', priorStart);
+        params.set('compare_end', priorEnd);
       }
       const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
       await assertOk(res, 'Could not load income statement - try again');
