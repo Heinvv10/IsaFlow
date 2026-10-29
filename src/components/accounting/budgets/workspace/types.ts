@@ -132,7 +132,8 @@ export type GridStatus = 'idle' | 'loading' | 'error' | 'empty' | 'ready';
 export type SaveState =
   | { status: 'idle' }
   | { status: 'saving' }
-  | { status: 'saved'; saved: number; deleted: number }
+  /** `drivers`: what the save's driver recompute did (P4), when it did anything. */
+  | { status: 'saved'; saved: number; deleted: number; drivers?: { recomputed: number; reset: number; warnings: ReadonlyArray<{ code: string; rowKey: string; message: string }> } }
   /** A chained save refused part-way also says which part (`failedChunk`, 0-based) of how many. */
   | { status: 'error'; message: string; retryAfter: number | null; failedChunk?: number; chunks?: number };
 

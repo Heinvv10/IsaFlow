@@ -6,7 +6,8 @@
  * - the grid must be clean (a write recomputes cells and the grid reloads: unsaved edits would be
  *   lost), the version token goes as `expectedUpdatedAt`;
  * - on success the answer's token is adopted at once (a second write never sends a stale one),
- *   the grid reloads (the recompute moved cells), and the recompute's warnings land on the rows;
+ *   the grid re-reads the version in place (the recompute moved cells), and the recompute's
+ *   warnings land on the rows;
  * - a 409 STALE reloads the version and says so; any other refusal is the message to show (a
  *   400 DRIVER_CYCLE carries the loop's path).
  */
@@ -82,14 +83,13 @@ export function useDriverActions(grid: BudgetGridApi, editable: boolean): Driver
     const r = await write(g.version.id, g.token);
     if (!r.ok) {
       if (r.kind === 'stale') {
-        await g.reload();
+        await g.refresh();
         return { message: `${r.message} The latest version is now on screen; check it and try again.` };
       }
       return { message: failureText(r), ...(r.kind === 'invalid' && r.path ? { path: r.path } : {}) };
     }
     g.adoptToken(r.data.updatedAt);
-    await g.reload();
-    g.store.setDriverWarnings(r.data.warnings);
+    await g.refresh(r.data.warnings);
     const text = done(r.data);
     g.store.announce(text);
     setNotice(r.data.warnings.length > 0

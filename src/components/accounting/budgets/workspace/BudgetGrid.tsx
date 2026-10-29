@@ -93,7 +93,7 @@ export function BudgetGrid(props: BudgetGridProps) {
   const keys = useGridKeyboard({ store, gridRef, roundingUnit, onSave, onExit });
   const clip = useGridClipboard(store);
   const { onRowAction, dialogs } = useRowActions({ store, layout, roundingUnit, view, members, focusPos: keys.focusPos, fiscalYear, onSaveNote, driver });
-  const sheet = useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction });
+  const sheet = useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction, drivers: driver !== null });
 
   // Shift+F10 / the context-menu key on a cell opens that row's ⋯ menu, so a keyboard user reaches
   // row actions from the cell they are on without tabbing through every row's button. Focus moves to

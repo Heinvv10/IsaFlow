@@ -3,7 +3,7 @@
  * the auto-roll toggle (PUT), and when the roll is behind the closed periods (a missed after-close
  * job) the badge "Rolled through <Mon YYYY> · N months closed since" with Roll now (POST
  * `{ action: 'roll' }`). A roll that met a locked version shows its `last_error`. Both writes send
- * the version token and need a clean grid; the answer's token is adopted and the grid reloads.
+ * the version token and need a clean grid; the answer's token is adopted and the grid re-reads the version.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Loader2, RotateCw } from 'lucide-react';
@@ -15,7 +15,7 @@ import { fetchRollingStatus, rollNow, setRolling, type RollingStatus } from './d
 
 export interface RollingControlsProps {
   version: BudgetVersion;
-  grid: Pick<BudgetGridApi, 'token' | 'dirtyCount' | 'adoptToken' | 'reload'>;
+  grid: Pick<BudgetGridApi, 'token' | 'dirtyCount' | 'adoptToken' | 'refresh'>;
   /** A writer on an unlocked version. */
   editable: boolean;
 }
@@ -31,19 +31,22 @@ export function staleBadgeText(s: RollingStatus): string | null {
 }
 
 export function RollingControls({ version, grid, editable }: RollingControlsProps) {
-  const [status, setStatus] = useState<RollingStatus | null>(null);
+  // Kept with the version it describes: a token change re-reads it without blanking the controls.
+  const [read, setRead] = useState<{ versionId: string; status: RollingStatus } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { token } = grid;
+  const reforecast = version.kind === 'reforecast';
 
   useEffect(() => {
+    if (!reforecast) return undefined;
     let gone = false;
     void fetchRollingStatus(version.id).then((r) => {
       if (gone) return;
-      if (r.ok) setStatus(r.data); else setError(failureText(r));
+      if (r.ok) { setRead({ versionId: version.id, status: r.data }); setError(null); } else setError(failureText(r));
     });
     return () => { gone = true; };
-  }, [version.id, token]);
+  }, [version.id, reforecast, token]);
 
   const run = useCallback(async (write: (token: string) => Promise<ApiResult<{ updatedAt: string | null }>>) => {
     if (!grid.token) return;
@@ -54,14 +57,15 @@ export function RollingControls({ version, grid, editable }: RollingControlsProp
     setBusy(false);
     if (!r.ok) {
       setError(failureText(r));
-      if (r.kind === 'stale') await grid.reload();
+      if (r.kind === 'stale') await grid.refresh();
       return;
     }
     if (r.data.updatedAt) grid.adoptToken(r.data.updatedAt);
-    await grid.reload();
+    await grid.refresh();
   }, [grid]);
 
-  if (version.kind !== 'reforecast' || !status) return error ? <span role="alert" className="text-xs text-error-700 dark:text-error-400">{error}</span> : null;
+  const status = read?.versionId === version.id ? read.status : null;
+  if (!reforecast || !status) return error && reforecast ? <span role="alert" className="text-xs text-error-700 dark:text-error-400">{error}</span> : null;
   const badge = staleBadgeText(status);
   const can = editable && !busy && grid.dirtyCount === 0;
   return (
