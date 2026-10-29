@@ -54,9 +54,12 @@ describe('the page URL', () => {
     ]) expect(controlsFromQuery(controlsToQuery(c))).toEqual(c);
   });
 
-  it("a parameter of another period is not kept (it would resurface when the period changes)", () => {
+  it('a chosen financial year is kept under any period (it applies again on switching back; review r2 N3); other off-period parameters are not', () => {
     expect(controlsFromQuery({ period: 'month', fiscal_year: '2026', quarter: '3', from: '2026-01', to: '2026-02' }))
-      .toEqual({ ...DEFAULT_CONTROLS, period: 'month' });
+      .toEqual({ ...DEFAULT_CONTROLS, period: 'month', fiscalYear: 2026 });
+    expect(controlsToQuery({ ...DEFAULT_CONTROLS, period: 'month', fiscalYear: 2026 })).toEqual({ period: 'month', fiscal_year: '2026' });
+    // The REQUEST still carries only what the period takes.
+    expect(Object.fromEntries(trackingSearch({ ...DEFAULT_CONTROLS, period: 'month', fiscalYear: 2026 }, { bullets: false }))).toEqual({ period: 'month' });
   });
 
   it('a custom window without both months falls back to the default period', () => {

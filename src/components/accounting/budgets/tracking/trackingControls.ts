@@ -108,9 +108,14 @@ export function trackingSearch(c: TrackingControls, opts: { bullets: boolean }):
   return q;
 }
 
-/** The page URL's query: the report's own parameters, and the bullets' dimension when not the default. */
+/**
+ * The page URL's query: the report's own parameters, the chosen financial year under any period (it
+ * applies again when the user switches back to one that takes it; the request never sends it to a
+ * period that does not), and the bullets' dimension when not the default.
+ */
 export function controlsToQuery(c: TrackingControls): Record<string, string> {
   const q = Object.fromEntries(trackingSearch(c, { bullets: false }));
+  if (c.fiscalYear !== null) q.fiscal_year = String(c.fiscalYear);
   if (c.groupBy !== DEFAULT_CONTROLS.groupBy) q.group_by = c.groupBy;
   return q;
 }
@@ -118,14 +123,14 @@ export function controlsToQuery(c: TrackingControls): Record<string, string> {
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : '');
 
-/** Controls from the page URL; anything malformed or not this period's is left at its default. */
+/** Controls from the page URL; anything malformed, or (but for the financial year) not this period's, is left at its default. */
 export function controlsFromQuery(query: Record<string, string | string[] | undefined>): TrackingControls {
   const c: TrackingControls = { ...DEFAULT_CONTROLS };
   const period = one(query.period) as TrackingPeriod;
   if ((Object.keys(PERIOD_LABEL) as TrackingPeriod[]).includes(period)) c.period = period;
   const month = one(query.month), from = one(query.from), to = one(query.to), fy = one(query.fiscal_year), q = one(query.quarter);
   if (c.period === 'month' && MONTH_RE.test(month)) c.month = month;
-  if (usesYear(c.period) && /^\d{4}$/.test(fy)) c.fiscalYear = Number(fy);
+  if (/^\d{4}$/.test(fy)) c.fiscalYear = Number(fy);
   if (c.period === 'quarter' && /^[1-5]$/.test(q)) c.quarter = Number(q);
   if (c.period === 'custom') {
     if (!MONTH_RE.test(from) || !MONTH_RE.test(to)) c.period = DEFAULT_CONTROLS.period;

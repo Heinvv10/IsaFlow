@@ -116,9 +116,6 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
               onChange={(e) => { if (e.target.value) update({ to: e.target.value }); }} className={INPUT}
               aria-invalid={p.problem !== null} aria-describedby={p.problem ? 'bva-range-error' : undefined} />
           </div>
-          {p.problem && (
-            <p id="bva-range-error" data-testid="bva-range-error" role="alert" className="self-center text-xs text-red-600 dark:text-red-400">{p.problem}</p>
-          )}
         </>
       )}
       <div>
@@ -139,6 +136,10 @@ export function BudgetTrackingControls(p: BudgetTrackingControlsProps) {
       <DimensionSelect label="Cost centre 2" testId="bva-cc2" value={c.cc2Id}
         options={p.centres.filter((o) => o.ccType === 'cc2')} onChange={(id) => update({ cc2Id: id })} />
       <DimensionSelect label="Business unit" testId="bva-bu" value={c.buId} options={p.units} onChange={(id) => update({ buId: id })} />
+      {/* Its own row under the controls, so the bar does not wrap around it (browser review r2 L6). */}
+      {p.problem && (
+        <p id="bva-range-error" data-testid="bva-range-error" role="alert" className="basis-full text-xs text-red-600 dark:text-red-400">{p.problem}</p>
+      )}
     </div>
   );
 }
