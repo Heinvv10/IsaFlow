@@ -13,8 +13,8 @@
  *   - Versions per year by P1's own scope (`primaryVersionScope`), so a registry
  *     year that starts mid-month is read the way the budgets page writes it (a
  *     shared month counts once, in the earlier year), not refused with a 409.
- *     Every registry year the range touches BY DATE is judged for the absent
- *     rule, a year left no month by that split included.
+ *     The year holding the range's end is judged for the absent rule even when
+ *     that split left it no month.
  *   - `splitsMonth`: the range cuts a budget month (a start that is not the 1st,
  *     an end that is not a month end, or a registry year starting or ending
  *     mid-month inside it). With `wholeMonthsOnly` the whole window's budget is
@@ -101,11 +101,9 @@ export async function buildRangeTracking(
   const dateYears = await yearsByDate(companyId, startDate, endDate);
   const primary = await mapRegistryMiss(() => primaryVersionScope(companyId, startDate, endDate));
   const scope = opts.versionId ? await namedVersionScopeOf(companyId, opts.versionId, primary) : primary;
-  // Each scoped year with its months; a year the range reaches by date but P1 gave no month is judged too.
-  const years: WindowYear[] = [
-    ...scope.map((s) => ({ fiscalYear: s.fiscalYear, months: budgetMonthKeysInWindow(s.first, s.last) })),
-    ...dateYears.filter((y) => !scope.some((s) => s.fiscalYear === y.fiscalYear)).map((y) => ({ fiscalYear: y.fiscalYear, months: [] })),
-  ].sort((a, b) => a.fiscalYear - b.fiscalYear);
+  // Each scoped year with its months. The year holding the end is FY*: when P1 gave it no month (it
+  // starts mid-month inside the range), `budgetAbsentYears` judges it over the range all the same.
+  const years: WindowYear[] = scope.map((s) => ({ fiscalYear: s.fiscalYear, months: budgetMonthKeysInWindow(s.first, s.last) }));
   const splitsMonth = splitsBudgetMonth(startDate, endDate, dateYears);
   const last = dateYears[dateYears.length - 1]!;
   const rangeYear = { fiscalYear: last.fiscalYear, startDate, endDate };
