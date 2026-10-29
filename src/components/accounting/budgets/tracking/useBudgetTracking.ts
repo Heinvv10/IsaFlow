@@ -156,19 +156,18 @@ export function useBudgetTracking() {
   /** A custom window opens on the months on screen, so switching to it changes nothing until edited. */
   const setPeriod = useCallback((period: TrackingPeriod) => {
     setControls((c) => {
-      if (period === 'quarter') return withPatch(c, { period, quarter: quarterHolding(yearRecord(c.fiscalYear), today) });
+      if (period === 'quarter') {
+        // The chosen year, or (none chosen) the year holding today.
+        const year = c.fiscalYear === null
+          ? years.find((y) => y.startDate.slice(0, 7) <= today && today <= y.endDate.slice(0, 7))
+          : years.find((y) => y.fiscalYear === c.fiscalYear);
+        return withPatch(c, { period, quarter: quarterHolding(year, today) });
+      }
       if (period !== 'custom' || (c.from && c.to)) return withPatch(c, { period });
       const months = report?.window.months ?? [];
       return withPatch(c, { period, from: months[0] ?? today, to: months[months.length - 1] ?? today });
     });
   }, [report, today, years]);
-
-  /** The registry year a label names; null = the year holding today. */
-  function yearRecord(label: number | null): ReportYearOption | undefined {
-    return label === null
-      ? years.find((y) => y.startDate.slice(0, 7) <= today && today <= y.endDate.slice(0, 7))
-      : years.find((y) => y.fiscalYear === label);
-  }
 
   /** Another financial year: a Quarter view opens on that year's quarter holding today (Q1 if none). */
   const setFiscalYear = useCallback((fiscalYear: number) => {
