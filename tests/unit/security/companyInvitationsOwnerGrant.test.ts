@@ -131,5 +131,7 @@ describe('company-invitations — the raw token never reaches the inviter', () =
     expect(body).toContain('inv-1');
     expect(body).not.toContain(sentToken);
     expect(body).not.toContain('"token"');
+    // The email_log row is written as app_user for the request's company: a NULL failed RLS on every send.
+    expect(sendInviteEmail).toHaveBeenLastCalledWith(expect.objectContaining({ companyId: COMPANY_ID }));
   });
 });
