@@ -11,6 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/api
 import { Users, Loader2, AlertCircle, CheckCircle2, ChevronRight } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { DateField } from '@/components/ui/DateField';
 
 interface CostCentre {
   id: string;
@@ -57,6 +58,7 @@ export default function BulkUpdatePage() {
   const [updateCostCentreId, setUpdateCostCentreId] = useState<string>('__unchanged__');
   const [updateEmploymentType, setUpdateEmploymentType] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState(localISODate());
+  const [fromRefused, setFromRefused] = useState(false); // refused text arrives as null: Apply waits rather than drop the date
   const [changeReason, setChangeReason] = useState('');
 
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -225,11 +227,8 @@ export default function BulkUpdatePage() {
                 </select>
               </label>
               <div className="grid grid-cols-2 gap-3 pt-2">
-                <label className="block">
-                  <span className="text-[var(--ff-text-secondary)]">Effective from</span>
-                  <input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)}
-                    className="mt-1 w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-                </label>
+                <DateField label="Effective from" value={effectiveFrom || null}
+                  onChange={(iso, v) => { setFromRefused(!v.valid); if (v.valid) setEffectiveFrom(iso ?? ''); }} />
                 <label className="block">
                   <span className="text-[var(--ff-text-secondary)]">Reason (optional)</span>
                   <input type="text" value={changeReason} onChange={e => setChangeReason(e.target.value)}
@@ -248,7 +247,7 @@ export default function BulkUpdatePage() {
             Preview
           </button>
           <button onClick={runApply}
-            disabled={applying || !preview || preview.matchCount === 0}
+            disabled={applying || fromRefused || !preview || preview.matchCount === 0}
             className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
             {applying ? <Loader2 className="h-4 w-4 animate-spin inline mr-1" /> : <ChevronRight className="h-4 w-4 inline mr-1" />}
             Apply to {preview?.matchCount ?? 0} employees
