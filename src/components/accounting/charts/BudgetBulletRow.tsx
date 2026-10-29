@@ -5,8 +5,8 @@ import type { ChartPalette } from './chartTypes';
 import { buildBudgetBulletOption } from './bulletOption';
 
 export function BudgetBulletRow({
-  lines, limit = 10, height,
-}: { lines: BudgetVsActualLine[]; limit?: number; height?: number }) {
+  lines, limit = 10, height, summary,
+}: { lines: BudgetVsActualLine[]; limit?: number; height?: number; summary?: string }) {
   // Only budgeted lines are charted (buildBudgetBulletOption), so size and gate on those.
   const budgeted = lines.filter((l) => l.budgeted).length;
   const build = useCallback(
@@ -19,6 +19,7 @@ export function BudgetBulletRow({
       unit="Rand, selected period. Bar = actual, outline = budget."
       height={height ?? Math.max(160, Math.min(budgeted, limit) * 34 + 40)}
       unavailable="No account carries a budget for this period."
+      summary={summary}
     >
       {build}
     </ChartFrame>
