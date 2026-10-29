@@ -124,13 +124,20 @@ describe('a loop stored through a section (breaker round 3)', () => {
     expect(await fx.state(v)).toEqual(before);
   });
 
-  it('R3-C: clearing an override on a looped (frozen) row is a plain delete: reset 0', async () => {
+  it('R3-C: on a looped (frozen) row, an override clear and a driver-cell clear are both plain deletes: reset 0', async () => {
     const { v, x } = await storedLoop();
     const typed = await fx.call.save(w.u, v, [cell(x, w.months[0]!, 999)]);
     expect(typed.status, dump(typed)).toBe(200);
-    const r = await fx.call.save(w.u, v, [cell(x, w.months[0]!, null)]);
-    expect(r.status, dump(r)).toBe(200);
-    expect(dataOf(r)).toMatchObject({ deleted: 1, reset: 0 });
-    expect((await fx.row(v, x)).get(w.months[0]!)).toBeUndefined();
+    const row = await fx.row(v, x);
+    expect([row.get(w.months[0]!)!.source, row.get(w.months[1]!)!.source]).toEqual(['override', 'driver']);
+    const override = await fx.call.save(w.u, v, [cell(x, w.months[0]!, null)]);
+    expect(override.status, dump(override)).toBe(200);
+    expect(dataOf(override)).toMatchObject({ deleted: 1, reset: 0 });
+    // A 'driver' cell of a looped row is not "computed by the driver" (it computes nothing): no 400.
+    const computed = await fx.call.save(w.u, v, [cell(x, w.months[1]!, null)]);
+    expect(computed.status, dump(computed)).toBe(200);
+    expect(dataOf(computed)).toMatchObject({ deleted: 1, reset: 0 });
+    const after = await fx.row(v, x);
+    expect([after.get(w.months[0]!), after.get(w.months[1]!)]).toEqual([undefined, undefined]);
   });
 });
