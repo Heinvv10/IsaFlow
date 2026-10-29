@@ -13,7 +13,7 @@ Budget drivers (Budgets P4, spec `docs/plans/budgets/P4-drivers-forecast-spec.md
 - Money is integer cents; months are `'YYYY-MM'`; pass the version's month list (12, or 14 in a transition year from `gl/fiscalYearRegistry`). Never assume 12.
 - `RowKey` = `rowKeyFor({glAccountId, cc1Id, cc2Id, buId})` = grid `rowKeyOf` shape `acct|cc1|cc2|bu`. A row sets at most one dimension.
 - `rows` must list every row that cells or drivers name (unknown → `DriverRefError`). One driver per row.
-- `frozenRows` (optional): rows read as they stand this pass, never computed or re-sourced. The services freeze per_head rows except on Refresh headcount, a planned-hire write or that row's own driver write (headcount refreshes on demand).
+- `frozenRows` (optional): rows read as they stand this pass, never computed or re-sourced. The services freeze per_head rows except on Refresh headcount, a planned-hire write or that row's own driver write (headcount refreshes on demand). `planReforecast` freezes nothing: a reforecast create and a roll count as a headcount refresh. A frozen key that is not a row throws `DriverRefError`.
 - `drivers` must be EVERY driver line of the version, never the dependents only: a row missing from it has its `driver` cells re-sourced `manual`.
 - Actuals passed to `planReforecast` are cents in budget sign, from P3's `readTrackingActuals` with groupBy null / cc1 / cc2 / bu.
 - Errors: `DriverCycleError(path)` (400 `DRIVER_CYCLE`, path first == last), `DriverRefError` (bad row / range / base / percent), `DriverRangeError` (beyond NUMERIC(15,2), bad headcount). Headcount input that is malformed (date not `YYYY-MM-DD`, end before start, allocation % outside 0..100) throws `RangeError`.
