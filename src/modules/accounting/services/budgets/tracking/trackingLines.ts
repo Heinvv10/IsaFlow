@@ -116,6 +116,7 @@ export function buildTrackingLines(input: {
     const proj = projectCents(acc.actual, anyIn(acc.budget, input.plan.fyMonths) ? acc.budget : null, input.plan);
     if (actual === 0 && budget === null && proj.fyBudget === null && proj.projected === 0 && !anyIn(acc.coarser, ms)) continue;
 
+    const aboveFilter = (partial || !anyIn(acc.budget, ms)) && anyIn(acc.coarser, ms);
     const monthly: TrackingMonth[] = ms.map((month) => {
       const a = acc.actual.get(month) ?? 0;
       const bm = acc.budget.has(month) ? acc.budget.get(month)! : null;
@@ -142,8 +143,9 @@ export function buildTrackingLines(input: {
       projVariance: proj.projVariance === null ? null : fromCents(proj.projVariance),
       projFavourable: proj.projVariance === null ? null : isFavourable(polarity, proj.projVariance),
       unallocatedBudget: unallocated === null ? null : fromCents(unallocated),
-      budgetAboveFilter: (partial || !anyIn(acc.budget, ms)) && anyIn(acc.coarser, ms),
+      budgetAboveFilter: aboveFilter,
       partialBudget: partial,
+      budgetVerdict: windowBudgetAbsent ? 'absent' : partial ? 'partial' : budget !== null ? 'budgeted' : aboveFilter ? 'above-filter' : 'unbudgeted',
       monthly,
     });
   }

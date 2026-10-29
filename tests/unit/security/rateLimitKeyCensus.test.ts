@@ -35,7 +35,7 @@ const PINNED: Record<string, string> = {
   "pages/api/accounting/annotations/index.ts | annotationRateLimitKey('create', user.id)": 'per-action, per-user name; default options',
   "pages/api/accounting/annotations/[id]/resolve.ts | annotationRateLimitKey('resolve', user.id)": 'per-action, per-user name; default options',
   'src/lib/rateLimitQuota.ts | key': 'refunds a key this request charged, taken from the request context',
-  "pages/api/accounting/reports-budget-tracking.ts | 'reports-budget-tracking'": 'literal report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit used by this route only',
+  "pages/api/accounting/reports-budget-tracking.ts | 'reports-budget-tracking'": 'literal report name; options are INTERACTIVE_REPORT_LIMIT, a named constant in @/lib/rateLimit for interactive report pages',
   'scripts/generate-closeout-report.mjs | ?': 'prose in a description string, not a call',
 };
 
@@ -100,6 +100,17 @@ describe('rate-limit key census (R-175)', () => {
 
   it('no file reaches the limiter under another name', () => {
     expect(found.aliased).toEqual([]);
+  });
+
+  it('reads chargeReportRateLimit as the report wrapper: its name and literal options, defaults 25 per 900 s', () => {
+    // The two routes spread INTERACTIVE_REPORT_LIMIT (pinned above); this proves the resolver branch itself.
+    const synthetic = census({
+      'k.ts': "await chargeReportRateLimit(companyId, 'reports-x', { max: 120, windowSecs: 900 });\nawait chargeReportRateLimit(companyId, 'reports-y');",
+    });
+    expect(synthetic.unreadable).toEqual([]);
+    expect(synthetic.charges.map((c) => [c.pattern, c.options])).toEqual([
+      ['report:reports-x:co:*', limit(120, 900)], ['report:reports-y:co:*', limit(25, 900)],
+    ]);
   });
 
   it('the detector goes red on what it was written for', () => {

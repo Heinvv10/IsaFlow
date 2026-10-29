@@ -3,11 +3,12 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { vi } from 'vitest';
 import {
   ComparatorNotices, comparatorNotices, BUDGET_NONE, BUDGET_FAILED, TREND_FAILED,
-  COMPANY_WIDE_UNAVAILABLE, type BudgetInfo,
+  COMPANY_WIDE_UNAVAILABLE, BUDGET_WHOLE_MONTHS, type BudgetInfo,
 } from '@/components/accounting/reportControls/ComparatorNotices';
 
 const INFO = (over: Partial<BudgetInfo> = {}): BudgetInfo => ({
-  budgetAbsentYears: [], unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, retryAfterSecs: null, ...over,
+  budgetAbsentYears: [], windowYears: [], unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, splitsMonth: false,
+  retryAfterSecs: null, ...over,
 });
 
 afterEach(cleanup);
@@ -115,5 +116,18 @@ describe('<ComparatorNotices /> retry', () => {
     expect(screen.getByRole('alert').textContent).toContain('try again in 30 seconds.');
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onRetryBudget).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('comparatorNotices: whole months and the years that do have a budget (PR-C review r1, R4, browser F4)', () => {
+  it('a window that splits a budget month says budgets are set by whole month, and nothing else about the budget', () => {
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ splitsMonth: true, budgetAbsentYears: [2027] }) }))
+      .toEqual([{ tone: 'info', text: BUDGET_WHOLE_MONTHS }]);
+    expect(BUDGET_WHOLE_MONTHS).toBe('Budgets are set by whole month. Choose a window from the 1st to a month end to compare.');
+  });
+
+  it('a year with no budget names the year that has one: its budget alone covers only part of the window', () => {
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2028], windowYears: [2027, 2028] }) })[0]!.text)
+      .toBe("No budget for FY2028 in this window, so the Budget column is empty. FY2027's budget alone would cover only part of it.");
   });
 });

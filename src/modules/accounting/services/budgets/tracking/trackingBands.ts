@@ -121,12 +121,13 @@ export function buildNotices(
   lines: readonly TrackingLine[],
   v: { noVersion: boolean; noVersionYears: number[]; budgetAbsent: boolean },
 ): TrackingNotices {
-  const unbudgeted = v.budgetAbsent ? [] : lines.filter((l) => l.budget === null && !l.budgetAboveFilter && !l.partialBudget && l.actual !== 0);
+  // The lines' own verdicts: under an absent window budget every line is 'absent', so none is unbudgeted.
+  const unbudgeted = lines.filter((l) => l.budgetVerdict === 'unbudgeted' && l.actual !== 0);
   const split = (ls: readonly TrackingLine[], pick: (l: TrackingLine) => number): ByPolarity => ({
     income: fromCents(ls.filter((l) => l.accountType === 'revenue').reduce((s, l) => s + toCents(pick(l)), 0)),
     expense: fromCents(ls.filter((l) => l.accountType === 'expense').reduce((s, l) => s + toCents(pick(l)), 0)),
   });
-  const partial = lines.filter((l) => l.partialBudget);
+  const partial = lines.filter((l) => l.budgetVerdict === 'partial');
   return {
     unbudgetedCount: unbudgeted.length,
     unbudgetedActual: split(unbudgeted, (l) => l.actual),

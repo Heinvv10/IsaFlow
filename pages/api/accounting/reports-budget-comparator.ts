@@ -15,17 +15,19 @@
  * a version (else each year's primary). A blank value is absent; an id that is
  * not this company's is a 404, a version from another year a 400.
  *
- * `lines` is budgeted accounts followed by unbudgeted ones, because the
- * statement needs to look an account up by code regardless of which half it
- * fell into, and dropping the unbudgeted half would silently hide accounts.
- * `budgetedCount` preserves where the split fell, which is the only thing in
- * the response that says whether a budget was ever captured; `budgetAbsentYears`
- * says which years of the window have none in it, and `partialBudgetCount` how
- * many accounts are budgeted for only part of it. The route asks the facade for
- * the engine's partial-window rule (`partialWindow: 'absent'`), so this column
- * shows the budget Budget vs Actual shows for the same window and filter: a
- * budget for part of the window is withheld, never summed as if it were the
- * window's.
+ * Query: real calendar dates in YEAR_MIN..YEAR_MAX, `period_end` not before
+ * `period_start`, at most MAX_CUSTOM_MONTHS (24) months, as Budget vs Actual's
+ * custom range; anything else is a 400 before any query.
+ *
+ * The route asks the facade for the engine's rule (`partialWindow: 'absent'`),
+ * so this column shows the budget Budget vs Actual shows for the same window
+ * and filter. `lines` carries every account with the engine's `budget_verdict`;
+ * `budgetedCount` is how many carry a budget, the only statement in the
+ * response that a budget EXISTS. `budgetAbsentYears` names the years of the
+ * window with none in it, `partialBudgetCount` (the engine's) the accounts
+ * budgeted for only part of it, `splitsMonth` a window that cuts a budget month
+ * (no window budget then: budgets are set by whole month), and `bands` the
+ * engine's band and profit-total budgets for the statement's band rows.
  *
  * Rate limited per company at the interactive limit (120 per 15 minutes, as
  * Budget vs Actual): the page reloads it on every period and filter change, so
@@ -42,21 +44,32 @@ import { chargeReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit
 import { respondReportRateLimited } from '@/lib/reportRateLimitResponse';
 import { respondTrackingError } from '@/lib/budgetTrackingResponse';
 import { UUID } from '@/lib/schemas/common';
-import { getBudgetVariance, type BudgetVarianceOptions } from '@/modules/accounting/services/reports/budgetVarianceService';
+import { MAX_CUSTOM_MONTHS, YEAR_MAX, YEAR_MIN } from '@/modules/accounting/services/budgets/tracking/trackingWindow';
+import { budgetMonthKeysInWindow, monthEnd } from '@/modules/accounting/services/reports/budgetPeriodWindow';
+import { getBudgetVariance, type BudgetVarianceTrackedOptions } from '@/modules/accounting/services/reports/budgetVarianceService';
 
 const blankIsAbsent = (v: unknown) => (v === '' ? undefined : v);
 const Id = z.preprocess(blankIsAbsent, UUID.optional());
 
+/** A real calendar date (2026-02-31 is not one) in YEAR_MIN..YEAR_MAX; read as text, no Date built. */
+const Day = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 'Must be a date, YYYY-MM-DD')
+  .refine((d) => d <= monthEnd(`${d.slice(0, 7)}-01`), 'Must be a real calendar date')
+  .refine((d) => Number(d.slice(0, 4)) >= YEAR_MIN && Number(d.slice(0, 4)) <= YEAR_MAX, `Year must lie in ${YEAR_MIN}-${YEAR_MAX}`);
+
 const Query = z.object({
-  period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  period_start: Day,
+  period_end: Day,
   version_id: Id,
   cost_centre_id: Id,
   cc1_id: Id,
   cc2_id: Id,
   bu_id: Id,
   business_unit_id: Id,
-});
+})
+  .refine((q) => q.period_end >= q.period_start, { message: 'period_end must not precede period_start', path: ['period_end'] })
+  // The Budget vs Actual page's own cap on a custom range: a window is a report, not a ledger dump.
+  .refine((q) => budgetMonthKeysInWindow(q.period_start, q.period_end).length <= MAX_CUSTOM_MONTHS,
+    { message: `A window is at most ${MAX_CUSTOM_MONTHS} months`, path: ['period_end'] });
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET']);
@@ -71,7 +84,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const parsed = Query.safeParse(req.query);
   if (!parsed.success) {
-    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+    const fieldErrors = parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>;
+    const first = Object.entries(fieldErrors).find(([, v]) => v && v.length > 0);
+    return apiResponse.badRequest(res, first ? `${first[0]}: ${first[1]![0]}` : 'Invalid query', fieldErrors);
   }
 
   const q = parsed.data;
@@ -79,7 +94,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'bu_id and business_unit_id name different business units');
   }
   // The engine's partial-window rule, as Budget vs Actual prints it (spec §8.2: the same budget figure).
-  const opts: BudgetVarianceOptions & { partialWindow: 'absent' } = { partialWindow: 'absent' };
+  const opts: BudgetVarianceTrackedOptions = { partialWindow: 'absent' };
   if (q.version_id !== undefined) opts.versionId = q.version_id;
   if (q.cost_centre_id !== undefined) opts.costCentreId = q.cost_centre_id;
   if (q.cc1_id !== undefined) opts.cc1Id = q.cc1_id;
@@ -98,19 +113,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, {
     fiscalYear: result.fiscalYear,
     monthKeys: result.monthKeys,
-    lines: [...result.rows, ...result.unbudgeted],
-    // The service's own split, carried across the wire. Flattening `rows` and
-    // `unbudgeted` into one `lines` array loses the only statement anyone made
-    // about whether a budget EXISTS, and a client left to infer it from
-    // all-zero amounts cannot tell "no budget captured" from "budgeted at
-    // zero on every line".
+    // Every line, each with the engine's `budget_verdict` (budgeted / unbudgeted / partial /
+    // above-filter / absent), so the column prints a budget, a zero, or "—" with its reason.
+    lines: result.lines,
+    // The service's own split, carried across the wire: the only statement anyone made about
+    // whether a budget EXISTS. A client left to infer it from all-zero amounts cannot tell "no
+    // budget captured" from "budgeted at zero on every line".
     budgetedCount: result.rows.length,
     postedThrough: result.postedThrough,
     version: result.version,
     unallocatedBudget: result.unallocatedBudget,
     budgetAbsentYears: result.budgetAbsentYears,
-    // Accounts whose budget covers only part of the window: withheld, so in neither half of `lines`.
-    partialBudgetCount: result.lines.filter((l) => l.budget_partial).length,
+    windowYears: result.windowYears,
+    splitsMonth: result.splitsMonth,
+    partialBudgetCount: result.partialBudgetCount,
+    // The engine's band and profit-total budgets, for the statement's band rows (null: absent).
+    bands: result.bands,
   });
 }
 

@@ -158,7 +158,7 @@ interface StaticRoutes {
   '/api/accounting/reports-budget-comparator': {
     fiscalYear: Awaited<ReturnType<typeof getBudgetVariance>>['fiscalYear'];
     monthKeys: Awaited<ReturnType<typeof getBudgetVariance>>['monthKeys'];
-    lines: Awaited<ReturnType<typeof getBudgetVariance>>['rows'];
+    lines: BudgetVarianceTrackedResult['lines'];
     /** `result.rows.length` — how many accounts the SERVICE classified as
      *  budgeted. Derived in the handler, so it is written out here rather
      *  than projected off the service type; it is a count of that array and
@@ -168,8 +168,10 @@ interface StaticRoutes {
     version: BudgetVarianceTrackedResult['version'];
     unallocatedBudget: BudgetVarianceTrackedResult['unallocatedBudget'];
     budgetAbsentYears: BudgetVarianceTrackedResult['budgetAbsentYears'];
-    /** Lines with `budget_partial`, counted in the handler like `budgetedCount`. */
-    partialBudgetCount: number;
+    windowYears: BudgetVarianceTrackedResult['windowYears'];
+    splitsMonth: BudgetVarianceTrackedResult['splitsMonth'];
+    partialBudgetCount: BudgetVarianceTrackedResult['partialBudgetCount'];
+    bands: BudgetVarianceTrackedResult['bands'];
   };
   '/api/accounting/reports-income-statement': Awaited<ReturnType<typeof getIncomeStatement>>;
   '/api/accounting/reports-pack': {

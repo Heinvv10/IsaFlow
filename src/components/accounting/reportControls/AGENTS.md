@@ -24,8 +24,8 @@ changed an amount would make two screens disagree about the same period.
   `apply` decorates `StatementRow[]`. `budgetState` is
   `unknown | failed | limited | none | available` — `failed` must never be
   shown as `none`, and `limited` (a 429) is neither. `budgetInfo` carries the
-  window's `budgetAbsentYears`, `unallocatedBudget`, `partialBudgetCount` and a
-  refusal's `retryAfterSecs`; `retryBudget()` asks again (nothing retries on
+  window's `budgetAbsentYears`, `windowYears`, `unallocatedBudget`,
+  `partialBudgetCount`, `splitsMonth` and a refusal's `retryAfterSecs`; `retryBudget()` asks again (nothing retries on
   its own). Optional `costCentreId` / `businessUnitId` are the statement's
   filter, sent with the budget fetch. The two loading flags are per fetch; one
   shared flag would report the budget as loaded because the trend finished.
@@ -63,7 +63,16 @@ changed an amount would make two screens disagree about the same period.
   in the window says so ("No budget for FY2026 in this window"), not "no budget
   captured". Period and filter changes are coalesced (`BUDGET_COALESCE_MS`,
   350 ms after the last) so a run of edits costs the company's report limit
-  one request; a 429 names its wait and offers Retry.
+  one request; a 429 names its wait and offers Retry. `apply` adds an unspent
+  budgeted account's row, marks each line's budget absent with the engine's
+  reason, and puts the engine's band budgets on the band rows
+  (`statementRows/budgetComparatorBands`); the income statement's grid prints
+  them under `budgetCells` (zero 0.00, absent "—", Var % of a zero "—"). A
+  window that splits a budget month has no budget: "Budgets are set by whole
+  month. Choose a window from the 1st to a month end to compare."
+- **The dimension gate is derived from the filter ids** passed to
+  `useStatementComparatorState` (`costCentreId`, `businessUnitId`), so the
+  trend gate and the budget fetch read one source.
 - **`basis` is not a preference.** `movement` for P&L accounts, `balance` for
   balance-sheet accounts. The wrong one draws a shape about a different number
   than the one printed beside it.

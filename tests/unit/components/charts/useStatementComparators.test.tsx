@@ -19,6 +19,11 @@ const budgetLines = (amount: number) => buildBudgetVsActualLines(
   [{ id: 'g-1000', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 900 }],
   { 'g-1000': amount },
 );
+/** The comparator's whole response (the route's shape), so no field is read off a fixture that lacks it. */
+const RESPONSE = (over: Record<string, unknown> = {}) => ({
+  lines: budgetLines(1000), budgetedCount: 1, budgetAbsentYears: [], windowYears: [2026], unallocatedBudget: { income: 0, expense: 0 },
+  partialBudgetCount: 0, splitsMonth: false, bands: [], ...over,
+});
 const ROW = (): StatementRow[] => ([
   { id: 'acc:1000', kind: 'line', label: 'Sales', depth: 1, accountCode: '1000', actual: 900 },
 ]);
@@ -55,7 +60,7 @@ describe('useStatementComparators — a failed fetch', () => {
 
 describe('useStatementComparators — the budget signal comes from the service', () => {
   it('is "none" when the service budgeted no accounts, even though lines came back', async () => {
-    apiJson.mockResolvedValue({ lines: budgetLines(0), budgetedCount: 0 });
+    apiJson.mockResolvedValue(RESPONSE({ lines: budgetLines(0), budgetedCount: 0 }));
     const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
     await waitFor(() => expect(result.current.budgetState).toBe('none'));
     // And the comparator is not applied, so no variance is printed against a
@@ -64,7 +69,7 @@ describe('useStatementComparators — the budget signal comes from the service',
   });
 
   it('is "available" — and applies — when the service budgeted an account', async () => {
-    apiJson.mockResolvedValue({ lines: budgetLines(1000), budgetedCount: 1 });
+    apiJson.mockResolvedValue(RESPONSE());
     const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
     await waitFor(() => expect(result.current.budgetState).toBe('available'));
     expect(result.current.apply(ROW())[0]!.budget?.value).toBe(1000);
@@ -73,7 +78,7 @@ describe('useStatementComparators — the budget signal comes from the service',
   it('trusts the count over the amounts: every line zero but one budgeted still applies', async () => {
     // A budget captured as zero on every line is a real budget. Inferring
     // "no budget" from all-zero amounts would silently discard it.
-    apiJson.mockResolvedValue({ lines: budgetLines(0), budgetedCount: 1 });
+    apiJson.mockResolvedValue(RESPONSE({ lines: budgetLines(0) }));
     const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
     await waitFor(() => expect(result.current.budgetState).toBe('available'));
     expect(result.current.apply(ROW())[0]!.budget?.value).toBe(0);
@@ -143,13 +148,13 @@ describe('useStatementComparators — loading is per fetch', () => {
 
     // The budget request leaves after the coalescing wait; resolve it once it has.
     await waitFor(() => expect(budgetCalls()).toHaveLength(1));
-    await act(async () => { resolveBudget({ lines: budgetLines(500), budgetedCount: 1 }); });
+    await act(async () => { resolveBudget(RESPONSE({ lines: budgetLines(500) })); });
     await waitFor(() => expect(result.current.budgetLoading).toBe(false));
   });
 });
 
 const budgetCalls = () => apiJson.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('reports-budget-comparator'));
-const BUDGET = (over: Record<string, unknown> = {}) => ({ lines: budgetLines(1000), budgetedCount: 1, ...over });
+const BUDGET = RESPONSE;
 
 describe('useStatementComparators — the budget follows the filter (budgets P3 PR-C)', () => {
   it('sends the statement filter: cost_centre_id (either level) and business_unit_id', async () => {
@@ -167,7 +172,9 @@ describe('useStatementComparators — the budget follows the filter (budgets P3 
     apiJson.mockResolvedValue(BUDGET({ budgetedCount: 0, budgetAbsentYears: [2026], unallocatedBudget: null, partialBudgetCount: 0 }));
     const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
     await waitFor(() => expect(result.current.budgetState).toBe('none'));
-    expect(result.current.budgetInfo).toEqual({ budgetAbsentYears: [2026], unallocatedBudget: null, partialBudgetCount: 0, retryAfterSecs: null });
+    expect(result.current.budgetInfo).toEqual({
+      budgetAbsentYears: [2026], windowYears: [2026], unallocatedBudget: null, partialBudgetCount: 0, splitsMonth: false, retryAfterSecs: null,
+    });
   });
 
   it('coalesces a run of period and filter changes into ONE request, for the last of them', async () => {
@@ -206,5 +213,28 @@ describe('useStatementComparators — the budget follows the filter (budgets P3 
     const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
     await waitFor(() => expect(result.current.budgetState).toBe('limited'));
     expect(result.current.budgetInfo.retryAfterSecs).toBeNull();
+  });
+});
+
+describe('useStatementComparators — the engine figures beyond the account rows (PR-C review r1 R7)', () => {
+  it('adds an unspent budgeted account to its section and prints the engine band budget on the band rows', async () => {
+    const lines = [
+      { account_id: 'g-4100', account_code: '4100', account_name: 'Sales', account_type: 'revenue', budgeted: true, budget_amount: 1000,
+        actual_amount: 900, variance: -100, movement: -100, variance_pct: -10, movement_pct: -10, favourable: false, budget_verdict: 'budgeted', band: 'turnover' },
+      { account_id: 'g-4200', account_code: '4200', account_name: 'Fees', account_type: 'revenue', budgeted: true, budget_amount: 50,
+        actual_amount: 0, variance: -50, movement: -50, variance_pct: -100, movement_pct: -100, favourable: false, budget_verdict: 'budgeted', band: 'turnover' },
+    ];
+    apiJson.mockResolvedValue(RESPONSE({ lines, budgetedCount: 2, bands: [{ key: 'turnover', budget: 1050 }] }));
+    const { result } = renderHook(() => useStatementComparators(opts({ trend: false, budget: true })));
+    await waitFor(() => expect(result.current.budgetState).toBe('available'));
+    const rows: StatementRow[] = [
+      { id: 'sec:revenue', kind: 'section', label: 'Turnover', depth: 0, actual: 900 },
+      { id: 'acc:4100', kind: 'line', label: 'Sales', depth: 1, accountCode: '4100', actual: 900 },
+      { id: 'sub:revenue', kind: 'subtotal', label: 'Total Turnover', depth: 0, actual: 900 },
+    ];
+    const out = result.current.apply(rows);
+    expect(out.map((r) => r.id)).toEqual(['sec:revenue', 'acc:4100', 'acc:4200', 'sub:revenue']);
+    expect(out.find((r) => r.id === 'acc:4200')!.budget).toMatchObject({ value: 50, variance: -50 });
+    expect(out.find((r) => r.id === 'sub:revenue')!.budget).toMatchObject({ value: 1050, variance: -150 });
   });
 });

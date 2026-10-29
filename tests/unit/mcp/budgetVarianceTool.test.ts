@@ -17,9 +17,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // (D11, decision 19) are proved through the tool rather than restated in a fixture.
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/modules/accounting/services/budgets/tracking/trackingRange', () => ({ buildRangeTracking: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({
-  fiscalYearForDate: vi.fn(async () => ({ fiscalYear: 2026 })),
-}));
 
 import { buildRangeTracking } from '@/modules/accounting/services/budgets/tracking/trackingRange';
 import type { TrackingLine } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
@@ -77,7 +74,7 @@ function ledger(raws: Raw[], budgets: Record<string, number>, postedThrough = '2
     };
   }) as unknown as TrackingLine[];
   vi.mocked(buildRangeTracking).mockImplementation(async (_c, start, end) => ({
-    months: budgetMonthKeysInWindow(start, end), years: [], lines,
+    startFiscalYear: 2026, months: budgetMonthKeysInWindow(start, end), years: [], lines, bands: [], budgetAbsent: false, splitsMonth: false,
     notices: { unbudgetedCount: 0, unbudgetedActual: { income: 0, expense: 0 }, unallocatedBudget: { income: 0, expense: 0 },
       noVersion: false, partialBudget: null, noVersionYears: [] },
     version: null, filter: {}, postedThrough,

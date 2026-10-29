@@ -28,7 +28,7 @@ import { budgetMonthBounds, budgetMonthKeysInWindow } from '@/modules/accounting
 import { buildBudgetVsActualLines, type RawActualRow } from '@/modules/accounting/services/reports/budgetVsActualLines';
 import { buildBudgetVsActualSections } from '@/modules/accounting/services/reports/budgetVsActualSections';
 import { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
-import { getBudgetVariance, type BudgetVarianceResult } from '@/modules/accounting/services/reports/budgetVarianceService';
+import { getBudgetVariance, type BudgetVarianceResult, type BudgetVarianceTrackedResult } from '@/modules/accounting/services/reports/budgetVarianceService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asRequest, dropTrackingFixture, seedTrackingFixture, type TrackingFixture } from './helpers/budgetTrackingFixture';
 
@@ -201,37 +201,94 @@ describe('no options: deep-equal to the P0 + P1 oracle', () => {
 
 // ── Where the engine differs, pinned ─────────────────────────────────────────
 
+/** A tracked line without the engine's two added fields: P0's line. */
+const p0Line = (l: BudgetVarianceTrackedResult['lines'][number]) => {
+  const { budget_verdict: _v, band: _b, ...rest } = l;
+  return rest;
+};
+
 describe("partialWindow: 'absent' (the comparator's opt-in): the engine withholds a partial-window budget", () => {
-  it('on a window P0 and the engine agree on, the P0 fields are the default\'s; it adds the version and no unallocated budget', async () => {
+  it("on a whole-month window P0 and the engine agree on, the lines and rows are the default's; it adds the version and no unallocated budget", async () => {
     const { facade, absent } = await both('2026-03-01', '2026-08-31');
-    const { budgetAbsentYears, version, unallocatedBudget, ...p0 } = absent;
-    expect(p0).toStrictEqual(facade);
-    expect(budgetAbsentYears).toEqual([]);
-    expect(version).toMatchObject({ id: f.v.primary27, name: 'Original', status: 'approved', isPrimary: true });
-    expect(unallocatedBudget).toEqual({ income: 0, expense: 0 });
+    expect(absent.lines.map(p0Line)).toStrictEqual(facade.lines);
+    expect(absent.rows.map(p0Line)).toStrictEqual(facade.rows);
+    expect([absent.sections, absent.totals, absent.fiscalYear, absent.monthKeys, absent.postedThrough])
+      .toStrictEqual([facade.sections, facade.totals, facade.fiscalYear, facade.monthKeys, facade.postedThrough]);
+    expect([absent.budgetAbsentYears, absent.splitsMonth, absent.partialBudgetCount]).toEqual([[], false, 0]);
+    expect(absent.version).toMatchObject({ id: f.v.primary27, name: 'Original', status: 'approved', isPrimary: true });
+    expect(absent.unallocatedBudget).toEqual({ income: 0, expense: 0 });
   });
 
-  it('FY2026 has no budget in Jan 2026 .. Jun 2026: no line carries a budget, none is called unbudgeted', async () => {
+  it('FY2026 has no budget in Jan 2026 .. Jun 2026: every line absent, none budgeted, none unbudgeted, none partial', async () => {
     const { absent, oracle: want } = await both('2026-01-01', '2026-06-30');
     expect(want.rows.map((l) => l.account_code)).toEqual(['BT-4000', 'BT-4900', 'BT-5000', 'BT-6000', 'BT-7000']);
     expect(absent.budgetAbsentYears).toEqual([2026]);
-    expect(absent.rows).toEqual([]);
-    expect(absent.unbudgeted).toEqual([]);
-    expect(absent.lines.map((l) => [l.account_code, l.actual_amount, l.budgeted, l.budget_amount, l.budget_partial]))
-      .toEqual(want.lines.map((l) => [l.account_code, l.actual_amount, false, 0, true]));
-    expect(absent.unallocatedBudget).toBeNull();
+    expect([absent.rows, absent.unbudgeted, absent.partialBudgetCount]).toEqual([[], [], 0]);
+    expect(absent.lines.map((l) => [l.account_code, l.actual_amount, l.budgeted, l.budget_amount, l.budget_verdict, l.budget_partial]))
+      .toEqual(want.lines.map((l) => [l.account_code, l.actual_amount, false, 0, 'absent', undefined]));
+    expect([absent.unallocatedBudget, absent.sections.net_profit.budget, absent.totals.budget]).toEqual([null, null, null]);
     expect(absent.version).toMatchObject({ id: f.v.primary27 });
   });
 
   it('Apr .. May 2027: opex (budgeted in both years) is equal; lines budgeted in FY2027 only are withheld as partial', async () => {
     const { absent, oracle: want } = await both('2027-04-01', '2027-05-31');
-    const opex = (r: BudgetVarianceResult) => r.lines.find((l) => l.account_code === 'BT-6000');
-    expect(opex(absent)).toEqual(opex(want));
-    expect(opex(absent)).toMatchObject({ budgeted: true, budget_amount: 410 });
+    const opex = absent.lines.find((l) => l.account_code === 'BT-6000')!;
+    expect(p0Line(opex)).toEqual(want.lines.find((l) => l.account_code === 'BT-6000'));
+    expect(opex).toMatchObject({ budgeted: true, budget_amount: 410, budget_verdict: 'budgeted' });
     expect(absent.rows.map((l) => l.account_code)).toEqual(['BT-6000']);
     expect(absent.unbudgeted).toEqual([]);
     expect(absent.lines.filter((l) => l.budget_partial).map((l) => l.account_code)).toEqual(['BT-4000', 'BT-4900', 'BT-5000', 'BT-7000']);
-    expect(absent.budgetAbsentYears).toEqual([]);
+    expect([absent.budgetAbsentYears, absent.partialBudgetCount]).toEqual([[], 4]);
     expect(absent.version).toMatchObject({ id: f.v.primary28 });
+  });
+
+  it.each([
+    ['a start that is not the 1st', '2026-03-16', '2026-08-31'],
+    ['an end that is not a month end', '2026-03-01', '2026-08-30'],
+  ])('%s splits a budget month: no window budget, and it says so', async (_name, start, end) => {
+    const { absent, facade } = await both(start, end);
+    expect(absent.splitsMonth).toBe(true);
+    expect(absent.rows).toEqual([]);
+    expect(new Set(absent.lines.map((l) => l.budget_verdict))).toEqual(new Set(['absent']));
+    expect(absent.lines.map((l) => [l.account_code, l.actual_amount])).toEqual(facade.lines.map((l) => [l.account_code, l.actual_amount]));
+    // The default keeps P0's whole months (the ruling): MCP and packs are unchanged.
+    expect(facade.rows.length).toBeGreaterThan(0);
+  });
+
+  it('a mid-month registry year inside the window splits its month in this mode', async () => {
+    const midMonth: Before = async (c) => {
+      await c.query(`UPDATE fiscal_years SET start_date = '2027-05-15' WHERE company_id = $1 AND fiscal_year = 2028`, [f.a]);
+      await c.query(`UPDATE fiscal_years SET end_date = '2027-05-14' WHERE company_id = $1 AND fiscal_year = 2027`, [f.a]);
+    };
+    const { absent } = await both('2027-04-01', '2027-05-31', midMonth);
+    expect(absent.splitsMonth).toBe(true);
+    expect(absent.rows).toEqual([]);
+    expect(absent.budgetAbsentYears).toContain(2028);
+  });
+
+  it('a budgeted zero with no actuals is a budgeted line in this mode too', async () => {
+    const { absent } = await both('2026-06-01', '2026-06-30', zeroBudget);
+    expect(absent.rows.find((l) => l.account_code === 'BT-6500')).toMatchObject({ budgeted: true, budget_amount: 0, budget_verdict: 'budgeted' });
+  });
+});
+
+describe("partialWindow: 'absent' = the Budget vs Actual report for the same window (spec §8.2), notices included", () => {
+  it.each([
+    ['across FY2026 (no version) and FY2027', '2026-01-01', '2026-06-30', '2026-01', '2026-06'],
+    ['across FY2027 and FY2028 (lines budgeted in one year only)', '2027-04-01', '2027-05-31', '2027-04', '2027-05'],
+    ['inside FY2027', '2026-03-01', '2026-08-31', '2026-03', '2026-08'],
+  ])('%s', async (_name, start, end, from, to) => {
+    const { absent } = await both(start, end);
+    const report = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { period: 'custom', from, to }, new Date('2026-11-15T10:00:00+02:00')));
+    const engine = new Map(report.lines.map((l) => [l.accountId, l]));
+    for (const l of absent.lines) {
+      const e = engine.get(l.account_id)!;
+      expect([l.account_code, l.budget_verdict, l.budgeted ? l.budget_amount : null, l.actual_amount])
+        .toEqual([e.accountCode, e.budgetVerdict, e.budget, e.actual]);
+    }
+    expect(absent.budgetAbsentYears).toEqual(report.notices.noVersionYears);
+    expect(absent.partialBudgetCount).toBe(report.notices.partialBudget?.count ?? 0);
+    expect(absent.unallocatedBudget).toEqual(report.notices.unallocatedBudget);
+    expect(absent.bands).toEqual(report.bands.map((b) => ({ key: b.key, budget: b.budget })));
   });
 });
