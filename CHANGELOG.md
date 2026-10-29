@@ -30,6 +30,34 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-29 — Bank Export, Budget Notes, Invoice Form Kit, GL Re-type Guard
+
+**Bank**
+
+- Export all bank accounts for a date range added; CC / BU dimensions wired into the bank report builder (#935)
+
+**Budgets**
+
+- Editable year-scoped notes on the budget grid workspace; note lineage carried through every version seed (#926)
+
+**Invoice — Wave 2 (Master Plan)**
+
+- New and edit invoice forms migrated to the shared form kit (wave 2, PR I); `InvoiceHeaderFields`, `InvoiceSummaryCard`, and `invoiceHeaderForm` extracted (#919)
+
+**GL / Import**
+
+- Imports and migration re-runs refuse to re-type an existing non-system account; `migrationReimportRows` extracted; integration test suite added (#934)
+
+**OAuth / MCP**
+
+- OAuth consent and personal-token scoping restricted to companies with the MCP connector feature enabled (#930)
+
+**CI**
+
+- Golden-path dev server never binds to port 3659 (#928)
+
+---
+
 ## 2026-10-22 — GL Export Bearer Auth, Payroll Directives, Security Hardening
 
 **GL Export / MCP**
