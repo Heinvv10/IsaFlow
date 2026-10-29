@@ -11,7 +11,8 @@
  * (409 BUDGET_VERSION_LOCKED, or BUDGET_VERSION_STALE with `currentUpdatedAt` and `status`); a second rolling
  * forecast in a year, or Roll now on a version that does not roll, is 409 BUDGET_VERSION_STATE; 404 for another
  * company's version. Writes are charged to the user's `budget-reforecast:<userId>` bucket (30 a minute; each
- * reads the year's actuals four times; 429 with Retry-After past it). Any member may read.
+ * reads the year's actuals four times), the status to `budget-reforecast-status:<userId>` (120 a minute; it
+ * recomputes the unplaced actuals); 429 with Retry-After past either. Any member may read.
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -40,6 +41,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!['GET', 'POST', 'PUT'].includes(method)) return apiResponse.methodNotAllowed(res, method, ['GET', 'POST', 'PUT']);
   const { id } = req.query;
   if (!isUuidParam(id)) return apiResponse.badRequest(res, 'id must be a version id');
+  // The status recomputes the unplaced actuals (four actuals reads): its own, larger bucket.
+  if (method === 'GET' && !(await checkRateLimit(`budget-reforecast-status:${userId}`, { max: 120, windowSecs: 60 }))) {
+    res.setHeader('Retry-After', '60');
+    return apiResponse.tooManyRequests(res, 'Too many reforecast status reads; wait a minute and try again.');
+  }
   if (method !== 'GET' && !(await checkRateLimit(`budget-reforecast:${userId}`, { max: 30, windowSecs: 60 }))) {
     res.setHeader('Retry-After', '60');
     return apiResponse.tooManyRequests(res, 'Too many reforecast changes; wait a minute and try again.');

@@ -45,8 +45,8 @@ async function call(over: Record<string, unknown>) {
     companyId: COMPANY, companyRole: 'manager', user: { id: 'user-1', claims: {} }, ...over,
   } as unknown as NextApiRequest;
   const res = {
-    statusCode: 0, sent: undefined as unknown,
-    setHeader() { return this; },
+    statusCode: 0, sent: undefined as unknown, headers: {} as Record<string, string>,
+    setHeader(name: string, value: string) { this.headers[name] = value; return this; },
     status(code: number) { this.statusCode = code; return this; },
     json(payload: unknown) { this.sent = payload; return this; },
     end() { return this; },
@@ -88,13 +88,17 @@ describe('reforecast route: methods, CSRF, roles and the bucket', () => {
     expect(svc.toggle).not.toHaveBeenCalled();
   });
 
-  it('charges writes to the budget-reforecast bucket (429 past it) and never reads', async () => {
+  it('charges writes to the budget-reforecast bucket (30 a minute), the status GET to its own (120); 429 + Retry-After past either', async () => {
     await call({ method: 'GET' });
-    expect(svc.rateLimit).not.toHaveBeenCalled();
+    expect(svc.rateLimit.mock.calls).toEqual([['budget-reforecast-status:user-1', { max: 120, windowSecs: 60 }]]);
     svc.rateLimit.mockResolvedValue(false);
+    const read = await call({ method: 'GET' });
+    expect([read.statusCode, read.headers['Retry-After']]).toEqual([429, '60']);
+    expect(svc.status).toHaveBeenCalledTimes(1);
+    svc.rateLimit.mockClear();
     const r = await call({ method: 'POST', body: { name: 'RF' } });
-    expect(r.statusCode).toBe(429);
-    expect(svc.rateLimit).toHaveBeenCalledWith('budget-reforecast:user-1', { max: 30, windowSecs: 60 });
+    expect([r.statusCode, r.headers['Retry-After']]).toEqual([429, '60']);
+    expect(svc.rateLimit.mock.calls).toEqual([['budget-reforecast:user-1', { max: 30, windowSecs: 60 }]]);
     expect(svc.create).not.toHaveBeenCalled();
   });
 });

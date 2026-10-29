@@ -177,9 +177,10 @@ describe('budget rolling forecast: edges', { timeout: 90000 }, () => {
     await fx.journal(w, `${m[0]}-15`, [[w.rent, 1000, 0]]);
     const cells = await fx.snapshot(rf);
     const token = await fx.token(rf);
+    const created = await fx.rollingRow(rf);
     await fx.close(w, [m[0]!]);
     await fx.until(async () => (await fx.rollingRow(rf))?.last_error != null, 'the failed roll');
-    expect(await fx.rollingRow(rf)).toMatchObject({ last_error: 'a driver result is beyond the budget range', through: null, rolled_at: null });
+    expect(await fx.rollingRow(rf)).toEqual({ ...created, last_error: 'a driver result is beyond the budget range' });
     expect(await fx.snapshot(rf)).toEqual(cells);
     expect(await fx.token(rf)).toBe(token);
   });
@@ -196,6 +197,37 @@ describe('budget rolling forecast: edges', { timeout: 90000 }, () => {
     expect(r.status, dump(r)).toBe(200);
     expect(dataOf(r)).toMatchObject({ changed: 0, updatedAt: token });
     expect(await fx.token(rf)).toBe(token);
+  });
+
+  it('turning auto-roll on stamps what the version already holds: through the closed months that hold actuals, else not rolled', async () => {
+    const w = await fx.world();
+    const m = w.months;
+    const s = await source(w);
+    await fx.journal(w, `${m[0]}-15`, [[w.sales, 0, 1200]]);
+    await fx.close(w, [m[0]!]);
+    const rf = await rolling(w, s);
+    const toggle = async (v: string, on: boolean) => {
+      const r = await fx.call.reforecast(w.u, v, 'PUT', { rolling: on, expectedUpdatedAt: await fx.token(v) });
+      expect(r.status, dump(r)).toBe(200);
+    };
+    await toggle(rf, false);
+    await toggle(rf, true);
+    expect(await fx.rollingRow(rf)).toMatchObject({ through: m[0], rolled_at: expect.any(String) });
+    expect(await status(w, rf)).toMatchObject({ rolledThroughMonth: m[0], staleMonths: [] });
+    // A month closed while auto-roll was off holds no actual: it is stale, not rolled.
+    await toggle(rf, false);
+    await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE id = $1`, [w.periods.get(m[1]!)]);
+    await toggle(rf, true);
+    expect(await status(w, rf)).toMatchObject({ rolledThroughMonth: m[0], staleMonths: [m[1]] });
+    // A reforecast made before any close, then turned on: its first closed month holds no actual, so not rolled yet.
+    const early = await fx.call.reforecast(w.u, s, 'POST', { name: 'Not rolling' });
+    expect(early.status, dump(early)).toBe(201);
+    const v = dataOf<{ version: { id: string } }>(early).version.id;
+    await pool.query(`UPDATE budget_month_amounts SET amount_source = 'manual' WHERE version_id = $1 AND amount_source = 'actual'`, [v]);
+    await toggle(rf, false);
+    await toggle(v, true);
+    expect(await fx.rollingRow(v)).toMatchObject({ through: null, rolled_at: null });
+    expect(await status(w, v)).toMatchObject({ rolledThroughMonth: null, staleMonths: [m[0], m[1]] });
   });
 
   it('probe: an override in an open month survives the auto roll', async () => {

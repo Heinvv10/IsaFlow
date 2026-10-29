@@ -256,7 +256,10 @@ describe('budget reforecast from actuals', () => {
     expect(r.status, dump(r)).toBe(201);
     const made = dataOf<Created>(r);
     expect(made.rolling).toBe(true);
-    expect(await fx.rollingRow(made.version.id)).toMatchObject({ through: null, last_error: null });
+    // The create is the first roll: rolled through the latest closed month, now, so nothing reads stale.
+    expect(await fx.rollingRow(made.version.id)).toMatchObject({ through: m[1], last_error: null, rolled_at: expect.any(String) });
+    const st = await fx.call.reforecast(w.u, made.version.id, 'GET');
+    expect(dataOf(st)).toMatchObject({ rolling: true, rolledThroughMonth: m[1], latestClosedMonth: m[1], staleMonths: [] });
     const before = await versions();
     const again = await create(source, { name: 'Rolling 2', rolling: true });
     expect([again.status, details(again).code], dump(again)).toEqual([409, 'BUDGET_VERSION_STATE']);
