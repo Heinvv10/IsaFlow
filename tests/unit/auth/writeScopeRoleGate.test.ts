@@ -17,6 +17,7 @@ vi.mock('@/lib/logger', () => ({
   apiLogger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/modules/admin/services/featureFlagService', () => ({ hasFeature: vi.fn(async () => true) }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/auth/oauth', async () => ({
   OAUTH_SCOPES: (await import('@/lib/auth/oauthScopes')).OAUTH_SCOPES,
@@ -32,6 +33,7 @@ vi.mock('@/lib/auth/personalAccessTokens', async () => ({
 import { getOauthAppByClientId, createAuthorisationCode } from '@/lib/auth/oauth';
 import { createPat } from '@/lib/auth/personalAccessTokens';
 import { scopesRoleMayNotHold } from '@/lib/auth/writeRoles';
+import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import consentHandler from '../../../pages/api/oauth/consent';
 import patHandler from '../../../pages/api/auth/personal-tokens/index';
 import { resetSqlMock, mockSqlOnce } from './helpers';
@@ -71,6 +73,7 @@ beforeEach(() => {
     redirectUris: ['https://claude.ai/cb'], clientId: 'client_abc', isVerified: false, isFirstParty: false, isConfidential: false,
   });
   vi.mocked(createAuthorisationCode).mockResolvedValue(`oac_${'C'.repeat(32)}`);
+  vi.mocked(hasFeature).mockResolvedValue(true);
 });
 
 describe('scopesRoleMayNotHold — the shared policy', () => {
@@ -148,5 +151,23 @@ describe('POST /api/oauth/consent — role gate on granted scopes', () => {
     const res = makeRes();
     await (consentHandler as H)(consentReq('viewer', { companyId: OTHER }), res);
     expect(granted()).toEqual(['read:reports', 'write:invoices', 'write:post']);
+  });
+});
+
+describe('POST /api/auth/personal-tokens — MCP connector gate', () => {
+  it('refuses to mint a PAT for a company without the connector (403, nothing minted)', async () => {
+    vi.mocked(hasFeature).mockResolvedValue(false);
+    const res = makeRes();
+    await (patHandler as H)(patReq('owner', ['read:reports']), res);
+    expect(res.statusCode).toBe(403);
+    expect(createPat).not.toHaveBeenCalled();
+    expect(hasFeature).toHaveBeenCalledWith(HOME, 'mcp_connector');
+  });
+
+  it('mints one when the connector is on', async () => {
+    const res = makeRes();
+    await (patHandler as H)(patReq('owner', ['read:reports']), res);
+    expect(res.statusCode).toBe(201);
+    expect(createPat).toHaveBeenCalledTimes(1);
   });
 });

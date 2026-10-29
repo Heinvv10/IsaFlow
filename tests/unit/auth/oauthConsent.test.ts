@@ -28,6 +28,10 @@ vi.mock('@/lib/auth', () => ({
   withAuth: (h: unknown) => h,
 }));
 
+vi.mock('@/modules/admin/services/featureFlagService', () => ({
+  hasFeature: vi.fn(),
+}));
+
 vi.mock('@/lib/auth/oauth', () => ({
   OAUTH_SCOPES: ['read:invoices', 'read:reports', 'write:post', 'offline_access'],
   getOauthAppByClientId: vi.fn(),
@@ -35,6 +39,7 @@ vi.mock('@/lib/auth/oauth', () => ({
 }));
 
 import { getOauthAppByClientId, createAuthorisationCode } from '@/lib/auth/oauth';
+import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import handler from '../../../pages/api/oauth/consent';
 import { resetSqlMock, mockSqlOnce, sqlMock, sqlCallValues } from './helpers';
 
@@ -86,6 +91,7 @@ beforeEach(() => {
     isVerified: false, isFirstParty: false, isConfidential: false,
   });
   vi.mocked(createAuthorisationCode).mockResolvedValue(`oac_${'C'.repeat(32)}`);
+  vi.mocked(hasFeature).mockResolvedValue(true);
 });
 
 describe('POST /api/oauth/consent — write:post server-side opt-in gate', () => {
@@ -212,5 +218,36 @@ describe('POST /api/oauth/consent — company membership gate', () => {
     expect(res.statusCode).toBe(400);
     expect(sqlMock).not.toHaveBeenCalled();
     expect(createAuthorisationCode).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/oauth/consent — MCP connector gate (incident 2026-10-28)', () => {
+  it('refuses a company without the connector (403, no code minted)', async () => {
+    vi.mocked(hasFeature).mockResolvedValue(false);
+    const res = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(makeReq(), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(createAuthorisationCode).not.toHaveBeenCalled();
+    expect(hasFeature).toHaveBeenCalledWith(HOME_COMPANY, 'mcp_connector');
+  });
+
+  it('checks the submitted company, not the active one', async () => {
+    mockSqlOnce([{ role: 'owner' }]); // membership probe: row exists
+    vi.mocked(hasFeature).mockImplementation(async (companyId) => companyId === HOME_COMPANY);
+    const res = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(makeReq({ companyId: OTHER_COMPANY }), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(createAuthorisationCode).not.toHaveBeenCalled();
+  });
+
+  it('does not reveal the connector state of a company the user is not a member of', async () => {
+    mockSqlOnce([]); // membership probe: no row
+    const res = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(makeReq({ companyId: OTHER_COMPANY }), res);
+
+    expect(res.statusCode).toBe(403);
+    expect(hasFeature).not.toHaveBeenCalled();
   });
 });
