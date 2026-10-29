@@ -1,8 +1,8 @@
 // Resetting a slot retires its company by renaming it, never by deleting, and picks the first free generation.
 import { describe, expect, it } from 'vitest';
 import type { ClientBase } from 'pg';
-import { ensureCompany, retireSlotCompany } from '../../../scripts/ci/golden/slotProvision';
-import { MAX_SLOT_GENERATION, slotCompanyId } from '../../../scripts/ci/golden/slotConfig';
+import { ensureCompany, ensureUser, retireSlotCompany } from '../../../scripts/ci/golden/slotProvision';
+import { MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, slotCompanyId } from '../../../scripts/ci/golden/slotConfig';
 
 function fakeDb(existing: string[]): { db: ClientBase; statements: Array<{ text: string; params: unknown[] }> } {
   const statements: Array<{ text: string; params: unknown[] }> = [];
@@ -55,5 +55,27 @@ describe('ensureCompany', () => {
     } as unknown as ClientBase;
     await expect(ensureCompany(db, 2, slotCompanyId(2, 0), 0)).rejects.toThrow(/company 601d0000-0000-4000-8000-000000000002 is retired.*GOLDEN_SLOT_2_COMPANY_ID/);
     expect(statements).toHaveLength(1);
+  });
+});
+
+describe('a company that is not the slot\'s own is never touched', () => {
+  const stray = [SOURCE_COMPANY_ID, 'd27bac33-1111-4222-8333-444455556666', slotCompanyId(3, 0)];
+
+  it.each(stray)('retireSlotCompany refuses %s without a statement', async (id) => {
+    const { db, statements } = fakeDb([id]);
+    await expect(retireSlotCompany(db, 2, id)).rejects.toThrow(/refusing company id/);
+    expect(statements).toEqual([]);
+  });
+
+  it.each(stray)('ensureCompany refuses %s without a statement', async (id) => {
+    const { db, statements } = fakeDb([id]);
+    await expect(ensureCompany(db, 2, id, 0)).rejects.toThrow(/refusing company id/);
+    expect(statements).toEqual([]);
+  });
+
+  it.each(stray)('ensureUser refuses %s without a statement', async (id) => {
+    const { db, statements } = fakeDb([id]);
+    await expect(ensureUser(db, 2, id, 'user-1')).rejects.toThrow(/refusing company id/);
+    expect(statements).toEqual([]);
   });
 });

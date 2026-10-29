@@ -5,7 +5,7 @@
 import type { ClientBase } from 'pg';
 import { adminCreateUser, adminUpdateUser } from '../../../src/lib/auth/gotrue';
 import { cloneCompany } from './cloneCompany';
-import { MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, slotCompanyId, slotCompanyName, slotEmail, slotRegistrationNumber } from './slotConfig';
+import { MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertSlotCompanyId, slotCompanyId, slotCompanyName, slotEmail, slotRegistrationNumber } from './slotConfig';
 
 /** What retireSlotCompany puts in front of a retired company's name. */
 const RETIRED_PREFIX = 'RETIRED';
@@ -13,6 +13,7 @@ const say = (line: string): void => { process.stdout.write(`${line}\n`); };
 
 /** @returns true when this run created the company */
 export async function ensureCompany(db: ClientBase, n: number, id: string, generation: number): Promise<boolean> {
+  assertSlotCompanyId(n, id);
   const name = slotCompanyName(n, generation);
   // A reset that crashed after its COMMIT and before the env file was written leaves GOLDEN_SLOT_n_COMPANY_ID on the
   // retired company; the rename below would quietly bring it back and the next reset would retire the new one.
@@ -40,6 +41,7 @@ export async function ensureCompany(db: ClientBase, n: number, id: string, gener
 
 /** The golden user is a member of its slot company only (the suite's own sandbox companies are added by the specs). */
 export async function ensureUser(db: ClientBase, n: number, id: string, userId: string): Promise<void> {
+  assertSlotCompanyId(n, id);
   const email = slotEmail(n);
   const clash = await db.query<{ id: string }>('SELECT id FROM users WHERE lower(email) = lower($1) AND id <> $2', [email, userId]);
   if (clash.rowCount) throw new Error(`users already has ${email} under another id (${clash.rows[0]!.id}); the GoTrue user and public.users must agree`);
@@ -86,6 +88,7 @@ export async function ensureGoTrueUser(n: number, password: string): Promise<str
  * @returns the new generation and company id
  */
 export async function retireSlotCompany(db: ClientBase, n: number, currentId: string): Promise<{ generation: number; id: string }> {
+  assertSlotCompanyId(n, currentId);
   let generation = 1;
   for (; generation <= MAX_SLOT_GENERATION; generation++) {
     const taken = await db.query('SELECT 1 FROM companies WHERE id = $1::uuid', [slotCompanyId(n, generation)]);

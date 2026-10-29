@@ -2,7 +2,7 @@
 // numbers its runners, and it adds keys to the shared env file without touching anything else in it.
 import { describe, expect, it } from 'vitest';
 import {
-  EXPECTED_GOTRUE_URL, GOLDEN_SLOTS, MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertGoTrueUrl, assertResetSeeds, generationOf,
+  EXPECTED_GOTRUE_URL, GOLDEN_SLOTS, MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertConnectedToDev, assertGoTrueUrl, assertResetSeeds, assertSlotCompanyId, generationOf,
   parseEnvFile, slotCompanyId, slotCompanyName, slotEnvKeys, upsertEnvKeys,
 } from '../../../scripts/ci/golden/slotConfig';
 
@@ -69,6 +69,34 @@ describe('slots', () => {
 
   it('use the key names ci.yml reads', () => {
     expect(slotEnvKeys(2)).toEqual({ companyId: 'GOLDEN_SLOT_2_COMPANY_ID', email: 'GOLDEN_SLOT_2_EMAIL', password: 'GOLDEN_SLOT_2_PASSWORD' });
+  });
+});
+
+describe('assertSlotCompanyId', () => {
+  it('accepts every generation of the slot\'s own id', () => {
+    for (let g = 0; g <= MAX_SLOT_GENERATION; g++) expect(() => assertSlotCompanyId(2, slotCompanyId(2, g))).not.toThrow();
+  });
+
+  it.each([
+    ['Demo', SOURCE_COMPANY_ID],
+    ['a real dev tenant', 'd27bac33-1111-4222-8333-444455556666'],
+    ['another slot\'s company', slotCompanyId(1, 0)],
+    ['a generation past the limit', '601d00a0-0000-4000-8000-000000000002'],
+    ['empty', ''],
+  ])('refuses %s', (_label, id) => {
+    expect(() => assertSlotCompanyId(2, id)).toThrow(/refusing company id/);
+  });
+});
+
+describe('assertConnectedToDev', () => {
+  const answering = (db: string | undefined) => ({ query: async () => ({ rows: db === undefined ? [] : [{ db }] }) });
+
+  it('returns the name when the server says it is isaflow_dev', async () => {
+    await expect(assertConnectedToDev(answering('isaflow_dev'))).resolves.toBe('isaflow_dev');
+  });
+
+  it.each(['isaflow', 'postgres', 'isaflow_dev_2', undefined])('refuses a server that says %s, before any write', async (name) => {
+    await expect(assertConnectedToDev(answering(name))).rejects.toThrow(/not isaflow_dev/);
   });
 });
 
