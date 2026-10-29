@@ -27,8 +27,8 @@ export interface TableOverrides {
 }
 export interface TablePlan { table: string; sql: string; scope: string; mapped: string[]; nulled: string[]; guarded: string[] }
 
-const q = (name: string): string => `"${name}"`;
-/** $1 is the target company, $2 the source. */
+/** A quoted identifier: an embedded `"` is doubled, so no name can end the quote and add SQL. */
+const q = (name: string): string => `"${name.replaceAll('"', '""')}"`;
 /** A version-4 uuid built from the md5 (version and variant nibbles set), so zod's strict uuid() accepts the copy's ids. */
 const rekey = (column: string, type: string): string => {
   const hash = `md5($1::text || ':' || ${q(column)}::text)`;

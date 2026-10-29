@@ -20,6 +20,20 @@ const glAccounts: TableFacts = {
   ],
 };
 
+describe('identifier quoting', () => {
+  it('doubles a double quote inside a table or column name, so it cannot end the identifier', () => {
+    const plan = planTableClone({
+      table: 'odd"table',
+      columns: [col('id', 'uuid', true), col('company_id', 'uuid', true), col('na"me')],
+      primaryKey: ['id'],
+      foreignKeys: [{ columns: ['company_id'], refTable: 'companies', refColumns: ['id'] }],
+    }, new Set(['odd"table']), new Set(['odd"table']));
+    expect(plan.sql).toContain('INSERT INTO "odd""table" ("id", "company_id", "na""me")');
+    expect(plan.sql).toContain('FROM "odd""table" WHERE');
+    expect(plan.sql).not.toMatch(/"odd"table"/);
+  });
+});
+
 describe('planTableClone', () => {
   it('re-keys the id, the company, and keys that point inside the copied set; leaves the rest alone', () => {
     const plan = planTableClone(glAccounts, SET, SCOPED);
