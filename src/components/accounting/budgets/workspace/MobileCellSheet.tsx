@@ -1,6 +1,6 @@
 /**
  * The phone / coarse-pointer editor (spec §12): a bottom sheet for ONE cell, opened by tapping it.
- * It names the account and month, takes the amount (`MoneyField`, the kit parser), and offers
+ * It names the account and month (and shows the account's budget note, read-only), takes the amount (`MoneyField`, the kit parser), and offers
  * Save cell, Next month (saves, then moves on) and the row's actions. No range selection, clipboard or fill here.
  * A saved cell joins the normal dirty / undo / save-bar flow.
  */
@@ -14,6 +14,8 @@ export interface MobileCellTarget {
   accountLabel: string;
   /** "Mar 2026" / "Full year" */
   monthLabel: string;
+  /** The account's budget note for the year, shown read-only; null when none. */
+  note: string | null;
   cents: number | null;
   editable: boolean;
   readReason: string | null;
@@ -52,6 +54,11 @@ export function MobileCellSheet({ target, onSave, onNext, onClose, actions }: Mo
         <div>
           <p className="text-sm font-semibold text-[var(--ff-text-primary)]">{target.accountLabel}</p>
           <p className="text-xs text-[var(--ff-text-tertiary)]">{target.monthLabel}{target.isTotal ? ' (spread evenly over the months)' : ''}</p>
+          {target.note && (
+            <p data-testid="sheet-note" className="mt-1 text-xs text-[var(--ff-text-secondary)] whitespace-pre-line">
+              <span className="font-medium">Note:</span> {target.note}
+            </p>
+          )}
         </div>
         {target.editable ? (
           <MoneyField label="Budget" value={cents} allowNegative

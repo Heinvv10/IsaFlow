@@ -15,6 +15,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { createPat, listPats, PAT_SCOPES } from '@/lib/auth/personalAccessTokens';
 import { scopesRoleMayNotHold } from '@/lib/auth/writeRoles';
+import { CONNECTOR_COMPANY_REFUSED_MESSAGE, isConnectorEnabled } from '@/lib/auth/connectorCompanies';
 
 const VALID_SCOPES = new Set<string>(PAT_SCOPES);
 const MAX_NAME_LEN = 80;
@@ -61,6 +62,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const refused = scopesRoleMayNotHold(companyRole, scopes);
     if (refused.length > 0) {
       return apiResponse.forbidden(res, `Your role (${companyRole ?? 'unknown'}) cannot grant ${refused.join(', ')}. Choose read scopes only.`);
+    }
+
+    // A PAT is only good at /api/mcp, which refuses a company without the connector.
+    if (!(await isConnectorEnabled(companyId))) {
+      return apiResponse.forbidden(res, CONNECTOR_COMPANY_REFUSED_MESSAGE);
     }
 
     const result = await createPat({ userId, companyId, name, scopes, expiresInDays });

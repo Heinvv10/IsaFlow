@@ -25,8 +25,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `Invalid template. Valid: ${VALID_TEMPLATES.join(', ')}`);
   }
 
-  await seedChartOfAccountsFromTemplate(companyId, template);
-  return apiResponse.success(res, { seeded: true, template });
+  // `inserted`: accounts the template added. Codes the company already has are left exactly as they are
+  // (name, parent, level), so a re-run over an existing chart adds what is missing and changes nothing else.
+  const inserted = await seedChartOfAccountsFromTemplate(companyId, template);
+  return apiResponse.success(res, { seeded: true, template, inserted });
 }
 
 // Seeding writes the chart and its role holders: owners and admins only, the
