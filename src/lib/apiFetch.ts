@@ -92,7 +92,8 @@ function isRefreshUrl(url: string): boolean {
 /** Error carrying the HTTP status, so callers can branch on it (retry, backoff)
  *  rather than string-matching a message. */
 export class ApiRequestError extends Error {
-  constructor(message: string, readonly status: number) {
+  /** `retryAfterSecs`: a refusal's Retry-After in whole seconds, when the server sent one. */
+  constructor(message: string, readonly status: number, readonly retryAfterSecs?: number) {
     super(message);
     this.name = 'ApiRequestError';
   }
@@ -118,7 +119,9 @@ export async function assertOk(res: Response, fallback: string): Promise<void> {
     message = json.message || json.error?.message || fallback;
   } catch { /* empty or non-JSON body — keep the caller's fallback */ }
 
-  throw new ApiRequestError(message, res.status);
+  const retryAfter = res.headers.get('Retry-After');
+  const secs = retryAfter !== null && /^\d+$/.test(retryAfter.trim()) ? Number(retryAfter.trim()) : undefined;
+  throw new ApiRequestError(message, res.status, secs);
 }
 
 export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
