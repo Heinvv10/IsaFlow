@@ -6,7 +6,7 @@
  * Versions (contract: "readers use the primary"): with no `versionId` each
  * financial year the read covers contributes its PRIMARY version's months (a
  * year with none contributes nothing), the rule of
- * `budgets/budgetVersionScope.primaryVersionScope`, applied to the years the
+ * `budgets/budgetVersionScope.primaryVersionScopeAndYears`, applied to the years the
  * window already resolved. A named version must belong to the company (else 404,
  * through `versionYear`), and every month of the window must lie in that
  * version's year, else 400 "version X is FY2027; the window reaches FY2028".

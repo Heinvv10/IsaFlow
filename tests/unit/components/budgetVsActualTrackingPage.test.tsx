@@ -7,6 +7,7 @@
  * exports carry the same window. The figures are the engine's (the fixture is
  * built from its pure modules), and an absent budget prints "—".
  */
+import { budgetElsewhereNotice, noBudgetYearNotice } from '@/modules/accounting/services/budgets/tracking/trackingNoticeText';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -171,9 +172,9 @@ describe('budget vs actual tracking page: notices', () => {
     }));
     render(<BudgetVsActualPage />);
     expect((await screen.findByTestId('bva-no-budget-2028')).textContent)
-      .toBe('No budget for FY2028 in this window: its Budget and variance columns are shown as —, never as zero.');
+      .toBe(noBudgetYearNotice(2028));
     // Review r2 (R8): a year whose budget is all at other dimensions is not "no budget".
-    expect(screen.getByTestId('bva-budget-elsewhere-2027').textContent).toBe('FY2027 has a budget, but none of it is at this filter.');
+    expect(screen.getByTestId('bva-budget-elsewhere-2027').textContent).toBe(budgetElsewhereNotice(2027));
     expect(screen.getByTestId('bva-partial-budget').textContent)
       .toBe('2 accounts are budgeted for only part of this window (marked ½): their Budget and variance are shown as —.');
     expect(screen.getByTestId('bva-unbudgeted').textContent).toMatch(/^1 account carry actuals with no budget \(R\s?300\.00 of income actuals\)\.$/);

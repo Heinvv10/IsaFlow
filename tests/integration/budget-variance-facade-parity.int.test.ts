@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { round2 } from '@/modules/accounting/services/core/budgetMonths';
-import { primaryVersionScope } from '@/modules/accounting/services/budgets/budgetVersionScope';
+import { primaryVersionScopeAndYears } from '@/modules/accounting/services/budgets/budgetVersionScope';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { budgetMonthBounds, budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
@@ -73,7 +73,7 @@ async function oracleActuals(companyId: string, startDate: string, endDate: stri
 async function oracleBudgets(companyId: string, startDate: string, endDate: string): Promise<Record<string, number>> {
   const bounds = budgetMonthBounds(startDate, endDate);
   if (!bounds) return {};
-  const scope = (await primaryVersionScope(companyId, startDate, endDate))
+  const scope = (await primaryVersionScopeAndYears(companyId, startDate, endDate)).scope
     .filter((s): s is typeof s & { versionId: string } => s.versionId !== null);
   if (scope.length === 0) return {};
   const rows = (await sql`

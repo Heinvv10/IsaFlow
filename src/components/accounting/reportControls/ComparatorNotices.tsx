@@ -13,6 +13,7 @@
  */
 import { AlertCircle, Info } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
+import { budgetElsewhereNotice, noBudgetYearNotice } from '@/modules/accounting/services/budgets/tracking/trackingNoticeText';
 import type { BudgetInfo, BudgetState } from './useStatementComparators';
 
 export type { BudgetInfo } from './useStatementComparators';
@@ -58,8 +59,6 @@ function unallocatedText(u: { income: number; expense: number }): string | null 
   return `${parts.join(' and ')} on these accounts is set at company level or above this filter and is not split, so the Budget column leaves it out. Clear the dimension filters to see it.`;
 }
 
-const yearsText = (years: readonly number[]) => years.map((y) => `FY${y}`).join(' and ');
-
 /** Pure: the notices a given comparator state warrants, in reading order. */
 export function comparatorNotices(
   { budgetState, trendFailed, companyWideUnavailable = false, budget }: ComparatorNoticeState,
@@ -71,7 +70,7 @@ export function comparatorNotices(
   if (budgetState === 'failed') out.push({ tone: 'error', text: BUDGET_FAILED });
   if (budgetState === 'refused') {
     // The server's own reason (the window is not one it will read): no advice to reload, it cannot help.
-    out.push({ tone: 'error', text: `The Budget column is empty: ${(budget?.rejection ?? 'the window was refused').replace(/\.$/, '')}.` });
+    out.push({ tone: 'error', text: `The Budget column is empty. ${(budget?.rejection ?? 'The window was refused').replace(/\.$/, '')}.` });
   }
   if (budgetState === 'limited') {
     out.push({ tone: 'error', text: `Too many report requests, so the Budget column is empty: try again in ${waitWords(budget?.retryAfterSecs ?? null)}.`, retry: true });
@@ -86,14 +85,14 @@ export function comparatorNotices(
     if (budget?.splitsMonth) {
       out.push({ tone: 'info', text: BUDGET_WHOLE_MONTHS });
     } else if (budget && budget.budgetAbsentYears.length > 0) {
-      out.push({ tone: 'info', text: `No budget for ${yearsText(budget.budgetAbsentYears)} in this window, so the Budget column is empty.` });
+      for (const fy of budget.budgetAbsentYears) out.push({ tone: 'info', text: noBudgetYearNotice(fy) });
     } else if (unallocated === null && partial === 0 && outside.length === 0) {
       out.push({ tone: 'info', text: BUDGET_NONE });
     }
   }
   // A year that has a budget, none of it at this filter: not "no budget" (it is set at other cost centres).
   if (outside.length > 0 && !budget?.splitsMonth) {
-    out.push({ tone: 'info', text: `${yearsText(outside)} ${outside.length === 1 ? 'has' : 'have'} a budget, but none of it is at this filter.` });
+    for (const fy of outside) out.push({ tone: 'info', text: budgetElsewhereNotice(fy) });
   }
   if (unallocated !== null) out.push({ tone: 'info', text: unallocated });
   if (partial > 0) {

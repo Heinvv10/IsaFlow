@@ -10,7 +10,7 @@
  *     `endDate` inclusive, read exactly, and the budget is every calendar month
  *     the range touches, whole (P0's rule). No 24-month cap here: MCP may ask
  *     for any range (the comparator route caps its own).
- *   - Versions per year by P1's own scope (`primaryVersionScope`), so a registry
+ *   - Versions per year by P1's own scope (`primaryVersionScopeAndYears`), so a registry
  *     year that starts mid-month is read the way the budgets page writes it (a
  *     shared month counts once, in the earlier year), not refused with a 409.
  *     The year holding the range's end is judged for the absent rule even when

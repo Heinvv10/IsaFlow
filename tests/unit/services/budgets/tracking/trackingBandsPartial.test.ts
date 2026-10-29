@@ -71,9 +71,10 @@ describe('review round 5 (G1): a cross-year window, budgeted in some years only'
   });
 
   it('within one fiscal year the D5 per-month rule stays: a budget for some months is the budget', () => {
-    const lines = build2([cell('sales', M27, 90)], [{ fiscalYear: 2027, months: [M26, M27] }]);
+    // Rent (an expense band) is budgeted too: a band with lines and no budget would make net profit null (final R9).
+    const lines = build2([cell('sales', M27, 90), cell('rent', M27, 20)], [{ fiscalYear: 2027, months: [M26, M27] }]);
     expect([lines[0]!.budget, lines[0]!.partialBudget]).toEqual([90, false]);
-    expect(buildBands(lines).find((x) => x.key === 'net_profit')!.budget).toBe(90);
+    expect(buildBands(lines).find((x) => x.key === 'net_profit')!.budget).toBe(70);
   });
 });
 
@@ -106,5 +107,42 @@ describe('review round 6', () => {
     expect(buildNotices(LINES, { noVersion: false, noVersionYears: [], budgetAbsent: false }).partialBudget)
       .toEqual({ count: 2, actual: { income: 100, expense: 30 } });
     expect(buildNotices(LINES.filter((l) => !l.partialBudget), { noVersion: false, noVersionYears: [], budgetAbsent: false }).partialBudget).toBeNull();
+  });
+});
+
+describe('review round 3: a partial line is on the report even with no figure of its own', () => {
+  const M26 = '2026-02';
+  const M27 = '2026-03';
+  const YEARS = [{ fiscalYear: 2026, months: [M26] }, { fiscalYear: 2027, months: [M27] }];
+  // Sales is budgeted in FY2027 only (partial) and has no actual; rent is budgeted in both years.
+  // FY2028's plan: the 2026 budget months are outside it, so the partial line has no FY budget either and only its verdict keeps it.
+  const PLAN28 = projectionPlan({ fiscalYear: 2028, startDate: '2027-03-01', endDate: '2028-02-29' }, '2027-06-30', '2027-10-26');
+  const lines = buildTrackingLines({
+    accounts: ACCOUNTS, windowMonths: [M26, M27], plan: PLAN28, windowYears: YEARS,
+    actuals: [{ accountId: 'rent', month: M27, amount: 40 }],
+    budgets: [{ accountId: 'sales', month: M27, amount: 90, cls: 'included' }, { accountId: 'rent', month: M26, amount: 20, cls: 'included' },
+      { accountId: 'rent', month: M27, amount: 20, cls: 'included' }],
+  });
+
+  it('the partial account is a line (the notice counts it and its band is null because of it), not dropped for having no actual', () => {
+    expect(lines.map((l) => [l.accountId, l.budgetVerdict]).sort()).toEqual([['rent', 'budgeted'], ['sales', 'partial']]);
+    const bands = buildBands(lines);
+    expect([bands.find((x) => x.key === 'turnover')!.budget, bands.find((x) => x.key === 'operating_expense')!.budget]).toEqual([null, 40]);
+    expect(buildNotices(lines, { noVersion: false, noVersionYears: [], budgetAbsent: false }).partialBudget?.count).toBe(1);
+  });
+});
+
+describe('review round 3: a line kept only for the projection says nothing about the window budget', () => {
+  it('rent has an FY budget in a later month, no window figure: its band is empty (0), not "lines with no budget", so net profit stays a figure', () => {
+    const lines = buildTrackingLines({
+      accounts: ACCOUNTS, windowMonths: [M], plan: PLAN,
+      actuals: [{ accountId: 'sales', month: M, amount: 1000 }],
+      budgets: [{ accountId: 'sales', month: M, amount: 900, cls: 'included' }, { accountId: 'rent', month: '2026-09', amount: 400, cls: 'included' }],
+    });
+    const rent = lines.find((l) => l.accountId === 'rent')!;
+    expect([rent.budgetVerdict, rent.fyBudget, rent.actual]).toEqual(['unbudgeted', 400, 0]);
+    const net = buildBands(lines).find((x) => x.key === 'net_profit')!;
+    // Window: sales 900, no opex lines that speak. FY: sales 900 less rent 400.
+    expect([net.budget, net.fyBudget]).toEqual([900, 500]);
   });
 });

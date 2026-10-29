@@ -1,6 +1,6 @@
 /**
  * getBudgetVariance's two modes in the unit tier (budgets P3 PR-C, review r1 TDD F1/F2/F5, ledger
- * LB-1..LB-3): the REAL facade, trackingRange, trackingCore, P1's primaryVersionScope and the line
+ * LB-1..LB-3): the REAL facade, trackingRange, trackingCore, P1's primaryVersionScopeAndYears and the line
  * builder against an in-memory ledger (helpers/budgetLedgerFake). Real PostgreSQL parity is
  * budget-variance-facade-parity.int.test.ts; this catches the same mistakes in the local gate.
  */

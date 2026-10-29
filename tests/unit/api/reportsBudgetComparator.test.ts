@@ -124,7 +124,11 @@ describe('reports-budget-comparator', () => {
     expect(await reason({ period_start: '2024-01-01', period_end: '2026-12-31' })).toBe('A window can be at most 24 months');
     expect(await reason({ period_start: '2026-08-31', period_end: '2026-08-01' })).toBe('The end date must not precede the start date');
     expect(await reason({ period_start: 'abc', period_end: '2026-08-31' })).toBe('The start date must be a date, YYYY-MM-DD');
-    expect(await reason({ ...WINDOW, cost_centre_id: 'nope' })).toMatch(/^cost_centre_id: /);
+    // A bad id is a sentence about the thing, per dimension, never a field name or a parser's words.
+    expect(await reason({ ...WINDOW, cost_centre_id: 'nope' })).toBe('That cost centre is not valid.');
+    expect(await reason({ ...WINDOW, cc2_id: 'nope' })).toBe('That cost centre is not valid.');
+    expect(await reason({ ...WINDOW, business_unit_id: 'nope' })).toBe('That business unit is not valid.');
+    expect(await reason({ ...WINDOW, version_id: 'nope' })).toBe('That budget version is not valid.');
   });
 
   it('takes exactly 24 months and a leap day', async () => {

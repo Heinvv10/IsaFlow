@@ -145,12 +145,10 @@ async function yearsInWindow(companyId: string, startDate: string, endDate: stri
   return { parts, visited };
 }
 
-/** Each registry year overlapping the window, with its primary version (or null) and its months in the window. */
-export async function primaryVersionScope(companyId: string, startDate: string, endDate: string): Promise<VersionScope[]> {
-  return (await primaryVersionScopeAndYears(companyId, startDate, endDate)).scope;
-}
-
-/** `primaryVersionScope` and the registry years the window touches by date (see `yearsInWindow`), in ONE walk. */
+/**
+ * Each registry year overlapping the window with its primary version (or null) and its months in the window
+ * (`scope`), and the registry years the window touches by date (`years`, see `yearsInWindow`), from ONE walk.
+ */
 export async function primaryVersionScopeAndYears(
   companyId: string, startDate: string, endDate: string,
 ): Promise<{ scope: VersionScope[]; years: FiscalYearRecord[] }> {

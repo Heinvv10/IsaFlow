@@ -91,11 +91,13 @@ describe('LB2-1 / R9: nothing is budgeted at the filter where the budget sits ab
     expect(r.sections.revenue.favourable).toBeNull();
   });
 
-  it('only the expense budget at the filter: no zero revenue target', async () => {
+  it('only the expense budget at the filter: no zero revenue target, no one-sided profit', async () => {
     W.cells = [{ version: 'v27', account: RENT, month: '2026-04', amount: 150, cc1: FNO }];
     const r = await run({ costCentreId: FNO });
     // Sales has no budget anywhere (unbudgeted), so the sections are the engine's: revenue none, never 0.
     expect([r.sections.revenue.budget, r.sections.expense.budget]).toEqual([null, 150]);
     expect(band(r, 'turnover')).toBeNull();
+    // Final R9: a band with an actual and no budget nulls net profit; the expense budget alone is never a profit budget.
+    expect([band(r, 'net_profit'), r.sections.net_profit.budget, r.totals.budget]).toEqual([null, null, null]);
   });
 });

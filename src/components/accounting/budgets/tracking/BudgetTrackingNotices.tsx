@@ -6,6 +6,7 @@
  * budget set above the filter (never split; "View unfiltered" clears it).
  * Every figure is the engine's; this file only words them.
  */
+import { budgetElsewhereNotice, noBudgetYearNotice } from '@/modules/accounting/services/budgets/tracking/trackingNoticeText';
 import { longDate, monthLabel } from '@/components/accounting/budgets/budgetClient';
 import { formatMoney } from '@/lib/money/formatMoney';
 import type { BudgetTrackingReport, ByPolarity, TrackingProjectionInfo } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
@@ -80,12 +81,12 @@ export function BudgetTrackingNotices({ report, filtered, onViewUnfiltered }: {
     <div className="space-y-2">
       {n.noVersionYears.map((fy) => (
         <p key={fy} role="status" data-testid={`bva-no-budget-${fy}`} className={AMBER}>
-          {`No budget for FY${fy} in this window: its Budget and variance columns are shown as —, never as zero.`}
+          {noBudgetYearNotice(fy)}
         </p>
       ))}
       {n.noBudgetAtFilterYears.map((fy) => (
         <p key={fy} role="status" data-testid={`bva-budget-elsewhere-${fy}`} className={INFO}>
-          {`FY${fy} has a budget, but none of it is at this filter.`}
+          {budgetElsewhereNotice(fy)}
         </p>
       ))}
       {n.partialBudget && (

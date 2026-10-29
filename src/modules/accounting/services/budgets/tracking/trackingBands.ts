@@ -8,18 +8,17 @@
  * Operating Profit (= GP + Other Income − Opex), Other Expenses, Net Profit
  * (= OP − Other Expenses). There is no revenue + expense total (D1).
  *
- * A band's budget is Σ its lines' budgets with an unbudgeted line counting 0
- * (its actual then sits inside the band variance: the notice names it); a
- * band with NO budgeted line is absent (null), never zero. Unallocated budget
- * on a profit total is netted by polarity the same way. A profit total is
- * absent only when every band under it is. The same rules hold for the
- * projection's FY budget. Favourable: income bands up, expense bands down,
- * profit totals up.
- *
- * A band with NO budget at the filter because its budget sits ABOVE it (a line whose verdict is
- * `above-filter`) is not an empty band: a profit total netting it has no budget either (review r2,
- * R9), never the other side's budget alone. A band with no budgeted line and no such line (empty, or
- * only unbudgeted accounts, which the notice names) still counts 0.
+ * The rule for a budget that is netted (review r3, the lead's FINAL R9 ruling), the same for the
+ * window budget and the projection's FY budget, on the comparator and on Budget vs Actual:
+ *   - a band's budget is NULL when a line in it is partial, when a line's budget sits only above the
+ *     filter (strict, never apportioned), or when the band has lines and none of them has a budget;
+ *   - an unbudgeted line inside a band that has a budgeted line counts 0, and a band with no lines
+ *     counts 0 (it shows no budget of its own);
+ *   - a profit total (gross, operating, net), and a P0 section, is NULL when any band it nets is
+ *     NULL: never one side's budget alone. When every band it nets has no lines it is absent too.
+ * The cost is deliberate: under a filter, Net Profit is "—" whenever a band is budgeted above the
+ * filter (company-level overheads, say) or holds an account with no budget. Unallocated budget on a
+ * profit total is netted by polarity. Favourable: income bands up, expense bands down, profit totals up.
  */
 import { fromCents, toCents } from '../grid/cents';
 import { BAND_LABEL, BAND_ORDER, BAND_SIGN } from '../grid/subtotals';
@@ -29,41 +28,75 @@ import type { ByPolarity, TrackingBand, TrackingBandKey, TrackingLine, TrackingN
 /** The grid's bands (`budgets/grid/subtotals.ts`): one key set, label and sign for every budget surface. */
 const BANDS = BAND_ORDER.map((key) => ({ key, label: BAND_LABEL[key], polarity: BAND_SIGN[key] === 1 ? 'income' as const : 'expense' as const }));
 
-/** Cents, with null = absent. */
-/** Cents, with null = absent. `partial`: a line under it budgets only part of the window (G1). */
+/**
+ * Cents. `budget` / `fyBudget`: null = absent. `blocked`: the budget is NULL for a reason that makes a
+ * profit total netting it NULL too (see the header); `empty`: no lines at all, so it counts 0 and shows none.
+ * `partial`: a line under it budgets only part of the window (G1).
+ */
 interface Sums {
-  actual: number; budget: number | null; projected: number; fyBudget: number | null; unallocated: number | null; partial: boolean;
-  /** No budget at the filter because it sits above it: a profit total netting this has no budget (R9). */
-  hidden: boolean;
+  actual: number; projected: number; unallocated: number | null; partial: boolean;
+  budget: number | null; budgetBlocked: boolean;
+  fyBudget: number | null; fyBlocked: boolean;
+  empty: boolean; fyEmpty: boolean;
 }
 
 const plus = (x: number | null, y: number | null): number | null => (x === null && y === null ? null : (x ?? 0) + (y ?? 0));
 const minus = (x: number | null, y: number | null): number | null => (x === null && y === null ? null : (x ?? 0) - (y ?? 0));
 
+/**
+ * A line that says something about the band's WINDOW budget: it has an actual, a budget, a partial budget or
+ * one above the filter. The report keeps other lines only for the projection (an FY budget with no window
+ * figure); they must not turn a band with no budget into "a band with lines", or the two pages (the report
+ * keeps them, the range does not) would disagree.
+ */
+const speaks = (l: TrackingLine): boolean => l.actual !== 0 || l.budget !== null || l.partialBudget || l.budgetVerdict === 'above-filter';
+
 function sumLines(lines: readonly TrackingLine[], unallocatedAbsent: boolean): Sums {
   const cents = (v: number | null) => (v === null ? 0 : toCents(v));
+  const win = lines.filter(speaks);
+  const fy = lines.filter((l) => speaks(l) || l.fyBudget !== null);
+  const partial = lines.some((l) => l.partialBudget);
+  const above = lines.some((l) => l.budgetVerdict === 'above-filter');
+  const budgetBlocked = partial || above || (win.length > 0 && !win.some((l) => l.budget !== null));
+  const fyBlocked = partial || above || (fy.length > 0 && !fy.some((l) => l.fyBudget !== null));
   return {
     actual: lines.reduce((s, l) => s + toCents(l.actual), 0),
-    budget: lines.some((l) => l.budget !== null) ? lines.reduce((s, l) => s + cents(l.budget), 0) : null,
     projected: lines.reduce((s, l) => s + toCents(l.projected), 0),
-    fyBudget: lines.some((l) => l.fyBudget !== null) ? lines.reduce((s, l) => s + cents(l.fyBudget), 0) : null,
     unallocated: unallocatedAbsent ? null : lines.reduce((s, l) => s + cents(l.unallocatedBudget), 0),
-    partial: lines.some((l) => l.partialBudget),
-    hidden: !lines.some((l) => l.budget !== null) && lines.some((l) => l.budgetVerdict === 'above-filter'),
+    partial,
+    budget: budgetBlocked || win.length === 0 ? null : win.reduce((s, l) => s + cents(l.budget), 0),
+    budgetBlocked,
+    fyBudget: fyBlocked || fy.length === 0 ? null : fy.reduce((s, l) => s + cents(l.fyBudget), 0),
+    fyBlocked,
+    empty: win.length === 0,
+    fyEmpty: fy.length === 0,
   };
+}
+
+/** x ± y for a netted budget: NULL when either side is blocked; an empty side counts 0; both empty is absent. */
+function net(
+  x: { v: number | null; blocked: boolean; empty: boolean }, y: { v: number | null; blocked: boolean; empty: boolean }, op: 'plus' | 'minus',
+): { v: number | null; blocked: boolean; empty: boolean } {
+  if (x.blocked || y.blocked) return { v: null, blocked: true, empty: false };
+  if (x.empty && y.empty) return { v: null, blocked: false, empty: true };
+  const a = x.v ?? 0;
+  const b = y.v ?? 0;
+  return { v: op === 'plus' ? a + b : a - b, blocked: false, empty: false };
 }
 
 function combine(x: Sums, y: Sums, op: 'plus' | 'minus'): Sums {
   const f = op === 'plus' ? plus : minus;
+  const w = net({ v: x.budget, blocked: x.budgetBlocked, empty: x.empty }, { v: y.budget, blocked: y.budgetBlocked, empty: y.empty }, op);
+  const fy = net({ v: x.fyBudget, blocked: x.fyBlocked, empty: x.fyEmpty }, { v: y.fyBudget, blocked: y.fyBlocked, empty: y.fyEmpty }, op);
   return {
     actual: op === 'plus' ? x.actual + y.actual : x.actual - y.actual,
-    budget: f(x.budget, y.budget),
     projected: op === 'plus' ? x.projected + y.projected : x.projected - y.projected,
-    fyBudget: f(x.fyBudget, y.fyBudget),
-    // Netted by polarity like the budget (D1: never income + expense).
+    // Netted by polarity (D1: never income + expense); null-tolerant, it is a footer figure, not a target.
     unallocated: f(x.unallocated, y.unallocated),
     partial: x.partial || y.partial,
-    hidden: x.hidden || y.hidden,
+    budget: w.v, budgetBlocked: w.blocked,
+    fyBudget: fy.v, fyBlocked: fy.blocked,
+    empty: w.empty, fyEmpty: fy.empty,
   };
 }
 
@@ -95,26 +128,20 @@ function bandSums(lines: readonly TrackingLine[], budgetAbsent: boolean): Map<Tr
   return new Map(BANDS.map((b) => [b.key, sumLines(lines.filter((l) => l.band === b.key), unallocatedAbsent)]));
 }
 
-// A band holding a line that budgets only part of the window has a partial-window budget too:
-// absent, like the totals above it (review r6 F2). A band whose lines are whole keeps its own. A
-// band whose only budget sits above the filter is absent as well (review r2, R9).
-const whole = (x: Sums): Sums => (x.partial || x.hidden ? { ...x, budget: null } : x);
-
 /** The eight bands and totals, in statement order. */
 export function buildBands(lines: readonly TrackingLine[], opts: { budgetAbsent?: boolean } = {}): TrackingBand[] {
   const sums = bandSums(lines, opts.budgetAbsent === true);
   const band = (key: TrackingBandKey) => {
     const def = BANDS.find((b) => b.key === key)!;
-    return figures(key, def.label, 'band', def.polarity, whole(sums.get(key)!));
+    return figures(key, def.label, 'band', def.polarity, sums.get(key)!);
   };
   const s = (key: TrackingBandKey) => sums.get(key)!;
   const gross = combine(s('turnover'), s('cost_of_sales'), 'minus');
   const operating = combine(combine(gross, s('other_income'), 'plus'), s('operating_expense'), 'minus');
   const net = combine(operating, s('other_expense'), 'minus');
-  // A profit total over a line that budgets only part of the window is a partial-window figure: its
-  // budget is absent (review r5 G1), so no bridge is drawn from it.
+  // A profit total netting a null band is null (the header's rule), so no bridge is drawn from it.
   const total = (key: TrackingTotalKey, label: string, kind: 'total' | 'grand', x: Sums) =>
-    figures(key, label, kind, 'income', whole(x));
+    figures(key, label, kind, 'income', x);
   return [
     band('turnover'),
     band('cost_of_sales'),
@@ -129,16 +156,16 @@ export function buildBands(lines: readonly TrackingLine[], opts: { budgetAbsent?
 
 /**
  * The budgets of P0's three sections (revenue, expenses, net profit) as the ENGINE's bands give
- * them, null where a band under them is partial or has its budget above the filter, or the window
- * budget is absent (review r2, LB2-1): never a sum of the lines that happen to be budgeted, and
- * never a zero nobody set. Net profit is the engine's own net-profit band.
+ * them, null where any band under them is null by the header's rule (partial, above the filter,
+ * lines with no budget) or the window budget is absent (review r2 LB2-1, r3 R9): never a sum of the
+ * lines that happen to be budgeted, and never a zero nobody set. Net profit is the engine's own band.
  */
 export function sectionBudgets(
   lines: readonly TrackingLine[], opts: { budgetAbsent?: boolean } = {},
 ): { revenue: number | null; expense: number | null; net_profit: number | null } {
   const sums = bandSums(lines, opts.budgetAbsent === true);
   const s = (key: TrackingBandKey) => sums.get(key)!;
-  const budgetOf = (x: Sums): number | null => { const b = whole(x).budget; return b === null ? null : fromCents(b); };
+  const budgetOf = (x: Sums): number | null => (x.budget === null ? null : fromCents(x.budget));
   const revenue = combine(s('turnover'), s('other_income'), 'plus');
   const expense = combine(combine(s('cost_of_sales'), s('operating_expense'), 'plus'), s('other_expense'), 'plus');
   const gross = combine(s('turnover'), s('cost_of_sales'), 'minus');

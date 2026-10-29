@@ -7,13 +7,13 @@ Budget versions and the version-aware budget entry point (budgets programme P1, 
 
 ## Files
 - `budgetVersionTypes.ts`: `BudgetVersion`, `BudgetVersionError` (code + HTTP status), `mapBudgetDbError` (BV001 → LOCKED, BV002 → STATE, 23P01 on `budget_month_amounts_one_grain` → GRAIN; anything else rethrown).
-- `budgetVersionScope.ts`: `resolvePrimaryVersion`, `lockVersionForWrite`, `primaryVersionScope` (the tracking engine's date-range entry reads it), `versionYear`, `readVersion` (the core budget reader uses it), `auditBudgetWrite`.
+- `budgetVersionScope.ts`: `resolvePrimaryVersion`, `lockVersionForWrite`, `primaryVersionScopeAndYears` (P1's primary scope per registry year and the years a range touches, in one walk; the tracking engine's date-range entry reads it), `versionYear`, `readVersion` (the core budget reader uses it), `auditBudgetWrite`.
 - `budgetVersions.ts`: list, get, create (server callers may pass `basedOn`; the POST route never does), copy, set primary, delete. `budgetVersionStatus.ts`: approve, lock, unlock.
 - `budgetNotes.ts`: `setGridNote`, `carryNotes`, `normaliseNote`, `MAX_NOTE_LENGTH` (the notes header's only writer).
 - `index.ts`: the barrel for P2+ code. The pre-P1 services stay in `core/budgetService.ts`, `core/budgetMonths.ts`, `core/budgetYears.ts`, `reports/budgetWindowService.ts`, `reports/budgetVarianceService.ts` (36 importers, 5 `vi.mock` paths) and are re-exported here; a later cleanup may move them behind it.
 
 ## Caller contract
-- Readers use the PRIMARY version of each registry year unless a `versionId` is passed. A version contributes only months of its own year; a window walks the registry years from its first day (`primaryVersionScope`), a month two years share counts once, in the earlier year.
+- Readers use the PRIMARY version of each registry year unless a `versionId` is passed. A version contributes only months of its own year; a window walks the registry years from its first day (`primaryVersionScopeAndYears`), a month two years share counts once, in the earlier year.
 - Writers lock the version FIRST (`lockVersionForWrite`: `UPDATE … SET updated_at` under `withRowLockBudget`), then write amounts. This is the upgrade-deadlock rule (the DB trigger takes `FOR SHARE`) and makes "locked" a typed 409 before any write, so the request tx is never poisoned. `gridSave` does the same (see P2 below).
 - Every amount write leaves one `audit_log` row (entity `budget`, entity_id = version id). Status moves are audited by the DB trigger, never by the app.
 - Every write bumps the version's `updated_at` (the pre-lock), so a status move sent with an `expectedUpdatedAt` read before an amount edit is 409 STALE: "changed since you loaded it" covers amounts too.

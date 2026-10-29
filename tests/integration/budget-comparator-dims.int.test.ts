@@ -92,6 +92,22 @@ describe('the comparator filter = the engine', () => {
   });
 });
 
+describe('the income statement and Budget vs Actual agree on every band and profit total (review r3, final R9)', () => {
+  // [from, to, last day]: a single year, a window across FY2027 / FY2028 (partial lines: accounts budgeted in one year), and a
+  // window reaching FY2026, which has no version.
+  const WINDOWS: Array<[string, string, string]> = [['2026-03', '2026-08', '2026-08-31'], ['2027-03', '2027-06', '2027-06-30'], ['2026-01', '2026-06', '2026-06-30']];
+  const FILTERS: Array<[string, () => BudgetVarianceOptions]> = [
+    ['no filter', () => ({})], ['either level, a CC1', () => ({ costCentreId: f.cc.FT })], ['explicit CC2', () => ({ cc2Id: f.cc.P1 })],
+  ];
+  const cases = WINDOWS.flatMap((w) => FILTERS.map((x) => [...w, ...x] as [string, string, string, string, () => BudgetVarianceOptions]));
+
+  it.each(cases)('%s to %s (%s), %s: the same band budget on both pages, null on both or the same figure', async (from, to, last, _name, opts) => {
+    const got = await facade(opts(), `${from}-01`, last);
+    const want = await engine({ ...opts(), from, to });
+    expect(got.bands.map((b) => [b.key, b.budget])).toEqual(want.bands.map((b) => [b.key, b.budget]));
+  });
+});
+
 describe('ids under the company', () => {
   it.each([
     ["another company's version", () => ({ versionId: f.v.b27 })],

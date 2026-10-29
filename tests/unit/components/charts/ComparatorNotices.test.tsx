@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { vi } from 'vitest';
+import { budgetElsewhereNotice, noBudgetYearNotice } from '@/modules/accounting/services/budgets/tracking/trackingNoticeText';
 import {
   ComparatorNotices, comparatorNotices, BUDGET_NONE, BUDGET_FAILED, TREND_FAILED,
   COMPANY_WIDE_UNAVAILABLE, BUDGET_WHOLE_MONTHS, type BudgetInfo,
@@ -78,9 +79,10 @@ describe('comparatorNotices: the budget under a filter (budgets P3 PR-C)', () =>
 
   it('a year with no budget in the window is named, never "no budget captured"', () => {
     const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026] }) });
-    expect(n).toEqual([{ tone: 'info', text: 'No budget for FY2026 in this window, so the Budget column is empty.' }]);
-    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026, 2028] }) })[0]!.text)
-      .toBe('No budget for FY2026 and FY2028 in this window, so the Budget column is empty.');
+    expect(n).toEqual([{ tone: 'info', text: noBudgetYearNotice(2026) }]);
+    // One notice per year, as Budget vs Actual prints them.
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026, 2028] }) }).map((x) => x.text))
+      .toEqual([noBudgetYearNotice(2026), noBudgetYearNotice(2028)]);
   });
 
   it('budget set above the filter is reported per polarity and never summed; it replaces "no budget captured"', () => {
@@ -109,6 +111,14 @@ describe('comparatorNotices: the budget under a filter (budgets P3 PR-C)', () =>
   });
 });
 
+describe('the absent-year notice is ONE string on both pages (review r3)', () => {
+  it('the income statement and Budget vs Actual print the same words for the same year', () => {
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026] }) })[0]!.text)
+      .toBe('No budget for FY2026 in this window: its Budget and variance columns are shown as —, never as zero.');
+    expect(noBudgetYearNotice(2026)).toBe('No budget for FY2026 in this window: its Budget and variance columns are shown as —, never as zero.');
+  });
+});
+
 describe('<ComparatorNotices /> retry', () => {
   it('the refusal carries a Retry button that calls back once per click', () => {
     const onRetryBudget = vi.fn();
@@ -128,21 +138,21 @@ describe('comparatorNotices: whole months, absent years, a budget elsewhere, a r
 
   it('a year with no budget says so in the sentence Budget vs Actual uses: nothing about the years that do (R10 F2)', () => {
     expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2028] }) }))
-      .toEqual([{ tone: 'info', text: 'No budget for FY2028 in this window, so the Budget column is empty.' }]);
+      .toEqual([{ tone: 'info', text: 'No budget for FY2028 in this window: its Budget and variance columns are shown as —, never as zero.' }]);
   });
 
   it('a year whose budget is all at other dimensions is not "no budget": it says the budget is not at this filter (R8)', () => {
     const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetOutsideFilterYears: [2027] }) });
     expect(n).toEqual([{ tone: 'info', text: 'FY2027 has a budget, but none of it is at this filter.' }]);
-    expect(comparatorNotices({ budgetState: 'available', trendFailed: false, budget: INFO({ budgetOutsideFilterYears: [2026, 2027] }) }))
-      .toEqual([{ tone: 'info', text: 'FY2026 and FY2027 have a budget, but none of it is at this filter.' }]);
+    expect(comparatorNotices({ budgetState: 'available', trendFailed: false, budget: INFO({ budgetOutsideFilterYears: [2026, 2027] }) }).map((x) => x.text))
+      .toEqual([budgetElsewhereNotice(2026), budgetElsewhereNotice(2027)]);
   });
 
   it("a window the server refused shows the server's reason as an error, with no advice to reload (R10 F4)", () => {
     const n = comparatorNotices({ budgetState: 'refused', trendFailed: false, budget: INFO({ rejection: 'A window is at most 24 months' }) });
-    expect(n).toEqual([{ tone: 'error', text: 'The Budget column is empty: A window is at most 24 months.' }]);
+    expect(n).toEqual([{ tone: 'error', text: 'The Budget column is empty. A window is at most 24 months.' }]);
     expect(n[0]!.text).not.toMatch(/reload|loading failure/i);
     expect(comparatorNotices({ budgetState: 'refused', trendFailed: false, budget: INFO({ rejection: 'Ends first.' }) })[0]!.text)
-      .toBe('The Budget column is empty: Ends first.');
+      .toBe('The Budget column is empty. Ends first.');
   });
 });
