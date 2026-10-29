@@ -2,7 +2,8 @@
  * Budget headcount (Budgets P4 decision 7)
  * GET  ?versionId=<uuid>[&costCentreId=<uuid>] → { costCentreId, months: [{ month, payroll, hires, total }], asOf }
  *      COUNTS ONLY: payroll actives (read-only) + the version's planned hires per month of its year, at
- *      the company or one cost centre. Never names, ID numbers or pay. Any member may read.
+ *      the company or one cost centre. Never names, ID numbers or pay. Any member may read either scope
+ *      (budget readers see budget figures, decision 15; see this folder's .claude.md on one-person centres).
  * POST { versionId, expectedUpdatedAt } → { headcountAsOf, updatedAt, recomputed, warnings }: "Refresh headcount", a
  *      recompute of the version's drivers (per_head reads payroll again) whose audit row records
  *      `headcountAsOf`. Token compared-and-set first (409 BUDGET_VERSION_LOCKED / STALE); charged to `budget-driver:<userId>`
