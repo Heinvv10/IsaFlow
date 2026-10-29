@@ -208,7 +208,7 @@ export function unplacedSummary(lines: readonly UnplacedActualLine[]): string {
 }
 
 /** The plan's unplaced actuals, named (code, name, the dimension the account is budgeted by), in rand. */
-export function describeUnplaced(plan: ReforecastResult, read: ClosedActuals): UnplacedActualLine[] {
+export function describeUnplaced(plan: Pick<ReforecastResult, 'rows' | 'unplaced'>, read: ClosedActuals): UnplacedActualLine[] {
   const level = new Map(plan.rows.map((r) => [r.glAccountId, grainOf(r)]));
   return plan.unplaced.map((u) => {
     const a = read.accounts.get(u.accountId);

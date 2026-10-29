@@ -148,14 +148,16 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     expect(await values(rf, w.sales)).toEqual(['1200.00:actual', '1500.00:actual', ...Array(10).fill('0.00:actual')]);
   });
 
-  it('auto-roll toggles off and on under the token; only a reforecast can roll', async () => {
+  it('auto-roll toggles off and on under the token; Roll now refreshes a non-rolling reforecast; only a reforecast rolls', async () => {
     const { w, rf } = await rollingWorld();
     const off = await fx.call.reforecast(w.u, rf, 'PUT', { rolling: false, expectedUpdatedAt: await fx.token(rf) });
     expect(off.status, dump(off)).toBe(200);
     expect(dataOf(off)).toMatchObject({ rolling: false, changed: true });
     expect(await fx.rollingRow(rf)).toBeUndefined();
-    const notRolling = await rollNow(w, rf);
-    expect([notRolling.status, details(notRolling).code], dump(notRolling)).toEqual([409, 'BUDGET_VERSION_STATE']);
+    // Roll now on a reforecast that does not roll: a manual refresh, nothing stamped.
+    const refresh = await rollNow(w, rf);
+    expect(refresh.status, dump(refresh)).toBe(200);
+    expect(await fx.rollingRow(rf)).toBeUndefined();
     const on = await fx.call.reforecast(w.u, rf, 'PUT', { rolling: true, expectedUpdatedAt: await fx.token(rf) });
     expect(dataOf(on)).toMatchObject({ rolling: true, changed: true });
     expect(await fx.rollingRow(rf)).toMatchObject({ through: null });
@@ -163,5 +165,7 @@ describe('budget rolling forecast', { timeout: 60000 }, () => {
     const refused = await fx.call.reforecast(w.u, scenario, 'PUT', { rolling: true, expectedUpdatedAt: await fx.token(scenario) });
     expect([refused.status, details(refused).code], dump(refused)).toEqual([409, 'BUDGET_VERSION_STATE']);
     expect(await fx.rollingRow(scenario)).toBeUndefined();
+    const scenarioRoll = await rollNow(w, scenario);
+    expect([scenarioRoll.status, details(scenarioRoll).code], dump(scenarioRoll)).toEqual([409, 'BUDGET_VERSION_STATE']);
   });
 });
