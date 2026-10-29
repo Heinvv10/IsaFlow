@@ -9,7 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HeadcountPanel } from '@/components/accounting/budgets/drivers/HeadcountPanel';
 import type { DriverActions } from '@/components/accounting/budgets/drivers/useDriverActions';
-import { installNetwork, ok } from '../workspace/workspaceHarness';
+import { fail, installNetwork, ok } from '../workspace/workspaceHarness';
 import { ID, MONTHS, TOKEN } from './driverFixture';
 
 afterEach(() => {
@@ -91,5 +91,42 @@ describe('HeadcountPanel', () => {
     expect(net.sent.some((s) => s.url === HIRES && s.method === 'PUT')).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh headcount' }));
     await waitFor(() => expect(net.sent.find((s) => s.url === HC && s.method === 'POST')?.body).toEqual({ versionId: ID.version, expectedUpdatedAt: TOKEN }));
+  });
+
+  it('a failed read shows its error; the next good read clears it', async () => {
+    const { net } = setup();
+    net.on((u) => u.startsWith(`${HC}?`) && !u.includes('costCentreId'), () => fail(500, 'Headcount is unavailable.'));
+    cleanup();
+    render(<HeadcountPanel versionId={ID.version} months={MONTHS} costCentres={[{ id: ID.m1, label: 'CC-A Alpha' }]} editable runWrite={runWrite} onCountsChanged={vi.fn()} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Headcount is unavailable.');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Headcount of' }), { target: { value: ID.m1 } });
+    await screen.findByTestId('headcount-table');
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('a refused hire write keeps its message on the row and reads the hires again', async () => {
+    const { net } = setup();
+    net.on((u, m) => u === HIRES && m === 'PUT', () => fail(404, 'Planned hire not found'));
+    const label = await screen.findByRole('textbox', { name: 'Role of Sales rep' });
+    const reads = () => net.sent.filter((s) => s.url.startsWith(`${HIRES}?`) && s.method === 'GET').length;
+    const before = reads();
+    fireEvent.click(within(label.closest('li')!).getByRole('button', { name: 'Save' }));
+    expect(await within(label.closest('li')!).findByRole('alert')).toHaveTextContent('Planned hire not found');
+    await waitFor(() => expect(reads()).toBe(before + 1));
+  });
+
+  it('Delete asks first in the row: Keep sends nothing, Delete sends the DELETE with the token', async () => {
+    const { net } = setup();
+    net.on((u, m) => u.startsWith(`${HIRES}?`) && m === 'DELETE', () => ok({ deleted: true, id: HIRE.id, updatedAt: 'T2', recomputed: 0, warnings: [] }));
+    const row = (await screen.findByRole('textbox', { name: 'Role of Sales rep' })).closest('li')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
+    const confirm = within(row).getByRole('group', { name: 'Confirm deleting Sales rep' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Keep' }));
+    expect(net.sent.some((s) => s.method === 'DELETE')).toBe(false);
+    fireEvent.click(within(row).getByRole('button', { name: 'Delete' }));
+    fireEvent.click(within(within(row).getByRole('group', { name: 'Confirm deleting Sales rep' })).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(net.sent.some((s) => s.method === 'DELETE')).toBe(true));
+    const del = new URL(net.sent.find((s) => s.method === 'DELETE')!.url, 'http://x');
+    expect(Object.fromEntries(del.searchParams)).toEqual({ versionId: ID.version, expectedUpdatedAt: TOKEN, id: HIRE.id });
   });
 });

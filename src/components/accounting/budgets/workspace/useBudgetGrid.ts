@@ -17,54 +17,11 @@ import { type ChainResult, type GridSelection, type SaveCell, fetchGridCells, fe
 import { GridStore } from './gridStore';
 import { cellsInCents } from './gridStoreParts';
 import { committedPart, savedParts, toSaveCells } from './saveSnapshot';
-import type { BudgetVersion, GridStatus, SaveState, StaleState } from './types';
+import { refreshVersion } from './gridRefresh';
+import type { GridStatus, SaveState, StaleState } from './types';
+import type { BudgetGridApi, MemberTotal, RowWarning } from './budgetGridApi';
 
-export interface MemberTotal { id: string; code: string; name: string; isActive: boolean; total: number }
-export interface RowWarning { rowKey: string; message: string }
-
-export interface BudgetGridApi {
-  store: GridStore;
-  status: GridStatus;
-  error: string | null;
-  model: GridReadModel | null;
-  version: BudgetVersion | null;
-  /** The version token: what the next save (or a status move) sends as `expectedUpdatedAt`. */
-  token: string | null;
-  /** Take the token another write answered (a driver, hire or roll write), before the grid reloads. */
-  adoptToken(token: string): void;
-  /** Re-read the version in place after a driver, hire or roll write (no skeleton; edits made meanwhile stay on top); the warnings land on the rows. */
-  refresh(warnings?: readonly RowWarning[]): Promise<void>;
-  dirtyCount: number;
-  /** Any budgeted cell in the store now (the "no amounts yet" hint). */
-  hasAmounts: boolean;
-  view: View;
-  setView(view: View): void;
-  /** The current dimension's members with their FY net profit (cents); [] in the Company view. */
-  members: MemberTotal[];
-  roundingUnit: RoundingUnit;
-  setRoundingUnit(unit: RoundingUnit): void;
-  priorStatus: 'idle' | 'loading' | 'ready' | 'error';
-  /** null: the year's primary (else newest) version. */
-  selectVersion(id: string | null): Promise<void>;
-  /** Re-read the version shown (after a status move: new token). */
-  reload(): Promise<void>;
-  save(): Promise<void>;
-  saveState: SaveState;
-  discard(): void;
-  stale: StaleState | null;
-  /**
-   * Fresh read + rebaseDirty; `intoVersionId` re-applies into another version (a draft copy of a
-   * locked one). Resolves null when done, else the message to show (the edits stay in the store).
-   */
-  reapplyMine(intoVersionId?: string): Promise<string | null>;
-  discardAndReload(): Promise<void>;
-  dismissStale(): void;
-  compareVersionId: string | null;
-  compareError: string | null;
-  setCompareVersion(id: string | null): Promise<void>;
-  /** An import's cells, chained with the PREVIEW's token; refused while the grid is dirty; reloads after. */
-  commitImport(cells: readonly SaveCell[], previewToken: string): Promise<ChainResult>;
-}
+export type { BudgetGridApi, MemberTotal, RowWarning } from './budgetGridApi';
 
 const COMPANY: View = { kind: 'company' };
 /** The Company view's members: ONE array, so its identity never changes what the grid's row handlers see. */
@@ -99,6 +56,8 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
   const priorCache = useRef(new Map<string, PriorActuals>());
   const compareCells = useRef<GridCell[] | null>(null);
   const saving = useRef(false);
+  const loads = useRef(0);
+  const refreshSeq = useRef(0);
 
   const loadPrior = useCallback(async (year: number, grain: View['kind']) => {
     const k = `${year}:${grain}`;
@@ -132,7 +91,8 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     const mine = ++seq.current;
     setStatus('loading');
     setError(null);
-    const r = await fetchGridModel(sel);
+    loads.current++;
+    const r = await fetchGridModel(sel).finally(() => { loads.current--; });
     if (mine !== seq.current) return;
     if (!r.ok) {
       live.current = { ...live.current, model: null, token: null };
@@ -173,15 +133,16 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     if (id) await load({ versionId: id }); else if (fiscalYear !== null) await load({ fiscalYear });
   }, [load, fiscalYear, clearCompare]);
 
-  const refresh = useCallback(async (warnings: readonly RowWarning[] = []) => {
+  // Its own sequence: a re-read never cancels a version switch, and one pending skips it (the load brings fresh cells).
+  const refresh = useCallback(async (warnings?: readonly RowWarning[]) => {
     const id = live.current.model?.version?.id;
-    const ticket = ++seq.current;
-    const r = id ? await fetchGridModel({ versionId: id }) : null;
-    if (ticket !== seq.current || !r?.ok) return;
-    const mine = store.dirtyMap();
-    const rebased = rebaseDirty(store.originalMap(), cellsInCents(r.data.cells), mine);
-    show(r.data, mine.size > 0 ? { values: rebased.values, conflicts: rebased.conflicts } : undefined);
-    store.setDriverWarnings(warnings);
+    const ticket = seq.current;
+    const mine = ++refreshSeq.current;
+    if (!id || loads.current > 0) return null;
+    const wanted = () => ticket === seq.current && mine === refreshSeq.current && loads.current === 0 && live.current.model?.version?.id === id;
+    const message = await refreshVersion(store, id, wanted, show);
+    if (message === null && warnings && wanted()) store.setDriverWarnings(warnings);
+    return message;
   }, [store, show]);
 
   const setView = useCallback((v: View) => {
@@ -213,7 +174,8 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
         setSaveState({ status: 'saved', saved: res.saved, deleted: res.deleted, ...(res.drivers ? { drivers: res.drivers } : {}) });
         store.announce(`Saved ${snapshot.size} change${snapshot.size === 1 ? '' : 's'}`);
         // The server marked typed driver cells as overrides and recomputed dependents: show its cells.
-        if (res.drivers || (m?.drivers?.length ?? 0) > 0) await refresh(res.drivers?.warnings ?? []);
+        const reread = res.drivers || (m?.drivers?.length ?? 0) > 0 ? await refresh(res.drivers?.warnings) : null;
+        if (reread) setSaveState((s) => (s.status === 'saved' ? { ...s, refreshError: reread } : s));
         return;
       }
       const f = res.failure;

@@ -120,7 +120,7 @@ export function saveCells(versionId: string, expectedUpdatedAt: string, cells: r
   return call('/api/accounting/budget-grid/save', post({ versionId, expectedUpdatedAt, cells }), 'Could not save the budget.');
 }
 
-/** What the saves' driver recomputes did (P4), summed over the chain; absent when they did nothing. */
+/** What the saves' driver recomputes did (P4), summed over the chain; absent when no save answered one. */
 export interface ChainDrivers { recomputed: number; reset: number; warnings: NonNullable<SaveCellsResult['driverWarnings']> }
 
 export type ChainResult =
@@ -176,6 +176,7 @@ export async function saveChained(versionId: string, cells: readonly SaveCell[],
   let saved = 0;
   let deleted = 0;
   const drivers: ChainDrivers = { recomputed: 0, reset: 0, warnings: [] };
+  let answered = false;
   for (let i = 0; i < chunks; i++) {
     const r = await saveCells(versionId, updatedAt, requests[i]!);
     if (!r.ok) return { ok: false, failure: r, failedChunk: i, chunks, committed: requests.slice(0, i).flat(), updatedAt, saved, deleted };
@@ -185,10 +186,10 @@ export async function saveChained(versionId: string, cells: readonly SaveCell[],
     drivers.recomputed += r.data.recomputed ?? 0;
     drivers.reset += r.data.reset ?? 0;
     // Each save recomputes the whole version: the last answer's warnings are the version's now.
-    if (r.data.driverWarnings) drivers.warnings = r.data.driverWarnings;
+    if (r.data.driverWarnings) { drivers.warnings = r.data.driverWarnings; answered = true; }
   }
-  const moved = drivers.recomputed > 0 || drivers.reset > 0 || drivers.warnings.length > 0;
-  return moved ? { ok: true, updatedAt, saved, deleted, chunks, drivers } : { ok: true, updatedAt, saved, deleted, chunks };
+  // Present whenever a save answered its recompute (even "no warnings": that clears the rows' old ones).
+  return answered || drivers.recomputed > 0 || drivers.reset > 0 ? { ok: true, updatedAt, saved, deleted, chunks, drivers } : { ok: true, updatedAt, saved, deleted, chunks };
 }
 
 export interface SeedRequest {

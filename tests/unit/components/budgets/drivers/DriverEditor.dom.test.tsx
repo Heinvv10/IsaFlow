@@ -12,26 +12,27 @@ import { previewDriver } from '@/components/accounting/budgets/drivers/driverPre
 import { costCentreOptions, refRowOptions, rowLabels } from '@/components/accounting/budgets/drivers/driverRows';
 import { GridStore } from '@/components/accounting/budgets/workspace/gridStore';
 import type { DriverGrain, DriverLine, StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
-import { COGS_DRIVER, ID, MONTHS, driverModel } from './driverFixture';
+import { monthLabel } from '@/components/accounting/budgets/budgetClient';
+import { COGS_DRIVER, ID, MONTHS, MONTHS14, driverModel } from './driverFixture';
 
 afterEach(cleanup);
 
 const g = (glAccountId: string): DriverGrain => ({ glAccountId, cc1Id: null, cc2Id: null, buId: null });
 const key = (id: string) => `${id}|||`;
 
-function setup(grain: DriverGrain, existing: StoredDriverLine | null, over: Partial<DriverEditorProps> = {}) {
-  const model = driverModel();
+function setup(grain: DriverGrain, existing: StoredDriverLine | null, over: Partial<DriverEditorProps> = {}, model = driverModel()) {
+  const months = model.year.monthKeys;
   const store = new GridStore();
   store.reset(model, { view: { kind: 'company' }, canWrite: true });
   const labels = rowLabels(model.accounts, model.dimensions);
-  const preview = (line: DriverLine) => previewDriver({ ...store.driverInputs(), months: MONTHS, closedMonths: store.getClosedMonths(), rounding: 1 }, line, () => undefined);
+  const preview = (line: DriverLine) => previewDriver({ ...store.driverInputs(), months, closedMonths: store.getClosedMonths(), rounding: 1 }, line, () => undefined);
   const onSave = vi.fn(async (_line: DriverLine) => null);
   const onDelete = vi.fn(async () => null);
   const onClose = vi.fn();
   render(
-    <DriverEditor grain={grain} label={labels.row(key(grain.glAccountId))} existing={existing} months={MONTHS}
+    <DriverEditor grain={grain} label={labels.row(key(grain.glAccountId))} existing={existing} months={months}
       rows={refRowOptions(model.accounts, store.driverInputs().values, key(grain.glAccountId), labels)} costCentres={costCentreOptions(model.dimensions)}
-      readOnly={false} preview={preview} onNeedHeadcount={vi.fn()} headcountTick={0} pathLabel={(p) => p.map(labels.row).join(' → ')}
+      readOnly={false} preview={preview} onNeedHeadcount={vi.fn()} headcountTick={0} headcountError={() => null} pathLabel={(p) => p.map(labels.row).join(' → ')}
       onSave={onSave} onDelete={onDelete} onClose={onClose} {...over} />,
   );
   return { onSave, onDelete, onClose };
@@ -105,9 +106,32 @@ describe('DriverEditor', () => {
     const { onDelete, onClose } = setup(g(ID.cos1), COGS_DRIVER, { onSave });
     fireEvent.click(screen.getByTestId('driver-editor-save'));
     expect(await screen.findByTestId('driver-editor-error')).toHaveTextContent('This driver makes a loop: 2000 Account 2000 → 1000 Account 1000 → 2000 Account 2000');
+    // Delete asks first, in the drawer: Keep backs out, Delete deletes.
     fireEvent.click(screen.getByRole('button', { name: 'Delete driver' }));
+    fireEvent.click(within(screen.getByTestId('driver-delete-confirm')).getByRole('button', { name: 'Keep' }));
+    expect(onDelete).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete driver' }));
+    fireEvent.click(within(screen.getByTestId('driver-delete-confirm')).getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('a 14-month transition year: the new driver covers all 14 months and the preview lists them', async () => {
+    const { onSave } = setup(g(ID.opex), null, {}, driverModel({ months: MONTHS14 }));
+    fireEvent.change(screen.getByLabelText('Amount a month (R)'), { target: { value: '100' } });
+    const rows = within(screen.getByTestId('driver-preview')).getAllByRole('rowheader');
+    expect(rows.map((r) => r.textContent)).toEqual(MONTHS14.map((m) => monthLabel(m)));
+    fireEvent.click(screen.getByTestId('driver-editor-save'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0]![0]).toMatchObject({ fromMonth: '2026-01', toMonth: '2027-02' });
+  });
+
+  it('a per_head preview whose headcount read failed says so (never "Reading…" forever)', () => {
+    setup(g(ID.opex), null, { headcountError: (scope) => (scope === null ? 'Could not read the headcount.' : null) });
+    fireEvent.change(screen.getByLabelText('Driver'), { target: { value: 'per_head' } });
+    fireEvent.change(screen.getByLabelText('Amount per head a month (R)'), { target: { value: '100' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('The headcount could not be read: Could not read the headcount.');
+    expect(screen.queryByText('Reading the headcount…')).toBeNull();
   });
 });

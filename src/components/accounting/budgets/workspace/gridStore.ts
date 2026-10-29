@@ -104,15 +104,22 @@ export class GridStore extends GridStoreCore {
 
   /**
    * One undo entry for the whole batch; returns the number of cells that changed. A closed month's
-   * cell and a clear of a driver-computed cell are dropped (the server refuses both: P4).
+   * cell is dropped (the server refuses it: P4). A clear of a driver-computed cell goes back to the
+   * driver's loaded value when it was typed over since (still unsaved), else it is dropped (the
+   * server refuses clearing what the driver computes).
    */
   apply(writes: readonly CellWriteByKey[]): number {
     const changes = new Map<CellKey, { key: CellKey; before: number | null; after: number | null }>();
     for (const w of writes) {
       const { month } = parseKey(w.key);
-      if (this.closedMonths.has(month) || (w.cents === null && this.isDriverCell(w.key))) continue;
+      if (this.closedMonths.has(month)) continue;
+      let after = w.cents;
+      if (after === null && this.isDriverCell(w.key)) {
+        if (!this.dirty.has(w.key)) continue;
+        after = this.original.get(w.key) ?? null;
+      }
       const seen = changes.get(w.key);
-      changes.set(w.key, { key: w.key, before: seen ? seen.before : this.valueAt(w.key), after: w.cents });
+      changes.set(w.key, { key: w.key, before: seen ? seen.before : this.valueAt(w.key), after });
     }
     const real = [...changes.values()].filter(c => c.before !== c.after);
     if (real.length === 0) return 0;

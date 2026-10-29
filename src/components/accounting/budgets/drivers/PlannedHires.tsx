@@ -3,7 +3,7 @@
  * name), an optional cost centre, start and optional end month, FTE. Each row saves on its own
  * (POST a new hire, PUT an existing one, DELETE), through the workspace's driver write path, so
  * the token is sent and adopted and the grid reloads (per_head drivers move). A refusal stays on
- * the row with the server's message.
+ * the row with the server's message. Delete asks first, in the row.
  */
 import { useState } from 'react';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
@@ -42,6 +42,7 @@ function HireRow({ initial, months, costCentres, editable, onSave, onDelete }: R
   const [d, setD] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const set = (p: Partial<HireDraft>) => { setD((x) => ({ ...x, ...p })); setError(null); };
   const name = d.label.trim() || 'new hire';
   const run = async (fn: () => Promise<string | null>) => { setBusy(true); const e = await fn(); setBusy(false); setError(e); };
@@ -71,7 +72,14 @@ function HireRow({ initial, months, costCentres, editable, onSave, onDelete }: R
         {editable && (
           <>
             <button type="button" className={BTN} disabled={busy} onClick={save}>{d.id ? 'Save' : 'Add hire'}</button>
-            {onDelete && <button type="button" className={BTN} disabled={busy} onClick={() => { void run(onDelete); }}>Delete</button>}
+            {onDelete && !confirming && <button type="button" className={BTN} disabled={busy} onClick={() => setConfirming(true)}>Delete</button>}
+            {onDelete && confirming && (
+              <span role="group" aria-label={`Confirm deleting ${name}`} className="inline-flex items-center gap-1 text-xs text-[var(--ff-text-secondary)]">
+                Delete this hire?
+                <button type="button" className={BTN} disabled={busy} onClick={() => { setConfirming(false); void run(onDelete); }}>Delete</button>
+                <button type="button" className={BTN} onClick={() => setConfirming(false)}>Keep</button>
+              </span>
+            )}
           </>
         )}
       </div>

@@ -74,6 +74,8 @@ describe('drivers in the workspace', () => {
     expect(mar).toHaveAttribute('data-actual', 'true');
     expect(mar).toHaveAttribute('aria-readonly', 'true');
     expect(mar).toHaveAttribute('title', ACTUAL_REASON);
+    // The muted tone whose contrast driverContrast.test.ts measures.
+    expect(mar.className).toContain('text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-tertiary)]');
     fireEvent.mouseDown(mar);
     fireEvent.keyDown(mar, { key: '7' });
     expect(screen.queryByRole('textbox', { name: /Mar 2026 budget/ })).toBeNull();

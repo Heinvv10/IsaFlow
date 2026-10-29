@@ -35,6 +35,8 @@ export interface DriverEditorProps {
   /** A per_head draft reads this scope's headcount: load it (the preview reruns when `headcountTick` moves). */
   onNeedHeadcount(scope: string | null): void;
   headcountTick: number;
+  /** Why the scope's headcount could not be read; null while it loads or once it has. */
+  headcountError(scope: string | null): string | null;
   /** "4000 Sales → 5000 Cost of sales → 4000 Sales" for a loop's row keys. */
   pathLabel(path: readonly RowKey[]): string;
   /** Resolves null when saved (the parent closes the drawer), else what went wrong. */
@@ -69,11 +71,12 @@ function PreviewTable({ months, result }: { months: readonly string[]; result: E
 }
 
 export function DriverEditor(props: DriverEditorProps) {
-  const { grain, label, existing, months, rows, costCentres, readOnly, preview, onNeedHeadcount, headcountTick, pathLabel, onSave, onDelete, onClose } = props;
+  const { grain, label, existing, months, rows, costCentres, readOnly, preview, onNeedHeadcount, headcountTick, headcountError, pathLabel, onSave, onDelete, onClose } = props;
   const [draft, setDraft] = useState<DriverDraft>(() => draftFrom(existing, months));
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<EditorFailure | null>(null);
   const [tried, setTried] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useFocusTrap(panel, true, onClose);
@@ -97,6 +100,7 @@ export function DriverEditor(props: DriverEditorProps) {
     setFailure(f);
   };
   const remove = async () => {
+    setConfirming(false);
     setBusy(true);
     const f = await onDelete();
     setBusy(false);
@@ -157,7 +161,9 @@ export function DriverEditor(props: DriverEditorProps) {
             {!check.ok && <p className="text-xs text-[var(--ff-text-tertiary)]">Fill in the driver to see its months.</p>}
             {result?.ok && (
               <>
-                {result.headcountMissing && <p className="mb-1 text-xs text-[var(--ff-text-tertiary)]">Reading the headcount…</p>}
+                {result.headcountMissing && (headcountError(scope ?? null)
+                  ? <p role="alert" className="mb-1 text-xs text-error-700 dark:text-error-400">The headcount could not be read: {headcountError(scope ?? null)} The months below count 0 heads.</p>
+                  : <p className="mb-1 text-xs text-[var(--ff-text-tertiary)]">Reading the headcount…</p>)}
                 {result.warnings.map((w) => <p key={w} className="mb-1 text-xs text-[var(--ff-unfav)]">{w}</p>)}
                 <PreviewTable months={months} result={result} />
               </>
@@ -170,8 +176,15 @@ export function DriverEditor(props: DriverEditorProps) {
           )}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--ff-border-light)] px-5 py-3">
-          {existing && !readOnly && (
-            <button type="button" onClick={() => { void remove(); }} disabled={busy} className={`${BTN} mr-auto bg-error-600 text-white hover:bg-error-700`}>Delete driver</button>
+          {existing && !readOnly && !confirming && (
+            <button type="button" onClick={() => setConfirming(true)} disabled={busy} className={`${BTN} mr-auto bg-error-600 text-white hover:bg-error-700`}>Delete driver</button>
+          )}
+          {confirming && (
+            <span role="group" aria-label="Confirm delete" className="mr-auto flex flex-wrap items-center gap-2" data-testid="driver-delete-confirm">
+              <span className="text-xs text-[var(--ff-text-secondary)]">Delete this driver? Its cells keep their amounts.</span>
+              <button type="button" onClick={() => { void remove(); }} disabled={busy} className={`${BTN} bg-error-600 text-white hover:bg-error-700`}>Delete</button>
+              <button type="button" onClick={() => setConfirming(false)} className={`${BTN} border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)]`}>Keep</button>
+            </span>
           )}
           <button type="button" onClick={onClose} className={`${BTN} border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)]`}>{readOnly ? 'Close' : 'Cancel'}</button>
           {!readOnly && (

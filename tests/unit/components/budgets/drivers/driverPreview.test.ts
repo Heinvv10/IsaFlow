@@ -72,6 +72,16 @@ describe('the grid store and P4 sources', () => {
     expect(store.valueAt(k(ID.cos1, MONTHS[2]!))).toBeNull();
   });
 
+  it('clearing a driver cell typed over since (unsaved) goes back to the driver value, not dropped', () => {
+    const store = storeOf();
+    const key = k(ID.cos1, MONTHS[1]!);
+    store.apply([{ key, cents: 12_345 }]);
+    expect(store.getMeta().dirtyCount).toBe(1);
+    clearCells(store, [{ r: r(ID.cos1), c: 1 }]);
+    expect(store.valueAt(key)).toBe(38_000);
+    expect(store.getMeta().dirtyCount).toBe(0);
+  });
+
   it('row snapshots carry the sources and the driver at the view grain', () => {
     const store = storeOf();
     const snap = store.getRow(`acct:${ID.cos1}`);
