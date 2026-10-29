@@ -164,7 +164,7 @@ export default function IncomeStatementPage() {
           className="mb-0"
           actions={
             <>
-              <PresentLink from={vw.start} to={vw.end} />
+              <PresentLink from={report && datesOk ? vw.start : ''} to={report && datesOk ? vw.end : ''} />
               <button onClick={handleXlsxExport} disabled={!report || !datesOk}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
                 <FileSpreadsheet className="h-4 w-4" /> Export Excel
@@ -247,6 +247,8 @@ export default function IncomeStatementPage() {
                 onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
               />
             </div>
+          ) : !datesOk ? (
+            <p role="status" className="text-sm text-[var(--ff-text-secondary)]">Fix the date to run the report.</p>
           ) : null}
         </div>
       </div>
