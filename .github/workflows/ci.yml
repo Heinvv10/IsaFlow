@@ -203,9 +203,14 @@ jobs:
           # wider shared window would leave open. Next.js refuses fetch-spec "bad
           # ports"; 3659 (apple-sasl) is the only one in 3300-3799 and failed a
           # boot on 2026-10-28, so it is never drawn (it sits in slot 3's window).
+          slot_lo=$((3300 + (slot - 1) * 166))
+          slot_hi=$((slot_lo + 165))
+          # A dev server an earlier timed-out job of this runner left in the window would keep writing to the slot.
+          # Stops only listeners whose cwd is in this runner's workspace, by exact pid (never a pattern); see the script.
+          bun scripts/ci/golden/killSlotOrphans.ts "$slot_lo" "$slot_hi" || true
           GOLDEN_PORT=""
           for _ in $(seq 1 50); do
-            candidate=$((3300 + (slot - 1) * 166 + RANDOM % 166))
+            candidate=$((slot_lo + RANDOM % 166))
             [ "$candidate" -eq 3659 ] && continue
             if ! ss -ltn | awk '{print $4}' | grep -qE ":${candidate}\$"; then GOLDEN_PORT=$candidate; break; fi
           done

@@ -13,7 +13,7 @@ over the oldest documents), which forced a single concurrency group.
 and retire steps), `cloneCompany.ts` (copies setup data from Demo from the
 catalog's foreign keys, then checks nothing still points at Demo),
 `slotVerify.ts` (what a slot must hold), `slotConfig.ts` (ids, the dev-database
-and GoTrue guards, env-file text helpers), `slotEnvFile.ts` (atomic write).
+and GoTrue guards, env-file text helpers), `slotEnvFile.ts` (atomic write), `killSlotOrphans.ts` (ci.yml pre-step).
 Tests: `tests/unit/ci/goldenSlot*.test.ts`, `goldenCloneCompany.test.ts`.
 
 **Seeding:** `provision-slots.ts --seed-url http://localhost:<port>` seeds each slot with transactions
@@ -78,6 +78,11 @@ post-deploy verify, local runs) it is the old E2E_ADMIN_* / default-company path
 - The Playwright browser cache (`/home/gha-isaflow/.cache/ms-playwright`) is shared by all three
   runners (one runner user), so their `playwright install` steps can overlap on it; a version bump
   in the lockfile is when a first install downloads while another job reads the old one.
+- `killSlotOrphans.ts` runs before the port is drawn: it stops a listener left in the runner's own slot
+  window by an earlier timed-out job, by exact pid from `ss`, only when the process's cwd is under
+  `$GITHUB_WORKSPACE` (the window also holds other worktrees' dev servers and docker-proxy, so the port
+  alone is not enough), never this process or an ancestor. No pattern kills. A leftover Playwright process
+  does not listen, so it is not found; with its server gone it cannot write.
 - Dev-server ports: each slot draws from its own 166-port window inside 3300-3799 (the specs
   accept only that range) and skips any bound port.
 
