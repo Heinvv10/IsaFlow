@@ -2,7 +2,7 @@
 // named by their labels.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
 import IncomeStatementPage from '@/../pages/accounting/reports/income-statement';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
@@ -166,4 +166,73 @@ it('refused text in From shows its own reason, not the inverted-range message th
   expect(from.getAttribute('aria-invalid')).toBe('true');
   expect(described).toMatch(/\S/);
   expect(described).not.toMatch(/on or before To/);
+});
+
+const heading = () => screen.queryByRole('heading', { name: /Profit & Loss —/ });
+const reportCalls = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('reports-income-statement')).length;
+
+it('after refused text, a valid change to the other date never puts a range on the heading the data is not for', async () => {
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(heading()?.textContent).toContain('01 Apr 2026 to 30 Apr 2026'));
+  typeDate(screen.getByRole('textbox', { name: 'From' }), 'garbage');
+  await settle();
+  expect(heading()?.textContent).toContain('01 Apr 2026 to 30 Apr 2026');
+  typeDate(screen.getByRole('textbox', { name: 'To' }), '15 Apr 2026');
+  await settle();
+  expect(heading()).toBeNull();
+  expect(screen.queryByText(/01 Apr 2026 to 15 Apr 2026/)).toBeNull();
+});
+
+it('after refused text, a changed cost centre hides the report instead of re-heading it', async () => {
+  const base = vi.mocked(apiFetch).getMockImplementation();
+  vi.mocked(apiFetch).mockImplementation(async (url, ...rest) => String(url).includes('cost-centres')
+    ? response({ items: [{ id: 'cc1', code: 'C1', name: 'One' }] }) : base!(url, ...rest));
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(heading()).not.toBeNull());
+  await screen.findByRole('option', { name: /One/ });
+  typeDate(screen.getByRole('textbox', { name: 'To' }), 'zz');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Cost Centre' }), { target: { value: 'cc1' } });
+  await settle();
+  expect(heading()).toBeNull();
+});
+
+it('refused text typed while the load is in flight does not drop the response: the report lands under its own range', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const base = vi.mocked(apiFetch).getMockImplementation();
+  vi.mocked(apiFetch).mockImplementation(async (url, ...rest) => {
+    if (String(url).includes('reports-income-statement')) await gate;
+    return base!(url, ...rest);
+  });
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(reportCalls()).toBe(1));
+  typeDate(screen.getByRole('textbox', { name: 'To' }), 'zz');
+  await settle();
+  release();
+  await settle();
+  expect(heading()?.textContent).toContain('01 Apr 2026 to 30 Apr 2026');
+  expect(reportCalls()).toBe(1);
+});
+
+it('retyping the shown date after refused text neither refetches nor blanks the report', async () => {
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(heading()).not.toBeNull());
+  await settle();
+  const before = reportCalls();
+  typeDate(screen.getByRole('textbox', { name: 'To' }), 'zz');
+  await settle();
+  typeDate(screen.getByRole('textbox', { name: 'To' }), '30 Apr 2026');
+  await settle();
+  expect(heading()?.textContent).toContain('01 Apr 2026 to 30 Apr 2026');
+  expect(screen.queryByLabelText('Loading profit and loss')).toBeNull();
+  expect(reportCalls()).toBe(before);
+});
+
+it('an inverted range shows no report heading at all', async () => {
+  render(<IncomeStatementPage />);
+  await waitFor(() => expect(heading()).not.toBeNull());
+  typeDate(screen.getByRole('textbox', { name: 'From' }), '1 Sep 2026');
+  await screen.findByText(/From must be on or before To/);
+  await settle();
+  expect(heading()).toBeNull();
 });

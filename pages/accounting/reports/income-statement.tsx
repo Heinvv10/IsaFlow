@@ -26,6 +26,7 @@ import { deepLinkDates } from '@/components/accounting/reportControls/deepLinkDa
 
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
+interface ShownReport { key: string; report: IncomeStatementReport; start: string; end: string; cc: string; bu: string; cmp: boolean }
 
 function clampToToday(dateStr: string): string {
   const today = localISODate();
@@ -58,6 +59,8 @@ export default function IncomeStatementPage() {
   const fromError = badDate.from ? undefined : !periodStart ? 'Enter a From date.' : rangeInverted ? 'From must be on or before To.' : undefined;
   const toError = badDate.to || periodEnd ? undefined : 'Enter a To date.';
   const reportRequestRef = useRef(0);
+  const requestedKeyRef = useRef<string | null>(null); // the key of the newest request, in flight or done
+  const shownKeyRef = useRef<string | null>(null);
 
   // Sync-back effect: when router.query.period_start / period_end populate after
   // mount (Next.js can hydrate router.query on a later tick, or client-side
@@ -102,7 +105,9 @@ export default function IncomeStatementPage() {
       });
     return () => { cancelled = true; };
   }, [router.isReady, qStart, qEnd]);
-  const [report, setReport] = useState<IncomeStatementReport | null>(null);
+  // The report is stored with the inputs it was run for; it is shown only while they equal the live ones, so the
+  // heading, drill-downs and present link never name a range the data is not for.
+  const [shown, setShown] = useState<ShownReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
@@ -120,8 +125,13 @@ export default function IncomeStatementPage() {
       asOf: periodEnd, basis: 'movement', periodStart, periodEnd,
     });
   const showComparative = columns.prior;
-  const returnTo = reportHref('is', { period_start: periodStart, period_end: periodEnd,
-    cost_centre_id: costCentreId, business_unit_id: businessUnitId });
+  const live = { start: periodStart, end: periodEnd, cc: costCentreId, bu: businessUnitId, cmp: showComparative };
+  const liveKey = JSON.stringify(live);
+  const view = shown && shown.key === liveKey ? shown : null;
+  const report = view?.report ?? null;
+  const vw = view ?? live;
+  const returnTo = reportHref('is', { period_start: vw.start, period_end: vw.end,
+    cost_centre_id: vw.cc, business_unit_id: vw.bu });
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
@@ -152,18 +162,19 @@ export default function IncomeStatementPage() {
     setExpandedAccount(prev => (prev === code ? null : code));
   }
   const loadReport = useCallback(async () => {
+    // Refused text changes neither the key nor what is in flight; only a changed key invalidates a request.
     if (router.isReady === false || !periodStart || !periodEnd || !periodResolved || !datesOk) {
-      reportRequestRef.current += 1;
-      if (!datesOk) {
-        // Refused text leaves state on the last good range, so its report stays (export is off); an empty or
-        // inverted range is the new state, and a report headed by it would be a lie.
-        if (!periodStart || !periodEnd || rangeInverted) setReport(null);
-        setIsLoading(false);
+      if (requestedKeyRef.current !== liveKey) {
+        reportRequestRef.current += 1;
+        requestedKeyRef.current = null;
+        if (!datesOk) setIsLoading(false);
       }
       return;
     }
+    if (requestedKeyRef.current === liveKey) return;
+    requestedKeyRef.current = liveKey;
     const requestId = ++reportRequestRef.current;
-    setReport(null);
+    if (shownKeyRef.current === liveKey) { setIsLoading(false); return; } // already on screen: no refetch
     setIsLoading(true);
     setError('');
     try {
@@ -182,13 +193,16 @@ export default function IncomeStatementPage() {
       const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
       await assertOk(res, 'Could not load income statement - try again');
       const json = await res.json();
-      if (requestId === reportRequestRef.current) setReport(json.data || json);
+      if (requestId === reportRequestRef.current) {
+        shownKeyRef.current = liveKey;
+        setShown({ key: liveKey, report: json.data || json, ...live });
+      }
     } catch (err) {
-      if (requestId === reportRequestRef.current) { setReport(null); setError(apiErrorMessage(err, 'Could not load income statement - try again')); }
+      if (requestId === reportRequestRef.current) { requestedKeyRef.current = null; shownKeyRef.current = null; setShown(null); setError(apiErrorMessage(err, 'Could not load income statement - try again')); }
     } finally {
       if (requestId === reportRequestRef.current) setIsLoading(false);
     }
-  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved, datesOk, rangeInverted]);
+  }, [router.isReady, periodStart, periodEnd, costCentreId, businessUnitId, showComparative, periodResolved, datesOk, liveKey]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
@@ -203,7 +217,7 @@ export default function IncomeStatementPage() {
           className="mb-0"
           actions={
             <>
-              <PresentLink from={periodStart} to={periodEnd} />
+              <PresentLink from={vw.start} to={vw.end} />
               <button onClick={handleXlsxExport} disabled={!report || !datesOk}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
                 <FileSpreadsheet className="h-4 w-4" /> Export Excel
@@ -267,20 +281,20 @@ export default function IncomeStatementPage() {
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
               <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
                 <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
-                  Profit &amp; Loss — {formatDisplayDate(periodStart)} to {formatDisplayDate(periodEnd)}
+                  Profit &amp; Loss — {formatDisplayDate(vw.start)} to {formatDisplayDate(vw.end)}
                 </h2>
               </div>
               <p className="sm:hidden mb-1 text-xs text-[var(--ff-text-tertiary)]">Swipe the statement sideways for the prior period and variance columns.</p>
               <IncomeStatementSections
-                costCentreId={costCentreId}
-                businessUnitId={businessUnitId}
+                costCentreId={vw.cc}
+                businessUnitId={vw.bu}
                 returnTo={returnTo}
                 report={report}
-                periodStart={periodStart}
-                periodEnd={periodEnd}
+                periodStart={vw.start}
+                periodEnd={vw.end}
                 expandedAccount={expandedAccount}
                 onToggleAccount={toggleAccount}
-                showComparative={showComparative}
+                showComparative={vw.cmp}
                 columns={columns}
                 applyComparators={apply}
                 onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
@@ -291,12 +305,12 @@ export default function IncomeStatementPage() {
       </div>
       {evidenceTarget && (
         <EvidenceDrillModal
-          costCentreId={costCentreId}
-          businessUnitId={businessUnitId}
+          costCentreId={(shown ?? live).cc}
+          businessUnitId={(shown ?? live).bu}
           accountId={evidenceTarget.accountId}
           accountName={evidenceTarget.accountName}
-          periodStart={periodStart}
-          periodEnd={periodEnd}
+          periodStart={(shown ?? live).start}
+          periodEnd={(shown ?? live).end}
           onClose={() => setEvidenceTarget(null)}
         />
       )}
