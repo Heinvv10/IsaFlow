@@ -169,7 +169,8 @@ export async function rollVersion(companyId: string, userId: string, versionId: 
     log.warn(`Budget roll skipped: ${primary ? VERSION_PRIMARY : VERSION_LOCKED}`, { companyId, versionId: id, mode: mode === 'auto' ? 'auto' : 'roll_now' }, 'accounting');
     if (mode === 'auto') return skipped(primary ? 'primary' : 'locked');
     throw primary
-      ? new BudgetVersionError('BUDGET_VERSION_STATE', 'This rolling forecast is the primary budget: a roll would rewrite what the reports compare against. Make another version primary, or turn its auto-roll off')
+      ? new BudgetVersionError('BUDGET_VERSION_STATE',
+        'This is the primary budget; refreshing it would change Budget vs Actual. Make another version primary first, or copy it')
       : refusal;
   }
 }

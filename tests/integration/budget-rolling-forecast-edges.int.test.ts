@@ -162,13 +162,22 @@ describe('budget rolling forecast: edges', { timeout: 90000 }, () => {
     expect(await fx.token(rf)).toBe(token);
     const now = await fx.call.reforecast(w.u, rf, 'POST', { action: 'roll', expectedUpdatedAt: token });
     expect([now.status, details(now).code], dump(now)).toEqual([409, 'BUDGET_VERSION_STATE']);
-    expect(String(now.body.error?.message)).toMatch(/primary budget/);
+    expect(String(now.body.error?.message)).toBe(
+      'This is the primary budget; refreshing it would change Budget vs Actual. Make another version primary first, or copy it');
     expect(await fx.snapshot(rf)).toEqual(cells);
     expect(await fx.token(rf)).toBe(token);
 
     // Auto-roll cannot be turned on for a primary.
     const off = await fx.call.reforecast(w.u, rf, 'PUT', { rolling: false, expectedUpdatedAt: token });
     expect(off.status, dump(off)).toBe(200);
+    // Not rolling any more, still primary: a manual refresh is refused the same way, and writes nothing.
+    const offCells = await fx.snapshot(rf);
+    const offToken = await fx.token(rf);
+    const refresh = await fx.call.reforecast(w.u, rf, 'POST', { action: 'roll', expectedUpdatedAt: offToken });
+    expect([refresh.status, details(refresh).code], dump(refresh)).toEqual([409, 'BUDGET_VERSION_STATE']);
+    expect(String(refresh.body.error?.message)).toMatch(/^This is the primary budget; refreshing it would change Budget vs Actual/);
+    expect(await fx.snapshot(rf)).toEqual(offCells);
+    expect(await fx.token(rf)).toBe(offToken);
     const on = await fx.call.reforecast(w.u, rf, 'PUT', { rolling: true, expectedUpdatedAt: await fx.token(rf) });
     expect([on.status, details(on).code], dump(on)).toEqual([409, 'BUDGET_VERSION_STATE']);
     expect(await fx.rollingRow(rf)).toBeUndefined();
