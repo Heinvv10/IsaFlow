@@ -1,0 +1,191 @@
+---
+title: "VAT201 return guide: tax periods, due dates and the errors that cost you"
+slug: "vat201-tax-periods-common-errors"
+description: "How VAT201 tax periods work, when returns are due on eFiling, the 2026 registration threshold, and the input and output VAT mistakes SARS picks up."
+publishDate: "2026-09-01"
+author: "ISAFlow Team"
+category: "VAT"
+tags: ["VAT201", "VAT returns", "VAT tax periods", "input tax", "tax invoices", "SARS eFiling"]
+heroImage: "/blog/vat201-tax-periods-common-errors/hero.webp"
+heroAlt: "Interlocking teal and white glass rings on a dark background, with the headline Output, input. No surprises."
+ogImage: "/blog/vat201-tax-periods-common-errors/og.webp"
+draft: false
+---
+
+**TL;DR**
+
+- Most small vendors file every two months (Category A or B). Monthly filing (Category C) is compulsory once taxable supplies exceed R30 million in 12 months.
+- The VAT201 is due by the **25th** after the period if you file manually, or by the **last business day of the month** if you file and pay on eFiling.
+- From **1 April 2026**, compulsory VAT registration starts at **R2.3 million** of taxable supplies in 12 months, up from R1 million.
+- The errors that hurt are boring: claiming input tax without a valid tax invoice, the wrong period, mixing up zero-rated and exempt, and an unreconciled VAT control account.
+
+## Who files a VAT201, and how often
+
+Every registered vendor files a VAT201 for each tax period. The period you're on is set by SARS, and there are five ([SARS: tax periods for VAT](https://www.sars.gov.za/types-of-tax/value-added-tax/tax-periods-for-vat-vendors/)):
+
+| Category | How often | Periods end | Who it's for |
+| --- | --- | --- | --- |
+| A | Every 2 months | Jan, Mar, May, Jul, Sep, Nov | Determined by SARS |
+| B | Every 2 months | Feb, Apr, Jun, Aug, Oct, Dec | Determined by SARS |
+| C | Monthly | Every month | Taxable supplies over R30 million in 12 months, by written request, or after repeated non-compliance |
+| D | Every 6 months | Feb and Aug | Mainly farmers under R1.5 million, and micro businesses under the Sixth Schedule |
+| E | Every 12 months | End of year of assessment | Certain companies and trusts letting property or managing connected companies |
+
+You can ask to change category if you meet the requirements, through a SARS branch appointment.
+
+### Bi-monthly is the norm
+
+SARS's own numbers show how lopsided this is. In 2024/25, **81.1% of VAT vendors filed bi-monthly** and 17.4% filed monthly. But the monthly filers, mostly large businesses, paid **83.5% of domestic VAT** and received **93.2% of refunds** ([SARS Tax Statistics 2025](https://www.sars.gov.za/about/sars-tax-and-customs-system/tax-statistics/)).
+
+{/* Static fallback: /blog/vat201-tax-periods-common-errors/chart-1.svg */}
+
+<Chart
+  type="pie"
+  title="VAT vendors by tax period, 2024/25"
+  source="SARS Tax Statistics 2025. The Other slice (six-monthly and annual) is derived as the remainder. Accessed 27 October 2026."
+  unit="%"
+  data={[
+    { label: "Bi-monthly (Categories A and B)", value: 81.1 },
+    { label: "Monthly (Category C)", value: 17.4 },
+    { label: "Other (Categories D and E)", value: 1.5 },
+  ]}
+/>
+
+So if you're a small business, you're almost certainly on a two-month cycle, and your VAT201 arrives six times a year.
+
+## When the VAT201 is due
+
+SARS sets two deadlines depending on how you file ([SARS VAT](https://www.sars.gov.za/types-of-tax/value-added-tax/)):
+
+- **Manual submission:** by the 25th of the month after the period ends. If the 25th isn't a business day, the business day before.
+- **eFiling, with payment on eFiling:** by the **last business day of the month** after the period ends.
+
+For a Category A vendor whose period ends on 30 September 2026, the eFiling deadline is **Friday 30 October 2026**, because 31 October is a Saturday. A manual return is due by Friday 23 October, because the 25th is a Sunday. The return for the period ending November 2026 is due on eFiling by the last business day of December ([SARS tax calendar](https://www.sars.gov.za/individuals/i-need-help-with-my-tax/calendar/)). Check the exact date on the SARS calendar before the festive break.
+
+There's no real reason to file manually any more. eFiling gives you five extra days and an electronic trail.
+
+## The 2026 threshold change
+
+The 2026 Budget raised the **compulsory VAT registration threshold from R1 million to R2.3 million** of taxable supplies in any 12 months, and the **voluntary threshold from R50 000 to R120 000**, both from **1 April 2026**. SARS published FAQs on the change on 20 March 2026 ([SARS VAT](https://www.sars.gov.za/types-of-tax/value-added-tax/)).
+
+Two practical effects:
+
+1. Some businesses that registered compulsorily under the old threshold now sit below the new one. Whether to stay registered is a commercial decision, not just a tax one. VAT-registered customers often prefer VAT-registered suppliers, and deregistration has its own consequences. Speak to your tax practitioner before you apply. We'll cover deregistration in a separate post.
+2. The number of vendors isn't static. SARS's register stood at **900 285** on 31 March 2025, but only **496 858 (55.2%) were active** ([Tax Statistics 2025](https://www.sars.gov.za/about/sars-tax-and-customs-system/tax-statistics/)).
+
+{/* Static fallback: /blog/vat201-tax-periods-common-errors/chart-2.svg */}
+
+<Chart
+  type="bar"
+  title="VAT vendors registered with SARS, at 31 March"
+  source="SARS Tax Statistics 2025. Accessed 27 October 2026."
+  data={[
+    { label: "2021", value: 880553 },
+    { label: "2022", value: 941406 },
+    { label: "2023", value: 953665 },
+    { label: "2024", value: 959000 },
+    { label: "2025", value: 900285 },
+  ]}
+/>
+
+## How the VAT201 works
+
+At its simplest, the VAT201 is:
+
+**Output tax** (VAT on what you sold) **minus input tax** (VAT on what you bought for the business) **equals VAT payable or refundable.**
+
+The standard rate is **15%**. In practice the return also separates:
+
+- **Standard-rated supplies** at 15%.
+- **Zero-rated supplies** at 0%, such as exports and certain basic foodstuffs. You charge no VAT but **can** claim input tax on related costs.
+- **Exempt supplies**, such as residential rent and certain financial services. You charge no VAT and **can't** claim the related input tax.
+- **Adjustments**, such as bad debts, change in use, and goods taken for private use.
+
+{/* OPTIONAL, not for launch: [ISAFLOW SCREENSHOT: VAT report for a sample company showing output tax, input tax and net VAT for a two-month period, sample data] */}
+
+## Six errors that cost you
+
+### 1. Claiming input tax without a valid tax invoice
+
+You can't claim input tax without the right document. Under [section 20 of the VAT Act](https://www.acts.co.za/value/20__tax_invoices) and the [SARS tax invoice guidance](https://www.sars.gov.za/businesses-and-employers/government/tax-invoices/):
+
+- Above **R5 000**: you need a **full tax invoice**, including your business name, address and VAT number as the recipient.
+- From **R50 to R5 000**: an **abridged tax invoice** is enough.
+- **R50 or less**: no tax invoice is needed, but keep the till slip.
+
+A supplier's quote, a statement or a delivery note isn't a tax invoice.
+
+### 2. The wrong period
+
+Generally, the time of supply is the earlier of the invoice being issued or any payment being received, and output tax belongs in that period. On the invoice basis, you deduct input tax in the period the supply is made to you, and you must hold the tax invoice to support the claim ([SARS VAT 404, chapters 5 and 8](https://www.sars.gov.za/wp-content/uploads/Ops/Guides/Legal-Pub-Guide-VAT404-VAT-404-Guide-for-Vendors.pdf)). Invoices dated 28 or 29 of the last month of a period are where most period errors happen.
+
+### 3. Zero-rated versus exempt
+
+They both show 0% on the invoice, but they behave differently on your return. Treating an exempt supply as zero-rated lets you claim input tax you're not entitled to. SARS looks for this.
+
+### 4. Blocked input tax
+
+The VAT Act denies input tax on some items even when they're business costs, most commonly **entertainment** and the purchase of most **motor cars** ([SARS VAT 404 Guide for Vendors](https://www.sars.gov.za/wp-content/uploads/Ops/Guides/Legal-Pub-Guide-VAT404-VAT-404-Guide-for-Vendors.pdf), section 8.5). The rule is in section 17(2) of the VAT Act, and it also covers subscriptions to sporting, social or recreational clubs. There are narrow exceptions, for example for businesses that supply entertainment for a charge and for motor dealers and car rental businesses. If your coding rules put all "meals" in a claimable expense account, you'll over-claim.
+
+### 5. The VAT control account doesn't tie
+
+Your VAT control account in the general ledger should agree with the VAT201 you submitted. If it doesn't, either the books or the return is wrong. Reconcile it every period, and clear the balance when you pay or receive the refund.
+
+### 6. Unreconciled bank
+
+If your bank account isn't reconciled, you're either missing expenses (and input tax) or double-counting them. Do the [bank reconciliation](/blog/bank-reconciliation-month-end-sme) before you prepare the VAT201, not after.
+
+## A two-month VAT routine
+
+- **Week 1 after period-end:** finish the bank reconciliation. Chase missing supplier invoices.
+- **Week 2:** review the VAT report. Check large input claims against tax invoices. Check zero-rated and exempt sales.
+- **Week 3:** reconcile the VAT control account. Prepare the VAT201.
+- **Before the last business day:** submit and pay on eFiling.
+
+If you're also running payroll, that week collides with the EMP201 on the 7th. See [the EMP201 due date guide](/blog/emp201-due-dates-penalties), and for staff costs, [UIF, SDL and ETI explained](/blog/uif-sdl-eti-guide-small-employers).
+
+## Where ISAFlow fits
+
+ISAFlow categorises bank transactions with rules you set, with optional AI suggestions, and auto-matches with one click, so the bank side is done before you look at VAT. Document capture prepares a draft entry from a supplier invoice for you to check.
+
+ISAFlow prepares your EMP201, EMP501, IRP5/IT3(a) and VAT201 and exports the files for you to file on eFiling. The VAT201 is laid out by SARS field number, so you can check each figure against the return, and it exports as a CSV. Direct SARS submission from ISAFlow is in progress and not live yet. For now you submit and pay on eFiling.
+
+![Illustrative flow diagram: uploaded bank statement lines sorted by rules, matched with one click, ledger and VAT control account reconciled, VAT201 prepared by SARS field number and exported as CSV, then you file on eFiling.](/blog/vat201-tax-periods-common-errors/chart-3.svg)
+
+*Illustrative diagram, not a screenshot.*
+
+[Start a free trial](https://app.isaflow.co.za/register) or [contact us for a demo](https://isaflow.co.za/contact).
+
+## FAQ
+
+### When is the VAT201 due on eFiling?
+
+On the last business day of the month after your tax period ends, if you submit and pay on eFiling. Manual returns are due by the 25th.
+
+### What is the VAT registration threshold in 2026?
+
+From 1 April 2026, registration is compulsory once taxable supplies exceed or are likely to exceed R2.3 million in any 12-month period. You can register voluntarily from R120 000.
+
+### Which VAT category is monthly?
+
+Category C. It applies when taxable supplies exceed R30 million in 12 months, when a vendor asks in writing, or when SARS places a vendor there for repeated non-compliance.
+
+### Can I claim VAT without a tax invoice?
+
+Not for purchases over R50. Over R5 000 you need a full tax invoice, and from R50 to R5 000 an abridged tax invoice. For R50 or less, keep the till slip.
+
+### What is the difference between zero-rated and exempt?
+
+Both carry no VAT, but on zero-rated supplies you can claim the related input tax. On exempt supplies you can't.
+
+## Sources
+
+All accessed 27 October 2026.
+
+- SARS: [Value-Added Tax](https://www.sars.gov.za/types-of-tax/value-added-tax/)
+- SARS: [Tax periods for VAT vendors](https://www.sars.gov.za/types-of-tax/value-added-tax/tax-periods-for-vat-vendors/)
+- SARS: [Tax Statistics 2025](https://www.sars.gov.za/about/sars-tax-and-customs-system/tax-statistics/)
+- SARS: [Tax invoices](https://www.sars.gov.za/businesses-and-employers/government/tax-invoices/) and [VAT 404 Guide for Vendors, Issue 15](https://www.sars.gov.za/wp-content/uploads/Ops/Guides/Legal-Pub-Guide-VAT404-VAT-404-Guide-for-Vendors.pdf)
+- Acts Online: [VAT Act section 20, tax invoices](https://www.acts.co.za/value/20__tax_invoices)
+
+*This article is general information, not tax advice. Check your own position with a registered tax practitioner.*
