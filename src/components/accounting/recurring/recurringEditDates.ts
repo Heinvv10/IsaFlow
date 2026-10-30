@@ -11,9 +11,28 @@ export function endBeforeNextRefused(form: EditDates, loaded: EditDates): boolea
   return changed && !!form.endDate && form.endDate < form.nextRunDate;
 }
 
-/** nextRunDate always; endDate only when changed (cleared -> null). An absent key means "keep" on the server. */
-export function datePayload(form: EditDates, loaded: EditDates): { nextRunDate: string; endDate?: string | null } {
-  return form.endDate === loaded.endDate
-    ? { nextRunDate: form.nextRunDate }
-    : { nextRunDate: form.nextRunDate, endDate: form.endDate || null };
+/**
+ * Only changed dates are sent (cleared endDate -> null). An absent key means "keep" on the server, so a save
+ * never writes back a date a scheduled run or another user moved since the page loaded.
+ */
+export function datePayload(form: EditDates, loaded: EditDates): { nextRunDate?: string; endDate?: string | null } {
+  return {
+    ...(form.nextRunDate !== loaded.nextRunDate ? { nextRunDate: form.nextRunDate } : {}),
+    ...(form.endDate !== loaded.endDate ? { endDate: form.endDate || null } : {}),
+  };
+}
+
+interface RawLineItem {
+  description?: string;
+  quantity?: number;
+  unitPrice?: number;
+  unit_price?: number;
+  glAccountId?: string;
+  gl_account_id?: string;
+}
+
+/** The template's lines, whichever casing the API row carries. */
+export function rawLineItems(found: Record<string, unknown>): RawLineItem[] {
+  if (Array.isArray(found.lineItems)) return found.lineItems as RawLineItem[];
+  return Array.isArray(found.line_items) ? (found.line_items as RawLineItem[]) : [];
 }

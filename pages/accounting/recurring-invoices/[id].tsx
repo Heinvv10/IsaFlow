@@ -17,7 +17,7 @@ import {
   type LineItem,
 } from '@/components/accounting/recurringInvoices/LineItemsSection';
 import { DateField } from '@/components/ui'; import { useDateGate } from '@/hooks/useDateGate';
-import { datePayload, endBeforeNextRefused, type EditDates } from '@/components/accounting/recurring/recurringEditDates';
+import { datePayload, endBeforeNextRefused, rawLineItems, type EditDates } from '@/components/accounting/recurring/recurringEditDates';
 
 interface Customer { id: string; name?: string; company_name?: string }
 
@@ -32,15 +32,6 @@ const newLine = (): LineItem => ({
   key: String(Date.now() + Math.random()),
   description: '', quantity: 1, unitPrice: 0, glAccountId: '',
 });
-
-interface RawLineItem {
-  description?: string;
-  quantity?: number;
-  unitPrice?: number;
-  unit_price?: number;
-  glAccountId?: string;
-  gl_account_id?: string;
-}
 
 export default function EditRecurringInvoicePage() {
   const router = useRouter();
@@ -77,16 +68,13 @@ export default function EditRecurringInvoicePage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
+    setLoaded(false);
     apiFetch('/api/accounting/recurring-invoices')
       .then(async r => { await assertOk(r, 'Could not load the recurring invoice - try again'); return r.json(); })
       .then((json: { data?: { items?: Record<string, unknown>[] } }) => {
         const found = json.data?.items?.find(i => i.id === id);
         if (!found) { setError('Recurring invoice not found'); return; }
-        const rawLines = Array.isArray(found.lineItems)
-          ? (found.lineItems as RawLineItem[])
-          : Array.isArray(found.line_items)
-            ? (found.line_items as RawLineItem[])
-            : [];
+        const rawLines = rawLineItems(found);
         loadedDates.current = { nextRunDate: String(found.nextRunDate ?? found.next_run_date ?? '').slice(0, 10), endDate: String(found.endDate ?? found.end_date ?? '').slice(0, 10) };
         setForm({
           templateName: String(found.templateName ?? found.template_name ?? ''),
@@ -148,6 +136,7 @@ export default function EditRecurringInvoicePage() {
         body: JSON.stringify(payload),
       });
       await assertOk(res, 'Could not save the recurring invoice - try again');
+      loadedDates.current = { nextRunDate: form.nextRunDate, endDate: form.endDate };
       try { await router.push('/accounting/recurring-invoices'); } catch (e) { log.warn('navigation failed', { error: e }, 'recurring-invoices-id'); }
     } catch (err) {
       log.error('Failed to update recurring invoice', { id, error: err }, 'recurring-edit');
@@ -196,7 +185,7 @@ export default function EditRecurringInvoicePage() {
 
         <form onSubmit={e => void handleSubmit(e)} className="px-6 py-6 max-w-4xl space-y-6">
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+            <div role="alert" className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
               <AlertCircle className="h-4 w-4 flex-shrink-0" /> {error}
             </div>
           )}
