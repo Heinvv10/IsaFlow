@@ -7,10 +7,14 @@
  *            the two label sets written out in static's runs-on, so a wrong
  *            value cannot strand static on a label no runner has.
  *   static   `bun run ci static`, GitHub-hosted (or velo, as route says).
+ *   static-fallback  `bun run ci static` on velo, only when the hosted static
+ *            job ended `failure` without ever starting (no runner, no steps:
+ *            GitHub refuses hosted jobs once the Actions budget is spent).
  *   velo     `bun run ci velo`, self-hosted.
- *   quality  the required check: runs always() and passes only when route,
- *            static and velo all concluded success. A failed, cancelled,
- *            timed-out or skipped group makes it red, never green.
+ *   quality  the required check: runs always() and passes only when route
+ *            and velo concluded success and static did, itself or through
+ *            static-fallback. A failed, cancelled, timed-out or skipped group
+ *            makes it red, never green.
  */
 
 export const QUALITY_JOB = 'quality';
@@ -39,8 +43,32 @@ const MIN_VELO_TIMEOUT = 20;
 const MIN_QUALITY_TIMEOUT = 2;
 
 const HOSTED = "needs.route.outputs.hosted == 'true'";
-const STATIC_RUNS_ON = `\${{ fromJSON(${HOSTED} && '"ubuntu-latest"' || '["self-hosted","linux","velo"]') }}`;
-const STATIC_TIMEOUT = `\${{ ${HOSTED} && 30 || 75 }}`;
+const STATIC_RUNS_ON = `\${{ fromJSON(${HOSTED} && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
+const STATIC_TIMEOUT = `\${{ ${HOSTED} && 40 || 75 }}`;
+/**
+ * route's one step after checkout. It runs on velo before static (which may run
+ * on velo too), so an unpinned step could replace the runner's bun before any
+ * gate ran. Pinned exactly, like quality's.
+ */
+const ROUTE_STEP_ENV = { CI_HOSTED: '${{ vars.CI_HOSTED }}' };
+const ROUTE_STEP_RUN = [
+  'hosted=false',
+  'if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then',
+  '  echo "[route] velo: $GITHUB_EVENT_NAME event (hosted runs only for pull_request)"',
+  'elif [ "$CI_HOSTED" = "off" ]; then',
+  '  echo "[route] velo: repo variable CI_HOSTED=off"',
+  'else',
+  '  rc=0',
+  '  bun scripts/ci/integration/scope.ts || rc=$?',
+  '  if [ "$rc" -eq 10 ]; then',
+  '    echo "[route] velo: Markdown-only change"',
+  '  else',
+  '    hosted=true',
+  '    echo "[route] GitHub-hosted"',
+  '  fi',
+  'fi',
+  'echo "hosted=$hosted" >> "$GITHUB_OUTPUT"',
+].join('\n');
 const HOSTED_IF = "${{ runner.environment == 'github-hosted' }}";
 /** The hosted-only setup steps, in order, exactly. setup-bun is pinned to a commit (third-party). */
 const HOSTED_SETUP: Array<{ uses: string; with: Record<string, unknown> }> = [
@@ -56,16 +84,36 @@ const HOSTED_SETUP: Array<{ uses: string; with: Record<string, unknown> }> = [
   },
 ];
 
-const QUALITY_NEEDS = ['route', 'static', 'velo'];
+const FALLBACK_NEEDS = ['route', 'static'];
+const FALLBACK_IF = `\${{ always() && ${HOSTED} && needs.static.result == 'failure' }}`;
+/** The fallback's first step: exits 1 unless the hosted job never started, so a real failure is never re-run. */
+const FALLBACK_STEP_ENV = {
+  GH_TOKEN: '${{ github.token }}',
+  REPO: '${{ github.repository }}',
+  RUN_ID: '${{ github.run_id }}',
+  RUN_ATTEMPT: '${{ github.run_attempt }}',
+};
+const FALLBACK_STEP_RUN = [
+  `job=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" --jq '[.jobs[] | select(.name == "Static gates")] | if length == 1 then .[0] | "\\(.runner_name // "")|\\(.steps | length)" else "ambiguous" end') || job="api-error"`,
+  'echo "[fallback] hosted Static gates (runner|steps): $job"',
+  'if [ "$job" != "|0" ]; then',
+  '  echo "::error::Static gates ran on GitHub-hosted and failed (or could not be read); no fallback for that, read its log"',
+  '  exit 1',
+  'fi',
+  'echo "[fallback] the hosted job never started (Actions budget, billing or outage): running the static group on velo"',
+].join('\n');
+
+const QUALITY_NEEDS = ['route', 'static', 'static-fallback', 'velo'];
 const QUALITY_IF = '${{ always() }}';
 const QUALITY_ENV = {
   ROUTE: '${{ needs.route.result }}',
   STATIC: '${{ needs.static.result }}',
+  FALLBACK: '${{ needs.static-fallback.result }}',
   VELO: '${{ needs.velo.result }}',
 };
 const QUALITY_RUN = [
-  'echo "route=$ROUTE static=$STATIC velo=$VELO"',
-  '[ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]',
+  'echo "route=$ROUTE static=$STATIC static-fallback=$FALLBACK velo=$VELO"',
+  '[ "$ROUTE" = "success" ] && [ "$VELO" = "success" ] && { [ "$STATIC" = "success" ] || [ "$FALLBACK" = "success" ]; }',
 ].join('\n');
 
 type Obj = Record<string, unknown>;
@@ -106,12 +154,14 @@ function checkGateStep(step: unknown, run: string, at: string, errors: string[])
 }
 
 /** checkout, [hosted setup], install, `bun run ci <group>`: nothing else, in that order. */
-function checkGateSteps(id: string, steps: unknown, group: string, hostedSetup: boolean, errors: string[]): void {
+function checkGateSteps(id: string, allSteps: unknown, group: string, hostedSetup: boolean, errors: string[]): void {
   const run = `bun run ci ${group}`;
   const want = 3 + (hostedSetup ? HOSTED_SETUP.length : 0);
   const shape = `checkout,${hostedSetup ? ' the hosted-only setup-node/setup-bun/cache steps,' : ''} \`${INSTALL}\`, \`${run}\``;
+  // static-fallback's pinned first step decides whether anything runs at all.
+  const steps = id === 'static-fallback' && Array.isArray(allSteps) ? allSteps.slice(1) : allSteps;
   if (!Array.isArray(steps) || steps.length !== want) {
-    errors.push(`jobs.${id}.steps must be exactly: ${shape}`);
+    errors.push(`jobs.${id}.steps must be exactly: ${id === 'static-fallback' ? 'the "Did the hosted job start?" step, ' : ''}${shape}`);
     return;
   }
   checkCheckout(steps[0], `jobs.${id} step 1`, errors);
@@ -152,6 +202,13 @@ function checkRoute(job: Obj, errors: string[]): void {
   if (!sameMap(job.outputs, { hosted: '${{ steps.route.outputs.hosted }}' })) {
     errors.push('jobs.route.outputs must be exactly {hosted: ${{ steps.route.outputs.hosted }}}');
   }
+  const steps = Array.isArray(job.steps) && job.steps.length === 2 ? job.steps : undefined;
+  checkCheckout(steps?.[0], 'jobs.route step 1', errors);
+  const step = steps?.[1] as unknown;
+  if (!isObj(step) || extraKeys(step, ['name', 'id', 'env', 'run']).length || step.id !== 'route'
+    || typeof step.run !== 'string' || step.run.trim() !== ROUTE_STEP_RUN || !sameMap(step.env, ROUTE_STEP_ENV)) {
+    errors.push(`jobs.route.steps must be exactly: checkout, then one step with id route, env ${JSON.stringify(ROUTE_STEP_ENV)}, run:\n${ROUTE_STEP_RUN}`);
+  }
 }
 
 function checkStatic(job: Obj, errors: string[]): void {
@@ -163,6 +220,21 @@ function checkStatic(job: Obj, errors: string[]): void {
   }
   if (job['timeout-minutes'] !== STATIC_TIMEOUT) errors.push(`jobs.static.timeout-minutes must be exactly ${STATIC_TIMEOUT}`);
   checkGateSteps('static', job.steps, 'static', true, errors);
+}
+
+function checkFallback(job: Obj, errors: string[]): void {
+  const extra = extraKeys(job, ['name', 'needs', 'if', 'runs-on', 'timeout-minutes', 'permissions', 'steps']);
+  if (extra.length) errors.push(`jobs.static-fallback sets ${extra.join(', ')}; continue-on-error/env/strategy can skip or neutralise the gate`);
+  if (!sameList(job.needs, FALLBACK_NEEDS)) errors.push(`jobs.static-fallback.needs must be exactly [${FALLBACK_NEEDS.join(', ')}]`);
+  if (job.if !== FALLBACK_IF) errors.push(`jobs.static-fallback.if must be exactly ${FALLBACK_IF}`);
+  checkVeloRunsOn('static-fallback', job, errors);
+  checkTimeout('static-fallback', job, MIN_VELO_TIMEOUT, errors);
+  const first = Array.isArray(job.steps) ? (job.steps[0] as unknown) : undefined;
+  if (!isObj(first) || extraKeys(first, ['name', 'env', 'run']).length || typeof first.run !== 'string'
+    || first.run.trim() !== FALLBACK_STEP_RUN || !sameMap(first.env, FALLBACK_STEP_ENV)) {
+    errors.push(`jobs.static-fallback step 1 must be exactly: env ${JSON.stringify(FALLBACK_STEP_ENV)}, run:\n${FALLBACK_STEP_RUN}`);
+  }
+  checkGateSteps('static-fallback', job.steps, 'static', false, errors);
 }
 
 function checkVelo(job: Obj, errors: string[]): void {
@@ -191,11 +263,12 @@ function checkQuality(job: Obj, errors: string[]): void {
   }
 }
 
-/** Checks route, static, velo and quality; `jobs` is ci.yml's parsed `jobs` mapping. */
+/** Checks route, static, static-fallback, velo and quality; `jobs` is ci.yml's parsed `jobs` mapping. */
 export function checkGateJobs(jobs: Obj): string[] {
   const errors: string[] = [];
   const checks: Array<[string, (job: Obj, errors: string[]) => void]> = [
-    ['route', checkRoute], ['static', checkStatic], ['velo', checkVelo], [QUALITY_JOB, checkQuality],
+    ['route', checkRoute], ['static', checkStatic], ['static-fallback', checkFallback], ['velo', checkVelo],
+    [QUALITY_JOB, checkQuality],
   ];
   for (const [id, check] of checks) {
     const job = jobs[id];

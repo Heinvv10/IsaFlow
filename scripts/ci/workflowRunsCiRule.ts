@@ -21,7 +21,8 @@
  * script run-ci.sh calls, which are refused by prefix, not by name; `branches: [master, '!master']`; and a `runs-on` label no
  * runner has (queued forever, never red). All are refused below.
  * Any search admits the shape it did not think of. So the gate jobs (route,
- * static, velo and the required `quality` aggregator: workflowGateJobs.ts),
+ * static, static-fallback, velo and the required `quality` aggregator:
+ * workflowGateJobs.ts),
  * the triggers and package.json's `ci` script are compared against the ONE
  * shape that is known to run every gate, and anything else is refused. To
  * change a job, change this rule in the same PR, where a reviewer will see it.
@@ -49,7 +50,7 @@
  */
 
 import {
-  CHECKOUT, JOB_PERMISSIONS, QUALITY_JOB, checkGateJobs, extraKeys, isObj, sameList, sameMap,
+  CHECKOUT, JOB_PERMISSIONS, QUALITY_JOB, QUALITY_NAME, checkGateJobs, extraKeys, isObj, sameList, sameMap,
 } from './workflowGateJobs';
 
 export { QUALITY_JOB };
@@ -79,7 +80,7 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * changing this rule in review.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
+const JOBS = ['route', 'static', 'static-fallback', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
 const GOLDEN_PATHS_CONCURRENCY = {
   group: "golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
   'cancel-in-progress': false,
@@ -90,6 +91,11 @@ const GOLDEN_PATHS_CONCURRENCY = {
  * set exactly JOB_PERMISSIONS and nothing else.
  */
 const PERMISSIONS = { contents: 'read' };
+/** Each required check (merge-queue requiredChecks) and the one job that may carry its name. */
+const REQUIRED_CHECK_OWNERS: Record<string, string> = {
+  [QUALITY_NAME]: QUALITY_JOB,
+  'Golden Paths E2E (blocking)': 'golden-paths',
+};
 
 function checkTrigger(on: Obj, event: string, errors: string[]): void {
   const t = on[event];
@@ -163,6 +169,13 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
       || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
       errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+    }
+    // The merge queue and mq-merge-already-tested.ts find the required checks
+    // by NAME, so only the one job each may carry it: a decoy of the same name
+    // that starts later reads as the check (newest run wins).
+    for (const [name, owner] of Object.entries(REQUIRED_CHECK_OWNERS)) {
+      const holders = Object.entries(jobs).filter(([, j]) => isObj(j) && j.name === name).map(([id]) => id);
+      if (!sameList(holders, [owner])) errors.push(`only jobs.${owner} may be named "${name}" (named so: ${holders.join(', ') || 'none'}); the queue reads a required check by name`);
     }
     const grouped = Object.entries(jobs).filter(([name, j]) => name !== 'golden-paths' && isObj(j) && 'concurrency' in j).map(([name]) => name);
     if (grouped.length) errors.push(`jobs ${grouped.join(', ')} set concurrency; only golden-paths may take a group (the ci- group would cancel the gates)`);

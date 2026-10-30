@@ -70,10 +70,14 @@ jobs:
   static:
     name: Static gates
     needs: route
-    runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-latest"' || '["self-hosted","linux","velo"]') }}
-    # Tight on hosted, where every minute is billed. On velo, the old bound
-    # for these steps: 58 min at load 150-250, plus install.
-    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 30 || 75 }}
+    runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
+    # Tight on hosted, where every minute is billed; 40 is a first guess, not
+    # yet measured on a 2-vCPU hosted runner (re-measure and tighten). On velo,
+    # the old bound for these steps: 58 min at load 150-250, plus install.
+    # ubuntu-24.04, not ubuntu-latest: -latest moves to Ubuntu 26 from
+    # 2026-10-19 (actions/runner-images#14748), and a moving image is a
+    # moving gate.
+    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}
     # Read-only. actions + pull-requests: mq-merge-already-tested.ts reads the
     # merged PR and its CI run's jobs (CI_READ_TOKEN below).
     permissions:
@@ -132,6 +136,59 @@ jobs:
           JWT_SECRET: test-secret-for-ci-only
           NODE_ENV: test
 
+  # GitHub refuses to START a hosted job once the account's Actions budget is
+  # spent or a payment failed ("The job was not started because recent account
+  # payments have failed or your spending limit needs to be increased"): the
+  # job ends `failure` with no runner and no steps. Then, and only then, this
+  # job runs the same static group on velo, so a spent budget slows CI down
+  # instead of turning every PR red. A hosted job that ran and failed is a
+  # real failure: the first step exits 1 and nothing is re-run.
+  static-fallback:
+    name: Static gates (velo fallback)
+    needs: [route, static]
+    if: ${{ always() && needs.route.outputs.hosted == 'true' && needs.static.result == 'failure' }}
+    runs-on: [self-hosted, linux, velo]
+    # As static on velo.
+    timeout-minutes: 75
+    # actions: read for the jobs API below; the rest as in static.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+
+    steps:
+      - name: Did the hosted job start?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          job=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" --jq '[.jobs[] | select(.name == "Static gates")] | if length == 1 then .[0] | "\(.runner_name // "")|\(.steps | length)" else "ambiguous" end') || job="api-error"
+          echo "[fallback] hosted Static gates (runner|steps): $job"
+          if [ "$job" != "|0" ]; then
+            echo "::error::Static gates ran on GitHub-hosted and failed (or could not be read); no fallback for that, read its log"
+            exit 1
+          fi
+          echo "[fallback] the hosted job never started (Actions budget, billing or outage): running the static group on velo"
+
+      # As in static.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: CI gate (scripts/ci/run-ci.sh static, on velo)
+        run: bun run ci static
+        env:
+          CI_READ_TOKEN: ${{ github.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: test-secret-for-ci-only
+          NODE_ENV: test
+
   # `bun run ci velo`: browser-tests (real Chromium and pinned text metrics,
   # known to pass here, not tried on hosted runners) and the integration
   # suites, which start their own throwaway PostgreSQL 16 clusters as the
@@ -178,12 +235,13 @@ jobs:
   # The required check. Branch protection and the merge queue
   # (requiredChecks in ~/.config/merge-queue/isaflow.json) wait for this name,
   # and mq-merge-already-tested.ts looks it up in the PR run. It passes only
-  # when route and BOTH gate groups concluded success: always() makes it run
-  # (and fail) when one failed, was cancelled or timed out, or was skipped,
-  # because a required check that is itself skipped counts as passing.
+  # when route and velo succeeded and the static group succeeded, on its own
+  # runner or in static-fallback. always() makes it run (and fail) when one
+  # failed, was cancelled or timed out, or was skipped, because a required
+  # check that is itself skipped counts as passing.
   quality:
     name: Type Check, Lint & Test
-    needs: [route, static, velo]
+    needs: [route, static, static-fallback, velo]
     if: ${{ always() }}
     runs-on: [self-hosted, linux, velo]
     timeout-minutes: 5
@@ -192,10 +250,11 @@ jobs:
         env:
           ROUTE: ${{ needs.route.result }}
           STATIC: ${{ needs.static.result }}
+          FALLBACK: ${{ needs.static-fallback.result }}
           VELO: ${{ needs.velo.result }}
         run: |
-          echo "route=$ROUTE static=$STATIC velo=$VELO"
-          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]
+          echo "route=$ROUTE static=$STATIC static-fallback=$FALLBACK velo=$VELO"
+          [ "$ROUTE" = "success" ] && [ "$VELO" = "success" ] && { [ "$STATIC" = "success" ] || [ "$FALLBACK" = "success" ]; }
 
   # Which golden-paths concurrency group this run takes (see golden-paths).
   # "queue" for a run the merge queue is waiting on: a batch PR
