@@ -28,6 +28,7 @@ import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
+import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -63,13 +64,7 @@ export async function getSupplierInvoiceById(
       FROM supplier_invoice_items sii
       LEFT JOIN gl_accounts a ON a.id = sii.gl_account_id
       WHERE sii.supplier_invoice_id = ${id}
-      -- Posting order: buildExpenseLines puts the rounding residual on the LAST
-      -- line. Lines inserted together tie on created_at, so the content (then
-      -- id) breaks the tie instead of heap order. approval_document_digest
-      -- (migration 708) hashes the lines in exactly this order — keep them equal.
-      ORDER BY sii.created_at, sii.description, sii.gl_account_id, sii.quantity,
-               sii.unit_price, sii.tax_rate, sii.tax_amount, sii.line_total,
-               sii.project_id, sii.cost_center_id, sii.vat_classification, sii.id
+      ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
     `) as Row[];
 
     return { ...mapInvoiceRow(rows[0]!), items: itemRows.map(mapItemRow) };
