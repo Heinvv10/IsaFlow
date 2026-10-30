@@ -1,16 +1,16 @@
 /**
  * SDL is levied on the BALANCE of remuneration: SDL-applicable remuneration
- * less the paragraph 2(4) Fourth Schedule deductions the PAYE calculation
- * allows (pension, provident, RAF), never below nil.
+ * less the paragraph 2(4) Fourth Schedule deductions, never below nil.
  *
  * Sources: SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027 tax year)
- * 'SDL liable amount'; SDL Act s3(4).
+ * 'SDL liable amount'; SDL Act s3(4); PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1;
+ * PAYE-GEN-01-G20 (2026) s7.3.1.
  *
- * The para 2(4) figure is the one the PAYE path computes (deduction components
- * flagged taxable), not a second limit. IsaFlow does not apply the s11F cap and
- * does not model employer retirement contributions as a fringe benefit /
- * deemed employee contribution — for PAYE or for SDL — so these tests pin that
- * SDL follows PAYE in both of those cases rather than diverging from it.
+ * Retirement-fund contributions (4001/4003/4006) are capped by s11F: the
+ * lesser of 27.5% of remuneration and the annual cap apportioned to the period
+ * (R430 000/12 for 2027; R350 000/12 for 2026). Other taxable deductions are
+ * not capped for SDL. PAYE does NOT yet apply this cap (pending PR #891), so
+ * for contributions above the cap the PAYE base and SDL base differ temporarily.
  */
 import { describe, it, expect } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
@@ -78,14 +78,51 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(r.sdlLeviable).toBe(30_000);
   });
 
-  it('s11F cap: no second limit — SDL deducts what PAYE deducts, even above 27.5% (cap not modelled for PAYE either)', () => {
-    // 40% of remuneration: above the s11F 27.5% limit. PAYE allows it in full
-    // (named limit, see payrollCalculator), so SDL must too, or the two
-    // "balance of remuneration" figures would disagree.
+  it('s11F cap applied to SDL: R20 000 salary + R8 000 RA (40%) → SDL deducts R5 500 (27.5% cap), SDL = R145', () => {
+    // Sources: SARS PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1; PAYE-GEN-01-G20 (2026) s7.3.1;
+    //          SDL-GEN-01-G01 Rev 5 s6.
+    // 27.5% × R20 000 = R5 500 < R430 000/12 = R35 833, so percentage cap binds.
+    // PAYE still deducts R8 000 in full (uncapped, pending PR #891).
     const r = line([salary(20_000), ra(8_000)]);
     const payeDeduction = 20_000 - r.taxableIncome;
-    expect(payeDeduction).toBe(8_000);
-    expect(r.sdlLeviable).toBe(20_000 - payeDeduction);
+    expect(payeDeduction).toBe(8_000);        // PAYE uncapped
+    expect(r.sdlLeviable).toBe(14_500);       // SDL capped: 20 000 - 5 500
+    expect(r.sdl).toBe(145);                  // 14 500 × 1%
+  });
+
+  it('s11F cap — annual-cap boundary (2027: R430 000/12 ≈ R35 833): cap binds above 27.5%', () => {
+    // Sources: SARS PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1; SDL-GEN-01-G01 Rev 5 s6.
+    // Salary R200 000/month; 27.5% = R55 000 > R430 000/12 ≈ R35 833 → annual cap binds.
+    const r = line([salary(200_000), ra(55_000)]);
+    const annualCapMonthly = 430_000 / 12; // ≈ 35 833.333...
+    const expectedLeviable = Math.max(0, 200_000 - annualCapMonthly);
+    expect(r.sdlLeviable).toBeCloseTo(expectedLeviable, 2);
+    expect(r.sdl).toBeCloseTo(expectedLeviable * 0.01, 2);
+  });
+
+  it('s11F cap — 2026 tax year (R350 000 annual cap): monthly cap ≈ R29 167', () => {
+    // Sources: SARS PAYE-GEN-01-G20 (2026) s7.3.1; SDL-GEN-01-G01 Rev 5 s6.
+    const r2026 = (components: EmployeeComponent[]): ReturnType<typeof calculatePayrollLine> => {
+      const input: PayrollLineInput = {
+        employee: {
+          id: 'emp-2026', companyId: 'co-1', employeeNumber: 'E2', firstName: 'A', lastName: 'B',
+          idNumber: '9001015009087', taxNumber: '1234567890', employmentType: 'permanent',
+          startDate: new Date('2020-01-01'), dateOfBirth: new Date('1990-01-01'),
+          uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
+        },
+        components,
+        period: { month: 6, year: 2025 }, // June 2025 → tax year 2026
+        taxYear: 2026,
+        annualPayrollEstimate: 1_000_000,
+      };
+      return calculatePayrollLine(input);
+    };
+    // Salary R200 000; 27.5% = R55 000 > R350 000/12 ≈ R29 167 → annual cap binds.
+    const r = r2026([salary(200_000), ra(55_000)]);
+    const annualCapMonthly2026 = 350_000 / 12; // ≈ 29 166.667
+    const expectedLeviable = Math.max(0, 200_000 - annualCapMonthly2026);
+    expect(r.sdlLeviable).toBeCloseTo(expectedLeviable, 2);
+    expect(r.sdl).toBeCloseTo(expectedLeviable * 0.01, 2);
   });
 
   it('employer retirement contribution: neither added as fringe benefit nor deducted, for PAYE or SDL', () => {
@@ -98,20 +135,29 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(r.sdlLeviable).toBe(base.sdlLeviable);
   });
 
-  it('SDL exclusions still apply, and the leviable amount never goes below nil', () => {
-    // R5 000 SDL-applicable + R10 000 taxable but SDL-excluded; RA R8 000 is
-    // allowed for PAYE in full against the R15 000 taxable remuneration.
+  it('SDL exclusions still apply; s11F cap uses total Fourth Schedule remuneration as the 27.5% base', () => {
+    // Sources: SARS PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1; SDL-GEN-01-G01 Rev 5 s6.
+    // R5 000 SDL-applicable + R10 000 taxable but SDL-excluded.
+    // RA R8 000 deduction: 27.5% of R15 000 (total taxable) = R4 125 (percentage cap binds).
+    // PAYE allows R8 000 in full (uncapped, pending PR #891).
+    // SDL leviable = max(0, R5 000 − R4 125) = R875.
     const sdlExcluded: EmployeeComponent = { component: comp('3713', { isSdlApplicable: false }), amount: 10_000 };
     const r = line([salary(5_000), sdlExcluded, ra(8_000)]);
-    expect(r.taxableIncome).toBe(7_000);
-    expect(r.sdlLeviable).toBe(0);
-    expect(r.sdl).toBe(0);
+    expect(r.taxableIncome).toBe(7_000);            // PAYE uncapped
+    expect(r.sdlLeviable).toBeCloseTo(875, 2);
+    expect(r.sdl).toBeCloseTo(8.75, 2);
   });
 
-  it('deductions above taxable remuneration leave a nil leviable amount, not a negative one', () => {
+  it('s11F cap limits the deduction to 27.5% even when the contribution exceeds remuneration', () => {
+    // Sources: SARS PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1; SDL-GEN-01-G01 Rev 5 s6.
+    // Salary R3 000; RA R5 000 (167% — far above s11F).
+    // s11F cap = 27.5% × R3 000 = R825; SDL leviable = R3 000 − R825 = R2 175.
+    // PAYE allows min(R5 000, R3 000) = R3 000 in full (uncapped, pending PR #891),
+    // so taxableIncome = 0, while sdlLeviable = R2 175: bases diverge.
     const r = line([salary(3_000), ra(5_000)]);
-    expect(r.sdlLeviable).toBe(0);
-    expect(r.sdl).toBe(0);
+    expect(r.taxableIncome).toBe(0);          // PAYE: deduction absorbs all taxable income
+    expect(r.sdlLeviable).toBeCloseTo(2_175, 2);
+    expect(r.sdl).toBeCloseTo(21.75, 2);
   });
 });
 
