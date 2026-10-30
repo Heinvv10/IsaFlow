@@ -8,14 +8,14 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, boom } from '../helpers/d2CensusG4';
 import { typeDate } from '../helpers/dateFields';
 
-const route = vi.hoisted(() => ({ id: 'ri-A' }));
+const route = vi.hoisted(() => ({ id: 'ri-A' as string | undefined, push: undefined as unknown as ReturnType<typeof vi.fn> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('next/router', () => ({
-  useRouter: () => ({ query: { id: route.id }, push: vi.fn(async () => true), replace: vi.fn(), pathname: '/', isReady: true }),
+  useRouter: () => ({ query: route.id === undefined ? {} : { id: route.id }, push: route.push, replace: vi.fn(), pathname: '/', isReady: true }),
 }));
-vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div data-testid="layout">{children}</div> }));
 vi.mock('@/utils/toast', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'co-1', name: 'Co' } }) }));
 import { apiFetch } from '@/lib/apiFetch';
@@ -33,6 +33,7 @@ let deferPut = false;
 useApiJsonOverMock();
 beforeEach(() => {
   route.id = 'ri-A';
+  route.push = vi.fn(async () => true);
   customersFail = false;
   deferPut = false;
   putResolvers = [];
@@ -87,6 +88,7 @@ describe('recurring invoice edit: per-template state', () => {
     expect(screen.getByDisplayValue('Template ri-B')).toBeTruthy();
     expect((nextRun() as HTMLInputElement).value).toBe('01 Nov 2026');
     expect(screen.queryByRole('alert')).toBeNull();
+    expect(route.push).not.toHaveBeenCalled();
     expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).disabled).toBe(false);
     deferPut = false;
     submit();
@@ -113,5 +115,13 @@ describe('recurring invoice edit: per-template state', () => {
     render(<RecurringInvoiceEdit />);
     await screen.findByDisplayValue('Fee ri-A');
     expect((await screen.findByRole('alert')).textContent).toContain('Could not load customers');
+  });
+
+  it('renders the layout shell and a spinner while the router id is not yet a string', () => {
+    route.id = undefined;
+    const { container } = render(<RecurringInvoiceEdit />);
+    expect(screen.getByTestId('layout')).toBeTruthy();
+    expect(container.querySelector('.animate-spin')).toBeTruthy();
+    expect(vi.mocked(apiFetch)).not.toHaveBeenCalled();
   });
 });

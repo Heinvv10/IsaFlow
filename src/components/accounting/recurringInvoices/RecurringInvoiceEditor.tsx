@@ -1,11 +1,11 @@
 /**
- * Edit form for one recurring invoice template. The page renders it with key={id}, so every piece of
- * per-template state (form, lines, date-gate refusals, error, submitting) is fresh for each template.
+ * Edit form for one recurring invoice template (the page supplies AppLayout). The page renders it with
+ * key={id}, so every piece of per-template state (form, lines, date-gate refusals, error, submitting) is
+ * fresh for each template.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
   ArrowLeft, Repeat, Loader2, AlertCircle, Save,
@@ -38,6 +38,11 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
   const [error, setError] = useState('');
   const [customersError, setCustomersError] = useState('');
   const dates = useDateGate();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const { form, setForm, lines, setLines, loading, loaded, loadError, loadedDates } = useRecurringTemplateLoad(id);
 
   useEffect(() => {
@@ -89,13 +94,15 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
         body: JSON.stringify(payload),
       });
       await assertOk(res, 'Could not save the recurring invoice - try again');
+      if (!mounted.current) return;
       loadedDates.current = { nextRunDate: form.nextRunDate, endDate: form.endDate };
       try { await router.push('/accounting/recurring-invoices'); } catch (navErr) { log.warn('navigation failed', { error: navErr }, 'recurring-invoices-id'); }
     } catch (err) {
       log.error('Failed to update recurring invoice', { id, error: err }, 'recurring-edit');
+      if (!mounted.current) return;
       setError(apiErrorMessage(err, 'Could not save the recurring invoice - try again'));
     } finally {
-      setSubmitting(false);
+      if (mounted.current) setSubmitting(false);
     }
   };
 
@@ -104,166 +111,162 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
 
   if (loading) {
     return (
-      <AppLayout>
-        <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
-        </div>
-      </AppLayout>
+      <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+      </div>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center gap-4">
-            <Link
-              href="/accounting/recurring-invoices"
-              className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] transition-colors"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-violet-500/10">
-                <Repeat className="h-6 w-6 text-violet-500" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Edit Recurring Invoice</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">{form.templateName || 'Loading…'}</p>
-              </div>
+    <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      {/* Header */}
+      <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
+        <div className="px-6 py-4 flex items-center gap-4">
+          <Link
+            href="/accounting/recurring-invoices"
+            className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-violet-500/10">
+              <Repeat className="h-6 w-6 text-violet-500" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Edit Recurring Invoice</h1>
+              <p className="text-sm text-[var(--ff-text-secondary)]">{form.templateName || 'Loading…'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={e => void handleSubmit(e)} className="px-6 py-6 max-w-4xl space-y-6">
+        {(error || loadError || customersError) && (
+          <div role="alert" className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" /> {error || loadError || customersError}
+          </div>
+        )}
+
+        {/* Template Details */}
+        <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] uppercase tracking-wide">Template Details</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Template Name</label>
+              <input
+                name="templateName"
+                aria-label="Template Name"
+                className={inputCls}
+                value={form.templateName}
+                onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))}
+                placeholder="e.g. Monthly Retainer"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Customer</label>
+              <select
+                name="clientId"
+                className={inputCls}
+                value={form.clientId}
+                onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                disabled
+              >
+                <option value="">Select customer…</option>
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>{c.company_name ?? c.name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-[var(--ff-text-secondary)] mt-1">Customer cannot be changed after creation</p>
+            </div>
+            <div>
+              <label className={labelCls}>Description</label>
+              <input
+                name="description"
+                aria-label="Description"
+                className={inputCls}
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                placeholder="Optional description"
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Payment Terms</label>
+              <select
+                name="paymentTerms"
+                className={inputCls}
+                value={form.paymentTerms}
+                onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}
+                disabled
+              >
+                <option value="7 days">7 days</option>
+                <option value="14 days">14 days</option>
+                <option value="30 days">30 days</option>
+                <option value="60 days">60 days</option>
+                <option value="COD">COD</option>
+              </select>
             </div>
           </div>
         </div>
 
-        <form onSubmit={e => void handleSubmit(e)} className="px-6 py-6 max-w-4xl space-y-6">
-          {(error || loadError || customersError) && (
-            <div role="alert" className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" /> {error || loadError || customersError}
+        {/* Schedule */}
+        <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] uppercase tracking-wide">Schedule</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>Frequency *</label>
+              <select
+                name="frequency"
+                className={inputCls}
+                value={form.frequency}
+                onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
+                required
+              >
+                {FREQ_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </div>
-          )}
-
-          {/* Template Details */}
-          <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] uppercase tracking-wide">Template Details</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Template Name</label>
-                <input
-                  name="templateName"
-                  aria-label="Template Name"
-                  className={inputCls}
-                  value={form.templateName}
-                  onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))}
-                  placeholder="e.g. Monthly Retainer"
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Customer</label>
-                <select
-                  name="clientId"
-                  className={inputCls}
-                  value={form.clientId}
-                  onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
-                  disabled
-                >
-                  <option value="">Select customer…</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.company_name ?? c.name}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-[var(--ff-text-secondary)] mt-1">Customer cannot be changed after creation</p>
-              </div>
-              <div>
-                <label className={labelCls}>Description</label>
-                <input
-                  name="description"
-                  aria-label="Description"
-                  className={inputCls}
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="Optional description"
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Payment Terms</label>
-                <select
-                  name="paymentTerms"
-                  className={inputCls}
-                  value={form.paymentTerms}
-                  onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}
-                  disabled
-                >
-                  <option value="7 days">7 days</option>
-                  <option value="14 days">14 days</option>
-                  <option value="30 days">30 days</option>
-                  <option value="60 days">60 days</option>
-                  <option value="COD">COD</option>
-                </select>
-              </div>
+            <div>
+              <DateField label="Next Run Date" required name="nextRunDate" value={form.nextRunDate || null}
+                onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })), form.nextRunDate)} />
+            </div>
+            <div>
+              <DateField label="End Date (optional)" name="endDate" value={form.endDate || null} minDate={form.nextRunDate || undefined}
+                onChange={dates.bind('endDate', iso => setForm(f => ({ ...f, endDate: iso })), form.endDate)} />
             </div>
           </div>
+        </div>
 
-          {/* Schedule */}
-          <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] uppercase tracking-wide">Schedule</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className={labelCls}>Frequency *</label>
-                <select
-                  name="frequency"
-                  className={inputCls}
-                  value={form.frequency}
-                  onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
-                  required
-                >
-                  {FREQ_OPTIONS.map(o => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <DateField label="Next Run Date" required name="nextRunDate" value={form.nextRunDate || null}
-                  onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })), form.nextRunDate)} />
-              </div>
-              <div>
-                <DateField label="End Date (optional)" name="endDate" value={form.endDate || null} minDate={form.nextRunDate || undefined}
-                  onChange={dates.bind('endDate', iso => setForm(f => ({ ...f, endDate: iso })), form.endDate)} />
-              </div>
-            </div>
-          </div>
+        {/* Line Items */}
+        <LineItemsSection
+          lines={lines}
+          taxRate={form.taxRate}
+          onTaxRateChange={rate => setForm(f => ({ ...f, taxRate: rate }))}
+          onUpdateLine={updateLine}
+          onAddLine={addLine}
+          onRemoveLine={removeLine}
+          inputCls={inputCls}
+        />
 
-          {/* Line Items */}
-          <LineItemsSection
-            lines={lines}
-            taxRate={form.taxRate}
-            onTaxRateChange={rate => setForm(f => ({ ...f, taxRate: rate }))}
-            onUpdateLine={updateLine}
-            onAddLine={addLine}
-            onRemoveLine={removeLine}
-            inputCls={inputCls}
-          />
-
-          {/* Actions */}
-          <div className="flex justify-end gap-3 pb-8">
-            <Link
-              href="/accounting/recurring-invoices"
-              className="px-5 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={submitting || !loaded}
-              className="inline-flex items-center gap-2 px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm font-medium disabled:opacity-50"
-            >
-              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              <Save className="h-4 w-4" />
-              Save Changes
-            </button>
-          </div>
-        </form>
-      </div>
-    </AppLayout>
+        {/* Actions */}
+        <div className="flex justify-end gap-3 pb-8">
+          <Link
+            href="/accounting/recurring-invoices"
+            className="px-5 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"
+          >
+            Cancel
+          </Link>
+          <button
+            type="submit"
+            disabled={submitting || !loaded}
+            className="inline-flex items-center gap-2 px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm font-medium disabled:opacity-50"
+          >
+            {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+            <Save className="h-4 w-4" />
+            Save Changes
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
