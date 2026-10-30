@@ -16,6 +16,7 @@ import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes'
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui';
 
 type TxType = 'spend' | 'receive';
 type AllocType = 'account' | 'supplier' | 'customer';
@@ -233,8 +234,8 @@ export default function NewBankTransactionPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className={lbl}>Date *</label>
-                          <input type="date" name="date" value={form.date} onChange={e => patch({ date: e.target.value })} className={inp} required />
+                          <DateField label="Date" required name="date" value={form.date || null}
+                            onChange={(iso, v) => patch({ date: v.valid ? iso ?? '' : '' })} />
                         </div>
                         <div>
                           <label className={lbl}>Reference</label>

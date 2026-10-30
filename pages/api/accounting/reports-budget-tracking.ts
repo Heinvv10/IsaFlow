@@ -7,7 +7,10 @@
  * Budget vs Actual on the tracking engine: income-statement bands, Actual /
  * Budget / Var R / Var %, Projected FY, the dimension filter and its
  * unallocated budget. Read-only, like the income statement: viewer roles may
- * open it (contract decision 15), so no withWriteAccess.
+ * open it (contract decision 15), so no withWriteAccess. Rate limited per
+ * company at INTERACTIVE_REPORT_LIMIT (every control change reloads it; the
+ * page coalesces them); a refusal is a 429 with Retry-After and the wait in
+ * its message.
  *
  * 400 a malformed value, a quarter past the year, from > to, > 24 months, a
  * version from another year; 404 a year label, version or dimension id that
@@ -18,7 +21,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { checkReportRateLimit } from '@/lib/rateLimit';
+import { chargeReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { respondTrackingError } from '@/lib/budgetTrackingResponse';
 import { buildBudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/budgetTrackingService';
 import { parseTrackingQuery } from '@/modules/accounting/services/budgets/tracking/trackingQuery';
@@ -28,9 +31,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
 
-  if (!(await checkReportRateLimit(companyId, 'reports-budget-tracking'))) {
+  const limit = await chargeReportRateLimit(companyId, 'reports-budget-tracking', { ...INTERACTIVE_REPORT_LIMIT });
+  if (!limit.admitted) {
     log.warn('Budget tracking rate limit exceeded', { companyId }, 'rateLimit');
-    return apiResponse.tooManyRequests(res, 'Too many report requests. Please try again shortly.');
+    const secs = limit.retryAfterSecs;
+    if (secs === null) return apiResponse.tooManyRequests(res, 'Too many report requests: try again shortly.');
+    res.setHeader('Retry-After', String(secs));
+    const wait = secs < 60 ? `${secs} second${secs === 1 ? '' : 's'}` : `${Math.ceil(secs / 60)} minute${Math.ceil(secs / 60) === 1 ? '' : 's'}`;
+    return apiResponse.tooManyRequests(res, `Too many report requests: try again in ${wait}.`);
   }
 
   const parsed = parseTrackingQuery(req.query);

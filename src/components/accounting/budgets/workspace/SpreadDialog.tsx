@@ -23,7 +23,8 @@ export interface RowCells { keys: readonly CellKey[]; values: readonly (number |
 export type NamedChild = ChildShare & { label: string };
 
 export type SpreadTarget =
-  | { mode: 'row'; label: string; row: RowCells; py: readonly number[] | null }
+  /** `note`: said above the preview (P4: "Spread over the N open months …" in a version with closed months). */
+  | { mode: 'row'; label: string; row: RowCells; py: readonly number[] | null; note?: string }
   | { mode: 'children'; label: string; children: readonly NamedChild[]; own: RowCells | null }
   | { mode: 'move'; label: string; children: readonly NamedChild[]; own: RowCells };
 
@@ -138,6 +139,7 @@ export function SpreadDialog({ target, months, unit, onApply, onClose }: SpreadD
             )}
           </>
         )}
+        {target.mode === 'row' && target.note && <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="spread-note">{target.note}</p>}
         <div aria-live="polite">
           {result.ok ? (
             <>

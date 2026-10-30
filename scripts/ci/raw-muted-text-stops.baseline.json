@@ -228,7 +228,7 @@
   "pages/accounting/assets/categories.tsx": 2,
   "pages/accounting/expenses/[id].tsx": 14,
   "pages/accounting/expenses/index.tsx": 6,
-  "pages/accounting/expenses/new.tsx": 5,
+  "pages/accounting/expenses/new.tsx": 4,
   "pages/accounting/bank/statements/index.tsx": 1,
   "pages/accounting/customer-quotes/index.tsx": 20,
   "pages/accounting/practice/reports/service-mix.tsx": 1,
