@@ -31,6 +31,13 @@ const pension = (amount: number): EmployeeComponent => ({
 const ra = (amount: number): EmployeeComponent => ({
   component: comp('4006', { componentType: 'deduction', isUifApplicable: false, isSdlApplicable: false }), amount,
 });
+const donation = (amount: number): EmployeeComponent => ({
+  component: comp('4030', { componentType: 'deduction', isUifApplicable: false, isSdlApplicable: false }), amount,
+});
+const unionFees = (amount: number): EmployeeComponent => ({
+  // 4018 = Union dues; isTaxable defaults to true via comp()
+  component: comp('4018', { componentType: 'deduction', isUifApplicable: false, isSdlApplicable: false }), amount,
+});
 
 function line(components: EmployeeComponent[], annualPayrollEstimate: number | 'defer' = 1_000_000) {
   const input: PayrollLineInput = {
@@ -158,6 +165,48 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(r.taxableIncome).toBe(0);          // PAYE: deduction absorbs all taxable income
     expect(r.sdlLeviable).toBeCloseTo(2_175, 2);
     expect(r.sdl).toBeCloseTo(21.75, 2);
+  });
+});
+
+describe('SDL para 2(4)(f): s18A donations (4030) allowlist and 5% cap (SARS PAYE-GEN-01-G21 (2027) Rev 1 \'Donations\' para 2(4)(f))', () => {
+  it('R30 000 salary + R10 000 donation (4030) → donation capped at 5% = R1 500, SDL R285', () => {
+    // Source: SARS PAYE-GEN-01-G21 (2027) Rev 1 'Donations' para 2(4)(f).
+    // 5% × R30 000 = R1 500 (percentage cap binds at R10 000 contribution).
+    // SDL leviable = R30 000 − R1 500 = R28 500; SDL = R285.
+    const r = line([salary(30_000), donation(10_000)]);
+    expect(r.sdlLeviable).toBe(28_500);
+    expect(r.sdl).toBe(285);
+  });
+
+  it('donation within the 5% cap: full donation allowed, SDL not over-capped', () => {
+    // R30 000 salary + R500 donation; 5% × R30 000 = R1 500 > R500 → full amount.
+    // SDL leviable = R29 500; SDL = R295.
+    const r = line([salary(30_000), donation(500)]);
+    expect(r.sdlLeviable).toBe(29_500);
+    expect(r.sdl).toBe(295);
+  });
+
+  it('donation + RA combined: 5% applies to remuneration AFTER the capped RA deduction', () => {
+    // Source: SARS PAYE-GEN-01-G21 (2027) Rev 1 'Donations' para 2(4)(f).
+    // R20 000 salary + R4 000 RA + R2 000 donation.
+    // s11F cap: 27.5% × R20 000 = R5 500 > R4 000 → full RA allowed (R4 000).
+    // Donation base: R20 000 − R4 000 = R16 000; 5% × R16 000 = R800.
+    // Donation allowable: min(R2 000, R800) = R800.
+    // para 2(4) for SDL: R4 000 + R800 = R4 800.
+    // SDL leviable = R20 000 − R4 800 = R15 200; SDL = R152.
+    const r = line([salary(20_000), ra(4_000), donation(2_000)]);
+    expect(r.sdlLeviable).toBe(15_200);
+    expect(r.sdl).toBe(152);
+  });
+
+  it('non-allowlisted taxable deduction (union fees 4018) does NOT reduce SDL', () => {
+    // Union fees are taxable deductions for PAYE but are not in the SDL para 2(4)
+    // allowlist. They reduce PAYE taxableIncome but leave SDL leviable unchanged.
+    // R30 000 salary + R1 000 union fees: taxableIncome = R29 000, sdlLeviable = R30 000.
+    const r = line([salary(30_000), unionFees(1_000)]);
+    expect(r.taxableIncome).toBe(29_000); // PAYE reduced
+    expect(r.sdlLeviable).toBe(30_000);   // SDL not reduced
+    expect(r.sdl).toBe(300);
   });
 });
 
