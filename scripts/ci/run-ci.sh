@@ -6,7 +6,27 @@ set -uo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Gate groups. The gate list stays in this one file (R-052); ci.yml runs it in
+# two pieces on two kinds of runner and its "Type Check, Lint & Test" job
+# passes only when both pieces passed:
+#   static  needs nothing from velo (no database, no runner-local file, no
+#           Chromium): GitHub-hosted runners.
+#   velo    browser-tests (real Chromium and pinned text metrics, known to
+#           pass on velo and not tried on hosted runners) and
+#           integration (throwaway PostgreSQL 16 clusters from velo's
+#           postgresql-16 packages): the self-hosted runners.
+#   all     both, in order: the default, and what the pre-push hook runs.
+#   bun run ci [all|static|velo]
+GROUP="${1:-all}"
+case "$GROUP" in
+  all|static|velo) ;;
+  *) echo "usage: run-ci.sh [all|static|velo] (got: $GROUP)" >&2; exit 2 ;;
+esac
+in_group() { [ "$GROUP" = all ] || [ "$GROUP" = "$1" ]; }
+echo "[ci] gate group: $GROUP"
+
 declare -a FAILED=()
+INTEGRATION_NOTE=""
 
 run_step() {
   local name="$1"; shift
@@ -44,6 +64,7 @@ fi
 # every gate below (PR-authored tests included). ci.yml's checkouts set
 # persist-credentials: false, so it is not in .git/config either.
 unset CI_READ_TOKEN
+if in_group static; then
 run_step "type-check"        bun run type-check
 # `tsconfig.json` excludes `tests/**`, so a FIXTURE may omit a required field
 # of the model it claims to be and neither `tsc --noEmit` nor vitest notices.
@@ -100,12 +121,15 @@ run_step "workflow-runs-ci"       bun scripts/ci/check-workflow-runs-ci.ts
 run_step "client-responses"       bun scripts/ci/check-client-responses.ts
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components
+run_step "migration-naming"  bun scripts/audit-migration-naming.ts
+fi
+
+if in_group velo; then
 # The tests that launch real Chromium (tests/unit/print/). Excluded from
 # unit-tests above, where they timed out beside ~800 parallel files, and
 # run here one file at a time. REQUIRED, like every other step: a failure or a
 # timeout fails the gate.
 run_step "browser-tests"     bun run test:print
-run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 
 # Every tests/integration/**/*.int.test.ts against throwaway PostgreSQL 16
 # clusters the step starts and removes itself (initdb as the current user; no
@@ -118,7 +142,6 @@ run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 # On GitHub, a change that touches nothing but Markdown skips it
 # (scripts/ci/integration/scope.ts: exit 10 skips, anything else, a crash
 # included, runs; it prints why and the files that made it run).
-INTEGRATION_NOTE=""
 if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI_INTEGRATION:-}" = "1" ]; then
   scope_rc=0
   if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${CI_INTEGRATION:-}" != "1" ]; then
@@ -136,10 +159,13 @@ else
   echo ""
   echo "[skip] integration: NOT RUN — the integration suites run on GitHub only. Run them here with: CI_INTEGRATION=1 bun run ci (or bash scripts/ci/integration/run.sh)"
 fi
+fi
 
 # Production build gate — catches build-breaking changes pre-merge (the deploy
 # script builds too, but that's too late). Set CI_SKIP_BUILD=1 to skip locally.
-if [ "${CI_SKIP_BUILD:-0}" = "1" ]; then
+if ! in_group static; then
+  :
+elif [ "${CI_SKIP_BUILD:-0}" = "1" ]; then
   echo "[skip] build: CI_SKIP_BUILD=1"
 else
   run_step "build"           env NODE_ENV=production bun run build
@@ -147,7 +173,7 @@ fi
 
 echo ""
 if [ "${#FAILED[@]}" -eq 0 ]; then
-  echo "[ci] all checks passed${INTEGRATION_NOTE}"
+  echo "[ci] all checks passed (group: $GROUP)${INTEGRATION_NOTE}"
   exit 0
 fi
 

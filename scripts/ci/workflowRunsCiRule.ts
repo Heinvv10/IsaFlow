@@ -20,10 +20,14 @@
  * `--ignore-scripts` closes as a class; pre/post hooks on `ci` or on any
  * script run-ci.sh calls, which are refused by prefix, not by name; `branches: [master, '!master']`; and a `runs-on` label no
  * runner has (queued forever, never red). All are refused below.
- * Any search admits the shape it did not think of. So the `quality` job, its
- * triggers and package.json's `ci` script are compared against the ONE shape
- * that is known to run every gate, and anything else is refused. To change
- * the job, change this rule in the same PR, where a reviewer will see it.
+ * Any search admits the shape it did not think of. So the gate jobs (route,
+ * static, velo and the required `quality` aggregator: workflowGateJobs.ts),
+ * the triggers and package.json's `ci` script are compared against the ONE
+ * shape that is known to run every gate, and anything else is refused. To
+ * change a job, change this rule in the same PR, where a reviewer will see it.
+ * Since 2026-10-30 the gates run in two groups (`bun run ci static` on
+ * GitHub-hosted runners, `bun run ci velo` on velo); run-ci.sh still holds the
+ * one list, and "Type Check, Lint & Test" passes only when both groups did.
  *
  * WHAT IT CANNOT DO:
  *   - On GitHub it runs inside the workflow it checks, so it cannot catch a
@@ -44,7 +48,11 @@
  *     is refused by run-ci.sh's `no-bunfig` step, in bash, not here.
  */
 
-export const QUALITY_JOB = 'quality';
+import {
+  CHECKOUT, JOB_PERMISSIONS, QUALITY_JOB, checkGateJobs, extraKeys, isObj, sameList, sameMap,
+} from './workflowGateJobs';
+
+export { QUALITY_JOB };
 export const CI_SCRIPT = 'bash scripts/ci/run-ci.sh';
 /**
  * Every `bun run X` inside run-ci.sh (type-check, lint, test:unit, build, ...)
@@ -56,70 +64,32 @@ export const CI_SCRIPT = 'bash scripts/ci/run-ci.sh';
  */
 const HOOK_PREFIX = /^(pre|post)/;
 const ALLOWED_PREFIXED = new Set(['prepare']);
-const RUNS_ON = ['self-hosted', 'linux', 'velo'];
 /**
- * A timeout too short to finish, or a concurrency group shared with other
- * refs, ends the check CANCELLED, never red, and this repo has merged on
- * cancelled checks. Concurrency is pinned exactly; the timeout has a floor
- * (the job measured 8m13s under load, R-052/green.log).
+ * A concurrency group shared with other refs ends the check CANCELLED, never
+ * red, and this repo has merged on cancelled checks. Pinned exactly.
  */
 const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true };
 /**
  * Concurrency groups are repo-wide, across workflows: any other job or
- * workflow that takes the ci- group cancels quality. Scanning group strings is
- * another arms race, so the SET is fixed instead: ci.yml is the only workflow
- * file, its jobs are exactly these, golden-paths keeps its own group (a -queue
- * one for runs the merge queue waits on, chosen by golden-lane), and golden-lane
- * takes none. A new workflow or job means changing this rule in review.
+ * workflow that takes the ci- group cancels the gate jobs. Scanning group
+ * strings is another arms race, so the SET is fixed instead: ci.yml is the
+ * only workflow file, its jobs are exactly these, golden-paths keeps its own
+ * group (a -queue one for runs the merge queue waits on, chosen by
+ * golden-lane), and no other job takes one. A new workflow or job means
+ * changing this rule in review.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['quality', 'golden-lane', 'golden-paths'];
+const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
 const GOLDEN_PATHS_CONCURRENCY = {
   group: "golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
   'cancel-in-progress': false,
 };
 /**
  * The token every job gets. With `actions: write` any job (golden-paths
- * included) could `gh run cancel` the run, ending quality CANCELLED. Pinned at
- * the top level. A job may set exactly JOB_PERMISSIONS and nothing else: the
- * read scopes mq-merge-already-tested.ts needs to read the merged PR and its CI
- * run's jobs. A read scope cannot cancel, rerun or write anything.
+ * included) could `gh run cancel` the run. Pinned at the top level. A job may
+ * set exactly JOB_PERMISSIONS and nothing else.
  */
 const PERMISSIONS = { contents: 'read' };
-const JOB_PERMISSIONS = { contents: 'read', actions: 'read', 'pull-requests': 'read' };
-const MIN_TIMEOUT_MINUTES = 20;
-const CHECKOUT = /^actions\/checkout@v\d+$/;
-/**
- * The only checkout inputs allowed: full history (the integration scope and the
- * merge check read it), and no token left in .git/config. checkout persists the
- * job token there by default, where any test or install script could read it.
- */
-const CHECKOUT_WITH = { 'fetch-depth': 0, 'persist-credentials': false };
-const INSTALL = 'bun install --frozen-lockfile --ignore-scripts';
-const RUN_CI = 'bun run ci';
-/** The only env the gate step may set. CI_SKIP_BUILD / SKIP_CI would drop gates silently. */
-const GATE_ENV = new Set(['CI_READ_TOKEN', 'DATABASE_URL', 'JWT_SECRET', 'NODE_ENV']);
-/**
- * CI_READ_TOKEN must be the job's own token: the merge check trusts what the
- * API answers, so a token for another repo or account is refused.
- */
-const CI_READ_TOKEN = '${{ github.token }}';
-
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
-
-function sameList(v: unknown, want: string[]): boolean {
-  return Array.isArray(v) && v.length === want.length && v.every((x, i) => x === want[i]);
-}
-
-function extraKeys(o: Obj, allowed: string[]): string[] {
-  return Object.keys(o).filter((k) => !allowed.includes(k));
-}
-
-function sameMap(v: unknown, want: Record<string, unknown>): boolean {
-  return isObj(v) && sameList(Object.keys(v).sort(), Object.keys(want).sort())
-    && Object.entries(want).every(([k, x]) => v[k] === x);
-}
 
 function checkTrigger(on: Obj, event: string, errors: string[]): void {
   const t = on[event];
@@ -142,7 +112,7 @@ function checkTrigger(on: Obj, event: string, errors: string[]): void {
 export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflowFiles: string[]): string[] {
   const errors: string[] = [];
   if (!sameList([...workflowFiles].sort(), WORKFLOW_FILES)) {
-    errors.push(`.github/workflows/ must hold only ${WORKFLOW_FILES.join(', ')} (it holds ${workflowFiles.join(', ') || 'nothing'}); another workflow can take the ci- concurrency group and cancel quality`);
+    errors.push(`.github/workflows/ must hold only ${WORKFLOW_FILES.join(', ')} (it holds ${workflowFiles.join(', ') || 'nothing'}); another workflow can take the ci- concurrency group and cancel the gates`);
   }
   const pkg = isObj(scripts) ? scripts : {};
   if (pkg.ci !== CI_SCRIPT) {
@@ -174,7 +144,7 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
   const jobs = workflow.jobs;
   if (isObj(jobs)) {
     if (!sameList(Object.keys(jobs), JOBS)) {
-      errors.push(`ci.yml jobs must be exactly ${JOBS.join(', ')}; another job can take the ci- concurrency group and cancel quality`);
+      errors.push(`ci.yml jobs must be exactly ${JOBS.join(', ')}; another job can take the ci- concurrency group and cancel the gates`);
     }
     const widened = Object.entries(jobs)
       .filter(([, j]) => isObj(j) && 'permissions' in j && !sameMap(j.permissions, JOB_PERMISSIONS))
@@ -194,47 +164,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
       || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
       errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
     }
-    const lane = jobs['golden-lane'];
-    if (isObj(lane) && 'concurrency' in lane) {
-      errors.push('jobs.golden-lane sets concurrency; it must take no group (the ci- group would cancel quality)');
-    }
+    const grouped = Object.entries(jobs).filter(([name, j]) => name !== 'golden-paths' && isObj(j) && 'concurrency' in j).map(([name]) => name);
+    if (grouped.length) errors.push(`jobs ${grouped.join(', ')} set concurrency; only golden-paths may take a group (the ci- group would cancel the gates)`);
   }
-  const job = isObj(jobs) ? jobs[QUALITY_JOB] : undefined;
-  if (!isObj(job)) return [...errors, `ci.yml has no jobs.${QUALITY_JOB}`];
-
-  const jobExtra = extraKeys(job, ['name', 'runs-on', 'timeout-minutes', 'permissions', 'steps']);
-  if (jobExtra.length) errors.push(`jobs.${QUALITY_JOB} sets ${jobExtra.join(', ')}; if/continue-on-error/defaults/env/strategy can skip or neutralise the gate`);
-  const timeout = job['timeout-minutes'];
-  if (!Number.isInteger(timeout) || (timeout as number) < MIN_TIMEOUT_MINUTES) {
-    errors.push(`jobs.${QUALITY_JOB}.timeout-minutes must be an integer >= ${MIN_TIMEOUT_MINUTES}; a job that cannot finish ends cancelled, never red`);
-  }
-
-  if (!sameList(job['runs-on'], RUNS_ON)) {
-    errors.push(`jobs.${QUALITY_JOB}.runs-on must be exactly [${RUNS_ON.join(', ')}]; an unknown label queues forever and never goes red`);
-  }
-
-  const steps = job.steps;
-  if (!Array.isArray(steps) || steps.length !== 3) {
-    return [...errors, `jobs.${QUALITY_JOB}.steps must be exactly: checkout, \`${INSTALL}\`, \`${RUN_CI}\``];
-  }
-  const [checkout, install, gate] = steps as unknown[];
-
-  if (!isObj(checkout) || extraKeys(checkout, ['uses', 'with']).length || typeof checkout.uses !== 'string'
-    || !CHECKOUT.test(checkout.uses) || (checkout.with !== undefined && !sameMap(checkout.with, CHECKOUT_WITH))) {
-    errors.push('step 1 must be only `uses: actions/checkout@vN`, optionally `with: {fetch-depth: 0, persist-credentials: false}`');
-  }
-  if (!isObj(install) || extraKeys(install, ['name', 'run']).length || install.run !== INSTALL) {
-    errors.push(`step 2 must be only \`run: ${INSTALL}\` (install scripts or a step before the gate can rewrite what it runs)`);
-  }
-  if (!isObj(gate) || extraKeys(gate, ['name', 'run', 'env']).length || typeof gate.run !== 'string' || gate.run.trim() !== RUN_CI) {
-    errors.push(`step 3 must be only \`run: ${RUN_CI}\` (+ name, env); if/shell/continue-on-error/working-directory are refused`);
-  } else if (gate.env !== undefined) {
-    const env = gate.env;
-    const bad = isObj(env) ? Object.keys(env).filter((k) => !GATE_ENV.has(k)) : ['<not a mapping>'];
-    if (bad.length) errors.push(`the gate step's env sets ${bad.join(', ')}; only ${[...GATE_ENV].join(', ')} are allowed`);
-    if (isObj(env) && 'CI_READ_TOKEN' in env && env.CI_READ_TOKEN !== CI_READ_TOKEN) {
-      errors.push(`the gate step's CI_READ_TOKEN must be exactly ${CI_READ_TOKEN}`);
-    }
-  }
+  if (!isObj(jobs)) return [...errors, 'ci.yml has no `jobs` mapping'];
+  errors.push(...checkGateJobs(jobs));
   return errors;
 }

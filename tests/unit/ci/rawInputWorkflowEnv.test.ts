@@ -18,10 +18,12 @@ function edit(from: string, to: string): string {
   return REAL.replace(from, to);
 }
 
-const GATE_ENV_END = '          NODE_ENV: test\n';
-const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
+// static's gate env ends where the velo job's comment starts (velo has the same env).
+const VELO_NEXT = '\n  # `bun run ci velo`';
+const GATE_ENV_END = `          NODE_ENV: test\n${VELO_NEXT}`;
+const QUALITY_HEADER = '  static:\n    name: Static gates\n';
 const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # The gate list';
-const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # --ignore-scripts';
+const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # GitHub-hosted only';
 
 describe('a PR cannot reach the raw-input gate through ci.yml', () => {
   it('the committed workflow passes', () => {
@@ -30,26 +32,26 @@ describe('a PR cannot reach the raw-input gate through ci.yml', () => {
 
   // [what the PR does, the edited workflow, what the refusal must say]: the message names the variable or the step.
   const cases: Array<[string, string, RegExp]> = [
-    ['GITHUB_ACTIONS on the gate step', edit(GATE_ENV_END, `${GATE_ENV_END}          GITHUB_ACTIONS: ""\n`), /gate step's env sets GITHUB_ACTIONS;/],
-    ['CI on the gate step', edit(GATE_ENV_END, `${GATE_ENV_END}          CI: ""\n`), /gate step's env sets CI;/],
-    ['RAW_INPUT_BASE_REF on the gate step', edit(GATE_ENV_END, `${GATE_ENV_END}          RAW_INPUT_BASE_REF: HEAD\n`), /gate step's env sets RAW_INPUT_BASE_REF;/],
-    ['RAW_INPUT_BASE_REF at job level', edit(QUALITY_HEADER, `${QUALITY_HEADER}    env:\n      RAW_INPUT_BASE_REF: HEAD\n`), /jobs\.quality sets env;/],
-    ['GITHUB_ACTIONS at job level', edit(QUALITY_HEADER, `${QUALITY_HEADER}    env:\n      GITHUB_ACTIONS: "false"\n`), /jobs\.quality sets env;/],
+    ['GITHUB_ACTIONS on the gate step', edit(GATE_ENV_END, `          NODE_ENV: test\n          GITHUB_ACTIONS: ""\n${VELO_NEXT}`), /gate step's env sets GITHUB_ACTIONS;/],
+    ['CI on the gate step', edit(GATE_ENV_END, `          NODE_ENV: test\n          CI: ""\n${VELO_NEXT}`), /gate step's env sets CI;/],
+    ['RAW_INPUT_BASE_REF on the gate step', edit(GATE_ENV_END, `          NODE_ENV: test\n          RAW_INPUT_BASE_REF: HEAD\n${VELO_NEXT}`), /gate step's env sets RAW_INPUT_BASE_REF;/],
+    ['RAW_INPUT_BASE_REF at job level', edit(QUALITY_HEADER, `${QUALITY_HEADER}    env:\n      RAW_INPUT_BASE_REF: HEAD\n`), /jobs\.static sets env;/],
+    ['GITHUB_ACTIONS at job level', edit(QUALITY_HEADER, `${QUALITY_HEADER}    env:\n      GITHUB_ACTIONS: "false"\n`), /jobs\.static sets env;/],
     ['RAW_INPUT_BASE_REF at workflow level', edit('\npermissions:\n', '\nenv:\n  RAW_INPUT_BASE_REF: HEAD\n\npermissions:\n'), /ci\.yml sets top-level env;/],
     [
       'an env on the install step',
       edit(QUALITY_INSTALL, QUALITY_INSTALL.replace('--ignore-scripts\n', '--ignore-scripts\n        env:\n          RAW_INPUT_BASE_REF: HEAD\n')),
-      /^step 2 must be only `run: bun install --frozen-lockfile --ignore-scripts`/,
+      /^jobs\.static step 5 must be only `run: bun install --frozen-lockfile --ignore-scripts`/,
     ],
     [
       'an env on the checkout step',
       edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('persist-credentials: false\n', 'persist-credentials: false\n        env:\n          RAW_INPUT_BASE_REF: HEAD\n')),
-      /^step 1 must be only `uses: actions\/checkout@vN`/,
+      /^jobs\.static step 1 must be only `uses: actions\/checkout@vN`/,
     ],
     [
       'a step that writes the variable to GITHUB_ENV before the gate',
       edit(QUALITY_INSTALL, '      - run: echo "RAW_INPUT_BASE_REF=HEAD" >> "$GITHUB_ENV"\n\n' + QUALITY_INSTALL),
-      /^jobs\.quality\.steps must be exactly: checkout, `bun install --frozen-lockfile --ignore-scripts`, `bun run ci`/,
+      /^jobs\.static\.steps must be exactly: checkout, the hosted-only setup-node\/setup-bun\/cache steps, `bun install --frozen-lockfile --ignore-scripts`, `bun run ci static`/,
     ],
   ];
 
