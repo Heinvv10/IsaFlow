@@ -255,6 +255,9 @@ describe('the required check passes only when both gate groups passed', () => {
     ['a decoy job named like the required check (newest run wins in the queue)', edit('    name: Golden Paths lane\n', '    name: Type Check, Lint & Test\n')],
     ['static renamed to the required check', edit('    name: Static gates\n', '    name: Type Check, Lint & Test\n')],
     ['golden-paths renamed (its required check never reports)', edit('    name: Golden Paths E2E (blocking)\n', '    name: Golden Paths E2E\n')],
+    ['a decoy whose name renders as the required check through an expression', edit('    name: Golden Paths lane\n', "    name: \"Type Check, Lint ${{ '&' }} Test\"\n")],
+    ['static renamed so the fallback finds another job', edit('    name: Static gates\n', '    name: Static gates (hosted)\n')],
+    ['golden-lane named like the hosted job the fallback looks up', edit('    name: Golden Paths lane\n', '    name: Static gates\n')],
     ['route taking a concurrency group', edit('    name: CI route\n', '    name: CI route\n    concurrency:\n      group: ci-${{ github.ref }}\n')],
   ];
 
