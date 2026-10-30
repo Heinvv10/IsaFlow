@@ -57,7 +57,7 @@ const WRITERS: Record<string, string[]> = {
     `${S}ap/payingAccountAuthors.ts`, // bank-accounts PUT: bank_details_setters (migration 923)
     `${S}bank/bankOpeningBalanceService.ts`, `${S}core/migrationCoaService.ts`, `${S}core/migrationExecuteService.ts`,
     `${S}core/migrationRollbackService.ts`, `${S}gl/accountMergeService.ts`, `${S}gl/accountReclassifyService.ts`,
-    `${S}gl/chartOfAccountsImportService.ts`, `${S}gl/chartOfAccountsService.ts`, `${S}gl/defaultAccountsService.ts`,
+    `${S}gl/chartOfAccountsService.ts`, `${S}gl/chartOfAccountsTemplateSeed.ts`, `${S}gl/defaultAccountsService.ts`,
     `${S}gl/dimensions/dimensionDefaultsService.ts`, `${S}gl/openingBalanceEquityService.ts`,
     'src/modules/admin/services/sageMigrationOrchestrator.ts',
   ],

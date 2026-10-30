@@ -138,13 +138,15 @@ describeIfDb('W2-28 a role is never emptied or doubled by a rollback, a subtype 
     const account = (sourceCode: string) => ({ sourceCode, sourceName: `Imported ${sourceCode}`, sourceType: 'EXPENSE',
       openingBalance: 0, mappedType: 'expense' as const, mappedNormalBalance: 'debit' as const, mappedSubtype: 'operating_expense' });
     const tx = await fx.openTx();
-    await tx.run(() => executeMigration(CO, USER, 'xero', [account('Z300'), account('Z400')], [], []));
+    const out = await tx.run(() => executeMigration(CO, USER, 'xero', [account('Z300'), account('Z400')], [], []));
     await tx.commit();
     clearSystemAccountCache(CO);
     const types = (await fx.query(
       "SELECT account_code, account_type FROM gl_accounts WHERE company_id = $1 AND account_code LIKE 'Z%' ORDER BY 1", [CO])).rows;
-    expect({ types, bank: (await getSystemAccount('bank', CO)).accountType }).toEqual({ bank: 'asset',
-      types: [{ account_code: 'Z300', account_type: 'asset' }, { account_code: 'Z400', account_type: 'expense' }] });
+    // Since 2026-10-28 a re-run re-types no account at all: Z400 is refused and named (import-refuses-retype).
+    expect({ types, bank: (await getSystemAccount('bank', CO)).accountType,
+      z400Refused: out.errors.some((e: string) => /Z400.*is an existing asset account/.test(e)) }).toEqual({ bank: 'asset', z400Refused: true,
+      types: [{ account_code: 'Z300', account_type: 'asset' }, { account_code: 'Z400', account_type: 'asset' }] });
   });
 
   it('a seed never hangs the template\'s sub-accounts under an existing role holder: they are left without a parent', async () => {

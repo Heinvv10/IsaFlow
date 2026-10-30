@@ -7,39 +7,12 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
-import { CalendarDays, Loader2, AlertCircle, Plus } from 'lucide-react';
+import { CalendarDays, AlertCircle, Plus } from 'lucide-react';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
+import { ListEmpty } from '@/components/ui/ListEmpty';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
-
-interface RunRow {
-  id: string;
-  periodMonth: number;
-  periodYear: number;
-  status: string;
-  totalGross: number;
-  totalPaye: number;
-  totalNet: number;
-  employeeCount: number;
-  journalEntryId: string | null;
-}
-
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const periodLabel = (r: RunRow) => `${MONTHS[r.periodMonth - 1]} ${r.periodYear}`;
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    draft: 'bg-yellow-500/10 text-yellow-400',
-    calculated: 'bg-blue-500/10 text-blue-400',
-    approved: 'bg-teal-500/10 text-teal-400',
-    posted: 'bg-emerald-500/10 text-emerald-400',
-    cancelled: 'bg-red-500/10 text-red-400',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
-      {status}
-    </span>
-  );
-}
+import { RunCards, StatusBadge, periodLabel, type RunRow } from '@/components/payroll/RunCards';
 
 export default function PayrollRunsListPage() {
   const { companyRole } = useCompany();
@@ -90,25 +63,26 @@ export default function PayrollRunsListPage() {
 
         <div className="p-6">
           {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
-            </div>
+            <ListSkeleton label="Loading payroll runs" />
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
               <AlertCircle className="h-5 w-5" /><span>{error}</span>
             </div>
           ) : runs.length === 0 ? (
-            <div className="text-center py-16">
-              <CalendarDays className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)] font-medium">No payroll runs yet</p>
-              {mayWrite && (
-                <Link href="/payroll/runs/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
-                  <Plus className="h-4 w-4" /> New Payroll Run
-                </Link>
-              )}
-            </div>
+            <ListEmpty
+              filtered={false}
+              firstRun={{
+                icon: CalendarDays,
+                title: 'No payroll runs yet',
+                description: 'A run pays everyone for one month and posts the journal.',
+                checklist: ['Add your employees', 'Create the month\'s run', 'Approve it and post'],
+                primaryAction: mayWrite ? { label: 'New Payroll Run', href: '/payroll/runs/new' } : undefined,
+              }}
+            />
           ) : (
-            <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
+            <>
+            <RunCards runs={runs} mayWrite={mayWrite} />
+            <div className="hidden md:block rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
@@ -151,6 +125,7 @@ export default function PayrollRunsListPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </div>

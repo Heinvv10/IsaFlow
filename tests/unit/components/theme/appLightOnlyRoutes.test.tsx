@@ -9,11 +9,14 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 
 let pathname = '/accounting';
 vi.mock('next/router', () => ({
-  useRouter: () => ({ pathname, query: {}, isReady: true, events: { on: () => {}, off: () => {} }, push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ pathname, asPath: pathname, query: {}, isReady: true, events: { on: () => {}, off: () => {} }, push: vi.fn(), replace: vi.fn() }),
 }));
 vi.mock('@/components/analytics/TrackerScript', () => ({ TrackerScript: () => null }));
 vi.mock('@/contexts/AuthContext', () => ({ AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
-vi.mock('@/contexts/CompanyContext', () => ({ CompanyProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock('@/contexts/CompanyContext', () => ({
+  CompanyProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useCompany: () => ({ activeCompany: null, loading: true }), // _app's ShellTitle reads it
+}));
 
 const LOAD_TIMEOUT = 60_000;
 

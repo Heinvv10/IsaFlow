@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { cn } from '@/utils/cn';
+import { anchoredMenuStyle } from '@/components/layout/menuPosition';
 
 // ─── Menu item definition ────────────────────────────────────────────────────
 
@@ -83,22 +84,19 @@ function Dropdown({ anchorRect, focusedIndex, onSelect, onFocusChange }: Dropdow
     itemRefs.current[focusedIndex]?.focus();
   }, [focusedIndex]);
 
-  const top = anchorRect.bottom + window.scrollY + 8;
-  const left = anchorRect.right + window.scrollX;
-
   return createPortal(
     <div
       role="menu"
       aria-label="Create new"
-      style={{ position: 'absolute', top, left, transform: 'translateX(-100%)' }}
+      style={anchoredMenuStyle(anchorRect, 256)}
       className={cn(
-        'z-[9999] w-64 py-1.5 rounded-xl',
+        'z-[9999] py-1.5 rounded-xl',
         'bg-white dark:bg-gray-900',
         'border border-gray-200 dark:border-gray-700',
         'shadow-xl shadow-black/10 dark:shadow-black/40',
       )}
     >
-      <p className="px-3 pb-1 pt-0.5 text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 dark:text-gray-500 select-none">
+      <p className="px-3 pb-1 pt-0.5 text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 select-none">
         Create New
       </p>
       {MENU_ITEMS.map((item, i) => {
@@ -121,9 +119,9 @@ function Dropdown({ anchorRect, focusedIndex, onSelect, onFocusChange }: Dropdow
                 : 'hover:bg-gray-50 dark:hover:bg-gray-800',
             )}
           >
-            <Icon className="w-4 h-4 flex-shrink-0 text-gray-600 dark:text-gray-400 dark:text-gray-500" />
+            <Icon className="w-4 h-4 flex-shrink-0 text-gray-600 dark:text-gray-400" />
             <span className="flex-1 text-left">{item.label}</span>
-            <span className="text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500 font-mono tabular-nums">
+            <span className="text-xs text-gray-600 dark:text-gray-400 font-mono tabular-nums">
               N {item.shortcutLetter}
             </span>
           </button>

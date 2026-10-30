@@ -13,6 +13,7 @@ import {
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { StatusPill } from '@/components/ui';
+import { ListEmpty } from '@/components/ui/ListEmpty';
 import { PER_PAGE_OPTIONS, type PerPage, type SortKey, type SortOrder } from './listTypes';
 
 interface Props {
@@ -29,12 +30,13 @@ interface Props {
   onPage: (p: number) => void;
   onPerPage: (n: PerPage) => void;
   filtersActive: boolean;
+  onClearFilters?: () => void;
 }
 
 export function InvoiceTable({
   invoices, selected, toggleRow, toggleAll,
   sort, sortOrder, onSort,
-  page, perPage, total, onPage, onPerPage, filtersActive,
+  page, perPage, total, onPage, onPerPage, filtersActive, onClearFilters,
 }: Props) {
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const visibleStart = total === 0 ? 0 : (page - 1) * perPage + 1;
@@ -42,20 +44,20 @@ export function InvoiceTable({
 
   if (invoices.length === 0) {
     return (
-      <div className="p-16 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4">
-          <FileText className="w-7 h-7 text-slate-500 dark:text-slate-400" />
-        </div>
-        <h3 className="text-base font-semibold text-slate-900 dark:text-white">No invoices found</h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          {filtersActive ? 'Try clearing some filters' : 'Record your first supplier invoice'}
-        </p>
-        {!filtersActive && (
-          <Link href="/accounting/supplier-invoices/new" className="inline-block mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">
-            New Invoice
-          </Link>
-        )}
-      </div>
+      <ListEmpty
+        filtered={filtersActive}
+        onClearFilters={onClearFilters}
+        page={page}
+        total={total}
+        onFirstPage={() => onPage(1)}
+        firstRun={{
+          icon: FileText,
+          title: 'No supplier invoices yet',
+          description: 'Capture what you owe suppliers so you can pay it on time.',
+          checklist: ['Add the supplier', 'Capture the invoice', 'Approve it and pay'],
+          primaryAction: { label: 'New Invoice', href: '/accounting/supplier-invoices/new' },
+        }}
+      />
     );
   }
 

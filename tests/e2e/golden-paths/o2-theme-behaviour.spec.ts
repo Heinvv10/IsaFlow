@@ -1,3 +1,4 @@
+// golden:dev-only
 /**
  * Golden path O2 - how the theme behaves (master plan 3b.1 / 3b.3), in a real browser.
  *
@@ -9,7 +10,7 @@
  *  - Reports pin the header row and the first column to the page scroll (no nested scroll box).
  * Read-only: writes no data.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/navSpec';
 import { auditContrast } from '../helpers/themeContrast';
 import { axeContrastFailures, rootTheme, seedTheme, settle } from '../helpers/themeSpec';
 

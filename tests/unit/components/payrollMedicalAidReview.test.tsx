@@ -19,7 +19,7 @@ const linkRenders = vi.hoisted(() => [] as string[]);
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => { linkRenders.push(href); return <a href={href}>{children}</a>; } }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CompanyContext', () => ({
-  useCompany: () => ({ companyRole: company.role, activeCompany: { id: company.id } }),
+  useCompany: () => ({ companyRole: company.role, activeCompany: { id: company.id }, companies: [] }),
 }));
 
 import { apiFetch } from '@/lib/apiFetch';
@@ -46,8 +46,8 @@ describe('new employee form', () => {
     const { container } = render(<NewEmployeePage />);
     const box = screen.getByLabelText('Medical aid main member') as HTMLInputElement;
     expect(box.checked).toBe(false);
-    const text = (i: number, v: string) => fireEvent.change(container.querySelectorAll('input')[i]!, { target: { value: v } });
-    text(0, 'Ann'); text(1, 'Lee'); text(2, 'E1');
+    const text = (label: string, v: string) => fireEvent.change(screen.getByLabelText(label), { target: { value: v } });
+    text('First name *', 'Ann'); text('Last name *', 'Lee'); text('Employee number *', 'E1');
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(router.push).toHaveBeenCalled());
     const post = vi.mocked(apiFetch).mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === 'POST')!;
@@ -58,8 +58,8 @@ describe('new employee form', () => {
     serve((u, m) => (m === 'POST' && u.endsWith('/api/payroll/employees') ? ok({ id: 'new1' }) : undefined));
     const { container } = render(<NewEmployeePage />);
     fireEvent.click(screen.getByLabelText('Medical aid main member'));
-    const text = (i: number, v: string) => fireEvent.change(container.querySelectorAll('input')[i]!, { target: { value: v } });
-    text(0, 'Ann'); text(1, 'Lee'); text(2, 'E1');
+    const text = (label: string, v: string) => fireEvent.change(screen.getByLabelText(label), { target: { value: v } });
+    text('First name *', 'Ann'); text('Last name *', 'Lee'); text('Employee number *', 'E1');
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(router.push).toHaveBeenCalled());
     const post = vi.mocked(apiFetch).mock.calls.find(([, i]) => (i as RequestInit | undefined)?.method === 'POST')!;
@@ -217,7 +217,8 @@ describe('employees list — medical-aid review banner', () => {
   it('the banner is a status region, not an alert', async () => {
     serveReview([E1]);
     render(<EmployeesListPage />);
-    expect((await screen.findByRole('status')).getAttribute('data-testid')).toBe('medical-aid-review-banner');
+    const banner = await screen.findByTestId('medical-aid-review-banner');
+    expect(banner.getAttribute('role')).toBe('status');
     expect(screen.queryByRole('alert')).toBeNull();
   });
 

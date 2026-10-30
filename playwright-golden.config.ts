@@ -12,17 +12,19 @@
  * works in CI, against dev, and against prod Demo. Serial workers: the specs
  * share the Demo company's books.
  */
+import path from 'node:path';
 import { defineConfig } from '@playwright/test';
+import { devOnlySpecPattern } from './tests/e2e/golden-paths/helpers/devOnlySpecs';
 
 export default defineConfig({
   testDir: './tests/e2e/golden-paths',
-  // scripts/verify-deploy.sh sets GOLDEN_SKIP_A11Y=1 for the post-deploy run against production. The a11y spec is a
-  // dev/CI gate (its baseline is keyed to dev data), and ignoring it here means Playwright never LOADS the file, so
-  // a missing @axe-core/playwright cannot break a deploy check either. A --grep-invert would still import it.
-  // The theme specs (o-theme-contrast, o2-theme-behaviour) and q2-top-nav-axe are the same kind of gate: axe on dev data, and a red
-  // contrast run against production must not roll a deploy back.
-  // w-setup-checklist creates a sandbox company and a permanent customer, so it is a dev/CI gate too.
-  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? /(^|\/)(n-a11y-main-screens|o-theme-contrast|o2-theme-behaviour|t-report-filter-dates|q2-top-nav-axe|o3-banner-titles|w-setup-checklist)\.spec\.ts$/ : undefined,
+  // scripts/verify-deploy.sh sets GOLDEN_SKIP_A11Y=1 for the post-deploy run against production, and Playwright then
+  // never LOADS any spec whose first lines carry `// golden:dev-only` (see helpers/devOnlySpecs.ts); a --grep-invert
+  // would still import it. A spec needs the marker if it uses axe, writes data or a sandbox company, measures timing
+  // or layout shift, or depends on dev data. Production verify specs must be read-only and deterministic, because a
+  // red run rolls the deploy back. Never edit a regex here: mark the spec.
+  testMatch: '**/*.spec.ts',
+  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? devOnlySpecPattern(path.join(__dirname, 'tests/e2e/golden-paths')) : undefined,
   globalSetup: './tests/e2e/golden-paths/_global-setup.ts',
   timeout: 90_000,
   retries: 0,

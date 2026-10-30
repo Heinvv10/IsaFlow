@@ -3,11 +3,6 @@
  "pages": {
   "/accounting/assets": [
    {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   },
-   {
     "rule": "select-name",
     "selector": "main > div > div > div > div > select",
     "max": 2
@@ -43,11 +38,6 @@
      "why": "one Undo button per active auto-post run"
     },
     "maxHint": 20
-   },
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
    },
    {
     "rule": "select-name",
@@ -92,73 +82,9 @@
     "rule": "color-contrast",
     "selector": "div > div > div > div > div > button{all}",
     "max": 1
-   },
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   }
-  ],
-  "/accounting/customer-invoices": [
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   }
-  ],
-  "/accounting/customer-invoices/new": [
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   },
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[name=\"billingPeriodEnd\"][type=\"date\"]",
-    "max": 1
-   },
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[name=\"billingPeriodStart\"][type=\"date\"]",
-    "max": 1
-   },
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[name=\"dueDate\"][type=\"date\"]",
-    "max": 1
-   },
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[name=\"invoiceDate\"][type=\"date\"]",
-    "max": 1
-   },
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[name=\"taxRate\"][type=\"number\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"clientId\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"currencyCode\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "table > tbody > tr > td > select[name=\"incomeType\"]",
-    "max": 1
    }
   ],
   "/accounting/customer-payments/new": [
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   },
    {
     "rule": "label",
     "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
@@ -185,11 +111,6 @@
     "rule": "color-contrast",
     "selector": "div > div > div > div > div > button{all}",
     "max": 1
-   },
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
    }
   ],
   "/accounting/journal-entries/new": [
@@ -197,11 +118,6 @@
     "rule": "button-name",
     "selector": "table > tbody > tr > td > button[type=\"button\"]",
     "max": 2
-   },
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
    },
    {
     "rule": "label",
@@ -229,19 +145,9 @@
      "why": "status badge renders only while a migration session exists"
     },
     "maxHint": 1
-   },
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
    }
   ],
   "/accounting/migration/opening-balances": [
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   },
    {
     "rule": "label",
     "selector": "main > div > div > div > div > input[type=\"date\"]",
@@ -258,19 +164,9 @@
      "why": "rendered only while the month has no close run yet"
     },
     "maxHint": 1
-   },
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
    }
   ],
   "/accounting/reports/account-transactions": [
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   },
    {
     "rule": "select-name",
     "selector": "select[data-testid=\"cost-centre-filter\"]",
@@ -282,24 +178,7 @@
     "maxHint": 1
    }
   ],
-  "/accounting/sars/vat201": [
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   }
-  ],
   "/accounting/supplier-payments/new": [
-   {
-    "rule": "color-contrast",
-    "selector": "form > div > div > div > p",
-    "max": 1
-   },
-   {
-    "rule": "document-title",
-    "selector": "html",
-    "max": 1
-   },
    {
     "rule": "label",
     "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
@@ -318,13 +197,6 @@
    {
     "rule": "select-name",
     "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
-    "max": 1
-   }
-  ],
-  "/payroll/runs": [
-   {
-    "rule": "document-title",
-    "selector": "html",
     "max": 1
    }
   ]
