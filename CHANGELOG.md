@@ -30,6 +30,92 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-29 — Bank Export, Budget Notes, Invoice Form Kit, GL Re-type Guard
+
+**Bank**
+
+- Export all bank accounts for a date range added; CC / BU dimensions wired into the bank report builder (#935)
+
+**Budgets**
+
+- Editable year-scoped notes on the budget grid workspace; note lineage carried through every version seed (#926)
+
+**Invoice — Wave 2 (Master Plan)**
+
+- New and edit invoice forms migrated to the shared form kit (wave 2, PR I); `InvoiceHeaderFields`, `InvoiceSummaryCard`, and `invoiceHeaderForm` extracted (#919)
+
+**GL / Import**
+
+- Imports and migration re-runs refuse to re-type an existing non-system account; `migrationReimportRows` extracted; integration test suite added (#934)
+
+**OAuth / MCP**
+
+- OAuth consent and personal-token scoping restricted to companies with the MCP connector feature enabled (#930)
+
+**CI**
+
+- Golden-path dev server never binds to port 3659 (#928)
+
+---
+
+## 2026-10-28 — GL Parent Guard Gaps, Budgets P2D Cutover, Auth/Email Fixes
+
+**GL**
+
+- COA import, template seed and bank grouping no longer hide posted accounts from the balance sheet when a parent account exists (#922)
+- Import never re-types a parent into a hiding header; NULL level treated as below 3; Opening Balance Equity edge case fixed (#922)
+
+**Budgets**
+
+- P2D cutover: `/accounting/budgets` now routes to the budget workspace; legacy POST endpoint returns 405 (#901)
+- Budget workspace axe spec moved to dev-only; CI fixture requires active (non-header) accounts (#897, #911)
+
+**Auth / Email**
+
+- Invitation emails logged under the inviting company's `company_id`, not NULL (#924)
+- Accept-invite page: app styling, dark-mode readability, and autofill hints (#918)
+
+---
+
+## 2026-10-23 — Security S-07c, PAYE 4a R2 Gate, AP Approved-Batch Digest
+
+**Security — S-07c**
+
+- Credential and membership writes (`users`, `company_users`, `company_invitations`, `auth.users`) moved off the app pools onto `SECURITY DEFINER` functions callable only via `migration_admin`; SQL injection on either pool can no longer forge RLS claims (migration 930, #808)
+- Invitations never auto-add; definer hash covers the whole function body and owner; GoTrue calls moved outside the transaction; owner-lock bounded to one row
+- S-07b follow-ups: `app_user` loses its grant on `ap_payment_document_backfill_candidates` (916b); `app_login_role_violations()` extended to refuse owner-run views `app_user` can reach (917b); service pool can no longer write `users.email` directly or via token path (918); AR last-viewed materialized view wrapped in a company-scoped regular view (919); pool-reach violation rules checked on every deploy (920) (#800, #798)
+
+**Payroll — PAYE 4a R2**
+
+- Stale year-to-date gate now reads the exact approval and reopen history (migration 925): gate refuses only for employees the closed approval actually taxed; a run with no lines no longer reads as rewritten after every month (#809)
+- Non-blocking advisory added when a later month is paid before its turn (limit f with warning); gate moved to its own module (#765)
+- AP batch approval digest: an approved batch is now refused if its content (payees, amounts, bank details) changed after approval — enforcement ON or OFF (migration 922, #806)
+
+**Bank — Categorisation Learning Loop**
+
+- Bank-line categorisation learning write runs in its own savepoint; the route reports whether it learned; the bank-line read and VAT resolution run inside the same savepoint (#765, #767, #759)
+- CRON_SECRET sent on stdin (not argv) in the shared-merchant-pool cron unit (#767)
+
+**SARS / Compliance**
+
+- Days-left counter now counts calendar days across a daylight-saving boundary, fixing a DST-induced miscalculation that was red on CI since 09:00 (#803)
+
+**Document Capture**
+
+- Mapper tolerates a stored JSON null; empty-extraction rule documented; capture migration renumbered 910 → 921 (#801, #804)
+
+**Portal**
+
+- Portal sign-out now redirects correctly (#799)
+
+**CI**
+
+- Merge-queue CI speedup: `ciSkipGlue` builds its child env without the runner's GitHub vars (#772)
+
+Migrations: **916b** (`revoke_app_user_backfill_view`), **917b** (`app_login_role_violations_views`), **918** (`users_email_off_service_pool`), **919** (`ar_view_summary_company_wrapper`), **920** (`app_pool_reach_violations`), **921** (`captured_document_read_attempt`), **922** (`payment_batch_approved_digest`), **925** (`payroll_run_reopened_at`), **930** (`credential_membership_writes_off_app_pools`)
+
+---
+
 ## 2026-10-22 — GL Export Bearer Auth, Payroll Directives, Security Hardening
 
 **GL Export / MCP**
