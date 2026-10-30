@@ -5,6 +5,7 @@
 import { formatCurrency } from '@/utils/formatters';
 import type { SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui';
 
 interface EditForm {
   invoiceNumber: string;
@@ -28,12 +29,13 @@ interface Props {
   editing: boolean;
   editForm: EditForm;
   onEditFormChange: (patch: Partial<EditForm>) => void;
+  dates: import('@/hooks/useDateGate').DateGate;
 }
 
 export function SupplierInvoiceSummary({
   invoiceDate, dueDate, paymentTerms, poNumber,
   subtotal, taxAmount, taxRate, totalAmount, balance, notes,
-  items, editing, editForm, onEditFormChange,
+  items, editing, editForm, onEditFormChange, dates,
 }: Props) {
   return (
     <>
@@ -45,7 +47,7 @@ export function SupplierInvoiceSummary({
         <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
           <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Due Date</p>
           {editing
-            ? <input type="date" value={editForm.dueDate} onChange={e => onEditFormChange({ dueDate: e.target.value })} className="ff-input mt-1 text-sm w-full" />
+            ? <DateField label="Due Date" name="dueDate" value={editForm.dueDate || null} onChange={dates.bind('dueDate', (iso) => onEditFormChange({ dueDate: iso }), editForm.dueDate)} />
             : <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{formatDisplayDate(dueDate)}</p>
           }
         </div>

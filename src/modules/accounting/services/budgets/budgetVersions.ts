@@ -96,16 +96,20 @@ async function insertDraft(
     : `FY${fiscalYear} already has a budget version named '${name}'`);
 }
 
+/**
+ * A new empty draft. `basedOn` is for server callers only (the wizard's version seed passes the
+ * source it has locked); the POST route never takes it from a body.
+ */
 export async function createVersion(
-  companyId: string, input: { fiscalYear: number; name: unknown; kind: unknown }, actor: VersionActor,
+  companyId: string, input: { fiscalYear: number; name: unknown; kind: unknown }, actor: VersionActor, basedOn: string | null = null,
 ): Promise<BudgetVersion> {
   await holdYearRegistry(companyId);
   const { name, kind } = parseVersionInput(input.name, input.kind);
   if (!(await getFiscalYear(companyId, input.fiscalYear))) {
     throw new BudgetVersionError('BUDGET_VERSION_INPUT', `No financial year is labelled ${input.fiscalYear}`);
   }
-  const id = await insertDraft(companyId, input.fiscalYear, name, kind, null, actor);
-  await audit(companyId, actor, 'create', { id, fiscalYear: input.fiscalYear, name }, { kind });
+  const id = await insertDraft(companyId, input.fiscalYear, name, kind, basedOn, actor);
+  await audit(companyId, actor, 'create', { id, fiscalYear: input.fiscalYear, name }, { kind, ...(basedOn ? { basedOn } : {}) });
   return getVersion(companyId, id);
 }
 
