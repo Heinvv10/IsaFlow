@@ -134,7 +134,7 @@ export default function EditRecurringInvoicePage() {
         id,
         templateName: form.templateName,
         frequency: form.frequency,
-        nextRunDate: form.nextRunDate,
+        nextRunDate: form.nextRunDate, endDate: form.endDate || null,
         description: form.description || undefined,
         lineItems: lines.map(l => ({
           description: l.description,
