@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import Head from 'next/head';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
@@ -13,7 +14,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
 import { SettingsSidebar } from '@/components/accounting/settings/SettingsSidebar';
-import { parseTabId, type TabId } from '@/components/accounting/settings/settingsNav';
+import { parseTabId, settingsTabTitle, type TabId } from '@/components/accounting/settings/settingsNav';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
 import { GeneralTab } from '@/components/accounting/settings/GeneralTab';
 import { VatTab } from '@/components/accounting/settings/VatTab';
@@ -36,6 +37,7 @@ export default function CompanySettingsPage() {
   const afterDelay = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [lockdownInvalid, setLockdownInvalid] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('details');
@@ -126,7 +128,8 @@ export default function CompanySettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!company) return;
+    // Defence in depth: Save is disabled while Lockdown Date is refused, but not every path goes through the button.
+    if (!company || lockdownInvalid) return;
     setSaving(true); setError(''); setSaved(false);
     try {
       const put = async (url: string, body: unknown, fallback: string) => {
@@ -164,7 +167,7 @@ export default function CompanySettingsPage() {
           />
         );
       case 'general':
-        return <GeneralTab company={company} onChange={update} />;
+        return <GeneralTab company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />;
       case 'vat':
         return <VatTab company={company} onChange={update} />;
       case 'compliance':
@@ -210,6 +213,7 @@ export default function CompanySettingsPage() {
 
   return (
     <AppLayout>
+      <Head><title>{settingsTabTitle(activeTab)}</title></Head>
       <div className="p-4 lg:p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -224,7 +228,7 @@ export default function CompanySettingsPage() {
           </div>
           <button
             onClick={() => void handleSave()}
-            disabled={saving || !company}
+            disabled={saving || !company || lockdownInvalid}
             className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Changes
