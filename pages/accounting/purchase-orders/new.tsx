@@ -12,6 +12,8 @@ import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string }
 
@@ -33,6 +35,7 @@ export default function NewPurchaseOrderPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
   const [saveAndNew, setSaveAndNew] = useState(false);
   const [form, setForm] = useState({
     supplierId: '', orderDate: localISODate(),
@@ -53,6 +56,7 @@ export default function NewPurchaseOrderPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>, andNew = false) => {
     e.preventDefault();
+    if (dates.blocked) return;
     if (!form.supplierId) { setError('Please select a supplier'); return; }
     setError(''); setSaving(true); setSaveAndNew(andNew);
     try {
@@ -116,12 +120,12 @@ export default function NewPurchaseOrderPage() {
                     <input type="text" name="reference" value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} placeholder="Supplier quote ref" className={inp} />
                   </div>
                   <div>
-                    <label className={lbl}>Order Date *</label>
-                    <input type="date" name="orderDate" required value={form.orderDate} onChange={e => setForm(p => ({ ...p, orderDate: e.target.value }))} className={inp} />
+                    <DateField label="Order Date" required name="orderDate" value={form.orderDate || null}
+                      onChange={dates.bind('orderDate', iso => setForm(p => ({ ...p, orderDate: iso })), form.orderDate)} />
                   </div>
                   <div>
-                    <label className={lbl}>Expected Delivery</label>
-                    <input type="date" name="expectedDeliveryDate" value={form.expectedDeliveryDate} onChange={e => setForm(p => ({ ...p, expectedDeliveryDate: e.target.value }))} className={inp} />
+                    <DateField label="Expected Delivery" name="expectedDeliveryDate" value={form.expectedDeliveryDate || null}
+                      onChange={dates.bind('expectedDeliveryDate', iso => setForm(p => ({ ...p, expectedDeliveryDate: iso })), form.expectedDeliveryDate)} />
                   </div>
                 </div>
               </div>
@@ -141,11 +145,11 @@ export default function NewPurchaseOrderPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 dark:bg-slate-800/60">
                       <tr>
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500">Description</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 w-20">Qty</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 w-32">Unit Price</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 w-20">VAT %</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 w-32">Total</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Description</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Qty</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Unit Price</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">VAT %</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Total</th>
                         <th className="w-9" />
                       </tr>
                     </thead>
