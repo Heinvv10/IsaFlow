@@ -24,6 +24,13 @@ function edit(from: string, to: string): string {
   return REAL.replace(from, to);
 }
 
+/** static and velo share their hosted setup steps: edit the nth (0 = static's, 1 = velo's) of exactly two. */
+function editNth(from: string, to: string, nth: 0 | 1): string {
+  const parts = REAL.split(from);
+  expect(parts.length - 1, `fixture anchor must occur twice: ${from}`).toBe(2);
+  return nth === 0 ? parts[0] + to + parts[1] + from + parts[2] : parts[0] + from + parts[1] + to + parts[2];
+}
+
 const GATE_STEP = [
   '      - name: CI gate (scripts/ci/run-ci.sh static)',
   '        run: bun run ci static',
@@ -49,11 +56,12 @@ const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
 const VELO_PERMS = `# As in static (the merge check).\n${JOB_PERMS}`;
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
 const STATIC_HEADER = '  static:\n    name: Static gates\n';
-const VELO_HEADER = '  velo:\n    name: Browser & integration (velo)\n';
+const VELO_HEADER = '  velo:\n    name: Browser & integration\n';
 const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$VELO" = "success" ] && { [ "$STATIC" = "success" ] || [ "$FALLBACK" = "success" ]; }\n';
 const FALLBACK_HEADER = '  static-fallback:\n    name: Static gates (velo fallback)\n';
 const FALLBACK_DECIDE = '          if [ "$job" != "|0" ]; then\n';
 const LIGHT = `\${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}`;
+const STATIC_RUNS_ON = `\${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
 const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
 describe('the committed workflow', () => {
@@ -226,8 +234,8 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
-    expect(check(edit(`${VELO_HEADER}    runs-on: [self-hosted, linux, velo]\n`, `${VELO_HEADER}    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
-    expect(check(edit(`'"ubuntu-24.04"'`, `'"nonexistent-label"'`)).length).toBeGreaterThan(0);
+    expect(check(edit(`${VELO_HEADER}    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n`, `${VELO_HEADER}    needs: route\n    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
+    expect(check(edit(`    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n    # Hosted: 40`, `    needs: route\n    runs-on: [nonexistent-label]\n    # Hosted: 40`)).length).toBeGreaterThan(0);
     expect(check(edit(`  route:\n    name: CI route\n    runs-on: ${LIGHT}\n`, '  route:\n    name: CI route\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
     expect(check(edit(`    if: \${{ always() }}\n    runs-on: ${LIGHT}\n`, '    if: ${{ always() }}\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
   });
@@ -259,11 +267,18 @@ describe('the required check passes only when both gate groups passed', () => {
     ['continue-on-error on the aggregator', edit(QUALITY_HEADER, `${QUALITY_HEADER}    continue-on-error: true\n`)],
     ['a second aggregator step that always passes', edit(AGGREGATE, `${AGGREGATE}      - run: exit 0\n`)],
     ['static timeout no longer pinned', edit("    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}\n", '    timeout-minutes: 1\n')],
-    ['static no longer needs route (its runs-on reads route\'s output)', edit('    needs: route\n', '')],
-    ['a hosted setup step that runs on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n')],
-    ['setup-bun unpinned to a moving tag', edit('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', 'oven-sh/setup-bun@v2')],
-    ['another bun version on hosted', edit('          bun-version: 1.3.9\n', '          bun-version: latest\n')],
-    ['node_modules restored from the cache', edit('          path: ~/.bun/install/cache\n', '          path: node_modules\n')],
+    ['static no longer needs route (its runs-on reads route\'s output)', edit(`${STATIC_HEADER}    needs: route\n`, STATIC_HEADER)],
+    ['velo no longer needs route', edit(`${VELO_HEADER}    needs: route\n`, VELO_HEADER)],
+    ['velo apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16", '      - run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16')],
+    ['velo without its browser install (browser-tests cannot launch Chromium)', edit("      # As in static: Chromium for browser-tests.\n      - if: ${{ runner.environment == 'github-hosted' }}\n        run: bunx playwright install --with-deps chromium\n", '')],
+    ['a hosted setup step that runs on velo too (static)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 0)],
+    ['a hosted setup step that runs on velo too (velo)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 1)],
+    ['setup-bun unpinned to a moving tag (static)', editNth('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', 'oven-sh/setup-bun@v2', 0)],
+    ['setup-bun unpinned to a moving tag (velo)', editNth('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', 'oven-sh/setup-bun@v2', 1)],
+    ['another bun version on hosted (static)', editNth('          bun-version: 1.3.9\n', '          bun-version: latest\n', 0)],
+    ['another bun version on hosted (velo)', editNth('          bun-version: 1.3.9\n', '          bun-version: latest\n', 1)],
+    ['node_modules restored from the cache (static)', editNth('          path: ~/.bun/install/cache\n', '          path: node_modules\n', 0)],
+    ['node_modules restored from the cache (velo)', editNth('          path: ~/.bun/install/cache\n', '          path: node_modules\n', 1)],
     ['route output widened to another key', edit('      hosted: ${{ steps.route.outputs.hosted }}\n', '      hosted: ${{ steps.route.outputs.hosted }}\n      labels: x\n')],
     ['route step swaps the runner\'s bun before static runs on velo', edit('          if [ "$CI_HOSTED" = "off" ]; then\n', '          cp /bin/true "$HOME/.bun/bin/bun"\n          if [ "$CI_HOSTED" = "off" ]; then\n')],
     ['route step dropped (output never set)', edit('      - name: Hosted or velo?\n', '      - name: Hosted or velo?\n        if: false\n')],
@@ -273,9 +288,9 @@ describe('the required check passes only when both gate groups passed', () => {
     ['a decoy whose name renders as the required check through an expression', edit('    name: Golden Paths lane\n', "    name: \"Type Check, Lint ${{ '&' }} Test\"\n")],
     ['static renamed so the fallback finds another job', edit('    name: Static gates\n', '    name: Static gates (hosted)\n')],
     ['golden-lane named like the hosted job the fallback looks up', edit('    name: Golden Paths lane\n', '    name: Static gates\n')],
-    ['the apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n", '      - run: |\n          sudo apt-get update -qq\n')],
-    ['the browser step rewriting what the gate runs', edit('        run: bunx playwright install --with-deps chromium\n', '        run: bunx playwright install --with-deps chromium && printf "exit 0\\n" > scripts/ci/run-ci.sh\n')],
-    ['TZ set to dodge the local-day tests', edit('          TZ: Africa/Johannesburg\n', '          TZ: UTC\n')],
+    ['the apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends ghostscript", '      - run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends ghostscript')],
+    ['the browser step rewriting what the gate runs', edit('        run: bunx playwright install --with-deps chromium\n\n      # The gate list', '        run: bunx playwright install --with-deps chromium && printf "exit 0\\n" > scripts/ci/run-ci.sh\n\n      # The gate list')],
+    ['TZ set to dodge the local-day tests', edit('          # day, and a hosted runner is UTC.\n          TZ: Africa/Johannesburg\n', '          # day, and a hosted runner is UTC.\n          TZ: UTC\n')],
     ['route taking a concurrency group', edit('    name: CI route\n', '    name: CI route\n    concurrency:\n      group: ci-${{ github.ref }}\n')],
   ];
 

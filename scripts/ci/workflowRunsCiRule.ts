@@ -104,7 +104,7 @@ const JOB_NAMES: Record<string, string> = {
   route: 'CI route',
   static: 'Static gates',
   'static-fallback': 'Static gates (velo fallback)',
-  velo: 'Browser & integration (velo)',
+  velo: 'Browser & integration',
   [QUALITY_JOB]: QUALITY_NAME,
   'golden-lane': 'Golden Paths lane',
   'golden-paths': 'Golden Paths E2E (blocking)',
