@@ -21,6 +21,9 @@ import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/s
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
+/** Shown for an invoice whose customer row is missing, so the invoice stays in every total. */
+export const UNKNOWN_CUSTOMER = 'Unknown customer';
+
 /**
  * Open customer invoices as at `asAtStr`, oldest due first. `clientId` narrows
  * to one customer; null reads every customer of the company.
@@ -32,7 +35,8 @@ export async function fetchARAgingInvoices(
   clientId: string | null = null,
 ): Promise<OpenAgingInvoice[]> {
   const rows = (await sql`
-    SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
+    SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id,
+      COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS entity_name,
       COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
       (ci.due_date IS NULL) AS due_date_missing,
       ci.invoice_number, COALESCE(ci.invoice_date, ci.created_at::date) AS invoice_date,
@@ -40,9 +44,13 @@ export async function fetchARAgingInvoices(
       ${sql.unsafe(effectivePaidExpr('ar'))} AS amount_paid,
       (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) AS balance
     FROM customer_invoices ci
-    -- client_id / customer_id are bare FKs to customers(id): match the company
-    -- so a row cannot surface another tenant's customer name.
-    JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
+    -- LEFT: client_id has no foreign key, so one pointing at no customer row is
+    -- possible. The report's summary reads customer_invoices alone, so an inner
+    -- join here would drop that invoice from Home's tile and donut while it
+    -- stays in the report's total. Company-scoped: a client_id naming ANOTHER
+    -- tenant's customer must not lend its name to this tenant's list.
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      AND c.company_id = ci.company_id
     LEFT JOIN LATERAL (
       ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
     ) unpaid ON TRUE

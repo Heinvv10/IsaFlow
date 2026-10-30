@@ -9,7 +9,7 @@ import { log } from '@/lib/logger';
 import { calculateAgingBuckets, type AgingDetailInvoice } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
-import { fetchARAgingInvoices } from './arAgingInvoices';
+import { fetchARAgingInvoices, UNKNOWN_CUSTOMER } from './arAgingInvoices';
 import { fetchUnallocatedCreditNotes } from './arAgingCreditNotes';
 type Row = DbRow;
 
@@ -74,15 +74,19 @@ export async function getARAgingDetail(companyId: string,
     const todayStr = fmtDate(new Date());
 
     const clientRows = (await sql`SELECT id, name AS name FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}`) as Row[];
-    if (clientRows.length === 0) throw new Error(`Client ${clientId} not found`);
 
     // The drill-down's row shape is unchanged: the export-only header fields stay out of it.
     const invoices: AgingDetailInvoice[] = (await fetchARAgingInvoices(companyId, asAtStr, todayStr, clientId))
       .map(({ invoiceDate: _d, reference: _r, ...inv }) => inv);
 
+    // client_id has no foreign key: an open invoice can name no customer row, and the list shows
+    // it under UNKNOWN_CUSTOMER with that id. Its drill-down is those invoices; an id with neither
+    // a customer nor an open invoice (of this company) is not found.
+    if (clientRows.length === 0 && invoices.length === 0) throw new Error(`Client ${clientId} not found`);
+
     const buckets = calculateAgingBuckets(invoices, asAt);
     return {
-      client: { id: String(clientRows[0]!.id), name: String(clientRows[0]!.name) },
+      client: clientRows[0] ? { id: String(clientRows[0].id), name: String(clientRows[0].name) } : { id: clientId, name: UNKNOWN_CUSTOMER },
       invoices,
       buckets: buckets.length > 0 ? buckets[0]! : null,
     };

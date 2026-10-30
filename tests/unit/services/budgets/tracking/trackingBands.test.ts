@@ -228,6 +228,11 @@ describe('review round 2', () => {
     // Review r5: a line whose budget covers part of the window makes the profit totals partial: absent.
     expect(bands.find((x) => x.key === 'net_profit')!.budget).toBeNull();
     expect(bands.find((x) => x.key === 'operating_expense')!.budget).toBe(300);
+    // PR-B r2: the band and the totals above it say WHY their budget is absent (a partial line), so the
+    // grid marks them partial rather than "No budget"; a whole band says nothing.
+    expect(['turnover', 'gross_profit', 'operating_profit', 'net_profit'].map((k) => bands.find((x) => x.key === k)!.partialBudget))
+      .toEqual([true, true, true, true]);
+    expect(bands.find((x) => x.key === 'operating_expense')!.partialBudget).toBe(false);
     expect(buildNotices(lines, { noVersion: false, noVersionYears: [], budgetAbsent: false }).unbudgetedCount).toBe(0);
   });
 

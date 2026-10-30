@@ -29,7 +29,7 @@ sudo systemctl daemon-reload
 echo "CRON_SECRET=$(openssl rand -hex 32)" | sudo tee -a /home/velo/isaflow/.env.local
 
 # Restart the app so it picks up CRON_SECRET, then enable + start the timer
-sudo systemctl restart isaflow
+bash scripts/deploy/restart-colours.sh
 sudo systemctl enable --now isaflow-expectations.timer
 
 # Verify

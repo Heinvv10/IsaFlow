@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { parsePagination } from '@/lib/pagination';
+import { UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
@@ -80,7 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rows = (await sql`
       SELECT
         ci.id,
-        c.name                                       AS customer_name,
+        COALESCE(c.name, ${UNKNOWN_CUSTOMER})        AS customer_name,
         ci.invoice_number,
         ci.invoice_date::text                        AS invoice_date,
         ci.due_date::text                            AS due_date,
@@ -89,7 +90,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         (ci.total_amount - ${sql.unsafe(paid)})      AS balance_due,
         GREATEST(0, (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date))) AS days_overdue
       FROM customer_invoices ci
-      JOIN customers c
+      -- LEFT: the summary below reads customer_invoices alone, so an invoice naming
+      -- no customer row of this company stays in these rows and sums to the total.
+      LEFT JOIN customers c
         ON c.id = COALESCE(ci.client_id, ci.customer_id)
        AND c.company_id = ci.company_id
       LEFT JOIN LATERAL (

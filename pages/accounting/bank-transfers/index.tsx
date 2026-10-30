@@ -11,6 +11,8 @@ import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 /** Under manual-journal enforcement a transfer a rule matches is held: a draft journal and an approval request (202). */
 interface HeldTransfer { journalId: string; message: string }
@@ -31,6 +33,7 @@ export default function BankTransfersPage() {
   const [reference, setReference] = useState('');
   const [transferDate, setTransferDate] = useState(localISODate());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const dates = useDateGate();
   // 428 from the route: the statement may already hold this transfer; posting again needs the person's confirmation.
   const [needsConfirm, setNeedsConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -60,6 +63,10 @@ export default function BankTransfersPage() {
   useEffect(() => { setNeedsConfirm(false); }, [fromAccount, toAccount, amount, transferDate]);
 
   const handleTransfer = async (confirmDuplicate = false) => {
+    if (dates.blocked) {
+      setMessage({ type: 'error', text: 'Fix the date marked in red before transferring.' });
+      return;
+    }
     if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {
       setMessage({ type: 'error', text: 'Please fill all fields and select different accounts' });
       return;
@@ -174,14 +181,8 @@ export default function BankTransfersPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Date</label>
-                    <input
-                      type="date"
-                      value={transferDate}
-                      disabled={isSubmitting}
-                      onChange={(e) => setTransferDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
-                    />
+                    <DateField label="Date" name="transferDate" value={transferDate || null} disabled={isSubmitting}
+                      onChange={dates.bind('transferDate', setTransferDate, transferDate)} />
                   </div>
                 </div>
 

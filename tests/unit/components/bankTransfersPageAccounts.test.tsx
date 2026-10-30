@@ -121,8 +121,8 @@ describe('BankTransfersPage', () => {
     fireEvent.change(toSelect!, { target: { value: TO } });
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
-    const fields = () => [...screen.getAllByRole('combobox'), screen.getByRole('spinbutton'), screen.getByRole('textbox'),
-      document.querySelector('input[type="date"]') as HTMLInputElement] as (HTMLInputElement | HTMLSelectElement)[];
+    const fields = () => [...screen.getAllByRole('combobox'), screen.getByRole('spinbutton'),
+      ...screen.getAllByRole('textbox')] as (HTMLInputElement | HTMLSelectElement)[];
     await waitFor(() => expect(fields().every((f) => f.disabled)).toBe(true));
     expect(fields()).toHaveLength(5);
     release(new Response(JSON.stringify({ success: false, error: { code: 'PRECONDITION_REQUIRED',
