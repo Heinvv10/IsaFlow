@@ -10,7 +10,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BudgetWorkspace } from '@/components/accounting/budgets/workspace/BudgetWorkspace';
 import { buildLayout } from '@/components/accounting/budgets/workspace/gridLayout';
-import { fail, installNetwork, isModel, isSave, ok } from './workspaceHarness';
+import { fail, installNetwork, isModel, isSave, ok, openEditor } from './workspaceHarness';
 import { ID, gridModel } from './gridFixture';
 
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
@@ -34,8 +34,7 @@ const marchRev2 = () => document.querySelector<HTMLElement>(`[data-pos="${rev2Ro
 const expectNoRawError = () => expect(document.body.textContent).not.toMatch(/JSON|Unexpected end|\{"|HTTP \d{3}|^Failed$/);
 
 async function typeIntoMarchRev2(value: string) {
-  fireEvent.doubleClick(marchRev2());
-  const editor = screen.getByRole('textbox', { name: '1010 Account 1010 Mar 2026 budget' });
+  const editor = await openEditor(marchRev2, '1010 Account 1010 Mar 2026 budget');
   fireEvent.change(editor, { target: { value } });
   fireEvent.keyDown(editor, { key: 'Enter' });
   await waitFor(() => expect(marchRev2()).toHaveAttribute('data-dirty', 'true'));

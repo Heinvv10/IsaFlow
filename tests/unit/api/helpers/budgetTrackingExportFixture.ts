@@ -35,7 +35,7 @@ export function fixture(): BudgetTrackingReport {
     window: { period: 'custom', label: '2026-06 to 2026-07', startDate: '2026-06-01', endDate: '2026-07-31', months: MONTHS, fiscalYear: 2027, inProgress: null, postedThrough: '2026-07-31', notStarted: false },
     version: { id: 'v1', name: 'Reforecast 1', kind: 'reforecast', status: 'draft', isPrimary: false },
     filter: {},
-    projection: { fiscalYear: 2027, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths },
+    projection: { fiscalYear: 2027, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths, judgedThrough: plan.judgedThrough },
     lines,
     bands: buildBands(lines),
     notices: { unbudgetedCount: 2, unbudgetedActual: { income: 12.3, expense: 300 }, unallocatedBudget: { income: 0, expense: 250 }, noVersion: false, noVersionYears: [] },

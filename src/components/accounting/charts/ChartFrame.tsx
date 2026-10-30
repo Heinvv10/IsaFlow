@@ -49,11 +49,14 @@ export interface ChartFrameProps {
   height?: number;
   /** Shown in place of the chart when the builder returns null. */
   unavailable?: string;
+  /** The chart's figures in words: with it the chart is role="img" with this aria-label, so a
+   *  screen reader reads what the chart shows. Without it the frame renders as before. */
+  summary?: string;
   children: (palette: ChartPalette) => EChartsCoreOption | null;
 }
 
 export function ChartFrame({
-  title, unit, height = 280, unavailable, children,
+  title, unit, height = 280, unavailable, summary, children,
 }: ChartFrameProps): ReactElement {
   const palette = useChartPalette();
   const option = useMemo(() => children(palette), [children, palette]);
@@ -68,6 +71,10 @@ export function ChartFrame({
         <p className="py-8 text-center text-sm text-[var(--ff-text-secondary)]">
           {unavailable ?? 'Not meaningful for this period.'}
         </p>
+      ) : summary ? (
+        <div role="img" aria-label={summary}>
+          <EChartClient option={option} height={height} />
+        </div>
       ) : (
         <EChartClient option={option} height={height} />
       )}
