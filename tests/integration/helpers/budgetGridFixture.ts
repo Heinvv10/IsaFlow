@@ -38,10 +38,10 @@ export interface JournalLine extends Dims { acct: string; debit?: number; credit
 type Q = Pick<Pool, 'query'>;
 
 /** The per-user budget rate buckets the grid routes charge. */
-export const BUDGET_RATE_BUCKETS = ['budget-import', 'budget-template', 'budget-save', 'budget-prior-actuals'] as const;
+export const BUDGET_RATE_BUCKETS = ['budget-import', 'budget-template', 'budget-save', 'budget-prior-actuals', 'budget-note'] as const;
 
 /**
- * Removes `userIds`' budget rate buckets (preview, template download, save, prior actuals) from
+ * Removes `userIds`' budget rate buckets (preview, template download, save, prior actuals, note) from
  * rate_limit_counters and clears the limiter's in-process refusal cache. `cleanup()` calls it for
  * the fixture's members; a suite that makes users of its own calls it for those.
  */
