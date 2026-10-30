@@ -134,7 +134,7 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Edit Recurring Invoice</h1>
-              <p className="text-sm text-[var(--ff-text-secondary)]">{form.templateName || 'Loading…'}</p>
+              <p className="text-sm text-[var(--ff-text-secondary)]">{form.templateName}</p>
             </div>
           </div>
         </div>
@@ -152,10 +152,10 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
           <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] uppercase tracking-wide">Template Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Template Name</label>
+              <label htmlFor="recurring-template-name" className={labelCls}>Template Name</label>
               <input
+                id="recurring-template-name"
                 name="templateName"
-                aria-label="Template Name"
                 className={inputCls}
                 value={form.templateName}
                 onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))}
@@ -163,8 +163,9 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
               />
             </div>
             <div>
-              <label className={labelCls}>Customer</label>
+              <label htmlFor="recurring-template-customer" className={labelCls}>Customer</label>
               <select
+                id="recurring-template-customer"
                 name="clientId"
                 className={inputCls}
                 value={form.clientId}
@@ -179,10 +180,10 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
               <p className="text-xs text-[var(--ff-text-secondary)] mt-1">Customer cannot be changed after creation</p>
             </div>
             <div>
-              <label className={labelCls}>Description</label>
+              <label htmlFor="recurring-template-description" className={labelCls}>Description</label>
               <input
+                id="recurring-template-description"
                 name="description"
-                aria-label="Description"
                 className={inputCls}
                 value={form.description}
                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -190,8 +191,9 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
               />
             </div>
             <div>
-              <label className={labelCls}>Payment Terms</label>
+              <label htmlFor="recurring-template-payment-terms" className={labelCls}>Payment Terms</label>
               <select
+                id="recurring-template-payment-terms"
                 name="paymentTerms"
                 className={inputCls}
                 value={form.paymentTerms}
@@ -213,8 +215,9 @@ export function RecurringInvoiceEditor({ id }: { id: string }) {
           <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] uppercase tracking-wide">Schedule</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className={labelCls}>Frequency *</label>
+              <label htmlFor="recurring-template-frequency" className={labelCls}>Frequency *</label>
               <select
+                id="recurring-template-frequency"
                 name="frequency"
                 className={inputCls}
                 value={form.frequency}

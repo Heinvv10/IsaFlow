@@ -101,6 +101,8 @@ describe('recurring invoice edit: stale template response', () => {
     expect(screen.queryByDisplayValue('Template ri-A')).toBeNull();
     expect(screen.queryByDisplayValue('Fee A')).toBeNull();
     expect(screen.queryByText('Template ri-A')).toBeNull();
+    expect(screen.queryByText('Loading…')).toBeNull();
+    expect(document.querySelector('h1 + p')?.textContent).toBe('');
     expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.submit(document.querySelector('form')!);
     await Promise.resolve();
