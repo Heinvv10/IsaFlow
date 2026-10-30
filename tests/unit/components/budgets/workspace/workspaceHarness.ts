@@ -4,7 +4,8 @@
  * preference answered by default. Each test file mocks `@/contexts/CompanyContext` (role) and
  * `next/router` itself (vi.mock is hoisted per file).
  */
-import { vi } from 'vitest';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { expect, vi } from 'vitest';
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import { MONTHS, gridModel } from './gridFixture';
 
@@ -46,4 +47,16 @@ export function installNetwork() {
     return routes.find((r) => r.match(url, method))!.reply(url, body);
   }));
   return { on, sent };
+}
+
+/**
+ * Double-click a cell until its editor is open. A load that lands right after the grid appears can
+ * swallow the first double-click under CI load (no refusal is announced), so one try is a flake.
+ */
+export async function openEditor(cell: () => HTMLElement, name: string): Promise<HTMLElement> {
+  await waitFor(() => {
+    if (!screen.queryByRole('textbox', { name })) fireEvent.doubleClick(cell());
+    expect(screen.getByRole('textbox', { name })).toBeInTheDocument();
+  });
+  return screen.getByRole('textbox', { name });
 }

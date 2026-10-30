@@ -1,177 +1,136 @@
 /**
- * Budget vs Actual Report
+ * Budget vs Actual (budgets P3, spec `docs/plans/budgets/P3-tracking-spec.md` §1)
  * Sage equivalent: Reports > Budget vs Actual
- * Compare budgeted amounts per GL account against actual GL balances, in
- * Revenue / Expenses / Net profit sections (BudgetVsActualTable). Opens on Year
- * to date, like the API; every window covers whole months on both sides.
+ *
+ * The tracking engine's report (`/api/accounting/reports-budget-tracking`) in the
+ * income-statement bands through `StatementGrid`: Actual · Budget · Var R ·
+ * Var %, then Projected FY · FY budget · Δ FY budget. "—" is an absent budget,
+ * never 0. Period Month | Quarter | YTD | FY | Custom (whole months), the
+ * version of FY* (primary by default), and the CC1 / CC2 / BU filter. A line
+ * expands into its GL transactions for the same window and filter, each linked
+ * to its source document. CSV and Excel come from the same engine and rows.
+ * The page renders; it computes no figure.
  */
-
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { BarChart3, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { longDate, monthLabel, parseReportPeriod } from '@/components/accounting/budgets/budgetClient';
-import { BudgetVsActualTable, type BvaLine, type BvaSections } from '@/components/accounting/budgets/BudgetVsActualTable';
+import { AlertCircle, BarChart3, Download, FileSpreadsheet } from 'lucide-react';
+import { ListSkeleton } from '@/components/ui/ListSkeleton';
+import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
+import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { longDate } from '@/components/accounting/budgets/budgetClient';
+import { BudgetTrackingControls } from '@/components/accounting/budgets/tracking/BudgetTrackingControls';
+import { BudgetTrackingHeader, BudgetTrackingNotices, projectionHeading } from '@/components/accounting/budgets/tracking/BudgetTrackingNotices';
+import { BudgetTrackingVisuals } from '@/components/accounting/budgets/tracking/BudgetTrackingVisuals';
+import { hasDimensionFilter } from '@/components/accounting/budgets/tracking/trackingControls';
+import { useBudgetTracking } from '@/components/accounting/budgets/tracking/useBudgetTracking';
+import type { StatementColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
+import { toBudgetTrackingRows } from '@/modules/accounting/services/reports/statementRows/budgetTrackingRows';
 
-interface ReportYear { fiscalYear: number; startDate: string; endDate: string; kind: string }
-
-interface BudgetReport {
-  period: string;
-  lines: BvaLine[];
-  sections: BvaSections;
-  /** Latest posted entry inside the window, or null when nothing is posted. */
-  posted_through: string | null;
-  /** Year to date of a chosen year that has not begun: nothing to show; `starts_on` is its first day. */
-  not_started?: boolean;
-  starts_on?: string;
-}
-
-/** The report's query string: the period, and the financial-year label when one is chosen. */
-function reportQuery(period: string, year: number | null): string {
-  const params = new URLSearchParams({ period });
-  if (year !== null) params.set('fiscal_year', String(year));
-  return params.toString();
-}
+const COLUMNS: StatementColumns = { prior: false, budget: true, variance: true, trend: false, projection: true };
+const BUTTON = 'px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50';
 
 export default function BudgetVsActualPage() {
-  const [report, setReport] = useState<BudgetReport | null>(null);
-  const [fiscalPeriod, setFiscalPeriod] = useState('ytd');
-  // The financial year picked for year to date / full year; null = the year holding today.
-  const [chosenYear, setChosenYear] = useState<number | null>(null);
-  const [years, setYears] = useState<ReportYear[]>([]);
-  const [shownYear, setShownYear] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
+  const t = useBudgetTracking();
+  const { report, controls } = t;
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const rows = useMemo(() => (report ? toBudgetTrackingRows(report) : []), [report]);
+  const filtered = hasDimensionFilter(controls);
+  const hasLines = !!report && report.lines.length > 0;
 
-  const selectedYear = chosenYear ?? shownYear;
-  const yearOptions: Array<{ fiscalYear: number; startDate: string; endDate: string }> = years.length > 0
-    ? years : selectedYear !== null ? [{ fiscalYear: selectedYear, startDate: '', endDate: '' }] : [];
-  // The range the report itself covers, so a drill-down foots to its line.
-  const range = parseReportPeriod(report?.period);
-
-  // This period has no year to choose; the other periods take the chosen one.
-  const yearParam = fiscalPeriod !== 'current' && chosenYear !== null ? chosenYear : null;
-  const loadReport = useCallback(async () => {
-    setIsLoading(true);
-    setError('');
-    try {
-      const res = await apiFetch(`/api/accounting/reports-budget-vs-actual?${reportQuery(fiscalPeriod, yearParam)}`);
-      await assertOk(res, 'Could not load the budget report - try again');
-      const json = await res.json();
-      const data = json.data || json;
-      setReport(data.report || data);
-      setYears(data.years ?? []);
-      setShownYear(data.fiscal_year ?? null);
-    } catch (err) {
-      setReport(null);
-      setYears([]);
-      setShownYear(null);
-      setError(apiErrorMessage(err, 'Could not load the budget report - try again'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fiscalPeriod, yearParam]);
-
-  useEffect(() => { void loadReport(); }, [loadReport]);
+  const openExport = (format: 'csv' | 'xlsx') => {
+    window.open(`/api/accounting/budget-tracking-export?format=${format}&${t.exportQuery}`, '_blank');
+  };
 
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-violet-500/10">
-                  <BarChart3 className="h-6 w-6 text-violet-500" />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Budget vs Actual</h1>
-                  <p className="text-sm text-[var(--ff-text-secondary)]">
-                    Compare budgeted and actual amounts by GL account
-                  </p>
-                  {range && (
-                    <p data-testid="report-period" className="text-xs text-[var(--ff-text-secondary)] mt-1">
-                      {fiscalPeriod === 'current' ? 'This period: ' : ''}{longDate(range.start)} to {longDate(range.end)}
-                    </p>
-                  )}
-                  {range && report && (
-                    <p data-testid="posted-through" className="text-xs text-[var(--ff-text-secondary)]">
-                      {report.posted_through
-                        ? `Actuals posted through ${longDate(report.posted_through)}`
-                        : 'No actuals posted in this range yet'}
-                    </p>
-                  )}
-                </div>
+          <div className="px-4 sm:px-6 py-4 flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-violet-500/10">
+                <BarChart3 className="h-6 w-6 text-violet-500" />
               </div>
-              <button onClick={() => {
-                window.open(`/api/accounting/budget-vs-actual-export?${reportQuery(fiscalPeriod, yearParam)}`, '_blank');
-              }} disabled={!report || !report.lines || report.lines.length === 0}
-                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
+              <div>
+                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Budget vs Actual</h1>
+                <p className="text-sm text-[var(--ff-text-secondary)]">
+                  Actuals against the budget in the income-statement bands, with the projected full year
+                </p>
+                {report && <BudgetTrackingHeader report={report} />}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => openExport('csv')} disabled={!hasLines}
+                className={`${BUTTON} bg-brand-600 hover:bg-brand-700 text-white`}>
                 <Download className="h-4 w-4" /> Export CSV
+              </button>
+              <button type="button" onClick={() => openExport('xlsx')} disabled={!hasLines}
+                className={`${BUTTON} border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)]`}>
+                <FileSpreadsheet className="h-4 w-4" /> Export Excel
               </button>
             </div>
           </div>
         </div>
 
-        <div className="p-6">
-          <div className="flex items-center gap-4 mb-6">
-            <select
-              value={fiscalPeriod}
-              onChange={(e) => setFiscalPeriod(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
-            >
-              <option value="current">This period</option>
-              <option value="ytd">Year to date</option>
-              <option value="full_year">Full year</option>
-            </select>
-            {fiscalPeriod !== 'current' && (selectedYear !== null) && (
-              <select
-                value={selectedYear}
-                onChange={(e) => setChosenYear(Number(e.target.value))}
-                data-testid="report-year"
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
-              >
-                {yearOptions.map(y => (
-                  <option key={y.fiscalYear} value={y.fiscalYear}>
-                    {y.startDate ? `${y.fiscalYear}: ${monthLabel(y.startDate.slice(0, 7))} - ${monthLabel(y.endDate.slice(0, 7))}` : y.fiscalYear}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
+        <div className="p-4 sm:p-6 space-y-4">
+          <BudgetTrackingControls controls={controls} years={t.years} shownYear={report?.window.fiscalYear ?? null}
+            today={t.today} versions={t.versions} versionsError={t.versionsError}
+            crossYears={report?.versionsByFy ? Object.keys(report.versionsByFy).map(Number) : null}
+            centres={t.centres} units={t.units} update={t.update} setPeriod={t.setPeriod} setFiscalYear={t.setFiscalYear}
+            problem={t.problem} />
+          {Object.keys(t.refError).length > 0 && (
+            <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">{Object.values(t.refError).join(' ')}</p>
+          )}
 
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
-            </div>
-          ) : error ? (
-            <div className="flex items-center gap-2 text-red-400 py-8 justify-center">
+          {t.problem ? (
+            <p className="py-8 text-center text-sm text-[var(--ff-text-secondary)]">Correct the period above to load the report.</p>
+          ) : t.isLoading ? (
+            <ListSkeleton rows={14} label="Loading budget vs actual" />
+          ) : t.error ? (
+            <div className="flex flex-wrap items-center gap-3 text-red-500 py-8 justify-center">
               <AlertCircle className="h-5 w-5" />
-              <span>{error}</span>
+              <span>{t.error}</span>
+              <button type="button" onClick={t.retry}
+                className="px-3 py-1.5 rounded-lg border border-[var(--ff-border-light)] text-sm font-medium text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)]">
+                Retry
+              </button>
             </div>
-          ) : !report || !report.lines || report.lines.length === 0 ? (
+          ) : report?.window.notStarted ? (
+            <div className="text-center py-12">
+              <p data-testid="year-not-started" className="text-[var(--ff-text-secondary)]">
+                {`This financial year starts on ${longDate(report.window.startDate)}`}
+              </p>
+              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
+                There is nothing to show for year to date yet; choose Full year to see its budget.
+              </p>
+            </div>
+          ) : !report || !hasLines ? (
             <div className="text-center py-12">
               <BarChart3 className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              {report?.not_started && report.starts_on ? (
-                <>
-                  <p data-testid="year-not-started" className="text-[var(--ff-text-secondary)]">
-                    This financial year starts on {longDate(report.starts_on)}
-                  </p>
-                  <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
-                    There is nothing to show for year to date yet; choose Full year to see its budget.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-[var(--ff-text-secondary)]">No budget data available</p>
-                  <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
-                    Set budgets per GL account to see variance analysis
-                  </p>
-                </>
-              )}
+              <p className="text-[var(--ff-text-secondary)]">No budget or actuals in this window</p>
+              <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
+                Set a budget per GL account, or choose another period, version or filter.
+              </p>
             </div>
           ) : (
-            <BudgetVsActualTable lines={report.lines} sections={report.sections} range={range} />
+            <>
+              <BudgetTrackingNotices report={report} filtered={filtered} onViewUnfiltered={t.clearFilter} />
+              <p className="sm:hidden text-xs text-[var(--ff-text-secondary)]">
+                Swipe the statement sideways for the variance and projected-year columns.
+              </p>
+              <div id="bva-statement" tabIndex={-1}>
+              <StatementGrid rows={rows} columns={COLUMNS} title={report.window.label} sticky cents budgetTracking
+                projectionTitle={projectionHeading(report.projection)}
+                expandedAccount={expanded}
+                onToggleAccount={(code) => setExpanded((e) => (e === code ? null : code))}
+                renderDrill={(code) => (
+                  <AccountDrillDown accountCode={code} periodStart={report.window.startDate} periodEnd={report.window.endDate}
+                    cc1Id={report.filter.cc1?.id} cc2Id={report.filter.cc2?.id}
+                    businessUnitId={report.filter.bu?.id} budgetTracking asTableRow={false} />
+                )} />
+              </div>
+              <BudgetTrackingVisuals report={report} filtered={filtered} groupBy={controls.groupBy}
+                onGroupBy={(groupBy) => t.update({ groupBy })} />
+            </>
           )}
         </div>
       </div>

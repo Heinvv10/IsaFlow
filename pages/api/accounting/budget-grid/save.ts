@@ -7,7 +7,10 @@
  * (an account or dimension not the company's, a header or inactive account without amounts in the
  * version, a month outside its year, a grain clash), 404 for another company's version, 409
  * BUDGET_VERSION_LOCKED / BUDGET_VERSION_STALE (with `currentUpdatedAt` and `status`). Every
- * refusal leaves the version, its amounts and its token as they were. The Excel import commits here.
+ * refusal leaves the version, its amounts and its token as they were. Budget drivers (P4): a closed
+ * month typed or cleared, or a driver-computed cell cleared, is 400 BUDGET_VERSION_INPUT; only the
+ * recompute's own refusals are DRIVER_* (400 DRIVER_RANGE when a driver cannot hold the result). The
+ * answer adds `recomputed`, `reset` and `driverWarnings`. The Excel import commits here.
  * Next's own body parser reads the JSON (at most 4 MB: 413 past it); one request carries at most
  * MAX_SAVE_CELLS (20 000) cells, so a bigger commit (an import of up to MAX_IMPORT_CELLS) is
  * CHAINED by the client, each chunk sent with the token the previous save returned. Each save is
@@ -21,7 +24,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { respondBudgetVersionError } from '@/lib/budgetVersionResponse';
+import { respondBudgetDriverError } from '@/lib/budgetDriverResponse';
 import { BudgetVersionStaleError, MAX_SAVE_CELLS, saveCells } from '@/modules/accounting/services/budgets/gridSave';
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
 
@@ -66,7 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.error(res, ErrorCode.CONFLICT, err.message,
         { code: err.code, currentUpdatedAt: err.currentUpdatedAt, status: err.versionStatus });
     }
-    if (respondBudgetVersionError(res, err)) return;
+    if (respondBudgetDriverError(res, err)) return;
     throw err;
   }
 }
