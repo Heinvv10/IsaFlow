@@ -26,7 +26,7 @@ import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { fetchUnallocatedCreditNotes } from '@/modules/accounting/services/ar/arAgingCreditNotes';
-import { fetchARAgingInvoices } from '@/modules/accounting/services/ar/arAgingInvoices';
+import { fetchARAgingInvoices, UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { fetchAPAgingInvoices } from '@/modules/accounting/services/ap/apAgingInvoices';
 
 // Auth and metering are not under test; the route's SQL is. The route reads
@@ -97,16 +97,23 @@ describeIfDb('aging joins to customers/suppliers are scoped to the document comp
     await admin.end();
   }, 60000);
 
-  it('getARAging never names company B\'s customer, and ages only the legitimate invoice', async () => {
+  // Master's #915 made the open-invoice read a LEFT JOIN so Home's tile/donut
+  // cannot drop an invoice the report's summary still counts. The scoped join
+  // therefore no longer removes the poisoned invoice: it is KEPT (summary
+  // parity) but company B's customer does not match, so it ages under
+  // UNKNOWN_CUSTOMER. What must never happen is company B's NAME appearing.
+  it('getARAging never names company B\'s customer; the poisoned invoice ages as unknown', async () => {
     const buckets = await getARAging(A, AS_AT);
     expect(buckets.map((b) => b.entityName)).not.toContain(LEAK_CUSTOMER);
-    expect(buckets.map((b) => b.entityId)).not.toContain(CUST_B);
-    expect(buckets.map((b) => [b.entityId, b.total])).toEqual([[CUST_A, 1000]]);
+    expect(JSON.stringify(buckets)).not.toContain(LEAK_CUSTOMER);
+    const byName = Object.fromEntries(buckets.map((b) => [b.entityName, b.total]));
+    expect(byName).toEqual({ [`Tenant A Customer ${TAG}`]: 1000, [UNKNOWN_CUSTOMER]: 777 });
   });
 
-  it('the AR open-items read (drill-down / export source) carries no foreign customer', async () => {
+  it('the AR open-items read (drill-down / export source) carries no foreign customer name', async () => {
     const rows = await fetchARAgingInvoices(A, AS_AT, AS_AT);
-    expect(rows.map((r) => r.entityName)).toEqual([`Tenant A Customer ${TAG}`]);
+    expect(rows.map((r) => r.entityName).sort()).toEqual([`Tenant A Customer ${TAG}`, UNKNOWN_CUSTOMER].sort());
+    expect(JSON.stringify(rows)).not.toContain(LEAK_CUSTOMER);
   });
 
   it('the unallocated credit-note read returns only company A\'s customer', async () => {
