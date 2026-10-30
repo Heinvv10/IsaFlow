@@ -91,10 +91,21 @@ const GOLDEN_PATHS_CONCURRENCY = {
  * set exactly JOB_PERMISSIONS and nothing else.
  */
 const PERMISSIONS = { contents: 'read' };
-/** Each required check (merge-queue requiredChecks) and the one job that may carry its name. */
-const REQUIRED_CHECK_OWNERS: Record<string, string> = {
-  [QUALITY_NAME]: QUALITY_JOB,
-  'Golden Paths E2E (blocking)': 'golden-paths',
+/**
+ * Every job's name, exactly. The merge queue and mq-merge-already-tested.ts
+ * read the two required checks by NAME (a later run of the same name wins), and
+ * static-fallback finds the hosted job by the name "Static gates", so a decoy
+ * that renders one of these names, literally or through a `${{ }}` expression,
+ * could stand in for it. Pinning all of them closes that class.
+ */
+const JOB_NAMES: Record<string, string> = {
+  route: 'CI route',
+  static: 'Static gates',
+  'static-fallback': 'Static gates (velo fallback)',
+  velo: 'Browser & integration (velo)',
+  [QUALITY_JOB]: QUALITY_NAME,
+  'golden-lane': 'Golden Paths lane',
+  'golden-paths': 'Golden Paths E2E (blocking)',
 };
 
 function checkTrigger(on: Obj, event: string, errors: string[]): void {
@@ -170,12 +181,11 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
       || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
       errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
     }
-    // The merge queue and mq-merge-already-tested.ts find the required checks
-    // by NAME, so only the one job each may carry it: a decoy of the same name
-    // that starts later reads as the check (newest run wins).
-    for (const [name, owner] of Object.entries(REQUIRED_CHECK_OWNERS)) {
-      const holders = Object.entries(jobs).filter(([, j]) => isObj(j) && j.name === name).map(([id]) => id);
-      if (!sameList(holders, [owner])) errors.push(`only jobs.${owner} may be named "${name}" (named so: ${holders.join(', ') || 'none'}); the queue reads a required check by name`);
+    for (const [id, j] of Object.entries(jobs)) {
+      const want = JOB_NAMES[id];
+      if (want !== undefined && !(isObj(j) && j.name === want)) {
+        errors.push(`jobs.${id}.name must be exactly "${want}"; required checks and the fallback's lookup go by name`);
+      }
     }
     const grouped = Object.entries(jobs).filter(([name, j]) => name !== 'golden-paths' && isObj(j) && 'concurrency' in j).map(([name]) => name);
     if (grouped.length) errors.push(`jobs ${grouped.join(', ')} set concurrency; only golden-paths may take a group (the ci- group would cancel the gates)`);
