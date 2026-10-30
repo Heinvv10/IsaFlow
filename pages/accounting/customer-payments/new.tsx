@@ -13,6 +13,8 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface Client { id: string; name: string }
 interface OutstandingInvoice {
@@ -31,6 +33,7 @@ export default function NewCustomerPaymentPage() {
   const [invoices, setInvoices] = useState<OutstandingInvoice[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
   const [scanBanner, setScanBanner] = useState<string | null>(null);
   const [queryParamsApplied, setQueryParamsApplied] = useState(false);
 
@@ -96,7 +99,7 @@ export default function NewCustomerPaymentPage() {
   };
 
   function handleExtracted(data: ExtractedDocument) {
-    if (data.date) setForm(f => ({ ...f, paymentDate: data.date! }));
+    if (data.date) { dates.reset('paymentDate'); setForm(f => ({ ...f, paymentDate: data.date! })); }
     if (data.referenceNumber) setForm(f => ({ ...f, bankReference: data.referenceNumber! }));
     if (data.customerName && clients.length > 0) {
       const match = fuzzyMatchClient(data.customerName, clients);
@@ -115,6 +118,7 @@ export default function NewCustomerPaymentPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     setError('');
     setIsSubmitting(true);
     try {
@@ -180,18 +184,19 @@ export default function NewCustomerPaymentPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={lbl}>Client *</label>
-                    <select name="clientId" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
+                    <select name="clientId" aria-label="Client" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
                       <option value="">Select client…</option>
                       {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className={lbl}>Payment Date *</label>
-                    <input type="date" name="paymentDate" value={form.paymentDate} onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))} className={inp} required />
+                    <DateField label="Payment Date" required name="paymentDate" value={form.paymentDate || null}
+                      resetKey={dates.resetKey('paymentDate')}
+                      onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>
                   <div>
                     <label className={lbl}>Payment Method</label>
-                    <select name="paymentMethod" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
+                    <select name="paymentMethod" aria-label="Payment Method" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
                       <option value="eft">EFT</option>
                       <option value="cheque">Cheque</option>
                       <option value="cash">Cash</option>
@@ -225,7 +230,7 @@ export default function NewCustomerPaymentPage() {
                     const balance = inv ? Number(inv.total_amount) - Number(inv.amount_paid) : 0;
                     return (
                       <div key={alloc.key} className="flex items-center gap-3">
-                        <select name="invoiceId" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={`${inp} flex-1`}>
+                        <select name="invoiceId" aria-label="Invoice" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={`${inp} flex-1`}>
                           <option value="">Select invoice…</option>
                           {invoices.map(i => (
                             <option key={i.id} value={i.id}>{i.invoice_number} — Balance: {fmt(Number(i.total_amount) - Number(i.amount_paid))}</option>
