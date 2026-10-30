@@ -19,9 +19,12 @@ import {
 } from '@/components/accounting/SupplierForm';
 
 /** Renders with `form`, returning the latest value the form emitted. */
+// The date gate is not under test here; the opening balance date has its own tests (docDatesComponents).
+const dates = { bind: () => () => undefined, reset: () => undefined, blocked: false };
+
 function renderForm(form: SupplierFormData) {
   const onChange = vi.fn();
-  const view = render(<SupplierForm form={form} onChange={onChange} />);
+  const view = render(<SupplierForm dates={dates} form={form} onChange={onChange} />);
   return { onChange, view };
 }
 
@@ -65,6 +68,7 @@ describe('SupplierForm — auto-allocate control', () => {
     const { view } = renderForm({ ...INITIAL_SUPPLIER_FORM });
     view.rerender(
       <SupplierForm
+        dates={dates}
         form={{ ...INITIAL_SUPPLIER_FORM, auto_allocate_strategy: 'newest' }}
         onChange={vi.fn()}
       />,

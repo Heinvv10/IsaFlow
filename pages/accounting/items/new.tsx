@@ -20,6 +20,7 @@ import {
   OpeningBalancesSection,
 } from '@/components/accounting/items/ItemFormSections';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface Category { id: string; name: string }
 interface Account { id: string; account_number: string; name: string }
@@ -61,7 +62,7 @@ const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200
 export default function NewItemPage() {
   const router = useRouter();
   const { activeCompany: company } = useCompany();
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState(false); const dates = useDateGate();
   const [error, setError] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -124,7 +125,7 @@ export default function NewItemPage() {
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+    e.preventDefault(); if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
     setError(''); setSaving(true);
     try {
       const payload = {
@@ -253,7 +254,7 @@ export default function NewItemPage() {
                     </div>
                     <OpeningBalancesSection
                       opening_qty={form.opening_qty} opening_cost={form.opening_cost}
-                      opening_date={form.opening_date} onChange={update}
+                      opening_date={form.opening_date} onChange={update} dates={dates}
                     />
                   </div>
                 )}
