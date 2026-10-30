@@ -41,7 +41,8 @@ function run(script: string[], env: Record<string, string>): { status: number | 
   writeFileSync(LOG, '');
   const r = spawnSync('/bin/bash', script, {
     cwd: process.cwd(), encoding: 'utf8',
-    env: { ...baseEnv, PATH: `${dir}:${process.env.PATH}`, STUB_LOG: LOG, CI_SKIP_BUILD: '0', ...env },
+    // AGENT_RUN_BIN: never the machine's real agent-run (runCiAgentRun.test.ts covers it).
+    env: { ...baseEnv, PATH: `${dir}:${process.env.PATH}`, STUB_LOG: LOG, CI_SKIP_BUILD: '0', AGENT_RUN_BIN: join(dir, 'absent'), ...env },
   });
   return { status: r.status, out: `${r.stdout}${r.stderr}`, calls: readFileSync(LOG, 'utf8').split('\n').filter(Boolean) };
 }

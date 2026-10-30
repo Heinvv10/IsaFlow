@@ -9,28 +9,23 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2R3a5';
-import { bvaBody } from '../helpers/bvaReportFixture';
+import { trackingReport } from '../helpers/budgetTrackingReportFixture';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn() }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn(), replace: vi.fn(async () => true) }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+vi.mock('@/components/accounting/budgets/tracking/BudgetTrackingVisuals', () => ({ BudgetTrackingVisuals: () => null }));
 
 import BudgetVsActualPage from '../../../pages/accounting/reports/budget-vs-actual';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-const REPORT = {
-  fiscal_year: 2026, years: [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', kind: 'normal' }],
-  report: {
-    period: '2026-10-01 to 2026-10-31',
-    ...bvaBody([
-      { code: '4000', name: 'Sales', type: 'revenue', actual: 5, budget: 10 },
-      { code: '5000', name: 'Rent', type: 'expense', actual: 6, budget: 8 },
-    ]),
-  },
-};
+const REPORT = trackingReport([
+  { code: '4000', name: 'Sales', type: 'revenue', actual: 5, budget: 10 },
+  { code: '5000', name: 'Rent', type: 'expense', actual: 6, budget: 8 },
+]);
 const DRILL = { accountCode: '4000', accountName: 'Sales', openingBalance: 0, periodNet: 5, closingBalance: 5, transactions: [] };
 
 const drillFetches = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('reports-account-transactions'));
@@ -41,7 +36,7 @@ describe('budget vs actual drill-down', () => {
     vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
       ok(String(url).includes('reports-account-transactions') ? DRILL : REPORT));
     render(<StrictMode><BudgetVsActualPage /></StrictMode>);
-    fireEvent.click(await screen.findByText('Sales'));
+    fireEvent.click(await screen.findByRole('button', { name: /Sales/ }));
     await screen.findByText('No transactions in this period');
     // Let any re-render settle: a second request would be made by now.
     await new Promise((r) => setTimeout(r, 50));
@@ -52,9 +47,9 @@ describe('budget vs actual drill-down', () => {
     vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
       ok(String(url).includes('reports-account-transactions') ? DRILL : REPORT));
     render(<StrictMode><BudgetVsActualPage /></StrictMode>);
-    fireEvent.click(await screen.findByText('Sales'));
+    fireEvent.click(await screen.findByRole('button', { name: /Sales/ }));
     await waitFor(() => expect(drillAccounts()).toEqual(['4000']));
-    fireEvent.click(screen.getByText('Rent'));
+    fireEvent.click(screen.getByRole('button', { name: /Rent/ }));
     await waitFor(() => expect(drillAccounts()).toEqual(['4000', '5000']));
     await new Promise((r) => setTimeout(r, 50));
     expect(drillAccounts()).toEqual(['4000', '5000']);
@@ -64,7 +59,7 @@ describe('budget vs actual drill-down', () => {
     vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
       ok(String(url).includes('reports-account-transactions') ? DRILL : REPORT));
     render(<StrictMode><BudgetVsActualPage /></StrictMode>);
-    const row = await screen.findByText('Sales');
+    const row = await screen.findByRole('button', { name: /Sales/ });
     fireEvent.click(row);
     await screen.findByText('No transactions in this period');
     fireEvent.click(row);
@@ -84,8 +79,8 @@ describe('budget vs actual drill-down', () => {
       return ok(DRILL);
     });
     render(<StrictMode><BudgetVsActualPage /></StrictMode>);
-    fireEvent.click(await screen.findByText('Sales'));
-    fireEvent.click(screen.getByText('Rent'));
+    fireEvent.click(await screen.findByRole('button', { name: /Sales/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Rent/ }));
     await waitFor(() => expect(drillAccounts()).toEqual(['4000', '5000']));
     pending.forEach((release) => release());
     await new Promise((r) => setTimeout(r, 50));

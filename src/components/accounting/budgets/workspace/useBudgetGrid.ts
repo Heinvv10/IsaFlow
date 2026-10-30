@@ -4,7 +4,8 @@
  * view grain lazily (cached), switches the dimension view (PR-A `resolveView` in the store), saves
  * a SNAPSHOT of the dirty cells through the chained commit (edits made during the save stay dirty),
  * keeps a 409 as `stale` with every unsaved edit, and re-applies them over a fresh read with PR-A
- * `rebaseDirty` ("reload and re-apply mine"; also into a draft copy of a locked version).
+ * `rebaseDirty` ("reload and re-apply mine"; also into a draft copy of a locked version). P4: a
+ * save in a version with drivers, and every driver write, re-read the version in place (`refresh`).
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { GridCell, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
@@ -15,60 +16,16 @@ import type { View } from '@/modules/accounting/services/budgets/grid/pivot';
 import { type ChainResult, type GridSelection, type SaveCell, fetchGridCells, fetchGridModel, fetchPriorActuals, saveChained } from './budgetWorkspaceClient';
 import { GridStore } from './gridStore';
 import { cellsInCents } from './gridStoreParts';
-import { committedPart, toSaveCells } from './saveSnapshot';
-import type { BudgetVersion, GridStatus, SaveState, StaleState } from './types';
+import { committedPart, savedParts, toSaveCells } from './saveSnapshot';
+import { refreshVersion } from './gridRefresh';
+import type { GridStatus, SaveState, StaleState } from './types';
+import type { BudgetGridApi, MemberTotal, RowWarning } from './budgetGridApi';
 
-export interface MemberTotal { id: string; code: string; name: string; isActive: boolean; total: number }
-
-export interface BudgetGridApi {
-  store: GridStore;
-  status: GridStatus;
-  error: string | null;
-  model: GridReadModel | null;
-  version: BudgetVersion | null;
-  /** The version token: what the next save (or a status move) sends as `expectedUpdatedAt`. */
-  token: string | null;
-  dirtyCount: number;
-  /** Any budgeted cell in the store now (the "no amounts yet" hint). */
-  hasAmounts: boolean;
-  view: View;
-  setView(view: View): void;
-  /** The current dimension's members with their FY net profit (cents); [] in the Company view. */
-  members: MemberTotal[];
-  roundingUnit: RoundingUnit;
-  setRoundingUnit(unit: RoundingUnit): void;
-  priorStatus: 'idle' | 'loading' | 'ready' | 'error';
-  /** null: the year's primary (else newest) version. */
-  selectVersion(id: string | null): Promise<void>;
-  /** Re-read the version shown (after a status move: new token). */
-  reload(): Promise<void>;
-  save(): Promise<void>;
-  saveState: SaveState;
-  discard(): void;
-  stale: StaleState | null;
-  /**
-   * Fresh read + rebaseDirty; `intoVersionId` re-applies into another version (a draft copy of a
-   * locked one). Resolves null when done, else the message to show (the edits stay in the store).
-   */
-  reapplyMine(intoVersionId?: string): Promise<string | null>;
-  discardAndReload(): Promise<void>;
-  dismissStale(): void;
-  compareVersionId: string | null;
-  compareError: string | null;
-  setCompareVersion(id: string | null): Promise<void>;
-  /** An import's cells, chained with the PREVIEW's token; refused while the grid is dirty; reloads after. */
-  commitImport(cells: readonly SaveCell[], previewToken: string): Promise<ChainResult>;
-}
+export type { BudgetGridApi, MemberTotal, RowWarning } from './budgetGridApi';
 
 const COMPANY: View = { kind: 'company' };
 /** The Company view's members: ONE array, so its identity never changes what the grid's row handlers see. */
 const NO_MEMBERS: MemberTotal[] = [];
-
-/** "Parts 1–k of n were saved" for a chained commit refused at chunk `failed` (0-based). */
-function savedParts(failed: number, chunks: number): string {
-  if (failed === 0) return 'Nothing was saved.';
-  return failed === 1 ? `Part 1 of ${chunks} was saved; the rest was not.` : `Parts 1–${failed} of ${chunks} were saved; the rest were not.`;
-}
 
 export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | null; canWrite: boolean }): BudgetGridApi {
   const [store] = useState(() => new GridStore());
@@ -99,6 +56,8 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
   const priorCache = useRef(new Map<string, PriorActuals>());
   const compareCells = useRef<GridCell[] | null>(null);
   const saving = useRef(false);
+  const loads = useRef(0);
+  const refreshSeq = useRef(0);
 
   const loadPrior = useCallback(async (year: number, grain: View['kind']) => {
     const k = `${year}:${grain}`;
@@ -132,7 +91,8 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     const mine = ++seq.current;
     setStatus('loading');
     setError(null);
-    const r = await fetchGridModel(sel);
+    loads.current++;
+    const r = await fetchGridModel(sel).finally(() => { loads.current--; });
     if (mine !== seq.current) return;
     if (!r.ok) {
       live.current = { ...live.current, model: null, token: null };
@@ -173,6 +133,18 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     if (id) await load({ versionId: id }); else if (fiscalYear !== null) await load({ fiscalYear });
   }, [load, fiscalYear, clearCompare]);
 
+  // Its own sequence: a re-read never cancels a version switch, and one pending skips it (the load brings fresh cells).
+  const refresh = useCallback(async (warnings?: readonly RowWarning[]) => {
+    const id = live.current.model?.version?.id;
+    const ticket = seq.current;
+    const mine = ++refreshSeq.current;
+    if (!id || loads.current > 0) return null;
+    const wanted = () => ticket === seq.current && mine === refreshSeq.current && loads.current === 0 && live.current.model?.version?.id === id;
+    const message = await refreshVersion(store, id, wanted, show);
+    if (message === null && warnings && wanted()) store.setDriverWarnings(warnings);
+    return message;
+  }, [store, show]);
+
   const setView = useCallback((v: View) => {
     live.current = { ...live.current, view: v };
     setViewState(v);
@@ -199,8 +171,11 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
       live.current = { ...live.current, token: res.updatedAt };
       setToken(res.updatedAt);
       if (res.ok) {
-        setSaveState({ status: 'saved', saved: res.saved, deleted: res.deleted });
+        setSaveState({ status: 'saved', saved: res.saved, deleted: res.deleted, ...(res.drivers ? { drivers: res.drivers } : {}) });
         store.announce(`Saved ${snapshot.size} change${snapshot.size === 1 ? '' : 's'}`);
+        // The server marked typed driver cells as overrides and recomputed dependents: show its cells.
+        const reread = res.drivers || (m?.drivers?.length ?? 0) > 0 ? await refresh(res.drivers?.warnings) : null;
+        if (reread) setSaveState((s) => (s.status === 'saved' ? { ...s, refreshError: reread } : s));
         return;
       }
       const f = res.failure;
@@ -221,7 +196,7 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     } finally {
       saving.current = false;
     }
-  }, [store]);
+  }, [store, refresh]);
 
   const reapplyMine = useCallback(async (intoVersionId?: string) => {
     const id = intoVersionId ?? live.current.model?.version?.id;
@@ -241,6 +216,7 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
     return null;
   }, [store, show]);
 
+  const adoptToken = useCallback((t: string) => { live.current = { ...live.current, token: t }; setToken(t); }, []);
   const discard = useCallback(() => { store.discard(); setSaveState({ status: 'idle' }); }, [store]);
   const discardAndReload = useCallback(async () => { store.discard(); setStale(null); await reload(); }, [store, reload]);
   const dismissStale = useCallback(() => setStale(null), []);
@@ -279,7 +255,7 @@ export function useBudgetGrid({ fiscalYear, canWrite }: { fiscalYear: number | n
   }, [store, model, view.kind, revision]);
 
   return {
-    store, status, error, model, version: model?.version ?? null, token, dirtyCount, hasAmounts, view, setView, members,
+    store, status, error, model, version: model?.version ?? null, token, adoptToken, refresh, dirtyCount, hasAmounts, view, setView, members,
     roundingUnit, setRoundingUnit, priorStatus, selectVersion, reload, save, saveState, discard, stale,
     reapplyMine, discardAndReload, dismissStale, compareVersionId, compareError, setCompareVersion, commitImport,
   };

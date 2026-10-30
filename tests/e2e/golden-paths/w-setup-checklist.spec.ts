@@ -8,7 +8,8 @@
  *    Sales 1 done, and Home shows the card. A customer cannot be deleted, so the
  *    strict "Sales has nothing yet" start is asserted on the first run only; later runs
  *    assert the same rule from the other side (done <=> a customer exists).
- * 2. Demo: the card and the Action Items "All caught up" state follow the data.
+ * 2. Demo: the card and the Action Items "All caught up" state follow the data
+ *    ("All caught up" only once setup is complete).
  *    The card is hidden exactly when the API says every task is done.
  */
 import { test, expect } from '@playwright/test';
@@ -17,11 +18,15 @@ import { activeCompanyId, switchApiCompany, switchBrowserCompany } from './_migr
 
 // Creates a sandbox company and a permanent customer, so it is a dev/CI gate only:
 // playwright-golden.config.ts leaves it out of the production post-deploy verify.
-const PROD_HOST = /(^|\.)app\.isaflow\.co\.za$/;
+// Allowlist, like v-empty-states: only an explicit dev/CI localhost port, never production (app.isaflow.co.za,
+// nginx on :80/:3101, or the blue/green colours 3111/3112 that deploy.sh verifies before a switch).
+const DEV_PORTS = new Set(['3200', ...Array.from({ length: 40 }, (_, i) => String(3200 + i)), ...Array.from({ length: 500 }, (_, i) => String(3300 + i))]);
 
 test.beforeAll(({}, testInfo) => {
-  const host = new URL(String(testInfo.project.use.baseURL ?? 'http://localhost')).hostname;
-  if (PROD_HOST.test(host)) throw new Error('w-setup-checklist writes a sandbox company and a customer: never run it against production');
+  const url = new URL(String(testInfo.project.use.baseURL ?? 'http://localhost'));
+  if (url.hostname !== 'localhost' || !DEV_PORTS.has(url.port)) {
+    throw new Error(`w-setup-checklist writes a sandbox company and a customer: dev/CI localhost ports only (3200-3239, 3300-3799), not ${url.host}`);
+  }
 });
 
 const SANDBOX_NAME = '0GP Golden Checklist Sandbox';
@@ -127,7 +132,9 @@ test('setup checklist: on Demo the card hides exactly when every task is done', 
     await expect(page.getByRole('heading', { name: 'Action Items' })).toBeVisible({ timeout: 30_000 });
     const card = page.getByRole('region', { name: 'Finish setting up' });
     await expect(card).toHaveCount(checklist.allComplete ? 0 : 1);
-    await expect(page.getByText('All caught up!')).toHaveCount(noActions ? 1 : 0);
+    // "All caught up!" is not said while setup tasks are still open (W2 H).
+    await expect(page.getByText('All caught up!')).toHaveCount(noActions && checklist.allComplete ? 1 : 0);
+    await expect(page.getByText('Finish setup to see your daily tasks')).toHaveCount(noActions && !checklist.allComplete ? 1 : 0);
   } finally {
     await api.dispose();
   }
