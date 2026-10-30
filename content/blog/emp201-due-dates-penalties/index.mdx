@@ -1,0 +1,185 @@
+---
+title: "EMP201 due dates: the 7th, the weekend rule and what paying late costs"
+slug: "emp201-due-dates-penalties"
+description: "When the EMP201 is due, how weekends and public holidays move the date, and what SARS charges when PAYE, UIF and SDL arrive late. With 2026 dates."
+publishDate: "2026-09-29"
+author: "ISAFlow Team"
+category: "Payroll and PAYE"
+tags: ["EMP201", "PAYE", "UIF", "SDL", "SARS penalties", "payroll compliance"]
+heroImage: "/blog/emp201-due-dates-penalties/hero.webp"
+heroAlt: "A dark glass desk calendar showing the number 7 lit in teal, with the headline The 7th waits for no one."
+ogImage: "/blog/emp201-due-dates-penalties/og.webp"
+draft: false
+---
+
+**TL;DR**
+
+- The EMP201 and the payment are due within seven days after month-end, so normally by the 7th.
+- If the 7th is a weekend or public holiday, the deadline is the **last business day before it**. For October 2026 payroll that's Friday 6 November.
+- Pay late and SARS adds a **10% penalty plus interest**. Payments go to penalty first, then interest, then tax, so a short payment leaves tax outstanding and still earning interest.
+- The fix isn't heroics on the 6th. It's a payroll calendar that closes the month by the 3rd.
+
+## What the EMP201 actually is
+
+The EMP201 is the monthly employer declaration. One form carries four things: the PAYE you withheld, the UIF contributions (employee and employer), the Skills Development Levy and, if you qualify, the Employment Tax Incentive you're using to reduce PAYE.
+
+SARS is clear on the basics in its [guide to completing the EMP201](https://www.sars.gov.za/types-of-tax/pay-as-you-earn/completing-the-monthly-employer-declaration-emp201/):
+
+- You submit it on eFiling or e@syFile Employer, or at a branch with an agent. Faxed, emailed or printed declarations aren't accepted.
+- Each declaration gets a 19-digit **Payment Reference Number (PRN)**. Use it on the payment, or the money lands in your clearing account without a clear home.
+- **You can't make the payment without first submitting the EMP201.**
+- Keep copies of every declaration for five years.
+
+That last point matters more than it looks. When the EMP501 reconciliation comes round, every one of those monthly declarations has to agree with your payroll and with what actually left the bank. We cover that in [the EMP501 interim reconciliation checklist](/blog/emp501-interim-reconciliation-checklist).
+
+## The due date rule, in one sentence
+
+SARS says the EMP201 and payment are due "within 7 days after the end of each month", and that if the 7th falls on a weekend or public holiday you must submit and pay "by the last business day before the weekend or public holiday". The [SARS tax calendar](https://www.sars.gov.za/individuals/i-need-help-with-my-tax/calendar/) says the same, and the rule applies to UIF and SDL too ([SARS UIF page](https://www.sars.gov.za/types-of-tax/unemployment-insurance-fund/), [SARS SDL page](https://www.sars.gov.za/types-of-tax/skills-development-levy/)).
+
+The rule only ever moves the date **earlier**. There's no grace into the following Monday.
+
+{/* Static fallback: /blog/emp201-due-dates-penalties/chart-1.svg */}
+
+<Chart
+  type="bar"
+  title="EMP201 due day of the month, by period (due date in brackets)"
+  source="Due dates computed by ISAFlow from the SARS rule and the gov.za public holiday list. SARS, accessed 27 October 2026."
+  data={[
+    { label: "Aug 2026 (Mon 7 Sep)", value: 7 },
+    { label: "Sep 2026 (Wed 7 Oct)", value: 7 },
+    { label: "Oct 2026 (Fri 6 Nov)", value: 6 },
+    { label: "Nov 2026 (Mon 7 Dec)", value: 7 },
+    { label: "Dec 2026 (Thu 7 Jan)", value: 7 },
+    { label: "Jan 2027 (Fri 5 Feb)", value: 5 },
+    { label: "Feb 2027 (Fri 5 Mar)", value: 5 },
+  ]}
+/>
+
+### EMP201 due dates for the next six months
+
+| Payroll month | EMP201 and payment due | Why |
+| --- | --- | --- |
+| September 2026 | Wednesday 7 October 2026 | Normal |
+| October 2026 | **Friday 6 November 2026** | 7 November is a Saturday |
+| November 2026 | Monday 7 December 2026 | Normal |
+| December 2026 | Thursday 7 January 2027 | Normal |
+| January 2027 | **Friday 5 February 2027** | 7 February is a Sunday |
+| February 2027 | **Friday 5 March 2027** | 7 March is a Sunday |
+
+Two things catch people out.
+
+**Ad hoc public holidays.** The President declared Wednesday 4 November 2026, Local Government Election Day, a public holiday ([gov.za, 15 September 2026](https://www.gov.za/news/media-statements/president-cyril-ramaphosa-declares-election-day)). It doesn't change the October EMP201 date, which is already Friday 6 November, but it does take a working day out of that week. If your payroll sign-off normally happens midweek, plan for it.
+
+**December.** The December 2026 EMP201 is due on Thursday 7 January 2027, and most practices are running on a skeleton team until then. Close December payroll before you close the office.
+
+## What paying late actually costs
+
+The [SARS Guide for Employers in respect of Employees' Tax](https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G20-Guide-for-Employers-iro-Employees-Tax-for-2026-External-Guide.pdf) sets out the consequences:
+
+- **A 10% penalty** on late or outstanding amounts.
+- **Interest at the prescribed rate** on anything not paid in full by the due date. SARS publishes the prescribed rate separately and it changes, so check the current rate on sars.gov.za before you quote one to a client.
+- If you fail to pay with intent to evade, a penalty of up to **twice** the amount you didn't pay.
+- If you failed to deduct or withhold the full PAYE or UIF, **you are personally liable** for the shortfall.
+
+The allocation order is the sneaky part. SARS allocates employer payments to **penalty first, then interest, then tax**. Pay R50 000 against a month that owes R50 000 plus a R5 000 penalty, and R5 000 goes to the penalty. The tax is now R5 000 short, and interest keeps running on it.
+
+### A worked example
+
+Say a small manufacturer's September 2026 EMP201 shows R48 000: R41 500 PAYE, R3 200 UIF and R3 300 SDL. The payment goes through on 8 October instead of 7 October.
+
+- Penalty: 10% of R48 000 = **R4 800**.
+- Interest: at the prescribed rate, from the due date until paid.
+
+One day late cost about 10% of the month's payroll taxes. That's the number to show a client who thinks the 7th is a soft target. (Illustrative figures. Every business is different.)
+
+### Beyond the money
+
+SARS's [EMP501 notice for 2026](https://www.sars.gov.za/latest-news/employer-interim-declarations-emp501-21-september-to-october-2026/) reminds employers that failing to deduct PAYE, or failing to pay it over within the prescribed period, is a criminal offence that can carry a fine or imprisonment of up to two years. And an employer whose tax compliance status is non-compliant finds the "ETI Utilised" field locked on the EMP201, so the incentive can't reduce PAYE that month ([SARS EMP201 guide](https://www.sars.gov.za/types-of-tax/pay-as-you-earn/completing-the-monthly-employer-declaration-emp201/)).
+
+## Five ways an EMP201 goes wrong
+
+These are the patterns behind most EMP201 headaches.
+
+1. **Paying with the wrong PRN, or splitting the allocation wrongly.** The money arrives but sits unallocated, and the statement of account says you owe.
+2. **Trying to pay before submitting.** SARS won't accept it. Submit first, then pay.
+3. **Mandatory fields missing or the declaration unsigned.** SARS can treat it as not received, with penalties and interest to match.
+4. **ETI claimed when it shouldn't be.** Claiming for someone who doesn't qualify, or paid below the minimum wage, carries its own penalties. See [UIF, SDL and ETI explained](/blog/uif-sdl-eti-guide-small-employers).
+5. **The declaration doesn't match payroll.** Manual overrides after the payroll run, a late bonus, a terminated employee still on the system. You don't feel it in the month. You feel it at reconciliation.
+
+## A monthly routine that keeps you clear
+
+This is the rhythm we'd suggest for a small business or a bureau running several payrolls. Adjust the days, not the order.
+
+### Before month-end
+
+- Lock inputs: overtime, commission, new starters, terminations. Anything that arrives late goes into next month with a note.
+- Check every employee has a valid income tax number. SARS strictly enforces this at reconciliation.
+
+### Day 1 to 3 of the new month
+
+- Run payroll and reconcile the payroll journal to the general ledger.
+- Agree PAYE, UIF and SDL totals to the payroll report, employee by employee if the totals look odd.
+- Check ETI eligibility for anyone new, and remember: an ETI amount you forgot can only be claimed in a later month **within the same reconciliation period**, or it's forfeited.
+
+{/* OPTIONAL, not for launch: [ISAFLOW SCREENSHOT: Payroll run summary for a sample company showing PAYE, UIF and SDL totals for the month, sample data] */}
+
+### Day 3 to 5
+
+- Submit the EMP201 and pay using its PRN. Same day, if you can.
+- Save the submission receipt and the bank confirmation together.
+
+### After payment
+
+- Match the SARS payment on the bank statement. If you need a routine for that, start with [bank reconciliation for South African SMEs](/blog/bank-reconciliation-month-end-sme).
+- Check the PAYE statement of account a few days later. Problems are cheaper in October than in May.
+
+## Where ISAFlow fits
+
+ISAFlow's payroll engine calculates PAYE, UIF and SDL from versioned SARS tax tables, so the numbers on the payslip and the numbers on the declaration come from the same place. Each company's books are kept separate. Accounting practices get a bureau dashboard across all their clients, set up with you during onboarding.
+
+ETI is calculated in payroll, so the EMP201 ISAFlow prepares already covers PAYE, UIF and SDL with the ETI offset applied. ISAFlow prepares your EMP201, EMP501, IRP5/IT3(a) and VAT201 and exports the files for you to file on eFiling. The EMP201 export is a CSV. Direct SARS submission from ISAFlow is in progress and not live yet: for now you submit and pay on eFiling, with your own PRN.
+
+![Illustrative flow diagram: payroll run, then PAYE, UIF and SDL calculated from versioned SARS tables, then the ETI offset, then the EMP201 prepared and exported as CSV, then you file and pay on eFiling.](/blog/emp201-due-dates-penalties/chart-2.svg)
+
+*Illustrative diagram, not a screenshot.*
+
+If you'd like to see how a month-end payroll runs end to end, [start a free trial](https://app.isaflow.co.za/register) or [contact us for a demo](https://isaflow.co.za/contact).
+
+## FAQ
+
+### When is the EMP201 due if the 7th falls on a Sunday?
+
+On the last business day before it, which is usually the Friday. For example, the January 2027 EMP201 is due on Friday 5 February 2027.
+
+### Can I submit the EMP201 now and pay later?
+
+You can submit before you pay, but the payment is still due by the same date. A late payment attracts the 10% penalty and interest even if the declaration was on time.
+
+### What is the penalty for paying PAYE late?
+
+SARS imposes a penalty of 10% of the late or outstanding amount, plus interest at the prescribed rate until it's paid in full.
+
+### Is UIF paid through the EMP201?
+
+Yes, for employers registered with SARS. UIF and SDL are declared and paid on the EMP201 with PAYE. You still submit monthly UIF employee declarations to the Department of Employment and Labour, for example on uFiling.
+
+### Can I fix a mistake on an earlier EMP201?
+
+Yes. The EMP201 lets you revise an earlier declaration, with some limits, for example where SARS has finalised an audit or an agreed estimate. Fix it before the EMP501 reconciliation, not during it.
+
+### How long must I keep EMP201s?
+
+SARS says copies of all declarations submitted must be kept for five years.
+
+## Sources
+
+All accessed 27 October 2026.
+
+- SARS: [Completing the monthly employer declaration (EMP201)](https://www.sars.gov.za/types-of-tax/pay-as-you-earn/completing-the-monthly-employer-declaration-emp201/)
+- SARS: [Tax calendar](https://www.sars.gov.za/individuals/i-need-help-with-my-tax/calendar/)
+- SARS: [Guide for Employers in respect of Employees' Tax (2026)](https://www.sars.gov.za/wp-content/uploads/Ops/Guides/PAYE-GEN-01-G20-Guide-for-Employers-iro-Employees-Tax-for-2026-External-Guide.pdf)
+- SARS: [Employer Interim Declarations (EMP501), 21 September to 31 October 2026](https://www.sars.gov.za/latest-news/employer-interim-declarations-emp501-21-september-to-october-2026/)
+- SARS: [Unemployment Insurance Fund](https://www.sars.gov.za/types-of-tax/unemployment-insurance-fund/) and [Skills Development Levy](https://www.sars.gov.za/types-of-tax/skills-development-levy/)
+- South African Government: [Public holidays](https://www.gov.za/about-sa/public-holidays) and [Election Day declared a public holiday](https://www.gov.za/news/media-statements/president-cyril-ramaphosa-declares-election-day)
+
+*This article is general information, not tax advice. Check your own position with a registered tax practitioner.*
