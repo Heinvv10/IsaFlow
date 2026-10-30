@@ -148,7 +148,7 @@ export function CommandPalette({ isOpen, onClose, onShowShortcuts }: CommandPale
                   ? <PaletteOption key={row.key} {...common} icon={row.action.icon} title={row.action.label} badge="Action" />
                   : <PaletteOption
                       key={row.key} {...common} icon={row.item.icon} title={row.item.title}
-                      subtitle={row.item.subtitle} trail={row.item.trail}
+                      subtitle={row.item.subtitle} trail={row.item.trail} aliases={row.item.aliases}
                       badge={TYPE_LABELS[row.item.type] ?? row.item.type}
                     />;
               })}

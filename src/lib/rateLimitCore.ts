@@ -54,10 +54,13 @@ export const REFUSAL_TTL_MS = 5_000;
 
 /** key -> the count the database held when it last reported the key FULL (no unit left). */
 const refused = new LRUCache<string, number>({ max: 10_000 });
+/** key -> when (epoch ms) a remembered full key's window ends, so a refusal from memory knows its wait. */
+const refusedUntil = new LRUCache<string, number>({ max: 10_000 });
 
 /** Forgets every remembered refusal. For tests, and safe anywhere: it can only cause a database call. */
 export function clearRateLimitCache(): void {
   refused.clear();
+  refusedUntil.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -92,8 +95,13 @@ function clampMax(max: number): number {
   return m;
 }
 
-/** `windowStart` names the window that was charged; a refund quotes it (see refundRateLimit). */
-export interface RateLimitCharge { admitted: boolean; windowStart: string | null }
+/**
+ * `windowStart` names the window that was charged; a refund quotes it (see refundRateLimit).
+ * `retryAfterMs`, on a refusal only, is the time left in the key's window when the limiter already
+ * knows it (from its own statements or a remembered refusal; never an extra query), for a caller's
+ * Retry-After. Absent on an admission and when unknown.
+ */
+export interface RateLimitCharge { admitted: boolean; windowStart: string | null; retryAfterMs?: number }
 
 const REFUSED: RateLimitCharge = { admitted: false, windowStart: null };
 
@@ -126,7 +134,10 @@ export async function chargeRateLimit(key: string, opts: RateLimitOptions): Prom
   // Only a FULL key is remembered, so nothing the database would admit is
   // refused here because someone else's larger call did not fit.
   const fullAt = refused.get(key);
-  if (fullAt !== undefined && fullAt >= max) return REFUSED;
+  if (fullAt !== undefined && fullAt >= max) {
+    const until = refusedUntil.get(key);
+    return until === undefined ? REFUSED : { ...REFUSED, retryAfterMs: Math.max(0, until - Date.now()) };
+  }
 
   const asked = Date.now();
   const { rows } = await getRateLimitPool().query<{ admitted: boolean; count: number; window_start: string; remaining_ms: number }>(
@@ -160,6 +171,7 @@ export async function chargeRateLimit(key: string, opts: RateLimitOptions): Prom
   const row = rows[0];
   if (!row) return REFUSED;
   if (row.admitted) return { admitted: true, windowStart: row.window_start };
+  const leftFrom = (remainingMs: number) => ({ ...REFUSED, retryAfterMs: Math.max(0, remainingMs - (Date.now() - asked)) });
   // Remember it only if no unit is left. A refused 100-unit call at 9,950 of
   // 10,000 says nothing about a 1-unit call.
   //
@@ -167,7 +179,7 @@ export async function chargeRateLimit(key: string, opts: RateLimitOptions): Prom
   // stale in EITHER direction: a refund that committed while the upsert waited
   // for the row lock is not in it, so it can read "full" when it is not. Before
   // remembering, re-read the latest committed count in a statement of its own.
-  if (row.count < max) return REFUSED;
+  if (row.count < max) return leftFrom(row.remaining_ms);
   const { rows: latest } = await getRateLimitPool().query<{ count: number; window_start: string; remaining_ms: number }>(
     `SELECT count, window_start::text,
       (EXTRACT(EPOCH FROM (window_start + make_interval(secs => $2) - NOW())) * 1000)::float8 AS remaining_ms
@@ -177,8 +189,11 @@ export async function chargeRateLimit(key: string, opts: RateLimitOptions): Prom
   const now = latest[0];
   // Measured from before the round-trips, so the refusal never outlives the window.
   const ttl = now ? Math.min(REFUSAL_TTL_MS, now.remaining_ms - (Date.now() - asked)) : 0;
-  if (now && now.count >= max && ttl >= 1) refused.set(key, now.count, { ttl });
-  return REFUSED;
+  if (now && now.count >= max && ttl >= 1) {
+    refused.set(key, now.count, { ttl });
+    refusedUntil.set(key, asked + now.remaining_ms, { ttl });
+  }
+  return leftFrom(now ? now.remaining_ms : row.remaining_ms);
 }
 
 /**

@@ -112,7 +112,7 @@ Order (each step approved; after 17:00 SAST on a weekday):
    container on the NEW tag, run the REINDEX and the extension check there,
    and time both.
 2. Take a fresh base backup (`isaflow-basebackup.service`).
-3. Stop the app (`sudo systemctl stop isaflow`) and the cron timers.
+3. Stop the app (`sudo systemctl stop isaflow@3111 isaflow@3112`) and the cron timers.
 4. In the compose file, change the db image tag; `docker compose up -d db`
    (only the db service). Wait for `ready to accept connections`.
 5. Check that `/etc/postgresql-custom/supautils.conf` (the `db-config` volume)

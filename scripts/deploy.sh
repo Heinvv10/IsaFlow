@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy IsaFlow App to Velocity Server (standalone build)
+# Deploy IsaFlow (blue/green, standalone build). DEPLOY_DIR holds the prod env file + live RELEASE_SHA.
 set -e
 
 DEPLOY_DIR="/home/velo/isaflow"
@@ -97,6 +97,7 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "Installing dependencies..."
 $BUN install
 
+
 # 1a-0. Migration-parity gate. Runs BEFORE the CI gate (and is not subject to
 # SKIP_CI) because the CI gate runs DB-backed tests against isaflow_dev: dev
 # must carry every migration this deploy will apply to prod, with identical
@@ -128,6 +129,29 @@ echo "Checking migration parity (dev vs prod vs repo)..."
 DATABASE_URL="$PARITY_DEV_DB" PARITY_PROD_DATABASE_URL="$PARITY_PROD_DB" $BUN "$REPO_DIR/scripts/check-migration-parity.ts" --apply-dev
 unset PARITY_DEV_DB
 unset PARITY_PROD_DB
+
+# 1-0. Blue/green (2026-10-29): the app runs as isaflow@3111 and isaflow@3112
+# behind nginx. This deploy builds into the IDLE colour, verifies it on its own
+# port, then switches nginx to it; the live colour is never written or
+# restarted, so nobody's request is cut and the old colour is the rollback.
+# Both refusals below come before the 20-minute CI gate and the build.
+# shellcheck source=deploy/bluegreen.sh
+. "$REPO_DIR/scripts/deploy/bluegreen.sh"
+LIVE_PORT=$(bg_live_port)
+if [ -z "$LIVE_PORT" ]; then
+  echo "ERROR: no live colour in $BG_UPSTREAM_FILE — run scripts/deploy/cutover.sh once first"
+  exit 1
+fi
+IDLE_PORT=$(bg_other_port "$LIVE_PORT")
+echo "Live colour: isaflow@$LIVE_PORT; this deploy builds isaflow@$IDLE_PORT"
+# The file must agree with what nginx actually serves, or "idle" could be live.
+bg_served_by "$LIVE_PORT" || exit 1
+# The idle colour must be free of requests (one may outlive an earlier switch);
+# find out now, not after CI, the build and the migrations.
+bg_drain "$IDLE_PORT" || exit 1
+EARLY_DB=$(owner_database_url_for "$DEPLOY_DIR/.env.local" sudo || true)
+bg_midday_migration_check "$EARLY_DB" "$REPO_DIR" || exit 1
+unset EARLY_DB
 
 # 1a. CI gate — type-check, lint, unit tests must pass before we build
 if [ "${SKIP_CI:-0}" != "1" ]; then
@@ -165,11 +189,11 @@ fi
 echo "Build integrity OK: $MANIFEST_ENTRIES pages-manifest entries"
 
 # 2. Run database migrations against production DB
-# Migrations run BEFORE rsync so that a failing migration leaves both the
-# on-disk standalone and the running service untouched (consistent rollback
-# state). Once the script aborts here, /home/velo/isaflow/ still matches the
-# previously-deployed code and DB schema. .env.local is owned by velo:velo
-# (0600) so we read it with sudo.
+# Migrations run BEFORE the new colour starts, so a failing migration leaves
+# the live colour serving untouched. .env.local is owned by velo:velo (0600)
+# so we read it with sudo.
+# Again here: the clock may have crossed 08:00 during CI and the build.
+bg_midday_migration_check "$(owner_database_url_for "$DEPLOY_DIR/.env.local" sudo || true)" "$REPO_DIR" || exit 1
 echo "Running database migrations..."
 PROD_ENV="$DEPLOY_DIR/.env.local"
 if sudo test -f "$PROD_ENV"; then
@@ -193,133 +217,43 @@ else
   echo "WARNING: $PROD_ENV not found — skipping migrations"
 fi
 
-# 3. Deploy standalone output (includes all deps, no npm install needed)
-echo "Syncing standalone build..."
-sudo -u velo bash -c "mkdir -p $DEPLOY_DIR"
-
-# 3a. Pre-deploy snapshot for rollback (P3.1). Taken after the build +
-# migration gates, immediately before the overwrite. If the post-deploy
-# verification gate fails, scripts/rollback-deploy.sh restores this snapshot.
-BACKUP_DIR="/home/velo/isaflow-rollback"
-if sudo test -f "$DEPLOY_DIR/server.js"; then
-  PREV_SHA=$(sudo cat "$DEPLOY_DIR/RELEASE_SHA" 2>/dev/null || echo 'unknown')
-  echo "Snapshotting current release ($PREV_SHA) to $BACKUP_DIR..."
-  sudo rsync -a --delete \
-    --exclude=.env.local \
-    --exclude='.env.*.bak' \
-    --exclude='.env.pre-*' \
-    --exclude='.env.backup-*' \
-    "$DEPLOY_DIR/" "$BACKUP_DIR/"
-else
-  echo "WARNING: no existing deployment at $DEPLOY_DIR — no rollback snapshot taken"
-fi
-
-# Standalone server + bundled node_modules
-# Preserve .env.local plus any .env.*.bak / .env.pre-* rollback backups that
-# ops created for cutover safety. rsync --delete wipes everything else in
-# the target that isn't in source.
-sudo rsync -a --delete \
-  --exclude=.env.local \
-  --exclude='.env.*.bak' \
-  --exclude='.env.pre-*' \
-  --exclude='.env.backup-*' \
-  "$REPO_DIR/.next/standalone/" "$DEPLOY_DIR/"
-
-# Static assets (not included in standalone by default)
-sudo rsync -a --delete \
-  "$REPO_DIR/.next/static/" "$DEPLOY_DIR/.next/static/"
-
-# Public folder (logo, icons, manifest, sw.js)
-sudo rsync -a --delete \
-  "$REPO_DIR/public/" "$DEPLOY_DIR/public/"
-
-# Sharp belt-and-braces: outputFileTracingIncludes in next.config.js should
-# already pull sharp into .next/standalone/node_modules, but the trace has
-# historically missed native binaries. Copy the resolved tree directly so
-# image optimization never logs "sharp-missing in production" again.
-if [ -d "$REPO_DIR/node_modules/sharp" ]; then
-  sudo rsync -a "$REPO_DIR/node_modules/sharp/" "$DEPLOY_DIR/node_modules/sharp/"
-fi
-if [ -d "$REPO_DIR/node_modules/@img" ]; then
-  sudo rsync -a "$REPO_DIR/node_modules/@img/" "$DEPLOY_DIR/node_modules/@img/"
-fi
-
-# Inject BUILD_ID into sw.js so stale caches are evicted on every deploy
-BUILD_ID=$(cat "$REPO_DIR/.next/BUILD_ID")
-sudo sed -i "s/__BUILD_ID__/$BUILD_ID/g" "$DEPLOY_DIR/public/sw.js"
-
-# Record the deployed SHA so the next deploy's snapshot (and any rollback)
-# can name the release it restores.
-echo "$GIT_SHA" | sudo tee "$DEPLOY_DIR/RELEASE_SHA" >/dev/null
-
-# Fix ownership
-sudo chown -R velo:velo "$DEPLOY_DIR"
-
-# 4. Copy env file if not exists. The production file is velo:velo 0600, so
+# 3. Copy env file if not exists. The production file is velo:velo 0600, so
 # the deploy user cannot reliably stat it or copy into its directory without
 # sudo. Use root only for the file operation and preserve the least-privilege
-# owner/mode expected by the systemd service.
+# owner/mode expected by the systemd service. Both colours read this one file.
 if ! sudo test -f "$DEPLOY_DIR/.env.local"; then
   echo "Creating .env.local..."
   sudo install -o velo -g velo -m 600 "$ENV_LOCAL" "$DEPLOY_DIR/.env.local"
 fi
 
-# 5. Install/update systemd service
-echo "Updating systemd service..."
-sudo cp "$REPO_DIR/scripts/${SERVICE_NAME}.service" /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable $SERVICE_NAME
-
-# 6. Install nginx config if not exists
-if [ ! -f /etc/nginx/sites-available/app-isaflow ]; then
-  echo "Installing nginx config..."
-  sudo cp "$REPO_DIR/scripts/nginx-app-isaflow" /etc/nginx/sites-available/app-isaflow
-  sudo ln -sf /etc/nginx/sites-available/app-isaflow /etc/nginx/sites-enabled/app-isaflow
-  sudo nginx -t && sudo systemctl reload nginx
-fi
-
-# 7. Restart service
-echo "Restarting service..."
-sudo systemctl restart $SERVICE_NAME
-
-# 7b. Check status
-sleep 2
-sudo systemctl status $SERVICE_NAME --no-pager | head -15
-
-# 7c. Post-deploy verification gate (P3.1): health + golden-paths suite vs
-# prod Demo + integrity check (committed baseline waives ONLY the known
-# HUMAN-GATED failure). Failure = automatic rollback to the 3a snapshot.
+# 4-7. Under the colour lock (rollback and restart-colours wait for it):
+# replace the idle colour with this build, install the unit template, start
+# it, run the verification gate (P3.1: health + golden paths vs prod Demo +
+# integrity) against its own port BEFORE any user reaches it, publish its
+# static files, then switch nginx (graceful reload) and prove nginx serves it.
+# A build that fails to start or verify is retired and marked; users stay on
+# the live colour, which is never written, stopped or restarted.
 # SKIP_VERIFY=1 is for genuine emergencies only and leaves the deploy
 # UNVERIFIED — say so out loud in the deploy report.
-if [ "${SKIP_VERIFY:-0}" != "1" ]; then
-  echo ""
-  echo "Running post-deploy verification gate..."
-  if DATABASE_URL="$PROD_DB" bash "$REPO_DIR/scripts/verify-deploy.sh" "https://app.isaflow.co.za"; then
-    echo "Post-deploy verification PASSED"
-  else
-    echo ""
-    echo "!!! POST-DEPLOY VERIFICATION FAILED — rolling back to the pre-deploy snapshot !!!"
-    # `|| rc=$?` keeps set -e from killing the script here: the compound
-    # failure (bad deploy AND failed/unavailable rollback) is exactly when
-    # the operator needs the framing below, not a mid-script death.
-    ROLLBACK_RC=0
-    bash "$REPO_DIR/scripts/rollback-deploy.sh" || ROLLBACK_RC=$?
-    echo ""
-    if [ "$ROLLBACK_RC" -eq 0 ]; then
-      echo "Deploy of $GIT_SHA was ROLLED BACK (code only — DB migrations are"
-      echo "additive by project rule and were NOT reverted). Fix the regression,"
-      echo "re-run the battery, then redeploy."
-    else
-      echo "!!! ROLLBACK ALSO FAILED (exit $ROLLBACK_RC) after deploying $GIT_SHA —"
-      echo "service state is UNKNOWN. Recover manually:"
-      echo "  1. sudo journalctl -u $SERVICE_NAME -n 100 --no-pager"
-      echo "  2. If no snapshot existed: git checkout <last-good SHA> && SKIP_VERIFY=1 bash scripts/deploy.sh"
-      echo "  3. Verify by hand: bash scripts/verify-deploy.sh https://app.isaflow.co.za"
-    fi
-    exit 1
+verify_idle() {
+  if [ "${SKIP_VERIFY:-0}" = "1" ]; then
+    echo "WARNING: SKIP_VERIFY=1 — verification gate bypassed (deploy is UNVERIFIED)"
+    return 0
   fi
-else
-  echo "WARNING: SKIP_VERIFY=1 — post-deploy verification gate bypassed (deploy is UNVERIFIED)"
+  echo "Verifying $1 before the switch..."
+  DATABASE_URL="$PROD_DB" bash "$REPO_DIR/scripts/verify-deploy.sh" "$1"
+}
+BG_VERIFY=verify_idle
+bg_lock 3600 || exit 1   # a rollback or restart-colours in progress (drain + verify) finishes first
+DEPLOY_RC=0; bg_deploy_release "$REPO_DIR" "$GIT_SHA" || DEPLOY_RC=$?
+if [ "$DEPLOY_RC" -eq 2 ]; then
+  echo "!!! The switch to $GIT_SHA failed AND so did the switch back: nginx's state is unknown. Check it now. !!!"
+  exit 2
+elif [ "$DEPLOY_RC" -ne 0 ]; then
+  echo ""
+  echo "Deploy of $GIT_SHA was NOT switched in (DB migrations, if any, stay"
+  echo "applied: they are additive by project rule). Read the reason above, fix, then redeploy."
+  exit 1
 fi
 
 echo ""

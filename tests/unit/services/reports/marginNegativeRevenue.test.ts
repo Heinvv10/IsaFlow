@@ -10,6 +10,10 @@
  * Each expectation below is the value the call site produced BEFORE the
  * convergence, so this file fails if any of the four moves again.
  *
+ * EXCEPT kpiDashboardService, deliberately changed in W2 H round 4: its tile is the
+ * income statement's Net Profit, so its margin now passes allowNegativeRevenue as
+ * incomeStatementService's net margin does (see the last describe).
+ *
  * EXCEPT reportPackService, deliberately changed 2026-09-06: it now carries
  * marginPct2dp's `null` instead of coercing it to 0. "Gross margin 0.0%" on a
  * loss period is a figure nothing else on the pack supports, and the pack is
@@ -67,7 +71,7 @@ describe('reportPackService — null, so no percentage is printed at all', () =>
   });
 });
 
-describe('kpiDashboardService — 0, as it always was', () => {
+describe('kpiDashboardService — no net margin without positive turnover', () => {
   /** The service fires its queries in one Promise.all, in a fixed order:
    * revenue, prior revenue, expenses, … Only the first and third matter here. */
   const withTotals = (revenue: number, expenses: number) => {
@@ -80,19 +84,29 @@ describe('kpiDashboardService — 0, as it always was', () => {
     });
   };
 
-  it('reports a 0 margin on negative revenue, not a computed one', async () => {
+  it('is null on negative revenue (the amount is still stated)', async () => {
     withTotals(-100, 50);
     const kpis = await getDashboardKPIs('c-1', '2026-01-01', '2026-01-31');
-    // The predecessor guard was `totalRevenue > 0 ? … : 0`. Gross profit here
-    // is -150 over revenue of -100, which computes to a healthy-looking +150%.
-    expect(kpis.grossProfit.amount).toBe(-150);
-    expect(kpis.grossProfit.margin).toBe(0);
+    // CHANGED (W2 H round 4): this tile is the statement's Net Profit, but Home
+    // deliberately differs from incomeStatementService on NEGATIVE turnover. The
+    // statement passes allowNegativeRevenue and prints -150 / -100 = +150%, beside
+    // a loss of R150; on a dashboard tile that reads as a healthy margin. Home
+    // states no margin there (null, drawn as a dash), as marginPct's default does.
+    expect(kpis.netProfit.amount).toBe(-150);
+    expect(kpis.netProfit.margin).toBeNull();
+  });
+
+  it('is null on zero revenue, not 0.0% (the statement prints a dash too)', async () => {
+    withTotals(0, 50);
+    const kpis = await getDashboardKPIs('c-1', '2026-01-01', '2026-01-31');
+    expect(kpis.netProfit.amount).toBe(-50);
+    expect(kpis.netProfit.margin).toBeNull();
   });
 
   it('still computes on positive revenue', async () => {
     withTotals(200, 50);
     const kpis = await getDashboardKPIs('c-1', '2026-01-01', '2026-01-31');
-    expect(kpis.grossProfit.margin).toBeCloseTo(75, 10);
+    expect(kpis.netProfit.margin).toBeCloseTo(75, 10);
   });
 });
 
