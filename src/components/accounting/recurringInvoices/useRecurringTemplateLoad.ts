@@ -20,7 +20,7 @@ export interface TemplateForm {
   paymentTerms: string;
 }
 
-export const INITIAL_FORM: TemplateForm = {
+const INITIAL_FORM: TemplateForm = {
   templateName: '',
   clientId: '',
   frequency: 'monthly',
@@ -47,6 +47,8 @@ export function useRecurringTemplateLoad(id: string) {
   const loadedDates = useRef<EditDates>({ nextRunDate: '', endDate: '' });
 
   useEffect(() => {
+    // `cancelled` guards StrictMode's double effect and unmount. It does not cover an id change: this hook
+    // assumes a remount per id, so the caller must key the component by id.
     let cancelled = false;
     apiFetch('/api/accounting/recurring-invoices')
       .then(async r => { await assertOk(r, 'Could not load the recurring invoice - try again'); return r.json(); })
