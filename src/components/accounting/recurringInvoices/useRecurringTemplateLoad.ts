@@ -1,6 +1,6 @@
 /**
- * Loads one recurring-invoice template for the edit page. Everything is reset when the id changes so a
- * previous template's data is never shown or saved, and loadedId is set only once THIS id has loaded.
+ * Loads one recurring-invoice template for the edit page. The editor is remounted per id, so this hook only
+ * guards against a response landing after unmount; `loaded` is true once the template has been found.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -38,23 +38,16 @@ export const newLine = (): LineItem => ({
 
 const day = (v: unknown): string => String(v ?? '').slice(0, 10);
 
-export function useRecurringTemplateLoad(id: string | undefined) {
+export function useRecurringTemplateLoad(id: string) {
   const [form, setForm] = useState<TemplateForm>(INITIAL_FORM);
   const [lines, setLines] = useState<LineItem[]>(() => [newLine()]);
   const [loading, setLoading] = useState(true);
-  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState('');
   const loadedDates = useRef<EditDates>({ nextRunDate: '', endDate: '' });
 
   useEffect(() => {
-    if (!id) return;
     let cancelled = false;
-    setLoading(true);
-    setLoadedId(null);
-    setLoadError('');
-    setForm(INITIAL_FORM);
-    setLines([newLine()]);
-    loadedDates.current = { nextRunDate: '', endDate: '' };
     apiFetch('/api/accounting/recurring-invoices')
       .then(async r => { await assertOk(r, 'Could not load the recurring invoice - try again'); return r.json(); })
       .then((json: { data?: { items?: Record<string, unknown>[] } }) => {
@@ -76,7 +69,7 @@ export function useRecurringTemplateLoad(id: string | undefined) {
           paymentTerms: String(found.paymentTerms ?? found.payment_terms ?? '30 days'),
         });
         if (rows.length > 0) setLines(rows);
-        setLoadedId(id);
+        setLoaded(true);
       })
       .catch(err => {
         if (cancelled) return;
@@ -87,5 +80,5 @@ export function useRecurringTemplateLoad(id: string | undefined) {
     return () => { cancelled = true; };
   }, [id]);
 
-  return { form, setForm, lines, setLines, loading, loadedId, loadError, loadedDates };
+  return { form, setForm, lines, setLines, loading, loaded, loadError, loadedDates };
 }

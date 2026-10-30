@@ -88,7 +88,7 @@ describe('recurring invoice edit: stale template response', () => {
     expect(screen.queryByText('Recurring invoice not found')).toBeNull();
   });
 
-  it('B failing after A loaded: no A data, Save disabled, no PUT on submit', async () => {
+  it('B not found after A loaded: no A data, Save disabled, no PUT on submit', async () => {
     const view = render(<RecurringInvoiceEdit />);
     await waitFor(() => expect(listCalls).toHaveLength(1));
     await act(async () => { listCalls[0]!(ok({ items: [row('ri-A', 'Fee A')] })); });
