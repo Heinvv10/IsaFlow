@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { load } from 'js-yaml';
-import { checkWorkflowRunsCi, WORKFLOW_FILES } from '../../../scripts/ci/workflowRunsCiRule';
+import { checkWorkflowRunsCi, RUNS_ON_PRIORITY, WORKFLOW_FILES } from '../../../scripts/ci/workflowRunsCiRule';
 
 const REAL = readFileSync('.github/workflows/ci.yml', 'utf8');
 const SCRIPTS = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts;
@@ -194,8 +194,15 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(`${REAL}  sidecar:\n    runs-on: [self-hosted, linux, velo]\n    concurrency:\n      group: ci-\${{ github.ref }}\n    steps:\n      - run: echo hi\n`).length).toBeGreaterThan(0);
   });
 
+  it('the runner-priority runs-on is accepted, but not with any other label in it', () => {
+    const prio = `${QUALITY_HEADER}    runs-on: ${RUNS_ON_PRIORITY}\n`;
+    expect(check(REAL)).toEqual([]);
+    expect(check(edit(prio, `${QUALITY_HEADER}    runs-on: [self-hosted, linux, velo]\n`))).toEqual([]);
+    expect(check(edit(prio, prio.replace('pr-lane', 'no-such-runner'))).length).toBeGreaterThan(0);
+  });
+
   it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
-    expect(check(edit(`${QUALITY_HEADER}    runs-on: [self-hosted, linux, velo]\n`, `${QUALITY_HEADER}    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
+    expect(check(edit(`${QUALITY_HEADER}    runs-on: ${RUNS_ON_PRIORITY}\n`, `${QUALITY_HEADER}    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
   });
 
   it('the quality job removed or renamed', () => {
