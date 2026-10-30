@@ -2,6 +2,7 @@
  * The edit page remounts per template id (key={id}), so nothing from template A (a refused date, an error, an
  * in-flight save) can reach template B. Also: unchanged saves omit the date keys; a customers-load failure shows.
  */
+import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -115,6 +116,20 @@ describe('recurring invoice edit: per-template state', () => {
     render(<RecurringInvoiceEdit />);
     await screen.findByDisplayValue('Fee ri-A');
     expect((await screen.findByRole('alert')).textContent).toContain('Could not load customers');
+  });
+
+  it('under StrictMode: a save navigates, and a failed PUT re-enables Save', async () => {
+    render(<React.StrictMode><RecurringInvoiceEdit /></React.StrictMode>);
+    await screen.findByDisplayValue('Fee ri-A');
+    submit();
+    await waitFor(() => expect(route.push).toHaveBeenCalledWith('/accounting/recurring-invoices'));
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (init?.method === 'PUT') return boom();
+      return String(url).endsWith('customers') ? ok([]) : ok({ items: [row('ri-A')] });
+    });
+    submit();
+    await screen.findByText(/could not save/i);
+    expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('renders the layout shell and a spinner while the router id is not yet a string', () => {
