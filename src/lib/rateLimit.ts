@@ -133,6 +133,31 @@ export async function checkReportRateLimit(
   return checkRateLimit(`report:${name}:co:${companyId}`, { max, windowSecs });
 }
 
+/**
+ * The report limit for a page whose controls each reload it (Budget vs Actual):
+ * the default 25 a window locked a reviewer out after about twenty control
+ * changes. Still a per-company cap on the engine, sized for interactive use;
+ * the page debounces and coalesces control changes on top of it.
+ */
+export const INTERACTIVE_REPORT_LIMIT = { max: 120, windowSecs: 900 } as const;
+
+/**
+ * `checkReportRateLimit` with the wait: on a refusal, the whole seconds left in
+ * the company's report window (clamped to [1, window]) from the limiter's own
+ * reading, for a Retry-After; null when admitted or unknown. No query beyond the
+ * charge itself, so nothing here can turn a 429 into a 500.
+ */
+export async function chargeReportRateLimit(
+  companyId: string,
+  name: string,
+  opts: { max?: number; windowSecs?: number } = {},
+): Promise<{ admitted: boolean; retryAfterSecs: number | null }> {
+  const windowSecs = opts.windowSecs ?? 900;
+  const charge = await chargeRateLimit(`report:${name}:co:${companyId}`, { max: opts.max ?? 25, windowSecs });
+  if (charge.admitted || charge.retryAfterMs === undefined) return { admitted: charge.admitted, retryAfterSecs: null };
+  return { admitted: false, retryAfterSecs: Math.min(windowSecs, Math.max(1, Math.ceil(charge.retryAfterMs / 1000))) };
+}
+
 // ---------------------------------------------------------------------------
 // Middleware wrapper (convenience helper for simple IP-based limiting)
 // ---------------------------------------------------------------------------

@@ -128,7 +128,7 @@ test('E: a budget for the 14-month year, then Budget vs Actual (full year)', asy
   await shot('E2-budget-saved');
 
   await go('/accounting/reports/budget-vs-actual', 'select');
-  await page.locator('select').first().selectOption('full_year');
+  await page.getByTestId('bva-period').selectOption('fy');
   await expect(page.locator('tbody')).toContainText(/4000/, { timeout: 30_000 });
   await expect(page.locator('tfoot, tr').filter({ hasText: /^Total/ }).first()).toContainText(/14[\s, ]?000/);
   await shot('E3-budget-vs-actual');
