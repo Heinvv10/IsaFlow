@@ -124,6 +124,16 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it.each([
+    ['the old 30-minute cap', 'timeout-minutes: 30'],
+    ['a cap just under the floor', 'timeout-minutes: 59'],
+    ['no timeout at all (key removed)', null],
+  ])('golden-paths with %s: every run is cut short and ends cancelled', (_label, line) => {
+    const from = '    timeout-minutes: 60\n    # Each runner owns one Golden Paths slot';
+    const to = line === null ? '    # Each runner owns one Golden Paths slot' : `    ${line}\n    # Each runner owns one Golden Paths slot`;
+    expect(check(edit(from, to)).length).toBeGreaterThan(0);
+  });
+
+  it.each([
     ['a concurrency group shared by every ref', '  group: ci-fixed\n  cancel-in-progress: true\n'],
     ['cancel-in-progress switched off', '  group: ci-${{ github.ref }}\n  cancel-in-progress: false\n'],
     ['an extra concurrency key', '  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n  queue: max\n'],

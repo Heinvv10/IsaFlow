@@ -97,6 +97,8 @@ const GOLDEN_PATHS_CONCURRENCY = {
 const PERMISSIONS = { contents: 'read' };
 const JOB_PERMISSIONS = { contents: 'read', actions: 'read', 'pull-requests': 'read' };
 const MIN_TIMEOUT_MINUTES = 20;
+/** Golden Paths: ~29 min of test time for 187 tests, so a 30 cap cancelled every run (run 40962446042). */
+const MIN_GOLDEN_TIMEOUT_MINUTES = 60;
 const CHECKOUT = /^actions\/checkout@v\d+$/;
 /**
  * The only checkout inputs allowed: full history (the integration scope and the
@@ -202,6 +204,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
       || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
       errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+    }
+    const gpt = isObj(gp) ? gp['timeout-minutes'] : undefined;
+    if (!Number.isInteger(gpt) || (gpt as number) < MIN_GOLDEN_TIMEOUT_MINUTES) {
+      errors.push(`jobs.golden-paths.timeout-minutes must be an integer >= ${MIN_GOLDEN_TIMEOUT_MINUTES}; the suite needs ~30 min of test time and the floor leaves 2x headroom; a job that cannot finish ends cancelled, never red`);
     }
     const lane = jobs['golden-lane'];
     if (isObj(lane) && 'concurrency' in lane) {
