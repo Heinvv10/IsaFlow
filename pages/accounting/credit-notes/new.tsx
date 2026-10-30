@@ -11,6 +11,8 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface Client { id: string; company_name: string }
 
@@ -23,6 +25,7 @@ export default function NewCreditNotePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
 
   const [form, setForm] = useState({
     type: 'customer' as 'customer' | 'supplier',
@@ -48,6 +51,7 @@ export default function NewCreditNotePage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     if (form.type === 'supplier' && !form.supplierId) { setError('Please select a supplier'); return; }
     setError(''); setIsSubmitting(true);
     try {
@@ -124,8 +128,8 @@ export default function NewCreditNotePage() {
                   )}
 
                   <div>
-                    <label className={lbl}>Credit Date *</label>
-                    <input type="date" name="creditDate" value={form.creditDate} onChange={e => setForm(f => ({ ...f, creditDate: e.target.value }))} className={inp} required />
+                    <DateField label="Credit Date" required name="creditDate" value={form.creditDate || null}
+                      onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>
                     <label className={lbl}>Reason</label>
