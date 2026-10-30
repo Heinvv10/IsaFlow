@@ -23,6 +23,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { dayBefore } from '@/lib/dateUtils';
 import type { FiscalPeriodStatus } from '../../types/gl.types';
 
 export type FiscalYearKind = 'normal' | 'transition';
@@ -70,12 +71,8 @@ export function monthsSpanned(startDate: string, endDate: string): number {
   return (ey * 12 + em) - (sy * 12 + sm) + 1;
 }
 
-/** The day before a 'YYYY-MM-DD' date, by integer components (no Date round-trip through UTC). */
-export function dayBefore(date: string): string {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
-  const prev = new Date(y, m - 1, d - 1);
-  return fmtDate(prev);
-}
+/** The day before a 'YYYY-MM-DD' date: `lib/dateUtils`' (one definition), re-exported for the registry's callers. */
+export { dayBefore };
 
 function mapYear(r: DbRow): FiscalYearRecord {
   const startDate = fmtDate(r.start_date);

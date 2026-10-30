@@ -14,7 +14,11 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 const checkReportRateLimit = vi.fn(async () => true);
-vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: (...a: unknown[]) => checkReportRateLimit(...(a as [])) }));
+vi.mock('@/lib/rateLimit', () => ({
+  checkReportRateLimit: (...a: unknown[]) => checkReportRateLimit(...(a as [])),
+  chargeReportRateLimit: async () => ({ admitted: true, retryAfterSecs: null }),
+  INTERACTIVE_REPORT_LIMIT: { max: 120, windowSecs: 900 },
+}));
 const buildBudgetTrackingReport = vi.fn();
 vi.mock('@/modules/accounting/services/budgets/tracking/budgetTrackingService', () => ({
   buildBudgetTrackingReport: (...a: unknown[]) => buildBudgetTrackingReport(...a),
@@ -138,7 +142,7 @@ describe('budget-tracking-export', () => {
     const lead = Object.fromEntries(csv.slice(0, csv.findIndex((r) => r[0] === 'Code')).filter((r) => r.length >= 2).map((r) => [r[0], r[1]]));
     expect(lead).toMatchObject({
       Company: 'Acme (Pty) Ltd', Window: '2026-06 to 2026-07 (2026-06-01 to 2026-07-31)', Version: 'Reforecast 1 · draft',
-      'Dimension filter': 'None (company total)', 'Projection cutoff': 'Actuals to 2026-07-31, budget after',
+      'Dimension filter': 'None (company total)', 'Projection cutoff': 'Actuals to 2026-07-31, budget after; a later month with no budget: its posted actuals',
     });
   });
 

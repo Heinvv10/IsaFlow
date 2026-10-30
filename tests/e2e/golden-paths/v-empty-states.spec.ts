@@ -113,7 +113,9 @@ test('"Try the demo company" lands on the demo company with data', async ({ page
       const res = await context.request.get('/api/accounting/companies?action=user-companies');
       return (await res.json())?.data?.activeCompanyId;
     }, { timeout: 30_000 }).toBe(demoId);
-    const reloaded = page.waitForEvent('load');
+    // The old page stays covered while the switch finishes, never clickable underneath.
+    await expect(page.getByRole('status').filter({ hasText: 'Opening the demo company' })).toBeVisible();
+    const reloaded = page.waitForEvent('load', { timeout: 30_000 });
     release();
     await reloaded; // the app's own reload, onto the same URL
   } finally {
@@ -121,6 +123,10 @@ test('"Try the demo company" lands on the demo company with data', async ({ page
     await page.unroute(isSetDefault, { behavior: 'wait' });
   }
   await settle(page);
+  // The reload landed on the demo company itself, not just on a page with rows.
+  const after = await context.request.get('/api/accounting/companies?action=user-companies');
+  expect((await after.json())?.data?.activeCompanyId).toBe(demoId);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('isaflow_active_company') ?? '{}').id)).toBe(demoId);
   await expect(page.locator('table tbody tr').first()).toBeVisible();
   await expect(page.getByRole('button', { name: OFFER })).toHaveCount(0);
 });
