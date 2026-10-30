@@ -3,7 +3,7 @@
  * Dedicated edit form for an existing recurring invoice template.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -17,6 +17,7 @@ import {
   type LineItem,
 } from '@/components/accounting/recurringInvoices/LineItemsSection';
 import { DateField } from '@/components/ui'; import { useDateGate } from '@/hooks/useDateGate';
+import { datePayload, endBeforeNextRefused, type EditDates } from '@/components/accounting/recurring/recurringEditDates';
 
 interface Customer { id: string; name?: string; company_name?: string }
 
@@ -48,7 +49,7 @@ export default function EditRecurringInvoicePage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(''); const [loaded, setLoaded] = useState(false); const dates = useDateGate();
+  const [error, setError] = useState(''); const [loaded, setLoaded] = useState(false); const dates = useDateGate(); const loadedDates = useRef<EditDates>({ nextRunDate: '', endDate: '' });
 
   const [form, setForm] = useState({
     templateName: '',
@@ -86,12 +87,12 @@ export default function EditRecurringInvoicePage() {
           : Array.isArray(found.line_items)
             ? (found.line_items as RawLineItem[])
             : [];
+        loadedDates.current = { nextRunDate: String(found.nextRunDate ?? found.next_run_date ?? '').slice(0, 10), endDate: String(found.endDate ?? found.end_date ?? '').slice(0, 10) };
         setForm({
           templateName: String(found.templateName ?? found.template_name ?? ''),
           clientId: String(found.clientId ?? found.client_id ?? ''),
           frequency: String(found.frequency ?? 'monthly'),
-          nextRunDate: String(found.nextRunDate ?? found.next_run_date ?? '').split('T')[0] ?? '',
-          endDate: found.endDate ?? found.end_date ? (String(found.endDate ?? found.end_date ?? '').split('T')[0] ?? '') : '',
+          ...loadedDates.current,
           description: String(found.description ?? ''),
           taxRate: Number(found.taxRate ?? found.tax_rate ?? 15),
           paymentTerms: String(found.paymentTerms ?? found.payment_terms ?? '30 days'),
@@ -124,9 +125,8 @@ export default function EditRecurringInvoicePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
-    setError('');
-    if (!form.nextRunDate) { setError('Enter the next run date.'); return; }
-    if (form.endDate && form.endDate < form.nextRunDate) { setError('The end date cannot be before the next run date.'); return; }
+    setError(''); if (!form.nextRunDate) { setError('Enter the next run date.'); return; }
+    if (endBeforeNextRefused(form, loadedDates.current)) { setError('The end date cannot be before the next run date.'); return; }
     if (lines.some(l => !l.description)) { setError('All line items must have a description'); return; }
     setSubmitting(true);
     try {
@@ -134,7 +134,7 @@ export default function EditRecurringInvoicePage() {
         id,
         templateName: form.templateName,
         frequency: form.frequency,
-        nextRunDate: form.nextRunDate, endDate: form.endDate || null,
+        ...datePayload(form, loadedDates.current),
         description: form.description || undefined,
         lineItems: lines.map(l => ({
           description: l.description,
