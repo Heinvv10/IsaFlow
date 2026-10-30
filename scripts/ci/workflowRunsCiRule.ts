@@ -58,6 +58,13 @@ const HOOK_PREFIX = /^(pre|post)/;
 const ALLOWED_PREFIXED = new Set(['prepare']);
 const RUNS_ON = ['self-hosted', 'linux', 'velo'];
 /**
+ * The one other runs-on the quality job may have (runner priority, 2026-10-30): the merge queue's runs and master
+ * pushes take any velo runner, an ordinary PR run only those also labelled pr-lane (velo-isaflow-u2, -u3), so a
+ * batch never queues behind PR runs. Exactly this text: every label in it is one the velo runners carry.
+ */
+export const RUNS_ON_PRIORITY =
+  "${{ (github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('[\"self-hosted\",\"linux\",\"velo\"]') || fromJSON('[\"self-hosted\",\"linux\",\"velo\",\"pr-lane\"]') }}";
+/**
  * A timeout too short to finish, or a concurrency group shared with other
  * refs, ends the check CANCELLED, never red, and this repo has merged on
  * cancelled checks. Concurrency is pinned exactly; the timeout has a floor
@@ -209,7 +216,7 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     errors.push(`jobs.${QUALITY_JOB}.timeout-minutes must be an integer >= ${MIN_TIMEOUT_MINUTES}; a job that cannot finish ends cancelled, never red`);
   }
 
-  if (!sameList(job['runs-on'], RUNS_ON)) {
+  if (!sameList(job['runs-on'], RUNS_ON) && job['runs-on'] !== RUNS_ON_PRIORITY) {
     errors.push(`jobs.${QUALITY_JOB}.runs-on must be exactly [${RUNS_ON.join(', ')}]; an unknown label queues forever and never goes red`);
   }
 
