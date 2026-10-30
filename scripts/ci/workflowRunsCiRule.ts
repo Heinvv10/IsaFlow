@@ -84,7 +84,7 @@ const JOBS = ['quality', 'golden-lane', 'golden-paths-smoke', 'golden-paths-shim
 const NO_GROUP_JOBS = ['golden-lane', 'golden-paths-shim', 'golden-paths-report'];
 const GROUPS: Record<string, { group: string; 'cancel-in-progress': boolean }> = {
   'golden-paths-smoke': {
-    group: "golden-paths-dev-demo${{ github.event_name == 'push' && '-push' || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
+    group: "golden-paths-dev-demo${{ github.event_name == 'push' && format('-push-{0}', github.sha) || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
     'cancel-in-progress': false,
   },
   'golden-paths': { group: 'golden-paths-post-merge', 'cancel-in-progress': false },

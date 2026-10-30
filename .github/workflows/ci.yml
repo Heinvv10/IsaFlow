@@ -171,12 +171,13 @@ jobs:
     # On a push to master the job runs but its steps do not, so it reports
     # SUCCESS there: a required check that is skipped on the master head reads
     # as a failure to the merge queue (merge-queue checks.ts classify), which
-    # then holds every merge as "base red". Pushes take their own -push group,
-    # so that no-op cannot bump a pending PR run out of its group.
+    # then holds every merge as "base red". A push takes a -push-<sha> group of
+    # its own: the no-op touches nothing, and a shared group would let a newer
+    # push cancel an older one's pending no-op, turning that sha's shim red.
     needs: golden-lane
     if: ${{ !cancelled() }}
     concurrency:
-      group: golden-paths-dev-demo${{ github.event_name == 'push' && '-push' || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
+      group: golden-paths-dev-demo${{ github.event_name == 'push' && format('-push-{0}', github.sha) || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
       cancel-in-progress: false
 
     steps:

@@ -100,6 +100,15 @@ function runStep(job: string, env: Record<string, string>): { status: number | n
   return { status: r.status, calls: readFileSync(LOG, 'utf8').split('\n').filter(Boolean) };
 }
 
+describe("smoke's master-push no-op", () => {
+  it('its real command succeeds, so the job reports success on a push', () => {
+    const noop = jobs['golden-paths-smoke']!.steps[0]!;
+    const r = spawnSync('/bin/bash', ['-e', '-c', noop.run!], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/push to master/);
+  });
+});
+
 describe('the temporary "Golden Paths E2E (blocking)" shim', () => {
   it('carries the old required name, waits for smoke and runs even when smoke did not pass', () => {
     const shim = jobs['golden-paths-shim']!;

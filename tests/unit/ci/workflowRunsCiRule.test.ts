@@ -42,7 +42,7 @@ const REPORT_PERMS = '    permissions:\n      actions: read\n      issues: write
 const TOP_CONCURRENCY = "  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}\n  cancel-in-progress: true\n";
 const POST_MERGE_GROUP = '      group: golden-paths-post-merge\n      cancel-in-progress: false\n';
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
-const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ github.event_name == 'push' && '-push' || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
+const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ github.event_name == 'push' && format('-push-{0}', github.sha) || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
 describe('the committed workflow', () => {
   it('passes', () => {
