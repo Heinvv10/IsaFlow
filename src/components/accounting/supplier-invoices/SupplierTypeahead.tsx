@@ -27,6 +27,8 @@ interface Props {
   /** A preselected id is still being resolved to its name: show that, not an empty field. */
   loading?: boolean;
   testId?: string;
+  /** The input's id, so a visible <label htmlFor> can name and focus it. */
+  id?: string;
   ariaLabel?: string;
   /** Accessible name of the clear button; the list page overrides it with the filter wording. */
   clearLabel?: string;
@@ -37,7 +39,7 @@ const FILTER_INPUT = 'w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 
 export function SupplierTypeahead({
   selectedId, selectedLabel, onSelect, onClear,
   placeholder = 'Filter by supplier…', wrapperClassName = 'w-64', inputClassName = FILTER_INPUT, name = 'supplier',
-  required, invalidMessage, companyFirst, loading, testId, ariaLabel, clearLabel = 'Clear supplier',
+  required, invalidMessage, companyFirst, loading, testId, id, ariaLabel, clearLabel = 'Clear supplier',
 }: Props) {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<SupplierOption[]>([]);
@@ -95,6 +97,7 @@ export function SupplierTypeahead({
     <div ref={boxRef} className={`relative ${wrapperClassName}`}>
       <input
         ref={inputRef}
+        id={id}
         data-testid={testId}
         aria-label={ariaLabel}
         type="text"

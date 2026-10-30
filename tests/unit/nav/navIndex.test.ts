@@ -9,7 +9,7 @@ describe('buildNavIndex', () => {
   const idx = buildNavIndex(TABS, true);
 
   it('gives a section page its module and section as trail, label separate', () => {
-    expect(find(idx, '/accounting/customer-invoices')).toEqual({
+    expect(find(idx, '/accounting/customer-invoices')).toMatchObject({
       href: '/accounting/customer-invoices', label: 'Tax Invoices', trail: ['Sales', 'Transactions'],
     });
   });
@@ -24,7 +24,7 @@ describe('buildNavIndex', () => {
   });
 
   it('indexes top-level tabs with an empty trail', () => {
-    expect(find(idx, '/accounting')).toEqual({ href: '/accounting', label: 'Dashboard', trail: [] });
+    expect(find(idx, '/accounting')).toMatchObject({ href: '/accounting', label: 'Dashboard', trail: [] });
   });
 
   it('indexes library-only modules under Library > Module > Section', () => {
@@ -109,5 +109,22 @@ describe('trailForPath', () => {
 
   it('is null for a path nothing owns', () => {
     expect(trailForPath('/nowhere', idx)).toBeNull();
+  });
+});
+
+describe('buildNavIndex aliases (W2 H)', () => {
+  const idx = buildNavIndex(TABS, true);
+
+  it('keeps a dropped duplicate label as an alias of the entry that owns the href', () => {
+    expect(find(idx, '/accounting/reports/income-statement')?.aliases).toContain('Profit & Loss');
+    expect(find(idx, '/accounting/reports/ar-aging')?.aliases).toContain('Aged Debtors');
+  });
+
+  it('never repeats the canonical label or an alias', () => {
+    for (const e of idx) {
+      const aliases = e.aliases ?? [];
+      expect(aliases).not.toContain(e.label);
+      expect(new Set(aliases).size).toBe(aliases.length);
+    }
   });
 });
