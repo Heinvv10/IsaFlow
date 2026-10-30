@@ -61,8 +61,29 @@ describe('recurring invoice edit: PUT endDate', () => {
     await waitFor(() => expect(puts()).toHaveLength(1));
     const body = putBody();
     expect(body.id).toBe('ri-1');
-    expect(body.nextRunDate).toBe('2026-11-01');
+    expect('nextRunDate' in body).toBe(false);
     expect('endDate' in body).toBe(false);
+  });
+
+  it('sends nextRunDate (and no endDate) when only the next run date is changed', async () => {
+    await openLoaded();
+    typeDate(nextRunBox(), '2026-12-01');
+    await waitFor(() => expect(nextRunBox().value).toBe('01 Dec 2026'));
+    submit();
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(putBody().nextRunDate).toBe('2026-12-01');
+    expect('endDate' in putBody()).toBe(false);
+  });
+
+  it('compares a second save against what the first save wrote', async () => {
+    await openLoaded();
+    typeDate(nextRunBox(), '2026-12-01');
+    await waitFor(() => expect(nextRunBox().value).toBe('01 Dec 2026'));
+    submit();
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    submit();
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    expect('nextRunDate' in (JSON.parse(String(puts()[1]![1]!.body)) as PutBody)).toBe(false);
   });
 
   it('sends endDate: null (not omitted) when the user clears the field', async () => {
@@ -74,7 +95,7 @@ describe('recurring invoice edit: PUT endDate', () => {
     const body = putBody();
     expect('endDate' in body).toBe(true);
     expect(body.endDate).toBeNull();
-    expect(body.nextRunDate).toBe('2026-11-01');
+    expect('nextRunDate' in body).toBe(false);
   });
 
   it('sends the new end date when the user sets one', async () => {
@@ -105,9 +126,10 @@ describe('recurring invoice edit: end before next run date', () => {
     submit();
     await waitFor(() => expect(puts()).toHaveLength(1));
     const body = putBody();
-    expect(body.nextRunDate).toBe('2026-11-01');
+    expect('nextRunDate' in body).toBe(false);
     expect('endDate' in body).toBe(false);
     expect(screen.queryByText(/end date cannot be before/i)).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('refuses client-side when the next run date is moved past the end date', async () => {
@@ -117,6 +139,7 @@ describe('recurring invoice edit: end before next run date', () => {
     await waitFor(() => expect(nextRunBox().value).toBe('01 Dec 2026'));
     submit();
     expect(await screen.findByText(/end date cannot be before/i)).toBeTruthy();
+    expect(screen.getByRole('alert')).toBeTruthy();
     expect(puts()).toHaveLength(0);
   });
 });
