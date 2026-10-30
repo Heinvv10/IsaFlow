@@ -18,9 +18,9 @@ function edit(from: string, to: string): string {
   return REAL.replace(from, to);
 }
 
-// static's gate env ends where the velo job's comment starts (velo has the same env).
+// static's gate env ends with its TZ line, where the velo job's comment starts (velo has the same env).
 const VELO_NEXT = '\n  # `bun run ci velo`';
-const GATE_ENV_END = `          NODE_ENV: test\n${VELO_NEXT}`;
+const GATE_ENV_END = `          TZ: Africa/Johannesburg\n${VELO_NEXT}`;
 const QUALITY_HEADER = '  static:\n    name: Static gates\n';
 const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # Chromium for';
 const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # GitHub-hosted only';
@@ -32,9 +32,9 @@ describe('a PR cannot reach the raw-input gate through ci.yml', () => {
 
   // [what the PR does, the edited workflow, what the refusal must say]: the message names the variable or the step.
   const cases: Array<[string, string, RegExp]> = [
-    ['GITHUB_ACTIONS on the gate step', edit(GATE_ENV_END, `          NODE_ENV: test\n          GITHUB_ACTIONS: ""\n${VELO_NEXT}`), /gate step's env sets GITHUB_ACTIONS;/],
-    ['CI on the gate step', edit(GATE_ENV_END, `          NODE_ENV: test\n          CI: ""\n${VELO_NEXT}`), /gate step's env sets CI;/],
-    ['RAW_INPUT_BASE_REF on the gate step', edit(GATE_ENV_END, `          NODE_ENV: test\n          RAW_INPUT_BASE_REF: HEAD\n${VELO_NEXT}`), /gate step's env sets RAW_INPUT_BASE_REF;/],
+    ['GITHUB_ACTIONS on the gate step', edit(GATE_ENV_END, `          TZ: Africa/Johannesburg\n          GITHUB_ACTIONS: ""\n${VELO_NEXT}`), /gate step's env sets GITHUB_ACTIONS;/],
+    ['CI on the gate step', edit(GATE_ENV_END, `          TZ: Africa/Johannesburg\n          CI: ""\n${VELO_NEXT}`), /gate step's env sets CI;/],
+    ['RAW_INPUT_BASE_REF on the gate step', edit(GATE_ENV_END, `          TZ: Africa/Johannesburg\n          RAW_INPUT_BASE_REF: HEAD\n${VELO_NEXT}`), /gate step's env sets RAW_INPUT_BASE_REF;/],
     ['RAW_INPUT_BASE_REF at job level', edit(QUALITY_HEADER, `${QUALITY_HEADER}    env:\n      RAW_INPUT_BASE_REF: HEAD\n`), /jobs\.static sets env;/],
     ['GITHUB_ACTIONS at job level', edit(QUALITY_HEADER, `${QUALITY_HEADER}    env:\n      GITHUB_ACTIONS: "false"\n`), /jobs\.static sets env;/],
     ['RAW_INPUT_BASE_REF at workflow level', edit('\npermissions:\n', '\nenv:\n  RAW_INPUT_BASE_REF: HEAD\n\npermissions:\n'), /ci\.yml sets top-level env;/],

@@ -21,7 +21,7 @@
  * script run-ci.sh calls, which are refused by prefix, not by name; `branches: [master, '!master']`; and a `runs-on` label no
  * runner has (queued forever, never red). All are refused below.
  * Any search admits the shape it did not think of. So the gate jobs (route,
- * static, static-fallback, velo and the required `quality` aggregator:
+ * static, velo and the required `quality` aggregator:
  * workflowGateJobs.ts),
  * the triggers and package.json's `ci` script are compared against the ONE
  * shape that is known to run every gate, and anything else is refused. To
@@ -43,6 +43,11 @@
  *     every gate on a push that is an already-tested merge-queue merge
  *     (mq-merge-already-tested.ts), and the integration step on a
  *     Markdown-only change (integration/scope.ts).
+ *   - The hosted-only `bunx playwright install` step runs dependency code from
+ *     node_modules between install and the gate, which --ignore-scripts does
+ *     not cover. A PR that changes package.json/bun.lock controls that code at
+ *     gate time anyway (the tests import it), so this adds no capability.
+ *   - It does not pin golden-paths' steps or golden-lane's runs-on.
  *   - It cannot protect the runner. The self-hosted runner persists between
  *     jobs and its user owns ~/.bun/bin, so any job (golden-paths, another
  *     workflow) could replace bun for every later run. A bunfig.toml preload
@@ -80,7 +85,7 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * changing this rule in review.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['route', 'static', 'static-fallback', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
+const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
 const GOLDEN_PATHS_CONCURRENCY = {
   group: "golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
   'cancel-in-progress': false,
@@ -96,14 +101,13 @@ const MIN_GOLDEN_TIMEOUT_MINUTES = 60;
 /**
  * Every job's name, exactly. The merge queue and mq-merge-already-tested.ts
  * read the two required checks by NAME (a later run of the same name wins), and
- * static-fallback finds the hosted job by the name "Static gates", so a decoy
+ * the run is read by job name, so a decoy
  * that renders one of these names, literally or through a `${{ }}` expression,
  * could stand in for it. Pinning all of them closes that class.
  */
 const JOB_NAMES: Record<string, string> = {
   route: 'CI route',
   static: 'Static gates',
-  'static-fallback': 'Static gates (velo fallback)',
   velo: 'Browser & integration',
   [QUALITY_JOB]: QUALITY_NAME,
   'golden-lane': 'Golden Paths lane',
@@ -190,7 +194,7 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     for (const [id, j] of Object.entries(jobs)) {
       const want = JOB_NAMES[id];
       if (want !== undefined && !(isObj(j) && j.name === want)) {
-        errors.push(`jobs.${id}.name must be exactly "${want}"; required checks and the fallback's lookup go by name`);
+        errors.push(`jobs.${id}.name must be exactly "${want}"; required checks go by name`);
       }
     }
     const grouped = Object.entries(jobs).filter(([name, j]) => name !== 'golden-paths' && isObj(j) && 'concurrency' in j).map(([name]) => name);
