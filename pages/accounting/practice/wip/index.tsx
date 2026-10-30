@@ -12,6 +12,7 @@ import type { WipClientRow, GenerateWipInvoiceInput } from '@/modules/accounting
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 function todayIso() { return localISODate(); }
 function fmtMoney(n: number) { return formatMoney(n); }
@@ -100,6 +101,7 @@ interface ModalProps {
 }
 
 function InvoiceModal({ client, selectedIds, state, onChange, onConfirm, onCancel, loading, error }: ModalProps) {
+  const dateGate = useDateGate();
   const subtotal = client.entries.filter((e) => selectedIds.has(e.id)).reduce((s, e) => s + (e.lineTotal ?? 0), 0);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -111,8 +113,7 @@ function InvoiceModal({ client, selectedIds, state, onChange, onConfirm, onCance
         <div className="px-6 py-5 space-y-4">
           {error && <ErrBanner msg={error} />}
           <div>
-            <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Invoice Date</label>
-            <input type="date" value={state.invoiceDate} onChange={(e) => onChange({ invoiceDate: e.target.value })} className={INPUT_CLS} />
+            <GatedDateField gate={dateGate} gateKey="invoice-date" label="Invoice Date" value={state.invoiceDate || null} onValue={(iso) => onChange({ invoiceDate: iso })} />
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Tax Rate (%)</label>
@@ -132,7 +133,7 @@ function InvoiceModal({ client, selectedIds, state, onChange, onConfirm, onCance
         </div>
         <div className="px-6 py-4 border-t border-[var(--ff-border-primary)] flex justify-end gap-3">
           <button onClick={onCancel} disabled={loading} className="px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] transition-colors disabled:opacity-50">Cancel</button>
-          <button onClick={onConfirm} disabled={loading} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+          <button onClick={onConfirm} disabled={loading || dateGate.blocked} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}{loading ? 'Generating…' : 'Confirm'}
           </button>
         </div>
