@@ -11,7 +11,7 @@
  *   static-fallback  `bun run ci static` on velo, only when the hosted static
  *            job ended `failure` without ever starting (no runner, no steps:
  *            GitHub refuses hosted jobs once the Actions budget is spent).
- *   velo     `bun run ci velo`, self-hosted.
+ *   velo     `bun run ci velo`, GitHub-hosted (or velo, as route says).
  *   quality  the required check: runs always() and passes only when route
  *            and velo concluded success and static did, itself or through
  *            static-fallback. A failed, cancelled, timed-out or skipped group
@@ -72,11 +72,10 @@ const ROUTE_STEP_RUN = [
 const HOSTED_IF = "${{ runner.environment == 'github-hosted' }}";
 type HostedStep = { uses: string; with: Record<string, unknown> } | { run: string };
 /**
- * The hosted-only steps before install, in order, exactly. setup-bun is pinned
- * to a commit (third-party). The apt step installs what velo has and the
- * static unit tests spawn: ghostscript (`gs`, the VLM PDF render).
+ * The hosted-only steps before install, in order, exactly; setup-bun pinned to a commit (third-party). Then the
+ * group's apt step: what velo has and the group spawns (static: gs; velo: PostgreSQL 16 + pgvector, LibreOffice).
  */
-const HOSTED_SETUP: HostedStep[] = [
+const HOSTED_TOOLS: HostedStep[] = [
   { uses: 'actions/setup-node@v6', with: { 'node-version': 20 } },
   { uses: 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', with: { 'bun-version': '1.3.9' } },
   {
@@ -87,8 +86,11 @@ const HOSTED_SETUP: HostedStep[] = [
       'restore-keys': 'bun-${{ runner.os }}-',
     },
   },
-  { run: 'sudo apt-get update -qq\nsudo apt-get install -y -qq --no-install-recommends ghostscript' },
 ];
+const HOSTED_APT: Record<string, HostedStep> = {
+  static: { run: 'sudo apt-get update -qq\nsudo apt-get install -y -qq --no-install-recommends ghostscript' },
+  velo: { run: 'sudo apt-get update -qq\nsudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui\nsudo locale-gen en_US.UTF-8' },
+};
 /** Hosted-only, between install and the gate: Chromium at the locked playwright's revision. */
 const HOSTED_AFTER_INSTALL: HostedStep[] = [{ run: 'bunx playwright install --with-deps chromium' }];
 
@@ -172,7 +174,7 @@ function checkHostedStep(step: unknown, want: HostedStep, at: string, errors: st
 /** checkout, [hosted setup], install, [hosted browsers], `bun run ci <group>`: nothing else, in that order. */
 function checkGateSteps(id: string, allSteps: unknown, group: string, hosted: boolean, errors: string[]): void {
   const run = `bun run ci ${group}`;
-  const before = hosted ? HOSTED_SETUP : [];
+  const before = hosted ? [...HOSTED_TOOLS, HOSTED_APT[group]] : [];
   const after = hosted ? HOSTED_AFTER_INSTALL : [];
   const want = 3 + before.length + after.length;
   const shape = `checkout,${hosted ? ' the hosted-only setup-node/setup-bun/cache/apt steps,' : ''} \`${INSTALL}\`,${hosted ? ' the hosted-only browser install,' : ''} \`${run}\``;
@@ -254,11 +256,14 @@ function checkFallback(job: Obj, errors: string[]): void {
 }
 
 function checkVelo(job: Obj, errors: string[]): void {
-  const extra = extraKeys(job, ['name', 'runs-on', 'timeout-minutes', 'permissions', 'steps']);
+  const extra = extraKeys(job, ['name', 'needs', 'runs-on', 'timeout-minutes', 'permissions', 'steps']);
   if (extra.length) errors.push(`jobs.velo sets ${extra.join(', ')}; if/continue-on-error/defaults/env/strategy can skip or neutralise the gate`);
-  checkVeloRunsOn('velo', job, errors);
+  if (job.needs !== 'route') errors.push('jobs.velo.needs must be exactly `route`');
+  if (job['runs-on'] !== STATIC_RUNS_ON) {
+    errors.push(`jobs.velo.runs-on must be exactly ${STATIC_RUNS_ON}; any other label set can queue forever and never go red`);
+  }
   checkTimeout('velo', job, MIN_VELO_TIMEOUT, errors);
-  checkGateSteps('velo', job.steps, 'velo', false, errors);
+  checkGateSteps('velo', job.steps, 'velo', true, errors);
 }
 
 function checkQuality(job: Obj, errors: string[]): void {
