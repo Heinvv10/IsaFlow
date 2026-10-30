@@ -115,11 +115,6 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
   const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
   const taxableIncome = regularTaxable + annualTaxable;
-  // Paragraph 2(4) Fourth Schedule deductions for PAYE: the taxable deductions
-  // up to the taxable remuneration they come off. PAYE does NOT yet apply the
-  // s11F cap (27.5% / annual cap); that work is in pending PR #891.
-  const para24Deductions = Math.max(0, Math.min(taxableDeductions, periodicTaxable + annualPayments));
-
   // SDL is levied on the "balance of remuneration" after para 2(4) deductions
   // (SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027)
   // "SDL liable amount"). SDL uses an EXPLICIT ALLOWLIST — only two categories
