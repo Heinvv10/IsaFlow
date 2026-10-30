@@ -26,7 +26,7 @@ export type { SaveCell, PriorGrain };
 /** The server's per-request cap; the type ties it to PR-B's constant (a change there fails tsc here). */
 export const MAX_SAVE_CELLS: typeof SERVER_MAX_SAVE_CELLS = 20_000;
 
-interface ErrorBody { message?: string; error?: { message?: string; details?: { code?: unknown; currentUpdatedAt?: unknown; status?: unknown } } }
+interface ErrorBody { message?: string; error?: { message?: string; details?: { code?: unknown; currentUpdatedAt?: unknown; status?: unknown; path?: unknown } } }
 
 const retryAfterOf = (res: Response): number | null => {
   const n = Number(res.headers.get('Retry-After'));
@@ -53,15 +53,19 @@ function failureOf(res: Response, text: string, fallback: string): ApiFailure {
       return { ok: false, kind: 'conflict', message, code };
     case 429: return { ok: false, kind: 'rateLimited', message, retryAfter: retryAfterOf(res) };
     case 503: return { ok: false, kind: 'busy', message, retryAfter: retryAfterOf(res) };
-    case 400: case 413: case 422: return { ok: false, kind: 'invalid', message, code };
+    case 400: case 413: case 422: {
+      // A budget driver loop (400 DRIVER_CYCLE) names the rows around it.
+      const path = Array.isArray(details?.path) && details.path.every((k) => typeof k === 'string') ? details.path as string[] : undefined;
+      return path ? { ok: false, kind: 'invalid', message, code, path } : { ok: false, kind: 'invalid', message, code };
+    }
     case 403: return { ok: false, kind: 'forbidden', message };
     case 404: return { ok: false, kind: 'notFound', message };
     default: return { ok: false, kind: 'failed', message, status: res.status };
   }
 }
 
-/** One request, as an ApiResult typed by the route registry. */
-async function call<U extends string>(url: U, init: RequestInit | undefined, fallback: string): Promise<ApiResult<ResponseFor<U>>> {
+/** One request, as an ApiResult typed by the route registry (the budget drivers' fetchers use it too). */
+export async function call<U extends string>(url: U, init: RequestInit | undefined, fallback: string): Promise<ApiResult<ResponseFor<U>>> {
   let res: Response;
   try {
     res = await apiFetch(url, init);
@@ -116,8 +120,11 @@ export function saveCells(versionId: string, expectedUpdatedAt: string, cells: r
   return call('/api/accounting/budget-grid/save', post({ versionId, expectedUpdatedAt, cells }), 'Could not save the budget.');
 }
 
+/** What the saves' driver recomputes did (P4), summed over the chain; absent when no save answered one. */
+export interface ChainDrivers { recomputed: number; reset: number; warnings: NonNullable<SaveCellsResult['driverWarnings']> }
+
 export type ChainResult =
-  | { ok: true; updatedAt: string; saved: number; deleted: number; chunks: number }
+  | { ok: true; updatedAt: string; saved: number; deleted: number; chunks: number; drivers?: ChainDrivers }
   | {
     ok: false; failure: ApiFailure;
     /** 0-based index of the refused chunk; the chunks before it were saved. */
@@ -168,14 +175,21 @@ export async function saveChained(versionId: string, cells: readonly SaveCell[],
   let updatedAt = token;
   let saved = 0;
   let deleted = 0;
+  const drivers: ChainDrivers = { recomputed: 0, reset: 0, warnings: [] };
+  let answered = false;
   for (let i = 0; i < chunks; i++) {
     const r = await saveCells(versionId, updatedAt, requests[i]!);
     if (!r.ok) return { ok: false, failure: r, failedChunk: i, chunks, committed: requests.slice(0, i).flat(), updatedAt, saved, deleted };
     updatedAt = r.data.updatedAt;
     saved += r.data.saved;
     deleted += r.data.deleted;
+    drivers.recomputed += r.data.recomputed ?? 0;
+    drivers.reset += r.data.reset ?? 0;
+    // Each save recomputes the whole version: the last answer's warnings are the version's now.
+    if (r.data.driverWarnings) { drivers.warnings = r.data.driverWarnings; answered = true; }
   }
-  return { ok: true, updatedAt, saved, deleted, chunks };
+  // Present whenever a save answered its recompute (even "no warnings": that clears the rows' old ones).
+  return answered || drivers.recomputed > 0 || drivers.reset > 0 ? { ok: true, updatedAt, saved, deleted, chunks, drivers } : { ok: true, updatedAt, saved, deleted, chunks };
 }
 
 export interface SeedRequest {
@@ -186,6 +200,11 @@ export interface SeedRequest {
   source: SeedSource;
   roundingUnit: RoundingUnit;
   includeNoActivity?: boolean;
+}
+
+/** Sets or clears (blank) an account's note for the version's financial year; every version of the year shows it. */
+export function saveGridNote(versionId: string, glAccountId: string, note: string | null): Promise<ApiResult<{ note: string | null }>> {
+  return call('/api/accounting/budget-grid/note', { method: 'PUT', body: JSON.stringify({ versionId, glAccountId, note }) }, 'Could not save the note.');
 }
 
 export function seedVersion(req: SeedRequest): Promise<ApiResult<SeedResult>> {

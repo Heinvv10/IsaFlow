@@ -98,9 +98,12 @@ describe('review round 3', () => {
     expect(r.version).toMatchObject({ name: 'Original', status: 'draft', isPrimary: true });
   });
 
-  it('R1: a gap window with no lines at all leaves every band unallocated absent, like the footer', async () => {
+  it('R1: a gap window with no window figures leaves every band unallocated absent, like the footer', async () => {
     const r = await run({ period: 'custom', from: '2025-03', to: '2025-04' });
-    expect([r.lines.length, r.notices.unallocatedBudget]).toEqual([0, null]);
+    // Since the PR-B r2 projection ruling a later month with no budget keeps its actual, so accounts posted
+    // later in FY2026 are listed with their projection; none has a window actual or budget.
+    expect(r.lines.every((l) => l.actual === 0 && l.budget === null && l.unallocatedBudget === null)).toBe(true);
+    expect(r.notices.unallocatedBudget).toBeNull();
     for (const b of r.bands) expect([b.key, b.budget, b.unallocatedBudget]).toEqual([b.key, null, null]);
   });
 

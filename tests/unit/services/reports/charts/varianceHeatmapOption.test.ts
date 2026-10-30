@@ -52,9 +52,10 @@ describe('buildVarianceHeatmapOption', () => {
     expect((option as Record<string, unknown>).visualMap).toBeUndefined();
   });
 
-  it('colours every budgeted cell fav or unfav by its own favourable, nothing else', () => {
-    const budgeted = cells.filter((c) => c.style.decal === undefined);
-    expect(budgeted.length).toBe(7);
+  it('colours every budgeted cell with a variance fav or unfav by its own favourable, nothing else', () => {
+    // 7 budgeted cells: 5 with a variance, 2 exactly on budget (outlined, below).
+    const budgeted = cells.filter((c) => c.style.decal === undefined && c.style.stroke === undefined);
+    expect(budgeted.length).toBe(5);
     for (const c of budgeted) expect([PALETTE.fav, PALETTE.unfav]).toContain(c.style.fill);
     // Wages, June: actual 400 vs 300 on an expense = unfavourable.
     const wages = LINES.findIndex((l) => l.accountCode === '6100');
@@ -68,9 +69,19 @@ describe('buildVarianceHeatmapOption', () => {
     expect(cells[at]!.style.opacity).toBe(1);
   });
 
-  it('opacity is |v| / max|v|', () => {
-    const opacities = cells.filter((c) => c.style.decal === undefined).map((c) => c.style.opacity).sort();
-    expect(opacities).toEqual([0, 0, 0.1, 0.1, 0.2, 0.2, 1].sort());
+  it('opacity is |v| / max|v|, never below the floor (0.25) for a nonzero variance', () => {
+    const opacities = cells.filter((c) => c.style.decal === undefined && c.style.stroke === undefined).map((c) => c.style.opacity).sort();
+    // |v| / max is 0.1, 0.1, 0.2, 0.2, 1: the four small ones are raised to the floor (review r2 N4).
+    expect(opacities).toEqual([0.25, 0.25, 0.25, 0.25, 1].sort());
+  });
+
+  it('an on-budget month (variance 0) is an outline in the axis ink, never coloured, never invisible (review r3 L3)', () => {
+    const onBudget = cells.filter((c) => c.style.stroke !== undefined && c.style.decal === undefined);
+    expect(onBudget.length).toBe(2);
+    for (const c of onBudget) {
+      expect(c.style.stroke).toBe(PALETTE.axisLabel);
+      expect([PALETTE.fav, PALETTE.unfav]).not.toContain(c.style.fill);
+    }
   });
 
   it("hatches a month with no budget with the forecast decal, uncoloured", () => {
@@ -116,5 +127,52 @@ describe('buildVarianceHeatmapOption', () => {
 
   it('nothing to draw is null', () => {
     expect(buildVarianceHeatmapOption([], MONTHS, PALETTE)).toBeNull();
+  });
+});
+
+describe('months not yet judged (browser review r1 L1, r2 N1)', () => {
+  // Judged through June: July is in progress and August still to come. Both hold part or no actuals
+  // against a whole month's budget, so neither is a variance yet.
+  const option = buildVarianceHeatmapOption(LINES, MONTHS, PALETTE, { judgedThrough: '2026-06' })!;
+  const cells = paint(option);
+  const rowOf = (code: string) => (option as { yAxis: { data: string[] } }).yAxis.data.findIndex((r) => r.startsWith(code));
+  const at = (code: string, m: number) => cells[rowOf(code) * MONTHS.length + m]!;
+
+  it('every month after the last judged one is drawn neutral, never fav or unfav, and marked "*"', () => {
+    for (const m of [1, 2]) {
+      expect([PALETTE.fav, PALETTE.unfav]).not.toContain(at('6100', m).style.fill);
+      expect(at('6100', m).style.fill).toBe(PALETTE.axisLine);
+    }
+    expect([PALETTE.fav, PALETTE.unfav]).toContain(at('6100', 0).style.fill);
+    expect((option as { xAxis: { data: string[] } }).xAxis.data).toEqual(['Jun 26', 'Jul 26 *', 'Aug 26 *']);
+  });
+
+  it('they are left out of the colour scale: the largest judged variance is full strength', () => {
+    // A future month with a huge "miss" (actual 0 against its budget) must not wash out June.
+    const big = buildVarianceHeatmapOption(
+      LINES.map((l) => (l.accountCode === '4000' ? { ...l, monthly: l.monthly.map((m, i) => (i === 2 ? { ...m, budget: 20, variance: -9000, favourable: false } : m)) } : l)),
+      MONTHS, PALETTE, { judgedThrough: '2026-06' })!;
+    const drawn = paint(big);
+    const rows = (big as { yAxis: { data: string[] } }).yAxis.data;
+    expect(drawn[rows.findIndex((r) => r.startsWith('6100')) * MONTHS.length]!.style.opacity).toBe(1);
+  });
+
+  it('they say so in the tooltip', () => {
+    const fmt = (option as { tooltip: { formatter: (p: { dataIndex: number }) => string } }).tooltip.formatter;
+    expect(fmt({ dataIndex: rowOf('6100') * MONTHS.length + 2 })).toContain('Not yet judged: the month is in progress or still to come');
+  });
+});
+
+describe('small variances stay visible (browser review r2 N4)', () => {
+  it('a nonzero variance is drawn at no less than the floor; an on-budget month (0) is an outline', () => {
+    const tiny = buildVarianceHeatmapOption([
+      line('6000', 'Small', [[100.5, 100, false], [100, 100, true], [0, null, null]], 1),
+      line('6100', 'Large', [[10_000, 100, false], [100, 100, true], [0, null, null]], 9900),
+    ], MONTHS, PALETTE)!;
+    const drawn = paint(tiny);
+    const rows = (tiny as { yAxis: { data: string[] } }).yAxis.data;
+    const small = drawn[rows.findIndex((r) => r.startsWith('6000')) * MONTHS.length]!;
+    expect(small.style.opacity).toBeGreaterThanOrEqual(0.25);
+    expect(drawn[rows.findIndex((r) => r.startsWith('6000')) * MONTHS.length + 1]!.style.stroke).toBe(PALETTE.axisLabel);
   });
 });

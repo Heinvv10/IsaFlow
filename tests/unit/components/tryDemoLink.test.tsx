@@ -2,6 +2,7 @@
  * "Try the demo company": found by `isDemo` (never by name), shown only when the user
  * belongs to the demo tenant and is not already on it, and a refused switch keeps the offer.
  */
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
@@ -66,5 +67,89 @@ describe('<TryDemoLink>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try the demo company' }));
     await waitFor(() => expect(h.notify.error).toHaveBeenCalled());
     expect(onSwitched).not.toHaveBeenCalled();
+    expect(screen.queryByText('Opening the demo company…')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Try the demo company' }).hasAttribute('disabled')).toBe(false);
+  });
+  it('covers the old page from the click until the reload replaces it (W2 H)', async () => {
+    let resolve!: () => void;
+    h.switchCompany.mockReturnValue(new Promise<void>((r) => { resolve = r; }));
+    const onSwitched = vi.fn();
+    render(<TryDemoLink onSwitched={onSwitched} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Try the demo company' }));
+    expect(await screen.findByText('Opening the demo company…')).toBeTruthy();
+    resolve();
+    await waitFor(() => expect(onSwitched).toHaveBeenCalled());
+    // switchCompany resolved after starting the reload: the overlay stays up.
+    expect(screen.getByRole('status').textContent).toContain('Opening the demo company…');
+    expect(screen.getByRole('button', { name: 'Try the demo company' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('the link keeps its full link colour (brand-700 / teal-300) in every state: no opacity fade', () => {
+    render(<TryDemoLink />);
+    const link = screen.getByRole('button', { name: 'Try the demo company' });
+    expect(link.className).toContain('text-brand-700');
+    expect(link.className).toContain('dark:text-teal-300');
+    expect(link.className).not.toMatch(/opacity/);
+  });
+
+  describe('busy overlay is modal, not just visual', () => {
+    let refuse!: (e: Error) => void;
+    const start = async (strict = false) => {
+      h.switchCompany.mockReturnValue(new Promise<void>((_, rej) => { refuse = rej; }));
+      const page = document.createElement('div');
+      page.id = 'app-root';
+      document.body.appendChild(page);
+      const view = render(strict ? <StrictMode><TryDemoLink /></StrictMode> : <TryDemoLink />, { container: page.appendChild(document.createElement('div')) });
+      const trigger = screen.getByRole('button', { name: 'Try the demo company' });
+      trigger.focus();
+      fireEvent.click(trigger);
+      const dialog = await screen.findByRole('dialog');
+      return { page, dialog, view };
+    };
+
+    it('makes everything behind it inert and takes focus', async () => {
+      const { page, dialog } = await start();
+      expect(dialog.getAttribute('aria-modal')).toBe('true');
+      expect(page.hasAttribute('inert')).toBe(true);
+      expect(dialog.hasAttribute('inert')).toBe(false);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      page.remove();
+    });
+
+    it('gives the page back, and focus, when the switch is refused', async () => {
+      const { page } = await start();
+      expect(page.hasAttribute('inert')).toBe(true);
+      refuse(new Error('no access'));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(page.hasAttribute('inert')).toBe(false);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try the demo company' }));
+      page.remove();
+    });
+
+    it('under StrictMode (effects run twice) focus still returns to the trigger after a refused switch', async () => {
+      const { page } = await start(true);
+      refuse(new Error('no access'));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try the demo company' }));
+      page.remove();
+    });
+
+    it('mounts the live region empty and fills it afterwards, so the text is announced', async () => {
+      const seen: string[] = [];
+      const append = document.body.appendChild.bind(document.body);
+      const spy = vi.spyOn(document.body, 'appendChild').mockImplementation(((node: Node) => {
+        const status = (node as Element).querySelector?.('[role="status"]');
+        if (status) seen.push(status.textContent ?? '');
+        return append(node);
+      }) as typeof document.body.appendChild);
+      try {
+        const { page } = await start();
+        await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Opening the demo company…'));
+        page.remove();
+      } finally {
+        spy.mockRestore();
+      }
+      expect(seen).toEqual(['']);
+    });
   });
 });

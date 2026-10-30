@@ -26,6 +26,7 @@ import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui'; import { useDateGate } from '@/hooks/useDateGate';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -103,7 +104,7 @@ export default function PurchaseOrderDetailPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [saveError, setSaveError] = useState('');
+  const [saveError, setSaveError] = useState(''); const dates = useDateGate();
   const [accounts, setAccounts] = useState<GlAccount[]>([]);
   const [form, setForm] = useState<EditForm | null>(null);
 
@@ -171,7 +172,8 @@ export default function PurchaseOrderDetailPage() {
     } : f);
 
   const handleSave = async () => {
-    if (!form || !poId) return;
+    if (!form || !poId) return; if (dates.blocked) { setSaveError('Fix the date marked in red before saving.'); return; }
+    if (!form.order_date) { setSaveError('Enter the order date.'); return; }
     if (!form.supplier_id) { setSaveError('Please select a supplier'); return; }
     setSaving(true);
     setSaveError('');
@@ -426,16 +428,12 @@ export default function PurchaseOrderDetailPage() {
                       className="ff-input w-full" placeholder="Supplier quote ref" />
                   </div>
                   <div>
-                    <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Order Date *</label>
-                    <input type="date" name="orderDate" required value={form.order_date}
-                      onChange={e => setForm(f => f ? { ...f, order_date: e.target.value } : f)}
-                      className="ff-input w-full" />
+                    <DateField label="Order Date" required name="orderDate" value={form.order_date || null}
+                      onChange={dates.bind('orderDate', iso => setForm(f => f ? { ...f, order_date: iso } : f), form.order_date)} />
                   </div>
                   <div>
-                    <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Expected Delivery</label>
-                    <input type="date" name="expectedDeliveryDate" value={form.expected_delivery_date}
-                      onChange={e => setForm(f => f ? { ...f, expected_delivery_date: e.target.value } : f)}
-                      className="ff-input w-full" />
+                    <DateField label="Expected Delivery" name="expectedDeliveryDate" value={form.expected_delivery_date || null}
+                      onChange={dates.bind('expectedDeliveryDate', iso => setForm(f => f ? { ...f, expected_delivery_date: iso } : f), form.expected_delivery_date)} />
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Status</label>

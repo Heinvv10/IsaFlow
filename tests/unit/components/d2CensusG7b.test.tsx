@@ -5,6 +5,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { MSG, NO_RAW, respond, serveRoutes, type Kind } from '../helpers/d2CensusG7Serve';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -71,7 +72,7 @@ describe('accounting dashboard KPIs', () => {
   const go = (kind: Kind) => { serveRoutes([['/api/accounting/kpi-dashboard', () => respond(kind, { kpis, hasBankAccount: true })]]); render(<OverviewTab />); };
   it('shows the server message on a 400', async () => { go('bad'); expect(await screen.findByText(new RegExp(MSG))).toBeTruthy(); });
   it('shows a plain sentence on an empty 500', async () => { go('empty500'); await plain(/could not load the dashboard figures/i)(); });
-  it('renders the figures on a 200', async () => { go('ok'); expect(await screen.findByText('R 7.7M')).toBeTruthy(); });
+  it('renders the figures on a 200', async () => { go('ok'); expect(await screen.findByText(formatMoney(7654321).replace(/\s/g, ' '))).toBeTruthy(); });
 });
 
 describe('convert trial modal plan list', () => {

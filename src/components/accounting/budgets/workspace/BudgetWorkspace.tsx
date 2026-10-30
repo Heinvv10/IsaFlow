@@ -3,7 +3,9 @@
  * toolbar, the grid and the save bar, plus the wizard, import, template and 409 dialogs. States:
  * loading (skeleton, bar disabled), load failed (message + Retry, the year select stays usable),
  * no version (WorkspaceEmptyState), no accounts (link to the chart), locked (read-only grid, no
- * save bar). Role from `useCompany().companyRole`; the server re-checks every write.
+ * save bar). Role from `useCompany().companyRole`; the server re-checks every write. P4: the driver
+ * layer (`useDriverActions`: chips, overrides, the editor drawer), the headcount panel, "New
+ * reforecast from actuals" and the rolling forecast's controls in the versions bar.
  */
 import { useMemo, useState } from 'react';
 import { Wallet } from 'lucide-react';
@@ -11,6 +13,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { useDensity } from '@/components/accounting/reportControls/useDensity';
 import { yearOptionLabel } from '@/components/accounting/budgets/budgetClient';
 import { BudgetGrid } from './BudgetGrid';
+import { saveGridNote } from './budgetWorkspaceClient';
 import { CreateWizard } from './CreateWizard';
 import { downloadDirtyCells } from './downloadDirtyCells';
 import { GridToolbar } from './GridToolbar';
@@ -25,6 +28,12 @@ import { canWriteRole, VersionsBar } from './VersionsBar';
 import { useBudgetYears, useWorkspaceVersions } from './useWorkspaceVersions';
 import { WorkspaceEmptyState } from './WorkspaceEmptyState';
 import type { SourceChoice } from './wizardDraft';
+import { useDriverActions } from '@/components/accounting/budgets/drivers/useDriverActions';
+import { HeadcountPanel } from '@/components/accounting/budgets/drivers/HeadcountPanel';
+import { ReforecastDialog } from '@/components/accounting/budgets/drivers/ReforecastDialog';
+import { RollingControls } from '@/components/accounting/budgets/drivers/RollingControls';
+import { createReforecast } from '@/components/accounting/budgets/drivers/driverClient';
+import { costCentreOptions } from '@/components/accounting/budgets/drivers/driverRows';
 
 type Wizard = null | { source?: SourceChoice; fromVersion?: { id: string; fiscalYear: number } };
 
@@ -76,11 +85,14 @@ export function BudgetWorkspace() {
   const [wizard, setWizard] = useState<Wizard>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [reforecastOpen, setReforecastOpen] = useState(false);
+  const [headcountOpen, setHeadcountOpen] = useState(false);
   useUnsavedGuard(grid.dirtyCount);
 
   const { model, version, status } = grid;
   const locked = version?.status === 'locked';
   const editable = canWrite && version !== null && !locked;
+  const drivers = useDriverActions(grid, editable);
   // Years answered but name no year to budget: say so (the hook stays idle without a year).
   const noYear = !years.loading && !years.error && fiscalYear === null;
   const loading = years.loading || status === 'loading' || (status === 'idle' && !noYear);
@@ -138,7 +150,8 @@ export function BudgetWorkspace() {
               disabled={loading} compareVersionId={grid.compareVersionId}
               onSelect={(id) => { void grid.selectVersion(id); }} onCompare={(id) => { void grid.setCompareVersion(id); }}
               onNewReforecast={() => { if (version) setWizard({ fromVersion: { id: version.id, fiscalYear: version.fiscalYear } }); }}
-              onAction={versions.run} />
+              onAction={versions.run} onReforecastFromActuals={() => setReforecastOpen(true)}
+              rolling={version ? <RollingControls version={version} grid={grid} editable={editable} /> : null} />
           </div>
         </div>
       </div>
@@ -172,6 +185,23 @@ export function BudgetWorkspace() {
               roundingUnit={grid.roundingUnit} onRoundingUnitChange={grid.setRoundingUnit} density={density} onDensityChange={setDensity}
               showPy={showPy} onShowPyChange={setShowPy} onDownloadTemplate={() => setTemplateOpen(true)}
               onImport={editable ? () => setImportOpen(true) : null} disabled={false} />
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" aria-expanded={headcountOpen} onClick={() => setHeadcountOpen((o) => !o)} data-testid="headcount-toggle"
+                className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)]">
+                {headcountOpen ? 'Hide headcount' : 'Headcount and planned hires'}
+              </button>
+              {drivers.notice && (
+                <p role={drivers.notice.tone === 'error' ? 'alert' : 'status'} data-testid="driver-notice"
+                  className={`text-sm ${drivers.notice.tone === 'error' ? 'text-error-700 dark:text-error-400' : 'text-[var(--ff-text-secondary)]'}`}>
+                  {drivers.notice.text}{' '}
+                  <button type="button" onClick={drivers.dismissNotice} className="text-xs underline">Dismiss</button>
+                </p>
+              )}
+            </div>
+            {headcountOpen && (
+              <HeadcountPanel versionId={version.id} months={model.year.monthKeys} costCentres={costCentreOptions(model.dimensions)}
+                editable={editable} runWrite={drivers.runWrite} onCountsChanged={drivers.invalidateHeadcount} />
+            )}
             {!grid.hasAmounts && editable && (
               <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="workspace-no-amounts">
                 This version has no amounts yet. Paste a block from Excel into the grid, type amounts, or use a row&apos;s actions to spread a total.
@@ -179,7 +209,8 @@ export function BudgetWorkspace() {
             )}
             <BudgetGrid store={grid.store} view={grid.view} roundingUnit={grid.roundingUnit} density={density} showPy={showPy}
               compareLabel={compareLabel} canWrite={editable} members={grid.members}
-              onSave={() => { void grid.save(); }} onExit={exitToSaveBar} />
+              onSave={() => { void grid.save(); }} onExit={exitToSaveBar}
+              fiscalYear={version.fiscalYear} onSaveNote={(accountId, note) => saveGridNote(version.id, accountId, note)} driver={drivers.handlers} />
           </>
         )}
       </div>
@@ -197,6 +228,11 @@ export function BudgetWorkspace() {
         <ImportDialog open onClose={() => setImportOpen(false)} versionId={version.id} months={model.year.monthKeys}
           accountLabels={labels.accountLabels} memberLabels={labels.memberLabels} dirtyCount={grid.dirtyCount}
           commitImport={grid.commitImport} onImported={() => { setImportOpen(false); versions.refresh(); }} />
+      )}
+      {drivers.editor}
+      {reforecastOpen && version && (
+        <ReforecastDialog versions={versions.versions.length > 0 ? versions.versions : [version]} current={version} create={createReforecast}
+          onCreated={(v) => { void grid.selectVersion(v.id).then(() => versions.refresh()); }} onClose={() => setReforecastOpen(false)} />
       )}
       {templateOpen && version && model && (
         <TemplateDownloadDialog open onClose={() => setTemplateOpen(false)} versionId={version.id} fiscalYear={version.fiscalYear}

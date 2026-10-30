@@ -6,9 +6,11 @@
  * one edit re-renders its row, its header roll-ups and the subtotals it moved. Snapshots are
  * immutable and replaced on change.
  */
-import type { GridCell, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
+import type { GridAccount, GridCell, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
-import { type CellKey, type Dimension, parseKey } from '@/modules/accounting/services/budgets/grid/cellKey';
+import { type CellKey, type Dimension, cellKey, parseKey } from '@/modules/accounting/services/budgets/grid/cellKey';
+import { rowKeyFor, type CellSource, type RowKey } from '@/modules/accounting/services/budgets/drivers/driverTypes';
+import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
 import { type GridContext, type GridState, initialGridState } from '@/modules/accounting/services/budgets/grid/keyboard';
 import { type View, memberTotals, viewCellKey } from '@/modules/accounting/services/budgets/grid/pivot';
 import type { Pos } from '@/modules/accounting/services/budgets/grid/selection';
@@ -23,6 +25,11 @@ import type { InvalidCellNotice } from './types';
 
 export { accountRowKey, rollupRowKey, ROLLUP_REASON };
 
+/** Why a closed month's cell (a reforecast's actual) takes no typing, paste or clear. */
+export const ACTUAL_REASON = "Actual: this month is closed and holds the ledger's actuals (read-only)";
+/** Why the FY column takes no total in a version with closed months (a spread would land on them). */
+export const FY_CLOSED_REASON = 'This version holds actuals for its closed months: type the open months, not a full-year total';
+
 export interface CellWriteByKey { key: CellKey; cents: number | null }
 export interface ResetOptions {
   view: View;
@@ -35,11 +42,20 @@ export interface ResetOptions {
 }
 
 export class GridStore extends GridStoreCore {
+  private versionId: string | null = null;
+
   // ── Loading ───────────────────────────────────────────────────────────────
   reset(model: GridReadModel, opts: ResetOptions): void {
     this.accounts = new Map(model.accounts.map(a => [a.id, a]));
     this.layout = buildLayout(model.accounts, model.year.monthKeys);
     this.original = cellsInCents(model.cells);
+    // P4 fields are absent from a pre-P4 answer (and from older test fixtures): manual, no drivers.
+    this.sources = new Map(model.cells.map(c => [cellKey(c), c.source ?? 'manual'] as const));
+    this.closedMonths = new Set(model.cells.filter(c => c.source === 'actual').map(c => c.month));
+    this.drivers = new Map((model.drivers ?? []).map(d => [rowKeyFor(d), d] as const));
+    // A driver warning belongs to the version it was raised on; a reload of the same version keeps it.
+    if ((model.version?.id ?? null) !== this.versionId) this.driverWarnings = new Map();
+    this.versionId = model.version?.id ?? null;
     const current = new Map(this.original);
     for (const [k, v] of opts.values ?? []) current.set(k, v);
     this.values = byAccount(current);
@@ -69,16 +85,41 @@ export class GridStore extends GridStoreCore {
   setPrior(prior: PriorActuals | null): void { this.prior = prior; this.rebuildAll(); }
   setCompare(cells: readonly GridCell[] | null): void { this.compare = cells ? byAccount(cellsInCents(cells)) : null; this.rebuildAll(); }
 
+  /**
+   * A note the server saved (year-scoped, not an amount): the account's rows show it. Values,
+   * dirty cells, undo and the revision stay as they are; nothing here is part of a grid save.
+   */
+  setNote(accountId: string, note: string | null): void {
+    const account = this.accounts.get(accountId);
+    if (!account) return;
+    this.accounts.set(accountId, { ...account, note });
+    for (const row of this.layout.rows) {
+      const old = row.kind === 'line' && row.account.id === accountId ? this.rows.get(row.key) : undefined;
+      if (old && old.note !== note) this.setRow(row.key, { ...old, note });
+    }
+  }
+
   // ── Writes ────────────────────────────────────────────────────────────────
   valueAt(key: CellKey): number | null { return this.values.get(key.slice(0, key.indexOf('|')))?.get(key) ?? null; }
 
-  /** One undo entry for the whole batch; returns the number of cells that changed. */
+  /**
+   * One undo entry for the whole batch; returns the number of cells that changed. A closed month's
+   * cell is dropped (the server refuses it: P4). A clear of a driver-computed cell goes back to the
+   * driver's loaded value when it was typed over since (still unsaved), else it is dropped (the
+   * server refuses clearing what the driver computes).
+   */
   apply(writes: readonly CellWriteByKey[]): number {
     const changes = new Map<CellKey, { key: CellKey; before: number | null; after: number | null }>();
     for (const w of writes) {
-      parseKey(w.key);
+      const { month } = parseKey(w.key);
+      if (this.closedMonths.has(month)) continue;
+      let after = w.cents;
+      if (after === null && this.isDriverCell(w.key)) {
+        if (!this.dirty.has(w.key)) continue;
+        after = this.original.get(w.key) ?? null;
+      }
       const seen = changes.get(w.key);
-      changes.set(w.key, { key: w.key, before: seen ? seen.before : this.valueAt(w.key), after: w.cents });
+      changes.set(w.key, { key: w.key, before: seen ? seen.before : this.valueAt(w.key), after });
     }
     const real = [...changes.values()].filter(c => c.before !== c.after);
     if (real.length === 0) return 0;
@@ -160,14 +201,45 @@ export class GridStore extends GridStoreCore {
 
   isEditable = (p: Pos): boolean => {
     const line = this.lineAt(p.r);
-    return line !== null && line.role !== 'rollup' && p.c >= 0 && p.c < this.layout.cols && (this.own.get(line.account.id)?.editable ?? false);
+    return line !== null && line.role !== 'rollup' && p.c >= 0 && p.c < this.layout.cols && (this.own.get(line.account.id)?.editable ?? false)
+      && this.closedColReason(p.c) === null;
   };
 
   readReason = (p: Pos): string | null => {
     const line = this.lineAt(p.r);
     if (!line) return null;
-    return line.role === 'rollup' ? ROLLUP_REASON : this.own.get(line.account.id)?.readReason ?? null;
+    if (line.role === 'rollup') return ROLLUP_REASON;
+    return this.own.get(line.account.id)?.readReason ?? this.closedColReason(p.c);
   };
+
+  /** A closed month's column, or the FY column of a version holding closed months: why it is read-only. */
+  private closedColReason(c: number): string | null {
+    if (this.closedMonths.size === 0) return null;
+    if (c === this.layout.months.length) return FY_CLOSED_REASON;
+    return this.closedMonths.has(this.layout.months[c] ?? '') ? ACTUAL_REASON : null;
+  }
+
+  // ── Drivers (P4) ──────────────────────────────────────────────────────────
+  /** The version's closed months (they hold the ledger's actuals); empty outside a reforecast. */
+  getClosedMonths = (): ReadonlySet<string> => this.closedMonths;
+  /** The cell's loaded source is 'driver' (a clear is refused: change or delete the driver). */
+  isDriverCell(key: CellKey): boolean { return this.sources.get(key) === 'driver'; }
+  driverOfRow(rowKey: RowKey): StoredDriverLine | null { return this.drivers.get(rowKey) ?? null; }
+  /** The last recompute's warnings (a driver write's or a grid save's), shown on the rows' chips until the next. */
+  setDriverWarnings(warnings: ReadonlyArray<{ rowKey: string; message: string }>): void {
+    const next = new Map<RowKey, string>();
+    for (const w of warnings) next.set(w.rowKey.toLowerCase(), next.has(w.rowKey.toLowerCase()) ? `${next.get(w.rowKey.toLowerCase())}; ${w.message}` : w.message);
+    if (next.size === 0 && this.driverWarnings.size === 0) return;
+    this.driverWarnings = next;
+    this.rebuildAll();
+  }
+  /** What the pure driver engine needs to preview a driver over the grid as it stands. */
+  driverInputs(): { values: Map<CellKey, number | null>; sources: ReadonlyMap<CellKey, CellSource>; drivers: StoredDriverLine[]; bands: Map<string, GridAccount['band']> } {
+    const values = new Map<CellKey, number | null>();
+    for (const m of this.values.values()) for (const [k, v] of m) values.set(k, v);
+    const bands = new Map([...this.accounts.values()].map(a => [a.id, a.band] as const));
+    return { values, sources: this.sources, drivers: [...this.drivers.values()], bands };
+  }
 
   /** The displayed cents at a month column, or the FY at the total column. */
   displayValue = (p: Pos): number | null => {
