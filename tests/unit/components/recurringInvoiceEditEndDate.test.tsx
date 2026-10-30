@@ -1,6 +1,7 @@
 /**
- * The recurring-invoice edit page must send endDate in its PUT: the loaded value when untouched, and an explicit
- * null when the user clears the field (omitting it made the server keep the old end date).
+ * The recurring-invoice edit page sends endDate in its PUT only when the user changed it (an absent key means
+ * "keep" on the server, so a stale page cannot put back an end date someone else changed); clearing sends null.
+ * end < next is refused client-side only when a date was changed (legacy rows stay renamable).
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,25 +21,32 @@ vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany
 import { apiFetch } from '@/lib/apiFetch';
 import RecurringInvoiceEdit from '../../../pages/accounting/recurring-invoices/[id]';
 
-interface PutBody { id: string; endDate: string | null; nextRunDate: string }
+type PutBody = Record<string, unknown>;
 
-const template = {
+const base = {
   id: 'ri-1', templateName: 'T', clientId: 'c1', frequency: 'monthly',
   nextRunDate: '2026-11-01', endDate: '2026-12-31',
   lineItems: [{ description: 'Fee', quantity: 1, unitPrice: 10 }],
 };
+let template: Record<string, unknown> = base;
 
 useApiJsonOverMock();
 beforeEach(() => {
+  template = base;
   vi.mocked(apiFetch).mockReset();
-  vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
-    ok(String(url).endsWith('recurring-invoices') ? { items: [template] } : []));
+  vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: RequestInit) => {
+    if (init?.method === 'PUT') return ok({});
+    return ok(String(url).endsWith('recurring-invoices') ? { items: [template] } : []);
+  });
 });
 afterEach(cleanup);
 
 const puts = () => vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT');
-const endDateBox = (): HTMLInputElement =>
-  screen.getByRole('textbox', { name: /^end date/i }) as HTMLInputElement;
+const putBody = (): PutBody => JSON.parse(String(puts()[0]![1]!.body)) as PutBody;
+const box = (name: RegExp): HTMLInputElement => screen.getByRole('textbox', { name }) as HTMLInputElement;
+const endDateBox = () => box(/^end date/i);
+const nextRunBox = () => box(/next run date/i);
+const submit = () => fireEvent.submit(document.querySelector('form')!);
 
 async function openLoaded(): Promise<void> {
   render(<RecurringInvoiceEdit />);
@@ -46,24 +54,69 @@ async function openLoaded(): Promise<void> {
 }
 
 describe('recurring invoice edit: PUT endDate', () => {
-  it('sends the loaded end date when the user does not touch it', async () => {
+  it('omits endDate when the user does not touch it', async () => {
     await openLoaded();
     expect(endDateBox().value).toBe('31 Dec 2026');
-    fireEvent.submit(document.querySelector('form')!);
+    submit();
     await waitFor(() => expect(puts()).toHaveLength(1));
-    const body = JSON.parse(String(puts()[0]![1]!.body)) as PutBody;
+    const body = putBody();
     expect(body.id).toBe('ri-1');
-    expect(body.endDate).toBe('2026-12-31');
+    expect(body.nextRunDate).toBe('2026-11-01');
+    expect('endDate' in body).toBe(false);
   });
 
   it('sends endDate: null (not omitted) when the user clears the field', async () => {
     await openLoaded();
     typeDate(endDateBox(), '');
     await waitFor(() => expect(endDateBox().value).toBe(''));
-    fireEvent.submit(document.querySelector('form')!);
+    submit();
     await waitFor(() => expect(puts()).toHaveLength(1));
-    const body = JSON.parse(String(puts()[0]![1]!.body)) as Record<string, unknown>;
+    const body = putBody();
     expect('endDate' in body).toBe(true);
     expect(body.endDate).toBeNull();
+    expect(body.nextRunDate).toBe('2026-11-01');
+  });
+
+  it('sends the new end date when the user sets one', async () => {
+    await openLoaded();
+    typeDate(endDateBox(), '2027-03-31');
+    await waitFor(() => expect(endDateBox().value).toBe('31 Mar 2027'));
+    submit();
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(putBody().endDate).toBe('2027-03-31');
+  });
+
+  it('omits endDate when the template has none and the user leaves it', async () => {
+    template = { ...base, endDate: null };
+    await openLoaded();
+    expect(endDateBox().value).toBe('');
+    submit();
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect('endDate' in putBody()).toBe(false);
+  });
+});
+
+describe('recurring invoice edit: end before next run date', () => {
+  const legacy = { ...base, nextRunDate: '2026-11-01', endDate: '2026-10-01' };
+
+  it('saves a legacy end<next template unchanged, without a client error', async () => {
+    template = legacy;
+    await openLoaded();
+    submit();
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    const body = putBody();
+    expect(body.nextRunDate).toBe('2026-11-01');
+    expect('endDate' in body).toBe(false);
+    expect(screen.queryByText(/end date cannot be before/i)).toBeNull();
+  });
+
+  it('refuses client-side when the next run date is moved past the end date', async () => {
+    template = legacy;
+    await openLoaded();
+    typeDate(nextRunBox(), '2026-12-01');
+    await waitFor(() => expect(nextRunBox().value).toBe('01 Dec 2026'));
+    submit();
+    expect(await screen.findByText(/end date cannot be before/i)).toBeTruthy();
+    expect(puts()).toHaveLength(0);
   });
 });
