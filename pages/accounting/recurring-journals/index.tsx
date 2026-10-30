@@ -11,6 +11,8 @@ import { postingWarningsIn } from '@/components/accounting/postingWarningsNotice
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
@@ -36,6 +38,7 @@ export default function RecurringJournalsPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const dates = useDateGate();
   /** A generate's non-blocking notice: its journal held as a draft by an approval rule (R-035 PR6), a cost centre not applied. */
   const [held, setHeld] = useState('');
   const [editId, setEditId] = useState('');
@@ -117,6 +120,8 @@ export default function RecurringJournalsPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
+    if (!form.nextRunDate) { setError('Enter the first run date.'); return; }
     setError('');
     if (!editId && Math.abs(totalDebit - totalCredit) > 0.01) { setError('Lines must balance (DR = CR)'); return; }
     setBusy('new');
@@ -180,7 +185,7 @@ export default function RecurringJournalsPage() {
           {held && <div className="p-3 rounded-lg bg-amber-500/10 text-amber-500 text-sm">{held}</div>}
 
           <div className="flex items-center gap-3">
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm">
+            <select aria-label="Filter by status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm">
               <option value="">All Statuses</option>
               <option value="active">Active</option>
               <option value="paused">Paused</option>
@@ -196,11 +201,12 @@ export default function RecurringJournalsPage() {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <input value={form.templateName} onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))} className="ff-input" placeholder="Template Name *" required />
                 <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="ff-input" placeholder="Description" />
-                <select value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))} className="ff-select">
+                <select aria-label="Frequency" value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))} className="ff-select">
                   <option value="weekly">Weekly</option><option value="monthly">Monthly</option>
                   <option value="quarterly">Quarterly</option><option value="annually">Annually</option>
                 </select>
-                <input type="date" value={form.nextRunDate} onChange={e => setForm(f => ({ ...f, nextRunDate: e.target.value }))} className="ff-input" required />
+                <DateField label="First Run Date" name="nextRunDate" required value={form.nextRunDate || null}
+                  onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })), form.nextRunDate)} />
               </div>
               {!editId && (
                 <div className="space-y-2">
@@ -210,7 +216,7 @@ export default function RecurringJournalsPage() {
                   </div>
                   {formLines.map(line => (
                     <div key={line.key} className="flex items-center gap-2">
-                      <select value={line.glAccountId} onChange={e => setFormLines(p => p.map(l => l.key === line.key ? { ...l, glAccountId: e.target.value } : l))} className="ff-select flex-1">
+                      <select aria-label="Account" value={line.glAccountId} onChange={e => setFormLines(p => p.map(l => l.key === line.key ? { ...l, glAccountId: e.target.value } : l))} className="ff-select flex-1">
                         <option value="">Account *</option>
                         {accounts.map(a => <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>)}
                       </select>

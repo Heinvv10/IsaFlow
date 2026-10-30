@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { MSG, bad400, empty500, okRes, rawJsonError, router } from '../helpers/d2CensusH4';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 configure({ asyncUtilTimeout: 4000 });
 const routerState = vi.hoisted(() => ({ query: {} as Record<string, string> }));
@@ -47,8 +48,8 @@ describe('Accounting dashboard hero figures', () => {
     expect(await screen.findByText('Could not load the dashboard figures - try again')).toBeTruthy(); noRawJson();
   });
   it('shows the figures on success', async () => {
-    script([[SITE, () => okRes({ kpis: { revenue: { total: 123456 }, receivables: { total: 5 }, cash: { total: 7 } } })]]); render(<AccountingPage />);
-    expect(await screen.findByText(/123\.5K/)).toBeTruthy();
+    script([[SITE, () => okRes({ kpis: { revenue: { total: 999999 }, revenueMtd: 123456, receivables: { total: 5 }, cash: { total: 7 } } })]]); render(<AccountingPage />);
+    expect(await screen.findByText(formatMoney(123456).replace(/\s/g, ' '))).toBeTruthy();
   });
 });
 
