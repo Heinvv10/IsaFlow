@@ -11,6 +11,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { useDensity } from '@/components/accounting/reportControls/useDensity';
 import { yearOptionLabel } from '@/components/accounting/budgets/budgetClient';
 import { BudgetGrid } from './BudgetGrid';
+import { saveGridNote } from './budgetWorkspaceClient';
 import { CreateWizard } from './CreateWizard';
 import { downloadDirtyCells } from './downloadDirtyCells';
 import { GridToolbar } from './GridToolbar';
@@ -179,7 +180,8 @@ export function BudgetWorkspace() {
             )}
             <BudgetGrid store={grid.store} view={grid.view} roundingUnit={grid.roundingUnit} density={density} showPy={showPy}
               compareLabel={compareLabel} canWrite={editable} members={grid.members}
-              onSave={() => { void grid.save(); }} onExit={exitToSaveBar} />
+              onSave={() => { void grid.save(); }} onExit={exitToSaveBar}
+              fiscalYear={version.fiscalYear} onSaveNote={(accountId, note) => saveGridNote(version.id, accountId, note)} />
           </>
         )}
       </div>

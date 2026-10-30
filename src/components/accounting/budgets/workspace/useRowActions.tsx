@@ -1,6 +1,7 @@
 /**
  * Runs the grid's row actions (spec §5.5, §6.5, §11): the ones without input write straight
- * through the store, the others open SpreadDialog / GrainChangeDialog. Every action is ONE
+ * through the store, the others open SpreadDialog / GrainChangeDialog / NoteDialog (a note is saved
+ * on its own through `onSaveNote`, never as a grid amount, and lands in the store with `setNote`). Every action is ONE
  * `store.apply` (one undo entry) plus an announcement. Focus returns to the row's first cell
  * when a dialog closes (spec §12), through the store (`focusPos`), so the grid state, the roving
  * tab stop and DOM focus agree (QA-10). `onRowAction` keeps one identity for the grid's life:
@@ -18,11 +19,13 @@ import type { LineRow } from './BudgetGridRow';
 import type { RowAction } from './RowActionsMenu';
 import { SpreadDialog, type NamedChild, type RowCells, type SpreadTarget } from './SpreadDialog';
 import { GrainChangeDialog, type GrainChangeTarget } from './GrainChangeDialog';
+import { NoteDialog, type NoteTarget } from './NoteDialog';
+import type { ApiResult } from './types';
 import { type CellWriteByKey, clearWrites, grainChangeWrites, rowWrites } from './rowActionWrites';
 
 export interface DimensionMember { id: string; code: string; name: string }
 
-interface UseRowActionsArgs {
+export interface UseRowActionsArgs {
   store: GridStore;
   layout: GridLayout;
   roundingUnit: RoundingUnit;
@@ -31,19 +34,24 @@ interface UseRowActionsArgs {
   members: readonly DimensionMember[];
   /** The keyboard hook's store-driven focus (state + tab stop + DOM). */
   focusPos(pos: Pos): void;
+  /** The version's financial-year label (a note is shown on every version of it). */
+  fiscalYear: number;
+  /** Saves one account's note for the viewed version's year; the result is the note as stored. */
+  onSaveNote(accountId: string, note: string | null): Promise<ApiResult<{ note: string | null }>>;
 }
 
 const DIM_LABEL = { cc1: 'CC1', cc2: 'CC2', bu: 'BU' } as const;
 const rowLabel = (row: LineRow) => `${row.account.code} ${row.account.name}`;
 
-export function useRowActions({ store, layout, roundingUnit, view, members, focusPos }: UseRowActionsArgs): {
+export function useRowActions({ store, layout, roundingUnit, view, members, focusPos, fiscalYear, onSaveNote }: UseRowActionsArgs): {
   onRowAction(row: LineRow, action: RowAction): void;
   dialogs: ReactNode;
 } {
   const [spread, setSpread] = useState<{ target: SpreadTarget; r: number } | null>(null);
   const [grain, setGrain] = useState<{ target: GrainChangeTarget; r: number } | null>(null);
-  const live = useRef({ layout, view, members, focusPos });
-  useEffect(() => { live.current = { layout, view, members, focusPos }; });
+  const [note, setNote] = useState<{ target: NoteTarget; r: number } | null>(null);
+  const live = useRef({ layout, view, members, focusPos, onSaveNote });
+  useEffect(() => { live.current = { layout, view, members, focusPos, onSaveNote }; });
 
   const cellsOf = useCallback((row: LineRow): RowCells => {
     const keys = live.current.layout.months.map((_, c) => store.cellKeyAt({ r: row.index, c })).filter((k): k is CellKey => k !== null);
@@ -91,6 +99,9 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
         setSpread({ r: row.index, target });
         return;
       }
+      case 'note':
+        setNote({ r: row.index, target: { accountId: row.account.id, accountLabel: label, note: snap.note, readOnly: action.readOnly } });
+        return;
       case 'grain': {
         const { view, members, layout } = live.current;
         const id = row.account.id;
@@ -109,7 +120,16 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
     }
   }, [cellsOf, childrenOf, store, write]);
 
-  const close = (r: number) => { setSpread(null); setGrain(null); refocus(r); };
+  const close = (r: number) => { setSpread(null); setGrain(null); setNote(null); refocus(r); };
+
+  const saveNote = async (r: number, target: NoteTarget, text: string): Promise<string | null> => {
+    const res = await live.current.onSaveNote(target.accountId, text);
+    if (!res.ok) return res.message;
+    store.setNote(target.accountId, res.data.note);
+    store.announce(res.data.note === null ? `Note removed from ${target.accountLabel}` : `Note saved for ${target.accountLabel}`);
+    close(r);
+    return null;
+  };
 
   const dialogs = (
     <>
@@ -122,6 +142,11 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
         <GrainChangeDialog key={grain.r} target={grain.target}
           onClose={() => close(grain.r)}
           onApply={(writes, text) => { write(writes, text); close(grain.r); }} />
+      )}
+      {note && (
+        <NoteDialog key={note.r} target={note.target} fiscalYear={fiscalYear}
+          onClose={() => close(note.r)}
+          onSave={text => saveNote(note.r, note.target, text)} />
       )}
     </>
   );
