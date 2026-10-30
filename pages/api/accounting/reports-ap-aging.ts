@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { parsePagination } from '@/lib/pagination';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
@@ -80,7 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rows = (await sql`
       SELECT
         si.id,
-        s.name                                          AS supplier_name,
+        COALESCE(s.name, ${UNKNOWN_SUPPLIER})            AS supplier_name,
         si.invoice_number,
         si.invoice_date::text                           AS invoice_date,
         si.due_date::text                               AS due_date,
@@ -89,7 +90,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         (si.total_amount - ${sql.unsafe(paid)})         AS balance_due,
         GREATEST(0, (${asAtStr}::date - COALESCE(si.due_date, si.invoice_date)))  AS days_overdue
       FROM supplier_invoices si
-      JOIN suppliers s
+      -- LEFT: a bill naming another company's supplier stays in the rows, as it
+      -- does in the summary below, under UNKNOWN_SUPPLIER (never B's name).
+      LEFT JOIN suppliers s
         ON s.id = si.supplier_id
        AND s.company_id = si.company_id
       LEFT JOIN LATERAL (
