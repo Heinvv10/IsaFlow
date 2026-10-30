@@ -28,6 +28,11 @@ export interface PayrollComponent {
   isTaxable: boolean;
   isUifApplicable: boolean;
   isSdlApplicable: boolean;
+  /**
+   * A retirement fund contribution (4001/4003/4006 deduction) the employee pays the fund directly: counted for
+   * the s11F deduction and the certificate, never deducted from pay (migration 948, PAYE 4c). Absent = false.
+   */
+  paidOutsidePayroll?: boolean;
 }
 
 /** The SARS tax directive a lump-sum component (39xx) is paid under, and the PAYE it prescribes. */
@@ -158,15 +163,19 @@ export interface ComponentBreakdownItem {
   isTaxable: boolean;
   isUifApplicable: boolean;
   directive?: DirectiveFigures;
+  /** Set on an employee retirement fund contribution (4001/4003/4006 deduction; PAYE 4c, migration 948). */
+  retirementContribution?: true;
+  /** Set on a contribution paid outside payroll: not deducted from this line's net pay. */
+  paidOutsidePayroll?: true;
 }
 
 /** An employee's earlier periods of the tax year, as the cumulative PAYE needs them. */
 export interface PayeYearToDate {
   /** Periods with periodic pay (the n of the cumulative formula, before this one). */
   periods: number;
-  /** Periodic taxable remuneration, after taxable deductions. */
+  /** Periodic taxable remuneration, after taxable deductions other than retirement fund contributions (PAYE 4c: before that deduction). */
   periodicTaxable: number;
-  /** Annual payments (3605) taxed by the annual-payment method. */
+  /** Annual payments (3605) taxed by the annual-payment method, before the retirement fund deduction. */
   annualPayments: number;
   /** PAYE deducted by the tables (regular + annual payments), directive PAYE excluded. */
   tablePaye: number;
@@ -176,6 +185,12 @@ export interface PayeYearToDate {
   additionalMedicalCredit: number;
   /** Medical scheme fees deducted on those lines (4005; a line before 926 from its breakdown, payrollMedicalRecord). */
   medicalSchemeFees: number;
+  /** Retirement fund contributions on those lines (4001/4003/4006; payroll_run_lines.retirement_contributions); absent = none. */
+  retirementContributions?: number;
+  /** Retirement fund deduction those lines recorded (retirement_deduction; payeCumulative); absent = none. */
+  retirementDeduction?: number;
+  /** Donations (4030) deducted on those lines as taxable deductions, for the s11F base; absent = none. */
+  donations?: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */
@@ -191,9 +206,9 @@ export interface PayeSplit {
 export interface PayrollLineResult {
   employeeId: string;
   grossPay: number;
-  /** Regular plus annual-payment remuneration: what the tax tables were applied to. Lump sums are not in it. */
+  /** Regular plus annual-payment remuneration, before the retirement fund deduction (`retirementDeduction`). Lump sums are not in it. */
   taxableIncome: number;
-  /** taxableIncome split: periodic and annual payments (stored on the line for the next period's year-to-date). */
+  /** Periodic and annual-payment remuneration BEFORE the retirement fund deduction (stored on the line for the next period's year-to-date). */
   periodicTaxable: number;
   annualTaxable: number;
   /** The regular calculation's figures, except `monthlyPaye`, which is the line's whole PAYE (payeSplit summed). */
@@ -205,6 +220,10 @@ export interface PayrollLineResult {
   additionalMedicalCredit: number;
   /** Medical scheme fees deducted on this line: deductions coded 4005 (e@syFile 4005). */
   medicalSchemeFees: number;
+  /** Employee retirement fund contributions on this line: deductions coded 4001/4003/4006 (PAYE 4c). */
+  retirementContributions: number;
+  /** The retirement fund deduction this line's PAYE took into account (payeCumulative; section 11F). */
+  retirementDeduction: number;
   uif: UifResult;
   sdl: number;
   /** Remuneration this line contributes to the SDL leviable amount. */

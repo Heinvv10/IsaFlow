@@ -55,7 +55,7 @@ describe('assignComponentToEmployee', () => {
       EMPLOYEE_ID,
       COMPONENT_ID,
       5000,
-      new Date('2025-01-01'),
+      '2025-01-01',
     );
 
     expect(result).toEqual({
@@ -92,7 +92,7 @@ describe('assignComponentToEmployee', () => {
     };
 
     await assignComponentToEmployee(
-      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, new Date('2025-03-01'), undefined, false,
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01', undefined, false,
     );
 
     const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
@@ -112,7 +112,7 @@ describe('assignComponentToEmployee', () => {
     };
 
     await assignComponentToEmployee(
-      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, new Date('2025-03-01'),
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01',
     );
 
     const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
@@ -134,9 +134,46 @@ describe('assignComponentToEmployee', () => {
         EMPLOYEE_ID,
         COMPONENT_ID,
         5000,
-        new Date('2025-01-01'),
+        '2025-01-01',
       ),
     ).rejects.toThrow(`Payroll employee ${EMPLOYEE_ID} not found in company`);
+  });
+});
+
+describe('assignComponentToEmployee: date-only values round-trip (PAYE 4c)', () => {
+  // The MCP tool built a LOCAL-midnight Date from 'YYYY-MM-DD' and the service rendered it with
+  // toISOString(), so east of UTC a once-off dated the 1st was stored the day before and closed at
+  // the PREVIOUS month-end, and dropped out of its run. The day is now passed and stored as it is.
+  const insertValues = () => sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'))!.values;
+  beforeEach(() => {
+    mockImpl = (strings) => {
+      const query = strings.join('?');
+      if (query.includes('FROM payroll_employees')) return Promise.resolve([{ id: EMPLOYEE_ID }]);
+      return Promise.resolve([{
+        id: ASSIGNMENT_ID, employee_id: EMPLOYEE_ID, component_id: COMPONENT_ID,
+        amount: '2708.59', effective_from: '2026-10-01', effective_to: '2026-10-31', is_recurring: false,
+      }]);
+    };
+  });
+
+  it('a once-off dated the 1st is stored on the 1st and closes at the end of ITS month', async () => {
+    await assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 2708.59, '2026-10-01', undefined, false);
+    expect(insertValues()).toContain('2026-10-01');
+    expect(insertValues()).toContain('2026-10-31');
+    expect(insertValues()).not.toContain('2026-09-30');
+  });
+
+  it('the last day of a month, and a caller-supplied effective_to, are stored unchanged', async () => {
+    await assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 100, '2028-02-29', '2028-03-01', true);
+    expect(insertValues()).toEqual(expect.arrayContaining(['2028-02-29', '2028-03-01']));
+  });
+
+  it('refuses a value that is not a calendar day, before any query', async () => {
+    for (const bad of ['2026-02-30', '2026-10-1', '01/10/2026', '2026-10-01T00:00:00Z']) {
+      sqlCalls.length = 0;
+      await expect(assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 100, bad)).rejects.toThrow(/YYYY-MM-DD/);
+      expect(sqlCalls, bad).toHaveLength(0);
+    }
   });
 });
 
