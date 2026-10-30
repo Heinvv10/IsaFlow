@@ -93,6 +93,49 @@ jobs:
           JWT_SECRET: test-secret-for-ci-only
           NODE_ENV: test
 
+  # Which golden-paths concurrency group this run takes (see golden-paths).
+  # "queue" for a run the merge queue is waiting on: a batch PR
+  # (merge-queue/* head) or a PR labelled in-merge-queue. In single mode the
+  # queue updates the branch server-side and labels the PR a few seconds
+  # later, so the label is not in the event payload; read it from the API,
+  # and when the head was committed by GitHub (web-flow, as update-branch is)
+  # give the label up to a minute to arrive. Any error means "pr", the old
+  # behaviour. Not a required check.
+  golden-lane:
+    name: Golden Paths lane
+    runs-on: [self-hosted, linux, velo]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
+    steps:
+      - name: Decide the lane
+        id: lane
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          lane="pr"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            case "$HEAD_REF" in merge-queue/*) lane="queue" ;; esac
+            if [ "$lane" = "pr" ]; then
+              tries=1
+              committer=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.committer.login // ""') || committer=""
+              [ "$committer" = "web-flow" ] && tries=12
+              for i in $(seq 1 "$tries"); do
+                if gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name' | grep -qx in-merge-queue; then lane="queue"; break; fi
+                if [ "$i" -lt "$tries" ]; then sleep 5; fi
+              done
+            fi
+          fi
+          echo "lane=$lane" | tee -a "$GITHUB_OUTPUT"
+
   # Golden-paths money-flow E2E (A–Z programme). BLOCKING since Phase 3
   # (P3.1): a red money path fails the whole run — no continue-on-error, no
   # silent skip. Boots a dev server against isaflow_dev using the runner-local
@@ -100,7 +143,9 @@ jobs:
   golden-paths:
     name: Golden Paths E2E (blocking)
     runs-on: [self-hosted, linux, velo]
-    timeout-minutes: 30
+    # Green runs took 19-30 min on 2026-10-29 (one 29m40s), and at load 60-85
+    # two runs of #949 hit a 30-min cap mid-suite, ending cancelled, not red.
+    timeout-minutes: 45
     # Each runner owns one Golden Paths slot: a company of its own on isaflow_dev
     # with its own golden user (the step below maps $RUNNER_NAME to GOLDEN_SLOT_n
     # in /home/hein/isaflow-ci.env; scripts/ci/golden/provision-slots.ts creates
@@ -113,12 +158,19 @@ jobs:
     # (runner exclusivity does that): it only stops two golden runs of one ref
     # from running at once. GitHub keeps one running and one PENDING job per
     # group and cancels an older pending one, which the merge queue re-runs up
-    # to twice per head. A master push that skips (the step below) still enters
-    # its ref's group, but holds it for seconds. It cannot take a per-sha group
-    # instead: the group is fixed before the step decides, and a push that falls
-    # back to the full suite must not overlap the PR runs of that ref.
+    # to twice per head; a PR push used to cancel the queue's pending run that
+    # way, and the queue ejected the PR (#938, 2026-10-29). Runs the queue
+    # waits on (golden-lane) therefore take their own -queue group, which an
+    # ordinary run cannot cancel. A master push that skips (the step below)
+    # still enters its ref's group, but holds it for seconds. It cannot take a
+    # per-sha group instead: the group is fixed before the step decides, and a
+    # push that falls back to the full suite must not overlap the PR runs of
+    # that ref. !cancelled(): a failed golden-lane still runs the suite, in the
+    # ordinary group.
+    needs: golden-lane
+    if: ${{ !cancelled() }}
     concurrency:
-      group: golden-paths-${{ github.ref }}
+      group: golden-paths-${{ github.ref }}${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
       cancel-in-progress: false
     # Read-only; for the merge check below (as in quality).
     permissions:

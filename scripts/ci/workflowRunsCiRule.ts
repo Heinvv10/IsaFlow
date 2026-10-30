@@ -68,19 +68,25 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * Concurrency groups are repo-wide, across workflows: any other job or
  * workflow that takes the ci- group cancels quality. Scanning group strings is
  * another arms race, so the SET is fixed instead: ci.yml is the only workflow
- * file, its jobs are exactly these, and golden-paths keeps its own group. A new
- * workflow or job means changing this rule in review.
+ * file, its jobs are exactly these, golden-paths keeps its own group, and
+ * golden-lane takes none. A new workflow or job means changing this rule in
+ * review.
  *
  * golden-paths' group is per ref, not one group for every ref: the suite writes
  * to a Golden Paths slot company (ci.yml maps the runner to one, and a runner
  * runs one job at a time), so runs of different refs may overlap on different
  * runners. The group only stops two golden runs of one ref from running at once
- * (it is not what keeps slots apart). It must stay clear of the `ci-` prefix
- * (quality's group, which cancels) and must never cancel.
+ * (it is not what keeps slots apart). Runs the merge queue waits on (chosen by
+ * golden-lane) take a -queue suffix, so an ordinary run cannot cancel their
+ * pending job (#938). It must stay clear of the `ci-` prefix (quality's group,
+ * which cancels) and must never cancel.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['quality', 'golden-paths'];
-const GOLDEN_PATHS_CONCURRENCY = { group: 'golden-paths-${{ github.ref }}', 'cancel-in-progress': false };
+const JOBS = ['quality', 'golden-lane', 'golden-paths'];
+const GOLDEN_PATHS_CONCURRENCY = {
+  group: "golden-paths-${{ github.ref }}${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
+  'cancel-in-progress': false,
+};
 /**
  * The token every job gets. With `actions: write` any job (golden-paths
  * included) could `gh run cancel` the run, ending quality CANCELLED. Pinned at
@@ -196,6 +202,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
       || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
       errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+    }
+    const lane = jobs['golden-lane'];
+    if (isObj(lane) && 'concurrency' in lane) {
+      errors.push('jobs.golden-lane sets concurrency; it must take no group (the ci- group would cancel quality)');
     }
   }
   const job = isObj(jobs) ? jobs[QUALITY_JOB] : undefined;
