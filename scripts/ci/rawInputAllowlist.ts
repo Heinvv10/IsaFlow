@@ -2,12 +2,38 @@
  * The logic of scripts/ci/check-raw-input-allowlist.ts, apart from eslint and the file system, so it can be
  * unit-tested (tests/unit/ci/rawInputAllowlist.test.ts).
  *
- * The allowlist is `path -> number of rule reports` for the files that still use a raw date input or an
- * unlabelled <input>. It may only shrink: a file's count may not rise, and must be lowered (or the entry removed)
- * as soon as the file improves; entries may not be added or raised against the base ref.
+ * Each allowlist is `path -> number of rule reports`: eslint/raw-input-allowlist.json for a raw date input or an
+ * unlabelled <input> (isaflow/no-raw-form-input), eslint/unnamed-control-allowlist.json for an unnamed <select>
+ * or <textarea> (isaflow/no-unnamed-control). Each may only shrink: a file's count may not rise, and must be
+ * lowered (or the entry removed) as soon as the file improves; entries may not be added or raised against the
+ * base ref. A list that is absent on the base ref is being introduced, so it is created once at its measured size.
  */
 
 export type Counts = Record<string, number>;
+
+/** One allowlist and the words its messages use. */
+export interface ListSpec {
+  path: string;
+  tag: string;
+  /** What a report is, for NEW: "raw date input(s) or unlabelled <input>(s)". */
+  what: string;
+  /** How to fix one, for NEW and GROWN. */
+  fix: string;
+}
+
+export const RAW_INPUT_LIST: ListSpec = {
+  path: 'eslint/raw-input-allowlist.json',
+  tag: '[raw-input-allowlist]',
+  what: 'raw date input(s) or unlabelled <input>(s)',
+  fix: 'Use the kit (Input, MoneyField, DateField) or label it',
+};
+
+export const UNNAMED_CONTROL_LIST: ListSpec = {
+  path: 'eslint/unnamed-control-allowlist.json',
+  tag: '[unnamed-control-allowlist]',
+  what: 'unnamed <select>/<textarea>(s)',
+  fix: 'Use the kit (Select, Textarea), or name it with htmlFor/id or aria-label',
+};
 
 /** Runs `git <args>` and returns stdout; throws when git exits non-zero. */
 export type GitRunner = (args: string[]) => string;
@@ -79,18 +105,18 @@ export function readBaseList(ref: string, listPath: string, git: GitRunner): Bas
 }
 
 /** Every reason the list and the tree disagree, or the list grew against `base`. Empty means the gate passes. */
-export function compareCounts(listed: Counts, actual: Counts, base: Counts | null, ref: string): string[] {
+export function compareCounts(listed: Counts, actual: Counts, base: Counts | null, ref: string, list: ListSpec = RAW_INPUT_LIST): string[] {
   const problems: string[] = [];
   const files = [...new Set([...Object.keys(listed), ...Object.keys(actual)])].sort();
   for (const file of files) {
     const have = listed[file];
     const now = actual[file] ?? 0;
     if (have === undefined && now > 0) {
-      problems.push(`NEW: ${file} has ${now} raw date input(s) or unlabelled <input>(s). Use the kit (Input, MoneyField, DateField) or label it; do not add it to the allowlist.`);
+      problems.push(`NEW: ${file} has ${now} ${list.what}. ${list.fix}; do not add it to the allowlist.`);
     } else if (have !== undefined && now === 0) {
-      problems.push(`STALE: ${file} no longer violates (or is gone). Remove it from eslint/raw-input-allowlist.json (bun scripts/ci/check-raw-input-allowlist.ts --write).`);
+      problems.push(`STALE: ${file} no longer violates (or is gone). Remove it from ${list.path} (bun scripts/ci/check-raw-input-allowlist.ts --write).`);
     } else if (have !== undefined && now > have) {
-      problems.push(`GROWN: ${file} now has ${now} (list says ${have}). A listed file may not gain raw inputs; use the kit or label them.`);
+      problems.push(`GROWN: ${file} now has ${now} (list says ${have}). A listed file may not gain more. ${list.fix}.`);
     } else if (have !== undefined && now < have) {
       problems.push(`SHRUNK: ${file} now has ${now} (list says ${have}). Lower the count (bun scripts/ci/check-raw-input-allowlist.ts --write).`);
     }
@@ -128,18 +154,23 @@ export interface GateDeps {
   writeList: (counts: Counts) => void;
   log: (line: string) => void;
   error: (line: string) => void;
+  /** Which list this run checks; RAW_INPUT_LIST when omitted. */
+  list?: ListSpec;
 }
-
-const LIST_PATH = 'eslint/raw-input-allowlist.json';
-const TAG = '[raw-input-allowlist]';
 
 /** The whole gate; returns the process exit code. The base ref is settled BEFORE the slow ESLint run. */
 export async function runGate(deps: GateDeps): Promise<number> {
   const { env, git, log, error } = deps;
-  // Refused in CI for `--write` too: it does not read the base, but a CI that sets the override is wrong either way.
+  const list = deps.list ?? RAW_INPUT_LIST;
+  const { path: listPath, tag } = list;
   const resolved = resolveBaseRef(env);
   if (!resolved.ok) {
-    error(`${TAG} FAIL: ${resolved.reason}`);
+    error(`${tag} FAIL: ${resolved.reason}`);
+    return 1;
+  }
+  // `--write` regenerates the list from the tree and never compares with the base, so in CI it would pass anything.
+  if (deps.writing && isCI(env)) {
+    error(`${tag} FAIL: --write is refused in CI; it rewrites ${listPath} without checking that the list only shrinks.`);
     return 1;
   }
   const ref = resolved.ref;
@@ -147,38 +178,38 @@ export async function runGate(deps: GateDeps): Promise<number> {
   const text = deps.readList();
   if (text === null) {
     if (!deps.writing) {
-      error(`${TAG} ${LIST_PATH} is missing`);
+      error(`${tag} ${listPath} is missing`);
       return 1;
     }
     const fresh = await deps.actualCounts();
     deps.writeList(fresh);
-    log(`${TAG} wrote ${Object.keys(fresh).length} entries`);
+    log(`${tag} wrote ${Object.keys(fresh).length} entries`);
     return 0;
   }
-  const listed = parseCounts(text, LIST_PATH);
+  const listed = parseCounts(text, listPath);
 
   const actual = await deps.actualCounts();
   if (deps.writing) {
     const pruned = pruneCounts(listed, actual);
     deps.writeList(pruned);
-    const stillBad = compareCounts(pruned, actual, null, '').filter((p) => !p.startsWith('SHRUNK'));
-    log(`${TAG} pruned: ${Object.keys(pruned).length} files left`);
-    stillBad.forEach((p) => error(`${TAG} ${p}`));
+    const stillBad = compareCounts(pruned, actual, null, '', list).filter((p) => !p.startsWith('SHRUNK'));
+    log(`${tag} pruned: ${Object.keys(pruned).length} files left`);
+    stillBad.forEach((p) => error(`${tag} ${p}`));
     return stillBad.length > 0 ? 1 : 0;
   }
 
-  const base = readBaseList(ref, LIST_PATH, git);
+  const base = readBaseList(ref, listPath, git);
   if (base.kind === 'no-ref') {
     const where = isCI(env) ? 'FAIL' : 'warn';
-    error(`${TAG} ${where}: base ref ${ref} is not available, cannot check that the list only shrinks.`);
+    error(`${tag} ${where}: base ref ${ref} is not available, cannot check that the list only shrinks.`);
     if (where === 'FAIL') return 1;
   } else if (base.kind === 'no-list') {
-    log(`${TAG} ${ref} has no allowlist yet: this change introduces it, nothing to compare.`);
+    log(`${tag} ${ref} has no allowlist yet: this change introduces it, nothing to compare.`);
   }
-  const problems = compareCounts(listed, actual, base.kind === 'list' ? base.counts : null, ref);
-  problems.forEach((p) => error(`${TAG} ${p}`));
+  const problems = compareCounts(listed, actual, base.kind === 'list' ? base.counts : null, ref, list);
+  problems.forEach((p) => error(`${tag} ${p}`));
   if (problems.length > 0) return 1;
   const total = Object.values(listed).reduce((a, b) => a + b, 0);
-  log(`${TAG} ok: ${Object.keys(listed).length} files (${total} reports) still to migrate, none new, none stale`);
+  log(`${tag} ok: ${Object.keys(listed).length} files (${total} reports) still to migrate, none new, none stale`);
   return 0;
 }

@@ -52,7 +52,7 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
   useEffect(() => {
     if (prevInvoiceDate.current === form.invoiceDate) return;
     prevInvoiceDate.current = form.invoiceDate;
-    onDateValidity('dueDate', { valid: true, reason: null });
+    onDateValidity('dueDate', { valid: true, code: null, reason: null });
     setDueRevalidate((k) => k + 1);
   }, [form.invoiceDate, onDateValidity]);
   const date = (key: InvoiceDateKey, label: string, extra: { required?: boolean; minDate?: string; error?: string } = {}) => (
