@@ -1,7 +1,7 @@
 // Report filter dates are DateFields: typed text commits on blur / Enter, and refused text never
 // reaches the filter state, so it never fetches. Sales by Item stands for the 28 report pages.
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { dateFieldInputs, typeDate } from '../helpers/dateFields';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -30,6 +30,10 @@ describe('report filter dates', () => {
   });
 
   it('Enter commits the typed date', async () => {
+    // "eom" must differ from the default `to` (today), which it does not on a month's last day: pin mid-month.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 8, 10, 12, 0, 0));
+    onTestFinished(() => { vi.useRealTimers(); });
     const { container } = render(<SalesByItem />);
     await waitFor(() => expect(reportUrls().length).toBe(1));
     const to = dateFieldInputs(container)[1]!;
