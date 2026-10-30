@@ -73,7 +73,7 @@ const HOSTED_IF = "${{ runner.environment == 'github-hosted' }}";
 type HostedStep = { uses: string; with: Record<string, unknown> } | { run: string };
 /**
  * The hosted-only steps before install, in order, exactly; setup-bun pinned to a commit (third-party). Then the
- * group's apt step: what velo has and the group spawns (static: gs; velo: PostgreSQL 16 + pgvector, LibreOffice).
+ * group's apt step: what velo has and the group spawns (static: gs; velo: PostgreSQL 16 + pgvector, LibreOffice, poppler).
  */
 const HOSTED_TOOLS: HostedStep[] = [
   { uses: 'actions/setup-node@v6', with: { 'node-version': 20 } },
@@ -89,7 +89,7 @@ const HOSTED_TOOLS: HostedStep[] = [
 ];
 const HOSTED_APT: Record<string, HostedStep> = {
   static: { run: 'sudo apt-get update -qq\nsudo apt-get install -y -qq --no-install-recommends ghostscript' },
-  velo: { run: 'sudo apt-get update -qq\nsudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui\nsudo locale-gen en_US.UTF-8' },
+  velo: { run: 'sudo apt-get update -qq\nsudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils\nsudo locale-gen en_US.UTF-8' },
 };
 /** Hosted-only, between install and the gate: Chromium at the locked playwright's revision. */
 const HOSTED_AFTER_INSTALL: HostedStep[] = [{ run: 'bunx playwright install --with-deps chromium' }];
