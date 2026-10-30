@@ -50,7 +50,7 @@
  */
 
 import {
-  CHECKOUT, JOB_PERMISSIONS, QUALITY_JOB, QUALITY_NAME, checkGateJobs, extraKeys, isObj, sameList, sameMap,
+  CHECKOUT, JOB_PERMISSIONS, QUALITY_JOB, QUALITY_NAME, checkGateJobs, extraKeys, isObj, sameList, sameMap, type Obj,
 } from './workflowGateJobs';
 
 export { QUALITY_JOB };

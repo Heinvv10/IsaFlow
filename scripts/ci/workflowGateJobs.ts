@@ -116,7 +116,7 @@ const QUALITY_RUN = [
   '[ "$ROUTE" = "success" ] && [ "$VELO" = "success" ] && { [ "$STATIC" = "success" ] || [ "$FALLBACK" = "success" ]; }',
 ].join('\n');
 
-type Obj = Record<string, unknown>;
+export type Obj = Record<string, unknown>;
 export const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export function sameList(v: unknown, want: string[]): boolean {
