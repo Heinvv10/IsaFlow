@@ -40,6 +40,31 @@ run_step() {
   fi
 }
 
+# Velo froze on 27 Oct 2026 when memory and swap ran out; its rule
+# (/home/hein/AGENTS-VELO-RULES.md) is that Chromium and `next build` outside CI
+# run through agent-run, a systemd-run --user --scope into agents.slice (24G
+# hard cap). So the local run (and the pre-push hook) wraps those two steps
+# when agent-run is installed, and runs them unchanged anywhere else. Not on
+# GitHub (GITHUB_ACTIONS/CI=true): the self-hosted runners are system services
+# whose users have no systemd user session, so `systemd-run --user` would fail
+# every run there. CI_NO_AGENT_RUN=1 opts out. agent-run execs systemd-run
+# --scope, which runs the command in this environment and cwd and returns its
+# exit code, so a failing step still fails. AGENT_RUN_BIN is for the tests.
+AGENT_RUN_BIN="${AGENT_RUN_BIN:-/usr/local/bin/agent-run}"
+capped() {
+  if [ "${GITHUB_ACTIONS:-}" != "true" ] && [ "${CI:-}" != "true" ] \
+    && [ "${CI_NO_AGENT_RUN:-}" != "1" ] && [ -x "$AGENT_RUN_BIN" ]; then
+    "$AGENT_RUN_BIN" "$@"
+    local rc=$?
+    # agent-run also fails when there is no systemd user session (cron, a bare
+    # ssh shell without linger); that would read like a test failure.
+    [ "$rc" -eq 0 ] || echo "[ci] note: this step ran through $AGENT_RUN_BIN; if it failed before the command started (no systemd user session), re-run with CI_NO_AGENT_RUN=1" >&2
+    return "$rc"
+  else
+    "$@"
+  fi
+}
+
 # A bunfig.toml `preload` runs before every bun process, so one that calls
 # process.exit(0) would pass every gate below that runs under bun, the
 # workflow-runs-ci check included. Checked in bash for that reason; the repo
@@ -129,7 +154,7 @@ if in_group velo; then
 # unit-tests above, where they timed out beside ~800 parallel files, and
 # run here one file at a time. REQUIRED, like every other step: a failure or a
 # timeout fails the gate.
-run_step "browser-tests"     bun run test:print
+run_step "browser-tests"     capped bun run test:print
 
 # Every tests/integration/**/*.int.test.ts against throwaway PostgreSQL 16
 # clusters the step starts and removes itself (initdb as the current user; no
@@ -168,7 +193,7 @@ if ! in_group static; then
 elif [ "${CI_SKIP_BUILD:-0}" = "1" ]; then
   echo "[skip] build: CI_SKIP_BUILD=1"
 else
-  run_step "build"           env NODE_ENV=production bun run build
+  run_step "build"           capped env NODE_ENV=production bun run build
 fi
 
 echo ""

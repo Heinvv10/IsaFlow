@@ -180,7 +180,7 @@ const GET_APIS = [
   '/api/accounting/reports-income-statement?period_start=2026-01-01&period_end=2026-03-31',
   '/api/accounting/reports-balance-sheet?as_at_date=2026-03-28',
   '/api/accounting/reports-cash-flow?period_start=2026-01-01&period_end=2026-03-31',
-  '/api/accounting/reports-budget-vs-actual?period=current',
+  '/api/accounting/reports-budget-tracking?period=ytd',
   '/api/accounting/reports-audit-trail',
   '/api/accounting/ar-aging',
   '/api/accounting/ap-aging',
