@@ -12,10 +12,12 @@ import path from 'path';
 // VELO_MACHINE_FILES need a binary from velo itself, and `browser-tests` runs
 // on velo (run-ci.sh's `velo` group) while `unit-tests` runs on GitHub-hosted
 // runners. There they would skip (soffice: describe.skipIf) or fail (PG16's
-// initdb at /usr/lib/postgresql/16/bin) instead of testing anything.
+// initdb at /usr/lib/postgresql/16/bin; nginx, which fails when GITHUB_ACTIONS
+// is set) instead of testing anything.
 export const VELO_MACHINE_FILES = [
   'tests/unit/lib/xlsxNormaliseScanNames.test.ts', // /usr/bin/soffice (LibreOffice)
   'tests/unit/ci/integrationLifecycle.test.ts', // PostgreSQL 16 initdb/pg_ctl
+  'tests/unit/scripts/blueGreenNginx.test.ts', // /usr/sbin/nginx
 ];
 
 export default defineConfig(({ mode }) => {
