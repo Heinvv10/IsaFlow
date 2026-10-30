@@ -3,7 +3,7 @@
  * finds every limiter call in a set of sources and resolves it to the key
  * pattern and limit it produces. Kept apart from the test for the 300-line cap.
  */
-export const NAMES = 'checkRateLimit|chargeRateLimit|checkAiRateLimit|checkSendRateLimit|checkReportRateLimit|withRateLimit|refundRateLimit';
+export const NAMES = 'checkRateLimit|chargeRateLimit|checkAiRateLimit|checkSendRateLimit|checkReportRateLimit|chargeReportRateLimit|withRateLimit|refundRateLimit';
 const CALL = new RegExp(`\\b(${NAMES})\\(`, 'g');
 /** The limiter's own files: they define these functions and build the wrapper keys. */
 export const OWN = ['src/lib/rateLimit.ts', 'src/lib/rateLimitCore.ts', 'src/lib/rateLimitQuota.ts'];
@@ -95,7 +95,7 @@ function resolve(fn: string, args: string[], source: string): Array<[string, str
     const o = readOptions(args[1], source, []);
     return scope && o && o.max !== undefined && o.windowSecs !== undefined ? [[`${scope}:ip:*`, limit(o.max, o.windowSecs)]] : null;
   }
-  if (fn === 'checkReportRateLimit') {
+  if (fn === 'checkReportRateLimit' || fn === 'chargeReportRateLimit') {
     const name = keyPattern(args[1]);
     const o = readOptions(args[2], source, []);
     return name && o ? [[`report:${name}:co:*`, limit(o.max ?? 25, o.windowSecs ?? 900)]] : null;

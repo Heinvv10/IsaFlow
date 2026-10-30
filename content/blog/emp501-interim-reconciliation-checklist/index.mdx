@@ -1,0 +1,189 @@
+---
+title: "EMP501 interim reconciliation 2026: a practical checklist before 31 October"
+slug: "emp501-interim-reconciliation-checklist"
+description: "The 2026 interim EMP501 covers 1 March to 31 August. What must reconcile, which channel to use, the penalties, and a step-by-step checklist."
+publishDate: "2026-09-22"
+author: "ISAFlow Team"
+category: "Payroll and PAYE"
+tags: ["EMP501", "IRP5", "PAYE reconciliation", "e@syFile Employer", "SARS eFiling", "payroll compliance"]
+heroImage: "/blog/emp501-interim-reconciliation-checklist/hero.webp"
+heroAlt: "Translucent teal glass cards stacked and aligning into one line, with the headline Six months. One reconciliation."
+ogImage: "/blog/emp501-interim-reconciliation-checklist/og.webp"
+draft: false
+---
+
+**TL;DR**
+
+- The 2026 interim EMP501 covers **1 March 2026 to 31 August 2026**. SARS opened submissions on **21 September** and they close on **31 October 2026**.
+- 31 October is a Saturday this year, so aim to be done by **Friday 30 October**.
+- Your EMP501 must agree three things: PAYE, UIF and SDL declared on your EMP201s, the payments you actually made, and the IRP5/IT3(a) certificates for each employee.
+- Late submission costs **1% of annual PAYE, rising 1% a month to 10%**. Unused ETI can be forfeited.
+- Income tax numbers are mandatory. Missing ones can get your submission rejected.
+
+## What the interim EMP501 is for
+
+Every month you tell SARS what you owe on the [EMP201](/blog/emp201-due-dates-penalties). Twice a year you prove it. The EMP501 reconciliation takes six months of declarations, six months of payments and the tax certificate for every employee, and checks that they agree.
+
+SARS's [2026 interim notice](https://www.sars.gov.za/latest-news/employer-interim-declarations-emp501-21-september-to-october-2026/), dated 31 August 2026, says your EMP501 must reflect:
+
+- **Reconciled PAYE, UIF and SDL values** that match the EMP201s you submitted. Where these differ from the interim IRP5/IT3(a) certificates generated, you must amend the prepopulated figures to the correct amounts.
+- **Actual payments made** in the period, **excluding penalties and interest**.
+- **Accurate payroll and employee information**, including employees' tax reference numbers and the IRP5/IT3(a) certificates for 1 March to 31 August 2026.
+
+The interim is a mid-year check. The annual reconciliation for the full tax year normally runs from 1 April to 31 May ([SARS tax calendar](https://www.sars.gov.za/individuals/i-need-help-with-my-tax/calendar/)). SARS confirms the season dates each year, so check the current notice before you plan around them. Clean up now and May is a formality. Leave it, and May is where it all comes due.
+
+## Key dates and channels for 2026
+
+| Item | 2026 interim |
+| --- | --- |
+| Period covered | 1 March 2026 to 31 August 2026 |
+| Submissions open | 21 September 2026 |
+| Submissions close | 31 October 2026 (a Saturday) |
+| Practical target | Friday 30 October 2026 |
+
+### Which channel to use
+
+- **e@syFile Employer** works for any employer, whatever the number of certificates. SARS said it planned to release an updated build for the interim period in mid-September 2026, and that employers must download and use the latest version once released.
+- **SARS eFiling** works too, but with a maximum of **50 IRP5/IT3(a) certificates per submission**.
+- Employers with **five or fewer certificates** who genuinely can't use either channel can book a SARS branch appointment.
+
+If you run payroll for clients, check the BRS before you build or update payroll exports. SARS published **SARS_PAYE_BRS PAYE Employer Reconciliation V25.3.0** for the 2026-08 interim period, with a new source code for ITREG to reduce duplicate income tax registrations and some minor validation changes.
+
+## Why the EMP501 bites
+
+The penalty for a late EMP501 is not a flat fee. SARS's notice sets it at **1% of your annual PAYE**, increasing by 1% for every month it stays outstanding, up to **10%**.
+
+{/* Static fallback: /blog/emp501-interim-reconciliation-checklist/chart-1.svg */}
+
+<Chart
+  type="bar"
+  title="Late EMP501 penalty as a % of annual PAYE, by months outstanding"
+  source="SARS 2026 interim EMP501 notice, accessed 27 October 2026. For an employer with R600 000 annual PAYE, 1% is R6 000 and 10% is R60 000 (illustrative)."
+  unit="%"
+  data={[
+    { label: "1 month", value: 1 },
+    { label: "2 months", value: 2 },
+    { label: "3 months", value: 3 },
+    { label: "4 months", value: 4 },
+    { label: "5 months", value: 5 },
+    { label: "6 months", value: 6 },
+    { label: "7 months", value: 7 },
+    { label: "8 months", value: 8 },
+    { label: "9 months", value: 9 },
+    { label: "10 months", value: 10 },
+  ]}
+/>
+
+Three other consequences are easy to miss:
+
+1. **Corrections cost money too.** SARS attributes any shortfall you correct on the EMP501 to the **last month of the reconciliation period**, which can bring penalties and interest. Fixing the numbers is right. Fixing them earlier is cheaper.
+2. **ETI can be forfeited.** Employers with unused ETI lose it if they don't submit, or if their tax compliance status is non-compliant.
+3. **It can become criminal.** Wilful or negligent failure to submit an EMP201 or EMP501 is an offence that can carry a fine or up to two years' imprisonment.
+
+## The checklist
+
+Work through this in order. Each step depends on the one before.
+
+### 1. Freeze the period
+
+- Confirm the payroll months in scope: March to August 2026.
+- Stop editing closed payroll months. If something must change, do it as a documented adjustment.
+
+### 2. Fix employee master data first
+
+- Every employee needs a valid **income tax number**. SARS has strictly enforced this on e@syFile Employer and eFiling since the February 2026 filing season, and missing or invalid numbers can get the EMP501 rejected.
+- Use ITREG or BundleReg on eFiling or e@syFile Employer, or the Tax Reference Number Enquiry Service, to register or retrieve numbers.
+- Check ID numbers, names, addresses and banking details on the certificates. Small typos create big validation errors.
+
+{/* OPTIONAL, not for launch: [ISAFLOW SCREENSHOT: Employee list for a sample company with a filter showing employees missing an income tax number, sample data] */}
+
+### 3. Reconcile payroll to declarations
+
+For each month and each tax (PAYE, UIF, SDL):
+
+- Payroll report total
+- EMP201 declared amount
+- Difference, with a reason
+
+If a difference exists, decide whether the payroll or the EMP201 is wrong. Then correct the right one.
+
+### 4. Reconcile declarations to payments
+
+- Pull six months of SARS payments from the bank statements.
+- Match each to its EMP201 by PRN.
+- Leave penalties and interest out of the payment figure on the EMP501. SARS says payments must exclude them.
+
+If your bank reconciliation isn't up to date, this step is painful. Our [month-end bank reconciliation routine](/blog/bank-reconciliation-month-end-sme) gets you there.
+
+### 5. Check ETI
+
+- Confirm every ETI claim was for a qualifying employee, at the right amount for their remuneration band.
+- Any ETI you forgot to claim must be claimed in a later month **within the same reconciliation period**, or it's forfeited ([SARS EMP201 guide](https://www.sars.gov.za/types-of-tax/pay-as-you-earn/completing-the-monthly-employer-declaration-emp201/)). For the bands, see [UIF, SDL and ETI explained](/blog/uif-sdl-eti-guide-small-employers).
+
+### 6. Generate, review and submit
+
+- Generate the certificates and the EMP501.
+- Review the totals against your reconciliation schedule before you submit, not after.
+- Submit, save the confirmation, then check the **PAYE dashboard** to confirm SARS processed it correctly.
+
+### 7. Document what you changed
+
+Write a short note per client: what differed, why, and what you changed. When SARS asks in six months' time, you'll have the answer in a minute.
+
+## For bureaus: run it as a production line
+
+If you reconcile 30 or 80 employers in the same six weeks, the checklist above becomes a pipeline. A few habits help:
+
+- **Triage by risk, not by alphabet.** Start with clients that have missing tax numbers, ETI claims or mid-period terminations.
+- **Use one reconciliation template.** Same columns, same order, every client. Reviewers spot anomalies faster.
+- **Separate preparer and reviewer.** The person who built the reconciliation shouldn't be the only one who checked it.
+
+There's more on this in [how to grow a payroll bureau without hiring more clerks](/blog/scale-bookkeeping-payroll-bureau).
+
+## Where ISAFlow fits
+
+ISAFlow's payroll engine calculates PAYE, UIF and SDL from versioned SARS tax tables, and each company's books are kept separate. Accounting practices get a bureau dashboard across all their clients, set up with you during onboarding.
+
+ISAFlow prepares your EMP201, EMP501, IRP5/IT3(a) and VAT201 and exports the files for you to file on eFiling. The EMP501 exports as a CSV. For the annual reconciliation, the IRP5/IT3(a) export is also available as an e@syFile-ready import file. Direct SARS submission from ISAFlow is in progress and not live yet. For now you review the totals and submit on eFiling or e@syFile Employer yourself.
+
+![Illustrative diagram: payroll certificates, six months of EMP201s and SARS payments from the bank must agree before ISAFlow prepares the EMP501 and IRP5/IT3(a) for you to file.](/blog/emp501-interim-reconciliation-checklist/chart-2.svg)
+
+*Illustrative diagram, not a screenshot.*
+
+Want to see it on your own data? [Start a free trial](https://app.isaflow.co.za/register) or [contact us for a demo](https://isaflow.co.za/contact).
+
+## FAQ
+
+### What period does the 2026 interim EMP501 cover?
+
+1 March 2026 to 31 August 2026, the first six months of the 2026/27 reconciliation year.
+
+### When is the 2026 interim EMP501 due?
+
+SARS's submission period runs from 21 September to 31 October 2026. Because 31 October is a Saturday, aim to be done by Friday 30 October.
+
+### Can I submit the EMP501 on eFiling?
+
+Yes, but eFiling takes a maximum of 50 IRP5/IT3(a) certificates per submission. e@syFile Employer has no such limit.
+
+### What is the penalty for a late EMP501?
+
+1% of your annual PAYE, increasing by 1% for every month the return stays outstanding, up to a maximum of 10%.
+
+### Should payments on the EMP501 include penalties and interest?
+
+No. SARS says the payments on the EMP501 must exclude penalties and interest.
+
+### What happens if an employee has no income tax number?
+
+SARS may delay processing or reject the EMP501. Register or retrieve the number through ITREG or BundleReg, or the Tax Reference Number Enquiry Service, before you submit.
+
+## Sources
+
+All accessed 27 October 2026.
+
+- SARS: [Employer Interim Declarations (EMP501), 21 September to 31 October 2026](https://www.sars.gov.za/latest-news/employer-interim-declarations-emp501-21-september-to-october-2026/) (published 31 August 2026)
+- SARS: [Completing the monthly employer declaration (EMP201)](https://www.sars.gov.za/types-of-tax/pay-as-you-earn/completing-the-monthly-employer-declaration-emp201/)
+- SARS: [Tax calendar](https://www.sars.gov.za/individuals/i-need-help-with-my-tax/calendar/)
+
+*This article is general information, not tax advice. Check your own position with a registered tax practitioner.*

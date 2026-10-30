@@ -14,6 +14,7 @@ const m = vi.hoisted(() => ({
   recalculateNudge: vi.fn(async () => 'none'),
   extractFromImage: vi.fn(async () => ({ confidence: 0 })),
   fireWebhook: vi.fn(async () => undefined),
+  runBudgetRolls: vi.fn(async () => undefined),
   sql: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
@@ -35,12 +36,16 @@ vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendEmail: vi.fn(async () => ({ success: true, messageId: 'm1' })),
 }));
 vi.mock('@/modules/accounting/services/core/webhookService', () => ({ fireWebhook: m.fireWebhook }));
+vi.mock('@/modules/accounting/services/budgets/drivers/budgetRollJob', () => ({ runBudgetRolls: m.runBudgetRolls }));
+// The period paths queue the automatic snapshot too; its work is not under test here.
+vi.mock('@/modules/accounting/services/audit/autoSnapshot', () => ({ runAutoSnapshots: vi.fn(async () => undefined) }));
 
 import type { RequestContext } from '@/lib/als';
 import { drainAfterCommit, runOwnedContext } from '@/lib/afterCommit';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { uploadDocument } from '@/modules/accounting/services/core/documentStorageService';
 import { sendInvoiceEmail } from '@/modules/accounting/services/core/emailNotificationService';
+import { closePeriod, closeYear, lockPeriod } from '@/modules/accounting/services/gl/fiscalPeriodService';
 
 const COMPANY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const tmp = mkdtempSync(path.join(tmpdir(), 'r075-'));
@@ -85,5 +90,38 @@ describe.each(sites)('%s', (_name, run, calls) => {
     await run();
     await new Promise((r) => setTimeout(r, 5));
     expect(calls()).toHaveLength(1);
+  });
+});
+
+/**
+ * Budgets P4 §6: closing or locking a period, or closing a year, queues the rolling-forecast roll
+ * (scheduleBudgetRoll) after COMMIT, as the closer, once per request with every end date. Outside
+ * a request there is no principal to roll as: nothing is queued or started, and the close succeeds.
+ */
+describe('fiscal period close paths → rolling forecast roll', () => {
+  const period = { id: 'p1', period_name: 'P1', period_number: 1, fiscal_year: 2027, start_date: '2026-03-01', end_date: '2026-03-31', cnt: 0 };
+  const paths: Array<[string, () => Promise<unknown>, string]> = [
+    ['closePeriod', () => closePeriod(COMPANY, 'p1', 'u'), 'open'],
+    ['lockPeriod', () => lockPeriod(COMPANY, 'p1'), 'closed'],
+    ['closeYear', () => closeYear(COMPANY, 2027, 'u'), 'open'],
+  ];
+
+  it.each(paths)('%s: queued, not started until the owner drains after COMMIT', async (_name, run, status) => {
+    m.sql.mockImplementation(async () => [{ ...period, status }]);
+    const ctx = { client: { query: vi.fn() }, userId: 'u', companyId: COMPANY, claims: { sub: 'u' }, afterCommit: [] } as unknown as RequestContext;
+    await runOwnedContext(ctx, async () => { await run(); });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(m.runBudgetRolls).not.toHaveBeenCalled();
+    expect(ctx.afterCommit!.map((j) => j.label)).toContain('budget-rolling-forecast');
+    drainAfterCommit(ctx);
+    await vi.waitFor(() => expect(m.runBudgetRolls).toHaveBeenCalledTimes(1));
+    expect(m.runBudgetRolls).toHaveBeenCalledWith({ userId: 'u', companyId: COMPANY, claims: { sub: 'u' } }, ['2026-03-31']);
+  });
+
+  it('outside a request: the close succeeds and no roll is queued or started', async () => {
+    m.sql.mockImplementation(async () => [{ ...period, status: 'open' }]);
+    await expect(closePeriod(COMPANY, 'p1', 'u')).resolves.toMatchObject({ endDate: '2026-03-31' });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(m.runBudgetRolls).not.toHaveBeenCalled();
   });
 });

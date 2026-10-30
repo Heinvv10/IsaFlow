@@ -1,14 +1,13 @@
 /**
- * ModuleSetupChecklist — per-module setup progress on the Home overview.
- * A module collapses once all of its tasks are done; the whole card hides
- * when everything is done (or the checklist cannot be loaded).
+ * ModuleSetupChecklist — per-module setup progress, above the Home hero while
+ * setup is open (the page loads it with useSetupProgress). A module collapses
+ * once all of its tasks are done; the whole card hides when everything is done
+ * (or the checklist could not be loaded).
  */
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, Circle, ChevronDown, ChevronRight } from 'lucide-react';
-import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
 import type { SetupModuleProgress, SetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 
 function ModuleSection({ module }: { module: SetupModuleProgress }) {
@@ -56,21 +55,9 @@ function ModuleSection({ module }: { module: SetupModuleProgress }) {
   );
 }
 
-export function ModuleSetupChecklist() {
-  const [progress, setProgress] = useState<SetupProgress | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiJson('/api/accounting/setup-checklist', undefined, 'Could not load the setup checklist - try again')
-      .then((data) => { if (!cancelled) setProgress(data); })
-      .catch((err) => log.error('Failed to load setup checklist', { error: apiErrorMessage(err, 'setup checklist') }, 'accounting-ui'))
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
+export function ModuleSetupChecklist({ progress }: { progress: SetupProgress | null }) {
   // Nothing until loaded: a placeholder would shift the page when the card then hides.
-  if (loading || !progress || progress.allComplete) return null;
+  if (!progress || progress.allComplete) return null;
 
   return (
     <section

@@ -190,14 +190,12 @@ describe('every chart this repo draws still renders', () => {
     });
   }
 
-  // The budget bullet colours its actual bar's label with a CALLBACK, which
-  // ECharts runs in a browser. Under SSR zrender writes the function's SOURCE
-  // into `fill="…"`, newlines and all — garbage a browser reads as no fill.
-  // The pack draws no bullets; the grammar refuses the output rather than
-  // letting the garbage through, and a bullet drawn server-side must resolve
-  // its callback first.
-  it('budget bullets are refused under SSR while their label colour is a callback', () => {
-    expect(() => renderChartSvg(buildBudgetBulletOption(LINES, DEFAULT_PALETTE), { widthMm: 170, heightMm: CHART_HEIGHT_MM.half }))
-      .toThrow(/tab, CR or LF in the value of "fill"/);
+  // The budget bullet used to colour its label with a CALLBACK, whose SOURCE zrender wrote into
+  // `fill="…"` under SSR (and ECharts never honoured in the browser either), so the grammar refused
+  // it. Since budgets P3 PR-B (browser review r1) the colour is a string on each data item: the
+  // bullets render, and the label is painted in the polarity colour.
+  it('budget bullets render under SSR, the variance label in its polarity colour', () => {
+    const svg = renderChartSvg(buildBudgetBulletOption(LINES, DEFAULT_PALETTE), { widthMm: 170, heightMm: CHART_HEIGHT_MM.half });
+    expect(svg).toContain(`fill="${DEFAULT_PALETTE.unfav}"`);
   });
 });

@@ -38,7 +38,7 @@ export interface JournalLine extends Dims { acct: string; debit?: number; credit
 type Q = Pick<Pool, 'query'>;
 
 /** The per-user budget rate buckets the grid routes charge. */
-export const BUDGET_RATE_BUCKETS = ['budget-import', 'budget-template', 'budget-save', 'budget-prior-actuals', 'budget-note'] as const;
+export const BUDGET_RATE_BUCKETS = ['budget-import', 'budget-template', 'budget-save', 'budget-prior-actuals', 'budget-note', 'budget-driver'] as const;
 
 /**
  * Removes `userIds`' budget rate buckets (preview, template download, save, prior actuals, note) from

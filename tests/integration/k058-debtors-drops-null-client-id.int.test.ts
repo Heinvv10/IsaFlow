@@ -1,23 +1,15 @@
 /**
- * K-058 — RED. Three debtors-dashboard queries key on `ci.client_id` alone
- * where the rest of AR uses `COALESCE(ci.client_id, ci.customer_id)`:
+ * K-058 regression guard: the debtors dashboard and the AR aging report see the same money.
  *
- *   getDebtorsSummary   INNER JOIN customers ON c.id = ci.client_id  (line 115)
- *   getDebtorDetail     WHERE ci.client_id = $2                      (line 163)
- *   getOverdueInvoices  INNER JOIN customers ON c.id = ci.client_id  (line 214)
+ * `customer_invoices.client_id` is NULLABLE and has no foreign key; `customer_id` is NOT NULL.
+ * The debtors queries (getDebtorsSummary, getDebtorDetail, getOverdueInvoices) therefore key on
+ * `COALESCE(ci.client_id, ci.customer_id)` and LEFT JOIN customers, so an invoice with a NULL
+ * client_id, or a client id matching no customer of the company, is totalled and shown (under an
+ * "Unknown customer ..." name) instead of being dropped.
  *
- * `customer_invoices.client_id` is NULLABLE; `customer_id` is NOT NULL (fixture
- * schema, information_schema). An invoice with a NULL client_id therefore
- * matches nothing in the inner join and is dropped silently — it is not shown,
- * not totalled, and not reported as excluded.
- *
- * `getARAging` (arAgingService.ts:41,44) reads the same invoices through
- * COALESCE and DOES include it, so the debtors dashboard and the AR aging
- * report disagree about the same book. This test asserts both surfaces see the
- * same money, which is the property that actually matters.
- *
- * Expected on a fixed build: R1,750 on both. On origin/master the dashboard
- * reports R1,000 and aging reports R1,750.
+ * `getARAging` reads the same invoices (arAgingInvoices.ts) through the same COALESCE with a
+ * company-scoped LEFT JOIN, so both surfaces agree on the book, and a foreign tenant's customer
+ * name is never shown. These tests assert that agreement.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -35,9 +27,9 @@ const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
 const COMPANY = randomUUID();
 const OTHER_COMPANY = randomUUID();
-// A third book, used only by the un-nameable-debtor cases. They stay out of
-// COMPANY so the debtors-vs-aging total agreement above is asserted on a book
-// that has no orphan id — see the ORPHAN test for why that distinction matters.
+// A third book, used by the un-nameable-debtor cases and the debtors-vs-aging
+// agreement on an orphan client id (matches no customer) and a foreign one (another
+// company's customer). It stays separate so COMPANY's totals carry no orphan row.
 const NAMELESS_COMPANY = randomUUID();
 const ORPHAN_ID = randomUUID();
 const USER = randomUUID();
@@ -57,7 +49,7 @@ let otherCustomer: string;
 let billTo: string;
 let legacyOnly: string;
 
-describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () => {
+describeIfDb('K-058 debtors dashboard and AR aging keep invoices with a NULL or unmatched client_id', () => {
   beforeAll(async () => {
     await sql`INSERT INTO companies (id, name, registration_number, created_at)
               VALUES (${COMPANY}::UUID, ${'K058 ' + TAG}, ${TAG}, NOW()),
@@ -231,22 +223,25 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
     expect(overdue.map((i) => i.clientName)).not.toContain('K058 other ' + TAG);
   });
 
-  it('records the one case where debtors and AR aging still disagree', async () => {
-    // KNOWN LIMIT, asserted rather than only written down (fix.md Limits).
-    // getARAging joins customers with an UNSCOPED INNER JOIN, so an id matching
-    // no customers row at all is dropped there while the outer join here keeps
-    // it. The foreign id is not affected: aging's unscoped join finds company
-    // B's customer and keeps that money (and renders that name, which is the
-    // other half of the same limit). Scoping arAgingService belongs to K-053,
-    // which owns that file.
+  it('debtors and AR aging agree, orphan id and foreign id included', async () => {
+    // The gap this test used to record is closed: arAgingInvoices now LEFT JOINs
+    // customers, scoped to the invoice's company, so an invoice whose client id
+    // matches no customer of this company stays in aging under "Unknown customer"
+    // instead of being dropped. Foreign id: its money is kept, and company B's
+    // customer name is no longer lent to company C's aging.
     const summary = await getDebtorsSummary(NAMELESS_COMPANY);
     const aging = await getARAging(NAMELESS_COMPANY);
     const summaryTotal = summary.reduce((s, d) => s + d.totalOutstanding, 0);
     const agingTotal = aging.reduce((s, b) => s + b.total, 0);
     expect(summaryTotal).toBeCloseTo(ORPHAN + FOREIGN_C, 2);
-    expect(agingTotal).toBeCloseTo(FOREIGN_C, 2);
-    // The gap is exactly the orphan row, and nothing else.
-    expect(summaryTotal - agingTotal).toBeCloseTo(ORPHAN, 2);
-    expect(aging.some((b) => b.entityId === ORPHAN_ID)).toBe(false);
+    expect(agingTotal).toBeCloseTo(ORPHAN + FOREIGN_C, 2);
+    expect(summaryTotal - agingTotal).toBeCloseTo(0, 2);
+    const orphan = aging.find((b) => b.entityId === ORPHAN_ID);
+    const foreign = aging.find((b) => b.entityId === otherCustomer);
+    expect(orphan?.total).toBeCloseTo(ORPHAN, 2);
+    expect(foreign?.total).toBeCloseTo(FOREIGN_C, 2);
+    expect(orphan?.entityName).toBe('Unknown customer');
+    expect(foreign?.entityName).toBe('Unknown customer');
+    expect(aging.map((b) => b.entityName)).not.toContain('K058 other ' + TAG);
   });
 });
