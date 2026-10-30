@@ -82,7 +82,8 @@ describe('recurring invoice lines', () => {
     [{ quantity: 0, unitPrice: 5 }, 'Line 2: quantity must be positive'],
     [{ quantity: 1, unitPrice: -5 }, 'Line 2: unit price cannot be negative'],
   ])('create: %j -> %s', async (over, want) => {
-    const input = { clientId: 'c1', lineItems: [{ description: 'ok', quantity: 1, unitPrice: 1 }, { description: PAYEE, ...over }] };
+    // A valid schedule, so only the bad line can refuse it (create validates the dates too).
+    const input = { clientId: 'c1', frequency: 'monthly', nextRunDate: '2026-11-01', lineItems: [{ description: 'ok', quantity: 1, unitPrice: 1 }, { description: PAYEE, ...over }] };
     expect(await messageAsync(() => createRecurringInvoice('co', input as never, 'u'))).toBe(want);
   });
 
