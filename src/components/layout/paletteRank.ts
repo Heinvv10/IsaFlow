@@ -15,6 +15,8 @@ export interface SearchResult {
   icon: string;
   /** Ancestors of a page, root first. Absent on records. */
   trail?: string[];
+  /** The page's other nav labels that matched the query, shown muted as "also: …". */
+  aliases?: string[];
 }
 
 export type PaletteRow =
@@ -35,15 +37,29 @@ function isInitials(q: string, label: string): boolean {
   return initials.startsWith(q);
 }
 
-function scoreEntry(e: NavIndexEntry, q: string): number {
-  const label = norm(e.label);
+function scoreLabel(raw: string, q: string): number {
+  const label = norm(raw);
   if (label === q) return 5;
   if (label.startsWith(q)) return 4;
   if (label.split(' ').some((w) => w.startsWith(q))) return 3;
   if (label.includes(q)) return 2.5;
-  if (e.trail.some((t) => norm(t).includes(q))) return 2;
-  if (q.length >= 2 && isInitials(q, label)) return 1;
   return 0;
+}
+
+/** An alias ("Profit & Loss") scores as the label does: it is a name the nav shows for the same page. */
+function scoreEntry(e: NavIndexEntry, q: string): number {
+  const names = [e.label, ...(e.aliases ?? [])];
+  const best = Math.max(...names.map((n) => scoreLabel(n, q)));
+  if (best > 0) return best;
+  if (e.trail.some((t) => norm(t).includes(q))) return 2;
+  if (q.length >= 2 && names.some((n) => isInitials(q, norm(n)))) return 1;
+  return 0;
+}
+
+/** The aliases that match `query` on their own, for the "also: …" hint. */
+export function matchedAliases(e: NavIndexEntry, query: string): string[] {
+  const q = norm(query);
+  return q ? (e.aliases ?? []).filter((a) => scoreLabel(a, q) > 0 || (q.length >= 2 && isInitials(q, norm(a)))) : [];
 }
 
 /** Pages whose label, trail or initials match. Ties: the shorter label, then fewer ancestors, then alphabetical. */
@@ -59,8 +75,12 @@ export function rankPages(index: NavIndexEntry[], query: string, limit: number):
     .map((s) => s.e);
 }
 
-export function pageResult(e: NavIndexEntry): SearchResult {
-  return { type: 'page', id: e.href, title: e.label, subtitle: '', url: e.href, icon: 'arrow-right', trail: e.trail };
+export function pageResult(e: NavIndexEntry, query = ''): SearchResult {
+  const aliases = matchedAliases(e, query);
+  return {
+    type: 'page', id: e.href, title: e.label, subtitle: '', url: e.href, icon: 'arrow-right', trail: e.trail,
+    ...(aliases.length > 0 ? { aliases } : {}),
+  };
 }
 
 /** A server page hit (from PAGE_REGISTRY) gets the trail of the nav entry that owns its URL, if any. */
@@ -105,7 +125,7 @@ export function buildSections({ query, index, recent, server }: BuildArgs): Pale
     sections.push({ id: 'pages', heading: 'Pages', rows: take(suggestedPages(index).map((e) => itemRow('page', pageResult(e)))) });
   } else {
     sections.push({ id: 'actions', heading: 'Actions', rows: take(actionRows(filterActions(q))) });
-    const pages = rankPages(index, q, 6).map(pageResult);
+    const pages = rankPages(index, q, 6).map((e) => pageResult(e, q));
     const serverPages = server.filter((r) => r.type === 'page').map((r) => withTrail(r, index));
     sections.push({ id: 'pages', heading: 'Pages', rows: take([...pages, ...serverPages].slice(0, 8).map((p) => itemRow('page', p))) });
     sections.push({ id: 'records', heading: 'Records', rows: take(server.filter((r) => r.type !== 'page').map((r) => itemRow('record', r))) });

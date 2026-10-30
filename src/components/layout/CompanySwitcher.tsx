@@ -32,6 +32,9 @@ export function CompanySwitcher() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
+        // The name span is hidden below `sm`, which left a logo-only button with no accessible name at 390 px.
+        aria-label={`Switch company (current: ${activeCompany.tradingName || activeCompany.name})`}
+        aria-expanded={open}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
       >
         {/* Company logo or fallback icon */}

@@ -1,6 +1,7 @@
 /**
  * Reusable form section panels for the New Item page.
  */
+import { DateField } from '@/components/ui';
 
 interface Category {
   id: string;
@@ -171,9 +172,10 @@ interface OpeningProps {
   opening_cost: string;
   opening_date: string;
   onChange: (field: string, value: string) => void;
+  dates: import('@/hooks/useDateGate').DateGate;
 }
 
-export function OpeningBalancesSection({ opening_qty, opening_cost, opening_date, onChange }: OpeningProps) {
+export function OpeningBalancesSection({ opening_qty, opening_cost, opening_date, onChange, dates }: OpeningProps) {
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 space-y-4">
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Opening Balances</h2>
@@ -187,8 +189,7 @@ export function OpeningBalancesSection({ opening_qty, opening_cost, opening_date
           <input type="number" step="0.01" min="0" value={opening_cost} onChange={e => onChange('opening_cost', e.target.value)} className="ff-input w-full" />
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Opening Date</label>
-          <input type="date" value={opening_date} onChange={e => onChange('opening_date', e.target.value)} className="ff-input w-full" />
+          <DateField label="Opening Date" name="opening_date" value={opening_date || null} onChange={dates.bind('opening_date', (iso) => onChange('opening_date', iso), opening_date)} />
         </div>
       </div>
     </div>

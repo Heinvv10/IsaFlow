@@ -68,12 +68,16 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * Concurrency groups are repo-wide, across workflows: any other job or
  * workflow that takes the ci- group cancels quality. Scanning group strings is
  * another arms race, so the SET is fixed instead: ci.yml is the only workflow
- * file, its jobs are exactly these, and golden-paths keeps its own group. A new
- * workflow or job means changing this rule in review.
+ * file, its jobs are exactly these, golden-paths keeps its own group (a -queue
+ * one for runs the merge queue waits on, chosen by golden-lane), and golden-lane
+ * takes none. A new workflow or job means changing this rule in review.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['quality', 'golden-paths'];
-const GOLDEN_PATHS_CONCURRENCY = { group: 'golden-paths-dev-demo', 'cancel-in-progress': false };
+const JOBS = ['quality', 'golden-lane', 'golden-paths'];
+const GOLDEN_PATHS_CONCURRENCY = {
+  group: "golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
+  'cancel-in-progress': false,
+};
 /**
  * The token every job gets. With `actions: write` any job (golden-paths
  * included) could `gh run cancel` the run, ending quality CANCELLED. Pinned at
@@ -189,6 +193,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
       || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
       errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+    }
+    const lane = jobs['golden-lane'];
+    if (isObj(lane) && 'concurrency' in lane) {
+      errors.push('jobs.golden-lane sets concurrency; it must take no group (the ci- group would cancel quality)');
     }
   }
   const job = isObj(jobs) ? jobs[QUALITY_JOB] : undefined;

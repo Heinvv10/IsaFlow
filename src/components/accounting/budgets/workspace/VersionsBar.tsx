@@ -3,9 +3,11 @@
  * Approve, Lock, Unlock, Set primary, Compare with and Delete. Which buttons render follows the
  * role × status matrix in `versionButtons`; the server is authoritative (P1's status, primary and
  * delete routes) and this gating is cosmetic. Every transition needs a clean grid. Below `md` the
- * action buttons collapse into one menu (§12); Approve and Lock stay reachable there.
+ * action buttons collapse into one menu (§12); Approve and Lock stay reachable there. P4 adds
+ * "New reforecast from actuals" beside the copy-based "New reforecast" (when the workspace wires
+ * it) and a slot after the status chip for the rolling forecast's controls.
  */
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Lock, Star } from 'lucide-react';
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/ActionMenu';
 import { longDate } from '@/components/accounting/budgets/budgetClient';
@@ -71,13 +73,17 @@ export interface VersionsBarProps {
   onCompare: (versionId: string | null) => void;
   onNewReforecast: () => void;
   onAction: RunVersionAction;
+  /** P4: open "New reforecast from actuals"; absent hides the action. */
+  onReforecastFromActuals?: () => void;
+  /** P4: the rolling forecast's controls for the version on screen. */
+  rolling?: ReactNode;
 }
 
 const BTN = 'inline-flex items-center gap-1.5 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-hover)] disabled:opacity-50';
 const SELECT = 'min-w-0 max-w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)]';
 
 export function VersionsBar(props: VersionsBarProps) {
-  const { versions, current, role, dirtyCount, disabled, compareVersionId, onSelect, onCompare, onNewReforecast, onAction } = props;
+  const { versions, current, role, dirtyCount, disabled, compareVersionId, onSelect, onCompare, onNewReforecast, onAction, onReforecastFromActuals, rolling } = props;
   const [pending, setPending] = useState<VersionAction | null>(null);
   const actions = ACTION_ORDER.filter((a) => versionButtons(current, role).has(a));
   const dirty = dirtyCount > 0;
@@ -88,6 +94,7 @@ export function VersionsBar(props: VersionsBarProps) {
 
   const menuItems: ActionMenuItem[] = [
     ...(reforecast ? [{ label: 'New reforecast', onClick: onNewReforecast, disabled: blocked }] : []),
+    ...(reforecast && onReforecastFromActuals ? [{ label: 'New reforecast from actuals', onClick: onReforecastFromActuals, disabled: blocked }] : []),
     ...actions.map((a) => ({
       label: ACTION_LABEL[a], onClick: () => setPending(a), disabled: blocked,
       tone: a === 'delete' ? 'destructive' as const : 'default' as const,
@@ -108,11 +115,16 @@ export function VersionsBar(props: VersionsBarProps) {
             </span>
           )}
           <StatusChip version={current} />
+          {rolling}
         </>
       )}
       <div className="hidden flex-wrap items-center gap-2 md:flex" data-testid="version-actions">
         {reforecast && (
           <button type="button" className={BTN} disabled={blocked} title={cleanNote} onClick={onNewReforecast}>New reforecast</button>
+        )}
+        {reforecast && onReforecastFromActuals && (
+          <button type="button" className={BTN} disabled={blocked} title={cleanNote} onClick={onReforecastFromActuals}
+            data-testid="version-reforecast-actuals">New reforecast from actuals</button>
         )}
         {actions.map((a) => (
           <button key={a} type="button" className={BTN} disabled={blocked} title={cleanNote}
