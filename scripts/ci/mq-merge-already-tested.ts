@@ -2,8 +2,8 @@
  * mq-merge-already-tested — on a push to master, says whether the pushed
  * commit is a merge-queue merge whose exact tree already passed BOTH required
  * checks as a pull_request run. If so the push run skips its expensive work
- * (run-ci.sh exits 0 before the gates; golden-paths skips its steps), and both
- * jobs still report, green, under their own names.
+ * (run-ci.sh exits 0 before the gates), and quality still reports, green,
+ * under its own name. The post-merge Golden Paths suite always runs.
  *
  *   bun scripts/ci/mq-merge-already-tested.ts
  *   exit 10: already tested, skip
@@ -48,7 +48,13 @@ import { readFileSync } from 'node:fs';
 
 export const SKIP_EXIT = 10;
 export const WORKFLOW_PATH = '.github/workflows/ci.yml';
-export const REQUIRED_JOBS = ['Type Check, Lint & Test', 'Golden Paths E2E (blocking)'];
+/**
+ * The PR-run jobs a skipped master push relies on. The full Golden Paths suite
+ * is not one of them: it runs after the merge (ci.yml golden-paths) and never
+ * skips. "Golden Paths E2E (blocking)" is a temporary shim that passes exactly
+ * when the smoke job did, so naming the smoke job here outlives the shim.
+ */
+export const REQUIRED_JOBS = ['Type Check, Lint & Test', 'Golden Paths smoke (blocking)'];
 
 export type Verdict = { tested: boolean; reason: string };
 type Env = Record<string, string | undefined>;
