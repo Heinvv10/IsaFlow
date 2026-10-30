@@ -128,6 +128,9 @@ export interface TrackingLine extends TrackingFigures {
   band: TrackingBandKey;
   /** The account's only budget in the window is set above this filter ("budget set above this filter"). */
   budgetAboveFilter: boolean;
+  /** Some of the account's budget in FY* sits above this filter (any FY month, the window or not): the FY budget of its band
+   *  and of the profit totals above it is absent (R11). Equal to `budgetAboveFilter` on a date range, whose FY* is the window. */
+  fyBudgetAboveFilter: boolean;
   /** The account's budget covers PART of the window (a cross-year window budgeted in some years only,
    *  or a grain change between versions): the window Budget / Var R / Var % are absent, and so are the
    *  profit totals above it. Not "unbudgeted". */

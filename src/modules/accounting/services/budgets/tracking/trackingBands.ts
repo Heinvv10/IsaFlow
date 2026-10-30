@@ -16,6 +16,9 @@
  *     counts 0 (it shows no budget of its own);
  *   - a profit total (gross, operating, net), and a P0 section, is NULL when any band it nets is
  *     NULL: never one side's budget alone. When every band it nets has no lines it is absent too.
+ * R11 (review r4): the FY budget is judged over ALL the FY months and EVERY line the report keeps, not the window's:
+ * a line kept only for its projection is a line, and budget above the filter in any FY month (`fyBudgetAboveFilter`)
+ * blocks, with or without a cell in the window. The members of a group_by view follow Net Profit (`membersBudgetAbsent`).
  * The cost is deliberate: under a filter, Net Profit is "—" whenever a band is budgeted above the
  * filter (company-level overheads, say) or holds an account with no budget. Unallocated budget on a
  * profit total is netted by polarity. Favourable: income bands up, expense bands down, profit totals up.
@@ -45,20 +48,22 @@ const minus = (x: number | null, y: number | null): number | null => (x === null
 
 /**
  * A line that says something about the band's WINDOW budget: it has an actual, a budget, a partial budget or
- * one above the filter. The report keeps other lines only for the projection (an FY budget with no window
- * figure); they must not turn a band with no budget into "a band with lines", or the two pages (the report
- * keeps them, the range does not) would disagree.
+ * one above the filter. The report keeps other lines only for the projection (an FY budget or a projected
+ * figure with no window figure); they must not turn a band with no budget into "a band with lines", or the
+ * two pages (the report keeps them, the range does not) would disagree. The FY budget is judged over every
+ * line the report keeps (R11): there the projection IS the question.
  */
 const speaks = (l: TrackingLine): boolean => l.actual !== 0 || l.budget !== null || l.partialBudget || l.budgetVerdict === 'above-filter';
 
 function sumLines(lines: readonly TrackingLine[], unallocatedAbsent: boolean): Sums {
   const cents = (v: number | null) => (v === null ? 0 : toCents(v));
   const win = lines.filter(speaks);
-  const fy = lines.filter((l) => speaks(l) || l.fyBudget !== null);
   const partial = lines.some((l) => l.partialBudget);
   const above = lines.some((l) => l.budgetVerdict === 'above-filter');
   const budgetBlocked = partial || above || (win.length > 0 && !win.some((l) => l.budget !== null));
-  const fyBlocked = partial || above || (fy.length > 0 && !fy.some((l) => l.fyBudget !== null));
+  // The FY budget is judged over ALL the FY months and every line the report keeps (R11): a line kept only for its
+  // projection is a line, and budget above the filter in any FY month blocks, in or out of the window.
+  const fyBlocked = partial || above || lines.some((l) => l.fyBudgetAboveFilter) || (lines.length > 0 && !lines.some((l) => l.fyBudget !== null));
   return {
     actual: lines.reduce((s, l) => s + toCents(l.actual), 0),
     projected: lines.reduce((s, l) => s + toCents(l.projected), 0),
@@ -66,10 +71,10 @@ function sumLines(lines: readonly TrackingLine[], unallocatedAbsent: boolean): S
     partial,
     budget: budgetBlocked || win.length === 0 ? null : win.reduce((s, l) => s + cents(l.budget), 0),
     budgetBlocked,
-    fyBudget: fyBlocked || fy.length === 0 ? null : fy.reduce((s, l) => s + cents(l.fyBudget), 0),
+    fyBudget: fyBlocked || lines.length === 0 ? null : lines.reduce((s, l) => s + cents(l.fyBudget), 0),
     fyBlocked,
     empty: win.length === 0,
-    fyEmpty: fy.length === 0,
+    fyEmpty: lines.length === 0,
   };
 }
 
@@ -202,3 +207,11 @@ export function buildNotices(
     partialBudget: partial.length === 0 ? null : { count: partial.length, actual: split(partial, (l) => l.actual) },
   };
 }
+
+/**
+ * The members (bullets by cost centre) partition Net Profit: they carry no budget whenever Net Profit has
+ * none, for any reason in the rule above (a partial line, a line above the filter, a band with lines and no
+ * budget) or because the window budget is absent. One predicate, read from the engine's own band.
+ */
+export const membersBudgetAbsent = (bands: readonly TrackingBand[]): boolean =>
+  bands.find((x) => x.key === 'net_profit')?.budget == null;

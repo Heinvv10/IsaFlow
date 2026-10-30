@@ -114,9 +114,11 @@ export function buildTrackingLines(input: {
     const unallocated = windowBudgetAbsent ? null : sumOver(acc.coarser, ms);
     const variance = budget === null ? null : actual - budget;
     const proj = projectCents(acc.actual, anyIn(acc.budget, input.plan.fyMonths) ? acc.budget : null, input.plan);
+    // Budget above the filter in ANY FY* month blocks the FY budget of its band (R11), even with no cell in the window.
+    const fyAbove = input.plan.fyMonths.some((m) => acc.coarser.has(m));
     // A partial line is kept even with no figure of its own: its band's budget is null because of it, and the
     // partial-account notice counts it, so the report must show it (review r3: BvA dropped it and showed its band whole).
-    if (actual === 0 && budget === null && proj.fyBudget === null && proj.projected === 0 && !anyIn(acc.coarser, ms) && !partial) continue;
+    if (actual === 0 && budget === null && proj.fyBudget === null && proj.projected === 0 && !anyIn(acc.coarser, ms) && !partial && !fyAbove) continue;
 
     const aboveFilter = (partial || !anyIn(acc.budget, ms)) && anyIn(acc.coarser, ms);
     const monthly: TrackingMonth[] = ms.map((month) => {
@@ -146,6 +148,7 @@ export function buildTrackingLines(input: {
       projFavourable: proj.projVariance === null ? null : isFavourable(polarity, proj.projVariance),
       unallocatedBudget: unallocated === null ? null : fromCents(unallocated),
       budgetAboveFilter: aboveFilter,
+      fyBudgetAboveFilter: fyAbove,
       partialBudget: partial,
       budgetVerdict: windowBudgetAbsent ? 'absent' : partial ? 'partial' : budget !== null ? 'budgeted' : aboveFilter ? 'above-filter' : 'unbudgeted',
       monthly,

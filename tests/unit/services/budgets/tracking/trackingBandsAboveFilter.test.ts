@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
-import { buildBands, sectionBudgets } from '@/modules/accounting/services/budgets/tracking/trackingBands';
+import { buildBands, membersBudgetAbsent, sectionBudgets } from '@/modules/accounting/services/budgets/tracking/trackingBands';
 import { buildTrackingLines, type AccountMeta, type ClassifiedBudgetCell } from '@/modules/accounting/services/budgets/tracking/trackingLines';
 import { projectionPlan } from '@/modules/accounting/services/budgets/tracking/trackingProjection';
 
@@ -124,5 +124,60 @@ describe('the same rule on the projection FY budget (ledger R9-3)', () => {
       budgets: [{ accountId: 'sales', month: M, amount: 900, cls: 'included' }],
     });
     expect(fyOf(buildBands(noFy), 'net_profit')).toBeNull();
+  });
+});
+
+describe('R11: the FY budget is judged over ALL the FY months and every line the report keeps', () => {
+  const FY = ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02'];
+  const WIN = '2026-06';
+  const at = (accountId: string, months: string[], amount: number, cls: ClassifiedBudgetCell['cls']): ClassifiedBudgetCell[] =>
+    months.map((month) => ({ accountId, month, amount, cls }));
+  const accounts = new Map(ACCOUNTS).set('wages', meta('wages', '6100', 'expense', null));
+  const run = (budgets: ClassifiedBudgetCell[], actuals: Array<{ accountId: string; month: string; amount: number }>, windowMonths = [WIN]) =>
+    buildBands(buildTrackingLines({ accounts, windowMonths, plan: PLAN, actuals, budgets }));
+  const np = (bands: ReturnType<typeof buildBands>) => bands.find((b) => b.key === 'net_profit')!;
+
+  it('a line kept only for its projection counts as a line: COS posted in April with no budget nulls gross and net profit FY (ledger A1)', () => {
+    const bands = run(at('sales', FY, 1000, 'included'),
+      [{ accountId: 'sales', month: WIN, amount: 1000 }, { accountId: 'cos', month: '2026-04', amount: 5000 }]);
+    expect(fyOf(bands, 'cost_of_sales')).toBeNull();
+    expect([fyOf(bands, 'gross_profit'), fyOf(bands, 'net_profit'), np(bands).projVariance]).toEqual([null, null, null]);
+    // The window rule is unchanged: COS has no line that speaks about June, so the window budget still nets.
+    expect(budgetOf(bands, 'net_profit')).toBe(1000);
+  });
+
+  it('budget above the filter in an FY month OUTSIDE the window blocks the band and the totals FY budget (ledger A2)', () => {
+    const bands = run([...at('sales', FY, 1000, 'included'), ...at('wages', FY, 200, 'included'), ...at('rent', FY.slice(4), 400, 'coarser')],
+      [{ accountId: 'sales', month: WIN, amount: 1000 }, { accountId: 'wages', month: WIN, amount: 200 }]);
+    expect([fyOf(bands, 'operating_expense'), fyOf(bands, 'operating_profit'), fyOf(bands, 'net_profit')]).toEqual([null, null, null]);
+    // June has no Rent cell, so the WINDOW budget is whole, as ruled.
+    expect([budgetOf(bands, 'operating_expense'), budgetOf(bands, 'net_profit')]).toEqual([200, 800]);
+  });
+
+  it("a line above the filter in the window blocks the FY budget on its own, when its months are not FY*'s (an earlier year)", () => {
+    // Window Feb 2026 is FY2026; FY* is FY2027. Rent's only cell is above the filter in Feb 2026 (not an FY* month); wages is budgeted all FY*.
+    const bands = run([...at('sales', FY, 1000, 'included'), ...at('wages', ['2026-02', ...FY], 200, 'included'), ...at('rent', ['2026-02'], 400, 'coarser')],
+      [{ accountId: 'sales', month: '2026-02', amount: 1000 }, { accountId: 'wages', month: '2026-02', amount: 200 }], ['2026-02']);
+    expect([fyOf(bands, 'operating_expense'), fyOf(bands, 'net_profit')]).toEqual([null, null]);
+  });
+
+  it('control: everything at the filter, every kept line budgeted for the year: the FY arithmetic holds', () => {
+    const bands = run([...at('sales', FY, 1000, 'included'), ...at('wages', FY, 200, 'included')],
+      [{ accountId: 'sales', month: WIN, amount: 1000 }, { accountId: 'wages', month: WIN, amount: 200 }]);
+    expect([fyOf(bands, 'operating_expense'), fyOf(bands, 'net_profit')]).toEqual([2400, 9600]);
+  });
+});
+
+describe('R4-3: the members follow Net Profit', () => {
+  const absentFor = (budgets: ClassifiedBudgetCell[], actuals = ACTUALS) => membersBudgetAbsent(reportOf(budgets, actuals).bands);
+
+  it('NP has a budget: the members keep theirs; NP has none for ANY reason in the rule: the members have none', () => {
+    expect(absentFor([cell('sales', 900, 'included'), cell('rent', 150, 'included')])).toBe(false);
+    // A band with an actual and no budget (no partial line, no gap): the case the old wiring missed.
+    expect(absentFor([cell('sales', 900, 'included')])).toBe(true);
+    // A line above the filter.
+    expect(absentFor([cell('sales', 900, 'included'), cell('rent', 150, 'coarser')])).toBe(true);
+    // No lines at all: NP is absent, so are the members' budgets.
+    expect(absentFor([], [])).toBe(true);
   });
 });

@@ -18,7 +18,7 @@
 import { localISODate } from '@/lib/dateUtils';
 import { reportYearOptions } from '@/modules/accounting/services/reports/budgetReportYear';
 import { resolveDimensionMembers } from '@/modules/accounting/services/reports/dimensionPnlService';
-import { buildBands, buildNotices } from './trackingBands';
+import { buildBands, buildNotices, membersBudgetAbsent } from './trackingBands';
 import { resolveTrackingVersions } from './trackingBudgetRead';
 import { readPostedThrough } from './trackingActualRead';
 import { buildTrackingMembers } from './trackingByMember';
@@ -48,6 +48,7 @@ export async function buildBudgetTrackingReport(
     actuals: { from: readStartOf(window), to: readEndOf(window, plan) },
   });
 
+  const bands = buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 });
   let members: BudgetTrackingReport['members'];
   if (groupBy) {
     const ids = [...new Set([
@@ -64,8 +65,8 @@ export async function buildBudgetTrackingReport(
       names: new Map([...named].map(([id, m]) => [id.toLowerCase(), { code: m.code, name: m.name }])),
       noVersionMonths,
       order: memberOrder,
-      // Members partition NP: when a partial line leaves NP's budget absent, theirs is too.
-      budgetAbsent: lines.some((l) => l.partialBudget),
+      // Members partition NP: whenever NP has no budget (the final R9 rule), theirs is absent too.
+      budgetAbsent: membersBudgetAbsent(bands),
       windowYears: window.years,
     });
   }
@@ -94,7 +95,7 @@ export async function buildBudgetTrackingReport(
       judgedThrough: plan.judgedThrough,
     },
     lines,
-    bands: buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 }),
+    bands,
     notices: buildNotices(lines, {
       noVersion: absentYears.includes(window.fy.fiscalYear), noVersionYears: absentYears, budgetAbsent: noVersionMonths.length > 0, outsideFilterYears,
     }),

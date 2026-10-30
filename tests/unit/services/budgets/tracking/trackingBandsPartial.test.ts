@@ -101,6 +101,9 @@ describe('review round 6', () => {
     expect([b('operating_expense').budget, b('operating_expense').variance, b('operating_expense').variancePct]).toEqual([null, null, null]);
     expect([b('other_income').budget, b('cost_of_sales').budget]).toEqual([4, 8]);
     expect([b('gross_profit').budget, b('operating_profit').budget, b('net_profit').budget]).toEqual([null, null, null]);
+    // The FY budget follows (R11): wages is budgeted in FY2027's month, so it HAS an FY budget, and the partial line still blocks.
+    expect(LINES.find((l) => l.accountId === 'wages')!.fyBudget).not.toBeNull();
+    expect([b('operating_expense').fyBudget, b('operating_profit').fyBudget, b('net_profit').fyBudget, b('net_profit').projVariance]).toEqual([null, null, null, null]);
   });
 
   it('F3: notices.partialBudget counts the partial lines and keeps their actual per polarity; null when none', () => {
