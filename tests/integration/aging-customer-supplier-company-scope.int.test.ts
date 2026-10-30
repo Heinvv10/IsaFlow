@@ -31,6 +31,8 @@ import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { fetchUnallocatedCreditNotes } from '@/modules/accounting/services/ar/arAgingCreditNotes';
 import { fetchARAgingInvoices, UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { fetchAPAgingInvoices, UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
+import { getOpenBook } from '@/modules/accounting/services/reports/dashboardOpenBook';
+import { buildOpenItems } from '@/modules/accounting/services/reports/openItemsExport';
 
 // Auth and metering are not under test; the route's SQL is. The route reads
 // companyId off the request, which the pass-through sets.
@@ -162,4 +164,20 @@ describeIfDb('aging joins to customers/suppliers are scoped to the document comp
     expect(json).not.toContain(S.LEAK_SUPPLIER);
     expect(mentionsTenantBAmount(json)).toBe(false);
   });
+
+  // The dashboard tile and the open-items export read the same fetchers; the
+  // foreign-party document stays in their totals too, and B never appears.
+  it.each([
+    ['ar', AR_TOTAL, 'LEAK_CUSTOMER'],
+    ['ap', AP_TOTAL, 'LEAK_SUPPLIER'],
+  ] as const)('the %s dashboard open book and open-items export agree with the aging total and carry nothing of B\'s', async (side, total, leak) => {
+    const book = await getOpenBook(S.A, side, AS_AT);
+    expect(book.total).toBe(total);
+    const items = await buildOpenItems(S.A, side, AS_AT);
+    expect(items.summary.grossTotal).toBe(total);
+    expect(items.summary.invoiceCount).toBe(2);
+    const json = JSON.stringify([book, items]);
+    expect(json).not.toContain(S[leak]);
+    expect(mentionsTenantBAmount(json)).toBe(false);
+  }, 30000);
 });
