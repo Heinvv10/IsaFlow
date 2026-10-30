@@ -44,12 +44,14 @@ export async function pickFreePort(
 }
 
 async function main(): Promise<void> {
-  const [lo, hi] = process.argv.slice(2).map(Number);
-  if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo! > hi!) {
-    process.stderr.write('usage: golden-free-port.ts <lo> <hi>\n');
+  const args = process.argv.slice(2);
+  const [lo, hi] = args.map((a) => (/^\d+$/.test(a) ? Number(a) : NaN));
+  const valid = (p: number | undefined): p is number => p !== undefined && Number.isInteger(p) && p >= 1 && p <= 65535;
+  if (args.length !== 2 || !valid(lo) || !valid(hi) || lo > hi) {
+    process.stderr.write('usage: golden-free-port.ts <lo> <hi>  (1-65535, lo <= hi)\n');
     process.exit(2);
   }
-  const port = await pickFreePort(lo!, hi!);
+  const port = await pickFreePort(lo, hi);
   if (port === null) {
     process.stderr.write(`no free port in ${lo}-${hi}\n`);
     process.exit(1);

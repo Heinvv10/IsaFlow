@@ -3,6 +3,7 @@
  * `next dev` on a port another server already holds, or that server answers
  * the health check and the login (#939, 2026-10-29).
  */
+import { spawnSync } from 'node:child_process';
 import { createServer, type Server } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BAD_PORTS, canBind, pickFreePort } from '../../../scripts/ci/golden-free-port';
@@ -26,6 +27,11 @@ function hold(host: string): Promise<number> {
 describe('canBind', () => {
   it('a port held on 127.0.0.1 only (as docker-proxy holds 3310) is taken', async () => {
     const port = await hold('127.0.0.1');
+    expect(await canBind(port)).toBe(false);
+  });
+
+  it('a port held on ::1 only is taken too: the probe binds dual-stack ::, as next dev -p does', async () => {
+    const port = await hold('::1');
     expect(await canBind(port)).toBe(false);
   });
 
@@ -53,4 +59,34 @@ describe('pickFreePort', () => {
     const port = await hold('127.0.0.1');
     expect(await pickFreePort(port, port)).toBeNull();
   });
+});
+
+describe('CLI', () => {
+  const run = (...args: string[]) =>
+    spawnSync('bun', ['scripts/ci/golden-free-port.ts', ...args], { encoding: 'utf8' });
+
+  it('prints only a port in the range, exit 0', () => {
+    const r = run('3300', '3799');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/^\d+\n$/);
+    const port = Number(r.stdout);
+    expect(port).toBeGreaterThanOrEqual(3300);
+    expect(port).toBeLessThanOrEqual(3799);
+  });
+
+  it('exit 1 and no stdout when the only port is taken', async () => {
+    const port = await hold('127.0.0.1');
+    const r = run(String(port), String(port));
+    expect(r.status).toBe(1);
+    expect(r.stdout).toBe('');
+  });
+
+  it.each([[[]], [['3300']], [['', '3799']], [['0', '10']], [['3300', '70000']], [['3799', '3300']], [['33a0', '3799']]])(
+    'exit 2 on bad arguments %j',
+    (args) => {
+      const r = run(...(args as string[]));
+      expect(r.status).toBe(2);
+      expect(r.stdout).toBe('');
+    },
+  );
 });
