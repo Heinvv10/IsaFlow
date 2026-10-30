@@ -32,10 +32,13 @@ const GATE_STEP = [
   '          DATABASE_URL: ${{ secrets.DATABASE_URL }}',
   '          JWT_SECRET: test-secret-for-ci-only',
   '          NODE_ENV: test',
+  '          # Velo and production run in SAST; the date tests assert the local',
+  '          # day, and a hosted runner is UTC.',
+  '          TZ: Africa/Johannesburg',
   '',
 ].join('\n');
 // The install step appears in static and velo; the gate comment makes this static's.
-const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # The gate list';
+const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # Chromium for';
 // Unique to static: the hosted-setup comment follows its checkout.
 const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # GitHub-hosted only';
 const VELO_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # As in static.';
@@ -50,6 +53,7 @@ const VELO_HEADER = '  velo:\n    name: Browser & integration (velo)\n';
 const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$VELO" = "success" ] && { [ "$STATIC" = "success" ] || [ "$FALLBACK" = "success" ]; }\n';
 const FALLBACK_HEADER = '  static-fallback:\n    name: Static gates (velo fallback)\n';
 const FALLBACK_DECIDE = '          if [ "$job" != "|0" ]; then\n';
+const LIGHT = `\${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}`;
 const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
 describe('the committed workflow', () => {
@@ -69,7 +73,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['if: false on the velo job', edit(VELO_HEADER, `${VELO_HEADER}    if: false\n`)],
     ['if: false on the velo gate step', edit(VELO_GATE_LINE, `${VELO_GATE_LINE}        if: false\n`)],
     ['shell override prints instead of running', edit(GATE_LINE, `${GATE_LINE}        shell: cat {0}\n`)],
-    ['CI_SKIP_BUILD in the step env drops the build', edit(GATE_STEP, GATE_STEP.replace('NODE_ENV: test\n', 'NODE_ENV: test\n          CI_SKIP_BUILD: "1"\n'))],
+    ['CI_SKIP_BUILD in the step env drops the build', edit(GATE_STEP, GATE_STEP.replace('TZ: Africa/Johannesburg\n', 'TZ: Africa/Johannesburg\n          CI_SKIP_BUILD: "1"\n'))],
     ['an earlier step rewrites run-ci.sh', edit(QUALITY_INSTALL, QUALITY_INSTALL.replace('--ignore-scripts', '--ignore-scripts && printf "exit 0\\n" > scripts/ci/run-ci.sh'))],
     ['install without --ignore-scripts (root, workspace-member and trusted-dependency lifecycle scripts run and can rewrite run-ci.sh)', edit(QUALITY_INSTALL, QUALITY_INSTALL.replace(' --ignore-scripts', ''))],
     ['an extra step before the gate', edit(QUALITY_INSTALL, `      - run: echo hi\n${QUALITY_INSTALL}`)],
@@ -224,7 +228,8 @@ describe('refuses every way found to keep the job green while skipping gates', (
   it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
     expect(check(edit(`${VELO_HEADER}    runs-on: [self-hosted, linux, velo]\n`, `${VELO_HEADER}    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
     expect(check(edit(`'"ubuntu-24.04"'`, `'"nonexistent-label"'`)).length).toBeGreaterThan(0);
-    expect(check(edit('  route:\n    name: CI route\n    runs-on: [self-hosted, linux, velo]\n', '  route:\n    name: CI route\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
+    expect(check(edit(`  route:\n    name: CI route\n    runs-on: ${LIGHT}\n`, '  route:\n    name: CI route\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
+    expect(check(edit(`    if: \${{ always() }}\n    runs-on: ${LIGHT}\n`, '    if: ${{ always() }}\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
   });
 
   it('the quality job removed or renamed', () => {
@@ -260,7 +265,7 @@ describe('the required check passes only when both gate groups passed', () => {
     ['another bun version on hosted', edit('          bun-version: 1.3.9\n', '          bun-version: latest\n')],
     ['node_modules restored from the cache', edit('          path: ~/.bun/install/cache\n', '          path: node_modules\n')],
     ['route output widened to another key', edit('      hosted: ${{ steps.route.outputs.hosted }}\n', '      hosted: ${{ steps.route.outputs.hosted }}\n      labels: x\n')],
-    ['route step swaps the runner\'s bun before static runs on velo', edit('          hosted=false\n', '          cp /bin/true "$HOME/.bun/bin/bun"\n          hosted=false\n')],
+    ['route step swaps the runner\'s bun before static runs on velo', edit('          if [ "$CI_HOSTED" = "off" ]; then\n', '          cp /bin/true "$HOME/.bun/bin/bun"\n          if [ "$CI_HOSTED" = "off" ]; then\n')],
     ['route step dropped (output never set)', edit('      - name: Hosted or velo?\n', '      - name: Hosted or velo?\n        if: false\n')],
     ['a decoy job named like the required check (newest run wins in the queue)', edit('    name: Golden Paths lane\n', '    name: Type Check, Lint & Test\n')],
     ['static renamed to the required check', edit('    name: Static gates\n', '    name: Type Check, Lint & Test\n')],
@@ -268,6 +273,9 @@ describe('the required check passes only when both gate groups passed', () => {
     ['a decoy whose name renders as the required check through an expression', edit('    name: Golden Paths lane\n', "    name: \"Type Check, Lint ${{ '&' }} Test\"\n")],
     ['static renamed so the fallback finds another job', edit('    name: Static gates\n', '    name: Static gates (hosted)\n')],
     ['golden-lane named like the hosted job the fallback looks up', edit('    name: Golden Paths lane\n', '    name: Static gates\n')],
+    ['the apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n", '      - run: |\n          sudo apt-get update -qq\n')],
+    ['the browser step rewriting what the gate runs', edit('        run: bunx playwright install --with-deps chromium\n', '        run: bunx playwright install --with-deps chromium && printf "exit 0\\n" > scripts/ci/run-ci.sh\n')],
+    ['TZ set to dodge the local-day tests', edit('          TZ: Africa/Johannesburg\n', '          TZ: UTC\n')],
     ['route taking a concurrency group', edit('    name: CI route\n', '    name: CI route\n    concurrency:\n      group: ci-${{ github.ref }}\n')],
   ];
 
