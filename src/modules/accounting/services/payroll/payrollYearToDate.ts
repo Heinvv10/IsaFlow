@@ -27,8 +27,8 @@
  *   rule for them (payrollRetirementRecord, migration 948, PAYE 4c): a line
  *   before 948 from its breakdown, and its taxable-flagged contributions,
  *   which the old calculator took off its periodic_taxable, are added back to
- *   periodicTaxable (named limit: such a line whose deduction took all its
- *   periodic pay still counts as no period). Production had no such line in
+ *   periodicTaxable, and such a line whose deduction took all its stored
+ *   periodic pay counts as a period again (yearToDatePeriods). Production had no such line in
  *   tax year 2027 (read-only census 2026-10-26: 0 of 167 lines).
  *
  * Every query is scoped by company_id.
@@ -57,7 +57,7 @@ export async function loadPayeYearToDate(
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH split AS (
-      SELECT l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
+      SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
       FROM payroll_run_lines l
@@ -78,6 +78,8 @@ export async function loadPayeYearToDate(
     )
     SELECT employee_id,
            COUNT(*) FILTER (WHERE periodic > 0)::int AS periods,
+           -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
+           jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic <= 0) AS unpaid_lines,
            SUM(periodic)::numeric AS periodic,
            SUM(annual)::numeric AS annual,
            SUM(paye - directive_paye)::numeric AS table_paye,
@@ -98,7 +100,7 @@ export async function loadPayeYearToDate(
   return new Map(rows.map(r => {
     const fund = retirement.get(String(r.employee_id));
     return [String(r.employee_id), {
-      periods: Number(r.periods),
+      periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, fund?.legacyTaxableByLine ?? {}),
       periodicTaxable: round2(Number(r.periodic) + (fund?.legacyTaxable ?? 0)),
       annualPayments: round2(Number(r.annual)),
       tablePaye: round2(Number(r.table_paye)),
@@ -110,6 +112,21 @@ export async function loadPayeYearToDate(
       donations: fund?.donations ?? 0,
     }];
   }));
+}
+
+/**
+ * The periods to date: the lines with stored periodic pay, plus those without
+ * whose pre-948 taxable retirement contributions, added back, restore some
+ * (the old calculator took them off periodic_taxable, so a contribution as
+ * large as the pay left it nil). A severance-only line stays no period.
+ */
+export function yearToDatePeriods(
+  withPeriodicPay: number,
+  unpaidLines: Record<string, unknown>,
+  legacyTaxableByLine: Record<string, number>,
+): number {
+  const restored = Object.entries(unpaidLines).filter(([id, periodic]) => Number(periodic) + (legacyTaxableByLine[id] ?? 0) > 0);
+  return withPeriodicPay + restored.length;
 }
 
 /**

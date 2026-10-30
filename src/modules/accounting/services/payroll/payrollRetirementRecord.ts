@@ -38,6 +38,8 @@ export interface RetirementRecord extends RetirementContributions {
   deduction: number;
   /** Pre-948 lines' taxable-flagged contributions: already deducted from their periodic_taxable, to add back. */
   legacyTaxable: number;
+  /** The same, by line id (only lines with some), so the year to date can tell which lines had periodic pay before it. */
+  legacyTaxableByLine: Record<string, number>;
   /** Donations (4030) deducted as taxable deductions. */
   donations: number;
 }
@@ -54,7 +56,7 @@ export async function loadRetirementRecord(
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH line AS (
-      SELECT l.employee_id, l.retirement_contributions, l.retirement_deduction, x.*
+      SELECT l.id AS line_id, l.employee_id, l.retirement_contributions, l.retirement_deduction, x.*
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (
@@ -85,6 +87,7 @@ export async function loadRetirementRecord(
            SUM(COALESCE(retirement_contributions, breakdown_all))::numeric AS contributions,
            SUM(COALESCE(retirement_deduction, breakdown_taxable))::numeric AS deduction,
            COALESCE(SUM(breakdown_taxable) FILTER (WHERE retirement_contributions IS NULL), 0)::numeric AS legacy_taxable,
+           jsonb_object_agg(line_id::text, breakdown_taxable) FILTER (WHERE retirement_contributions IS NULL AND breakdown_taxable > 0) AS legacy_by_line,
            SUM(donations)::numeric AS donations
     FROM line
     GROUP BY employee_id
@@ -96,6 +99,7 @@ export async function loadRetirementRecord(
     contributions: round2(Number(r.contributions)),
     deduction: round2(Number(r.deduction)),
     legacyTaxable: round2(Number(r.legacy_taxable)),
+    legacyTaxableByLine: Object.fromEntries(Object.entries((r.legacy_by_line ?? {}) as Record<string, unknown>).map(([id, v]) => [id, Number(v)])),
     donations: round2(Number(r.donations)),
   }]));
 }
