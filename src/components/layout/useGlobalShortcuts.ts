@@ -12,16 +12,22 @@ interface GlobalShortcutHandlers {
   openShortcutHelp: () => void;
 }
 
-/** "G then <key>" → page. Press G then the second key within 1 second. */
-const GO_TO: Array<{ key: string; name: string; href: string }> = [
+/**
+ * "G then <key>" → page. Press G then the second key within 1 second. Every `name` is a top-level nav
+ * tab's label (tests/unit/layout/globalShortcutsGoTo.test.ts), so the "?" overlay cannot list a tab
+ * that no longer exists.
+ */
+export const GO_TO: Array<{ key: string; name: string; href: string }> = [
   { key: 'd', name: 'Dashboard', href: '/accounting' },
   { key: 's', name: 'Sales', href: '/accounting/customers' },
   { key: 'p', name: 'Purchases', href: '/accounting/suppliers' },
-  { key: 'i', name: 'Inventory', href: '/accounting/items' },
   { key: 'b', name: 'Banking', href: '/accounting/bank-transactions' },
-  { key: 'a', name: 'Accounting', href: '/accounting/chart-of-accounts' },
-  { key: 'r', name: 'Reports', href: '/accounting/reports/income-statement' },
+  { key: 'y', name: 'Payroll', href: '/payroll/runs' },
   { key: 't', name: 'Tax', href: '/accounting/sars/vat201' },
+  { key: 'r', name: 'Reports', href: '/accounting/reports/income-statement' },
+  { key: 'm', name: 'Month-End', href: '/accounting/month-end-workbench' },
+  { key: 'o', name: 'Portfolio', href: '/accounting/portfolio-workbench' },
+  { key: 'l', name: 'Library', href: '/accounting/library' },
 ];
 
 export function useGlobalShortcuts({ openCommandPalette, openShortcutHelp }: GlobalShortcutHandlers): ShortcutConfig[] {

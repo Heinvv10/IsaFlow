@@ -8,7 +8,8 @@
  *    Sales 1 done, and Home shows the card. A customer cannot be deleted, so the
  *    strict "Sales has nothing yet" start is asserted on the first run only; later runs
  *    assert the same rule from the other side (done <=> a customer exists).
- * 2. Demo: the card and the Action Items "All caught up" state follow the data.
+ * 2. Demo: the card and the Action Items "All caught up" state follow the data
+ *    ("All caught up" only once setup is complete).
  *    The card is hidden exactly when the API says every task is done.
  */
 import { test, expect } from '@playwright/test';
@@ -131,7 +132,9 @@ test('setup checklist: on Demo the card hides exactly when every task is done', 
     await expect(page.getByRole('heading', { name: 'Action Items' })).toBeVisible({ timeout: 30_000 });
     const card = page.getByRole('region', { name: 'Finish setting up' });
     await expect(card).toHaveCount(checklist.allComplete ? 0 : 1);
-    await expect(page.getByText('All caught up!')).toHaveCount(noActions ? 1 : 0);
+    // "All caught up!" is not said while setup tasks are still open (W2 H).
+    await expect(page.getByText('All caught up!')).toHaveCount(noActions && checklist.allComplete ? 1 : 0);
+    await expect(page.getByText('Finish setup to see your daily tasks')).toHaveCount(noActions && !checklist.allComplete ? 1 : 0);
   } finally {
     await api.dispose();
   }
