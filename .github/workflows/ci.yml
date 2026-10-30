@@ -18,50 +18,31 @@ permissions:
 
 jobs:
   # Where the static gate group runs: "true" = GitHub-hosted, else velo.
-  # Hosted runners are billed per minute on this private repo, so only a
-  # pull_request run that changes something other than Markdown goes there.
-  # Everything else stays on velo, where it costs nothing:
-  #   - a push to master (a queue merge exits in seconds via the merge check);
-  #   - a Markdown-only change (the same scripts/ci/integration/scope.ts test
-  #     the integration step uses; every gate still runs, on velo);
-  #   - repo variable CI_HOSTED=off, the switch for when the Actions budget is
-  #     spent or GitHub's runners are down.
-  # The output only picks between two label sets written out in static's
-  # runs-on, so a wrong value cannot strand the job on a label no runner has.
+  # The repo is public, so hosted minutes are free: every event runs on
+  # GitHub-hosted runners (ubuntu-24.04) unless repo variable CI_HOSTED=off,
+  # the switch for when GitHub's runners are down. route itself, quality and
+  # golden-lane follow the same variable. The output only picks between two
+  # label sets written out in static's runs-on, so a wrong value cannot strand
+  # the job on a label no runner has.
   route:
     name: CI route
-    runs-on: [self-hosted, linux, velo]
+    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
     timeout-minutes: 5
     outputs:
       hosted: ${{ steps.route.outputs.hosted }}
     steps:
-      # Full history: scope.ts diffs the tested tree against the event's base.
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Hosted or velo?
         id: route
         env:
           CI_HOSTED: ${{ vars.CI_HOSTED }}
         run: |
-          hosted=false
-          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
-            echo "[route] velo: $GITHUB_EVENT_NAME event (hosted runs only for pull_request)"
-          elif [ "$CI_HOSTED" = "off" ]; then
+          if [ "$CI_HOSTED" = "off" ]; then
             echo "[route] velo: repo variable CI_HOSTED=off"
+            echo "hosted=false" >> "$GITHUB_OUTPUT"
           else
-            rc=0
-            bun scripts/ci/integration/scope.ts || rc=$?
-            if [ "$rc" -eq 10 ]; then
-              echo "[route] velo: Markdown-only change"
-            else
-              hosted=true
-              echo "[route] GitHub-hosted"
-            fi
+            echo "[route] GitHub-hosted"
+            echo "hosted=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "hosted=$hosted" >> "$GITHUB_OUTPUT"
 
   # `bun run ci static`: every gate that needs nothing from velo (type checks,
   # lint, the text guards, unit and component tests, migration naming, the
@@ -71,7 +52,7 @@ jobs:
     name: Static gates
     needs: route
     runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
-    # Tight on hosted, where every minute is billed; 40 is a first guess, not
+    # Hosted: 40 (PR #953 run 41050347282 took 17 min on 4 vCPU), not
     # yet measured on a 2-vCPU hosted runner (re-measure and tighten). On velo,
     # the old bound for these steps: 58 min at load 150-250, plus install.
     # ubuntu-24.04, not ubuntu-latest: -latest moves to Ubuntu 26 from
@@ -114,12 +95,22 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
+      # What velo has and the static unit tests spawn: gs (the VLM PDF render).
+      - if: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ghostscript
 
       # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
       # root, workspace members and trusted dependencies, any of which could
       # rewrite scripts/ci/run-ci.sh before the gate runs (R-052).
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
+
+      # Chromium for the unit tests that launch it, at the revision the locked
+      # playwright expects. Velo's runners already have it.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        run: bunx playwright install --with-deps chromium
 
       # The gate list lives in ONE place: scripts/ci/run-ci.sh (R-052); this
       # job runs its static group, `velo` below runs the rest, and
@@ -135,6 +126,9 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: test-secret-for-ci-only
           NODE_ENV: test
+          # Velo and production run in SAST; the date tests assert the local
+          # day, and a hosted runner is UTC.
+          TZ: Africa/Johannesburg
 
   # GitHub refuses to START a hosted job once the account's Actions budget is
   # spent or a payment failed ("The job was not started because recent account
@@ -243,7 +237,7 @@ jobs:
     name: Type Check, Lint & Test
     needs: [route, static, static-fallback, velo]
     if: ${{ always() }}
-    runs-on: [self-hosted, linux, velo]
+    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - name: Both gate groups passed?
@@ -266,7 +260,7 @@ jobs:
   # behaviour. Not a required check.
   golden-lane:
     name: Golden Paths lane
-    runs-on: [self-hosted, linux, velo]
+    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
     timeout-minutes: 5
     permissions:
       contents: read
