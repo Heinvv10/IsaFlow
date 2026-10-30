@@ -6,7 +6,9 @@
  */
 import type { GridAccount } from '@/modules/accounting/services/budgets/gridReadTypes';
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
-import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
+import { type CellKey, rowKeyOf } from '@/modules/accounting/services/budgets/grid/cellKey';
+import type { CellSource, RowKey } from '@/modules/accounting/services/budgets/drivers/driverTypes';
+import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
 import { type GridState, initialGridState } from '@/modules/accounting/services/budgets/grid/keyboard';
 import { type View, resolveView, viewCellKey } from '@/modules/accounting/services/budgets/grid/pivot';
 import type { GridShape } from '@/modules/accounting/services/budgets/grid/selection';
@@ -27,7 +29,7 @@ export const ROLLUP_REASON = 'Sub-account roll-up';
 const EMPTY_LAYOUT: GridLayout = { rows: [], months: [], rowKinds: [], cols: 1 };
 const EMPTY_ROW: GridRowSnapshot = Object.freeze({
   values: [], fy: null, editable: false, readReason: null, dirty: [], conflict: [], py: null, pyFy: null,
-  compareFy: null, focusCol: null, selected: null, editing: null, note: null,
+  compareFy: null, focusCol: null, selected: null, editing: null, note: null, sources: [], driver: null, driverWarning: null,
 });
 const EMPTY_TOTAL: GridTotalSnapshot = Object.freeze({ months: [], fy: 0, pyFy: null, compareFy: null });
 export const METRICS: readonly Metric[] = ['turnover', 'costOfSales', 'grossProfit', 'otherIncome', 'operatingExpenses', 'operatingProfit', 'otherExpenses', 'netProfit'];
@@ -45,6 +47,12 @@ export class GridStoreCore {
   protected readonly undoStack = new UndoStack();
   protected prior: PriorActuals | null = null;
   protected compare: Map<string, Map<CellKey, number | null>> | null = null;
+  /** P4: each loaded cell's source, the version's closed months (they hold 'actual' cells) and its drivers by row. */
+  protected sources = new Map<CellKey, CellSource>();
+  protected closedMonths: ReadonlySet<string> = new Set();
+  protected drivers = new Map<RowKey, StoredDriverLine>();
+  /** The last driver recompute's warnings (skipped driver, input read as 0) by row, labelled. */
+  protected driverWarnings = new Map<RowKey, string>();
   protected own = new Map<string, OwnPart>();
   protected rollups = new Map<string, Series>();
   protected ex: Extras = { py: null, pyRollup: new Map(), compare: null, compareRollup: new Map() };
@@ -173,13 +181,16 @@ export class GridStoreCore {
     const common = { values, fy: sumOf(values), py, pyFy: py ? sumOf(py) : null, compareFy: cmp, note, ...sel };
     if (rollup) {
       const none = values.map(() => false);
-      return { ...common, editable: false, readReason: ROLLUP_REASON, dirty: none, conflict: none };
+      return { ...common, editable: false, readReason: ROLLUP_REASON, dirty: none, conflict: none, sources: values.map(() => null), driver: null, driverWarning: null };
     }
     const own = this.own.get(id);
     const keys = this.layout.months.map(m => viewCellKey(id, this.view, m));
     return {
       ...common, editable: own?.editable ?? false, readReason: own?.readReason ?? null,
       dirty: keys.map(k => this.dirty.has(k)), conflict: keys.map(k => this.conflicts.has(k)),
+      sources: keys.map(k => this.sources.get(k) ?? null),
+      driver: keys[0] === undefined ? null : this.drivers.get(rowKeyOf(keys[0])) ?? null,
+      driverWarning: keys[0] === undefined ? null : this.driverWarnings.get(rowKeyOf(keys[0])) ?? null,
     };
   }
 

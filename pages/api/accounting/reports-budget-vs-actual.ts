@@ -10,6 +10,14 @@
  * same path as the CSV export, MCP budget_variance and the statement Budget column:
  * `lines` (the row model) and `sections` (Revenue / Expenses / Net profit). Read-only:
  * viewer roles may open it (contract decision 15).
+ *
+ * SUPERSEDED for the page (budgets P3 PR-B: the BvA page reads reports-budget-tracking) and kept on
+ * purpose, not as an oracle (PR-C's facade parity test carries the old SQL itself): the suites that
+ * call this route (budgets-bva-parity, budgets-report-year, budgets-report-fault, the G01 reader
+ * census, balanceQueryGuards) pin getBudgetVariance's P0 contract, which PR-C turns into a facade
+ * over the tracking engine. Through that facade this route becomes a thin wrapper over the engine
+ * with its P0 shape intact; wrapping it over the new route instead would change that shape and
+ * break those suites. Delete it with them once nothing else reads it (census at PR-C).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

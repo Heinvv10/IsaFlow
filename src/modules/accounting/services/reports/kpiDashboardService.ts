@@ -6,38 +6,56 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { marginPct } from './marginPct';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { todayInSast } from '@/lib/saDateParser';
+import { getOpenBook, type OpenBook } from './dashboardOpenBook';
+import { revenueBand } from '../gl/accountClassification';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
 export interface DashboardKPIs {
   revenue: { total: number; priorTotal: number; changePercent: number };
+  /** Posted revenue from the 1st of the current SAST month to `todayStr`: the hero's "Revenue MTD". */
+  revenueMtd: number;
   expenses: { total: number; priorTotal: number };
-  grossProfit: { amount: number; margin: number };
-  netProfit: { amount: number; margin: number };
+  /**
+   * Every revenue-type account less every expense: the income statement's Net Profit. `margin` is over
+   * turnover and null with no positive turnover: a dash, not 0.0% and not a ratio of two negatives.
+   */
+  netProfit: { amount: number; margin: number | null };
   cash: { total: number; priorTotal: number; change: number };
-  receivables: { total: number; overdue: number; avgDebtorDays: number };
+  receivables: { total: number; overdue: number; overdueDisputed: number; avgDebtorDays: number };
   payables: { total: number; overdue: number; avgCreditorDays: number };
   activity: { invoicesIssued: number; paymentsReceived: number; journalsPosted: number };
 }
 
+/** One row per revenue-account subtype: the P&L bands by subtype, so the KPIs do too. */
+type RevenueRow = { account_subtype?: string | null; total?: unknown };
+const sumRevenue = (rows: RevenueRow[]): number => rows.reduce((s, r) => s + Number(r.total || 0), 0);
+const turnover = (rows: RevenueRow[]): number =>
+  sumRevenue(rows.filter((r) => revenueBand(r.account_subtype) === 'turnover'));
+
+/** Both sides of the open book, already read: a caller that also draws the ageing donuts reads each once. */
+export interface OpenBooks { ar: OpenBook; ap: OpenBook }
+
+/**
+ * `todayStr` is the SAST app date the Receivables / Payables tiles are as at
+ * (reports/dashboardOpenBook), never the UTC session's CURRENT_DATE. `books`
+ * are those tiles' open books when the caller already has them; without them
+ * they are read here.
+ */
 export async function getDashboardKPIs(companyId: string,
   fromDate: string,
-  toDate: string
+  toDate: string,
+  todayStr: string = todayInSast(),
+  books?: OpenBooks,
 ): Promise<DashboardKPIs> {
   try {
     const from = new Date(fromDate);
     const to = new Date(toDate);
     const durationMs = to.getTime() - from.getTime();
     const priorFrom = new Date(from.getTime() - durationMs);
-    // K-053: these AR/AP figures are "as at now", so now is the date they ask
-    // the soft-delete question at. An undated deleted_at IS NULL would drop a
-    // document deleted BEFORE the delete began reversing its journal — the
-    // control account still carries that one. See shared/softDeleteLedgerPresence.
-    const kpiAsAtStr = asAtTodayStr();
     const priorFromStr = priorFrom.toISOString().slice(0, 10);
     const priorToStr = new Date(from.getTime() - 86400000).toISOString().slice(0, 10);
 
@@ -45,33 +63,36 @@ export async function getDashboardKPIs(companyId: string,
       revenueRows, priorRevenueRows,
       expenseRows, priorExpenseRows,
       cashRows, priorCashRows,
-      arRows, arOverdueRows, arDebtorDaysRows,
-      apRows, apOverdueRows, apCreditorDaysRows,
+      arBook, arDebtorDaysRows,
+      apBook, apCreditorDaysRows,
       invoicesIssuedRows, paymentsReceivedRows, journalsPostedRows,
+      mtdRevenueRows,
     ] = await Promise.all([
       sql`
-        SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS total
+        SELECT ga.account_subtype, COALESCE(SUM(jl.credit - jl.debit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
+        GROUP BY ga.account_subtype
       `,
       sql`
-        SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS total
+        SELECT ga.account_subtype, COALESCE(SUM(jl.credit - jl.debit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
+        GROUP BY ga.account_subtype
       `,
       sql`
         SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
@@ -80,7 +101,7 @@ export async function getDashboardKPIs(companyId: string,
         SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
@@ -118,23 +139,9 @@ export async function getDashboardKPIs(companyId: string,
           AND bt.feed_state = 'posted'
           AND bt.transaction_date <= ${priorToStr}
       `,
-      sql`
-        SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
-        FROM customer_invoices ci
-        WHERE ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-          AND ci.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('ci', kpiAsAtStr, companyId)}
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
-      `,
-      sql`
-        SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
-        FROM customer_invoices ci
-        WHERE ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-          AND ci.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('ci', kpiAsAtStr, companyId)}
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
-          AND ci.due_date < CURRENT_DATE
-      `,
+      // The aging report's own population, as at todayStr; its soft-delete
+      // presence is dated there too (K-053, shared/softDeleteLedgerPresence).
+      books ? books.ar : getOpenBook(companyId, 'ar', todayStr),
       sql`
         SELECT COALESCE(AVG(
           EXTRACT(EPOCH FROM (COALESCE(paid_at, CURRENT_DATE) - invoice_date)) / 86400
@@ -144,23 +151,7 @@ export async function getDashboardKPIs(companyId: string,
           AND company_id = ${companyId}::UUID
           AND invoice_date >= ${fromDate}
       `,
-      sql`
-        SELECT COALESCE(SUM(si.balance), 0) AS total
-        FROM supplier_invoices si
-        WHERE si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-          AND si.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('si', kpiAsAtStr, companyId)}
-          AND si.balance > 0
-      `,
-      sql`
-        SELECT COALESCE(SUM(si.balance), 0) AS total
-        FROM supplier_invoices si
-        WHERE si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-          AND si.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('si', kpiAsAtStr, companyId)}
-          AND si.balance > 0
-          AND si.due_date < CURRENT_DATE
-      `,
+      books ? books.ap : getOpenBook(companyId, 'ap', todayStr),
       sql`
         SELECT COALESCE(AVG(
           EXTRACT(EPOCH FROM (COALESCE(paid_at, CURRENT_DATE) - invoice_date)) / 86400
@@ -190,34 +181,54 @@ export async function getDashboardKPIs(companyId: string,
           AND status = 'posted' AND source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND entry_date >= ${fromDate} AND entry_date <= ${toDate}
       `,
+      // The revenue tile's own rule, over the SAST month so far (the tile
+      // spans the whole window and is not a month-to-date figure).
+      sql`
+        SELECT ga.account_subtype, COALESCE(SUM(jl.credit - jl.debit), 0) AS total
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
+        WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
+          AND je.entry_date >= ${`${todayStr.slice(0, 8)}01`} AND je.entry_date <= ${todayStr}
+        GROUP BY ga.account_subtype
+      `,
     ]);
 
-    const totalRevenue = Number((revenueRows as DbRow[])[0]?.total || 0);
-    const priorRevenue = Number((priorRevenueRows as DbRow[])[0]?.total || 0);
+    // Revenue is TURNOVER, as the income statement's Revenue line: the other-income
+    // band (revenueBand) is left out of it. Profit still counts every revenue-type
+    // account, as the statement's net profit does.
+    const totalRevenue = turnover(revenueRows as RevenueRow[]);
+    const priorRevenue = turnover(priorRevenueRows as RevenueRow[]);
+    const allRevenue = sumRevenue(revenueRows as RevenueRow[]);
     const totalExpenses = Number((expenseRows as DbRow[])[0]?.total || 0);
     const priorExpenses = Number((priorExpenseRows as DbRow[])[0]?.total || 0);
     const cashTotal = Number((cashRows as DbRow[])[0]?.total || 0);
     const priorCash = Number((priorCashRows as DbRow[])[0]?.total || 0);
-    const grossProfit = totalRevenue - totalExpenses;
-    const grossMargin = marginPct(grossProfit, totalRevenue) ?? 0;
+    const netProfit = allRevenue - totalExpenses;
+    // Null unless turnover is positive. Zero turnover is no margin (the statement prints a dash
+    // too); negative turnover differs from the statement on purpose: its allowNegativeRevenue
+    // would print +150% beside a loss.
+    const netMargin = marginPct(netProfit, totalRevenue);
     const revenueChange = priorRevenue > 0
       ? ((totalRevenue - priorRevenue) / priorRevenue) * 100
       : totalRevenue > 0 ? 100 : 0;
 
     return {
       revenue: { total: totalRevenue, priorTotal: priorRevenue, changePercent: revenueChange },
+      revenueMtd: turnover(mtdRevenueRows as RevenueRow[]),
       expenses: { total: totalExpenses, priorTotal: priorExpenses },
-      grossProfit: { amount: grossProfit, margin: grossMargin },
-      netProfit: { amount: grossProfit, margin: grossMargin },
+      netProfit: { amount: netProfit, margin: netMargin },
       cash: { total: cashTotal, priorTotal: priorCash, change: cashTotal - priorCash },
       receivables: {
-        total: Number((arRows as DbRow[])[0]?.total || 0),
-        overdue: Number((arOverdueRows as DbRow[])[0]?.total || 0),
+        total: arBook.total,
+        overdue: arBook.overdue,
+        overdueDisputed: arBook.overdueDisputed,
         avgDebtorDays: Math.round(Number((arDebtorDaysRows as DbRow[])[0]?.avg_days || 0)),
       },
       payables: {
-        total: Number((apRows as DbRow[])[0]?.total || 0),
-        overdue: Number((apOverdueRows as DbRow[])[0]?.total || 0),
+        total: apBook.total,
+        overdue: apBook.overdue,
         avgCreditorDays: Math.round(Number((apCreditorDaysRows as DbRow[])[0]?.avg_days || 0)),
       },
       activity: {
