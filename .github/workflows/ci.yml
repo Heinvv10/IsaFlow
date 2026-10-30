@@ -120,10 +120,15 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           lane="pr"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            case "$HEAD_REF" in merge-queue/*) lane="queue" ;; esac
+            # A fork can name its branch merge-queue/*; only this repo's own
+            # branches (the queue's batch branches) take the queue lane by name.
+            if [ "$HEAD_REPO" = "$REPO" ]; then
+              case "$HEAD_REF" in merge-queue/*) lane="queue" ;; esac
+            fi
             if [ "$lane" = "pr" ]; then
               tries=1
               committer=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.committer.login // ""') || committer=""
