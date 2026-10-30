@@ -2,32 +2,35 @@
 //
 // Every JOIN from an aging document to its customer / supplier carries the
 // document's company_id. customer_invoices.client_id/customer_id,
-// credit_notes.client_id and supplier_invoices.supplier_id are plain FKs to the
-// parent's id alone, so nothing at the schema level stops a row in company A
-// pointing at company B's customer. Without `AND c.company_id = <doc>.company_id`
-// on the join, company A's aging then prints company B's customer name (and
-// buckets the invoice under B's entity id) — a cross-tenant read.
+// credit_notes.client_id and supplier_invoices.supplier_id are not tied to the
+// document's company at the schema level, so a row in company A can point at
+// company B's customer/supplier. Without `AND c.company_id = <doc>.company_id`
+// on the join, company A's aging prints company B's name (a cross-tenant read).
 //
-// Seeded here: in company A one legitimate document per side plus one document
-// whose customer/supplier belongs to company B ("the poisoned row"). The poisoned
-// row has a distinctive name so a leak is a string match, not an inference.
+// The joins are LEFT (master's #915, and the AP side mirrors it): the report's
+// summary reads the document table alone, so an inner join would drop the
+// poisoned document from the list/tile while the summary still counts it. The
+// document therefore STAYS in every total, ages under UNKNOWN_CUSTOMER /
+// UNKNOWN_SUPPLIER, and company B's name and B's own documents never appear.
 //
-// Surfaces: getARAging / getAPAging (entity_name + bucket), the AP age-analysis
-// route's per-invoice rows, and the credit-note read at its own exported
-// function. Unallocated credit notes are pushed into getARAging with a NEGATIVE
-// balance, which calculateAgingBuckets drops, so the credit-note join has no
-// observable surface through the buckets: it is tested where it is exported.
+// Fixture: tests/helpers/agingScopeFixture.ts (tenant B has its own invoice,
+// bill and credit note too). Surfaces here: getARAging / getAPAging, the
+// open-items reads, the AP age-analysis route (rows AND summary), and the
+// credit-note read at its own exported function (unallocated credit notes are
+// pushed into getARAging with a NEGATIVE balance, which calculateAgingBuckets
+// drops, so that join has no surface through the buckets). Drill-downs:
+// aging-customer-supplier-company-scope-detail.int.test.ts.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import { AMOUNTS, dropAgingScope, newAgingScope, seedAgingScope } from '../helpers/agingScopeFixture';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { fetchUnallocatedCreditNotes } from '@/modules/accounting/services/ar/arAgingCreditNotes';
 import { fetchARAgingInvoices, UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
-import { fetchAPAgingInvoices } from '@/modules/accounting/services/ap/apAgingInvoices';
+import { fetchAPAgingInvoices, UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 
 // Auth and metering are not under test; the route's SQL is. The route reads
 // companyId off the request, which the pass-through sets.
@@ -47,17 +50,34 @@ import apAgingRoute from '../../pages/api/accounting/reports-ap-aging';
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
-const A = randomUUID();
-const B = randomUUID();
-const USER = randomUUID();
-const CUST_A = randomUUID();
-const CUST_B = randomUUID();
-const SUPP_A = randomUUID();
-const SUPP_B = randomUUID();
-const TAG = `SCOPE-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-const LEAK_CUSTOMER = `Tenant B Customer ${TAG}`;
-const LEAK_SUPPLIER = `Tenant B Supplier ${TAG}`;
+const S = newAgingScope();
 const AS_AT = '2026-06-30';
+const AR_TOTAL = AMOUNTS.arOk + AMOUNTS.arPoisoned; // 1777
+const AP_TOTAL = AMOUNTS.apOk + AMOUNTS.apPoisoned; // 2888
+
+/** Tenant B's own amounts as JSON numbers (a name match alone would miss an amount leak). */
+function mentionsTenantBAmount(json: string): boolean {
+  return new RegExp(`[:,\\[](${AMOUNTS.arB}|${AMOUNTS.apB}|${AMOUNTS.cnB})(\\.0+)?[,}\\]]`).test(json);
+}
+
+async function callApRoute(): Promise<{ status: number; data: ApRouteData }> {
+  routeCompany.id = S.A;
+  let status = 0;
+  let body: unknown;
+  const res = {
+    status(code: number) { status = code; return this; },
+    json(b: unknown) { body = b; return this; },
+    setHeader() { return this; },
+  } as unknown as NextApiResponse;
+  const req = { method: 'GET', query: { as_at_date: AS_AT }, headers: {} } as unknown as NextApiRequest;
+  await (apAgingRoute as unknown as (a: NextApiRequest, b: NextApiResponse) => Promise<void>)(req, res);
+  return { status, data: (body as { data: ApRouteData }).data };
+}
+
+interface ApRouteData {
+  rows: { supplier_name: string; balance_due: number }[];
+  summary: { bucket: string; count: number; total: number }[];
+}
 
 describeIfDb('aging joins to customers/suppliers are scoped to the document company', () => {
   let admin: Pool;
@@ -65,115 +85,81 @@ describeIfDb('aging joins to customers/suppliers are scoped to the document comp
   beforeAll(async () => {
     assertNotProductionDb('This test inserts and deletes company, customer, supplier and invoice fixtures.');
     admin = new Pool({ connectionString: DATABASE_URL, max: 2 });
-    for (const [id, name] of [[A, 'Scope A'], [B, 'Scope B']] as const) {
-      await admin.query(`INSERT INTO companies (id, name, is_active) VALUES ($1,$2,true)`, [id, `${name} ${TAG}`]);
-    }
-    await admin.query(`INSERT INTO customers (id, company_id, name) VALUES ($1,$2,$3),($4,$5,$6)`,
-      [CUST_A, A, `Tenant A Customer ${TAG}`, CUST_B, B, LEAK_CUSTOMER]);
-    await admin.query(`INSERT INTO suppliers (id, company_id, name) VALUES ($1,$2,$3),($4,$5,$6)`,
-      [SUPP_A, A, `Tenant A Supplier ${TAG}`, SUPP_B, B, LEAK_SUPPLIER]);
-
-    // AR: one legitimate invoice (1000) and one pointing at company B's customer (777).
-    await arInvoice(admin, 'OK', CUST_A, 1000);
-    await arInvoice(admin, 'POISONED', CUST_B, 777);
-    // Credit notes: unallocated, approved, one per customer.
-    await creditNote(admin, 'OK', CUST_A, 100);
-    await creditNote(admin, 'POISONED', CUST_B, 55);
-    // AP: same shape.
-    await apInvoice(admin, 'OK', SUPP_A, 2000);
-    await apInvoice(admin, 'POISONED', SUPP_B, 888);
+    await seedAgingScope(admin, S);
   }, 60000);
 
   afterAll(async () => {
     if (!admin) return;
-    for (const co of [A, B]) {
-      await admin.query('DELETE FROM credit_notes WHERE company_id = $1', [co]);
-      await admin.query('DELETE FROM customer_invoices WHERE company_id = $1', [co]);
-      await admin.query('DELETE FROM supplier_invoices WHERE company_id = $1', [co]);
-      await admin.query('DELETE FROM customers WHERE company_id = $1', [co]);
-      await admin.query('DELETE FROM suppliers WHERE company_id = $1', [co]);
-      await admin.query('DELETE FROM companies WHERE id = $1', [co]);
-    }
+    await dropAgingScope(admin, S);
     await admin.end();
   }, 60000);
 
-  // Master's #915 made the open-invoice read a LEFT JOIN so Home's tile/donut
-  // cannot drop an invoice the report's summary still counts. The scoped join
-  // therefore no longer removes the poisoned invoice: it is KEPT (summary
-  // parity) but company B's customer does not match, so it ages under
-  // UNKNOWN_CUSTOMER. What must never happen is company B's NAME appearing.
-  it('getARAging never names company B\'s customer; the poisoned invoice ages as unknown', async () => {
-    const buckets = await getARAging(A, AS_AT);
-    expect(buckets.map((b) => b.entityName)).not.toContain(LEAK_CUSTOMER);
-    expect(JSON.stringify(buckets)).not.toContain(LEAK_CUSTOMER);
-    const byName = Object.fromEntries(buckets.map((b) => [b.entityName, b.total]));
-    expect(byName).toEqual({ [`Tenant A Customer ${TAG}`]: 1000, [UNKNOWN_CUSTOMER]: 777 });
+  // The poisoned invoice is KEPT (summary parity) but company B's customer does
+  // not match, so it ages under UNKNOWN_CUSTOMER with A's stored id.
+  it('getARAging totals exactly A\'s invoices; the poisoned one ages as unknown, B\'s name and own invoice never appear', async () => {
+    const buckets = await getARAging(S.A, AS_AT);
+    expect(buckets).toHaveLength(2);
+    expect(buckets.map((b) => [b.entityId, b.entityName, b.total]).sort()).toEqual([
+      [S.CUST_A, `Tenant A Customer ${S.TAG}`, AMOUNTS.arOk],
+      [S.CUST_B, UNKNOWN_CUSTOMER, AMOUNTS.arPoisoned],
+    ].sort());
+    expect(buckets.reduce((t, b) => t + b.total, 0)).toBe(AR_TOTAL);
+    const json = JSON.stringify(buckets);
+    expect(json).not.toContain(S.LEAK_CUSTOMER);
+    expect(mentionsTenantBAmount(json)).toBe(false);
   });
 
-  it('the AR open-items read (drill-down / export source) carries no foreign customer name', async () => {
-    const rows = await fetchARAgingInvoices(A, AS_AT, AS_AT);
-    expect(rows.map((r) => r.entityName).sort()).toEqual([`Tenant A Customer ${TAG}`, UNKNOWN_CUSTOMER].sort());
-    expect(JSON.stringify(rows)).not.toContain(LEAK_CUSTOMER);
+  it('the AR open-items read carries no foreign customer name and none of B\'s invoices', async () => {
+    const rows = await fetchARAgingInvoices(S.A, AS_AT, AS_AT);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.entityName).sort()).toEqual([`Tenant A Customer ${S.TAG}`, UNKNOWN_CUSTOMER].sort());
+    expect(rows.map((r) => r.balance).sort((a, b) => a - b)).toEqual([AMOUNTS.arPoisoned, AMOUNTS.arOk]);
+    expect(JSON.stringify(rows)).not.toContain(S.LEAK_CUSTOMER);
   });
 
-  it('the unallocated credit-note read returns only company A\'s customer', async () => {
-    const rows = await fetchUnallocatedCreditNotes(A, AS_AT);
-    expect(rows.map((r) => r.entityName)).toEqual([`Tenant A Customer ${TAG}`]);
-    expect(rows.map((r) => r.balance)).toEqual([-100]);
+  it('the unallocated credit-note read returns only A\'s credit note, for A\'s customer', async () => {
+    const rows = await fetchUnallocatedCreditNotes(S.A, AS_AT);
+    expect(rows.map((r) => r.entityName)).toEqual([`Tenant A Customer ${S.TAG}`]);
+    expect(rows.map((r) => r.balance)).toEqual([-AMOUNTS.cnOk]);
   });
 
-  it('getAPAging never names company B\'s supplier, and ages only the legitimate bill', async () => {
-    const buckets = await getAPAging(A, AS_AT);
-    expect(buckets.map((b) => b.entityName)).not.toContain(LEAK_SUPPLIER);
-    expect(buckets.map((b) => [b.entityId, b.total])).toEqual([[SUPP_A, 2000]]);
+  // AP mirrors AR: the foreign-supplier bill stays in the total as unknown.
+  it('getAPAging totals exactly A\'s bills; the foreign-supplier bill ages as unknown, B\'s name and own bill never appear', async () => {
+    const buckets = await getAPAging(S.A, AS_AT);
+    expect(buckets).toHaveLength(2);
+    expect(buckets.map((b) => [b.entityId, b.entityName, b.total]).sort()).toEqual([
+      [S.SUPP_A, `Tenant A Supplier ${S.TAG}`, AMOUNTS.apOk],
+      [S.SUPP_B, UNKNOWN_SUPPLIER, AMOUNTS.apPoisoned],
+    ].sort());
+    expect(buckets.reduce((t, b) => t + b.total, 0)).toBe(AP_TOTAL);
+    const json = JSON.stringify(buckets);
+    expect(json).not.toContain(S.LEAK_SUPPLIER);
+    expect(mentionsTenantBAmount(json)).toBe(false);
   });
 
-  it('the AP open-items read carries no foreign supplier', async () => {
-    const rows = await fetchAPAgingInvoices(A, AS_AT, AS_AT);
-    expect(rows.map((r) => r.entityName)).toEqual([`Tenant A Supplier ${TAG}`]);
+  it('the AP open-items read keeps the foreign-supplier bill as unknown and carries none of B\'s', async () => {
+    const rows = await fetchAPAgingInvoices(S.A, AS_AT, AS_AT);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.entityName).sort()).toEqual([`Tenant A Supplier ${S.TAG}`, UNKNOWN_SUPPLIER].sort());
+    expect(rows.map((r) => r.balance).sort((a, b) => a - b)).toEqual([AMOUNTS.apPoisoned, AMOUNTS.apOk]);
+    expect(JSON.stringify(rows)).not.toContain(S.LEAK_SUPPLIER);
   });
 
-  it('the AP age-analysis route lists only the legitimate bill and never names company B\'s supplier', async () => {
-    routeCompany.id = A;
-    let status = 0;
-    let body: unknown;
-    const res = {
-      status(code: number) { status = code; return this; },
-      json(b: unknown) { body = b; return this; },
-      setHeader() { return this; },
-    } as unknown as NextApiResponse;
-    const req = { method: 'GET', query: { as_at_date: AS_AT }, headers: {} } as unknown as NextApiRequest;
-    await (apAgingRoute as unknown as (a: NextApiRequest, b: NextApiResponse) => Promise<void>)(req, res);
+  it('the AP age-analysis route lists the foreign-supplier bill as unknown, and its summary totals equal its rows', async () => {
+    const { status, data } = await callApRoute();
     expect(status).toBe(200);
-    const rows = (body as { data: { rows: { supplier_name: string; balance_due: number }[] } }).data.rows;
-    expect(rows.map((r) => r.supplier_name)).toEqual([`Tenant A Supplier ${TAG}`]);
-    expect(rows.map((r) => Number(r.balance_due))).toEqual([2000]);
+    expect(data.rows).toHaveLength(2);
+    expect(data.rows.map((r) => [r.supplier_name, Number(r.balance_due)]).sort()).toEqual([
+      [`Tenant A Supplier ${S.TAG}`, AMOUNTS.apOk],
+      [UNKNOWN_SUPPLIER, AMOUNTS.apPoisoned],
+    ].sort());
+    const rowsTotal = data.rows.reduce((t, r) => t + Number(r.balance_due), 0);
+    const summaryTotal = data.summary.reduce((t, b) => t + Number(b.total), 0);
+    expect(rowsTotal).toBe(AP_TOTAL);
+    expect(summaryTotal).toBe(rowsTotal);
+    expect(data.summary.reduce((t, b) => t + b.count, 0)).toBe(data.rows.length);
+    const json = JSON.stringify(data);
+    expect(json).not.toContain(S.LEAK_SUPPLIER);
+    expect(mentionsTenantBAmount(json)).toBe(false);
   });
 });
-
-async function arInvoice(pool: Pool, tag: string, customer: string, total: number): Promise<void> {
-  await pool.query(
-    `INSERT INTO customer_invoices
-       (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by)
-     VALUES ($1,$2,$2,$3,'2026-05-01','2026-05-31','approved',$4,0,$5)`,
-    [A, customer, `${TAG}-AR-${tag}`, total, USER],
-  );
-}
-
-async function creditNote(pool: Pool, tag: string, customer: string, total: number): Promise<void> {
-  await pool.query(
-    `INSERT INTO credit_notes
-       (company_id, client_id, credit_note_number, credit_date, type, status, total_amount, applied_amount, created_by)
-     VALUES ($1,$2,$3,'2026-05-15','customer','approved',$4,0,$5)`,
-    [A, customer, `CN-${TAG.slice(-9)}-${tag}`, total, USER],
-  );
-}
-
-async function apInvoice(pool: Pool, tag: string, supplier: string, total: number): Promise<void> {
-  await pool.query(
-    `INSERT INTO supplier_invoices
-       (company_id, supplier_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by)
-     VALUES ($1,$2,$3,'2026-05-01','2026-05-31','approved',$4,0,$5)`,
-    [A, supplier, `${TAG}-AP-${tag}`, total, USER],
-  );
-}

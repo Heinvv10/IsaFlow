@@ -9,7 +9,7 @@ import { log } from '@/lib/logger';
 import { calculateAgingBuckets, type AgingDetailInvoice } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
-import { fetchAPAgingInvoices } from './apAgingInvoices';
+import { fetchAPAgingInvoices, UNKNOWN_SUPPLIER } from './apAgingInvoices';
 type Row = DbRow;
 
 
@@ -104,16 +104,20 @@ export async function getAPAgingDetail(companyId: string,
     const todayStr = fmtDate(new Date());
 
     const supplierRows = (await sql`SELECT id, name FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-    if (supplierRows.length === 0) throw new Error(`Supplier ${supplierId} not found`);
 
     // The drill-down's row shape is unchanged: the export-only header fields stay out of it.
     const invoices: AgingDetailInvoice[] = (await fetchAPAgingInvoices(companyId, asAtStr, todayStr, supplierId))
       .map(({ invoiceDate: _d, reference: _r, ...inv }) => inv);
 
+    // supplier_id names a row of another company's suppliers table just as easily as its own: the
+    // list shows such a bill under UNKNOWN_SUPPLIER with that id, and its drill-down is those bills.
+    // An id with neither a supplier of this company nor an open bill is not found.
+    if (supplierRows.length === 0 && invoices.length === 0) throw new Error(`Supplier ${supplierId} not found`);
+
     const buckets = calculateAgingBuckets(invoices, asAt);
 
     return {
-      supplier: { id: String(supplierRows[0]!.id), name: String(supplierRows[0]!.name) },
+      supplier: supplierRows[0] ? { id: String(supplierRows[0].id), name: String(supplierRows[0].name) } : { id: supplierId, name: UNKNOWN_SUPPLIER },
       invoices,
       buckets: buckets.length > 0 ? buckets[0]! : null,
     };
