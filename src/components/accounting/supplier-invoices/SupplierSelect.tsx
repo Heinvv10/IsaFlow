@@ -21,6 +21,8 @@ interface Props {
   value: string;
   onChange: (id: string, name: string) => void;
   name?: string;
+  /** Id of the visible input, for a <label htmlFor>. */
+  id?: string;
   required?: boolean;
   placeholder?: string;
   className?: string;
@@ -53,7 +55,7 @@ async function lookup(id: string, companyFirst?: boolean): Promise<Lookup> {
 }
 
 export function SupplierSelect({
-  value, onChange, name = 'supplierId', required, placeholder = 'Search supplier…',
+  value, onChange, name = 'supplierId', id, required, placeholder = 'Search supplier…',
   className = 'w-full', inputClassName = 'ff-input w-full', companyFirst,
 }: Props) {
   // A label only counts for the id it was resolved for, so an id set from outside
@@ -98,6 +100,7 @@ export function SupplierSelect({
         invalidMessage={unknown ? UNKNOWN : undefined}
         loading={!!value && !label && !unknown && !loadFailed}
         testId="supplier-select-input"
+        id={id}
         ariaLabel="Supplier"
       />
       <input type="hidden" name={name} value={value} />

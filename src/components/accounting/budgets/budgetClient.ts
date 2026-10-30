@@ -1,5 +1,4 @@
 /** Year shapes and labels for the budget workspace (years from /api/accounting/budgets) and the Budget vs Actual report. */
-import { formatPct } from '@/lib/format/money';
 
 /** A financial year a budget can be set for; `monthKeys` are its 'YYYY-MM' months in order. */
 export interface BudgetYear {
@@ -28,19 +27,8 @@ export function yearOptionLabel(year: BudgetYear): string {
 const LONG_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
 
-/** The range a report names in its `period` ('2026-03-01 to 2027-02-28'); null when it names none. */
-export function parseReportPeriod(period: string | undefined): { start: string; end: string } | null {
-  const m = /^(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})$/.exec(period ?? '');
-  return m ? { start: m[1]!, end: m[2]! } : null;
-}
-
 /** '1 March 2026' for '2026-03-01'. */
 export function longDate(iso: string): string {
   return `${Number(iso.slice(8, 10))} ${LONG_MONTHS[Number(iso.slice(5, 7)) - 1] ?? iso.slice(5, 7)} ${iso.slice(0, 4)}`;
-}
-
-/** A budget percentage, or "—" when there is no budget to be a percentage of (never "−100%" or "0.0%"). */
-export function variancePctLabel(pct: number | null): string {
-  return pct === null ? '—' : formatPct(pct);
 }
 

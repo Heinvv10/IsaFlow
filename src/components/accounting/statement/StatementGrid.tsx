@@ -27,9 +27,14 @@ export interface StatementGridProps {
   /** Sticky header row and first column, pinned to the page scroll (see stickyTable.ts). For the
    * on-screen report pages; the share, slide and pack surfaces render the table as before. */
   sticky?: boolean;
+  /** The Projected FY header's tooltip, e.g. "Actuals to 30 Sep + budget Oct–Apr" (`columns.projection`). */
+  projectionTitle?: string;
+  /** Budget vs Actual only: a budgeted zero prints 0.00 (absent stays "—"), Var % of a zero budget
+   *  prints "—", and a line's Var R cell opens its drill like the label. Off on every other surface. */
+  budgetTracking?: boolean;
 }
 
-export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false, sticky = false }: StatementGridProps) {
+export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false, sticky = false, projectionTitle, budgetTracking = false }: StatementGridProps) {
   const active = COMPARATORS.filter(c => columns[c.key]);
   // One bar scale PER COMPARATOR. Sharing one scale across prior and budget
   // would draw a small budget movement at the size of a large prior one.
@@ -62,6 +67,13 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
               </Fragment>
             ))}
             {columns.trend && <th className={`py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>12 mo</th>}
+            {columns.projection && (
+              <>
+                <th title={projectionTitle} className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Projected FY</th>
+                <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>FY budget</th>
+                <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Proj. var R</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -70,6 +82,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
             return (
               <StatementRowView key={row.id} row={row} columns={columns} maxVariance={maxVariance} cents={cents}
                 stickyFirst={sticky}
+                tracking={budgetTracking}
                 expanded={expanded}
                 onToggle={onToggleAccount}
                 onEvidence={onEvidence}

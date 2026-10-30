@@ -5,12 +5,14 @@
 
 import { useState, useCallback } from 'react';
 import { DateField } from '@/components/ui/DateField';
+import { inputVariants } from '@/components/ui';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
+import { useDateGate } from '@/hooks/useDateGate';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
@@ -33,6 +35,7 @@ interface LedgerData {
 }
 
 const fmt = (n: number) => formatMoney(n);
+const FIX_DATE = 'Fix the date marked in red before running the report: it still uses the previous dates.';
 
 function getDefaultDates() {
   const now = new Date();
@@ -88,6 +91,9 @@ export default function SupplierLedgerPage() {
   const [ledger, setLedger] = useState<LedgerData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
+  const onFromChange = dates.bind('dateFrom', setDateFrom, dateFrom);
+  const onToChange = dates.bind('dateTo', setDateTo, dateTo);
 
   const runReport = useCallback(async () => {
     if (!supplierId) {
@@ -144,7 +150,7 @@ export default function SupplierLedgerPage() {
             <button
               onClick={() => ledger && exportCsv(ledger, dateFrom, dateTo)}
               disabled={!ledger || ledger.transactions.length === 0}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
             >
               <Download className="h-4 w-4" /> Export CSV
             </button>
@@ -153,30 +159,30 @@ export default function SupplierLedgerPage() {
 
         <div className="p-6 max-w-5xl space-y-4">
           {/* Filters */}
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Supplier</label>
-              <SupplierSelect value={supplierId} onChange={setSupplierId} inputClassName="ff-input text-sm w-full" />
+          <div className="grid grid-cols-2 items-start gap-4 lg:grid-cols-[minmax(200px,1fr)_auto_auto_auto]">
+            <div className="col-span-2 flex flex-col gap-1 lg:col-span-1">
+              <label htmlFor="supplier-ledger-supplier" className="text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+              <SupplierSelect id="supplier-ledger-supplier" value={supplierId} onChange={setSupplierId} inputClassName={inputVariants()} />
             </div>
             <div>
-              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
+              <DateField label="From" value={dateFrom || null} onChange={onFromChange} />
             </div>
             <div>
-              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
+              <DateField label="To" value={dateTo || null} onChange={onToChange} />
             </div>
             <button
               onClick={runReport}
-              disabled={loading || !supplierId}
-              className="inline-flex items-center gap-2 px-5 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium disabled:opacity-50"
+              disabled={loading || !supplierId || dates.blocked}
+              className="col-span-2 justify-self-start lg:col-span-1 lg:mt-6 inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
               Run Report
             </button>
           </div>
 
-          {error && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4" /> {error}
+          {(dates.blocked ? FIX_DATE : error) && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4" /> {dates.blocked ? FIX_DATE : error}
             </div>
           )}
 
@@ -233,8 +239,8 @@ export default function SupplierLedgerPage() {
                           <span
                             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                               row.type === 'invoice'
-                                ? 'bg-orange-500/10 text-orange-400'
-                                : 'bg-teal-500/10 text-teal-400'
+                                ? 'bg-orange-500/10 text-orange-800 dark:text-orange-400'
+                                : 'bg-teal-500/10 text-teal-800 dark:text-teal-400'
                             }`}
                           >
                             {typeLabel(row.type)}
@@ -245,26 +251,20 @@ export default function SupplierLedgerPage() {
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums">
                           {row.debit > 0 ? (
-                            <span className="text-red-400">{fmt(row.debit)}</span>
+                            <span className="text-red-700 dark:text-red-400">{fmt(row.debit)}</span>
                           ) : (
                             <span className="text-[var(--ff-text-tertiary)]">—</span>
                           )}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums">
                           {row.credit > 0 ? (
-                            <span className="text-teal-400">{fmt(row.credit)}</span>
+                            <span className="text-teal-800 dark:text-teal-400">{fmt(row.credit)}</span>
                           ) : (
                             <span className="text-[var(--ff-text-tertiary)]">—</span>
                           )}
                         </td>
                         <td
-                          className="px-4 py-2 text-right tabular-nums font-medium"
-                          style={{
-                            color:
-                              row.running_balance > 0.005
-                                ? 'var(--ff-text-primary)'
-                                : 'rgb(52 211 153)',
-                          }}
+                          className={`px-4 py-2 text-right tabular-nums font-medium ${row.running_balance > 0.005 ? 'text-[var(--ff-text-primary)]' : 'text-teal-800 dark:text-teal-400'}`}
                         >
                           {fmt(row.running_balance)}
                         </td>
@@ -280,10 +280,10 @@ export default function SupplierLedgerPage() {
                         >
                           Totals
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-red-400">
+                        <td className="px-4 py-3 text-right tabular-nums text-red-700 dark:text-red-400">
                           {fmt(totalDebits)}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">
+                        <td className="px-4 py-3 text-right tabular-nums text-teal-800 dark:text-teal-400">
                           {fmt(totalCredits)}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
@@ -304,15 +304,15 @@ export default function SupplierLedgerPage() {
                       value: ledger.opening_balance,
                       color: 'text-[var(--ff-text-primary)]',
                     },
-                    { label: 'Total Debits', value: totalDebits, color: 'text-red-400' },
-                    { label: 'Total Credits', value: totalCredits, color: 'text-teal-400' },
+                    { label: 'Total Debits', value: totalDebits, color: 'text-red-700 dark:text-red-400' },
+                    { label: 'Total Credits', value: totalCredits, color: 'text-teal-800 dark:text-teal-400' },
                     {
                       label: 'Closing Balance',
                       value: ledger.closing_balance,
                       color:
                         ledger.closing_balance > 0.005
                           ? 'text-[var(--ff-text-primary)]'
-                          : 'text-teal-400',
+                          : 'text-teal-800 dark:text-teal-400',
                     },
                   ].map(({ label, value, color }) => (
                     <div

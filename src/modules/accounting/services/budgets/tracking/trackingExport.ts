@@ -91,7 +91,7 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
     ['Window', w.notStarted ? `${w.label} (not started)` : `${w.label} (${w.startDate} to ${w.endDate})`],
     ['Version', version],
     ['Dimension filter', filter === '' ? 'None (company total)' : filter],
-    ['Projection cutoff', `Actuals to ${report.projection.cutoff}, budget after`],
+    ['Projection cutoff', `Actuals to ${report.projection.cutoff}, budget after; a later month with no budget: its posted actuals`],
   ];
   // A window reaching a year with no version prints no budget at all (F1): say why, or the blank
   // Budget column beside a named version reads as an export fault.

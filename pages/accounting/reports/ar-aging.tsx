@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { ArrowLeft, Users, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
-import { localISODate } from '@/lib/dateUtils';
+import { todayInSast } from '@/lib/saDateParser';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDateISO, formatDisplayDate } from '@/utils/dateFormat';
 
@@ -50,11 +50,12 @@ const BUCKET_LABELS: Record<Bucket, string> = {
 };
 
 const BUCKET_COLORS: Record<Bucket, string> = {
-  current: 'text-teal-400',
-  '1-30': 'text-yellow-400',
-  '31-60': 'text-orange-400',
-  '61-90': 'text-red-400',
-  '90+': 'text-red-600',
+  // Light/dark pairs that pass 4.5:1 on the tinted tiles in both themes (as ap-aging's).
+  current: 'text-teal-700 dark:text-teal-400',
+  '1-30': 'text-yellow-800 dark:text-yellow-400',
+  '31-60': 'text-orange-800 dark:text-orange-400',
+  '61-90': 'text-red-700 dark:text-red-400',
+  '90+': 'text-red-800 dark:text-red-300',
 };
 
 const BUCKET_BG: Record<Bucket, string> = {
@@ -76,7 +77,7 @@ const fmtDate = (s: string) => {
 const BUCKETS: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];
 
 export default function ARAgingPage() {
-  const [asAtDate, setAsAtDate] = useState(() => localISODate());
+  const [asAtDate, setAsAtDate] = useState(() => todayInSast());
   const [hasMore, setHasMore] = useState(false);
   const [data, setData] = useState<ARAgingData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -186,7 +187,7 @@ export default function ARAgingPage() {
             </div>
           )}
           {error && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}
             </div>
           )}
@@ -266,7 +267,7 @@ export default function ARAgingPage() {
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{fmtDate(r.invoice_date)}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{fmtDate(r.due_date)}</td>
                           <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] tabular-nums">{fmt(r.total_amount)}</td>
-                          <td className="px-4 py-3 text-right text-teal-400 tabular-nums">{fmt(r.amount_paid)}</td>
+                          <td className="px-4 py-3 text-right text-teal-700 dark:text-teal-400 tabular-nums">{fmt(r.amount_paid)}</td>
                           <td className="px-4 py-3 text-right tabular-nums font-semibold text-[var(--ff-text-primary)]">{fmt(r.balance_due)}</td>
                           <td className="px-4 py-3 text-right">
                             <span className={`font-semibold ${BUCKET_COLORS[r.bucket]}`}>

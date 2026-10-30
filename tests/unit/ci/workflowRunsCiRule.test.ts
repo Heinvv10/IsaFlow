@@ -41,6 +41,7 @@ const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
 const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
+const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
 describe('the committed workflow', () => {
   it('passes', () => {
@@ -140,11 +141,19 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it("golden-paths moved into the workflow's own ci- group (deadlock cancels the run)", () => {
-    expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n', '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}`, '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+  });
+
+  it("golden-paths back on the one shared group (every PR push cancels the queue's pending run, #938)", () => {
+    expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-dev-demo\n')).length).toBeGreaterThan(0);
+  });
+
+  it('golden-lane taking a concurrency group (the ci- one would cancel quality)', () => {
+    expect(check(edit('    name: Golden Paths lane\n', '    name: Golden Paths lane\n    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
   });
 
   it('golden-paths concurrency removed or set to cancel', () => {
-    expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n      cancel-in-progress: false\n', '')).length).toBeGreaterThan(0);
+    expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
     expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
   });
 
@@ -181,7 +190,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit('          CI_READ_TOKEN: ${{ github.token }}\n          DATABASE_URL', '          CI_READ_TOKEN: ${{ secrets.OTHER }}\n          DATABASE_URL')).length).toBeGreaterThan(0);
   });
 
-  it('a third job in ci.yml', () => {
+  it('a fourth job in ci.yml', () => {
     expect(check(`${REAL}  sidecar:\n    runs-on: [self-hosted, linux, velo]\n    concurrency:\n      group: ci-\${{ github.ref }}\n    steps:\n      - run: echo hi\n`).length).toBeGreaterThan(0);
   });
 
