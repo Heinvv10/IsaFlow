@@ -2,7 +2,7 @@
  * Overview Tab — KPI Dashboard with charts and quick actions
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
@@ -15,7 +15,6 @@ import { log } from '@/lib/logger';
 import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/accounting/constants/pageRegistry';
 import { OverviewTables } from './OverviewTables';
 import { TodoWidget } from './TodoWidget';
-import { ModuleSetupChecklist } from './ModuleSetupChecklist';
 import { OverviewKpiCards } from './OverviewKpiCards';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { WorkbenchSection } from './WorkbenchSection';
@@ -33,14 +32,14 @@ const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: fa
 const Legend = dynamic(() => import('recharts').then(m => m.Legend), { ssr: false });
 const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
 
-interface KPIData {
+export interface KPIData {
   kpis: {
     revenue: { total: number; priorTotal: number; changePercent: number };
+    revenueMtd: number;
     expenses: { total: number; priorTotal: number };
-    grossProfit: { amount: number; margin: number };
-    netProfit: { amount: number; margin: number };
+    netProfit: { amount: number; margin: number | null };
     cash: { total: number; priorTotal: number; change: number };
-    receivables: { total: number; overdue: number; avgDebtorDays: number };
+    receivables: { total: number; overdue: number; overdueDisputed: number; avgDebtorDays: number };
     payables: { total: number; overdue: number; avgCreditorDays: number };
     activity: { invoicesIssued: number; paymentsReceived: number; journalsPosted: number };
   };
@@ -64,9 +63,26 @@ function fmtCurrency(n: number): string {
 
 const fmtCompact = (n: number): string => formatMoneyCompact(n);
 
-export function OverviewTab() {
-  const [data, setData] = useState<KPIData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+/**
+ * The kpi-dashboard load a parent already made (pages/accounting/index.tsx), so Home fetches it once.
+ *
+ * The load lives in the page, not here, on purpose: the hero above the tabs
+ * needs the same figures, so switching tabs does not refetch them. They are
+ * reloaded when the company changes (the page's effect), not on re-entering Overview.
+ */
+export interface KpiLoad { data: KPIData | null; error: string; loading: boolean }
+
+/**
+ * `setupOpen`: setup tasks are still open, so TodoWidget must not say "All caught up!".
+ * `setupUnknown`: the setup checklist has not resolved (timed out or failed), so TodoWidget says neither.
+ */
+export function OverviewTab({ setupOpen = false, setupUnknown = false, kpiLoad }: { setupOpen?: boolean; setupUnknown?: boolean; kpiLoad?: KpiLoad }) {
+  const [ownData, setData] = useState<KPIData | null>(null);
+  const [ownLoading, setIsLoading] = useState(!kpiLoad);
+  const data = kpiLoad ? kpiLoad.data : ownData;
+  const isLoading = kpiLoad ? kpiLoad.loading : ownLoading;
+  /** Fixed at mount: a parent that supplies the load supplies it for good. */
+  const fetchOwn = useRef(!kpiLoad);
   const [kpiError, setKpiError] = useState('');
   const [provisionalCount, setProvisionalCount] = useState<number | null>(null);
   const [missingInvoiceCount, setMissingInvoiceCount] = useState<number | null>(null);
@@ -75,7 +91,7 @@ export function OverviewTab() {
   );
 
   useEffect(() => {
-    void loadKPIData();
+    if (fetchOwn.current) void loadKPIData();
     void loadQuickActions();
     apiFetch('/api/accounting/provisional/outstanding')
       .then(async r => { await assertOk(r, 'Could not load the provisional entry count - try again'); return r.json(); })
@@ -142,9 +158,7 @@ export function OverviewTab() {
       <WorkbenchSection />
 
       {/* Action Items */}
-      <TodoWidget />
-
-      <ModuleSetupChecklist />
+      <TodoWidget setupOpen={setupOpen} setupUnknown={setupUnknown} />
 
       {/* Quick Actions — unified teal chip for visual cohesion on the dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

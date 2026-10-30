@@ -29,6 +29,8 @@ import { inputError, tokenSql } from './gridErrors';
 import { loadGridAccounts, loadGridDimensions, loadGridNotes } from './gridReadAccounts';
 import { bandTotals, ownMonths } from './gridTotals';
 import type { GridCell, GridCellsOnly, GridReadModel, GridSelector } from './gridReadTypes';
+import type { CellSource } from './drivers/driverTypes';
+import { listDriverLines } from './drivers/driverRepository';
 
 interface Resolved { id: string; fiscalYear: number }
 
@@ -67,10 +69,10 @@ async function readCells(companyId: string, versionId: string, year: BudgetYearI
   const last = monthKeyToDate(year.monthKeys[year.monthKeys.length - 1]!);
   const rows = (await sql`
     WITH v AS (SELECT ${tokenSql()} AS token, status FROM budget_versions WHERE id = ${versionId}::UUID AND company_id = ${companyId}::UUID)
-    SELECT v.token, v.status, c.gl_account_id, c.cc1_id, c.cc2_id, c.bu_id, c.month, c.amount
+    SELECT v.token, v.status, c.gl_account_id, c.cc1_id, c.cc2_id, c.bu_id, c.month, c.amount, c.amount_source
       FROM v
       LEFT JOIN LATERAL (
-        SELECT bm.gl_account_id, bm.cc1_id, bm.cc2_id, bm.bu_id, to_char(bm.month, 'YYYY-MM') AS month, bm.amount::text AS amount,
+        SELECT bm.gl_account_id, bm.cc1_id, bm.cc2_id, bm.bu_id, to_char(bm.month, 'YYYY-MM') AS month, bm.amount::text AS amount, bm.amount_source,
                ga.account_code, bm.month AS month_date
           FROM budget_month_amounts bm
           JOIN gl_accounts ga ON ga.id = bm.gl_account_id AND ga.company_id = ${companyId}::UUID
@@ -84,7 +86,7 @@ async function readCells(companyId: string, versionId: string, year: BudgetYearI
   const id = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
   const cells = rows.filter((r) => r.gl_account_id !== null && r.gl_account_id !== undefined).map((r) => ({
     glAccountId: String(r.gl_account_id), cc1Id: id(r.cc1_id), cc2Id: id(r.cc2_id), buId: id(r.bu_id),
-    month: String(r.month), amount: Number(r.amount),
+    month: String(r.month), amount: Number(r.amount), source: String(r.amount_source) as CellSource,
   }));
   return { token: String(rows[0].token), status: String(rows[0].status), cells };
 }
@@ -108,7 +110,7 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector): P
   if (!found) {
     const accounts = await loadGridAccounts(companyId, new Map(), new Map(), monthCount, await loadGridNotes(companyId, year.fiscalYear));
     return {
-      version: null, updatedAt: null, year, accounts, dimensions: await loadGridDimensions(companyId, emptyDims), cells: [], grains: {},
+      version: null, updatedAt: null, year, accounts, dimensions: await loadGridDimensions(companyId, emptyDims), cells: [], grains: {}, drivers: [],
       totals: bandTotals(accounts, new Map(), monthCount),
     };
   }
@@ -128,9 +130,10 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector): P
   const grains: Map<string, AccountGrain> = accountGrains(cents);
   const accounts = await loadGridAccounts(companyId, own, grains, monthCount, await loadGridNotes(companyId, year.fiscalYear));
   const dimensions = await loadGridDimensions(companyId, { cc1: [...used.cc1], cc2: [...used.cc2], bu: [...used.bu] });
+  const drivers = await listDriverLines(companyId, found.id);
 
   return {
-    version: { ...version, updatedAt: token, status: status as BudgetVersion['status'] }, updatedAt: token, year, accounts, dimensions, cells, grains: Object.fromEntries(grains),
+    version: { ...version, updatedAt: token, status: status as BudgetVersion['status'] }, updatedAt: token, year, accounts, dimensions, cells, grains: Object.fromEntries(grains), drivers,
     totals: bandTotals(accounts, own, monthCount),
   };
 }

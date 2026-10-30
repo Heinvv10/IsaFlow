@@ -7,7 +7,9 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
-import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { AGING_BREAKDOWN_LABELS, getOpenBook, type OpenBook } from './dashboardOpenBook';
+import { todayInSast } from '@/lib/saDateParser';
+import { revenueBand } from '../gl/accountClassification';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
@@ -40,38 +42,59 @@ export interface TopExpenseCategory {
   percentOfExpenses: number;
 }
 
-export async function getRevenueChart(companyId: string, months: number): Promise<ChartPoint[]> {
+/**
+ * Revenue vs expenses per month, the last `months` months ending with the SAST
+ * month of `todayStr` (not the UTC CURRENT_DATE), the current one only up to
+ * `todayStr`. Revenue is TURNOVER as the Revenue tile and the income
+ * statement's Revenue line: rows come per (type, subtype) and `revenueBand`
+ * leaves other income out. Signed, never absolute: a month whose credit notes
+ * exceed its sales draws below zero.
+ */
+export async function getRevenueChart(companyId: string, months: number, todayStr: string = todayInSast()): Promise<ChartPoint[]> {
   try {
     const rows = (await sql`
       WITH months AS (
         SELECT generate_series(
-          date_trunc('month', CURRENT_DATE) - (${months - 1} || ' months')::INTERVAL,
-          date_trunc('month', CURRENT_DATE),
+          date_trunc('month', ${todayStr}::date) - (${months - 1} || ' months')::INTERVAL,
+          date_trunc('month', ${todayStr}::date),
           '1 month'::INTERVAL
         )::DATE AS month_start
       )
       SELECT
-        m.month_start,
-        COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
-        COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit ELSE 0 END), 0) AS expenses
+        m.month_start::text AS month_start,
+        ga.account_type,
+        ga.account_subtype,
+        COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit
+                          WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit
+                          ELSE 0 END), 0) AS total
       FROM months m
       LEFT JOIN gl_journal_entries je
         ON je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= m.month_start
         AND je.entry_date < m.month_start + '1 month'::INTERVAL
+        AND je.entry_date <= ${todayStr}::date
       LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
-      LEFT JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+      LEFT JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
         AND ga.account_type IN ('revenue', 'expense')
-      GROUP BY m.month_start
+      GROUP BY m.month_start, ga.account_type, ga.account_subtype
       ORDER BY m.month_start
     `) as DbRow[];
 
-    return rows.map((r: DbRow) => ({
-      month: new Date(String(r.month_start)).toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' }),
-      revenue: Math.abs(Number(r.revenue || 0)),
-      expenses: Math.abs(Number(r.expenses || 0)),
-    }));
+    const byMonth = new Map<string, ChartPoint>();
+    for (const r of rows) {
+      const key = String(r.month_start);
+      const point = byMonth.get(key) ?? {
+        month: new Date(key).toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' }),
+        revenue: 0,
+        expenses: 0,
+      };
+      const total = Number(r.total || 0);
+      if (r.account_type === 'revenue' && revenueBand(r.account_subtype ? String(r.account_subtype) : null) === 'turnover') point.revenue += total;
+      else if (r.account_type === 'expense') point.expenses += total;
+      byMonth.set(key, point);
+    }
+    return [...byMonth.values()];
   } catch (err) {
     log.error('Failed to get revenue chart', { error: err }, 'kpi-service');
     throw err;
@@ -126,52 +149,23 @@ export async function getCashFlowChart(companyId: string, months: number): Promi
   }
 }
 
-export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap'): Promise<AgingBreakdownBucket[]> {
+/**
+ * The dashboard's AR / AP ageing: the aging report's population and buckets as
+ * at the SAST day (reports/dashboardOpenBook), plus a Disputed segment, so the
+ * donut sums to the report's total and to the Receivables / Payables tile. It
+ * used to re-aggregate with its own status list, no disputes, CURRENT_DATE (the
+ * UTC session date) and a "90+" that was really "> 60".
+ */
+export async function getAgingBreakdown(
+  companyId: string,
+  type: 'ar' | 'ap',
+  todayStr: string = todayInSast(),
+  /** The open book when the caller already read it (the tiles use the same one). */
+  book?: OpenBook,
+): Promise<AgingBreakdownBucket[]> {
   try {
-    let rows: DbRow[];
-
-    if (type === 'ar') {
-      rows = (await sql`
-        SELECT
-          CASE
-            WHEN due_date >= CURRENT_DATE THEN 'Current'
-            WHEN CURRENT_DATE - due_date <= 30 THEN '30 Days'
-            WHEN CURRENT_DATE - due_date <= 60 THEN '60 Days'
-            ELSE '90+ Days'
-          END AS bucket,
-          COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
-        FROM customer_invoices ci
-        WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
-          AND ci.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('ci', asAtTodayStr(), companyId)}
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
-        GROUP BY bucket
-      `) as DbRow[];
-    } else {
-      rows = (await sql`
-        SELECT
-          CASE
-            WHEN due_date >= CURRENT_DATE THEN 'Current'
-            WHEN CURRENT_DATE - due_date <= 30 THEN '30 Days'
-            WHEN CURRENT_DATE - due_date <= 60 THEN '60 Days'
-            ELSE '90+ Days'
-          END AS bucket,
-          COALESCE(SUM(si.balance), 0) AS total
-        FROM supplier_invoices si
-        WHERE si.status IN ('approved', 'partially_paid')
-          AND si.company_id = ${companyId}::UUID
-          AND ${documentInLedgerAsAtFragment('si', asAtTodayStr(), companyId)}
-          AND si.balance > 0
-        GROUP BY bucket
-      `) as DbRow[];
-    }
-
-    const bucketOrder = ['Current', '30 Days', '60 Days', '90+ Days'];
-    const bucketMap = new Map<string, number>();
-    for (const b of bucketOrder) bucketMap.set(b, 0);
-    for (const r of rows) bucketMap.set(String(r.bucket), Number(r.total || 0));
-
-    return bucketOrder.map(name => ({ name, value: bucketMap.get(name) || 0 }));
+    const { buckets } = book ?? await getOpenBook(companyId, type, todayStr);
+    return AGING_BREAKDOWN_LABELS.map((name, i) => ({ name, value: buckets[i]! }));
   } catch (err) {
     log.error('Failed to get aging breakdown', { error: err, type }, 'kpi-service');
     throw err;
@@ -211,7 +205,7 @@ export async function getTopExpenseCategories(companyId: string, limit: number):
         COALESCE(SUM(jl.debit - jl.credit), 0) AS total
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+      JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
       WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
       GROUP BY ga.id, ga.account_name

@@ -11,8 +11,12 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-const checkReportRateLimit = vi.fn(async () => true);
-vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: (...a: unknown[]) => checkReportRateLimit(...(a as [])) }));
+type Verdict = { admitted: boolean; retryAfterSecs: number | null };
+const chargeReportRateLimit = vi.fn(async (): Promise<Verdict> => ({ admitted: true, retryAfterSecs: null }));
+vi.mock('@/lib/rateLimit', () => ({
+  chargeReportRateLimit: (...a: unknown[]) => chargeReportRateLimit(...(a as [])),
+  INTERACTIVE_REPORT_LIMIT: { max: 120, windowSecs: 900 },
+}));
 const buildBudgetTrackingReport = vi.fn();
 vi.mock('@/modules/accounting/services/budgets/tracking/budgetTrackingService', () => ({
   buildBudgetTrackingReport: (...a: unknown[]) => buildBudgetTrackingReport(...a),
@@ -43,7 +47,7 @@ const get = async (query: Record<string, unknown>, method = 'GET') => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  checkReportRateLimit.mockResolvedValue(true);
+  chargeReportRateLimit.mockResolvedValue({ admitted: true, retryAfterSecs: null });
   buildBudgetTrackingReport.mockResolvedValue({ lines: [], bands: [], marker: 'engine' });
 });
 
@@ -54,11 +58,26 @@ describe('reports-budget-tracking', () => {
   });
 
   it('honours the per-company report rate limit before any work', async () => {
-    checkReportRateLimit.mockResolvedValue(false);
+    chargeReportRateLimit.mockResolvedValue({ admitted: false, retryAfterSecs: 300 });
     const res = await get({ period: 'ytd' });
     expect(res.statusCode).toBe(429);
-    expect(checkReportRateLimit).toHaveBeenCalledWith(COMPANY, 'reports-budget-tracking');
+    expect(chargeReportRateLimit).toHaveBeenCalledWith(COMPANY, 'reports-budget-tracking', { max: 120, windowSecs: 900 });
     expect(buildBudgetTrackingReport).not.toHaveBeenCalled();
+  });
+
+  it('a refusal says how long to wait, in Retry-After and in the message (browser review r1 M1)', async () => {
+    chargeReportRateLimit.mockResolvedValue({ admitted: false, retryAfterSecs: 250 });
+    const res = await get({ period: 'ytd' });
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['Retry-After']).toBe('250');
+    expect(JSON.stringify(res.sent)).toContain('Too many report requests: try again in 5 minutes.');
+    chargeReportRateLimit.mockResolvedValue({ admitted: false, retryAfterSecs: 40 });
+    expect(JSON.stringify((await get({ period: 'ytd' })).sent)).toContain('try again in 40 seconds.');
+    // The wait unknown: still a 429 (never a 500), no Retry-After, and a sentence without a number.
+    chargeReportRateLimit.mockResolvedValue({ admitted: false, retryAfterSecs: null });
+    const unknown = await get({ period: 'ytd' });
+    expect([unknown.statusCode, unknown.headers['Retry-After']]).toEqual([429, undefined]);
+    expect(JSON.stringify(unknown.sent)).toContain('Too many report requests: try again shortly.');
   });
 
   const BAD: Array<[string, Record<string, unknown>]> = [
