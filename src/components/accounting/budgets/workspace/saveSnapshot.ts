@@ -22,3 +22,9 @@ export function committedPart(snapshot: ReadonlyMap<CellKey, number | null>, com
   }
   return out;
 }
+
+/** "Parts 1–k of n were saved" for a chained commit refused at chunk `failed` (0-based). */
+export function savedParts(failed: number, chunks: number): string {
+  if (failed === 0) return 'Nothing was saved.';
+  return failed === 1 ? `Part 1 of ${chunks} was saved; the rest was not.` : `Parts 1–${failed} of ${chunks} were saved; the rest were not.`;
+}
