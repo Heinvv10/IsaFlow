@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Plus, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { LoanEvent, fmtDate, fmt } from './types';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Props {
   loanId: string;
@@ -25,14 +26,17 @@ interface EventForm {
 const EMPTY_FORM: EventForm = { kind: 'LUMP', date: '', amount: '', note: '' };
 
 export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
+  const dateGate = useDateGate();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<EventForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [dateMissing, setDateMissing] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    if (!form.date) { setDateMissing(true); return; }
     setBusy(true);
     try {
       const body: Record<string, unknown> = {
@@ -85,13 +89,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
             >
               {KIND_OPTIONS.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
-            <input
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              className="ff-input text-sm"
-              required
-            />
+            <GatedDateField gate={dateGate} gateKey="event-date" label="Event date" required value={form.date || null} onValue={iso => { setForm(f => ({ ...f, date: iso })); setDateMissing(false); }} error={dateMissing && !dateGate.blocked ? 'Enter a date.' : undefined} />
             {form.kind === 'LUMP' && (
               <input
                 type="number"
@@ -115,14 +113,14 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => { setShowForm(false); setForm(EMPTY_FORM); }}
+              onClick={() => { setShowForm(false); setForm(EMPTY_FORM); setDateMissing(false); }}
               className="px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={busy}
+              disabled={busy || dateGate.blocked}
               className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save Event'}

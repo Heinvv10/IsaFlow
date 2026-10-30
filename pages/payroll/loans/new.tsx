@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { formatCurrency } from '@/utils/formatters';
 import { Banknote, Save, Loader2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Employee {
   id: string;
@@ -88,7 +89,7 @@ function previewSchedule(params: {
 }
 
 export default function NewLoanPage() {
-  const router = useRouter();
+  const router = useRouter(); const dateGate = useDateGate();
   const now = new Date();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeId, setEmployeeId] = useState('');
@@ -189,9 +190,7 @@ export default function NewLoanPage() {
                   className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
               </div>
               <div>
-                <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Start date</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                  className="w-full rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]" />
+                <GatedDateField gate={dateGate} gateKey="start-date" label="Start date" value={startDate || null} onValue={iso => setStartDate(iso)} />
               </div>
             </div>
 
@@ -251,7 +250,7 @@ export default function NewLoanPage() {
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={() => router.back()}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]">Cancel</button>
-              <button type="submit" disabled={saving}
+              <button type="submit" disabled={saving || dateGate.blocked}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Create
               </button>
