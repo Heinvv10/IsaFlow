@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { RecurringInvoiceTemplateError } from './recurringInvoiceTemplate';
 import { RecurringInvoiceLockTimeoutError } from './recurringInvoiceLock';
+import { parseTaxRate, validateCreateDates } from './recurringInvoiceEdit';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import type {
   RecurringInvoice,
@@ -66,11 +67,17 @@ export async function createRecurringInvoice(companyId: string,
   input: RecurringInvoiceCreateInput,
   userId: string
 ): Promise<RecurringInvoice> {
+  // Strict dates, End Date not before the next run: POST used to take anything the
+  // SQL cast accepted, which is where legacy rows with End Date < next run came from.
+  const dates = validateCreateDates(input);
+
   // R-067: the runner re-mints an invoice from this template EVERY period, so
   // a foreign client_id accepted here becomes a recurring cross-tenant document.
   await assertCustomerInCompany(companyId, input.clientId);
 
-  const taxRate = input.taxRate ?? 15;
+  // Validated like an edit's: tax_rate is NUMERIC(5,2), so a 3-decimal rate would be
+  // stored rounded while this header used the unrounded one.
+  const taxRate = input.taxRate == null ? 15 : parseTaxRate(input.taxRate);
   // W1 family (P2.1): a template with negative lines re-mints a negative
   // approved invoice EVERY period.
   // A line is named by its position, never its description: this message reaches error capture, and a description is customer text.
@@ -95,8 +102,8 @@ export async function createRecurringInvoice(companyId: string,
       total_amount, payment_terms, created_by, content_authors
     ) VALUES (
       ${companyId}, ${input.templateName}, ${input.clientId}::UUID,
-      ${input.projectId || null}, ${input.frequency}, ${input.nextRunDate},
-      ${input.endDate || null}, ${input.description || null},
+      ${input.projectId || null}, ${input.frequency}, ${dates.nextRunDate},
+      ${dates.endDate}, ${input.description || null},
       ${JSON.stringify(input.lineItems)}::JSONB, ${subtotal}, ${taxRate},
       ${taxAmount}, ${totalAmount}, ${input.paymentTerms || '30 days'}, ${userId}::UUID,
       ARRAY[${userId}::UUID]
