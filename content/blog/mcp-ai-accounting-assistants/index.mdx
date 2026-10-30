@@ -1,0 +1,169 @@
+---
+title: "AI in the books: how MCP lets assistants like Claude, Cursor and Grok Bot work in your accounting safely"
+slug: "mcp-ai-accounting-assistants"
+description: "What MCP is, what an AI assistant should and shouldn't do in your books, and how read-only access and permissions you choose to grant keep control."
+publishDate: "2026-10-27"
+author: "ISAFlow Team"
+category: "AI in accounting"
+tags: ["AI accounting", "MCP", "Model Context Protocol", "AI assistants", "internal controls", "POPIA"]
+heroImage: "/blog/mcp-ai-accounting-assistants/hero.webp"
+heroAlt: "A glass ledger with a glowing teal orb above it and a small gold lock, with the headline AI reads the books. You set the limits."
+ogImage: "/blog/mcp-ai-accounting-assistants/og.webp"
+draft: false
+---
+
+**TL;DR**
+
+- The **Model Context Protocol (MCP)** is an open standard, introduced by Anthropic in November 2024, for connecting AI assistants to the systems where data lives.
+- In accounting, the useful jobs are **reading and explaining**: what's in the trial balance, what the VAT position looks like, which lines look odd.
+- The rule we recommend: **let the assistant prepare, and keep posting with a person.** In ISAFlow, draft journals stay unposted for you to review, and the agent can only post if you grant a separate posting permission.
+- ISAFlow's MCP connector is a **pilot**, **off by default** for each company. Contact ISAFlow support to enable it. Once it's on, it's **read-only by default**, and every AI request is logged. Drafting a journal needs a permission you grant, and creates an unposted draft for you to review. Posting needs a permission you choose to grant.
+
+## Why this question is coming up now
+
+Plenty of bookkeepers have tried pasting a trial balance into an AI chat to ask "what's going on here?" It works, sort of. It also means copying client data into a tool with no link back to the books, no audit trail and no idea whether the numbers are current.
+
+MCP is a cleaner answer. Instead of copying data out, you let an assistant connect to the accounting system directly, with the access you choose.
+
+## What MCP actually is
+
+Anthropic introduced the Model Context Protocol on **25 November 2024** as "a new standard for connecting AI assistants to the systems where data lives" ([Anthropic](https://www.anthropic.com/news/model-context-protocol)). It's open-source. The architecture is simple:
+
+- An **MCP server** exposes data and actions from a system, such as an accounting package.
+- An **MCP client** is the AI application that connects to it, such as Claude, Cursor or Grok Bot.
+- The server decides what the client can see and do.
+
+That last point is the whole game. The protocol doesn't make an assistant trustworthy. The permissions on the server do.
+
+## What an assistant should do in your books
+
+The best uses are the ones where a mistake costs you a few minutes, not a SARS penalty.
+
+### Reading and explaining
+
+- "Summarise the trial balance at 30 September and flag anything unusual compared with August."
+- "What's our VAT position for the current period, and what are the five biggest input tax claims?"
+- "Which customers are more than 60 days overdue?"
+
+These are questions a bookkeeper answers every week. An assistant can get to a first draft in seconds, and a person can check it.
+
+### Preparing, not posting
+
+- "Draft the month-end accrual journal for the audit fee."
+- "Prepare a journal to reclassify the R12 400 in suspense to repairs and maintenance."
+
+The assistant prepares a **draft**. It stays unposted for you to review. The agent can only post if you grant a separate posting permission, and we recommend keeping posting with a person.
+
+{/* OPTIONAL, not for launch: [ISAFLOW SCREENSHOT: An unposted draft journal created by an AI assistant for a sample company, awaiting review, sample data] */}
+
+## What an assistant shouldn't do
+
+- **Skip the review.** Whoever prepares an entry, a person should review it before it's posted. That's basic segregation of duties, and it applies to software as much as to people.
+- **File returns.** A VAT201 or EMP201 is a declaration to SARS. A registered person should review and submit it. See the [VAT201 guide](/blog/vat201-tax-periods-common-errors) and the [EMP201 guide](/blog/emp201-due-dates-penalties) for what's at stake.
+- **See more than it needs.** Access should be per company and limited to the task.
+
+## Why the VAT position is a good first question
+
+VAT is where small errors turn into big numbers. In 2024/25, SARS collected **R561.4 billion** in domestic VAT payments and paid **R365.5 billion** in refunds, from **496 858 active vendors** out of **900 285 registered** ([SARS Tax Statistics 2025](https://www.sars.gov.za/about/sars-tax-and-customs-system/tax-statistics/)).
+
+{/* Static fallback: /blog/mcp-ai-accounting-assistants/chart-1.svg */}
+
+<Chart
+  type="bar"
+  title="Domestic VAT payments and VAT refunds, 2024/25 (R billion)"
+  source="SARS Tax Statistics 2025. Accessed 27 October 2026."
+  unit="R"
+  data={[
+    { label: "Domestic VAT payments", value: 561.4 },
+    { label: "VAT refunds", value: 365.5 },
+  ]}
+/>
+
+Every one of those returns started with a position someone checked. An assistant that can read the ledger and say "input tax is up 40% on last period, mostly from three invoices" gives the reviewer a head start. It doesn't replace the review.
+
+## The controls to insist on
+
+Whatever accounting system you use, ask these questions before you connect an assistant.
+
+### 1. Is it read-only by default?
+
+Reading is low-risk. Writing isn't. Start read-only, and only add more when you have a reason.
+
+### 2. Does a person review before anything is posted?
+
+Drafts are fine. We recommend that posting stays a person's decision, after review. In ISAFlow, posting needs a permission you choose to grant. Check which permissions the connection asks for, and grant only the ones you need.
+
+### 3. Is access per company?
+
+For a practice running many clients, an assistant connected to one client must not be able to see another.
+
+### 4. Is there an audit trail?
+
+There should be a record of what the assistant did, and a way to cut it off. In ISAFlow, every AI request is logged in an append-only audit log. You can list the drafts an assistant has created, and revoke its access at any time.
+
+### 5. What about POPIA?
+
+Your books hold personal information about employees and customers. The Protection of Personal Information Act requires reasonable security safeguards (section 19), and a written contract with any operator that processes personal information for you (section 21) ([POPIA, gov.za](https://www.gov.za/documents/protection-personal-information-act)). Check what the AI provider does with the data it receives, and whether that fits your contracts with clients.
+
+## How ISAFlow's MCP connector works
+
+ISAFlow's MCP connector is a **pilot**, and it's **off by default** for each company. To switch it on, contact ISAFlow support to enable it. Once it's on, access is **read-only by default**.
+
+With it, an assistant such as Claude, Cursor or Grok Bot can:
+
+- **read the trial balance**,
+- **check the VAT position**,
+- **prepare a draft journal**, if you grant the `write:journals` permission when you connect,
+- **post a journal**, only if you grant a separate posting permission.
+
+Read-only by default. Draft journals stay unposted for you to review, and the agent can only post if you grant a separate posting permission. We recommend keeping posting with a person.
+
+Every AI request is logged in an append-only audit log. You can list the drafts an assistant has created, and revoke its access when you no longer need it.
+
+![Illustrative diagram: an AI assistant such as Claude, Cursor or Grok Bot connects through the ISAFlow MCP connector, a pilot that is off by default per company and read-only by default. It reads the trial balance and VAT position. With the write:journals permission, it can create an unposted draft journal for you to review. Posting needs a separate permission you choose to grant. Every AI request is logged.](/blog/mcp-ai-accounting-assistants/chart-2.svg)
+
+*Illustrative diagram, not a screenshot.*
+
+The rest of ISAFlow follows the same idea: categorisation is rule-based, with optional AI. Auto-match is one click. Document capture prepares a draft entry for you to check. Each company's books are kept separate. Accounting practices get a bureau dashboard across all their clients, set up with you during onboarding.
+
+## Getting started safely
+
+1. **Pick one company** with clean books and a reconciled bank. Our [bank reconciliation routine](/blog/bank-reconciliation-month-end-sme) helps.
+2. **Start read-only.** Ask questions you already know the answers to, and check them.
+3. **Write down what works.** Which prompts are useful, which aren't.
+4. **Then try drafts.** Grant `write:journals` only when you're ready, and review every draft before it's posted. We recommend keeping posting with a person.
+5. **For a practice,** roll out client by client. See [how to grow a bookkeeping and payroll bureau](/blog/scale-bookkeeping-payroll-bureau).
+
+To try it, [start a free trial](https://app.isaflow.co.za/register), then contact ISAFlow support to enable the MCP connector pilot for your company. To see ISAFlow first, [contact us for a demo](https://isaflow.co.za/contact).
+
+## FAQ
+
+### What is MCP in accounting?
+
+The Model Context Protocol is an open standard for connecting AI assistants to software. In accounting, it lets an assistant read data such as the trial balance directly from the system, with permissions the system controls.
+
+### Can an AI assistant create journals in ISAFlow?
+
+Read-only by default. Draft journals stay unposted for you to review, and the agent can only post if you grant a separate posting permission. Drafting needs the `write:journals` permission. We recommend keeping posting with a person.
+
+### Which AI assistants work with ISAFlow?
+
+Claude, Cursor and Grok Bot can connect through ISAFlow's MCP connector once ISAFlow support has enabled the pilot for your company.
+
+### Is it safe to connect AI to my accounting software?
+
+It can be, if access is off until you ask for it, read-only by default, limited per company, and a person reviews every draft before it's posted. Posting needs a permission you choose to grant, and we recommend keeping it with a person. Check the AI provider's data handling against your POPIA obligations.
+
+### Can AI file my VAT return?
+
+It shouldn't. An assistant can help check the VAT position, but a person should review and submit the return to SARS.
+
+## Sources
+
+All accessed 27 October 2026.
+
+- Anthropic: [Introducing the Model Context Protocol](https://www.anthropic.com/news/model-context-protocol), 25 November 2024
+- SARS: [Tax Statistics 2025](https://www.sars.gov.za/about/sars-tax-and-customs-system/tax-statistics/)
+- South African Government: [Protection of Personal Information Act 4 of 2013](https://www.gov.za/documents/protection-personal-information-act)
+
+*This article is general information, not tax, legal or accounting advice.*

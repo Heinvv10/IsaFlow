@@ -12,6 +12,7 @@ import {
   parseOpeningBalanceCsv,
   type OpeningBalanceCsvRow as BalanceRow,
 } from '@/modules/accounting/services/core/openingBalanceCsv';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 /**
  * What importOpeningBalances returns. The page used to read `balancesSet` and
@@ -25,6 +26,7 @@ interface ImportResult {
 }
 
 export default function OpeningBalancesPage() {
+  const dateGate = useDateGate();
   const [rows, setRows] = useState<BalanceRow[]>([]);
   const [effectiveDate, setEffectiveDate] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -139,12 +141,7 @@ export default function OpeningBalancesPage() {
 
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">3. Effective Date</h2>
-            <input
-              type="date"
-              value={effectiveDate}
-              onChange={e => setEffectiveDate(e.target.value)}
-              className="text-sm border border-[var(--ff-border-light)] rounded px-3 py-1.5 bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)]"
-            />
+            <GatedDateField gate={dateGate} gateKey="effective-date" label="Effective date" value={effectiveDate || null} onValue={iso => setEffectiveDate(iso)} />
             <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Typically the first day of your new financial year</p>
           </div>
 
@@ -215,7 +212,7 @@ export default function OpeningBalancesPage() {
               <div className="flex justify-end">
                 <button
                   onClick={handleImport}
-                  disabled={isImporting || !isBalanced || rowErrors.length > 0}
+                  disabled={isImporting || !isBalanced || rowErrors.length > 0 || dateGate.blocked}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
                   {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
