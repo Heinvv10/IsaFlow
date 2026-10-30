@@ -8,57 +8,11 @@
     "max": 2
    }
   ],
-  "/accounting/credit-notes": [
-   {
-    "rule": "color-contrast",
-    "selector": "div > div > div > div > div > button{all}",
-    "max": 1
-   }
-  ],
-  "/accounting/customer-payments/new": [
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"clientId\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"invoiceId\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
-    "max": 1
-   }
-  ],
   "/accounting/customer-quotes": [
    {
     "rule": "color-contrast",
     "selector": "div > div > div > div > div > button{all}",
     "max": 1
-   }
-  ],
-  "/accounting/journal-entries/new": [
-   {
-    "rule": "button-name",
-    "selector": "table > tbody > tr > td > button[type=\"button\"]",
-    "max": 2
-   },
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[name=\"entryDate\"][type=\"date\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "table > tbody > tr > td > select[name=\"accountId\"]",
-    "max": 2
    }
   ],
   "/accounting/migration": [
@@ -107,28 +61,6 @@
      "why": "rendered only when the company has cost centres"
     },
     "maxHint": 1
-   }
-  ],
-  "/accounting/supplier-payments/new": [
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
-    "max": 1
-   },
-   {
-    "rule": "label",
-    "selector": "div > div > div > div > div > input[type=\"number\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"invoiceId\"]",
-    "max": 1
-   },
-   {
-    "rule": "select-name",
-    "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
-    "max": 1
    }
   ]
  }

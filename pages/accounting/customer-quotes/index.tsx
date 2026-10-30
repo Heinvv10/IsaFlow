@@ -6,13 +6,14 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
   ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
-import { StatusPill, PageHeader } from '@/components/ui';
+import { StatusPill, PageHeader, DateField } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney as fmt } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { numberLines } from '@/lib/lineNumbers';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
 interface CustomerOption { id: string; name: string }
@@ -25,11 +26,11 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
   const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: localISODate(), expiryDate: '', notes: '' });
   const [lines, setLines] = useState([{ desc: '', qty: 1, price: 0 }]);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); const dates = useDateGate();
   const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
 
   const handleCreate = async () => {
-    if (!form.clientId || lines.every(l => !l.desc)) return;
+    if (dates.blocked || !form.clientId || lines.every(l => !l.desc)) return;
     setSaving(true);
     setError('');
     try {
@@ -59,7 +60,7 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
         </div>
 
         <div className="p-6 space-y-5">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="col-span-3">
               <label className={lbl}>Customer *</label>
               <select value={form.clientId} onChange={e => { const s = customers.find(c => c.id === e.target.value); setForm(p => ({ ...p, clientId: e.target.value, customerName: s?.name ?? '' })); }} className={inp}>
@@ -67,8 +68,8 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div><label className={lbl}>Quote Date</label><input type="date" value={form.quoteDate} onChange={e => setForm(p => ({ ...p, quoteDate: e.target.value }))} className={inp} /></div>
-            <div><label className={lbl}>Expiry Date</label><input type="date" value={form.expiryDate} onChange={e => setForm(p => ({ ...p, expiryDate: e.target.value }))} className={inp} /></div>
+            <DateField label="Quote Date" name="quoteDate" value={form.quoteDate || null} onChange={dates.bind('quoteDate', iso => setForm(p => ({ ...p, quoteDate: iso })), form.quoteDate)} />
+            <DateField label="Expiry Date" name="expiryDate" value={form.expiryDate || null} onChange={dates.bind('expiryDate', iso => setForm(p => ({ ...p, expiryDate: iso })), form.expiryDate)} />
             <div><label className={lbl}>Notes</label><input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional" className={inp} /></div>
           </div>
 

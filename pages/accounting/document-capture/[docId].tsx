@@ -17,6 +17,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { useCapturedDocument } from '@/hooks/useCapturedDocument';
 import { CaptureReadStatus } from '@/components/accounting/document-capture/CaptureReadStatus';
+import { DateField } from '@/components/ui'; import { useDateGate } from '@/hooks/useDateGate';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -54,7 +55,7 @@ export default function DocumentCaptureDetailPage() {
 
   // Editable fields
   const [vendorName, setVendorName] = useState('');
-  const [documentDate, setDocumentDate] = useState('');
+  const [documentDate, setDocumentDate] = useState(''); const dates = useDateGate();
   const [referenceNumber, setReferenceNumber] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [vatAmount, setVatAmount] = useState('');
@@ -79,7 +80,7 @@ export default function DocumentCaptureDetailPage() {
   const { doc, isLoading, error, reload: loadDocument, isReading, readStatus } = useCapturedDocument(docId, applyLoaded);
 
   async function handleConfirm() {
-    if (!doc) return;
+    if (!doc) return; if (dates.blocked) { notify.error('Fix the date marked in red before saving.'); return; }
     setIsSaving(true);
     try {
       const res = await apiFetch('/api/accounting/document-capture-action', {
@@ -270,15 +271,9 @@ export default function DocumentCaptureDetailPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Date</label>
-                <input
-                  type="date"
-                  name="documentDate"
-                  value={documentDate}
-                  onChange={(e) => setDocumentDate(e.target.value)}
-                  className="ff-input w-full text-sm"
-                  disabled={doc.status === 'rejected' || isReading}
-                />
+                <DateField label="Date" name="documentDate" value={documentDate || null}
+                  onChange={dates.bind('documentDate', setDocumentDate, documentDate)}
+                  disabled={doc.status === 'rejected' || isReading} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Reference / Invoice No.</label>
