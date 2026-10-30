@@ -112,6 +112,9 @@ suite_env() {
   local url="postgresql://postgres@127.0.0.1:$1/$2"
   local keep=()
   [ -n "${RUNNER_TRACKING_ID:-}" ] && keep+=("RUNNER_TRACKING_ID=$RUNNER_TRACKING_ID")
+  # The suites' "today" must be SAST's, as the services' SQL is: a hosted runner's
+  # clock is UTC, and from 22:00 to midnight UTC its date is a day behind.
+  [ -n "${TZ:-}" ] && keep+=("TZ=$TZ")
   SUITE_ENV=(-i "PATH=$PATH" "HOME=$HOME" "TMPDIR=${SUITE_TMP:-${TMPDIR:-/tmp}}" "PGPASSWORD=$PGPASSWORD" NO_COLOR=1 "${keep[@]}"
     "DATABASE_URL=$url" "PLATFORM_ADMIN_DATABASE_URL=$url" "MIGRATION_ADMIN_DATABASE_URL=$url"
     DATABASE_SSL=disable GOTRUE_URL=http://127.0.0.1:1/auth/v1 ISAFLOW_DISPOSABLE_AUTH_TEST=1 CI_INTEGRATION_GATE=1
