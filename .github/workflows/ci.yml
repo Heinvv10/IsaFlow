@@ -283,10 +283,15 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           lane="pr"
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            case "$HEAD_REF" in merge-queue/*) lane="queue" ;; esac
+            # A fork can name its branch merge-queue/*; only this repo's own
+            # branches (the queue's batch branches) take the queue lane by name.
+            if [ "$HEAD_REPO" = "$REPO" ]; then
+              case "$HEAD_REF" in merge-queue/*) lane="queue" ;; esac
+            fi
             if [ "$lane" = "pr" ]; then
               tries=1
               committer=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.committer.login // ""') || committer=""
@@ -306,9 +311,13 @@ jobs:
   golden-paths:
     name: Golden Paths E2E (blocking)
     runs-on: [self-hosted, linux, velo]
-    # Green runs took 19-30 min on 2026-10-29 (one 29m40s), and at load 60-85
-    # two runs of #949 hit a 30-min cap mid-suite, ending cancelled, not red.
-    timeout-minutes: 45
+    # Green runs took 19-30 min of test time on 2026-10-29, and #952's green run
+    # took 49 min wall-clock at load ~60 (00:23-01:12Z); 30 cancelled every
+    # queue run (#938, #940, #917) and 45 would still have cut that one.
+    # 60 is ~2x the test time. Re-measure when specs are added: sum the
+    # per-test times in a green run's log; keep this at >= 2x. Cost: a hung
+    # run holds its golden-paths group up to 60 min.
+    timeout-minutes: 60
     # The suite writes to the SHARED isaflow_dev Demo company; the workflow's
     # ci-${{ github.ref }} group only serialises same-ref runs, so two branches
     # could otherwise interleave money flows (e.g. both claiming the same
