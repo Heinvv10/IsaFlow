@@ -72,6 +72,7 @@ import type { PriorActuals } from '@/modules/accounting/services/budgets/priorAc
 import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
 import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
 import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
+import type { DriverHeadcountResponse, DriverOverrideResponse, DriversResponse, PlannedHiresResponse, ReforecastResponse } from '@/modules/accounting/services/budgets/drivers/driverApiTypes';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -123,6 +124,10 @@ interface StaticRoutes {
   '/api/accounting/budget-grid/import-preview': ImportPreview;
   // PUT: the note as stored (trimmed; null when cleared). Year-scoped (P2 follow-up F1).
   '/api/accounting/budget-grid/note': { note: string | null };
+  '/api/accounting/budget-drivers': DriversResponse;
+  '/api/accounting/budget-drivers/override': DriverOverrideResponse;
+  '/api/accounting/budget-drivers/headcount': DriverHeadcountResponse;
+  '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;
   '/api/accounting/setup-checklist': Awaited<ReturnType<typeof getSetupProgress>>;
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
@@ -204,11 +209,12 @@ interface DynamicRoutes {
   '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };
   '/api/accounting/assets/{}/service': ServiceRecord[] | ServiceRecord | { deleted: true; id: string };
   '/api/accounting/assets/{}/bank-links': NonNullable<Awaited<ReturnType<typeof listAssetBankLinks>>>;
-  // Budget versions (mig 947): GET the version or DELETE `{ deleted }` (a union); the three POST verbs return the version.
+  // Budget versions (mig 947): GET the version or DELETE `{ deleted }` (a union); status/copy/primary return it; P4's reforecast a union.
   '/api/accounting/budget-versions/{}': BudgetVersion | { deleted: true };
   '/api/accounting/budget-versions/{}/status': BudgetVersion;
   '/api/accounting/budget-versions/{}/copy': BudgetVersion;
   '/api/accounting/budget-versions/{}/primary': BudgetVersion;
+  '/api/accounting/budget-versions/{}/reforecast': ReforecastResponse;
 }
 
 /**
@@ -223,7 +229,6 @@ interface QueryRoutes {
 }
 
 export type ApiRouteMap = StaticRoutes & DynamicRoutes & QueryRoutes;
-
 export type KnownRoute = keyof ApiRouteMap;
 
 /** A single path segment: any string that does not span a `/` boundary. */

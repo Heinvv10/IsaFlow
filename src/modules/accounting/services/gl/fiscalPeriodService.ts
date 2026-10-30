@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
+import { scheduleBudgetRoll } from '@/modules/accounting/services/budgets/drivers/budgetRollQueue';
 
 type Row = DbRow;
 
@@ -166,6 +167,7 @@ export async function closePeriod(companyId: string, id: string, userId: string)
     `) as Row[];
     const closed = mapRow(rows[0]!);
     scheduleAutoSnapshot('period_close', closed.endDate); // forensic step 4: after commit, never blocks the close
+    scheduleBudgetRoll(companyId, closed.endDate); // budgets P4: re-roll the year's rolling forecast after commit
     return closed;
   } catch (err) {
     log.error('Failed to close period', { id, error: err }, 'accounting');
@@ -185,6 +187,7 @@ export async function lockPeriod(companyId: string, id: string): Promise<FiscalP
     `) as Row[];
     const locked = mapRow(rows[0]!);
     scheduleAutoSnapshot('period_close', locked.endDate);
+    scheduleBudgetRoll(companyId, locked.endDate);
     return locked;
   } catch (err) {
     log.error('Failed to lock period', { id, error: err }, 'accounting');
@@ -234,6 +237,7 @@ export async function closeYear(companyId: string, fiscalYear: number, userId: s
     log.info('Fiscal year closed', { companyId, fiscalYear, updated: rows.length }, 'accounting');
     const closed = rows.map(mapRow);
     for (const p of closed) scheduleAutoSnapshot('year_close', p.endDate); // one snapshot, at the latest end date
+    for (const p of closed) scheduleBudgetRoll(companyId, p.endDate); // one roll per fiscal year
     return closed;
   } catch (err) {
     log.error('Failed to close fiscal year', { fiscalYear, error: err }, 'accounting');

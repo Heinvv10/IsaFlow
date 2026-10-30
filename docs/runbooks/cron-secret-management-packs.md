@@ -94,7 +94,7 @@ sudo -u velo cp -p /home/velo/isaflow/.env.local /home/velo/isaflow/.env.local.p
 sudo -u velo sh -c 'umask 077; f=/home/velo/isaflow/.env.local; t=$(mktemp "$f.XXXXXX") &&
   NEW=$(openssl rand -hex 32) awk '"'"'BEGIN { n = ENVIRON["NEW"] } /^CRON_SECRET=/ { print "CRON_SECRET=" n; next } { print }'"'"' "$f" > "$t" &&
   mv "$t" "$f"'
-sudo systemctl restart isaflow
+bash scripts/deploy/restart-colours.sh   # both blue/green colours re-read the env; no request cut
 ```
 
 Verify, by count and comparison only:
@@ -123,5 +123,5 @@ with the same `awk`, as velo. Deleting is simpler unless a rollback plan names o
 the old value and an S-07b rollback restores it.
 
 Rollback of the rotation: `sudo -u velo cp -p /home/velo/isaflow/.env.local.pre-cron-rotate /home/velo/isaflow/.env.local &&
-sudo systemctl restart isaflow` (before the `rm`). It restores the leaked
+bash scripts/deploy/restart-colours.sh` (before the `rm`). It restores the leaked
 value; only do it if the new one breaks something.

@@ -58,8 +58,13 @@ export function commitDraft(store: GridStore, pos: Pos, draft: string, isTotal: 
   return null;
 }
 
+/** Why a clear skipped a cell its row's driver computes (P4: the server refuses it). */
+export const DRIVER_CLEAR_REASON = "A driver computes this cell: change or delete the row's driver instead of clearing it";
+
 export function clearCells(store: GridStore, positions: readonly Pos[]): void {
-  const n = store.apply(byKey(store, positions.filter(store.isEditable).map(pos => ({ pos, cents: null }))));
+  const writes = byKey(store, positions.filter(store.isEditable).map(pos => ({ pos, cents: null })));
+  const n = store.apply(writes);
+  if (n === 0 && writes.some(w => store.isDriverCell(w.key))) { store.announce(DRIVER_CLEAR_REASON); return; }
   store.announce(n === 0 ? 'Nothing to clear' : `Cleared ${cells(n)}`);
 }
 

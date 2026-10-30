@@ -8,6 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowUpDown, Plus, Loader2, Check } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 const fmtQty = (n: number) => new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 4 }).format(n);
 
@@ -22,6 +24,7 @@ export default function ItemAdjustmentsPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const dates = useDateGate();
   const [form, setForm] = useState({
     itemId: '', adjustmentType: 'increase' as 'increase' | 'decrease',
     quantity: '', reason: '', date: localISODate(),
@@ -48,6 +51,7 @@ export default function ItemAdjustmentsPage() {
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     setSaving(true); setMsg(''); setErr('');
     let written = false;
     try {
@@ -112,8 +116,8 @@ export default function ItemAdjustmentsPage() {
                   <input type="number" step="0.0001" min="0" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} className="ff-input w-full" required />
                 </div>
                 <div>
-                  <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Date</label>
-                  <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="ff-input w-full" />
+                  <DateField label="Date" name="adjustmentDate" value={form.date || null}
+                    onChange={dates.bind('date', iso => setForm(f => ({ ...f, date: iso })), form.date)} />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Reason</label>
