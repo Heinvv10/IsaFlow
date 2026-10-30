@@ -207,7 +207,10 @@ export interface PayrollLineResult {
   medicalSchemeFees: number;
   uif: UifResult;
   sdl: number;
-  /** Remuneration this line contributes to the SDL leviable amount. */
+  /**
+   * This line's SDL leviable amount: SDL-applicable remuneration less the
+   * para 2(4) deductions PAYE allowed (SDL Act s3(4)), never below nil.
+   */
   sdlLeviable: number;
   eti: EtiResult;
   netPay: number;

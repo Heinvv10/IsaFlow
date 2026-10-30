@@ -96,6 +96,16 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
   const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
   const taxableIncome = regularTaxable + annualTaxable;
+  // The paragraph 2(4) Fourth Schedule deductions PAYE allowed this month (the
+  // taxable deductions, up to the taxable remuneration they come off). SDL is
+  // levied on the balance of remuneration after these same deductions (SDL Act
+  // s3(4); SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027) "SDL liable
+  // amount"), so the levy reuses this figure rather than a limit of its own.
+  // Named limits, shared by PAYE and SDL: no s11F cap (27.5% / R430 000), no
+  // employer retirement contribution as fringe benefit and deemed employee
+  // contribution (employer_contribution components are ignored), no s18A
+  // donations deducted through payroll.
+  const para24Deductions = Math.max(0, Math.min(taxableDeductions, periodicTaxable + annualPayments));
 
   const medicalBeneficiaries = employee.medicalAidMainMember
     ? 1 + employee.medicalAidDependantsCount
@@ -128,12 +138,16 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
+  // SDL exclusions (components not SDL-applicable) are already out of
+  // sdlLeviable; the para 2(4) deductions come off what remains, never below nil.
+  const sdlLeviableAfterDeductions = Math.max(0, sdlLeviable - para24Deductions);
+
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
   // once it knows that total.
   const sdl = annualPayrollEstimate === 'defer'
     ? 0
-    : calculateSDL(sdlLeviable, annualPayrollEstimate, taxYear);
+    : calculateSDL(sdlLeviableAfterDeductions, annualPayrollEstimate, taxYear);
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
@@ -177,7 +191,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     medicalSchemeFees: round2(medicalSchemeFees),
     uif,
     sdl: Math.round(sdl * 100) / 100,
-    sdlLeviable: Math.round(sdlLeviable * 100) / 100,
+    sdlLeviable: round2(sdlLeviableAfterDeductions),
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,
