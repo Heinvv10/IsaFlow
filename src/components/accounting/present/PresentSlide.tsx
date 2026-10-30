@@ -12,6 +12,7 @@ import type { AccountTrends } from '@/modules/accounting/services/reports/trendR
 import { applyBudgetComparator, applyTrend, hasBudgetData } from '@/modules/accounting/services/reports/statementRows/comparators';
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
+import { BUDGET_NONE, comparatorNotices, type BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
 import type { Slide } from './presentSlides';
 
 const COLUMNS = { prior: false, budget: true, variance: true, trend: true } as const;
@@ -48,7 +49,7 @@ function accountNames(income: IncomeStatementReport | null): Map<string, string>
 export function PresentSlide({
   slide, income, incomeLoading = false,
   trends, trendsFailed, trendsLoading = false,
-  budget, budgetedCount, budgetFailed, budgetLoading = false,
+  budget, budgetedCount, budgetInfo, budgetFailed, budgetLoading = false,
 }: {
   slide: Slide;
   income: IncomeStatementReport | null;
@@ -66,6 +67,9 @@ export function PresentSlide({
   /** Mirrors `useStatementComparators`: `applyBudgetComparator` runs only
    *  when a real budget was captured, never on an empty one. */
   budgetedCount: number;
+  /** What the comparator said about the window beyond its lines (a split month, an absent year,
+   *  partial or above-filter budgets): why `budgetedCount` is 0 when a budget does exist. */
+  budgetInfo?: BudgetInfo;
   /** The budget-comparator fetch rejected. Distinct from "no budget was
    *  captured" (`budgetedCount === 0`) — only a real failure gets an error
    *  message here. */
@@ -169,13 +173,19 @@ export function PresentSlide({
         </SlideNote>
       );
     }
-    // budgetedCount === 0 means no budget was captured for this tenant, not
+    // budgetedCount === 0 means the comparator has no budget to show, not
     // that the fetch failed. A bullet chart of every account plotted as
     // unfavourable against a zero target is an artefact of the missing
-    // budget, not a finding — say so instead of drawing it.
+    // budget, not a finding — say so instead of drawing it. The comparator
+    // withholds a budget that exists (a window that splits a month, a year
+    // with none, a partial or above-filter budget): the statement page's own
+    // sentences say which, and "no budget was captured" only when none apply.
+    const reasons = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: budgetInfo })
+      .map((n) => n.text)
+      .filter((t) => t !== BUDGET_NONE);
     return (
       <SlideNote title={slide.title}>
-        No budget was captured for this period.
+        {reasons.length > 0 ? reasons.join(' ') : 'No budget was captured for this period.'}
       </SlideNote>
     );
   }
