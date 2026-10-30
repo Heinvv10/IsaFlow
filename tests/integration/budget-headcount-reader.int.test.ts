@@ -126,7 +126,7 @@ describe('payroll data the headcount rule cannot use as is', () => {
 
 describe('version headcount (counts only)', () => {
   it('company scope: boundary days count a full head, inactive never, terminated until its end date', async () => {
-    const hc = await asA(() => readHeadcount(A.id, v, null));
+    const hc = await asA(() => readHeadcount(A.id, v, null, 'full'));
     const at = (m: string) => hc.months.find((x) => x.month === m)!;
     expect(hc.months.map((x) => x.month)).toHaveLength(12);
     // March: e1 (starts 31st) + e2 + e5 = 3. April: e1 + e2 (ends 1st) + e5 = 3. May: e1 + e4 + e5 = 3.
@@ -144,20 +144,28 @@ describe('version headcount (counts only)', () => {
 
   it('cost-centre scope: the allocation split replaces the own centre; no B employee counts', async () => {
     // Cape Town, March: e1 1 + e2 1 + e5 0.6 = 2.6; June: e1 1 + e5 0.6 + hire 0.5 = 2.1.
-    const ct = await asA(() => readHeadcount(A.id, v, A.cc1));
+    const ct = await asA(() => readHeadcount(A.id, v, A.cc1, 'full'));
     expect(ct.months.find((x) => x.month === '2026-03')).toEqual({ month: '2026-03', payroll: 2.6, hires: 0, total: 2.6 });
     expect(ct.months.find((x) => x.month === '2026-06')).toEqual({ month: '2026-06', payroll: 1.6, hires: 0.5, total: 2.1 });
     // Durban: e5's 40% only.
-    const dbn = await asA(() => readHeadcount(A.id, v, A.cc1b));
+    const dbn = await asA(() => readHeadcount(A.id, v, A.cc1b, 'full'));
     expect(dbn.months.find((x) => x.month === '2026-03')!.total).toBe(0.4);
     // CC2: e5's own centre, overridden by its split: nobody.
-    const retail = await asA(() => readHeadcount(A.id, v, A.cc2));
+    const retail = await asA(() => readHeadcount(A.id, v, A.cc2, 'full'));
     expect(new Set(retail.months.map((x) => x.total))).toEqual(new Set([0]));
   });
 
-  it("another company's cost centre is refused, and another company's version is not found", async () => {
-    await expect(asA(() => readHeadcount(A.id, v, B.cc1))).rejects.toMatchObject({ code: 'BUDGET_VERSION_INPUT' });
+  it('a budget reader (totals access) gets no counts at either scope: the centre and version are still checked', async () => {
+    expect(await asA(() => readHeadcount(A.id, v, A.cc1, 'totals'))).toEqual({ costCentreId: A.cc1, perHeadRestricted: true });
+    expect(await asA(() => readHeadcount(A.id, v, null, 'totals'))).toEqual({ costCentreId: null, perHeadRestricted: true });
+    await expect(asA(() => readHeadcount(A.id, v, B.cc1, 'totals'))).rejects.toMatchObject({ code: 'BUDGET_VERSION_INPUT' });
     const theirs = await version(B);
-    await expect(asA(() => readHeadcount(A.id, theirs, null))).rejects.toMatchObject({ code: 'BUDGET_VERSION_NOT_FOUND' });
+    await expect(asA(() => readHeadcount(A.id, theirs, null, 'totals'))).rejects.toMatchObject({ code: 'BUDGET_VERSION_NOT_FOUND' });
+  });
+
+  it("another company's cost centre is refused, and another company's version is not found", async () => {
+    await expect(asA(() => readHeadcount(A.id, v, B.cc1, 'full'))).rejects.toMatchObject({ code: 'BUDGET_VERSION_INPUT' });
+    const theirs = await version(B);
+    await expect(asA(() => readHeadcount(A.id, theirs, null, 'full'))).rejects.toMatchObject({ code: 'BUDGET_VERSION_NOT_FOUND' });
   });
 });

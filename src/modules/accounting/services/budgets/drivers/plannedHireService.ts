@@ -15,6 +15,7 @@ import {
 } from './driverRepository';
 import { versionHeadcount } from './driverHeadcount';
 import { runDriverWrite, type DriverWriteTarget } from './driverWriteScope';
+import type { PerHeadAccess, RestrictedHeadcount } from './perHeadAccess';
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 /** NUMERIC(6,2) */
@@ -94,11 +95,22 @@ export interface VersionHeadcount {
   asOf: string;
 }
 
-/** Headcount per month of the version's year at a scope: counts only, never names or pay. */
-export async function readHeadcount(companyId: string, versionId: string, costCentreId: string | null): Promise<VersionHeadcount> {
+/**
+ * Headcount per month of the version's year at a scope: counts only, never names or pay. `totals`
+ * access (a budget reader) gets no counts and payroll is not read: counts beside a per_head row's
+ * totals give the per-head rate back (decision 15). The version and centre are checked either way.
+ */
+export async function readHeadcount(companyId: string, versionId: string, costCentreId: string | null, access: 'full'): Promise<VersionHeadcount>;
+export async function readHeadcount(
+  companyId: string, versionId: string, costCentreId: string | null, access: PerHeadAccess,
+): Promise<VersionHeadcount | RestrictedHeadcount>;
+export async function readHeadcount(
+  companyId: string, versionId: string, costCentreId: string | null, access: PerHeadAccess,
+): Promise<VersionHeadcount | RestrictedHeadcount> {
   const year = await versionYear(companyId, versionId);
   const scope = costCentreId?.toLowerCase() ?? null;
   await assertCostCentre(companyId, scope);
+  if (access !== 'full') return { costCentreId: scope, perHeadRestricted: true };
   const months = budgetMonthKeysInWindow(year.startDate, year.endDate);
   const asOf = new Date().toISOString();
   const counts = (await versionHeadcount(companyId, versionId.toLowerCase(), months))(scope);
