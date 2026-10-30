@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BudgetWorkspace } from '@/components/accounting/budgets/workspace/BudgetWorkspace';
 import { buildLayout } from '@/components/accounting/budgets/workspace/gridLayout';
 import type { GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
-import { installNetwork, isModel, isSave, modelFor, ok } from './workspaceHarness';
+import { installNetwork, isModel, isSave, modelFor, ok, openEditor } from './workspaceHarness';
 import { ID, gridModel } from './gridFixture';
 
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
@@ -140,8 +140,7 @@ describe('a 14-month transition year', () => {
       'August 2026', 'September 2026', 'October 2026', 'November 2026', 'December 2026', 'January 2027', 'February 2027']);
 
     const row = buildLayout(transitionModel().accounts, KEYS).rows.find((r) => r.key === `acct:${ID.rev2}`)!.index;
-    fireEvent.doubleClick(document.querySelector<HTMLElement>(`[data-pos="${row}:${KEYS.length}"]`)!);
-    const editor = screen.getByRole('textbox', { name: '1010 Account 1010 full year budget' });
+    const editor = await openEditor(() => document.querySelector<HTMLElement>(`[data-pos="${row}:${KEYS.length}"]`)!, '1010 Account 1010 full year budget');
     fireEvent.change(editor, { target: { value: '14000' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(await screen.findByTestId('save-bar-count')).toHaveTextContent('14 unsaved changes');
