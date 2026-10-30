@@ -187,7 +187,7 @@ describe('budget-grid read model: cells and totals', () => {
     const v = await fx.version(A, { fy: 2027, name: 'Cents' });
     await fx.amount(A, v, A.acct.sales, '2026-03', 1234567.89);
     const c = data<GridReadModel>(await get(A, { version_id: v })).cells;
-    expect(c).toEqual([{ glAccountId: A.acct.sales, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: 1234567.89 }]);
+    expect(c).toEqual([{ glAccountId: A.acct.sales, cc1Id: null, cc2Id: null, buId: null, month: '2026-03', amount: 1234567.89, source: 'manual' }]);
     await pool.query('DELETE FROM budget_month_amounts WHERE version_id = $1', [v]);
     await pool.query('DELETE FROM budget_versions WHERE id = $1', [v]);
   });

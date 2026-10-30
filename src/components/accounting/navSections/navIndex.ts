@@ -18,6 +18,11 @@ export interface NavIndexEntry {
   href: string;
   label: string;
   trail: string[];
+  /**
+   * The other labels the nav gives this href ("Profit & Loss" for Income Statement, "Aged Debtors" for
+   * AR Age Analysis): one entry per href, but the palette still finds it by every name the nav shows.
+   */
+  aliases?: string[];
   /** A gear-icon settings link. Those into a `?tab=` view share their page with the other tabs, so they never own it. */
   isSetting?: true;
 }
@@ -39,18 +44,23 @@ function walk(items: NavItem[], trail: string[], out: NavIndexEntry[]): void {
   }
 }
 
-/** First entry per href wins, so call order is priority order. */
-function addUnique(into: NavIndexEntry[], seen: Set<string>, entries: NavIndexEntry[]): void {
+/** First entry per href wins, so call order is priority order; a later, different label becomes an alias. */
+function addUnique(into: NavIndexEntry[], seen: Map<string, NavIndexEntry>, entries: NavIndexEntry[]): void {
   for (const e of entries) {
-    if (seen.has(e.href)) continue;
-    seen.add(e.href);
-    into.push(e);
+    const owner = seen.get(e.href);
+    if (!owner) {
+      const entry = { ...e };
+      seen.set(e.href, entry);
+      into.push(entry);
+    } else if (e.label !== owner.label && !owner.aliases?.includes(e.label)) {
+      owner.aliases = [...(owner.aliases ?? []), e.label];
+    }
   }
 }
 
 export function buildNavIndex(tabs: Tab[], isVatRegistered: boolean): NavIndexEntry[] {
   const index: NavIndexEntry[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, NavIndexEntry>();
   for (const tab of stripVatNav(tabs, isVatRegistered)) {
     // Sections carry the canonical label, so they outrank the daily-link
     // shortcuts, which in turn outrank the tab's own landing href.

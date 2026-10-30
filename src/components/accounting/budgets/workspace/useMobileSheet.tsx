@@ -23,9 +23,11 @@ interface UseMobileSheetArgs {
   view: View;
   canWrite: boolean;
   onRowAction(row: LineRow, action: RowAction): void;
+  /** P4: the grid wires drivers (the sheet offers the row's driver and override actions). */
+  drivers?: boolean;
 }
 
-export function useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction }: UseMobileSheetArgs): {
+export function useMobileSheet({ store, layout, roundingUnit, view, canWrite, onRowAction, drivers = false }: UseMobileSheetArgs): {
   open(pos: Pos): void;
   node: ReactNode;
 } {
@@ -43,7 +45,7 @@ export function useMobileSheet({ store, layout, roundingUnit, view, canWrite, on
   const cents = isTotal ? snap.fy : snap.values[pos.c] ?? null;
 
   const save = (value: number | null, next: boolean) => {
-    if (snap.editable && value !== cents) {
+    if (store.isEditable(pos) && value !== cents) {
       // The desktop editor's commit path: kit parser, FY spread with the unit, residue notice.
       const seq = store.getMeta().announcement.seq;
       const refused = commitDraft(store, pos, value === null ? '' : centsToPlain(value), isTotal, roundingUnit);
@@ -56,7 +58,7 @@ export function useMobileSheet({ store, layout, roundingUnit, view, canWrite, on
 
   const grain = accountGrains(new Map(store.heldCells(line.account.id))).get(line.account.id) ?? null;
   const actions = rowActionItems({
-    row: line, snap, canChange: canWrite, grain, view,
+    row: line, snap: { ...snap, focusCol: pos.c }, canChange: canWrite, grain, view, drivers, months,
     onAction: a => { close(); onRowAction(line, a); },
   }).filter(a => !a.disabled).map(a => ({ label: a.label, onClick: a.onClick }));
 
@@ -65,7 +67,7 @@ export function useMobileSheet({ store, layout, roundingUnit, view, canWrite, on
       key={`${pos.r}:${pos.c}`}
       target={{
         accountLabel, monthLabel: isTotal ? 'Full year' : monthLabel(months[pos.c] ?? ''), note: snap.note, cents,
-        editable: snap.editable, readReason: snap.readReason, isTotal, hasNext: pos.c < months.length - 1,
+        editable: store.isEditable(pos), readReason: store.readReason(pos), isTotal, hasNext: pos.c < months.length - 1,
       }}
       onSave={v => save(v, false)}
       onNext={v => save(v, true)}
