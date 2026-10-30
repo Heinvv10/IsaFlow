@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BudgetWorkspace } from '@/components/accounting/budgets/workspace/BudgetWorkspace';
 import { buildLayout } from '@/components/accounting/budgets/workspace/gridLayout';
 import { FY_CLOSED_REASON } from '@/components/accounting/budgets/workspace/gridStore';
-import { fail, installNetwork, isModel, ok } from '../workspace/workspaceHarness';
+import { fail, installNetwork, isModel, ok, openEditor } from '../workspace/workspaceHarness';
 import { ID, MONTHS, T2, TOKEN, driverModel } from './driverFixture';
 
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
@@ -85,8 +85,7 @@ describe('driver writes through the real fetchers', () => {
 
   it('a dirty grid: Reset sends nothing and says to save or discard first', async () => {
     const { net } = await ready();
-    fireEvent.doubleClick(cellAt(ID.rev2, 0));
-    const editor = screen.getByRole('textbox', { name: '1010 Account 1010 Mar 2026 budget' });
+    const editor = await openEditor(() => cellAt(ID.rev2, 0), '1010 Account 1010 Mar 2026 budget');
     fireEvent.change(editor, { target: { value: '5' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
     await rowActions('2000', 'Reset all overrides');

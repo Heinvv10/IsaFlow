@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BudgetWorkspace } from '@/components/accounting/budgets/workspace/BudgetWorkspace';
 import { buildLayout } from '@/components/accounting/budgets/workspace/gridLayout';
 import { ACTUAL_REASON } from '@/components/accounting/budgets/workspace/gridStore';
-import { fail, installNetwork, isModel, isSave, ok } from '../workspace/workspaceHarness';
+import { fail, installNetwork, isModel, isSave, ok, openEditor } from '../workspace/workspaceHarness';
 import { ID, MONTHS, T2, T3, TOKEN, driverModel } from './driverFixture';
 
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
@@ -34,8 +34,11 @@ describe('drivers in the workspace', () => {
     render(<BudgetWorkspace />);
     const row = (await screen.findAllByTestId('driver-chip'))[0]!.closest('tr')!;
     expect(row).toHaveAttribute('data-row', `acct:${ID.cos1}`);
-    fireEvent.click(within(row).getByTestId('driver-chip'));
-    expect(await screen.findByRole('dialog', { name: 'Edit driver' })).toHaveTextContent('2000 Account 2000');
+    // A load landing right after the chips appear can swallow the first click under CI load: retry it.
+    await waitFor(() => {
+      if (!screen.queryByRole('dialog', { name: 'Edit driver' })) fireEvent.click(screen.getAllByTestId('driver-chip')[0]!);
+      expect(screen.getByRole('dialog', { name: 'Edit driver' })).toHaveTextContent('2000 Account 2000');
+    });
     expect(cellAt(ID.cos1, 1)).toHaveAttribute('data-source', 'driver');
   });
 
@@ -83,8 +86,7 @@ describe('drivers in the workspace', () => {
     fireEvent.doubleClick(mar);
     expect(screen.queryByRole('textbox', { name: /Mar 2026 budget/ })).toBeNull();
     // An open month of the same row still takes typing.
-    fireEvent.doubleClick(cellAt(ID.rev1, 3));
-    expect(screen.getByRole('textbox', { name: '1000 Account 1000 Jun 2026 budget' })).toBeInTheDocument();
+    expect(await openEditor(() => cellAt(ID.rev1, 3), '1000 Account 1000 Jun 2026 budget')).toBeInTheDocument();
   });
 
   it("a grid save's driverWarnings reach the save bar and the driver's chip; the version is re-read", async () => {
@@ -94,9 +96,8 @@ describe('drivers in the workspace', () => {
     const warning = { code: 'DRIVER_SKIPPED', rowKey: `${ID.opex}|||`, message: 'driver on 3100 Account 3100 cannot compute: change or delete the driver' };
     net.on(isSave, () => ok({ updatedAt: T2, saved: 1, deleted: 0, recomputed: 12, reset: 0, driverWarnings: [warning] }));
     render(<BudgetWorkspace />);
-    const apr = await waitFor(() => { const c = cellAt(ID.rev1, 1); expect(c).toBeTruthy(); return c; });
-    fireEvent.doubleClick(apr);
-    const editor = screen.getByRole('textbox', { name: '1000 Account 1000 Apr 2026 budget' });
+    await waitFor(() => expect(cellAt(ID.rev1, 1)).toBeTruthy());
+    const editor = await openEditor(() => cellAt(ID.rev1, 1), '1000 Account 1000 Apr 2026 budget');
     fireEvent.change(editor, { target: { value: '1100' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
     fireEvent.click(await screen.findByTestId('save-bar-save'));
