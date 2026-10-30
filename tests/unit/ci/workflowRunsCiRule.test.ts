@@ -36,10 +36,11 @@ const GATE_STEP = [
 const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # The gate list';
 // Unique to quality: the --ignore-scripts comment follows its checkout.
 const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # --ignore-scripts';
-const GOLDEN_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # A push';
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
-const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
+const REPORT_PERMS = '    permissions:\n      actions: read\n      issues: write\n';
+const TOP_CONCURRENCY = "  group: ci-${{ github.ref }}\n  cancel-in-progress: ${{ github.event_name != 'push' }}\n";
+const POST_MERGE_GROUP = '      group: golden-paths-post-merge\n      cancel-in-progress: false\n';
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
 const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
@@ -124,15 +125,16 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it.each([
-    ['a concurrency group shared by every ref', '  group: ci-fixed\n  cancel-in-progress: true\n'],
-    ['cancel-in-progress switched off', '  group: ci-${{ github.ref }}\n  cancel-in-progress: false\n'],
-    ['an extra concurrency key', '  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n  queue: max\n'],
+    ['a concurrency group shared by every ref', "  group: ci-fixed\n  cancel-in-progress: ${{ github.event_name != 'push' }}\n"],
+    ['cancel-in-progress switched off for PRs too', '  group: ci-${{ github.ref }}\n  cancel-in-progress: false\n'],
+    ['master pushes cancelling again (the post-merge suite would never finish)', '  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n'],
+    ['an extra concurrency key', `${TOP_CONCURRENCY}  queue: max\n`],
   ])('%s', (_label, body) => {
-    expect(check(edit('  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n', body)).length).toBeGreaterThan(0);
+    expect(check(edit(TOP_CONCURRENCY, body)).length).toBeGreaterThan(0);
   });
 
   it('concurrency removed from the workflow', () => {
-    expect(check(edit('concurrency:\n  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n', '')).length).toBeGreaterThan(0);
+    expect(check(edit(`concurrency:\n${TOP_CONCURRENCY}`, '')).length).toBeGreaterThan(0);
   });
 
   it('a second workflow file (concurrency groups are repo-wide, so it can take ci- and cancel quality)', () => {
@@ -140,21 +142,34 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(checkWorkflowRunsCi(load(REAL), SCRIPTS, []).length).toBeGreaterThan(0);
   });
 
-  it("golden-paths moved into the workflow's own ci- group (deadlock cancels the run)", () => {
+  it("golden-paths-smoke moved into the workflow's own ci- group (deadlock cancels the run)", () => {
     expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}`, '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
   });
 
-  it("golden-paths back on the one shared group (every PR push cancels the queue's pending run, #938)", () => {
+  it("golden-paths-smoke back on the one shared group (every PR push cancels the queue's pending run, #938)", () => {
     expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-dev-demo\n')).length).toBeGreaterThan(0);
   });
 
-  it('golden-lane taking a concurrency group (the ci- one would cancel quality)', () => {
-    expect(check(edit('    name: Golden Paths lane\n', '    name: Golden Paths lane\n    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+  it.each([
+    ['Golden Paths lane', '    name: Golden Paths lane\n'],
+    ['the temporary shim', '    name: Golden Paths E2E (blocking)\n'],
+    ['the post-merge report', '    name: Golden Paths post-merge report\n'],
+  ])('%s taking a concurrency group (the ci- one would cancel quality)', (_job, header) => {
+    expect(check(edit(header, `${header}    concurrency:\n      group: ci-\${{ github.ref }}\n`)).length).toBeGreaterThan(0);
   });
 
-  it('golden-paths concurrency removed or set to cancel', () => {
+  it('golden-paths-smoke concurrency removed or set to cancel', () => {
     expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
-    expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
+    expect(check(edit(`${GOLDEN_GROUP}      cancel-in-progress: false\n`, `${GOLDEN_GROUP}      cancel-in-progress: true\n`)).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['removed', ''],
+    ['set to cancel (a newer master push would cut the suite short)', POST_MERGE_GROUP.replace('false', 'true')],
+    ["moved onto the PR smoke group (holds PR runs behind the full suite; a PR push cancels its pending run)", `      group: golden-paths-dev-demo\n      cancel-in-progress: false\n`],
+    ["moved into the workflow's ci- group", '      group: ci-${{ github.ref }}\n      cancel-in-progress: false\n'],
+  ])('post-merge golden-paths concurrency %s', (_label, body) => {
+    expect(check(edit(`    concurrency:\n${POST_MERGE_GROUP}`, body === '' ? '' : `    concurrency:\n${body}`)).length).toBeGreaterThan(0);
   });
 
   it('actions: write on the workflow token (any job could then cancel the run)', () => {
@@ -164,12 +179,21 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it.each([
-    ['golden-paths', GOLDEN_PERMS],
     ['quality', QUALITY_PERMS],
   ])('%s widening its own token', (_job, from) => {
     expect(check(edit(from, from.replace('actions: read', 'actions: write'))).length).toBeGreaterThan(0);
     expect(check(edit(from, from.replace('      pull-requests: read\n', '      pull-requests: read\n      checks: write\n'))).length).toBeGreaterThan(0);
     expect(check(edit(from, from.replace(JOB_PERMS, '    permissions: write-all\n'))).length).toBeGreaterThan(0);
+  });
+
+  it('the post-merge report widening its token beyond issues: write + actions: read', () => {
+    expect(check(edit(REPORT_PERMS, REPORT_PERMS.replace('actions: read', 'actions: write'))).length).toBeGreaterThan(0);
+    expect(check(edit(REPORT_PERMS, `${REPORT_PERMS}      contents: write\n`)).length).toBeGreaterThan(0);
+    expect(check(edit(REPORT_PERMS, '    permissions: write-all\n')).length).toBeGreaterThan(0);
+  });
+
+  it("another job taking the report's issues: write", () => {
+    expect(check(edit(QUALITY_PERMS, QUALITY_PERMS.replace(JOB_PERMS, REPORT_PERMS))).length).toBeGreaterThan(0);
   });
 
   it('checkout given any input but fetch-depth: 0 and persist-credentials: false', () => {
@@ -179,7 +203,6 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
   it.each([
     ['quality', QUALITY_CHECKOUT],
-    ['golden-paths', GOLDEN_CHECKOUT],
   ])('%s leaving its read token in .git/config (persist-credentials dropped or true)', (_job, from) => {
     expect(check(edit(from, from.replace('          persist-credentials: false\n', ''))).length).toBeGreaterThan(0);
     expect(check(edit(from, from.replace('persist-credentials: false', 'persist-credentials: true'))).length).toBeGreaterThan(0);
@@ -190,7 +213,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit('          CI_READ_TOKEN: ${{ github.token }}\n          DATABASE_URL', '          CI_READ_TOKEN: ${{ secrets.OTHER }}\n          DATABASE_URL')).length).toBeGreaterThan(0);
   });
 
-  it('a fourth job in ci.yml', () => {
+  it('an extra job in ci.yml', () => {
     expect(check(`${REAL}  sidecar:\n    runs-on: [self-hosted, linux, velo]\n    concurrency:\n      group: ci-\${{ github.ref }}\n    steps:\n      - run: echo hi\n`).length).toBeGreaterThan(0);
   });
 

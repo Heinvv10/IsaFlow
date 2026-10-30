@@ -1,8 +1,7 @@
 /**
  * The shell glue around the two skip decisions: run-ci.sh's handling of
- * mq-merge-already-tested.ts and integration/scope.ts exit codes, and the
- * golden-paths `mq` step in ci.yml. The REAL run-ci.sh and the REAL step script
- * run, with `bun` and `bash` on PATH replaced by stubs that log their arguments
+ * mq-merge-already-tested.ts and integration/scope.ts exit codes. The REAL
+ * run-ci.sh runs, with `bun` and `bash` on PATH replaced by stubs that log their arguments
  * (so no gate actually runs) and return the exit code each case asks for.
  * Only exit 10 may skip; 0, 1 and 127 (bun missing) must run everything.
  */
@@ -11,7 +10,6 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { load } from 'js-yaml';
 
 const dir = mkdtempSync(join(tmpdir(), 'ci-skip-glue-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -101,37 +99,5 @@ describe('run-ci.sh: the integration scope', () => {
     const r = run(['scripts/ci/run-ci.sh'], { CI_INTEGRATION: '1', MQ_RC: '0', SCOPE_RC: '10' });
     expect(r.calls.some((c) => c.includes('integration/scope.ts'))).toBe(false);
     expect(ranIntegration(r.calls)).toBe(true);
-  });
-});
-
-describe('ci.yml golden-paths: the merge-check step', () => {
-  type Step = { id?: string; if?: string; run?: string; uses?: string; env?: Record<string, string> };
-  const steps = ((load(readFileSync('.github/workflows/ci.yml', 'utf8')) as { jobs: Record<string, { steps: Step[] }> })
-    .jobs['golden-paths']!.steps);
-  const at = steps.findIndex((s) => s.id === 'mq');
-
-  it('follows only the checkout, and gates every later step on its output', () => {
-    expect(at).toBe(1);
-    expect(steps[0]!.uses).toMatch(/^actions\/checkout@/);
-    for (const s of steps.slice(at + 1)) expect(s.if).toBe("steps.mq.outputs.skip != 'true'");
-  });
-
-  it('passes the job token to the check (without it every push runs the full suite)', () => {
-    expect(steps[at]!.env).toEqual({ CI_READ_TOKEN: '${{ github.token }}' });
-  });
-
-  function step(event: string, rc: string): string {
-    const out = join(dir, 'gh-output');
-    writeFileSync(out, '');
-    const script = join(dir, 'step.sh');
-    writeFileSync(script, steps[at]!.run!);
-    run([script], { GITHUB_EVENT_NAME: event, GITHUB_OUTPUT: out, MQ_RC: rc, SCOPE_RC: '0' });
-    return readFileSync(out, 'utf8').trim();
-  }
-
-  it('skip=true only for exit 10 on a push', () => {
-    expect(step('push', '10')).toBe('skip=true');
-    for (const rc of ['0', '1', '127']) expect(step('push', rc)).toBe('skip=false');
-    expect(step('pull_request', '10')).toBe('skip=false');
   });
 });
