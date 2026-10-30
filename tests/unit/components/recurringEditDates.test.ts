@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { datePayload, endBeforeNextRefused } from '@/components/accounting/recurringInvoices/recurringEditDates';
+import { datePayload, endBeforeNextRefused, editLines, rawLineItems } from '@/components/accounting/recurringInvoices/recurringEditDates';
 
 const loaded = { nextRunDate: '2026-11-01', endDate: '2026-12-31' };
 
@@ -41,5 +41,22 @@ describe('endBeforeNextRefused', () => {
   });
   it('never refuses an empty end date', () => {
     expect(endBeforeNextRefused({ nextRunDate: '2026-11-01', endDate: '' }, loaded)).toBe(false);
+  });
+});
+
+describe('rawLineItems / editLines', () => {
+  it('reads camelCase lineItems', () => {
+    const found = { lineItems: [{ description: 'A', quantity: 2, unitPrice: 5, glAccountId: 'g1' }] };
+    expect(rawLineItems(found)).toHaveLength(1);
+    expect(editLines(found)).toEqual([{ key: '0', description: 'A', quantity: 2, unitPrice: 5, glAccountId: 'g1' }]);
+  });
+  it('falls back to snake_case line_items', () => {
+    const found = { line_items: [{ description: 'B', unit_price: 7, gl_account_id: 'g2' }] };
+    expect(editLines(found)).toEqual([{ key: '0', description: 'B', quantity: 1, unitPrice: 7, glAccountId: 'g2' }]);
+  });
+  it('returns [] when neither is present or not an array', () => {
+    expect(rawLineItems({})).toEqual([]);
+    expect(editLines({})).toEqual([]);
+    expect(editLines({ lineItems: 'x', line_items: null })).toEqual([]);
   });
 });

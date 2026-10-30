@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2CensusG4';
+import { typeDate } from '../helpers/dateFields';
 
 const route = vi.hoisted(() => ({ id: 'ri-A' }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -85,5 +86,55 @@ describe('recurring invoice edit: stale template response', () => {
     await act(async () => { listCalls[1]!(ok({ items: [row('ri-B', 'Fee B')] })); });
     await screen.findByDisplayValue('Fee B');
     expect(screen.queryByText('Recurring invoice not found')).toBeNull();
+  });
+
+  it('B failing after A loaded: no A data, Save disabled, no PUT on submit', async () => {
+    const view = render(<RecurringInvoiceEdit />);
+    await waitFor(() => expect(listCalls).toHaveLength(1));
+    await act(async () => { listCalls[0]!(ok({ items: [row('ri-A', 'Fee A')] })); });
+    await screen.findByDisplayValue('Fee A');
+    route.id = 'ri-B';
+    view.rerender(<RecurringInvoiceEdit />);
+    await waitFor(() => expect(listCalls).toHaveLength(2));
+    await act(async () => { listCalls[1]!(ok({ items: [] })); });
+    await screen.findByText('Recurring invoice not found');
+    expect(screen.queryByDisplayValue('Template ri-A')).toBeNull();
+    expect(screen.queryByDisplayValue('Fee A')).toBeNull();
+    expect(screen.queryByText('Template ri-A')).toBeNull();
+    expect((screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(document.querySelector('form')!);
+    await Promise.resolve();
+    expect(puts()).toHaveLength(0);
+  });
+
+  it('B with no lineItems: A lines are not shown and not PUT under B', async () => {
+    const view = render(<RecurringInvoiceEdit />);
+    await waitFor(() => expect(listCalls).toHaveLength(1));
+    await act(async () => { listCalls[0]!(ok({ items: [row('ri-A', 'Fee A')] })); });
+    await screen.findByDisplayValue('Fee A');
+    route.id = 'ri-B';
+    view.rerender(<RecurringInvoiceEdit />);
+    await waitFor(() => expect(listCalls).toHaveLength(2));
+    await act(async () => { listCalls[1]!(ok({ items: [{ ...row('ri-B', ''), lineItems: [] }] })); });
+    await screen.findByDisplayValue('Template ri-B');
+    expect(screen.queryByDisplayValue('Fee A')).toBeNull();
+    fireEvent.submit(document.querySelector('form')!);
+    await Promise.resolve();
+    expect(puts()).toHaveLength(0);
+    expect(screen.getByRole('alert').textContent).toContain('description');
+  });
+
+  it('a not-found template cannot be saved even when the user fills the form in', async () => {
+    render(<RecurringInvoiceEdit />);
+    await waitFor(() => expect(listCalls).toHaveLength(1));
+    await act(async () => { listCalls[0]!(ok({ items: [] })); });
+    await screen.findByText('Recurring invoice not found');
+    typeDate(screen.getByRole('textbox', { name: /next run date/i }), '2026-12-01');
+    await waitFor(() => expect((screen.getByRole('textbox', { name: /next run date/i }) as HTMLInputElement).value).toBe('01 Dec 2026'));
+    fireEvent.change(screen.getByPlaceholderText('Description *'), { target: { value: 'typed' } });
+    fireEvent.submit(document.querySelector('form')!);
+    await Promise.resolve();
+    expect(puts()).toHaveLength(0);
+    expect(screen.getByRole('alert').textContent).toContain('not found');
   });
 });
