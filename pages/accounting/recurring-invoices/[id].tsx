@@ -3,7 +3,7 @@
  * Dedicated edit form for an existing recurring invoice template.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -17,7 +17,8 @@ import {
   type LineItem,
 } from '@/components/accounting/recurringInvoices/LineItemsSection';
 import { DateField } from '@/components/ui'; import { useDateGate } from '@/hooks/useDateGate';
-import { datePayload, endBeforeNextRefused, editLines, type EditDates } from '@/components/accounting/recurringInvoices/recurringEditDates';
+import { datePayload, endBeforeNextRefused } from '@/components/accounting/recurringInvoices/recurringEditDates';
+import { useRecurringTemplateLoad, newLine } from '@/components/accounting/recurringInvoices/useRecurringTemplateLoad';
 
 interface Customer { id: string; name?: string; company_name?: string }
 
@@ -28,31 +29,17 @@ const FREQ_OPTIONS = [
   { value: 'annually', label: 'Annually' },
 ];
 
-const newLine = (): LineItem => ({
-  key: String(Date.now() + Math.random()),
-  description: '', quantity: 1, unitPrice: 0, glAccountId: '',
-});
-
 export default function EditRecurringInvoicePage() {
   const router = useRouter();
   const { id } = router.query as { id: string };
 
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(''); const [loaded, setLoaded] = useState(false); const dates = useDateGate(); const loadedDates = useRef<EditDates>({ nextRunDate: '', endDate: '' });
-
-  const [form, setForm] = useState({
-    templateName: '',
-    clientId: '',
-    frequency: 'monthly',
-    nextRunDate: '',
-    endDate: '',
-    description: '',
-    taxRate: 15,
-    paymentTerms: '30 days',
-  });
-  const [lines, setLines] = useState<LineItem[]>([newLine()]);
+  const [error, setError] = useState('');
+  const [customersError, setCustomersError] = useState('');
+  const dates = useDateGate();
+  const { form, setForm, lines, setLines, loading, loadedId, loadError, loadedDates } = useRecurringTemplateLoad(id);
+  const isLoaded = loadedId === id;
 
   useEffect(() => {
     apiFetch('/api/accounting/customers')
@@ -62,43 +49,11 @@ export default function EditRecurringInvoicePage() {
         const list = Array.isArray(d) ? d : (d as { clients?: Customer[] })?.clients ?? [];
         setCustomers(list as Customer[]);
       })
-      .catch(err => { log.error('Failed to load customers', { error: err }, 'recurring-edit'); setError(apiErrorMessage(err, 'Could not load customers - try again')); });
-  }, []);
-
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    setLoading(true);
-    setLoaded(false);
-    setError('');
-    apiFetch('/api/accounting/recurring-invoices')
-      .then(async r => { await assertOk(r, 'Could not load the recurring invoice - try again'); return r.json(); })
-      .then((json: { data?: { items?: Record<string, unknown>[] } }) => {
-        if (cancelled) return;
-        const found = json.data?.items?.find(i => i.id === id);
-        if (!found) { setError('Recurring invoice not found'); return; }
-        const rows = editLines(found);
-        loadedDates.current = { nextRunDate: String(found.nextRunDate ?? found.next_run_date ?? '').slice(0, 10), endDate: String(found.endDate ?? found.end_date ?? '').slice(0, 10) };
-        setForm({
-          templateName: String(found.templateName ?? found.template_name ?? ''),
-          clientId: String(found.clientId ?? found.client_id ?? ''),
-          frequency: String(found.frequency ?? 'monthly'),
-          ...loadedDates.current,
-          description: String(found.description ?? ''),
-          taxRate: Number(found.taxRate ?? found.tax_rate ?? 15),
-          paymentTerms: String(found.paymentTerms ?? found.payment_terms ?? '30 days'),
-        });
-        if (rows.length > 0) setLines(rows);
-        setLoaded(true);
-      })
       .catch(err => {
-        if (cancelled) return;
-        log.error('Failed to load recurring invoice', { id, error: err }, 'recurring-edit');
-        setError(apiErrorMessage(err, 'Could not load the recurring invoice - try again'));
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [id]);
+        log.error('Failed to load customers', { error: err }, 'recurring-edit');
+        setCustomersError(apiErrorMessage(err, 'Could not load customers - try again'));
+      });
+  }, []);
 
   const updateLine = (key: string, field: keyof Omit<LineItem, 'key'>, value: string | number) => {
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
@@ -109,7 +64,9 @@ export default function EditRecurringInvoicePage() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
+    e.preventDefault();
+    if (!isLoaded) return;
+    if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
     setError(''); if (!form.nextRunDate) { setError('Enter the next run date.'); return; }
     if (endBeforeNextRefused(form, loadedDates.current)) { setError('The end date cannot be before the next run date.'); return; }
     if (lines.some(l => !l.description)) { setError('All line items must have a description'); return; }
@@ -181,9 +138,9 @@ export default function EditRecurringInvoicePage() {
         </div>
 
         <form onSubmit={e => void handleSubmit(e)} className="px-6 py-6 max-w-4xl space-y-6">
-          {error && (
+          {(error || loadError || customersError) && (
             <div role="alert" className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" /> {error}
+              <AlertCircle className="h-4 w-4 flex-shrink-0" /> {error || loadError || customersError}
             </div>
           )}
 
@@ -296,7 +253,7 @@ export default function EditRecurringInvoicePage() {
             </Link>
             <button
               type="submit"
-              disabled={submitting || !loaded}
+              disabled={submitting || !isLoaded}
               className="inline-flex items-center gap-2 px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm font-medium disabled:opacity-50"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
