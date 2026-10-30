@@ -27,6 +27,7 @@ import ArInvoicesPage from '../../../pages/accounting/migration/ar-invoices';
 import CustomersImportPage from '../../../pages/accounting/migration/customers';
 import SuppliersImportPage from '../../../pages/accounting/migration/suppliers';
 import OpeningBalancesPage from '../../../pages/accounting/migration/opening-balances';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 void mockedApiFetchModule;
 useApiJsonOverMock();
@@ -98,7 +99,7 @@ it('opening balances import shows the server message, not "Import failed"', asyn
   answer('/migration/opening-balances', MSG);
   const { container } = render(<OpeningBalancesPage />);
   await upload(container);
-  fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-03-01' } });
+  typeDate(dateInputs(container)[0]!, '2026-03-01');
   fireEvent.click(await screen.findByRole('button', { name: /Set Opening Balances/ }));
   expect(await screen.findByText(MSG)).toBeTruthy();
   expect(screen.queryByText('Import failed')).toBeNull();
@@ -155,7 +156,7 @@ it('success: opening balances import renders the data it received', async () => 
   answerOk('/migration/opening-balances', { journalEntryId: 'J-777', linesImported: 61, errors: [] });
   const { container } = render(<OpeningBalancesPage />);
   await upload(container);
-  fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-03-01' } });
+  typeDate(dateInputs(container)[0]!, '2026-03-01');
   fireEvent.click(await screen.findByRole('button', { name: /Set Opening Balances/ }));
   expect(await screen.findByText(/Opening balances posted: 61 account line\(s\)\. Journal entry J-777/)).toBeTruthy();
 });
