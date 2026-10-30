@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { datePayload, endBeforeNextRefused } from '@/components/accounting/recurring/recurringEditDates';
+import { datePayload, endBeforeNextRefused } from '@/components/accounting/recurringInvoices/recurringEditDates';
 
 const loaded = { nextRunDate: '2026-11-01', endDate: '2026-12-31' };
 
