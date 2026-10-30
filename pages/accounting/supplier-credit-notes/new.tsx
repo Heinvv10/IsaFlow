@@ -11,6 +11,8 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface LineItem { description: string; quantity: number; unitPrice: number; vatType: string }
 
@@ -31,6 +33,7 @@ export default function NewSupplierCreditNotePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitAction, setSubmitAction] = useState<'draft' | 'post'>('draft');
   const [error, setError] = useState('');
+  const dates = useDateGate();
   // R-035: the draft a refused create-and-post kept. Posting again opens it —
   // a second POST would create a second draft.
   const [keptDraftId, setKeptDraftId] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export default function NewSupplierCreditNotePage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     if (keptDraftId) { await openDraft(keptDraftId); return; }
     if (!form.supplierId) { setError('Please select a supplier'); return; }
     if (lineItems.some(li => !li.description.trim())) { setError('All line items need a description'); return; }
@@ -146,8 +150,8 @@ export default function NewSupplierCreditNotePage() {
                     <SupplierSelect companyFirst required value={form.supplierId} inputClassName={inp} onChange={id => setForm(f => ({ ...f, supplierId: id }))} />
                   </div>
                   <div>
-                    <label className={lbl}>Credit Note Date *</label>
-                    <input type="date" name="creditDate" value={form.creditDate} onChange={e => setForm(f => ({ ...f, creditDate: e.target.value }))} className={inp} required />
+                    <DateField label="Credit Note Date" required name="creditDate" value={form.creditDate || null}
+                      onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>
                     <label className={lbl}>Reference Number</label>

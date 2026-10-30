@@ -8,6 +8,22 @@
  * (gl/fiscalYearCloseRows), so the closing balance is the trial balance's as at
  * periodEnd — the same figure the account-detail page (accountLedgerService)
  * and the GL report show. Balance-sheet accounts are cumulative from inception.
+ *
+ * Filters: `costCentreId` is EITHER level (cc1_id OR cc2_id, the statement
+ * pages' meaning); `opts.cc1Id` / `opts.cc2Id` are EXPLICIT levels (the Budget
+ * vs Actual drill, budgets P3 §2.6), ANDed with it and with `businessUnitId`,
+ * so a drill opened from a filtered BvA line foots to that line.
+ *
+ * Budget vs Actual opt-ins (every other caller passes neither, and its output
+ * is unchanged):
+ *   - `documents`: each posted row carries its journal id and the document the
+ *     journal was posted from (`journalDocuments`, one batched read per
+ *     document table), so the drill links to it (`lib/journalSourceHref`).
+ *   - `naturalSign`: balances signed by account TYPE (revenue credit − debit,
+ *     expense debit − credit, as the BvA Actual and the income statement read),
+ *     not by the account's own `normal_balance`, so periodNet equals the BvA
+ *     line even for an account set to the other normal balance. Balance-sheet
+ *     types keep `normal_balance`.
  */
 
 import { sql } from '@/lib/neon';
@@ -24,8 +40,21 @@ import {
   yearEndCloseDescription,
 } from './fiscalYearCloseRows';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { loadJournalDocuments, type JournalDocumentRef } from './journalDocuments';
+
+export type { JournalDocumentKind, JournalDocumentRef } from './journalDocuments';
 
 type Row = DbRow;
+
+export interface AccountTransactionsOptions {
+  /** Explicit dimension levels (the BvA drill), ANDed with the other filters. */
+  cc1Id?: string;
+  cc2Id?: string;
+  /** Attach `journalId` + `document` to each posted row (the BvA drill's source links). */
+  documents?: boolean;
+  /** Sign by account type (revenue Cr − Dr, expense Dr − Cr) instead of `normal_balance`. */
+  naturalSign?: boolean;
+}
 
 interface TransactionRow {
   date: string;
@@ -35,6 +64,10 @@ interface TransactionRow {
   credit: number;
   balance: number;
   source: string;
+  /** With `documents`, posted rows only (a derived year-end close row has none). */
+  journalId?: string;
+  /** With `documents`: the document the journal was posted from; null when none (posted rows only). */
+  document?: JournalDocumentRef | null;
   /** A year-end close row: derived, not posted. */
   derived?: boolean;
 }
@@ -59,10 +92,13 @@ export async function getAccountTransactions(
   periodEnd: string,
   costCentreId?: string,
   businessUnitId?: string,
+  opts: AccountTransactionsOptions = {},
 ): Promise<AccountTransactionsReport> {
   assertLedgerRange(periodStart, periodEnd);
   const cc = costCentreId ?? null;
   const bu = businessUnitId ?? null;
+  const cc1 = opts.cc1Id ?? null;
+  const cc2 = opts.cc2Id ?? null;
   try {
     const acctRows = (await sql`
       SELECT ga.account_name, ga.account_type, ga.normal_balance
@@ -71,8 +107,9 @@ export async function getAccountTransactions(
     `) as Row[];
     if (!acctRows[0]) throw new LedgerAccountNotFoundError(accountCode);
 
-    const normalBal = String(acctRows[0].normal_balance);
     const accountType = String(acctRows[0].account_type);
+    const natural = opts.naturalSign && (accountType === 'revenue' || accountType === 'expense');
+    const normalBal = natural ? (accountType === 'revenue' ? 'credit' : 'debit') : String(acctRows[0].normal_balance);
     const openingFloor = await incomeStatementOpeningFloor(companyId, accountType, periodStart);
 
     const obRows = (await sql`
@@ -87,6 +124,8 @@ export async function getAccountTransactions(
         AND jl.company_id = ${companyId}::UUID
         AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
+        AND (${cc1}::uuid IS NULL OR jl.cc1_id = ${cc1}::uuid)
+        AND (${cc2}::uuid IS NULL OR jl.cc2_id = ${cc2}::uuid)
         AND je.entry_date < ${periodStart}
         AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
         AND ga.account_code = ${accountCode}
@@ -98,7 +137,7 @@ export async function getAccountTransactions(
 
     const txnRows = (await sql`
       SELECT
-        je.entry_date, je.entry_number, je.description, je.source,
+        je.id::TEXT AS journal_id, je.entry_date, je.entry_number, je.description, je.source,
         jl.debit, jl.credit
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -108,20 +147,31 @@ export async function getAccountTransactions(
         AND jl.company_id = ${companyId}::UUID
         AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
+        AND (${cc1}::uuid IS NULL OR jl.cc1_id = ${cc1}::uuid)
+        AND (${cc2}::uuid IS NULL OR jl.cc2_id = ${cc2}::uuid)
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${accountCode}
       ORDER BY je.entry_date, COALESCE(je.created_at, 'epoch'::timestamptz), jl.id
     `) as Row[];
 
-    const lines = txnRows.map((r: Row) => ({
-      date: fmtDate(r.entry_date),
-      entryNumber: String(r.entry_number),
-      description: String(r.description || ''),
-      debit: Number(r.debit || 0),
-      credit: Number(r.credit || 0),
-      source: String(r.source || 'manual'),
-    }));
+    const docs = opts.documents ? await loadJournalDocuments(companyId, txnRows.map((r) => String(r.journal_id).toLowerCase())) : null;
+    const lines: Array<Omit<TransactionRow, 'balance'>> = txnRows.map((r: Row) => {
+      const line: Omit<TransactionRow, 'balance'> = {
+        date: fmtDate(r.entry_date),
+        entryNumber: String(r.entry_number),
+        description: String(r.description || ''),
+        debit: Number(r.debit || 0),
+        credit: Number(r.credit || 0),
+        source: String(r.source || 'manual'),
+      };
+      if (docs) {
+        const journalId = String(r.journal_id).toLowerCase();
+        line.journalId = journalId;
+        line.document = docs.get(journalId) ?? null;
+      }
+      return line;
+    });
     const periodNet = lines.reduce(
       (sum, l) => sum + (normalBal === 'debit' ? l.debit - l.credit : l.credit - l.debit), 0,
     );

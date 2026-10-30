@@ -5,7 +5,9 @@
  *
  * Cells carry `data-pos="{r}:{c}"` for the keyboard hook; only the focused cell has tabIndex 0
  * (roving tabindex). Dirty cells get the dirty token plus a 2px inset marker, conflicts the
- * conflict token; read-only cells say why in their title.
+ * conflict token; read-only cells say why in their title. P4: a closed month's cell (a reforecast's
+ * actual) is muted with an "A" marker, a driver-computed cell italic, an override carries the
+ * corner mark (`OverrideMark`), and a row with a driver shows its `DriverChip` under the label.
  */
 import { memo, type MouseEvent, type ReactNode } from 'react';
 import { StickyNote } from 'lucide-react';
@@ -23,6 +25,10 @@ import type { GridRowSnapshot, LayoutRow } from './types';
 import { BudgetCellEditor } from './BudgetCellEditor';
 import { DeltaCells, FIG, FIG_STYLE, KIND_CLASS, fig, spoken, type GridColumns } from './BudgetSubtotalRow';
 import { RowActionsMenu, type RowAction } from './RowActionsMenu';
+import { ACTUAL_REASON } from './gridStore';
+import { DriverChip } from '@/components/accounting/budgets/drivers/DriverChip';
+import { OverrideMark } from '@/components/accounting/budgets/drivers/OverrideMark';
+import type { GridDriverHandlers } from '@/components/accounting/budgets/drivers/gridDriverHandlers';
 
 export type LineRow = Extract<LayoutRow, { kind: 'line' }>;
 
@@ -38,6 +44,8 @@ export interface GridCellHandlers {
   onRowAction(row: LineRow, action: RowAction): void;
   /** The account's live grain (it changes on a first write or a grain change). */
   grainOf(accountId: string): AccountGrain | null;
+  /** P4 drivers (chip, override Reset, driver values); null when the workspace wires none. */
+  driver: GridDriverHandlers | null;
 }
 
 interface BudgetGridRowProps {
@@ -50,12 +58,14 @@ interface BudgetGridRowProps {
   /** Version is writable by this user (row actions that change data). */
   canChange: boolean;
   view: View;
+  /** The version's closed months ('YYYY-MM'): their cells are the ledger's actuals, read-only. */
+  closed: ReadonlySet<string>;
 }
 
 const GRAIN_BADGE: Record<string, string> = { cc1: 'CC1', cc2: 'CC2', bu: 'BU', mixed: 'Mixed' };
 const INDENT = ['pl-3', 'pl-7', 'pl-11', 'pl-14'];
 
-function cellClass(snap: GridRowSnapshot, c: number, months: number): string {
+function cellClass(snap: GridRowSnapshot, c: number, months: number, closed: boolean): string {
   const base = `${FIG} relative px-2 py-1 cursor-cell outline-none focus:shadow-[inset_0_0_0_2px_var(--ff-cell-focus-ring)]`;
   const isFy = c === months;
   const dirty = !isFy && snap.dirty[c] === true;
@@ -65,8 +75,10 @@ function cellClass(snap: GridRowSnapshot, c: number, months: number): string {
     : selected ? 'bg-[var(--ff-cell-selected-bg)]'
       : dirty ? 'bg-[var(--ff-dirty-bg)]' : '';
   const marker = dirty ? 'shadow-[inset_2px_0_0_var(--ff-text-primary)]' : '';
-  const tone = snap.editable ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]';
-  return `${base} ${bg} ${marker} ${tone} ${isFy ? 'font-semibold' : ''}`;
+  const tone = closed ? 'text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-tertiary)]'
+    : snap.editable ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]';
+  const driven = !isFy && snap.sources[c] === 'driver' ? 'italic' : '';
+  return `${base} ${bg} ${marker} ${tone} ${driven} ${isFy ? 'font-semibold' : ''}`;
 }
 
 /**
@@ -128,7 +140,27 @@ function RowLabel({ row, snap, chip, grain }: { row: LineRow; snap: GridRowSnaps
   );
 }
 
-export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, cols, palette, handlers, canChange, view }: BudgetGridRowProps) {
+/** The row's driver chip (P4): opens the editor for a writer; warns when the last recompute did. */
+function RowDriverChip({ snap, row, handlers }: { snap: GridRowSnapshot; row: LineRow; handlers: GridCellHandlers }) {
+  const driver = handlers.driver;
+  if (!driver || !snap.driver || row.role === 'rollup') return null;
+  return (
+    <span className="block">
+      <DriverChip line={snap.driver} accountName={driver.accountName} description={driver.describe(snap.driver)} warning={snap.driverWarning}
+        onOpen={driver.canChange && snap.editable ? () => handlers.onRowAction(row, { type: 'driver' }) : null} />
+    </span>
+  );
+}
+
+/** ", actual" / ", from the driver" / ", override …" for a month cell's accessible name. */
+function sourceWords(snap: GridRowSnapshot, c: number, closed: boolean, canReset: boolean): string {
+  if (closed) return ', actual, read-only';
+  if (snap.sources[c] === 'driver') return ', from the driver';
+  if (snap.sources[c] === 'override') return `, override of the driver${canReset ? ': Shift+F10 for Reset' : ''}`;
+  return '';
+}
+
+export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, cols, palette, handlers, canChange, view, closed }: BudgetGridRowProps) {
   const snap = useGridRow(store, row.key);
   const r = row.index;
   // Recomputed on every render of this row; the row re-renders whenever its values change.
@@ -146,12 +178,19 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
   return (
     <tr data-kind="line" data-row={row.key} aria-rowindex={r + 2} className={`${KIND_CLASS.line} text-sm`}>
       <RowLabel row={row} snap={snap} grain={grain}
-        chip={row.role === 'rollup' && row.account.ownAmounts ? <OwnBudgetChip store={store} row={row} handlers={handlers} canChange={canChange} /> : null} />
+        chip={row.role === 'rollup' && row.account.ownAmounts
+          ? <OwnBudgetChip store={store} row={row} handlers={handlers} canChange={canChange} />
+          : <RowDriverChip snap={snap} row={row} handlers={handlers} />} />
       {values.map((v, c) => {
         const isFy = c === months.length;
         const editing = snap.editing !== null && snap.editing.col === c;
         const month = isFy ? 'full year' : monthLabel(months[c] ?? '');
         const selected = snap.selected !== null && c >= snap.selected.left && c <= snap.selected.right;
+        const shut = !isFy && closed.has(months[c] ?? '');
+        const override = !isFy && !shut && snap.sources[c] === 'override' && !snap.dirty[c];
+        const drv = handlers.driver;
+        const canReset = override && drv !== null && drv.canChange && snap.editable;
+        const monthKey = months[c] ?? '';
         return (
           <td
             key={isFy ? 'fy' : months[c]}
@@ -161,10 +200,12 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
             data-conflict={!isFy && snap.conflict[c] ? 'true' : undefined}
             tabIndex={snap.focusCol === c ? 0 : -1}
             aria-selected={selected}
-            aria-readonly={!snap.editable}
-            aria-label={`${label}, ${month}, ${spoken(v ?? null)}${!isFy && snap.dirty[c] ? ', unsaved' : ''}${!isFy && snap.conflict[c] ? ', conflict' : ''}`}
-            title={snap.readReason ?? undefined}
-            className={cellClass(snap, c, months.length)}
+            aria-readonly={!snap.editable || shut}
+            aria-label={`${label}, ${month}, ${spoken(v ?? null)}${sourceWords(snap, c, shut, canReset)}${!isFy && snap.dirty[c] ? ', unsaved' : ''}${!isFy && snap.conflict[c] ? ', conflict' : ''}`}
+            title={snap.readReason ?? (shut ? ACTUAL_REASON : undefined)}
+            data-source={isFy ? undefined : snap.sources[c] ?? undefined}
+            data-actual={shut ? 'true' : undefined}
+            className={cellClass(snap, c, months.length, shut)}
             style={FIG_STYLE}
             onMouseDown={down(c)}
             onMouseEnter={handlers.onCellTap ? undefined : () => handlers.onCellMouseEnter({ r, c })}
@@ -174,14 +215,19 @@ export const BudgetGridRow = memo(function BudgetGridRow({ store, row, months, c
               <BudgetCellEditor draft={snap.editing.draft} label={`${label} ${month} budget`} align={c < months.length / 2 ? 'left' : 'right'}
                 onDraftChange={handlers.onDraftChange} onBlur={handlers.onEditorBlur} />
             ) : fig(v ?? null, cols.cents)}
+            {shut && <span aria-hidden="true" className="absolute left-0.5 top-0 text-xs font-semibold not-italic leading-none text-[var(--ff-text-tertiary)]">A</span>}
+            {override && drv && (
+              <OverrideMark focused={snap.focusCol === c} valueOf={() => drv.driverValue(row.account.id, monthKey)}
+                onReset={canReset ? () => drv.resetOverride(row.account.id, monthKey) : null} />
+            )}
           </td>
         );
       })}
       <DeltaCells fy={snap.fy} pyFy={snap.pyFy} compareFy={snap.compareFy} cols={cols} incomeUp={incomeUp} palette={palette}
         trend={snap.py ? <Sparkline points={snap.py.map(c => c / 100)} /> : null} />
       <td role="gridcell" aria-readonly="true" className="px-1 text-right">
-        <RowActionsMenu row={row} snap={snap} canChange={canChange} view={view}
-          grain={grain} onAction={a => handlers.onRowAction(row, a)} />
+        <RowActionsMenu row={row} snap={snap} canChange={canChange} view={view} months={months}
+          grain={grain} drivers={handlers.driver !== null} onAction={a => handlers.onRowAction(row, a)} />
       </td>
     </tr>
   );

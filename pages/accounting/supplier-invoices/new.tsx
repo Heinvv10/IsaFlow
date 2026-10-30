@@ -23,6 +23,8 @@ import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/Su
 import { localISODate } from '@/lib/dateUtils';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { useSupplierDimensionDefaults } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -33,6 +35,7 @@ export default function NewSupplierInvoicePage() {
   const [glAccounts, setGLAccounts] = useState<GLAccount[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
   const [scanBanner, setScanBanner] = useState<string | null>(null);
 
   const [form, setForm] = useState({
@@ -120,8 +123,8 @@ export default function NewSupplierInvoicePage() {
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};
     if (data.referenceNumber) updates.invoiceNumber = data.referenceNumber;
-    if (data.date) updates.invoiceDate = data.date;
-    if (data.dueDate) updates.dueDate = data.dueDate;
+    if (data.date) { updates.invoiceDate = data.date; dates.reset('invoiceDate'); }
+    if (data.dueDate) { updates.dueDate = data.dueDate; dates.reset('dueDate'); }
     if (data.purchaseOrderRef) updates.reference = data.purchaseOrderRef;
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
     if (data.paymentTerms) {
@@ -147,6 +150,7 @@ export default function NewSupplierInvoicePage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     if (!form.supplierId) { setError('Please select a supplier'); return; }
     setIsSubmitting(true);
     setError('');
@@ -227,8 +231,8 @@ export default function NewSupplierInvoicePage() {
                         purchaseOrderId: '', grnId: '', copyLinesFromPo: false,
                       })); }} />
                   </div>
-                  <div><label className={lbl}>Invoice Date *</label><input type="date" required value={form.invoiceDate} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} className={inp} /></div>
-                  <div><label className={lbl}>Due Date</label><input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} className={inp} /></div>
+                  <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
+                  <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })), form.dueDate)} />
                   <div>
                     <label className={lbl}>Payment Terms</label>
                     <select value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>

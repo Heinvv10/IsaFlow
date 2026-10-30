@@ -993,9 +993,9 @@ Do not `source` the file: a URL's `&` would end the assignment.
 
 ## 6. Restart and verify
 
-`sudo systemctl restart isaflow`. Then:
+`bash scripts/deploy/restart-colours.sh` (both blue/green colours re-read the env, no request cut). Then:
 
-- `journalctl -u isaflow --since -2min` shows no `permission denied` and no
+- `journalctl -u 'isaflow@*' --since -2min` shows no `permission denied` and no
   `row-level security` errors.
 - In the database, `SELECT usename, count(*) FROM pg_stat_activity WHERE datname = 'isaflow' GROUP BY 1`
   shows connections from isaflow_app and isaflow_service, and none from
@@ -1010,7 +1010,7 @@ Do not `source` the file: a URL's `&` would end the assignment.
 ## Rollback (instant, no code change)
 
 1. Restore `.env.local.pre-s07b`.
-2. `sudo systemctl restart isaflow`.
+2. `bash scripts/deploy/restart-colours.sh`.
 
 `/etc/isaflow/owner.env` can stay: it names `postgres`, which is what the
 restored `.env.local` names too.

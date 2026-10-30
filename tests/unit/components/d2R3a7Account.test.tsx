@@ -128,7 +128,7 @@ describe('dashboard impersonation exchange', () => {
 describe('dashboard hero figures', () => {
   it('a failing reload for another company clears the previous company\'s figures', async () => {
     co.id = 'co-1';
-    script(() => ok({ kpis: { revenue: { total: 777 } } }));
+    script(() => ok({ kpis: { revenue: { total: 1 }, revenueMtd: 777 } }));
     const { rerender } = render(<AccountingPage />);
     expect(await screen.findByText('hero revenue 777')).toBeTruthy();
     script(() => empty500()); co.id = 'co-2'; rerender(<AccountingPage />);
