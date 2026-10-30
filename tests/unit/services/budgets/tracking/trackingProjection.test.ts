@@ -96,11 +96,13 @@ describe('Projected FY on a line', () => {
     expect(line!.projected).toBe(7 * 100 + 7 * 120);
   });
 
-  it('an unbudgeted account projects its actuals alone; FY budget and variance are absent', () => {
+  it('an unbudgeted account projects its actuals alone, to the month holding today; FY budget and variance are absent', () => {
+    // Ruling (PR-B review r1, for Hein): with no budget to stand in for the in-progress month, the cutoff
+    // would drop real postings (Projected FY < YTD actual). October's actuals count.
     const plan = projectionPlan(FY2027, '2026-10-31', TODAY);
     const actuals = months('2026-03', 8).map((m) => actual('sales', m, 50));
     const [line] = buildTrackingLines({ accounts: ACCOUNTS, windowMonths: ['2026-10'], plan, actuals, budgets: [] });
-    expect([line!.projected, line!.fyBudget, line!.projVariance, line!.projFavourable]).toEqual([350, null, null, null]);
+    expect([line!.projected, line!.fyBudget, line!.projVariance, line!.projFavourable]).toEqual([400, null, null, null]);
   });
 
   it('FY* not started: the projection is all budget', () => {
@@ -144,5 +146,50 @@ describe('Projected FY on a line', () => {
     });
     expect(line!.fyBudget).toBe(1.4);
     expect(line!.projected).toBe(0.7);
+  });
+});
+
+describe('Projected FY month by month (review r2 ruling: after the cutoff, budget where budgeted, else actual)', () => {
+  const run = (fy: typeof FY2027, windowEnd: string, windowMonths: string[], actuals: ActualCell[], budgets: ClassifiedBudgetCell[] = [], today = TODAY) =>
+    buildTrackingLines({ accounts: ACCOUNTS, windowMonths, plan: projectionPlan(fy, windowEnd, today), actuals, budgets })[0]!;
+
+  it('an unbudgeted line: a posting in the month in progress counts (never below the YTD actual)', () => {
+    const line = run(FY2027, '2026-10-31', months('2026-03', 8), [actual('rent', '2026-04', 100), actual('rent', '2026-10', 1000)]);
+    expect([line.actual, line.projected, line.fyBudget]).toEqual([1100, 1100, null]);
+  });
+
+  it('a past window still projects the whole year: later months with no budget count their actuals', () => {
+    const line = run(FY2027, '2026-06-30', ['2026-06'], [actual('rent', '2026-06', 5), actual('rent', '2026-09', 70)]);
+    expect([line.actual, line.projected]).toEqual([5, 75]);
+  });
+
+  // Ledger-breaker r2, A1: a forward-dated invoice in December, FY window.
+  it('A1: a posting forward-dated after the month in progress counts, so Projected FY is not below the FY actual', () => {
+    const line = run(FY2027, FY2027.endDate, months('2026-03', 12), [...months('2026-03', 8).map((m) => actual('sales', m, 1000)), actual('sales', '2026-12', 5000)], [], '2026-10-29');
+    expect([line.actual, line.projected]).toEqual([13000, 13000]);
+  });
+
+  // Ledger-breaker r2, A2: FY2028 viewed in FY2027 with a posted forward-dated actual.
+  it('A2: a year not started projects its posted actuals, not 0', () => {
+    const line = run(FY2028, FY2028.endDate, months('2027-03', 12), [actual('sales', '2027-03', 2500)], [], '2026-10-29');
+    expect([line.actual, line.projected]).toEqual([2500, 2500]);
+  });
+
+  // Ledger-breaker r2, B: budgeted Mar..Jun only.
+  it('B: a line budgeted in only some months counts its actuals in the unbudgeted months after the cutoff', () => {
+    const ytd = months('2026-03', 8);
+    const line = run(FY2027, '2026-10-31', ytd, ytd.map((m) => actual('sales', m, 1000)), months('2026-03', 4).map((m) => budget('sales', m, 1000)), '2026-10-29');
+    expect([line.actual, line.budget, line.projected, line.fyBudget, line.projVariance]).toEqual([8000, 4000, 8000, 4000, 4000]);
+  });
+
+  it('a budgeted month after the cutoff takes its budget, even where an actual is posted (a fully budgeted line is unchanged)', () => {
+    const line = run(FY2027, '2026-10-31', ['2026-10'],
+      [actual('rent', '2026-09', 10), actual('rent', '2026-10', 1000), actual('rent', '2026-12', 77)], months('2026-03', 12).map((m) => budget('rent', m, 1)));
+    // Mar - Sep actual (10) + Oct - Feb budget (5): October's and December's actuals do not replace their budgets.
+    expect(line.projected).toBe(15);
+  });
+
+  it('an ended year projects its full actual where unbudgeted', () => {
+    expect(run(FY2026, '2025-06-30', ['2025-06'], months('2025-03', 12).map((m) => actual('rent', m, 2))).projected).toBe(24);
   });
 });

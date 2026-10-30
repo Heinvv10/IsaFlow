@@ -14,12 +14,14 @@ import { log } from '@/lib/logger';
 import {
   Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3,
 } from 'lucide-react';
-import { OverviewTab } from '@/components/accounting/dashboard/OverviewTab';
+import { OverviewTab, type KPIData, type KpiLoad } from '@/components/accounting/dashboard/OverviewTab';
 import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAccountsTab';
 import { JournalEntriesTab } from '@/components/accounting/dashboard/JournalEntriesTab';
 import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriodsTab';
 import { ReportsTab } from '@/components/accounting/dashboard/ReportsTab';
 import { DashboardHero, type DashboardHeroStats, type HeroTab } from '@/components/accounting/dashboard/DashboardHero';
+import { ModuleSetupChecklist } from '@/components/accounting/dashboard/ModuleSetupChecklist';
+import { useSetupProgress, isSetupOpen, isSetupUnknown } from '@/components/accounting/dashboard/useSetupProgress';
 
 type AccountingTab = 'overview' | 'chart-of-accounts' | 'journal-entries' | 'fiscal-periods' | 'reports';
 
@@ -31,25 +33,16 @@ const TABS: HeroTab[] = [
   { id: 'reports',           label: 'Reports',           icon: BarChart3       },
 ];
 
-interface KpiResponse {
-  data?: {
-    kpis?: {
-      revenue?:     { total?: number };
-      receivables?: { total?: number };
-      cash?:        { total?: number };
-    };
-  };
-}
-
 export default function AccountingPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { activeCompany, companies, loading: companiesLoading } = useCompany();
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
-  const [heroStats, setHeroStats] = useState<DashboardHeroStats | undefined>();
-  const [heroError, setHeroError] = useState('');
+  // One kpi-dashboard load feeds the hero and the Overview tab.
+  const [kpiLoad, setKpiLoad] = useState<KpiLoad>({ data: null, error: '', loading: true });
   const [impersonateError, setImpersonateError] = useState('');
+  const setup = useSetupProgress(activeCompany?.id);
 
   useEffect(() => { setIsMounted(true); }, []);
 
@@ -111,32 +104,40 @@ export default function AccountingPage() {
     void router.push({ pathname: '/accounting', query: { tab } }, undefined, { shallow: true });
   }, [router]);
 
-  // Load hero KPI stats
+  // Load the dashboard figures once, for the hero and the Overview tab.
+  // `cancelled` drops an answer that lands after the company changed (or the
+  // page left): the old company's figures must not replace the new one's.
   useEffect(() => {
     if (!isMounted) return;
-    setHeroError('');
+    let cancelled = false;
+    setKpiLoad({ data: null, error: '', loading: true });
     apiFetch('/api/accounting/kpi-dashboard')
       .then(async res => { await assertOk(res, 'Could not load the dashboard figures - try again'); return res.json(); })
-      .then((json: KpiResponse) => {
-        const kpis = json.data?.kpis;
-        if (!kpis) return;
-        setHeroStats({
-          revenueMtd:          kpis.revenue?.total     ?? 0,
-          outstandingInvoices: kpis.receivables?.total ?? 0,
-          cashPosition:        kpis.cash?.total        ?? 0,
-        });
-      })
+      .then((json: { data?: KPIData }) => { if (!cancelled) setKpiLoad({ data: json.data ?? null, error: '', loading: false }); })
       .catch(err => {
-        log.error('Failed to load hero stats', { error: err }, 'accounting-page');
-        setHeroStats(undefined);
-        setHeroError(apiErrorMessage(err, 'Could not load the dashboard figures - try again'));
+        log.error('Failed to load dashboard figures', { error: err }, 'accounting-page');
+        if (!cancelled) setKpiLoad({ data: null, error: apiErrorMessage(err, 'Could not load the dashboard figures - try again'), loading: false });
       });
+    return () => { cancelled = true; };
   }, [isMounted, activeCompany?.id]);
 
-  if (!isMounted) {
+  const kpis = kpiLoad.data?.kpis;
+  const heroStats: DashboardHeroStats | undefined = kpis && {
+    revenueMtd:          kpis.revenueMtd         ?? 0,
+    outstandingInvoices: kpis.receivables?.total ?? 0,
+    cashPosition:        kpis.cash?.total        ?? 0,
+  };
+  const heroError = kpiLoad.error;
+
+  // The skeleton holds until the setup checklist is known: it renders ABOVE the
+  // hero, so arriving later would push the whole page down (CLS).
+  // With no company at all (nothing will ever be asked) there is nothing to wait for.
+  const setupPending = setup.loading && (companiesLoading || !!activeCompany?.id);
+  if (!isMounted || setupPending) {
     return (
       <AppLayout>
-        <div className="min-h-screen bg-surface p-6 space-y-6">
+        {/* Distinct keys: React must not reuse the skeleton's nodes for the content, or each reused node "moves" (CLS). */}
+        <div key="dashboard-skeleton" className="min-h-screen bg-surface p-6 space-y-6">
           <div role="status" aria-busy="true" aria-label="Loading accounting module" data-testid="dashboard-skeleton" className="space-y-6">
             <Skeleton variant="heading" width="25%" />
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -151,10 +152,13 @@ export default function AccountingPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[image:var(--ff-canvas-gradient)]">
+      <div key="dashboard-content" className="min-h-screen bg-[image:var(--ff-canvas-gradient)]">
 
         {/* Hero card with integrated pill tabs */}
         <div data-tour="dashboard" className="px-6 pt-6">
+          {activeTab === 'overview' && setup.progress && !setup.progress.allComplete && (
+            <div className="mb-5"><ModuleSetupChecklist progress={setup.progress} /></div>
+          )}
           <DashboardHero
             companyName={activeCompany?.tradingName ?? activeCompany?.name ?? 'ISAFlow'}
             loading={companiesLoading}
@@ -170,7 +174,7 @@ export default function AccountingPage() {
         {/* key={activeCompany?.id} forces full remount when company switches,
             so each tab's useEffect re-fires with the correct localStorage company */}
         <div className="p-6 pt-5" key={activeCompany?.id ?? 'loading'}>
-          {activeTab === 'overview'          && <OverviewTab />}
+          {activeTab === 'overview'          && <OverviewTab setupOpen={isSetupOpen(setup)} setupUnknown={isSetupUnknown(setup)} kpiLoad={kpiLoad} />}
           {activeTab === 'chart-of-accounts' && <ChartOfAccountsTab />}
           {activeTab === 'journal-entries'   && <JournalEntriesTab />}
           {activeTab === 'fiscal-periods'    && <FiscalPeriodsTab />}

@@ -3,7 +3,7 @@
  * The tour must treat it as no target and centre the step, not spotlight an empty corner.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, waitFor } from '@testing-library/react';
 
 vi.mock('@/lib/apiFetch', () => ({
   apiFetch: vi.fn(async () => new Response(JSON.stringify({ data: {} }), { status: 200 })),
@@ -40,6 +40,7 @@ describe('AccountingTour target measuring', () => {
     addTarget({ width: 120, height: 40 });
     render(<AccountingTour />);
     await screen.findByText(TOUR_STEPS[0]!.title);
-    expect(highlight()).not.toBeNull();
+    // The target is measured in an effect after the step renders: under CI load that can land after the title.
+    await waitFor(() => expect(highlight()).not.toBeNull());
   });
 });
