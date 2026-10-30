@@ -3,7 +3,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, ShieldAlert } from 'lucide-react';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage } from '@/lib/apiFetch';
+import { useCompany } from '@/contexts/CompanyContext';
+import { fetchVatExceptions } from './vatExceptionsFetch';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import VatNonSupplySection from './VatNonSupplySection';
 import VatInputSupportSections from './VatInputSupportSections';
@@ -28,30 +30,38 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
   const [report, setReport] = useState<VatExceptionsReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const companyId = useCompany().activeCompany?.id;
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
+  const askedKey = useRef<number | null>(null);
+  const latestLoad = useRef(0);
 
-  const load = useCallback(async (cancelledRef?: { current: boolean }) => {
+  const load = useCallback(async (cancelledRef?: { current: boolean }, fresh = false) => {
+    // Latest request wins: an older load that resolves after a newer one (a pre-write request, say) must not
+    // overwrite its report, nor hand it to the eFiling gate through onLoaded.
+    const mine = ++latestLoad.current;
+    const stale = () => cancelledRef?.current || mine !== latestLoad.current;
     setLoading(true); setError('');
     try {
-      const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${from}&to=${to}`, { credentials: 'include' });
-      await assertOk(res, 'Could not load exceptions - try again');
-      const json = await res.json();
-      if (!cancelledRef?.current) { setReport(json.data); onLoadedRef.current?.(json.data); }
+      const data = await fetchVatExceptions(from, to, 'Could not load exceptions - try again', 'VAT201ExceptionsPanel', { companyId, fresh }) as VatExceptionsReport;
+      if (!stale()) { setReport(data); onLoadedRef.current?.(data); }
     } catch (err) {
-      if (!cancelledRef?.current) {
+      if (!stale()) {
         setReport(null); onLoadedRef.current?.(null);
         setError(apiErrorMessage(err, 'Could not load exceptions - try again'));
       }
     } finally {
-      if (!cancelledRef?.current) setLoading(false);
+      if (!stale()) setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, companyId]);
 
   useEffect(() => {
     if (!from || !to || reloadKey === 0) return;
     const cancelledRef = { current: false };
-    void load(cancelledRef);
+    // StrictMode re-runs this effect with the same reloadKey and should share the request; a new key is a Generate click.
+    const fresh = askedKey.current !== null && askedKey.current !== reloadKey;
+    askedKey.current = reloadKey;
+    void load(cancelledRef, fresh);
     return () => { cancelledRef.current = true; };
   }, [from, to, reloadKey, load]);
 
@@ -106,8 +116,8 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
             <VatNonSupplySection lines={report.vatNonSupplyLines} />
           </Section>
 
-          <VatUnpostedInvoicesSection report={report} Section={Section} onChanged={() => void load()} />
-          <VatDeclaredElsewhereSection report={report} onChanged={() => void load()} />
+          <VatUnpostedInvoicesSection report={report} Section={Section} onChanged={() => void load(undefined, true)} />
+          <VatDeclaredElsewhereSection report={report} onChanged={() => void load(undefined, true)} />
           <VatInputSupportSections report={report} Section={Section} />
           <VatInvoiceIssueSections report={report} />
           <VatBillTaxCodeWarningSection report={report} />
