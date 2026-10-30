@@ -17,9 +17,16 @@ permissions:
   contents: read
 
 jobs:
+  # Runner priority (2026-10-30): an ordinary PR run takes only runners
+  # labelled pr-lane (velo-isaflow-u2, -u3), so velo-server-u is always free
+  # for what the merge queue waits on (a merge-queue/* batch head, a PR the
+  # queue labelled in-merge-queue) and for master pushes; those may also use
+  # the pr-lane runners. Before this, PR runs of already-queued PRs held all
+  # three runners and a batch sat queued behind them. A single-mode PR whose
+  # label arrives after the event runs in the PR lane: slower, never stuck.
   quality:
     name: Type Check, Lint & Test
-    runs-on: [self-hosted, linux, velo]
+    runs-on: ${{ (github.event_name != 'pull_request' || startsWith(github.head_ref, 'merge-queue/') || contains(github.event.pull_request.labels.*.name, 'in-merge-queue')) && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]') }}
     # run-ci.sh ends with a production build, which the old five steps did not.
     # Measured 8m13s at load ~45 (R-052/green.log). OBSERVED on this box
     # 2026-10-12 (not bounds): every step but integration 15 min at load ~65,
@@ -142,7 +149,8 @@ jobs:
   # env file and runs tests/e2e/golden-paths/ over HTTP.
   golden-paths:
     name: Golden Paths E2E (blocking)
-    runs-on: [self-hosted, linux, velo]
+    # Runner priority as in quality: a PR-lane run takes only pr-lane runners.
+    runs-on: ${{ needs.golden-lane.outputs.lane == 'queue' && fromJSON('["self-hosted","linux","velo"]') || fromJSON('["self-hosted","linux","velo","pr-lane"]') }}
     # Green runs took 19-30 min on 2026-10-29 (one 29m40s), and at load 60-85
     # two runs of #949 hit a 30-min cap mid-suite, ending cancelled, not red.
     timeout-minutes: 45
