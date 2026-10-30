@@ -61,22 +61,33 @@ const RUNS_ON = ['self-hosted', 'linux', 'velo'];
  * A timeout too short to finish, or a concurrency group shared with other
  * refs, ends the check CANCELLED, never red, and this repo has merged on
  * cancelled checks. Concurrency is pinned exactly; the timeout has a floor
- * (the job measured 8m13s under load, R-052/green.log).
+ * (the job measured 8m13s under load, R-052/green.log). A PR push cancels its
+ * ref's older run; a master push takes its own sha's group, so it never
+ * cancels another: each one runs the full Golden Paths suite after the merge,
+ * which outlasts the gap between merges.
  */
-const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true };
+const CONCURRENCY = { group: "ci-${{ github.event_name == 'push' && github.sha || github.ref }}", 'cancel-in-progress': true };
 /**
  * Concurrency groups are repo-wide, across workflows: any other job or
  * workflow that takes the ci- group cancels quality. Scanning group strings is
  * another arms race, so the SET is fixed instead: ci.yml is the only workflow
- * file, its jobs are exactly these, golden-paths keeps its own group (a -queue
- * one for runs the merge queue waits on, chosen by golden-lane), and golden-lane
- * takes none. A new workflow or job means changing this rule in review.
+ * file, its jobs are exactly these, golden-paths-smoke keeps its own group (a
+ * -queue one for runs the merge queue waits on, chosen by golden-lane), the
+ * post-merge golden-paths keeps another, and the rest take none. A new
+ * workflow or job means changing this rule in review.
+ * golden-paths-shim is TEMPORARY: it carries the old required check name
+ * ("Golden Paths E2E (blocking)") until branch protection requires the smoke
+ * job instead; remove it here and in ci.yml together.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
-const JOBS = ['quality', 'golden-lane', 'golden-paths'];
-const GOLDEN_PATHS_CONCURRENCY = {
-  group: "golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
-  'cancel-in-progress': false,
+const JOBS = ['quality', 'golden-lane', 'golden-paths-smoke', 'golden-paths-shim', 'golden-paths', 'golden-paths-report'];
+const NO_GROUP_JOBS = ['golden-lane', 'golden-paths-shim', 'golden-paths-report'];
+const GROUPS: Record<string, { group: string; 'cancel-in-progress': boolean }> = {
+  'golden-paths-smoke': {
+    group: "golden-paths-dev-demo${{ github.event_name == 'push' && format('-push-{0}', github.sha) || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
+    'cancel-in-progress': false,
+  },
+  'golden-paths': { group: 'golden-paths-post-merge', 'cancel-in-progress': false },
 };
 /**
  * The token every job gets. With `actions: write` any job (golden-paths
@@ -87,6 +98,13 @@ const GOLDEN_PATHS_CONCURRENCY = {
  */
 const PERMISSIONS = { contents: 'read' };
 const JOB_PERMISSIONS = { contents: 'read', actions: 'read', 'pull-requests': 'read' };
+/**
+ * golden-paths-report alone may write, and only issues (the golden-paths-red
+ * issue), which cannot cancel or re-run anything. It has no checkout and runs
+ * no repo code; actions: read lets it see whether a cancelled run had started.
+ */
+const REPORT_JOB = 'golden-paths-report';
+const REPORT_PERMISSIONS = { actions: 'read', issues: 'write' };
 const MIN_TIMEOUT_MINUTES = 20;
 const CHECKOUT = /^actions\/checkout@v\d+$/;
 /**
@@ -177,7 +195,8 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
       errors.push(`ci.yml jobs must be exactly ${JOBS.join(', ')}; another job can take the ci- concurrency group and cancel quality`);
     }
     const widened = Object.entries(jobs)
-      .filter(([, j]) => isObj(j) && 'permissions' in j && !sameMap(j.permissions, JOB_PERMISSIONS))
+      .filter(([name, j]) => isObj(j) && 'permissions' in j
+        && !sameMap(j.permissions, name === REPORT_JOB ? REPORT_PERMISSIONS : JOB_PERMISSIONS))
       .map(([name]) => name);
     if (widened.length) errors.push(`jobs ${widened.join(', ')} set permissions other than exactly ${JSON.stringify(JOB_PERMISSIONS)}; a write scope lets a job cancel the run`);
     // A job with the wider read token must not leave it in .git/config, where
@@ -188,15 +207,19 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
         && !(isObj(s.with) && s.with['persist-credentials'] === false)))
       .map(([name]) => name);
     if (persisting.length) errors.push(`jobs ${persisting.join(', ')} set permissions but check out without \`persist-credentials: false\`; the token would sit in .git/config for every later step`);
-    const gp = jobs['golden-paths'];
-    const gpc = isObj(gp) ? gp.concurrency : undefined;
-    if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
-      || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
-      errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+    for (const [name, want] of Object.entries(GROUPS)) {
+      const j = jobs[name];
+      const c = isObj(j) ? j.concurrency : undefined;
+      if (!isObj(c) || extraKeys(c, Object.keys(want)).length
+        || c.group !== want.group || c['cancel-in-progress'] !== want['cancel-in-progress']) {
+        errors.push(`jobs.${name}.concurrency must be exactly ${JSON.stringify(want)}; taking the workflow's own group deadlocks and cancels the run`);
+      }
     }
-    const lane = jobs['golden-lane'];
-    if (isObj(lane) && 'concurrency' in lane) {
-      errors.push('jobs.golden-lane sets concurrency; it must take no group (the ci- group would cancel quality)');
+    for (const name of NO_GROUP_JOBS) {
+      const j = jobs[name];
+      if (isObj(j) && 'concurrency' in j) {
+        errors.push(`jobs.${name} sets concurrency; it must take no group (the ci- group would cancel quality)`);
+      }
     }
   }
   const job = isObj(jobs) ? jobs[QUALITY_JOB] : undefined;

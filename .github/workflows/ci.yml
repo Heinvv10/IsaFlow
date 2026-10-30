@@ -6,10 +6,15 @@ on:
   pull_request:
     branches: [master]
 
-# Cancel stale runs when a new commit is pushed to the same ref.
+# Cancel stale runs when a new commit is pushed to the same PR ref.
 # This prevents a backlog of queued runs from burning Actions minutes.
+# A master push takes a group of its own sha, so it never cancels, or waits
+# for, another master push: each one runs the full Golden Paths suite after the
+# merge (golden-paths), which outlasts the gap between merges, and its required
+# checks must report within minutes, not behind that suite. golden-paths'
+# own group serialises the suite runs.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 # Tighten token to read-only. CI only needs to check out code.
@@ -136,16 +141,19 @@ jobs:
           fi
           echo "lane=$lane" | tee -a "$GITHUB_OUTPUT"
 
-  # Golden-paths money-flow E2E (A–Z programme). BLOCKING since Phase 3
-  # (P3.1): a red money path fails the whole run — no continue-on-error, no
-  # silent skip. Boots a dev server against isaflow_dev using the runner-local
-  # env file and runs tests/e2e/golden-paths/ over HTTP.
-  golden-paths:
-    name: Golden Paths E2E (blocking)
+  # Golden Paths smoke: the required browser check on every PR and every head
+  # the merge queue tests (single mode updates the PR, batch mode opens a
+  # merge-queue/* PR; both arrive here as pull_request). Login (global setup)
+  # plus four money paths: invoice -> receipt (b), bank import (f), journal
+  # post/reverse (g), payroll run -> GL (h); the list is test:e2e:golden:smoke
+  # in package.json. The full suite runs after the merge (golden-paths).
+  # Boots a dev server against isaflow_dev using the runner-local env file.
+  golden-paths-smoke:
+    name: Golden Paths smoke (blocking)
     runs-on: [self-hosted, linux, velo]
-    # Green runs took 19-30 min on 2026-10-29 (one 29m40s), and at load 60-85
-    # two runs of #949 hit a 30-min cap mid-suite, ending cancelled, not red.
-    timeout-minutes: 45
+    # The four specs took 9-22 s together in the full runs of 2026-10-30, after
+    # 20-60 s of boot; ~2-5 min with install. 20 leaves room for load spikes.
+    timeout-minutes: 20
     # The suite writes to the SHARED isaflow_dev Demo company; the workflow's
     # ci-${{ github.ref }} group only serialises same-ref runs, so two branches
     # could otherwise interleave money flows (e.g. both claiming the same
@@ -156,52 +164,130 @@ jobs:
     # cancel the merge queue's pending run, and the queue ejected the PR after
     # two re-runs (#938, 2026-10-29). Runs the queue waits on (golden-lane)
     # therefore take their own -queue group, which PR pushes cannot cancel.
-    # The cost: one queue run can overlap one PR run on the Demo company
-    # until per-runner slots land (#916). A master push that skips (the step
-    # below) still enters the group, but holds it for seconds. It cannot take
-    # a per-sha group instead: the group is fixed before the step decides, and
-    # a push that falls back to the full suite must stay serialised against
-    # PR runs on the Demo company. !cancelled(): a failed golden-lane still
-    # runs the suite, in the ordinary group.
+    # The cost: one queue run can overlap one PR run, and the post-merge full
+    # run, on the Demo company until per-runner slots land (#916).
+    # !cancelled(): a failed golden-lane still runs the suite, in the ordinary
+    # group.
+    # On a push to master the job runs but its steps do not, so it reports
+    # SUCCESS there: a required check that is skipped on the master head reads
+    # as a failure to the merge queue (merge-queue checks.ts classify), which
+    # then holds every merge as "base red". A push takes a -push-<sha> group of
+    # its own: the no-op touches nothing, and a shared group would let a newer
+    # push cancel an older one's pending no-op, turning that sha's shim red.
     needs: golden-lane
     if: ${{ !cancelled() }}
     concurrency:
-      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
+      group: golden-paths-dev-demo${{ github.event_name == 'push' && format('-push-{0}', github.sha) || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
       cancel-in-progress: false
-    # Read-only; for the merge check below (as in quality).
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
 
     steps:
-      # As in quality: full history, no token left in .git/config (the install
-      # below runs dependency lifecycle scripts).
+      - name: Not a pull_request run (master push)
+        if: github.event_name != 'pull_request'
+        run: echo "push to master, nothing to smoke-test; the full suite runs after the merge as Golden Paths E2E (post-merge)"
+
+      # No token left in .git/config (the install below runs dependency
+      # lifecycle scripts).
       - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      # A push to master that is an already-tested merge-queue merge skips the
-      # suite (see quality's gate step); the job still reports success. Exit
-      # 10 skips; any other exit, a crash included, runs the suite.
-      - name: Already tested as a pull_request run?
-        id: mq
+      - name: Install dependencies
+        if: github.event_name == 'pull_request'
+        run: bun install --frozen-lockfile
+
+      - name: Boot dev server and run the golden paths smoke
+        if: github.event_name == 'pull_request'
         env:
-          CI_READ_TOKEN: ${{ github.token }}
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
         run: |
-          rc=0
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            bun scripts/ci/mq-merge-already-tested.ts || rc=$?
+          set -e
+          # A missing env file must FAIL, not skip: a blocking gate that
+          # silently no-ops is exactly the "quiet 45/100" this job prevents.
+          if [ ! -f /home/hein/isaflow-ci.env ]; then
+            echo "::error::/home/hein/isaflow-ci.env missing on runner — golden paths cannot run (blocking gate, refusing to pass silently)"
+            exit 1
           fi
-          if [ "$rc" -eq 10 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
+          cp /home/hein/isaflow-ci.env .env.local
+          bunx playwright install chromium
+          # Ephemeral port: avoids collisions with stale servers from earlier
+          # cancelled runs on this long-lived runner (a stale next dev on a
+          # fixed port would pass the health check and test OLD code).
+          # Next.js refuses fetch-spec "bad ports"; 3659 (apple-sasl) is the
+          # only one in this range and failed a boot on 2026-10-28.
+          GOLDEN_PORT=$((3300 + RANDOM % 500))
+          [ "$GOLDEN_PORT" -eq 3659 ] && GOLDEN_PORT=3660
+          bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
+          DEVPID=$!
+          trap 'kill $DEVPID 2>/dev/null || true' EXIT
+          for i in $(seq 1 90); do
+            curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null && break
+            sleep 2
+          done
+          # Do NOT cat/tail golden-dev.log here: the boot log can echo values
+          # from .env.local, and GitHub only redacts registered secrets —
+          # runner-local env values would land in the public job log.
+          curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
+          BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden:smoke
+
+  # TEMPORARY (remove after the branch-protection switch): branch protection
+  # and the merge queue (requiredChecks in ~/.config/merge-queue/isaflow.json)
+  # still require "Golden Paths E2E (blocking)" on every PR head. This job
+  # carries that name and passes only when the smoke job passed, so PRs keep
+  # merging until master's required checks become "Type Check, Lint & Test" +
+  # "Golden Paths smoke (blocking)". always(): a required check that is itself
+  # skipped counts as passing, so a skipped or cancelled smoke must fail here.
+  # It runs on master pushes too (smoke passes there as a no-op): a skipped
+  # required check on the master head holds the merge queue (see smoke).
+  golden-paths-shim:
+    name: Golden Paths E2E (blocking)
+    needs: golden-paths-smoke
+    if: ${{ always() }}
+    runs-on: [self-hosted, linux, velo]
+    timeout-minutes: 5
+    steps:
+      - name: Did Golden Paths smoke pass?
+        env:
+          SMOKE: ${{ needs.golden-paths-smoke.result }}
+        run: |
+          echo "Golden Paths smoke: $SMOKE (temporary shim for the old required check name)"
+          [ "$SMOKE" = "success" ]
+
+  # Golden-paths money-flow E2E (A-Z programme), the FULL suite, after the
+  # merge: every push to master. It no longer runs on, or blocks, PRs or the
+  # merge queue (the smoke job above does); a red run opens or updates a
+  # golden-paths-red issue (golden-paths-report) and reverts nothing. Its name
+  # must never be a required check's. Boots a dev server against isaflow_dev
+  # using the runner-local env file and runs tests/e2e/golden-paths/ over HTTP.
+  golden-paths:
+    name: Golden Paths E2E (post-merge)
+    runs-on: [self-hosted, linux, velo]
+    # Green runs took 19-30 min on 2026-10-29 (one 29m40s), and at load 60-85
+    # two runs of #949 hit a 30-min cap mid-suite, ending cancelled, not red.
+    timeout-minutes: 45
+    # Its own group, never cancelled: sharing the PR or -queue smoke group
+    # would hold PR and queue runs behind a 30-45 min suite, and a pending PR
+    # run would cancel it (one PENDING job per group). One suite runs at a
+    # time; a newer master push replaces an older PENDING one, so the suite
+    # always reaches the latest master. It overlaps smoke runs on the Demo
+    # company until per-runner slots land (#916).
+    if: ${{ github.event_name == 'push' }}
+    concurrency:
+      group: golden-paths-post-merge
+      cancel-in-progress: false
+
+    steps:
+      # No token left in .git/config (the install below runs dependency
+      # lifecycle scripts).
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install dependencies
-        if: steps.mq.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
       - name: Boot dev server and run golden paths
-        if: steps.mq.outputs.skip != 'true'
         env:
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
@@ -234,3 +320,73 @@ jobs:
           # runner-local env values would land in the public job log.
           curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
           BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden
+
+  # Flags the post-merge run loudly. A red (or started, then cancelled or timed
+  # out) golden-paths opens a golden-paths-red issue, or comments on the open
+  # one, with the run link and the commit; the next green run closes it. It
+  # never reverts anything. The only job with a write scope (issues): it has no
+  # checkout and runs no repo code, so nothing the suite installs or runs can
+  # reach that token.
+  golden-paths-report:
+    name: Golden Paths post-merge report
+    needs: golden-paths
+    if: ${{ always() && github.event_name == 'push' }}
+    runs-on: [self-hosted, linux, velo]
+    timeout-minutes: 5
+    # actions: read for the jobs API below (did a cancelled run start?).
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: Open, update or close the golden-paths-red issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RESULT: ${{ needs.golden-paths.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          label=golden-paths-red
+          verdict="$RESULT"
+          if [ "$RESULT" = "cancelled" ]; then
+            # Superseded while pending (no steps) is not a signal; a run that
+            # started and was then cancelled or hit its timeout is.
+            steps=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.name == "Golden Paths E2E (post-merge)")] | .[0].steps | length')
+            case "$steps" in ''|*[!0-9]*) echo "::error::could not read the post-merge job's steps (got '$steps')"; exit 1 ;; esac
+            if [ "$steps" -gt 0 ]; then verdict="did not finish (cancelled or timed out)"; else verdict="superseded"; fi
+          fi
+          echo "golden-paths: $RESULT -> $verdict"
+          open=$(gh issue list -R "$REPO" --label "$label" --state open --json number --jq '.[].number')
+          case "$verdict" in
+            success)
+              for n in $open; do
+                gh issue close "$n" -R "$REPO" --comment "Green again: Golden Paths E2E (post-merge) passed at $COMMIT_URL ($RUN_URL)."
+              done
+              ;;
+            superseded|skipped)
+              echo "nothing to report"
+              ;;
+            *)
+              # First line only, and no @mentions: a merge subject's @name would
+              # notify that account from a public issue.
+              subject=${SUBJECT%%$'\n'*}
+              subject=${subject//@/(at)}
+              body=$(printf 'Golden Paths E2E (post-merge) on master: **%s**\n\n- Run: %s\n- Commit: %s\n- Subject: %s\n\nNothing was reverted. Read the run log, then fix forward or revert by PR.\n' \
+                "$verdict" "$RUN_URL" "$COMMIT_URL" "$subject")
+              gh label create "$label" -R "$REPO" --color B60205 \
+                --description "Golden Paths E2E (post-merge) is red on master" --force
+              first=${open%%$'\n'*}
+              if [ -n "$first" ]; then
+                gh issue comment "$first" -R "$REPO" --body "$body"
+              else
+                gh issue create -R "$REPO" --label "$label" --title "Golden Paths red on master (post-merge)" --body "$body"
+              fi
+              echo "::error::Golden Paths E2E (post-merge) $verdict at $COMMIT_URL; golden-paths-red issue updated"
+              exit 1
+              ;;
+          esac
