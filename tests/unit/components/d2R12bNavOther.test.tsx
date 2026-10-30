@@ -22,6 +22,7 @@ import LeaveDetailPage from '../../../pages/payroll/leave/[id]';
 import AcceptInvitePage from '../../../pages/accept-invite';
 import ForgotPasswordPage from '../../../pages/forgot-password';
 import PortalPayPage from '../../../pages/portal/pay/[token]';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -43,9 +44,9 @@ describe('new leave request', () => {
     const sel = container.querySelectorAll('select');
     fireEvent.change(sel[0]!, { target: { value: 'e1' } });
     fireEvent.change(sel[1]!, { target: { value: 't1' } });
-    const dates = container.querySelectorAll('input[type="date"]');
-    fireEvent.change(dates[0]!, { target: { value: '2026-10-05' } });
-    fireEvent.change(dates[1]!, { target: { value: '2026-10-07' } });
+    const dates = dateInputs(container);
+    typeDate(dates[0]!, '2026-10-05');
+    typeDate(dates[1]!, '2026-10-07');
     fireEvent.submit(container.querySelector('form')!);
     return container;
   };

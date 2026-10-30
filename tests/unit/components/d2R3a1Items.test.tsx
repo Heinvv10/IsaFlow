@@ -13,7 +13,7 @@ vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock'
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/components/ui', () => ({ KpiStrip: () => null }));
+vi.mock('@/components/ui', async (original) => ({ ...await original<typeof import('@/components/ui')>(), KpiStrip: () => null }));
 const company = vi.hoisted(() => ({ activeCompany: { id: 'co-1', name: 'D2 Co' } }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => company }));
 

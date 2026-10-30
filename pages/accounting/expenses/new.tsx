@@ -11,6 +11,8 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { ChevronLeft, Loader2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface Employee { id: string; first_name: string; last_name: string; email: string }
 
@@ -23,6 +25,7 @@ export default function NewExpenseClaim() {
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
 
   useEffect(() => {
     void (async () => {
@@ -38,6 +41,7 @@ export default function NewExpenseClaim() {
   }, []);
 
   async function handleCreate() {
+    if (dates.blocked) return;
     if (!employeeId) { setError('Select an employee'); return; }
     setSaving(true); setError('');
     try {
@@ -73,9 +77,7 @@ export default function NewExpenseClaim() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Claim date</label>
-              <input type="date" value={claimDate} onChange={e => setClaimDate(e.target.value)}
-                className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-sm" />
+              <DateField label="Claim date" name="claimDate" value={claimDate || null} onChange={dates.bind('claimDate', setClaimDate, claimDate)} />
             </div>
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Title</label>

@@ -24,6 +24,7 @@ import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { notifyPostingWarnings, type PostingWarningsBody } from '@/components/accounting/postingWarningsNotice';
 import { SupplierInvoiceApprovalPanel } from '@/components/accounting/ap/SupplierInvoiceApprovalPanel';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
+import { useDateGate } from '@/hooks/useDateGate';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -52,6 +53,7 @@ export default function SupplierInvoiceDetailPage() {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState('');
   const [editing, setEditing] = useState(false);
+  const dates = useDateGate();
   const [editForm, setEditForm] = useState({ invoiceNumber: '', dueDate: '', paymentTerms: '', notes: '' });
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
@@ -104,6 +106,7 @@ export default function SupplierInvoiceDetailPage() {
   }, [invoiceId, loadInvoice]);
 
   const handleSaveEdit = async () => {
+    if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
     setActionLoading('save');
     setError('');
     try {
@@ -187,6 +190,7 @@ export default function SupplierInvoiceDetailPage() {
             editing={editing}
             editForm={editForm}
             onEditFormChange={(patch) => setEditForm(p => ({ ...p, ...patch }))}
+            dates={dates}
           />
 
           {/* GL Journal link — body anchor for discoverability */}

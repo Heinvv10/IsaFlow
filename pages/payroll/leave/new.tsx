@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface EmployeeOption { id: string; firstName: string; lastName: string; employeeNumber: string }
 interface LeaveTypeOption { id: string; name: string; isPaid: boolean }
@@ -29,6 +30,7 @@ function calcBusinessDays(start: string, end: string): number {
 }
 
 export default function NewLeaveRequestPage() {
+  const dateGate = useDateGate();
   const router = useRouter();
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeOption[]>([]);
@@ -43,6 +45,9 @@ export default function NewLeaveRequestPage() {
   const [reason, setReason] = useState('');
 
   const days = calcBusinessDays(startDate, endDate);
+  // Judged here, not by the End field's minDate: that refusal is only re-run when the End text is retyped, so it
+  // would stay refused after the start moves. This clears by itself when either date changes.
+  const endBeforeStart = Boolean(startDate && endDate && endDate < startDate);
 
   const loadOptions = useCallback(async () => {
     setIsLoading(true);
@@ -71,6 +76,10 @@ export default function NewLeaveRequestPage() {
     e.preventDefault();
     if (!employeeId || !leaveTypeId || !startDate || !endDate) {
       setError('All fields are required');
+      return;
+    }
+    if (endBeforeStart) {
+      setError('End date must be on or after the start date');
       return;
     }
     if (days <= 0) {
@@ -104,7 +113,7 @@ export default function NewLeaveRequestPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-4">
-            <Link href="/payroll/leave" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)]">
+            <Link href="/payroll/leave" aria-label="Back to leave requests" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)]">
               <ArrowLeft className="h-4 w-4" />
             </Link>
             <div className="flex items-center gap-3">
@@ -131,8 +140,9 @@ export default function NewLeaveRequestPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Employee</label>
+                <label htmlFor="leave-employee" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Employee</label>
                 <select
+                  id="leave-employee"
                   value={employeeId}
                   onChange={e => setEmployeeId(e.target.value)}
                   required
@@ -146,8 +156,9 @@ export default function NewLeaveRequestPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Leave Type</label>
+                <label htmlFor="leave-type" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Leave Type</label>
                 <select
+                  id="leave-type"
                   value={leaveTypeId}
                   onChange={e => setLeaveTypeId(e.target.value)}
                   required
@@ -162,25 +173,10 @@ export default function NewLeaveRequestPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
+                  <GatedDateField gate={dateGate} gateKey="start-date" label="Start Date" required value={startDate || null} onValue={iso => setStartDate(iso)} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">End Date</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={e => setEndDate(e.target.value)}
-                    required
-                    min={startDate}
-                    className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
+                  <GatedDateField gate={dateGate} gateKey="end-date" label="End Date" required value={endDate || null} onValue={iso => setEndDate(iso)} error={endBeforeStart ? 'End date must be on or after the start date.' : undefined} />
                 </div>
               </div>
 
@@ -191,8 +187,9 @@ export default function NewLeaveRequestPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Notes (optional)</label>
+                <label htmlFor="leave-notes" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Notes (optional)</label>
                 <textarea
+                  id="leave-notes"
                   value={reason}
                   onChange={e => setReason(e.target.value)}
                   rows={3}
@@ -204,7 +201,7 @@ export default function NewLeaveRequestPage() {
               <div className="flex gap-3 pt-2">
                 <button
                   type="submit"
-                  disabled={isSaving}
+                  disabled={isSaving || dateGate.blocked}
                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium"
                 >
                   {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}

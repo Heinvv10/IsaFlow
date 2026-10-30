@@ -62,7 +62,7 @@ function figures(
   const variance = s.budget === null ? null : s.actual - s.budget;
   const projVariance = s.fyBudget === null ? null : s.projected - s.fyBudget;
   return {
-    key, label, kind, polarity,
+    key, label, kind, polarity, partialBudget: s.partial,
     actual: fromCents(s.actual),
     budget: s.budget === null ? null : fromCents(s.budget),
     variance: variance === null ? null : fromCents(variance),

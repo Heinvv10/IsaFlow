@@ -140,6 +140,8 @@ export interface TrackingBand extends TrackingFigures {
   label: string;
   kind: 'band' | 'total' | 'grand';
   polarity: 'income' | 'expense';
+  /** A line under it budgets only part of the window, which is why its window budget is absent. */
+  partialBudget: boolean;
 }
 
 export interface TrackingMemberRef {
@@ -194,6 +196,8 @@ export interface TrackingProjectionInfo {
   cutoff: string;
   actualMonths: string[];
   budgetMonths: string[];
+  /** 'YYYY-MM': the last complete month a window is judged through (the heatmap): min(cutoff month, the month before today's). */
+  judgedThrough: string;
 }
 
 export interface BudgetTrackingReport {
