@@ -23,6 +23,16 @@ describe('rankPages', () => {
     expect(rankPages(index, 'tb', 5).map((e) => e.label)).toContain('Trial Balance');
     expect(rankPages(index, 'acme', 5)).toEqual([]);
   });
+  it('"profit" finds the Income Statement by its nav alias Profit & Loss (W2 H)', () => {
+    expect(rankPages(index, 'profit', 3)[0]?.href).toBe('/accounting/reports/income-statement');
+    expect(pageResult(rankPages(index, 'profit', 1)[0]!, 'profit').aliases).toEqual(['Profit & Loss']);
+  });
+  it('"aged debtors" finds the AR aging report', () => {
+    expect(rankPages(index, 'aged debtors', 3)[0]?.href).toBe('/accounting/reports/ar-aging');
+  });
+  it('a label match carries no "also" hint', () => {
+    expect(pageResult(rankPages(index, 'income statement', 1)[0]!, 'income statement').aliases).toBeUndefined();
+  });
   it('returns nothing for an empty query or a zero limit', () => {
     expect(rankPages(index, '  ', 5)).toEqual([]);
     expect(rankPages(index, 'vat', 0)).toEqual([]);

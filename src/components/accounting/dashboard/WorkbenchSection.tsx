@@ -23,7 +23,7 @@ import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
-import { formatMoneyCompact } from '@/lib/money/formatMoney';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface WorkbenchMetrics {
   unreconciledBankTxns: number;
@@ -45,7 +45,7 @@ interface CardDef {
   format?: (value: number) => string;
 }
 
-const fmtCurrency = (n: number): string => formatMoneyCompact(n, { decimals: 0 });
+const fmtCurrency = (n: number): string => formatMoney(n);
 
 const CARDS: CardDef[] = [
   {
@@ -205,7 +205,7 @@ export function WorkbenchSection() {
                     </p>
                   </div>
 
-                  <p className={`text-2xl font-bold leading-none ${styles.value}`}>
+                  <p className={`${card.format ? 'text-xl tabular-nums' : 'text-2xl'} font-bold leading-none ${styles.value}`}>
                     {displayValue}
                   </p>
 
