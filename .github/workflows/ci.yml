@@ -220,18 +220,25 @@ jobs:
           # would answer the health check (and the login) in place of this
           # job's server. Skips Next.js's bad ports too.
           GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts 3300 3799)
-          bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
+          [ -n "$GOLDEN_PORT" ] || { echo "::error::golden-free-port printed no port"; exit 1; }
+          # setsid: its own process group, so the trap stops next's children
+          # too, not only the bunx wrapper.
+          setsid bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
           DEVPID=$!
-          trap 'kill $DEVPID 2>/dev/null || true' EXIT
+          trap 'kill -- -$DEVPID 2>/dev/null || true' EXIT
+          # Ready only when OUR server says so: next dev logs "Ready in" once
+          # it has bound the port (it exits on EADDRINUSE with -p, never
+          # logging it), so another server answering the port is not enough.
+          # grep -q only: the log is never printed (see below).
           for i in $(seq 1 90); do
             kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited during boot (port $GOLDEN_PORT) — see golden-dev.log in the runner workdir"; exit 1; }
-            curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null && break
+            grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null && break
             sleep 2
           done
           # Do NOT cat/tail golden-dev.log here: the boot log can echo values
           # from .env.local, and GitHub only redacts registered secrets —
           # runner-local env values would land in the public job log.
-          curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
+          { grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null; } || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
           # The answer must come from OUR server, not whatever took the port.
           kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
           BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden
