@@ -12,23 +12,26 @@ const LINES = buildBudgetVsActualLines(
   { a: 1_000_000, b: 120_000 },
 );
 
+type Item = { value: number; label: { show: boolean; color: string } };
 type Series = {
   name?: string;
   type: string;
-  data: unknown[];
+  data: Item[];
   itemStyle?: Record<string, unknown>;
-  label?: { color?: (p: { dataIndex: number }) => string };
 };
 const seriesOf = (o: Record<string, unknown>) => o['series'] as Series[];
 const named = (o: Record<string, unknown>, n: string) => seriesOf(o).find((s) => s.name === n)!;
+const values = (s: Series) => s.data.map((d) => d.value);
 
-/** The polarity the chart actually paints: the Actual series' label colour,
- *  resolved per row the same way ECharts resolves it. */
+/** The polarity the chart paints, per row: the colour of the one label shown, on whichever bar is
+ *  longer (a per-item string; bulletLegibility.test.ts proves it is the colour painted). */
 const labelColours = (o: Record<string, unknown>): string[] => {
-  const series = named(o, 'Actual');
-  const colour = series.label?.color;
-  if (colour === undefined) throw new Error('Actual series has no label colour');
-  return series.data.map((_, dataIndex) => colour({ dataIndex }));
+  const [budget, actual] = [named(o, 'Budget'), named(o, 'Actual')];
+  return actual.data.map((a, i) => {
+    const shown = [a, budget.data[i]!].filter((d) => d.label.show);
+    if (shown.length !== 1) throw new Error(`row ${i}: ${shown.length} labels shown`);
+    return shown[0]!.label.color;
+  });
 };
 
 type TooltipOption = { tooltip: { formatter: (params: Array<{ dataIndex: number }>) => string } };
@@ -57,8 +60,8 @@ describe('buildBudgetBulletOption', () => {
     // Rent (|variance| 10,000) is the smaller movement so it sits first in
     // the reversed row order; Sales (|variance| 100,000) is last, which is
     // what lands at the TOP of a horizontal bar chart.
-    expect(named(opt, 'Actual').data).toEqual([130_000, 900_000]);
-    expect(named(opt, 'Budget').data).toEqual([120_000, 1_000_000]);
+    expect(values(named(opt, 'Actual'))).toEqual([130_000, 900_000]);
+    expect(values(named(opt, 'Budget'))).toEqual([120_000, 1_000_000]);
   });
 
   it('keeps the largest |variance| account last, which ECharts renders at the top', () => {
@@ -69,8 +72,8 @@ describe('buildBudgetBulletOption', () => {
 
   it('lines up every series datum with the same-index yAxis category', () => {
     const yAxisData = (opt['yAxis'] as { data: string[] }).data;
-    const actualData = named(opt, 'Actual').data;
-    const budgetData = named(opt, 'Budget').data;
+    const actualData = values(named(opt, 'Actual'));
+    const budgetData = values(named(opt, 'Budget'));
     // Index 0 is Rent: actual 130,000 against a budget of 120,000.
     expect(yAxisData[0]).toBe('Rent');
     expect(actualData[0]).toBe(130_000);
@@ -82,7 +85,7 @@ describe('buildBudgetBulletOption', () => {
   });
 
   it('colours the variance label by the service polarity, not by which bar is longer', () => {
-    const labels = named(opt, 'Actual').data;
+    const labels = values(named(opt, 'Actual'));
     // Sales is UNDER budget on revenue → unfavourable, even though the actual
     // bar is shorter. Rent is OVER budget on an expense → also unfavourable,
     // and its actual bar is longer. Bar length cannot tell them apart.

@@ -14,6 +14,8 @@ import {
   type LineItem,
 } from '@/components/accounting/deliveryNotes/DeliveryNoteLineEditor';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface CustomerOption {
   id: string; name?: string; company_name?: string; companyName?: string;
@@ -33,6 +35,7 @@ export default function NewDeliveryNotePage() {
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState('');  // set once the draft exists, so a retry never creates a second note
   const [error, setError] = useState('');
+  const dates = useDateGate();
 
   const [customerId, setCustomerId] = useState('');
   const [salesOrderId, setSalesOrderId] = useState('');
@@ -78,6 +81,7 @@ export default function NewDeliveryNotePage() {
   }, [customerId]);
 
   const handleSave = async (dispatchAfter: boolean) => {
+    if (dates.blocked) return;
     setError('');
     if (!customerId) { setError('Please select a customer'); return; }
     const validLines = lines.filter(l => l.description.trim());
@@ -160,8 +164,8 @@ export default function NewDeliveryNotePage() {
                     )}
                   </div>
                   <div>
-                    <label className={lbl}>Delivery Date *</label>
-                    <input type="date" name="deliveryDate" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className={inp} />
+                    <DateField label="Delivery Date" required name="deliveryDate" value={deliveryDate || null}
+                      onChange={dates.bind('deliveryDate', setDeliveryDate, deliveryDate)} />
                   </div>
                   <div>
                     <label className={lbl}>Linked Sales Order (optional)</label>

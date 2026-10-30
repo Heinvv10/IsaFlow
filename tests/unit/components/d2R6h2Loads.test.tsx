@@ -16,6 +16,7 @@ import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCar
 import { VatPeriodLockForm } from '@/components/accounting/sars/VatPeriodLockForm';
 import AdminSettings from '../../../pages/admin/settings';
 import IntercompanyPage from '../../../pages/accounting/group/intercompany';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 useApiJsonOverMock();
 const MSG = 'D2 server says no: this request was refused';
@@ -57,8 +58,8 @@ describe('VatPeriodLockForm', () => {
   it('a rejecting onLock shows a sentence and re-enables the button', async () => {
     vi.mocked(apiFetch).mockImplementation(async () => ok({ totalExceptions: 0 }));
     const { container } = render(<VatPeriodLockForm onLock={vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))} />);
-    fireEvent.change(container.querySelector('#vat-lock-periodStart')!, { target: { value: '2026-07-01' } });
-    fireEvent.change(container.querySelector('#vat-lock-periodEnd')!, { target: { value: '2026-08-31' } });
+    typeDate(container.querySelector('#vat-lock-periodStart')!, '2026-07-01');
+    typeDate(container.querySelector('#vat-lock-periodEnd')!, '2026-08-31');
     fireEvent.submit(container.querySelector('form')!);
     expect(await screen.findByText('Could not lock the period - try again')).toBeTruthy();
     await waitFor(() => expect((screen.getByRole('button', { name: /lock period/i }) as HTMLButtonElement).disabled).toBe(false));
