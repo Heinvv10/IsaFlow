@@ -9,11 +9,11 @@ import path from 'path';
 // One file at a time, because two browsers on a busy box is what made these
 // time out inside the default run.
 //
-// VELO_MACHINE_FILES need a binary from velo itself, and `browser-tests` runs
-// on velo (run-ci.sh's `velo` group) while `unit-tests` runs on GitHub-hosted
-// runners. There they would skip (soffice: describe.skipIf) or fail (PG16's
-// initdb at /usr/lib/postgresql/16/bin; nginx, which fails when GITHUB_ACTIONS
-// is set) instead of testing anything.
+// VELO_MACHINE_FILES need a binary only the `velo` group's job installs
+// (ci.yml's Browser & integration apt step; velo itself has them), not the
+// static job that runs `unit-tests`. There they would skip (soffice:
+// describe.skipIf) or fail (PG16's initdb at /usr/lib/postgresql/16/bin; nginx,
+// which fails when GITHUB_ACTIONS is set) instead of testing anything.
 export const VELO_MACHINE_FILES = [
   'tests/unit/lib/xlsxNormaliseScanNames.test.ts', // /usr/bin/soffice (LibreOffice)
   'tests/unit/ci/integrationLifecycle.test.ts', // PostgreSQL 16 initdb/pg_ctl
