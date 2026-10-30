@@ -8,6 +8,16 @@ import path from 'path';
 // scripts/ci/run-ci.sh runs this config as the required `browser-tests` step.
 // One file at a time, because two browsers on a busy box is what made these
 // time out inside the default run.
+//
+// VELO_MACHINE_FILES need a binary from velo itself, and `browser-tests` runs
+// on velo (run-ci.sh's `velo` group) while `unit-tests` runs on GitHub-hosted
+// runners. There they would skip (soffice: describe.skipIf) or fail (PG16's
+// initdb at /usr/lib/postgresql/16/bin) instead of testing anything.
+export const VELO_MACHINE_FILES = [
+  'tests/unit/lib/xlsxNormaliseScanNames.test.ts', // /usr/bin/soffice (LibreOffice)
+  'tests/unit/ci/integrationLifecycle.test.ts', // PostgreSQL 16 initdb/pg_ctl
+];
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode ?? 'test', process.cwd(), '');
   return {
@@ -18,7 +28,7 @@ export default defineConfig(({ mode }) => {
       env: {
         DATABASE_URL: env['DATABASE_URL'] ?? 'postgresql://dummy:dummy@dummy/test',
       },
-      include: ['tests/unit/print/**/*.test.ts'],
+      include: ['tests/unit/print/**/*.test.ts', ...VELO_MACHINE_FILES],
       fileParallelism: false,
       testTimeout: 120_000,
       hookTimeout: 120_000,

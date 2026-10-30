@@ -11,7 +11,8 @@ import { checkWorkflowRunsCi, WORKFLOW_FILES } from '../../../scripts/ci/workflo
 
 const REAL = readFileSync('.github/workflows/ci.yml', 'utf8');
 const SCRIPTS = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts;
-const GATE_LINE = '        run: bun run ci static\n';
+// static-fallback runs the same command under its own step name.
+const GATE_LINE = '      - name: CI gate (scripts/ci/run-ci.sh static)\n        run: bun run ci static\n';
 const VELO_GATE_LINE = '        run: bun run ci velo\n';
 
 function check(yamlText: string, scripts: unknown = SCRIPTS): string[] {
@@ -46,7 +47,9 @@ const VELO_PERMS = `# As in static (the merge check).\n${JOB_PERMS}`;
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
 const STATIC_HEADER = '  static:\n    name: Static gates\n';
 const VELO_HEADER = '  velo:\n    name: Browser & integration (velo)\n';
-const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]\n';
+const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$VELO" = "success" ] && { [ "$STATIC" = "success" ] || [ "$FALLBACK" = "success" ]; }\n';
+const FALLBACK_HEADER = '  static-fallback:\n    name: Static gates (velo fallback)\n';
+const FALLBACK_DECIDE = '          if [ "$job" != "|0" ]; then\n';
 const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
 describe('the committed workflow', () => {
@@ -80,10 +83,10 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['continue-on-error on the static job', edit(STATIC_HEADER, `${STATIC_HEADER}    continue-on-error: true\n`)],
     ['continue-on-error on the velo job', edit(VELO_HEADER, `${VELO_HEADER}    continue-on-error: true\n`)],
     ['flow-style step with continue-on-error', edit(GATE_STEP, '      - { name: CI gate, run: bun run ci static, continue-on-error: true }\n')],
-    ['gate replaced by one hand-picked gate', edit(GATE_LINE, '        run: bun run test:unit\n')],
-    ['gate neutralised with || true', edit(GATE_LINE, '        run: bun run ci static || true\n')],
+    ['gate replaced by one hand-picked gate', edit(GATE_LINE, '      - run: bun run test:unit\n')],
+    ['gate neutralised with || true', edit(GATE_LINE, '      - run: bun run ci static || true\n')],
     ['the velo job running the static group (browser-tests and integration never run)', edit(VELO_GATE_LINE, '        run: bun run ci static\n')],
-    ['the static job running the velo group', edit(GATE_LINE, '        run: bun run ci velo\n')],
+    ['the static job running the velo group', edit(GATE_LINE, '      - run: bun run ci velo\n')],
     ['an unknown group (run-ci.sh exits 2, but the shape is refused first)', edit(VELO_GATE_LINE, '        run: bun run ci none\n')],
     // Top-level only: the jobs' own permissions blocks are indented.
     ['workflow-level env', edit('\npermissions:\n', '\nenv:\n  CI_SKIP_BUILD: "1"\n\npermissions:\n')],
@@ -96,7 +99,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it('the real step parked in a decoy job while quality runs one gate', () => {
-    const mutated = edit(GATE_LINE, '        run: bun run test:unit\n') + [
+    const mutated = edit(GATE_LINE, '      - run: bun run test:unit\n') + [
       '  decoy:',
       '    if: false',
       '    runs-on: ubuntu-latest',
@@ -210,7 +213,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
   it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
     expect(check(edit(`${VELO_HEADER}    runs-on: [self-hosted, linux, velo]\n`, `${VELO_HEADER}    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
-    expect(check(edit(`'"ubuntu-latest"'`, `'"nonexistent-label"'`)).length).toBeGreaterThan(0);
+    expect(check(edit(`'"ubuntu-24.04"'`, `'"nonexistent-label"'`)).length).toBeGreaterThan(0);
     expect(check(edit('  route:\n    name: CI route\n    runs-on: [self-hosted, linux, velo]\n', '  route:\n    name: CI route\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
   });
 
@@ -225,20 +228,33 @@ describe('the required check passes only when both gate groups passed', () => {
     ['aggregator skipped when a group fails (if: success())', edit("    if: ${{ always() }}\n", '    if: ${{ success() }}\n')],
     ['aggregator without if (skipped, which counts as passing)', edit("    if: ${{ always() }}\n", '')],
     ['aggregator if: !cancelled() (a cancelled run skips the required check)', edit("    if: ${{ always() }}\n", '    if: ${{ !cancelled() }}\n')],
-    ['aggregator stops waiting for velo', edit('    needs: [route, static, velo]\n', '    needs: [route, static]\n')],
+    ['aggregator stops waiting for velo', edit('    needs: [route, static, static-fallback, velo]\n', '    needs: [route, static, static-fallback]\n')],
     ['aggregator ignores the velo result', edit(AGGREGATE, AGGREGATE.replace(' && [ "$VELO" = "success" ]', ''))],
+    ['aggregator accepts any static result', edit(AGGREGATE, AGGREGATE.replace('[ "$STATIC" = "success" ] || ', ''))],
+    ['fallback runs on any static failure (a real hosted failure gets a second, green chance)', edit(FALLBACK_DECIDE, '          if false; then\n')],
+    ['fallback decision neutralised', edit(FALLBACK_DECIDE, '          if [ "$job" = "never" ]; then\n')],
+    ['fallback reads another job', edit('select(.name == "Static gates")', 'select(.name == "CI route")')],
+    ['fallback runs when static was cancelled', edit("needs.static.result == 'failure' }}", "needs.static.result != 'success' }}")],
+    ['fallback with continue-on-error', edit(FALLBACK_HEADER, `${FALLBACK_HEADER}    continue-on-error: true\n`)],
+    ['fallback running another group', edit('static, on velo)\n        run: bun run ci static\n', 'static, on velo)\n        run: bun run ci velo\n')],
+    ['fallback job removed from the aggregator env', edit('          FALLBACK: ${{ needs.static-fallback.result }}\n', '          FALLBACK: success\n')],
     ['aggregator accepts skipped', edit(AGGREGATE, AGGREGATE.replace('[ "$STATIC" = "success" ]', '[ "$STATIC" != "failure" ]'))],
     ['aggregator neutralised with || true', edit(AGGREGATE, AGGREGATE.replace('\n', ' || true\n'))],
     ['aggregator reads a result that is not the job\'s', edit('          VELO: ${{ needs.velo.result }}\n', "          VELO: success\n")],
     ['continue-on-error on the aggregator', edit(QUALITY_HEADER, `${QUALITY_HEADER}    continue-on-error: true\n`)],
     ['a second aggregator step that always passes', edit(AGGREGATE, `${AGGREGATE}      - run: exit 0\n`)],
-    ['static timeout no longer pinned', edit("    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 30 || 75 }}\n", '    timeout-minutes: 1\n')],
+    ['static timeout no longer pinned', edit("    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}\n", '    timeout-minutes: 1\n')],
     ['static no longer needs route (its runs-on reads route\'s output)', edit('    needs: route\n', '')],
     ['a hosted setup step that runs on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n')],
     ['setup-bun unpinned to a moving tag', edit('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', 'oven-sh/setup-bun@v2')],
     ['another bun version on hosted', edit('          bun-version: 1.3.9\n', '          bun-version: latest\n')],
     ['node_modules restored from the cache', edit('          path: ~/.bun/install/cache\n', '          path: node_modules\n')],
     ['route output widened to another key', edit('      hosted: ${{ steps.route.outputs.hosted }}\n', '      hosted: ${{ steps.route.outputs.hosted }}\n      labels: x\n')],
+    ['route step swaps the runner\'s bun before static runs on velo', edit('          hosted=false\n', '          cp /bin/true "$HOME/.bun/bin/bun"\n          hosted=false\n')],
+    ['route step dropped (output never set)', edit('      - name: Hosted or velo?\n', '      - name: Hosted or velo?\n        if: false\n')],
+    ['a decoy job named like the required check (newest run wins in the queue)', edit('    name: Golden Paths lane\n', '    name: Type Check, Lint & Test\n')],
+    ['static renamed to the required check', edit('    name: Static gates\n', '    name: Type Check, Lint & Test\n')],
+    ['golden-paths renamed (its required check never reports)', edit('    name: Golden Paths E2E (blocking)\n', '    name: Golden Paths E2E\n')],
     ['route taking a concurrency group', edit('    name: CI route\n', '    name: CI route\n    concurrency:\n      group: ci-${{ github.ref }}\n')],
   ];
 
@@ -249,9 +265,9 @@ describe('the required check passes only when both gate groups passed', () => {
 
 describe('accepts equivalent spellings of the one allowed shape', () => {
   it('a nameless step, a quoted command and a trailing comment', () => {
-    expect(check(edit('      - name: CI gate (scripts/ci/run-ci.sh static)\n        run: bun run ci static\n', '      - run: bun run ci static\n'))).toEqual([]);
-    expect(check(edit(GATE_LINE, '        run: "bun run ci static"\n'))).toEqual([]);
-    expect(check(edit(GATE_LINE, '        run: bun run ci static  # every static gate\n'))).toEqual([]);
+    expect(check(edit(GATE_LINE, '      - run: bun run ci static\n'))).toEqual([]);
+    expect(check(edit(GATE_LINE, '      - run: "bun run ci static"\n'))).toEqual([]);
+    expect(check(edit(GATE_LINE, '      - run: bun run ci static  # every static gate\n'))).toEqual([]);
   });
 
   it('static without the job permissions block, and then a checkout without inputs', () => {

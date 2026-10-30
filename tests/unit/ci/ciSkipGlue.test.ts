@@ -162,10 +162,13 @@ describe('run-ci.sh: gate groups (ci.yml runs static on GitHub-hosted, velo on v
   });
 
   it('every gate is in exactly one group', () => {
-    const all = run(['scripts/ci/run-ci.sh'], PR).calls.filter((c) => !c.includes('integration/scope.ts'));
-    const split = ['static', 'velo'].flatMap((g) => run(['scripts/ci/run-ci.sh', g], PR).calls)
-      .filter((c) => !c.includes('integration/scope.ts'));
-    expect([...split].sort()).toEqual([...all].sort());
+    const gates = (args: string[]) => run(['scripts/ci/run-ci.sh', ...args], PR).calls.filter((c) => !c.includes('integration/scope.ts'));
+    const all = gates([]);
+    const [stat, velo] = [gates(['static']), gates(['velo'])];
+    // all = static + velo, no gate runs twice, and none is in both groups.
+    expect([...stat, ...velo].sort()).toEqual([...all].sort());
+    expect(new Set(all).size).toBe(all.length);
+    expect(stat.filter((c) => velo.includes(c))).toEqual([]);
   });
 
   it.each(['static', 'velo'])('%s still skips on an already-tested queue merge (exit 10)', (group) => {
