@@ -9,6 +9,8 @@ import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { DisputeRow } from '@/components/accounting/disputes/types';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 type ResolveMode = 'resolve_with_credit' | 'resolve_no_credit' | 'rejected';
 
@@ -26,8 +28,10 @@ export function ResolveModal({
   const [creditDate, setCreditDate] = useState(() => localISODate());
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState('');
+  const dates = useDateGate();
 
   async function submit(action: 'resolve' | 'withdraw') {
+    if (dates.blocked && action === 'resolve' && mode === 'resolve_with_credit') return;
     try {
       setSubmitting(true);
       setErr('');
@@ -69,7 +73,7 @@ export function ResolveModal({
             <span className="text-sm font-medium text-slate-700">Resolution</span>
             <select
               value={mode}
-              onChange={(e) => setMode(e.target.value as ResolveMode)}
+              onChange={(e) => { setMode(e.target.value as ResolveMode); dates.reset('creditDate'); }}
               className="mt-1 w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
             >
               <option value="resolve_with_credit">Resolve with credit note</option>
@@ -79,15 +83,7 @@ export function ResolveModal({
           </label>
 
           {mode === 'resolve_with_credit' && (
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700">Credit note date</span>
-              <input
-                type="date"
-                value={creditDate}
-                onChange={(e) => setCreditDate(e.target.value)}
-                className="mt-1 w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-              />
-            </label>
+            <DateField label="Credit note date" name="creditDate" value={creditDate || null} onChange={dates.bind('creditDate', setCreditDate, creditDate)} />
           )}
 
           <label className="block">
