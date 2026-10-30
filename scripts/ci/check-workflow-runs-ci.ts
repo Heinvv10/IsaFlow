@@ -27,4 +27,4 @@ if (errors.length) {
   process.stderr.write(`ERROR: ${WORKFLOW} does not run every CI gate:\n${errors.map((e) => `  - ${e}`).join('\n')}\n`);
   process.exit(1);
 }
-process.stdout.write(`${WORKFLOW}: jobs.static and jobs.velo run every \`bun run ci\` gate and jobs.quality needs both, with nothing able to skip them\n`);
+process.stdout.write(`${WORKFLOW}: jobs.static (or static-fallback) and jobs.velo run every \`bun run ci\` gate and jobs.quality needs them all, with nothing able to skip them\n`);
