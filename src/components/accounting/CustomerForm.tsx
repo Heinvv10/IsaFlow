@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
 
 export type AutoAllocateStrategy = 'off' | 'oldest' | 'newest';
 
@@ -73,7 +74,7 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
 interface Props {
   form: CustomerFormData;
   onChange: (form: CustomerFormData) => void;
-  fieldErrors?: Partial<Record<keyof CustomerFormData, string>>;
+  fieldErrors?: Partial<Record<keyof CustomerFormData, string>>; dates: import('@/hooks/useDateGate').DateGate;
   categories?: { id: string; name: string }[];
 }
 
@@ -132,7 +133,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
   );
 }
 
-export function CustomerForm({ form, onChange, fieldErrors = {}, categories = [] }: Props) {
+export function CustomerForm({ form, onChange, fieldErrors = {}, categories = [], dates }: Props) {
   function set<K extends keyof CustomerFormData>(key: K, value: CustomerFormData[K]) {
     onChange({ ...form, [key]: value });
   }
@@ -191,9 +192,8 @@ export function CustomerForm({ form, onChange, fieldErrors = {}, categories = []
             <input type="number" min="0" step="0.01" value={form.opening_balance} onChange={(e) => set('opening_balance', e.target.value)}
               placeholder="0.00" className={inputClass} />
           </Field>
-          <Field label="Opening Balance as At">
-            <input type="date" value={form.opening_balance_date} onChange={(e) => set('opening_balance_date', e.target.value)} className={inputClass} />
-          </Field>
+          <DateField label="Opening Balance as At" name="opening_balance_date" value={form.opening_balance_date || null}
+            onChange={dates.bind('opening_balance_date', (iso) => set('opening_balance_date', iso), form.opening_balance_date)} />
         </div>
         <div className="mt-3 flex items-center gap-3">
           <Toggle
