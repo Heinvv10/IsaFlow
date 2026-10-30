@@ -9,7 +9,7 @@ import { useDateGate, type DateGate } from '@/hooks/useDateGate';
 
 export { useDateGate };
 
-export type GatedDateFieldProps = Omit<DateFieldProps, 'onChange'> & {
+export type GatedDateFieldProps = Omit<DateFieldProps, 'onChange' | 'resetKey'> & {
   gate: DateGate;
   gateKey: string;
   onValue: (iso: string) => void;
