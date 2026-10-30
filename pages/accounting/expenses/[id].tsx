@@ -24,6 +24,7 @@ import { leafAccountOptions } from '@/lib/chartAccountOptions';
 import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { DateField } from '@/components/ui';
 
 interface Line {
   id: string;
@@ -165,7 +166,7 @@ export default function ExpenseClaimDetail() {
   }
 
   async function handleAddMileage() {
-    if (!id || !mlKm || parseFloat(mlKm) <= 0) { showToast('km required', false); return; }
+    if (!id || !mlDate || !mlKm || parseFloat(mlKm) <= 0) { showToast('Date and km required', false); return; }
     setBusy(true);
     try {
       const res = await apiFetch('/api/accounting/expense-claims/mileage-trip', {
@@ -292,8 +293,7 @@ export default function ExpenseClaimDetail() {
 
             {addMode === 'receipt' && (
               <div className="px-6 py-4 bg-white/5 border-b border-[rgba(255,255,255,0.06)] grid grid-cols-6 gap-2 text-sm">
-                <input type="date" value={rcLineDate} onChange={e => setRcLineDate(e.target.value)}
-                  className="col-span-1 px-2 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.08)] text-slate-200" />
+                <DateField label="Date" name="lineDate" value={rcLineDate || null} onChange={(iso, v) => setRcLineDate(v.valid ? iso ?? '' : '')} />
                 <input placeholder="Merchant" value={rcMerchant} onChange={e => setRcMerchant(e.target.value)}
                   className="col-span-1 px-2 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.08)] text-slate-200" />
                 <input placeholder="Description" value={rcDescription} onChange={e => setRcDescription(e.target.value)}
@@ -319,8 +319,7 @@ export default function ExpenseClaimDetail() {
 
             {addMode === 'mileage' && (
               <div className="px-6 py-4 bg-white/5 border-b border-[rgba(255,255,255,0.06)] grid grid-cols-6 gap-2 text-sm">
-                <input type="date" value={mlDate} onChange={e => setMlDate(e.target.value)}
-                  className="col-span-1 px-2 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.08)] text-slate-200" />
+                <DateField label="Date" name="tripDate" value={mlDate || null} onChange={(iso, v) => setMlDate(v.valid ? iso ?? '' : '')} />
                 <input placeholder="From" value={mlFrom} onChange={e => setMlFrom(e.target.value)}
                   className="col-span-2 px-2 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.08)] text-slate-200" />
                 <input placeholder="To" value={mlTo} onChange={e => setMlTo(e.target.value)}
