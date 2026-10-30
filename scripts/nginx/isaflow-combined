@@ -1,0 +1,103 @@
+# IsaFlow — Landing + App (isaflow.co.za + app.isaflow.co.za) and the :3101 front.
+# Installed to /etc/nginx/sites-enabled/isaflow-combined by scripts/deploy/cutover.sh.
+#
+# Blue/green (2026-10-29): the app runs as isaflow@3111 and isaflow@3112. The
+# upstream `isaflow_live` (/etc/nginx/conf.d/isaflow-live.conf, written only by
+# scripts/deploy/bluegreen.sh) names the live one. A deploy switches it with an
+# nginx reload, which lets requests already in flight finish on the old colour.
+# X-IsaFlow-Upstream names the colour that answered, only to a request whose
+# X-IsaFlow-Probe header carries the token in /etc/nginx/conf.d/isaflow-probe.conf
+# (root-only, written by cutover.sh; it defines $isaflow_upstream_probe). nginx
+# omits an empty header, so nobody else sees it.
+#
+# /_next/static/ is served from a shared folder that keeps the last few builds'
+# hashed files, so a page loaded before a switch can still fetch its chunks.
+# Cloudflare SSL: Flexible (CF terminates SSL, connects to origin on HTTP)
+server {
+    listen 80;
+    server_name isaflow.co.za www.isaflow.co.za app.isaflow.co.za;
+
+    client_max_body_size 50M;
+
+    # GoTrue auth endpoints — GoTrue recovery/confirmation emails link to
+    # {SITE_URL}/auth/v1/verify?... which has to reach Kong. Points at the
+    # IsaFlow-dedicated Supabase stack Kong (post-2026-04-19 stack split).
+    location /auth/v1/ {
+        proxy_pass http://localhost:7770;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /_next/static/ {
+        root /home/velo/isaflow-static;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        gzip on;
+        gzip_types text/css application/javascript;
+        try_files $uri @app;
+    }
+
+    location / {
+        proxy_pass http://isaflow_live;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        add_header X-IsaFlow-Upstream $isaflow_upstream_probe always;
+    }
+
+    location @app {
+        proxy_pass http://isaflow_live;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header X-IsaFlow-Upstream $isaflow_upstream_probe always;
+    }
+}
+
+# :3101 was the app's own port. The admin host's tunnel, the cron units and
+# anything else that used it reach the live colour here, unchanged: headers pass
+# through as sent, no buffering, no body limit beyond the app's own, header
+# room like Node's 16 KB, and the timeouts of a direct connection.
+server {
+    listen 3101;
+
+    client_max_body_size 0;
+    large_client_header_buffers 4 16k;
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    location /_next/static/ {
+        root /home/velo/isaflow-static;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        gzip on;
+        gzip_types text/css application/javascript;
+        try_files $uri @app;
+    }
+
+    location / {
+        proxy_pass http://isaflow_live;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $http_connection;
+        proxy_set_header Host $http_host;
+        add_header X-IsaFlow-Upstream $isaflow_upstream_probe always;
+    }
+
+    location @app {
+        proxy_pass http://isaflow_live;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        add_header X-IsaFlow-Upstream $isaflow_upstream_probe always;
+    }
+}
