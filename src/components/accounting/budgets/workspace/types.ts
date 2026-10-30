@@ -8,6 +8,8 @@ import type { GridAccount } from '@/modules/accounting/services/budgets/gridRead
 import type { Band, Metric } from '@/modules/accounting/services/budgets/grid/subtotals';
 import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RowKind } from '@/modules/accounting/services/budgets/grid/selection';
+import type { CellSource } from '@/modules/accounting/services/budgets/drivers/driverTypes';
+import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
 
 export type { BudgetVersion, BudgetVersionStatus };
 
@@ -25,8 +27,8 @@ export type ApiFailure =
   | { ok: false; kind: 'rateLimited'; message: string; retryAfter: number | null }
   /** 503: version row held, or every spreadsheet slot busy. */
   | { ok: false; kind: 'busy'; message: string; retryAfter: number | null }
-  /** 400 / 413 / 422: the message names the account or field. */
-  | { ok: false; kind: 'invalid'; message: string; code: string | null }
+  /** 400 / 413 / 422: the message names the account or field; a driver loop (DRIVER_CYCLE) adds its row keys. */
+  | { ok: false; kind: 'invalid'; message: string; code: string | null; path?: string[] }
   | { ok: false; kind: 'forbidden'; message: string }
   | { ok: false; kind: 'notFound'; message: string }
   /** Any other status, or a 2xx that is not the `{ success, data }` envelope. */
@@ -84,6 +86,14 @@ export interface GridRowSnapshot {
   selected: { left: number; right: number } | null;
   /** Edit mode on this row: the column and the draft text. */
   editing: { col: number; draft: string } | null;
+  /** The account's budget note for the year (year-scoped, every version shows it); null when none. */
+  note: string | null;
+  /** P4: per month, where the loaded figure came from (manual / driver / override / actual); null = no cell. */
+  sources: readonly (CellSource | null)[];
+  /** P4: this row's driver line (the account at the view's grain); null when none. */
+  driver: StoredDriverLine | null;
+  /** P4: the last recompute's warning for this row's driver (skipped, or an input read as 0); null when none. */
+  driverWarning: string | null;
 }
 
 export interface GridTotalSnapshot {
@@ -122,7 +132,13 @@ export type GridStatus = 'idle' | 'loading' | 'error' | 'empty' | 'ready';
 export type SaveState =
   | { status: 'idle' }
   | { status: 'saving' }
-  | { status: 'saved'; saved: number; deleted: number }
+  /** `drivers`: what the save's driver recompute did (P4), when it did anything. */
+  | {
+    status: 'saved'; saved: number; deleted: number;
+    drivers?: { recomputed: number; reset: number; warnings: ReadonlyArray<{ code: string; rowKey: string; message: string }> };
+    /** The in-place re-read after the drivers moved failed: what to tell the user. */
+    refreshError?: string;
+  }
   /** A chained save refused part-way also says which part (`failedChunk`, 0-based) of how many. */
   | { status: 'error'; message: string; retryAfter: number | null; failedChunk?: number; chunks?: number };
 

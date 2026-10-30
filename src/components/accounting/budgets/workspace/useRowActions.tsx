@@ -1,6 +1,7 @@
 /**
  * Runs the grid's row actions (spec §5.5, §6.5, §11): the ones without input write straight
- * through the store, the others open SpreadDialog / GrainChangeDialog. Every action is ONE
+ * through the store, the others open SpreadDialog / GrainChangeDialog / NoteDialog (a note is saved
+ * on its own through `onSaveNote`, never as a grid amount, and lands in the store with `setNote`). Every action is ONE
  * `store.apply` (one undo entry) plus an announcement. Focus returns to the row's first cell
  * when a dialog closes (spec §12), through the store (`focusPos`), so the grid state, the roving
  * tab stop and DOM focus agree (QA-10). `onRowAction` keeps one identity for the grid's life:
@@ -10,7 +11,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RoundingUnit } from '@/modules/accounting/services/budgets/grid/cents';
 import { viewCellKey, type View } from '@/modules/accounting/services/budgets/grid/pivot';
-import type { GridStore } from './gridStore';
+import { FY_CLOSED_REASON, type GridStore } from './gridStore';
 import { accountRowKey } from './gridLayout';
 import type { GridLayout } from './types';
 import type { Pos } from '@/modules/accounting/services/budgets/grid/selection';
@@ -18,11 +19,14 @@ import type { LineRow } from './BudgetGridRow';
 import type { RowAction } from './RowActionsMenu';
 import { SpreadDialog, type NamedChild, type RowCells, type SpreadTarget } from './SpreadDialog';
 import { GrainChangeDialog, type GrainChangeTarget } from './GrainChangeDialog';
+import { NoteDialog, type NoteTarget } from './NoteDialog';
+import type { ApiResult } from './types';
 import { type CellWriteByKey, clearWrites, grainChangeWrites, rowWrites } from './rowActionWrites';
+import type { GridDriverHandlers } from '@/components/accounting/budgets/drivers/gridDriverHandlers';
 
 export interface DimensionMember { id: string; code: string; name: string }
 
-interface UseRowActionsArgs {
+export interface UseRowActionsArgs {
   store: GridStore;
   layout: GridLayout;
   roundingUnit: RoundingUnit;
@@ -31,19 +35,34 @@ interface UseRowActionsArgs {
   members: readonly DimensionMember[];
   /** The keyboard hook's store-driven focus (state + tab stop + DOM). */
   focusPos(pos: Pos): void;
+  /** The version's financial-year label (a note is shown on every version of it). */
+  fiscalYear: number;
+  /** Saves one account's note for the viewed version's year; the result is the note as stored. */
+  onSaveNote(accountId: string, note: string | null): Promise<ApiResult<{ note: string | null }>>;
+  /** P4: the drivers layer ('driver' opens its editor, 'resetOverrides' resets); null wires none. */
+  driver?: GridDriverHandlers | null;
 }
 
 const DIM_LABEL = { cc1: 'CC1', cc2: 'CC2', bu: 'BU' } as const;
+
+/** P4: the month indexes a row spread may write in a version with closed months; null when none is closed. */
+function openMonths(store: GridStore, months: readonly string[]): number[] | null {
+  const closed = store.getClosedMonths();
+  if (closed.size === 0) return null;
+  return months.flatMap((m, i) => (closed.has(m) ? [] : [i]));
+}
 const rowLabel = (row: LineRow) => `${row.account.code} ${row.account.name}`;
 
-export function useRowActions({ store, layout, roundingUnit, view, members, focusPos }: UseRowActionsArgs): {
+export function useRowActions({ store, layout, roundingUnit, view, members, focusPos, fiscalYear, onSaveNote, driver = null }: UseRowActionsArgs): {
   onRowAction(row: LineRow, action: RowAction): void;
   dialogs: ReactNode;
 } {
-  const [spread, setSpread] = useState<{ target: SpreadTarget; r: number } | null>(null);
+  // `months`: the months the dialog spreads over (the open ones in a version with closed months).
+  const [spread, setSpread] = useState<{ target: SpreadTarget; r: number; months?: readonly string[] } | null>(null);
   const [grain, setGrain] = useState<{ target: GrainChangeTarget; r: number } | null>(null);
-  const live = useRef({ layout, view, members, focusPos });
-  useEffect(() => { live.current = { layout, view, members, focusPos }; });
+  const [note, setNote] = useState<{ target: NoteTarget; r: number } | null>(null);
+  const live = useRef({ layout, view, members, focusPos, onSaveNote, driver });
+  useEffect(() => { live.current = { layout, view, members, focusPos, onSaveNote, driver }; });
 
   const cellsOf = useCallback((row: LineRow): RowCells => {
     const keys = live.current.layout.months.map((_, c) => store.cellKeyAt({ r: row.index, c })).filter((k): k is CellKey => k !== null);
@@ -68,9 +87,26 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
     const label = rowLabel(row);
     const snap = store.getRow(row.key);
     switch (action.type) {
-      case 'spread':
-        setSpread({ r: row.index, target: { mode: 'row', label, row: cellsOf(row), py: snap.py } });
+      case 'spread': {
+        const open = openMonths(store, live.current.layout.months);
+        if (open === null) { setSpread({ r: row.index, target: { mode: 'row', label, row: cellsOf(row), py: snap.py } }); return; }
+        if (open.length === 0) {
+          store.addNotice([{ rowLabel: label, monthLabel: '', raw: '', reason: FY_CLOSED_REASON, cells: live.current.layout.months.length }]);
+          store.announce(FY_CLOSED_REASON);
+          return;
+        }
+        const all = cellsOf(row);
+        const n = open.length;
+        setSpread({
+          r: row.index, months: open.map(i => live.current.layout.months[i]!),
+          target: {
+            mode: 'row', label, py: snap.py ? open.map(i => snap.py![i] ?? 0) : null,
+            row: { keys: open.map(i => all.keys[i]!), values: open.map(i => all.values[i] ?? null) },
+            note: `Spread over the ${n} open month${n === 1 ? '' : 's'}; the closed months keep their actuals.`,
+          },
+        });
         return;
+      }
       case 'copyPy': {
         if (snap.py === null) return;
         write(rowWrites(cellsOf(row).keys, snap.py), `Copied PY actuals into ${label}`);
@@ -91,6 +127,15 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
         setSpread({ r: row.index, target });
         return;
       }
+      case 'driver':
+        live.current.driver?.openEditor(row.account.id, () => refocus(row.index));
+        return;
+      case 'resetOverrides':
+        void live.current.driver?.resetOverride(row.account.id, action.month);
+        return;
+      case 'note':
+        setNote({ r: row.index, target: { accountId: row.account.id, accountLabel: label, note: snap.note, readOnly: action.readOnly } });
+        return;
       case 'grain': {
         const { view, members, layout } = live.current;
         const id = row.account.id;
@@ -107,14 +152,23 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
         return;
       }
     }
-  }, [cellsOf, childrenOf, store, write]);
+  }, [cellsOf, childrenOf, store, write, refocus]);
 
-  const close = (r: number) => { setSpread(null); setGrain(null); refocus(r); };
+  const close = (r: number) => { setSpread(null); setGrain(null); setNote(null); refocus(r); };
+
+  const saveNote = async (r: number, target: NoteTarget, text: string): Promise<string | null> => {
+    const res = await live.current.onSaveNote(target.accountId, text);
+    if (!res.ok) return res.message;
+    store.setNote(target.accountId, res.data.note);
+    store.announce(res.data.note === null ? `Note removed from ${target.accountLabel}` : `Note saved for ${target.accountLabel}`);
+    close(r);
+    return null;
+  };
 
   const dialogs = (
     <>
       {spread && (
-        <SpreadDialog key={`${spread.r}:${spread.target.mode}`} target={spread.target} months={layout.months} unit={roundingUnit}
+        <SpreadDialog key={`${spread.r}:${spread.target.mode}`} target={spread.target} months={spread.months ?? layout.months} unit={roundingUnit}
           onClose={() => close(spread.r)}
           onApply={(writes, text) => { write(writes, text); close(spread.r); }} />
       )}
@@ -122,6 +176,11 @@ export function useRowActions({ store, layout, roundingUnit, view, members, focu
         <GrainChangeDialog key={grain.r} target={grain.target}
           onClose={() => close(grain.r)}
           onApply={(writes, text) => { write(writes, text); close(grain.r); }} />
+      )}
+      {note && (
+        <NoteDialog key={note.r} target={note.target} fiscalYear={fiscalYear}
+          onClose={() => close(note.r)}
+          onSave={text => saveNote(note.r, note.target, text)} />
       )}
     </>
   );

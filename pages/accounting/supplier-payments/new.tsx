@@ -14,6 +14,8 @@ import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
+import { DateField } from '@/components/ui';
+import { useDateGate } from '@/hooks/useDateGate';
 
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
 interface Allocation { key: string; invoiceId: string; amount: number }
@@ -27,6 +29,7 @@ export default function NewSupplierPaymentPage() {
   const [invoices, setInvoices] = useState<OutstandingInvoice[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const dates = useDateGate();
   const [scanBanner, setScanBanner] = useState<string | null>(null);
 
   const [form, setForm] = useState({
@@ -63,7 +66,7 @@ export default function NewSupplierPaymentPage() {
   const { scan: matchVendor, notePick } = useVendorSupplierMatch(form.supplierId, id => setForm(f => ({ ...f, supplierId: id })));
 
   function handleExtracted(data: ExtractedDocument) {
-    if (data.date) setForm(f => ({ ...f, paymentDate: data.date! }));
+    if (data.date) { dates.reset('paymentDate'); setForm(f => ({ ...f, paymentDate: data.date! })); }
     if (data.referenceNumber) setForm(f => ({ ...f, reference: data.referenceNumber! }));
     if (data.vendorName) {
       matchVendor(data.vendorName);
@@ -77,6 +80,7 @@ export default function NewSupplierPaymentPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (dates.blocked) return;
     if (!form.supplierId) { setError('Please select a supplier'); return; }
     setIsSubmitting(true); setError('');
     try {
@@ -142,12 +146,13 @@ export default function NewSupplierPaymentPage() {
                     <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => { notePick(); setForm(f => ({ ...f, supplierId: id })); }} />
                   </div>
                   <div>
-                    <label className={lbl}>Payment Date *</label>
-                    <input type="date" name="paymentDate" required value={form.paymentDate} onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))} className={inp} />
+                    <DateField label="Payment Date" required name="paymentDate" value={form.paymentDate || null}
+                      resetKey={dates.resetKey('paymentDate')}
+                      onChange={dates.bind('paymentDate', iso => setForm(f => ({ ...f, paymentDate: iso })), form.paymentDate)} />
                   </div>
                   <div>
                     <label className={lbl}>Method</label>
-                    <select name="paymentMethod" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
+                    <select name="paymentMethod" aria-label="Method" value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className={inp}>
                       <option value="eft">EFT</option>
                       <option value="cheque">Cheque</option>
                       <option value="cash">Cash</option>
@@ -183,7 +188,7 @@ export default function NewSupplierPaymentPage() {
                       <div key={alloc.key} className="grid grid-cols-12 gap-2 items-end">
                         <div className="col-span-6">
                           {idx === 0 && <label className={lbl}>Invoice</label>}
-                          <select name="invoiceId" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={inp}>
+                          <select name="invoiceId" aria-label="Invoice" value={alloc.invoiceId} onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)} className={inp}>
                             <option value="">Select invoice…</option>
                             {invoices.map(inv => <option key={inv.id} value={inv.id}>{inv.invoiceNumber} — Balance: {formatCurrency(inv.balance)}</option>)}
                           </select>
@@ -194,7 +199,7 @@ export default function NewSupplierPaymentPage() {
                         </div>
                         <div className="col-span-3">
                           {idx === 0 && <label className={lbl}>Pay Amount</label>}
-                          <input type="number" step="0.01" min="0" max={selectedInvoice?.balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} className={`${inp} text-right`} />
+                          <input type="number" aria-label="Pay Amount" step="0.01" min="0" max={selectedInvoice?.balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} className={`${inp} text-right`} />
                         </div>
                         <div className="col-span-1 flex justify-center">
                           {allocations.length > 1 && (

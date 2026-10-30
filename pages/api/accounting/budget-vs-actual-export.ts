@@ -9,6 +9,14 @@
  * Query params:
  *   period       current | ytd | full_year   (default: ytd; anything else is a 400)
  *   fiscal_year  optional financial-year label (ytd and full_year); 404 if no year carries it, 400 if not a label
+ *
+ * SUPERSEDED for the page (budgets P3 PR-B: the BvA page reads reports-budget-tracking) and kept on
+ * purpose, not as an oracle (PR-C's facade parity test carries the old SQL itself): the suites that
+ * call this route (budgets-bva-parity, budgets-report-year, budgets-report-fault, the G01 reader
+ * census, balanceQueryGuards) pin getBudgetVariance's P0 contract, which PR-C turns into a facade
+ * over the tracking engine. Through that facade this route becomes a thin wrapper over the engine
+ * with its P0 shape intact; wrapping it over the new route instead would change that shape and
+ * break those suites. Delete it with them once nothing else reads it (census at PR-C).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

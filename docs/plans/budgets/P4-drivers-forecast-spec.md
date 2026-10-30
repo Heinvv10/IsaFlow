@@ -1,6 +1,6 @@
 # P4 — Drivers & forecasting: phase spec
 
-**Date:** 2026-10-26 · **Status:** Draft, refresh before execution · **Parent:** `docs/plans/2026-10-26-budgets-next-level.md` §5 P4 · **Contract:** `docs/plans/budgets/00-shared-contract.md` (obeyed exactly; canonical names below are P1's)
+**Date:** 2026-10-26, refreshed 2026-10-29 · **Status:** In execution · **Parent:** `docs/plans/2026-10-26-budgets-next-level.md` §5 P4 · **Contract:** `docs/plans/budgets/00-shared-contract.md` (obeyed exactly; canonical names below are P1's)
 
 > **Refresh before execution.** Written before P1–P3 exist. Before the P4 session starts, re-read the
 > merged P1–P3 code and MVP usage on ISAFlow Demo (which rows people actually budget, at which grain,
@@ -46,7 +46,30 @@ handful of rows, ship only R-per-head + reforecast and drop the other driver kin
 **Not building:** salary escalation dates, pro-rata heads, payroll-pushed recompute (payroll stays
 read-only — headcount refreshes on demand), MCP driver tools, a cron job (see §6), balance-sheet drivers (P6).
 
-## 2. Phase-start decision 7 (pre-filled default — confirm in the goal's §0)
+## 0. Refresh (2026-10-29, against origin/master f83b3960a)
+
+- **Preconditions met:** `budgets/budgetVersionScope.ts`, `budgets/gridSave.ts`, `budgets/tracking/trackingActualRead.ts`
+  all on master. Peer names in this spec match the merged code (P1 lock function, `mapBudgetDbError`, `BAND_ORDER`,
+  `roundToUnit`, `readTrackingActuals(companyId, start, end, filter, groupBy)`). P3 PR-B (#933, the BvA page) is still
+  open; P4 needs only the reader.
+- **MVP usage:** ISAFlow Demo on dev has **no budget versions** (only QA companies do), so usage gives no signal
+  either way. The full driver set is built, as specified.
+- **§11 risk confirmed on dev:** all 4,682 payroll journal lines (`source = 'auto_payroll'`) carry `cc1_id IS NULL`.
+  Labour budgeted by cost centre reforecasts with zero CC actuals (those actuals are unplaced and reported). Payroll
+  posting is not changed (Hein's decision).
+- **Migration** takes prefix **949** (948 is held by open PR #891).
+- **Deviation:** P1's lock trigger is attached to `budget_driver_lines` and `budget_planned_hires`, **not** to
+  `budget_rolling_forecasts`: that row holds no budget figure, and a roll that meets a locked version must record
+  `last_error = 'version locked'` on it (§6), which the trigger would refuse.
+
+- **Engine rules settled in review (2026-10-29):** (a) an override survives a driver range shrunk and regrown; only
+  Reset to driver or deleting the driver ends it. (b) A month reopened after a roll: on the next roll its `actual` cell
+  becomes `manual` with the last actual kept (the rolled version no longer holds the original budget figure), and a driver
+  covering it recomputes it; that is what "Roll now refreshes it" (§6) means here. (c) Each driver stores its own rounding
+  unit (`rounding_unit`; decision 5); nothing is stored on the version. (d) Payroll allocations are used as stored; a sum
+  over 100% for one employee counts more than one head.
+
+## 2. Phase-start decision 7 — CONFIRMED by Hein 2026-10-29 ("yes", the default below, unchanged)
 
 Headcount driver = active payroll employees per month + planned hires entered in the budget tool;
 read-only on payroll. Concretely (default):
