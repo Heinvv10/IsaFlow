@@ -39,10 +39,10 @@ const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n    
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
 const REPORT_PERMS = '    permissions:\n      actions: read\n      issues: write\n';
-const TOP_CONCURRENCY = "  group: ci-${{ github.ref }}\n  cancel-in-progress: ${{ github.event_name != 'push' }}\n";
+const TOP_CONCURRENCY = "  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}\n  cancel-in-progress: true\n";
 const POST_MERGE_GROUP = '      group: golden-paths-post-merge\n      cancel-in-progress: false\n';
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
-const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
+const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ github.event_name == 'push' && '-push' || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
 describe('the committed workflow', () => {
   it('passes', () => {
@@ -125,9 +125,9 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it.each([
-    ['a concurrency group shared by every ref', "  group: ci-fixed\n  cancel-in-progress: ${{ github.event_name != 'push' }}\n"],
-    ['cancel-in-progress switched off for PRs too', '  group: ci-${{ github.ref }}\n  cancel-in-progress: false\n'],
-    ['master pushes cancelling again (the post-merge suite would never finish)', '  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n'],
+    ['a concurrency group shared by every ref', '  group: ci-fixed\n  cancel-in-progress: true\n'],
+    ['cancel-in-progress switched off', "  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}\n  cancel-in-progress: false\n"],
+    ['master pushes back on one group (each cancels the last; the post-merge suite would never finish)', '  group: ci-${{ github.ref }}\n  cancel-in-progress: true\n'],
     ['an extra concurrency key', `${TOP_CONCURRENCY}  queue: max\n`],
   ])('%s', (_label, body) => {
     expect(check(edit(TOP_CONCURRENCY, body)).length).toBeGreaterThan(0);
@@ -148,6 +148,10 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
   it("golden-paths-smoke back on the one shared group (every PR push cancels the queue's pending run, #938)", () => {
     expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-dev-demo\n')).length).toBeGreaterThan(0);
+  });
+
+  it("golden-paths-smoke's master-push no-op sharing the PR group (it would bump a pending PR run)", () => {
+    expect(check(edit(GOLDEN_GROUP, "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n")).length).toBeGreaterThan(0);
   });
 
   it.each([

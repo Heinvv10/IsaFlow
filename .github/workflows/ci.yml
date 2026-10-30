@@ -8,13 +8,14 @@ on:
 
 # Cancel stale runs when a new commit is pushed to the same PR ref.
 # This prevents a backlog of queued runs from burning Actions minutes.
-# Master pushes never cancel: each one runs the full Golden Paths suite after
-# the merge (golden-paths), which takes longer than the gap between merges, so
-# cancelling would mean it never finished. A newer master push waits instead,
-# and GitHub drops an older PENDING one, so the suite runs on the latest master.
+# A master push takes a group of its own sha, so it never cancels, or waits
+# for, another master push: each one runs the full Golden Paths suite after the
+# merge (golden-paths), which outlasts the gap between merges, and its required
+# checks must report within minutes, not behind that suite. golden-paths'
+# own group serialises the suite runs.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: true
 
 # Tighten token to read-only. CI only needs to check out code.
 permissions:
@@ -167,23 +168,35 @@ jobs:
     # run, on the Demo company until per-runner slots land (#916).
     # !cancelled(): a failed golden-lane still runs the suite, in the ordinary
     # group.
+    # On a push to master the job runs but its steps do not, so it reports
+    # SUCCESS there: a required check that is skipped on the master head reads
+    # as a failure to the merge queue (merge-queue checks.ts classify), which
+    # then holds every merge as "base red". Pushes take their own -push group,
+    # so that no-op cannot bump a pending PR run out of its group.
     needs: golden-lane
-    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    if: ${{ !cancelled() }}
     concurrency:
-      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
+      group: golden-paths-dev-demo${{ github.event_name == 'push' && '-push' || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
       cancel-in-progress: false
 
     steps:
+      - name: Not a pull_request run (master push)
+        if: github.event_name != 'pull_request'
+        run: echo "push to master, nothing to smoke-test; the full suite runs after the merge as Golden Paths E2E (post-merge)"
+
       # No token left in .git/config (the install below runs dependency
       # lifecycle scripts).
       - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
 
       - name: Install dependencies
+        if: github.event_name == 'pull_request'
         run: bun install --frozen-lockfile
 
       - name: Boot dev server and run the golden paths smoke
+        if: github.event_name == 'pull_request'
         env:
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
@@ -224,10 +237,12 @@ jobs:
   # merging until master's required checks become "Type Check, Lint & Test" +
   # "Golden Paths smoke (blocking)". always(): a required check that is itself
   # skipped counts as passing, so a skipped or cancelled smoke must fail here.
+  # It runs on master pushes too (smoke passes there as a no-op): a skipped
+  # required check on the master head holds the merge queue (see smoke).
   golden-paths-shim:
     name: Golden Paths E2E (blocking)
     needs: golden-paths-smoke
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() }}
     runs-on: [self-hosted, linux, velo]
     timeout-minutes: 5
     steps:
@@ -252,9 +267,9 @@ jobs:
     timeout-minutes: 45
     # Its own group, never cancelled: sharing the PR or -queue smoke group
     # would hold PR and queue runs behind a 30-45 min suite, and a pending PR
-    # run would cancel it (one PENDING job per group). Master pushes already
-    # queue at the workflow level (top of file); this also keeps a re-run of
-    # an older master run off a newer one. It overlaps smoke runs on the Demo
+    # run would cancel it (one PENDING job per group). One suite runs at a
+    # time; a newer master push replaces an older PENDING one, so the suite
+    # always reaches the latest master. It overlaps smoke runs on the Demo
     # company until per-runner slots land (#916).
     if: ${{ github.event_name == 'push' }}
     concurrency:
@@ -356,8 +371,12 @@ jobs:
               echo "nothing to report"
               ;;
             *)
+              # First line only, and no @mentions: a merge subject's @name would
+              # notify that account from a public issue.
+              subject=${SUBJECT%%$'\n'*}
+              subject=${subject//@/(at)}
               body=$(printf 'Golden Paths E2E (post-merge) on master: **%s**\n\n- Run: %s\n- Commit: %s\n- Subject: %s\n\nNothing was reverted. Read the run log, then fix forward or revert by PR.\n' \
-                "$verdict" "$RUN_URL" "$COMMIT_URL" "${SUBJECT%%$'\n'*}")
+                "$verdict" "$RUN_URL" "$COMMIT_URL" "$subject")
               gh label create "$label" -R "$REPO" --color B60205 \
                 --description "Golden Paths E2E (post-merge) is red on master" --force
               first=${open%%$'\n'*}

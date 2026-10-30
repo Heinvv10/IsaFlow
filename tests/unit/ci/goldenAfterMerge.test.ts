@@ -29,12 +29,28 @@ describe('which run gets which suite', () => {
     expect(lastRun(full)).toMatch(/bun run test:e2e:golden\n?$/);
   });
 
-  it('the smoke subset runs on every pull_request run (PR heads and merge-queue heads alike)', () => {
+  it('the smoke subset runs on every pull_request run (PR heads and merge-queue heads alike), and no-ops on a push', () => {
     const smoke = jobs['golden-paths-smoke']!;
     expect(smoke.name).toBe('Golden Paths smoke (blocking)');
-    expect(smoke.if).toBe("${{ !cancelled() && github.event_name == 'pull_request' }}");
+    expect(smoke.if).toBe('${{ !cancelled() }}');
     expect(lastRun(smoke)).toMatch(/bun run test:e2e:golden:smoke\n?$/);
+    const [noop, ...rest] = smoke.steps;
+    expect(noop!.if).toBe("github.event_name != 'pull_request'");
+    expect(noop!.uses).toBeUndefined();
+    for (const s of rest) expect(s.if, s.name ?? s.uses).toBe("github.event_name == 'pull_request'");
   });
+
+  // The merge queue reads a SKIPPED required check on the master head as a
+  // failure (merge-queue checks.ts classify) and then holds every merge as
+  // "base red", so a job carrying a required name must run, and report, on a
+  // push too. Its job-level `if` may not filter by event.
+  it.each(['Type Check, Lint & Test', 'Golden Paths smoke (blocking)', 'Golden Paths E2E (blocking)'])(
+    '%s is never skipped on a push to master', (name) => {
+      const carriers = Object.values(jobs).filter((j) => j.name === name);
+      expect(carriers).toHaveLength(1);
+      expect(carriers[0]!.if ?? '').not.toMatch(/event_name/);
+    },
+  );
 
   it('every spec the smoke script names exists (Playwright would quietly drop a missing one)', () => {
     const specs = scripts['test:e2e:golden:smoke']!.split(/\s+/).filter((a) => a.endsWith('.spec.ts'));
@@ -62,7 +78,10 @@ writeFileSync(join(dir, 'gh'), [
   '#!/bin/bash',
   'args="$*"; echo "gh ${args//$\'\\n\'/ }" >> "$STUB_LOG"',
   'case "$1 $2" in',
-  '  "api "*) echo "$STUB_STEPS"; exit "${STUB_API_RC:-0}" ;;',
+  '  "api "*)',
+  '    [ "${STUB_API_RC:-0}" = 0 ] || exit "$STUB_API_RC"',
+  '    while [ $# -gt 0 ]; do [ "$1" = --jq ] && { printf "%s" "$STUB_JOBS" | jq -r "$2"; exit; }; shift; done',
+  '    exit 3 ;;',
   '  "issue list") [ -n "$STUB_OPEN" ] && printf "%s\\n" $STUB_OPEN ;;',
   'esac',
   'exit 0',
@@ -86,7 +105,7 @@ describe('the temporary "Golden Paths E2E (blocking)" shim', () => {
     const shim = jobs['golden-paths-shim']!;
     expect(shim.name).toBe('Golden Paths E2E (blocking)');
     expect(shim.needs).toBe('golden-paths-smoke');
-    expect(shim.if).toBe("${{ always() && github.event_name == 'pull_request' }}");
+    expect(shim.if).toBe('${{ always() }}');
   });
 
   it.each([['success', 0], ['failure', 1], ['cancelled', 1], ['skipped', 1], ['', 1]])(
@@ -96,10 +115,17 @@ describe('the temporary "Golden Paths E2E (blocking)" shim', () => {
   );
 });
 
+/** The jobs API answer the report's --jq filter reads: the post-merge job with `steps` steps, plus a decoy. */
+function jobsJson(steps: number, name = 'Golden Paths E2E (post-merge)'): string {
+  const stepList = Array.from({ length: steps }, (_, i) => ({ name: `s${i}` }));
+  return JSON.stringify({ jobs: [{ name: 'Golden Paths smoke (blocking)', steps: [{}, {}, {}] }, { name, steps: stepList }] });
+}
+
 describe('the post-merge report', () => {
   const ENV = {
     GH_TOKEN: 't', REPO: 'o/r', RUN_URL: 'https://x/runs/9', RUN_ID: '9', RUN_ATTEMPT: '1',
-    COMMIT_URL: 'https://x/commit/abc', SUBJECT: 'Merge pull request #7 from o/b\n\nbody line', STUB_STEPS: '0', STUB_OPEN: '',
+    COMMIT_URL: 'https://x/commit/abc', SUBJECT: 'Merge pull request #7 from @someone/b\n\nbody line', STUB_OPEN: '',
+    STUB_JOBS: jobsJson(0),
   };
   const created = (calls: string[]) => calls.filter((c) => c.startsWith('gh issue create'));
   const commented = (calls: string[]) => calls.filter((c) => c.startsWith('gh issue comment'));
@@ -118,7 +144,8 @@ describe('the post-merge report', () => {
     expect(created(r.calls)[0]).toContain('--label golden-paths-red');
     expect(created(r.calls)[0]).toContain('https://x/runs/9');
     expect(created(r.calls)[0]).toContain('https://x/commit/abc');
-    expect(created(r.calls)[0]).toContain('Merge pull request #7 from o/b');
+    expect(created(r.calls)[0]).toContain('Merge pull request #7 from (at)someone/b');
+    expect(created(r.calls)[0]).not.toContain('@');
     expect(created(r.calls)[0]).not.toContain('body line');
   });
 
@@ -138,22 +165,28 @@ describe('the post-merge report', () => {
   });
 
   it('cancelled after it started (cancelled or timed out) counts as red', () => {
-    const r = runStep('golden-paths-report', { ...ENV, RESULT: 'cancelled', STUB_STEPS: '4' });
+    const r = runStep('golden-paths-report', { ...ENV, RESULT: 'cancelled', STUB_JOBS: jobsJson(4) });
     expect(r.status).toBe(1);
     expect(created(r.calls)[0]).toContain('did not finish');
   });
 
   it('cancelled before it started (superseded by a newer master push) reports nothing', () => {
-    const r = runStep('golden-paths-report', { ...ENV, RESULT: 'cancelled', STUB_STEPS: '0' });
+    const r = runStep('golden-paths-report', { ...ENV, RESULT: 'cancelled', STUB_JOBS: jobsJson(0) });
     expect(r.status).toBe(0);
     expect(created(r.calls)).toHaveLength(0);
     expect(commented(r.calls)).toHaveLength(0);
   });
 
+  it("the steps it counts are the post-merge job's, not another job's", () => {
+    const r = runStep('golden-paths-report', { ...ENV, RESULT: 'cancelled', STUB_JOBS: jobsJson(4, 'Some other job') });
+    expect(r.status).toBe(0);
+    expect(created(r.calls)).toHaveLength(0);
+  });
+
   it.each([
-    ['an API error', { STUB_STEPS: '', STUB_API_RC: '1' }],
-    ['an answer that is not a count', { STUB_STEPS: 'not-a-number' }],
-    ['an empty answer', { STUB_STEPS: '' }],
+    ['an API error', { STUB_API_RC: '1' }],
+    ['an answer that is not JSON', { STUB_JOBS: 'not json' }],
+    ['an empty answer', { STUB_JOBS: '' }],
   ])('%s reading the cancelled job fails the report rather than staying quiet', (_label, over) => {
     const r = runStep('golden-paths-report', { ...ENV, RESULT: 'cancelled', ...over });
     expect(r.status).not.toBe(0);

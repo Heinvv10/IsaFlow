@@ -62,10 +62,11 @@ const RUNS_ON = ['self-hosted', 'linux', 'velo'];
  * refs, ends the check CANCELLED, never red, and this repo has merged on
  * cancelled checks. Concurrency is pinned exactly; the timeout has a floor
  * (the job measured 8m13s under load, R-052/green.log). A PR push cancels its
- * ref's older run; a master push never does, because each one runs the full
- * Golden Paths suite after the merge, which outlasts the gap between merges.
+ * ref's older run; a master push takes its own sha's group, so it never
+ * cancels another: each one runs the full Golden Paths suite after the merge,
+ * which outlasts the gap between merges.
  */
-const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': "${{ github.event_name != 'push' }}" };
+const CONCURRENCY = { group: "ci-${{ github.event_name == 'push' && github.sha || github.ref }}", 'cancel-in-progress': true };
 /**
  * Concurrency groups are repo-wide, across workflows: any other job or
  * workflow that takes the ci- group cancels quality. Scanning group strings is
@@ -83,7 +84,7 @@ const JOBS = ['quality', 'golden-lane', 'golden-paths-smoke', 'golden-paths-shim
 const NO_GROUP_JOBS = ['golden-lane', 'golden-paths-shim', 'golden-paths-report'];
 const GROUPS: Record<string, { group: string; 'cancel-in-progress': boolean }> = {
   'golden-paths-smoke': {
-    group: "golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
+    group: "golden-paths-dev-demo${{ github.event_name == 'push' && '-push' || needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
     'cancel-in-progress': false,
   },
   'golden-paths': { group: 'golden-paths-post-merge', 'cancel-in-progress': false },
