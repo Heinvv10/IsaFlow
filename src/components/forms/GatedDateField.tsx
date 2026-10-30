@@ -16,7 +16,7 @@ export type GatedDateFieldProps = Omit<DateFieldProps, 'onChange'> & {
 };
 
 export function GatedDateField({ gate, gateKey, onValue, ...props }: GatedDateFieldProps) {
-  const { bind, forget } = gate;
-  useEffect(() => () => forget(gateKey), [forget, gateKey]);
-  return <DateField {...props} onChange={bind(gateKey, onValue)} />;
+  const { bind, reset } = gate;
+  useEffect(() => () => reset(gateKey), [reset, gateKey]);
+  return <DateField resetKey={gate.resetKey(gateKey)} {...props} onChange={bind(gateKey, onValue, props.value)} />;
 }
