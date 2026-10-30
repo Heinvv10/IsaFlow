@@ -20,6 +20,26 @@ export interface Comparison {
   variance?: number;
   variancePct?: number;
   favourable?: boolean;
+  /**
+   * There is no comparator figure at all (an unbudgeted account): the grid
+   * prints "—" in its value, Δ and Δ% cells, with no bar and no colour, and
+   * `value` (0) is never printed. Not the same as a budget of zero, which
+   * prints the statement zero.
+   */
+  absent?: true;
+  /** Why it is absent, for a marker and tooltip: a budget covering only part of the window, or one set above the filter. */
+  absentReason?: 'partial' | 'above-filter';
+}
+
+/** The Projected FY / FY budget / Δ cells of a Budget vs Actual row (`columns.projection`). */
+export interface ProjectionFigures {
+  projected: number;
+  fyBudget?: number;
+  /** projected − fyBudget (movement sign). */
+  variance?: number;
+  favourable?: boolean;
+  /** No FY budget: FY budget and Δ print "—". */
+  absent?: true;
 }
 
 /** WS3: annotation presence on a row. Presentation only — it carries no figure
@@ -42,6 +62,8 @@ export interface StatementRow {
   budget?: Comparison;
   /** Populated by WS1 (12-month trend column). No adapter sets it yet. */
   trend?: number[];
+  /** Budget vs Actual only (`budgetTrackingRows`); printed when `columns.projection` is set. */
+  projection?: ProjectionFigures;
   /** Account-detail destination. Set, the label renders as a link and the
    * expand chevron becomes a sibling button rather than wrapping it. */
   href?: string;
@@ -64,6 +86,8 @@ export interface StatementColumns {
   budget: boolean;
   variance: boolean;
   trend: boolean;
+  /** Projected FY / FY budget / Δ cells (Budget vs Actual). Absent = off, so every other surface's columns are unchanged. */
+  projection?: boolean;
 }
 
 /**

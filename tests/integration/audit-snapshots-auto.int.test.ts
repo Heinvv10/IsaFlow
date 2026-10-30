@@ -144,7 +144,8 @@ describe('automatic snapshots', { timeout: 3 * SNAPSHOT_WAIT_MS }, () => { // so
       ctx.finished = true;
       await client.query('COMMIT');
     } finally { client.release(); }
-    expect(ctx.afterCommit).toHaveLength(1);
+    // The snapshot, and (Budgets P4) the rolling-forecast roll the close queues beside it.
+    expect(ctx.afterCommit!.map((j) => j.label)).toEqual(['audit-auto-snapshot', 'budget-rolling-forecast']);
     // Run the queued work itself and wait for it (drainAfterCommit detaches it; a snapshot takes seconds under load).
     await ctx.afterCommit![0]!.fn();
     expect(await waitForSnapshots(pool, c, 1, 0)).toEqual([]);

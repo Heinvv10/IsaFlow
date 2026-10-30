@@ -38,7 +38,9 @@ noticing. Add a case there rather than starting a second file.
 Adding a fourth exception needs a reason in the file and a test that pins it.
 
 ## Files
-- `statementModel.ts` — `StatementRow`, `Comparison`, `StatementColumns`, and
+- `statementModel.ts` — `StatementRow`, `Comparison` (`absent`, `absentReason`:
+  no budget is "—", never 0), `ProjectionFigures` (`StatementRow.projection`),
+  `StatementColumns` (`projection`, optional, absent = off), and
   `comparativeOnlyColumns(showComparative)`: the columns a surface with no
   comparator controls prints. Both statement bodies fall back to it, so
   "no columns chosen" means one thing rather than two copies of a literal.
@@ -51,6 +53,12 @@ Adding a fourth exception needs a reason in the file and a test that pins it.
 - `packMappers.ts` — report-pack section blobs → the pack surfaces' shapes,
   including `toManagementPandLRows`, which builds its bands from
   `incomeStatementPackRows` so screen and pack share ONE band list.
+- `budgetTrackingRows.ts` — `toBudgetTrackingRows(report)`: the budgets P3
+  tracking engine's lines and bands → rows (Budget vs Actual page and its
+  export). Copies only: band, subtotal and profit-total figures are the
+  engine's, never summed here (the engine derives, so the "copy, never derive"
+  list above is unchanged). An absent budget is `{ value: 0, absent: true }`
+  with `absentReason` when the engine says why.
 - `comparators.ts` — `baseComparison` (one comparison against a BASE figure,
   shared by both row adapters for `prior` and by `applyBudgetComparator` for
   `budget` — it is not a prior-period helper), `applyTrend` and

@@ -102,23 +102,44 @@ function addTo(map: Map<string, number>, key: string, amount: number, rowKey: Ro
   map.set(key, sum);
 }
 
+/**
+ * The UNPLACED rule, the one copy (the planner's, and the versions bar's status): in a closed month,
+ * an untagged actual (memberId null) on an account whose rows are at a dimension grain, as the
+ * non-zero net per account + month, sorted by account then month.
+ */
+export function unplacedActuals(input: Pick<ReforecastInput, 'months' | 'rows' | 'actuals' | 'closedMonths'>): UnplacedActual[] {
+  const index = monthIndex(input.months);
+  const grains = accountGrains(input.rows);
+  const unplaced = new Map<string, number>();
+  for (const level of LEVELS) {
+    if (level === 'company') continue;
+    for (const a of input.actuals[level]) {
+      if (!index.has(a.month) || !input.closedMonths.has(a.month) || grains.get(a.accountId) !== level || a.memberId !== null) continue;
+      addTo(unplaced, `${a.accountId}|${a.month}`, a.amount, a.accountId, a.month);
+    }
+  }
+  return [...unplaced.entries()]
+    .filter(([, amount]) => amount !== 0)
+    .map(([k, amount]) => {
+      const cut = k.lastIndexOf('|');
+      return { accountId: k.slice(0, cut), month: k.slice(cut + 1), amount };
+    })
+    .sort((x, y) => cmp(x.accountId, y.accountId) || (index.get(x.month) as number) - (index.get(y.month) as number));
+}
+
 export function planReforecast(input: ReforecastInput): ReforecastResult {
   const index = monthIndex(input.months);
   const grains = accountGrains(input.rows);
   const sourceRows = new Map(input.rows.map(r => [r.key, r]));
   const isClosed = (m: string) => index.has(m) && input.closedMonths.has(m);
 
-  // Closed-month actuals, placed at each account's grain.
+  // Closed-month actuals, placed at each account's grain; untagged ones at a dimension grain are `unplacedActuals`.
   const placed = new Map<RowKey, Map<string, number>>();
   const created = new Map<RowKey, DriverRow>();
-  const unplaced = new Map<string, number>();
   for (const level of LEVELS) {
     for (const a of input.actuals[level]) {
       if (!isClosed(a.month) || (grains.get(a.accountId) ?? 'company') !== level) continue;
-      if (level !== 'company' && a.memberId === null) {
-        addTo(unplaced, `${a.accountId}|${a.month}`, a.amount, a.accountId, a.month);
-        continue;
-      }
+      if (level !== 'company' && a.memberId === null) continue;
       const row = rowAt(a.accountId, level, level === 'company' ? null : a.memberId, input.accountBand(a.accountId));
       if (!sourceRows.has(row.key) && !created.has(row.key)) created.set(row.key, row);
       const byMonth = placed.get(row.key) ?? new Map<string, number>();
@@ -157,12 +178,5 @@ export function planReforecast(input: ReforecastInput): ReforecastResult {
   for (const w of writes) grid.get(w.rowKey)?.set(w.month, { month: w.month, amount: w.amount, source: w.source });
 
   const cells = new Map<RowKey, Cell[]>(rows.map(r => [r.key, ordered(grid.get(r.key) as Map<string, Cell>)]));
-  const unplacedList = [...unplaced.entries()]
-    .filter(([, amount]) => amount !== 0)
-    .map(([k, amount]) => {
-      const cut = k.lastIndexOf('|');
-      return { accountId: k.slice(0, cut), month: k.slice(cut + 1), amount };
-    })
-    .sort((x, y) => cmp(x.accountId, y.accountId) || (index.get(x.month) as number) - (index.get(y.month) as number));
-  return { rows, cells, unplaced: unplacedList, warnings };
+  return { rows, cells, unplaced: unplacedActuals(input), warnings };
 }

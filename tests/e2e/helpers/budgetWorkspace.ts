@@ -52,10 +52,11 @@ export const totalFyCell = (page: Page, label: string): Locator => page.locator(
 
 /**
  * Cents from a grid cell's aria-label ("6000 Rent, Mar 2026, R 16 000.00, unsaved"): null when not budgeted, 0 for
- * the dash. Negatives print in brackets or with a minus sign.
+ * the dash. Negatives print in brackets or with a minus sign. P4's source words may follow the figure
+ * (", from the driver", ", override of the driver…", ", actual, read-only").
  */
 export function centsFromLabel(label: string | null): number | null {
-  const m = /, (R [^,]+|not budgeted)(?:, unsaved|, conflict)*$/.exec(label ?? '');
+  const m = /, (R [^,]+|not budgeted)(?:, from the driver|, override of the driver[^,]*|, actual, read-only|, unsaved|, conflict)*$/.exec(label ?? '');
   if (!m) throw new Error(`not a grid cell label: ${label}`);
   const text = m[1]!;
   if (text === 'not budgeted') return null;
