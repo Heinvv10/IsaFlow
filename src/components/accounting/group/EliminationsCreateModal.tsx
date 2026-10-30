@@ -13,6 +13,7 @@ import {
   type EliminationType,
   type EliminationLine,
 } from './EliminationsShared';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Props {
   formType: EliminationType;
@@ -36,6 +37,7 @@ export function EliminationsCreateModal({
   onClose, onSubmit, onTypeChange, onDescriptionChange, onPeriodChange,
   onAddLine, onRemoveLine, onUpdateLine,
 }: Props) {
+  const dateGate = useDateGate();
   const totalDebit = formLines.reduce((s, l) => s + Number(l.debit || 0), 0);
   const totalCredit = formLines.reduce((s, l) => s + Number(l.credit || 0), 0);
 
@@ -75,13 +77,7 @@ export function EliminationsCreateModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period</label>
-              <input
-                type="date"
-                value={formPeriod}
-                onChange={(e) => onPeriodChange(e.target.value)}
-                className={inputClass + ' w-full'}
-              />
+              <GatedDateField gate={dateGate} gateKey="period" label="Period" value={formPeriod || null} onValue={(iso) => onPeriodChange(iso)} />
             </div>
           </div>
 
@@ -168,7 +164,7 @@ export function EliminationsCreateModal({
             </button>
             <button
               type="submit"
-              disabled={formSaving}
+              disabled={formSaving || dateGate.blocked}
               className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
             >
               {formSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}

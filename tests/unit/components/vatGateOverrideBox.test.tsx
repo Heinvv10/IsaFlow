@@ -10,6 +10,7 @@ vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 
 const apiFetchMock = h.apiFetchMock;
 
 import { VatPeriodLockForm } from '@/components/accounting/sars/VatPeriodLockForm';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 const okJson = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 
@@ -17,8 +18,8 @@ afterEach(() => { apiFetchMock.mockReset(); h.role = 'owner'; });
 
 async function fillPeriod() {
   const { container } = render(<VatPeriodLockForm onLock={vi.fn().mockResolvedValue(null)} />);
-  fireEvent.change(container.querySelector('input[name="periodStart"]')!, { target: { value: '2026-03-01' } });
-  fireEvent.change(container.querySelector('input[name="periodEnd"]')!, { target: { value: '2026-04-30' } });
+  typeDate(container.querySelector('#vat-lock-periodStart')!, '2026-03-01');
+  typeDate(container.querySelector('#vat-lock-periodEnd')!, '2026-04-30');
   return container;
 }
 
@@ -52,8 +53,8 @@ describe('blocking exceptions present', () => {
     apiFetchMock.mockResolvedValue(okJson({ totalExceptions: 1, unpostedInvoiceVatCount: 1 }));
     const onLock = vi.fn().mockResolvedValue(null);
     const { container } = render(<VatPeriodLockForm onLock={onLock} />);
-    fireEvent.change(container.querySelector('input[name="periodStart"]')!, { target: { value: '2026-03-01' } });
-    fireEvent.change(container.querySelector('input[name="periodEnd"]')!, { target: { value: '2026-04-30' } });
+    typeDate(container.querySelector('#vat-lock-periodStart')!, '2026-03-01');
+    typeDate(container.querySelector('#vat-lock-periodEnd')!, '2026-04-30');
     const textarea = await screen.findByLabelText(/Override reason/);
     fireEvent.change(textarea, { target: { value: 'Historical import' } });
     fireEvent.click(screen.getByText('Lock period'));
