@@ -66,6 +66,40 @@ export function pctOfBudget(amount: number, budget: number, budgeted: boolean): 
 }
 
 /**
+ * One report line from a raw aggregate row + a budget map, kept whatever its
+ * figures. `getBudgetVariance(…, { partialWindow: 'absent' })` maps every line
+ * the tracking engine retained through this: the engine keeps a partial or
+ * above-filter account with no actual, whose withheld budget is not in the map.
+ */
+export function toBudgetVsActualLine(
+  a: RawActualRow,
+  /** Budget per account over the window, keyed by gl_accounts.id. */
+  budgets: Readonly<Record<string, number>>,
+): BudgetVsActualLine {
+  const stored = lookupBudget(budgets, a);
+  const budgeted = stored !== undefined;
+  const budget = stored ?? 0;
+  const actual = Number(a.actual_amount);
+  const type: BudgetLineType = a.account_type === 'revenue' ? 'revenue' : 'expense';
+  const movement = round2(actual - budget);
+  const variance = type === 'revenue' ? movement : round2(budget - actual);
+  return {
+    account_id: String(a.id),
+    account_code: a.account_code,
+    account_name: a.account_name,
+    account_type: type,
+    budgeted,
+    budget_amount: budget,
+    actual_amount: actual,
+    variance,
+    movement,
+    variance_pct: pctOfBudget(variance, budget, budgeted),
+    movement_pct: pctOfBudget(movement, budget, budgeted),
+    favourable: budgeted ? variance >= 0 : null,
+  };
+}
+
+/**
  * Build the report lines from raw aggregate rows + a budget map.
  *
  * A row is kept when it is budgeted (even at zero, even with no actuals) or
@@ -78,28 +112,6 @@ export function buildBudgetVsActualLines(
   budgets: Readonly<Record<string, number>>,
 ): BudgetVsActualLine[] {
   return actuals
-    .map<BudgetVsActualLine>((a) => {
-      const stored = lookupBudget(budgets, a);
-      const budgeted = stored !== undefined;
-      const budget = stored ?? 0;
-      const actual = Number(a.actual_amount);
-      const type: BudgetLineType = a.account_type === 'revenue' ? 'revenue' : 'expense';
-      const movement = round2(actual - budget);
-      const variance = type === 'revenue' ? movement : round2(budget - actual);
-      return {
-        account_id: String(a.id),
-        account_code: a.account_code,
-        account_name: a.account_name,
-        account_type: type,
-        budgeted,
-        budget_amount: budget,
-        actual_amount: actual,
-        variance,
-        movement,
-        variance_pct: pctOfBudget(variance, budget, budgeted),
-        movement_pct: pctOfBudget(movement, budget, budgeted),
-        favourable: budgeted ? variance >= 0 : null,
-      };
-    })
+    .map((a) => toBudgetVsActualLine(a, budgets))
     .filter((l) => l.budgeted || l.actual_amount !== 0);
 }

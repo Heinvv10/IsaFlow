@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { PresentDeck } from '@/components/accounting/present/PresentDeck';
 import { buildSlides, type ReportPack, type Slide } from '@/components/accounting/present/presentSlides';
 import { PresentSlide } from '@/components/accounting/present/PresentSlide';
+import type { BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
@@ -30,6 +31,7 @@ export default function PresentPackPage() {
   const [trendsFailed, setTrendsFailed] = useState(false);
   const [budget, setBudget] = useState<BudgetVsActualLine[]>([]);
   const [budgetedCount, setBudgetedCount] = useState(0);
+  const [budgetInfo, setBudgetInfo] = useState<BudgetInfo | undefined>(undefined);
   const [budgetFailed, setBudgetFailed] = useState(false);
   const [income, setIncome] = useState<IncomeStatementReport | null>(null);
   // One flag per fetch, not one for the batch. The deck renders as soon as
@@ -52,7 +54,7 @@ export default function PresentPackPage() {
     // invalid pack — a client-side navigation from an unknown pack to a
     // known one must not keep the old "Unknown pack" banner on screen.
     setError('');
-    setSlides(null); setIncome(null); setTrends(null); setBudget([]); setBudgetedCount(0);
+    setSlides(null); setIncome(null); setTrends(null); setBudget([]); setBudgetedCount(0); setBudgetInfo(undefined);
     let live = true;
     setTrendsFailed(false);
     setBudgetFailed(false);
@@ -94,6 +96,13 @@ export default function PresentPackPage() {
         if (budgetResult.status === 'fulfilled') {
           setBudget(budgetResult.value.lines);
           setBudgetedCount(budgetResult.value.budgetedCount);
+          // Why a count of 0 is not "no budget captured": the comparator withholds a budget that exists.
+          const b = budgetResult.value;
+          setBudgetInfo({
+            budgetAbsentYears: b.budgetAbsentYears, budgetOutsideFilterYears: b.budgetOutsideFilterYears,
+            unallocatedBudget: b.unallocatedBudget, partialBudgetCount: b.partialBudgetCount, splitsMonth: b.splitsMonth,
+            retryAfterSecs: null, rejection: null,
+          });
         } else {
           setBudgetFailed(true);
           log.error('Budget comparator failed to load', { error: budgetResult.reason }, 'present');
@@ -128,13 +137,13 @@ export default function PresentPackPage() {
       <PresentSlide
         slide={slide} income={income} incomeLoading={incomeLoading}
         trends={trends} trendsFailed={trendsFailed} trendsLoading={trendsLoading}
-        budget={budget} budgetedCount={budgetedCount}
+        budget={budget} budgetedCount={budgetedCount} budgetInfo={budgetInfo}
         budgetFailed={budgetFailed} budgetLoading={budgetLoading}
       />
     ),
     [
       income, incomeLoading, trends, trendsFailed, trendsLoading,
-      budget, budgetedCount, budgetFailed, budgetLoading,
+      budget, budgetedCount, budgetInfo, budgetFailed, budgetLoading,
     ],
   );
 

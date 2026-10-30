@@ -14,7 +14,10 @@
  *     its budget above the filter, or the window budget is absent; never the sum of
  *     the lines that happen to be budgeted, and never a zero nobody set;
  *   - the partial count is the engine's (every partial account, with or
- *     without an actual), and so are the absent years and unallocated budget.
+ *     without an actual), and so are the absent years and unallocated budget;
+ *   - the lines are every line the engine retained, P0's drop of an
+ *     unbudgeted zero/zero row NOT applied (a withheld budget is not in the
+ *     budget map, so that filter would drop a partial account with no actual).
  */
 import { round2 } from '../core/budgetMonths';
 import { sectionBudgets } from '../budgets/tracking/trackingBands';
@@ -22,7 +25,7 @@ import type { RangeTracking } from '../budgets/tracking/trackingRange';
 import type {
   BudgetVerdict, ByPolarity, TrackingBandKey, TrackingTotalKey, TrackingVersionRef,
 } from '../budgets/tracking/trackingTypes';
-import { buildBudgetVsActualLines, type BudgetVsActualLine, type RawActualRow } from './budgetVsActualLines';
+import { toBudgetVsActualLine, type BudgetVsActualLine, type RawActualRow } from './budgetVsActualLines';
 import { buildBudgetVsActualSections, type BudgetSectionKey, type BudgetVsActualSection } from './budgetVsActualSections';
 
 export interface TrackedLine extends BudgetVsActualLine {
@@ -70,7 +73,10 @@ export function trackedVariance(range: RangeTracking): BudgetVarianceTracked {
   }));
   const budgets: Record<string, number> = {};
   for (const l of range.lines) if (l.budgetVerdict === 'budgeted' && l.budget !== null) budgets[l.accountId] = l.budget;
-  const lines: TrackedLine[] = buildBudgetVsActualLines(actuals, budgets).map((l) => {
+  // EVERY line the engine retained, never P0's dormant-account filter: a partial or above-filter
+  // account with no actual has its budget withheld (not in `budgets`), and dropping it would leave
+  // the engine's partial count and withheld bands with no line to explain them.
+  const lines: TrackedLine[] = actuals.map((a) => toBudgetVsActualLine(a, budgets)).map((l) => {
     const e = engine.get(l.account_id)!;
     const out: TrackedLine = { ...l, budget_verdict: e.budgetVerdict, band: e.band };
     if (e.budgetVerdict === 'partial') out.budget_partial = true;
