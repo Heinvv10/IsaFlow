@@ -2,7 +2,7 @@
 
 IsaFlow exposes a hosted **MCP (Model Context Protocol)** server so you can connect
 Claude Code, Claude Desktop, claude.ai, Codex, Cursor or Grok Bot and operate your
-accounting with an AI agent — reads, draft writes, and (with an extra permission) posting.
+accounting with an AI agent, with each write permission approved separately.
 
 > **Availability:** you need an IsaFlow account, and the connector is switched on per
 > company. If a connected client reports `MCP connector not enabled for this company`,
@@ -47,8 +47,9 @@ Add to your MCP config:
    connector).
 2. Choose **Authenticate**. Your browser opens the IsaFlow sign-in page.
 3. Sign in, pick the company the connection is for, and review the permissions.
-4. Leave **`write:post`** (posting to your ledger) **unticked** unless you mean to let the
-   agent post. Then choose **Authorise**.
+4. Tick only the write permissions you want the agent to have. They start unticked.
+   **`write:post`** can make ledger entries that need a reversal to correct. Then choose
+   **Authorise**.
 
 The consent screen shows where the authorisation is sent; for Grok Bot and Cursor that is
 the Cursor app on your computer (`cursor://anysphere.cursor-mcp`) or `www.cursor.com`.
@@ -67,7 +68,7 @@ Add a remote MCP server with the URL `https://app.isaflow.co.za/api/mcp`, for ex
 ```
 
 Then choose **Authenticate** (or **Login**) next to the server and follow steps 2–4 of the
-Grok Bot section: sign in, pick the company, leave `write:post` unticked.
+Grok Bot section: sign in, pick the company, and tick only the write permissions you want.
 
 ### Codex (or any client without OAuth)
 
@@ -78,7 +79,7 @@ send it as a bearer header:
 Authorization: Bearer pat_xxxxxxxx… → https://app.isaflow.co.za/api/mcp
 ```
 
-## Scopes & the `write:post` permission
+## Scopes and write permissions
 
 A client that asks for no particular permissions is offered the read-only set (reports,
 invoices, contacts, bank, VAT, payroll, practice) plus staying signed in.
@@ -86,14 +87,18 @@ invoices, contacts, bank, VAT, payroll, practice) plus staying signed in.
 | Capability | Scope | Notes |
 |---|---|---|
 | Read reports, invoices, contacts, bank, VAT; review what the agent posted | `read:*` | Read-only on their own. A few tools under a read area change data and need a matching `write:*` scope too (see **Tools**) |
-| Create **draft** invoices / quotes / journals, suggest bank allocations | `write:invoices`, `write:journals`, `write:bank-tx` | On their own these create drafts and suggestions only. Every tool that actually posts carries a `write:*` scope **and** additionally requires `write:post` — so holding `write:bank-tx` alone still cannot post anything |
+| Create **draft** invoices / quotes / journals, suggest bank allocations | `write:invoices`, `write:journals`, `write:bank-tx` | Each write scope is unticked by default and must be approved separately. Every tool that actually posts carries a `write:*` scope **and** additionally requires `write:post`, so holding `write:bank-tx` alone still cannot post anything |
 | Read practice clients, the job taxonomy and logged time | `read:practice` | Safe, read-only. Defaults to the token's own time entries — the whole practice's must be asked for explicitly |
 | Create job categories and work items; log and submit time entries | `write:practice` | Posts nothing to the ledger, but a time entry carries a rate, lands in WIP and is what a client is ultimately invoiced for. Agent-logged hours are always stamped `origin = 'assisted'`, and the rate is resolved server-side — an agent cannot set it. Time can only be logged and submitted for the token's own user |
-| **Post** journals, **finalize** invoices, **allocate** and **reverse** bank transactions | `write:post` | **Irreversible except by a reversing entry.** Off by default — you must tick it explicitly at connect time |
+| **Post** journals, **finalize** invoices, **allocate** and **reverse** bank transactions | `write:post` | **Irreversible except by a reversing entry.** Unticked by default and must be approved explicitly |
 
-`write:post` is **unchecked by default even if the client asks for it**. Grant it only to
-integrations you trust to write to your ledger. The server enforces this — a client
-cannot silently obtain it.
+Every requested `write:*` scope is **unchecked by default**, even if the client asks for
+it. Read scopes and `offline_access` are granted as shown. The server grants only the
+requested write scopes you tick, so a client cannot add one through a changed form.
+
+On re-authorisation, a write scope already granted to the same app, user and company is
+pre-ticked. Newly requested write scopes stay unticked. Existing access and refresh tokens
+keep their stored scopes until the connection is re-authorised or revoked.
 
 What `write:post` actually allows, in full: posting journals, finalizing (approving)
 customer invoices, and allocating bank transactions on the agent's own initiative. **A
@@ -159,9 +164,10 @@ on a subscription plan are never charged per call.
 - **`This company's Flow balance is too low for …`** — a direct (token or registered-app)
   connection on a pay-as-you-go company called a write that costs Flows; nothing was
   changed.
-- **A posting tool is rejected** — your connection wasn't granted `write:post`. This
-  covers `allocate_bank_transaction` and `reverse_bank_allocation` too, not only
-  `post_journal` / `finalize_invoice`. Reconnect and tick the posting permission.
+- **A write tool is rejected** — your connection was not granted its `write:*` scope.
+  Posting tools also need `write:post`; this covers `allocate_bank_transaction` and
+  `reverse_bank_allocation`, not only `post_journal` / `finalize_invoice`. Reconnect and
+  tick only the permissions the connection needs.
 - **The agent allocated something wrongly** — call `list_agent_postings` for the date
   range to find it, then `reverse_bank_allocation` on the bank transaction. Rows already
   showing `reversed: true` have been corrected; reversing them again is refused.

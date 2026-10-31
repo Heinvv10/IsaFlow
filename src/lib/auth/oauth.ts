@@ -569,6 +569,33 @@ async function updateLastUsed(authorisationId: string, ip: string | null): Promi
 
 // ── Connected apps ──────────────────────────────────────────────────────────
 
+/**
+ * Live scopes previously granted to this app by this user, keyed by company.
+ * The consent page uses them only to prefill requested write checkboxes during
+ * re-consent. Token refresh reads the stored grant directly and is unchanged.
+ */
+export async function getConsentScopesByCompany(
+  userId: string,
+  oauthAppId: string,
+  companyIds: readonly string[],
+): Promise<Record<string, string[]>> {
+  if (companyIds.length === 0) return {};
+  const rows = (await migrationAdminPool().query(
+    `SELECT company_id, scopes
+       FROM oauth_authorisations
+      WHERE user_id = $1
+        AND oauth_app_id = $2::uuid
+        AND company_id = ANY($3::uuid[])
+        AND revoked_at IS NULL`,
+    [userId, oauthAppId, [...companyIds]],
+  )).rows as Row[];
+
+  return Object.fromEntries(rows.map((row) => [
+    row.company_id as string,
+    Array.isArray(row.scopes) ? row.scopes as string[] : [],
+  ]));
+}
+
 export interface ConnectedApp {
   authorisationId: string;
   appId: string;

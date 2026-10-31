@@ -15,8 +15,8 @@
  *
  * Nothing here grants anything: the user still sees the list and must press
  * Authorise, consent.ts re-validates every scope and keeps its own "at least
- * one scope" backstop, and write:post is never in the default and stays
- * opt-in at consent.
+ * one scope" backstop. No write scope is in the default, and every requested
+ * write scope stays opt-in at consent.
  */
 import { DEFAULT_MCP_SCOPES, OAUTH_SCOPES } from './oauthScopes';
 
