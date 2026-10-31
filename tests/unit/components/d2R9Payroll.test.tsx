@@ -26,6 +26,7 @@ import RunPage from '../../../pages/payroll/runs/[id]';
 import ParallelRunPage from '../../../pages/payroll/parallel-run/index';
 import NewLeavePage from '../../../pages/payroll/leave/new';
 import PayPage from '../../../pages/portal/pay/[token]';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -177,9 +178,9 @@ describe('new leave request', () => {
     const [emp, type] = Array.from(container.querySelectorAll('select')) as HTMLSelectElement[];
     fireEvent.change(emp!, { target: { value: 'e1' } });
     fireEvent.change(type!, { target: { value: 't1' } });
-    const [from, to] = Array.from(container.querySelectorAll('input[type="date"]')) as HTMLInputElement[];
-    fireEvent.change(from!, { target: { value: '2026-03-02' } });
-    fireEvent.change(to!, { target: { value: '2026-03-03' } });
+    const [from, to] = dateInputs(container);
+    typeDate(from!, '2026-03-02');
+    typeDate(to!, '2026-03-03');
     fireEvent.submit(container.querySelector('form')!);
   };
   it('empty 500 and a dropped connection give the same plain sentence', async () => {
