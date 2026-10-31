@@ -60,8 +60,19 @@ export async function getVatPeriodLines(
   periodStart: string,
   periodEnd: string,
 ): Promise<VatPeriodLines> {
+  // Plan shape matters more than usual here. Every scan runs as app_user under
+  // RLS, and a table with no planner statistics (prod after the Supabase
+  // cutover had none) is estimated at one row per scan, so the planner happily
+  // nests loops. With vat_entries inlined, the final join re-ran the whole
+  // membership subquery once per (journal x company line) pair: 11,180
+  // rescans and 1.9M account probes for a 65-journal company on a never-
+  // analyzed copy, and over 120 s on prod's golden sandbox (VAT201 timeout,
+  // 31 Oct). So: vat_entries is MATERIALIZED (built once), the final query is
+  // driven FROM it by key, bounded to the period, and the cancelled flag is a
+  // join against the (already materialized, UNION-deduped) recursive CTE
+  // instead of a per-row subplan. The result set is unchanged.
   const rows = (await sql`
-    WITH RECURSIVE vat_entries AS (
+    WITH RECURSIVE vat_entries AS MATERIALIZED (
       SELECT DISTINCT jl.journal_entry_id AS id
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -139,13 +150,18 @@ export async function getVatPeriodLines(
       jl.debit,
       jl.credit,
       GREATEST(je.created_at, jl.created_at) AS row_created_at,
-      (je.id IN (SELECT id FROM cancelled_entries)) AS cancelled_source
-    FROM gl_journal_lines jl
-    JOIN vat_entries ve ON ve.id = jl.journal_entry_id
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      (ce.id IS NOT NULL) AS cancelled_source
+    FROM vat_entries ve
+    JOIN gl_journal_entries je ON je.id = ve.id
+    JOIN gl_journal_lines jl ON jl.journal_entry_id = ve.id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    -- UNION in cancelled_entries dedupes, so this join never multiplies rows.
+    LEFT JOIN cancelled_entries ce ON ce.id = je.id
     WHERE jl.company_id = ${companyId}::UUID
       AND je.company_id = ${companyId}::UUID
+      -- Implied by vat_entries; repeated so the planner can bound the scan.
+      AND je.entry_date >= ${periodStart}::DATE
+      AND je.entry_date <= ${periodEnd}::DATE
     ORDER BY je.entry_date, je.entry_number, ga.account_code, jl.id
   `) as DbRow[];
 
