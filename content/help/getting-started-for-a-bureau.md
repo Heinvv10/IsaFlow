@@ -21,7 +21,7 @@ Give each staff member their own login. Never share logins. Invite people under 
 1. Make sure each client exists as a company in ISAFlow. To create one, use the company switcher and choose **Add Company**. If the client already uses ISAFlow, ask them to invite you to their company as an owner or admin.
 2. Once the bureau is set up, open **Bureau, Manage Clients** (`/bureau/clients`) and link each company.
 
-Only the bureau owner can link or unlink a client company, and only for companies where they're an owner or admin. Other members can view the list.
+Only the bureau owner can link a client company, and only for companies where they're an owner or admin. The bureau owner can unlink any client, and a client company's own owner or admin is also allowed to withdraw their company from the bureau. Other members can view the list.
 
 ## 4. Bring each client across
 For each client, run the migration wizard (see [Migrating a client from Sage](/help/migrating-a-client-from-sage)). Do one client end to end first, check the trial balance, then do the rest.

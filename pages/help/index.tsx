@@ -50,7 +50,7 @@ export default function HelpIndexPage({ documents }: HelpIndexProps) {
                   {document.slug === 'faq' ? 'Frequently asked questions' : 'Guide'}
                 </p>
                 <h3 className="mt-3 text-xl font-bold tracking-tight text-slate-900">
-                  <Link href={`/help/${document.slug}`} className="after:absolute after:inset-0 focus:outline-none">
+                  <Link href={`/help/${document.slug}`} className="after:absolute after:inset-0 after:rounded-3xl focus:outline-none focus-visible:after:ring-2 focus-visible:after:ring-teal-600 focus-visible:after:ring-offset-2">
                     {document.title}
                   </Link>
                 </h3>
