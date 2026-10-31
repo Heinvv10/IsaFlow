@@ -83,7 +83,7 @@ export const BUREAU_SKUS: BureauSku[] = [
     features: [
       'Everything in Ledger, plus:',
       'Full books — invoicing, AR & AP',
-      'Bank reconciliation & live feeds',
+      'Bank reconciliation & statement import (CSV, OFX, QFX, QIF, MT940, PDF)',
       'Payslip-ready payroll data',
       'Undercuts Xero Cashbook (R259) — with far more included',
     ],
