@@ -46,12 +46,3 @@ export function buildGrantedScopes(
   }
   return granted;
 }
-
-/** Prefill only requested opt-ins that this app already holds for the company. */
-export function checkedRequestedOptIns(
-  requested: string[],
-  previouslyGranted: string[] | undefined,
-): Record<string, boolean> {
-  const granted = new Set(previouslyGranted ?? []);
-  return Object.fromEntries(requested.map((scope) => [scope, granted.has(scope)]));
-}

@@ -14,14 +14,14 @@ import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
-import { getConsentScopesByCompany, getOauthAppByClientId } from '@/lib/auth/oauth';
+import { getOauthAppByClientId } from '@/lib/auth/oauth';
 import { resolveAuthorizeScopes } from '@/lib/auth/authorizeScopes';
 import { authorizationErrorRedirect, checkResourceIndicator, oauthIssuer } from '@/lib/auth/oauthResource';
 import { ConsentScopeList } from '@/components/oauth/ConsentScopeList';
 import { ConsentCompanyPicker } from '@/components/oauth/ConsentCompanyPicker';
 import { ConsentRejected } from '@/components/oauth/ConsentRejected';
 import { ConsentRedirectTarget } from '@/components/oauth/ConsentRedirectTarget';
-import { checkedRequestedOptIns, partitionRequestedScopes } from '@/lib/auth/consentScopes';
+import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
 import { resolveConsentCompany } from '@/lib/auth/consentCompany';
@@ -38,12 +38,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState(props.ok ? props.selectedCompanyId : '');
-  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>(() => props.ok
-    ? checkedRequestedOptIns(
-      partitionRequestedScopes(props.scopes).optIn,
-      props.previouslyGrantedScopesByCompany[props.selectedCompanyId],
-    )
-    : {});
+  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>({});
 
   if (!props.ok) return <ConsentRejected error={props.error} />;
 
@@ -53,10 +48,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
 
   const selectCompany = (nextCompanyId: string) => {
     setCompanyId(nextCompanyId);
-    setOptInChecked(checkedRequestedOptIns(
-      optIn,
-      props.previouslyGrantedScopesByCompany[nextCompanyId],
-    ));
+    setOptInChecked({});
   };
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -193,7 +185,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
           </div>
         </form>
 
-        <div className="px-6 py-3 bg-slate-950/50 border-t border-slate-800 text-xs text-slate-500">
+        <div className="px-6 py-3 bg-slate-950/50 border-t border-slate-800 text-xs text-slate-400">
           You can revoke this access at any time from{' '}
           <a href="/accounting/settings/connected-apps" className="text-teal-400 hover:text-teal-300">
             Settings → Connected Apps
@@ -277,15 +269,12 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   }
   const choice = resolveConsentCompany(await connectorEnabledMemberships(memberships), cookies[ACTIVE_COMPANY_COOKIE]);
   if (!choice) return { props: { ok: false, error: NO_CONNECTOR_COMPANY_MESSAGE } };
-  const companyIds = choice.companies.map((company) => company.id);
-  const previouslyGrantedScopesByCompany = await getConsentScopesByCompany(userId, app.id, companyIds);
 
   return {
     props: {
       ok: true,
       companies: choice.companies,
       selectedCompanyId: choice.selectedCompanyId,
-      previouslyGrantedScopesByCompany,
       app: consentAppView(app),
       clientId,
       redirectUri,

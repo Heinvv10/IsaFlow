@@ -35,7 +35,6 @@ vi.mock('@/lib/logger', () => ({
 import { log } from '@/lib/logger';
 import {
   exchangeCode,
-  getConsentScopesByCompany,
   refreshAccessToken,
   OauthExchangeError,
 } from '@/lib/auth/oauth';
@@ -43,8 +42,6 @@ import {
   sqlMock,
   resetSqlMock,
   mockSqlOnce,
-  sqlCallText,
-  sqlCallValues,
 } from './helpers';
 
 /** Queue `rows` as the result of the NEXT admin-pool statement. */
@@ -87,26 +84,6 @@ beforeEach(() => {
   adminQueryMock.mockReset();
   adminQueryMock.mockResolvedValue({ rows: [], rowCount: 0 });
   vi.mocked(log.warn).mockClear();
-});
-
-describe('getConsentScopesByCompany', () => {
-  it('reads on the service pool for only this app, user and eligible companies, excluding revoked grants', async () => {
-    const otherCompany = '33333333-3333-3333-3333-333333333333';
-    mockSqlOnce([
-      { company_id: COMPANY_ID, scopes: ['read:reports', 'write:journals'] },
-      { company_id: otherCompany, scopes: ['read:reports'] },
-    ]);
-
-    await expect(getConsentScopesByCompany(USER_ID, APP_ID, [COMPANY_ID, otherCompany])).resolves.toEqual({
-      [COMPANY_ID]: ['read:reports', 'write:journals'],
-      [otherCompany]: ['read:reports'],
-    });
-    expect(sqlCallText(0)).toMatch(/oauth_app_id\s*=\s*\?\s*::uuid/);
-    expect(sqlCallText(0)).toMatch(/company_id\s*=\s*ANY\(\s*\?\s*::uuid\[\]\)/);
-    expect(sqlCallText(0)).toContain('revoked_at IS NULL');
-    expect(sqlCallValues(0)).toEqual([USER_ID, APP_ID, [COMPANY_ID, otherCompany]]);
-    expect(adminQueryMock).not.toHaveBeenCalled();
-  });
 });
 
 describe('exchangeCode (auth-code grant)', () => {
