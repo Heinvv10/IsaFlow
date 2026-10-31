@@ -130,11 +130,11 @@ describe('refuseReversalAgainstPayRun (the live path)', () => {
     expect(lockPayrollRunHeader).not.toHaveBeenCalled();
   });
 
-  it('returns an honest audit marker for a grandfathered run with no historical hash', async () => {
+  it('retains an honest audit marker after reopen clears the grandfather flag', async () => {
     chain('in_force');
     db.run = {
       id: 'run-1', status: 'calculated', links_root: true,
-      approved_plan_hash: null, approval_grandfathered_at: '2026-10-31T00:00:00Z',
+      approved_plan_hash: null, approval_grandfathered_at: null,
     };
     await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).resolves.toEqual({
       runId: 'run-1', planHash: GRANDFATHERED_PLAN_HASH,

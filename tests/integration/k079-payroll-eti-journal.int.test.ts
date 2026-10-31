@@ -18,6 +18,7 @@ import { SignJWT } from 'jose';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
 import approvalRequests from '../../pages/api/accounting/approval-requests';
+import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { callRoute } from './r035-approval.helpers';
 
@@ -294,6 +295,28 @@ describe('K-079: approving a run that claims ETI', () => {
     expect(reopenAudit).toEqual({
       plan_hash: 'grandfathered-plan-hash-unavailable',
       reason: 'Correct grandfathered recovery run',
+    });
+
+    const reversed = await callRoute(journalEntriesAction, token, companyA, 'POST', {
+      id: h.journal_entry_id!, action: 'reverse',
+    }, '/api/accounting/journal-entries-action');
+    expect(reversed.state.statusCode, JSON.stringify(reversed.state.body)).toBe(200);
+    const reversalAudit = (await pool.query<{
+      plan_hash: string; original_journal_id: string; reversal_journal_id: string;
+    }>(
+      `SELECT changes->'metadata'->>'planHash' AS plan_hash,
+              changes->'metadata'->>'originalJournalId' AS original_journal_id,
+              changes->'metadata'->>'reversalJournalId' AS reversal_journal_id
+         FROM audit_log
+        WHERE company_id=$1 AND entity_type='payroll_run' AND entity_id=$2
+          AND changes->'metadata'->>'event'='reversed'
+        ORDER BY created_at DESC LIMIT 1`,
+      [companyA, id],
+    )).rows[0];
+    expect(reversalAudit).toEqual({
+      plan_hash: 'grandfathered-plan-hash-unavailable',
+      original_journal_id: h.journal_entry_id,
+      reversal_journal_id: expect.any(String),
     });
   });
 
