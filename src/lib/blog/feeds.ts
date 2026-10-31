@@ -3,6 +3,7 @@
  * scheduled posts are excluded even when preview is on.
  */
 import type { BlogPost } from './content';
+import type { HelpDocument } from '@/lib/help/content';
 import { BLOG_DESCRIPTION, BLOG_RSS_PATH, BLOG_TITLE, BLOG_URL, SITE_URL } from './constants';
 import { escapeXml, isoInstant } from './format';
 import { toInstant } from './frontmatter';
@@ -19,13 +20,22 @@ export function publishedPosts(posts: BlogPost[], now: Date): BlogPost[] {
   return posts.filter((p) => isPublished(p.frontmatter, now));
 }
 
-export function buildSitemapXml(posts: BlogPost[], now: Date): string {
+export function buildSitemapXml(posts: BlogPost[], now: Date, helpDocuments: HelpDocument[] = []): string {
   const live = publishedPosts(posts, now);
   const urls: string[] = MARKETING_PAGES.map((p) => `  <url><loc>${SITE_URL}${p === '/' ? '/' : p}</loc></url>`);
   const newest = live[0];
   urls.push(`  <url><loc>${BLOG_URL}</loc>${newest ? `<lastmod>${isoInstant(lastMod(newest))}</lastmod>` : ''}</url>`);
   for (const p of live) {
     urls.push(`  <url><loc>${escapeXml(postUrl(p.frontmatter.slug))}</loc><lastmod>${isoInstant(lastMod(p))}</lastmod></url>`);
+  }
+  if (helpDocuments.length > 0) {
+    const latestUpdate = helpDocuments.reduce((latest, document) => (
+      toInstant(document.frontmatter.updated) > toInstant(latest) ? document.frontmatter.updated : latest
+    ), helpDocuments[0]?.frontmatter.updated ?? '1970-01-01');
+    urls.push(`  <url><loc>${SITE_URL}/help</loc><lastmod>${isoInstant(latestUpdate)}</lastmod></url>`);
+    for (const document of helpDocuments) {
+      urls.push(`  <url><loc>${SITE_URL}/help/${document.frontmatter.slug}</loc><lastmod>${isoInstant(document.frontmatter.updated)}</lastmod></url>`);
+    }
   }
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',

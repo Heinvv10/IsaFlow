@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { xml2js } from 'xml-js';
 import { loadAllPosts } from '@/lib/blog/content';
 import { buildRssXml, buildSitemapXml } from '@/lib/blog/feeds';
+import { loadAllHelpDocuments } from '@/lib/help/content';
 import { makeBlogFixture, removeFixture } from './blogFixtures';
 
 const NOW = new Date('2026-10-27T10:00:00Z');
@@ -46,6 +47,16 @@ describe('sitemap.xml', () => {
 
   it('lists a scheduled post after its date', () => {
     expect(buildSitemapXml(posts, new Date('2026-12-02T00:00:00Z'))).toContain('/blog/future-post');
+  });
+
+  it('lists the help index, FAQ and every help article', () => {
+    const help = loadAllHelpDocuments();
+    const helpXml = buildSitemapXml(posts, NOW, help);
+    const locs = [...helpXml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);
+    expect(locs.filter((loc) => loc?.includes('/help'))).toEqual([
+      'https://isaflow.co.za/help',
+      ...help.map((document) => `https://isaflow.co.za/help/${document.frontmatter.slug}`),
+    ]);
   });
 });
 
