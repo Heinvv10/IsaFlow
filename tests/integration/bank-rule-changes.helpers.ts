@@ -95,7 +95,8 @@ export function ruleRoutes(tokens: Tokens) {
 export function mcpRules(pool: Pool) {
   const registry = new McpRegistry();
   for (const tool of [createBankRuleTool, updateBankRuleTool, disableBankRuleTool]) registry.register(tool);
-  return async (user: string, c: string, name: string, args: Record<string, unknown>) => {
+  return async (user: string, c: string, name: string, args: Record<string, unknown>,
+    scopes = ['write:bank-tx']) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -105,7 +106,7 @@ export function mcpRules(pool: Pool) {
       await client.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
       const out = await als.run({ client, userId: user, companyId: c, claims, afterCommit: [] } as never, () => registry.call(name,
         { idempotency_key: crypto.randomUUID(), ...args },
-        { userId: user, companyId: c, scopes: ['write:bank-tx'], companyRole: 'owner', tokenJti: 'brc', oauthAppId: null }));
+        { userId: user, companyId: c, scopes, companyRole: 'owner', tokenJti: 'brc', oauthAppId: null }));
       await client.query('COMMIT');
       return out as { isError?: boolean; content: { text: string }[] };
     } catch (err) {

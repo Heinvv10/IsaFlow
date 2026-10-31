@@ -12,7 +12,9 @@ import {
 import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../../types/bank.types';
-import { removeRules, writeNewRule, writeRuleChange, type HeldRuleChange, type RuleWrite } from './bankRuleChangeControl';
+import {
+  removeRules, writeNewRule, writeRuleChange, type HeldRuleChange, type RuleWrite, type RuleWriteGuard,
+} from './bankRuleChangeControl';
 import { assertNotContactControl } from './contactControlGuard';
 
 // Re-export matching function for backward compatibility
@@ -46,19 +48,10 @@ export async function getRules(companyId: string): Promise<BankCategorisationRul
 export async function createRule(
   companyId: string,
   input: RuleCreateInput,
-  userId: string
+  userId: string,
+  guard?: RuleWriteGuard,
 ): Promise<RuleOutcome> {
-  // R-067: the rule's client_id is copied onto every matching bank line as
-  // suggested_client_id, and both are read back with the customer name joined.
-  await assertCustomerInCompany(companyId, input.clientId);
-  // R-068: the (supplier_id, company_id) FK already refuses a foreign supplier,
-  // but as a 23503 mid-statement; this refuses it typed, before the INSERT.
-  await assertSupplierInCompany(companyId, input.supplierId);
-  // An account rule may not target AP/AR control: its auto-post would move the control with no document
-  // (contactControlGuard). A rule that names a supplier or customer posts there properly, with the document.
-  if (!input.supplierId && !input.clientId) {
-    await assertNotContactControl(companyId, input.glAccountId, `Rule "${input.ruleName}"`, 'rule');
-  }
+  await validateCreateRuleTargets(companyId, input);
   const vatCode = input.vatCode || 'none';
   // Refused, never coerced: a typo'd mode silently becoming 'fifo' would have
   // an unattended sweep apply cash the rule's author asked to leave on account.
@@ -76,9 +69,24 @@ export async function createRule(
     gl_account_id: input.glAccountId || null, supplier_id: input.supplierId || null, client_id: input.clientId || null,
     description_template: input.descriptionTemplate || null, priority: input.priority || 100,
     auto_create_entry: input.autoCreateEntry === true, vat_code: vatCode, auto_apply: autoApply,
-  }, userId));
+  }, userId, guard));
   if (written.status === 'applied') log.info('Created bank rule', { id: written.id, ruleName: input.ruleName }, 'accounting');
   return written;
+}
+
+/** Side-effect-free target checks shared by live creates and MCP previews. */
+export async function validateCreateRuleTargets(companyId: string, input: RuleCreateInput): Promise<void> {
+  // R-067: the rule's client_id is copied onto every matching bank line as
+  // suggested_client_id, and both are read back with the customer name joined.
+  await assertCustomerInCompany(companyId, input.clientId);
+  // R-068: the (supplier_id, company_id) FK already refuses a foreign supplier,
+  // but as a 23503 mid-statement; this refuses it typed, before the INSERT.
+  await assertSupplierInCompany(companyId, input.supplierId);
+  // An account rule may not target AP/AR control: its auto-post would move the control with no document
+  // (contactControlGuard). A rule that names a supplier or customer posts there properly, with the document.
+  if (!input.supplierId && !input.clientId) {
+    await assertNotContactControl(companyId, input.glAccountId, `Rule "${input.ruleName}"`, 'rule');
+  }
 }
 
 export async function updateRule(
@@ -86,15 +94,13 @@ export async function updateRule(
   id: string,
   input: Partial<RuleCreateInput> & { isActive?: boolean },
   userId: string,
+  guard?: RuleWriteGuard,
 ): Promise<RuleOutcome> {
   // Use ?? not || so legitimately-zero priorities and false booleans are not
   // dropped. Fields with min(1) (ruleName, matchPattern) and enums can't be
   // empty strings, so ?? matches the schema invariants. Only the fields named
   // (not null/undefined) move — the COALESCE semantics this always had.
-  await assertCustomerInCompany(companyId, input.clientId);
-  await assertSupplierInCompany(companyId, input.supplierId);
-  // Repointing it at AP/AR control, or re-enabling one already there, is refused (as toggleRule refuses the latter).
-  if (input.glAccountId || input.isActive === true) await assertRuleAccountNotContactControl(companyId, id, input);
+  await validateUpdateRuleTargets(companyId, id, input);
   return outcome(await writeRuleChange(companyId, id, {
     rule_name: input.ruleName ?? undefined, match_field: input.matchField ?? undefined,
     match_type: input.matchType ?? undefined, match_pattern: input.matchPattern ?? undefined,
@@ -103,7 +109,17 @@ export async function updateRule(
     priority: input.priority ?? undefined, auto_create_entry: input.autoCreateEntry ?? undefined,
     vat_code: input.vatCode ?? undefined, auto_apply: assertAutoApply(input.autoApply) ?? undefined,
     is_active: input.isActive ?? undefined,
-  }, userId));
+  }, userId, guard));
+}
+
+/** Side-effect-free target checks shared by live updates and MCP previews. */
+export async function validateUpdateRuleTargets(
+  companyId: string, id: string, input: Partial<RuleCreateInput> & { isActive?: boolean },
+): Promise<void> {
+  await assertCustomerInCompany(companyId, input.clientId);
+  await assertSupplierInCompany(companyId, input.supplierId);
+  // Repointing it at AP/AR control, or re-enabling one already there, is refused (as toggleRule refuses the latter).
+  if (input.glAccountId || input.isActive === true) await assertRuleAccountNotContactControl(companyId, id, input);
 }
 
 /**
@@ -152,11 +168,13 @@ export async function deleteRules(companyId: string, ids: string[]): Promise<num
   return removeRules(companyId, ids);
 }
 
-export async function toggleRule(companyId: string, id: string, isActive: boolean, userId: string): Promise<RuleOutcome> {
+export async function toggleRule(
+  companyId: string, id: string, isActive: boolean, userId: string, guard?: RuleWriteGuard,
+): Promise<RuleOutcome> {
   // Re-enabling an account rule that points at AP/AR control (written before the guard, or left there when its
   // supplier was deleted) is refused like a create; the sweep skips it anyway, but it should not read as working.
   if (isActive) await assertRuleAccountNotContactControl(companyId, id, {});
-  return outcome(await writeRuleChange(companyId, id, { is_active: isActive }, userId));
+  return outcome(await writeRuleChange(companyId, id, { is_active: isActive }, userId, guard));
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

@@ -146,6 +146,28 @@ describe('registry metering', () => {
     expect(refundForTool).toHaveBeenCalledWith(COMPANY_ID, HANDLE);
   });
 
+  it('audits a handler scope refusal as rejected with no idempotency key', async () => {
+    const tool = makeTool({
+      name: 'create_bank_rule',
+      write: true,
+      scope: 'write:bank-tx',
+      handler: vi.fn(async () => ({
+        content: [{ type: 'text' as const, text: 'write:post required' }],
+        isError: true,
+      })),
+    });
+
+    await registryWith(tool).call(
+      'create_bank_rule',
+      { idempotency_key: 'k1', auto_create_entry: true },
+      ctx,
+    );
+
+    expect(vi.mocked(recordToolCall).mock.calls[0]![0]).toMatchObject({
+      tool: 'create_bank_rule', status: 'rejected', idempotencyKey: null,
+    });
+  });
+
   it('refunds when the handler throws', async () => {
     const tool = makeTool({ handler: vi.fn(async () => { throw new Error('boom'); }) });
 
