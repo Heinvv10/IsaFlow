@@ -178,7 +178,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // only an annual payment counts as one.
   const offPeriodic = Math.min(deduction, annualEquivalent);
   const periodicToDate = (offPeriodic * periods) / PERIODS_IN_YEAR;
-  const capPeriods = periods + (!hasPeriodic && annualNow > 0 && ytd.periods > 0 ? 1 : 0);
+  const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods) + (hasPeriodic || annualNow > 0 ? 1 : 0);
   const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / PERIODS_IN_YEAR;
   const offAnnual = Math.max(0, Math.min(deduction - offPeriodic, annualBefore + annualNow,
     contributions - periodicToDate, capToDate - periodicToDate));

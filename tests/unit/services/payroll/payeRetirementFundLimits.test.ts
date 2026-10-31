@@ -30,6 +30,7 @@ function year(months: Month[], taxYear = 2027) {
     ytd = {
       ...ytd,
       periods: ytd.periods + (m.salary > 0 ? 1 : 0), periodicTaxable: ytd.periodicTaxable + m.salary - (m.donation ?? 0),
+      retirementCapPeriods: (ytd.retirementCapPeriods ?? ytd.periods) + (m.salary > 0 || (m.bonus ?? 0) > 0 ? 1 : 0),
       annualPayments: ytd.annualPayments + (m.bonus ?? 0), tablePaye: r2(ytd.tablePaye + total),
       retirementContributions: r2((ytd.retirementContributions ?? 0) + m.contribution),
       retirementDeduction: r2((ytd.retirementDeduction ?? 0) + r.retirementDeduction),
@@ -56,11 +57,9 @@ describe('s11F limits in the cumulative PAYE', () => {
         contribution: Math.round(next() * (lowPayBigBonus || next() < 0.2 ? 600_000 : 15_000)),
         bonus: next() < (lowPayBigBonus ? 0.5 : 0.2) ? Math.round(next() * 3_000_000) : 0,
       }));
-      let paid = 0;
       let capPeriods = 0;
       for (const [i, m] of year(months).entries()) {
-        if (months[i]!.salary > 0) paid += 1;
-        capPeriods = Math.max(capPeriods, paid + (paid > 0 && months[i]!.salary === 0 && (months[i]!.bonus ?? 0) > 0 ? 1 : 0));
+        if (months[i]!.salary > 0 || (months[i]!.bonus ?? 0) > 0) capPeriods += 1;
         const at = `seed ${seed} month ${i + 1}`;
         expect(m.deductedToDate, at).toBeLessThanOrEqual(m.contributedToDate + 0.01);
         // "At any time during the year" at most the cap × the periods paid ÷ 12 (G21 (2027) p. 10).
@@ -97,6 +96,15 @@ describe('s11F limits in the cumulative PAYE', () => {
       { salary: 0, contribution: 500_000, bonus: 2_000_000 },
     ]);
     expect([months[6]!.retirementDeduction, months[6]!.deductedToDate]).toEqual([234_333.33, 250_833.33]);
+  });
+
+  it('each bonus-only period advances the pro-rated cap', () => {
+    const months = year([
+      ...Array(6).fill({ salary: 10_000, contribution: 100_000 }),
+      { salary: 0, contribution: 500_000, bonus: 2_000_000 },
+      { salary: 0, contribution: 500_000, bonus: 2_000_000 },
+    ]);
+    expect(months[7]!.deductedToDate).toBe(286_666.67);
   });
 
   it('a donation (4030, s18A) does not shrink the 27.5% base: R20 000, R1 000 donated, R8 000 RA deducts 5 500', () => {

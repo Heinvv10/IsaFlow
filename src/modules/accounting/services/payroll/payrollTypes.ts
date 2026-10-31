@@ -173,6 +173,8 @@ export interface ComponentBreakdownItem {
 export interface PayeYearToDate {
   /** Periods with periodic pay (the n of the cumulative formula, before this one). */
   periods: number;
+  /** Earlier periods with periodic pay or an annual payment, for the pro-rated s11F cap. */
+  retirementCapPeriods?: number;
   /** Periodic taxable remuneration, after taxable deductions other than retirement fund contributions (PAYE 4c: before that deduction). */
   periodicTaxable: number;
   /** Annual payments (3605) taxed by the annual-payment method, before the retirement fund deduction. */

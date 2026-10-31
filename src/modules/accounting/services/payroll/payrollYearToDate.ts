@@ -10,6 +10,8 @@
  * deduction trues up to exactly those.
  *
  * - periods: lines with periodic pay (a severance-only line has none);
+ * - retirementCapPeriods: lines with periodic pay or an annual payment, so
+ *   each bonus-only period advances the pro-rated s11F cap;
  * - periodicTaxable / annualPayments: the line's periodic_taxable /
  *   annual_taxable (migration 913). A line written before 913 has NULLs, and
  *   its split is derived from the stored breakdown: annual payments = its
@@ -79,6 +81,7 @@ export async function loadPayeYearToDate(
     )
     SELECT employee_id,
            COUNT(*) FILTER (WHERE periodic > 0)::int AS periods,
+           COUNT(*) FILTER (WHERE periodic > 0 OR annual > 0)::int AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
            jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic <= 0) AS unpaid_lines,
            jsonb_object_agg(line_id::text, jsonb_build_object(
@@ -103,12 +106,19 @@ export async function loadPayeYearToDate(
   const retirement = await loadRetirementRecord(companyId, before, employeeIds);
   return new Map(rows.map(r => {
     const fund = retirement.get(String(r.employee_id));
+    const taxableSplits = (r.taxable_splits ?? {}) as Record<string, unknown>;
+    const legacyTaxableByLine = fund?.legacyTaxableByLine ?? {};
     const restored = restoreLegacyTaxableSplit(
-      (r.taxable_splits ?? {}) as Record<string, unknown>,
-      fund?.legacyTaxableByLine ?? {},
+      taxableSplits,
+      legacyTaxableByLine,
     );
+    const restoredCapPeriods = Object.entries(legacyTaxableByLine).filter(([lineId, deduction]) => {
+      const split = (taxableSplits[lineId] ?? {}) as Record<string, unknown>;
+      return deduction > 0 && Number(split.periodic) <= 0 && Number(split.annual) <= 0;
+    }).length;
     return [String(r.employee_id), {
       periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, restored.periodicByLine),
+      retirementCapPeriods: Number(r.retirement_cap_periods ?? r.periods) + restoredCapPeriods,
       periodicTaxable: round2(Number(r.periodic) + restored.periodic),
       annualPayments: round2(Number(r.annual) + restored.annual),
       tablePaye: round2(Number(r.table_paye)),
