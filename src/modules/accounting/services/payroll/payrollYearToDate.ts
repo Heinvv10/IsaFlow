@@ -25,10 +25,10 @@
  *   medical_scheme_fees, else the breakdown's deductions coded 4005);
  * - retirementContributions / retirementDeduction / donations: by the one
  *   rule for them (payrollRetirementRecord, migration 948, PAYE 4c): a line
- *   before 948 from its breakdown, and its taxable-flagged contributions,
- *   which the old calculator took off its periodic_taxable, are added back to
- *   periodicTaxable, and such a line whose deduction took all its stored
- *   periodic pay counts as a period again (yearToDatePeriods). Production had no such line in
+ *   before 948 from its breakdown. The old calculator took its taxable-flagged
+ *   contributions off periodic pay first and then annual payments, so the add-back
+ *   restores that same split; a restored periodic amount counts as a period again
+ *   (yearToDatePeriods). Production had no such line in
  *   tax year 2027 (read-only census 2026-10-26: 0 of 167 lines).
  *
  * Every query is scoped by company_id.
@@ -59,7 +59,8 @@ export async function loadPayeYearToDate(
     WITH split AS (
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
-             COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
+             COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
+             b.annual_3605
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (
@@ -80,6 +81,9 @@ export async function loadPayeYearToDate(
            COUNT(*) FILTER (WHERE periodic > 0)::int AS periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
            jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic <= 0) AS unpaid_lines,
+           jsonb_object_agg(line_id::text, jsonb_build_object(
+             'periodic', periodic, 'annual', annual, 'annualGross', annual_3605
+           )) AS taxable_splits,
            SUM(periodic)::numeric AS periodic,
            SUM(annual)::numeric AS annual,
            SUM(paye - directive_paye)::numeric AS table_paye,
@@ -99,10 +103,14 @@ export async function loadPayeYearToDate(
   const retirement = await loadRetirementRecord(companyId, before, employeeIds);
   return new Map(rows.map(r => {
     const fund = retirement.get(String(r.employee_id));
+    const restored = restoreLegacyTaxableSplit(
+      (r.taxable_splits ?? {}) as Record<string, unknown>,
+      fund?.legacyTaxableByLine ?? {},
+    );
     return [String(r.employee_id), {
-      periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, fund?.legacyTaxableByLine ?? {}),
-      periodicTaxable: round2(Number(r.periodic) + (fund?.legacyTaxable ?? 0)),
-      annualPayments: round2(Number(r.annual)),
+      periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, restored.periodicByLine),
+      periodicTaxable: round2(Number(r.periodic) + restored.periodic),
+      annualPayments: round2(Number(r.annual) + restored.annual),
       tablePaye: round2(Number(r.table_paye)),
       medicalCredit: round2(Number(r.medical_credit)),
       additionalMedicalCredit: round2(Number(r.additional_medical_credit)),
@@ -114,18 +122,40 @@ export async function loadPayeYearToDate(
   }));
 }
 
+function restoreLegacyTaxableSplit(
+  taxableSplits: Record<string, unknown>,
+  legacyTaxableByLine: Record<string, number>,
+): { periodic: number; annual: number; periodicByLine: Record<string, number> } {
+  let periodic = 0;
+  let annual = 0;
+  const periodicByLine: Record<string, number> = {};
+  for (const [lineId, deduction] of Object.entries(legacyTaxableByLine)) {
+    const split = (taxableSplits[lineId] ?? {}) as Record<string, unknown>;
+    // The old calculator consumed periodic pay first. Therefore any gap between
+    // the gross 3605 amount and its stored annual amount is the deduction's
+    // excess; only the remainder can be restored to periodic remuneration.
+    const annualGap = Math.max(0, Number(split.annualGross) - Number(split.annual));
+    const annualRestored = Math.min(deduction, annualGap);
+    const periodicRestored = Math.max(0, deduction - annualRestored);
+    annual += annualRestored;
+    periodic += periodicRestored;
+    if (periodicRestored > 0) periodicByLine[lineId] = periodicRestored;
+  }
+  return { periodic, annual, periodicByLine };
+}
+
 /**
  * The periods to date: the lines with stored periodic pay, plus those without
- * whose pre-948 taxable retirement contributions, added back, restore some
- * (the old calculator took them off periodic_taxable, so a contribution as
- * large as the pay left it nil). A severance-only line stays no period.
+ * whose pre-948 taxable retirement contributions restore periodic pay (the old
+ * calculator took deductions off periodic pay first, so a contribution as large
+ * as the pay left it nil). A bonus-only or severance-only line stays no period.
  */
 export function yearToDatePeriods(
   withPeriodicPay: number,
   unpaidLines: Record<string, unknown>,
-  legacyTaxableByLine: Record<string, number>,
+  restoredPeriodicByLine: Record<string, number>,
 ): number {
-  const restored = Object.entries(unpaidLines).filter(([id, periodic]) => Number(periodic) + (legacyTaxableByLine[id] ?? 0) > 0);
+  const restored = Object.entries(unpaidLines).filter(([id, periodic]) => Number(periodic) + (restoredPeriodicByLine[id] ?? 0) > 0);
   return withPeriodicPay + restored.length;
 }
 
