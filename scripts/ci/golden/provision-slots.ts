@@ -10,7 +10,7 @@
  * the env file. --verify only reads and prints each slot's preconditions and seed volume, and exits 1 when a slot lacks
  * one. --reset-slot n retires slot n's company (a poisoned one: a payroll run stuck in the sandbox month, say) and
  * builds a fresh generation under a new id, which replaces GOLDEN_SLOT_n_COMPANY_ID in the env file; nothing is
- * deleted. A reset needs --seed-url (a bare clone fails the volume specs).
+ * deleted. A reset or newly created slot needs --seed-url (a bare clone fails the volume specs).
  *
  * --seed-url <local dev server> then seeds each provisioned slot with transactions through the app's own routes
  * (seedSlotData.ts): 80 approved supplier invoices, 10 posted journals, a 200-row bank statement, a migration session.
@@ -27,7 +27,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import pg from 'pg';
 import { rollbackFailed } from '../../../src/lib/rollbackFailed';
 import {
-  GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertConnectedToDev, assertDevDatabaseUrl, assertResetSeeds, assertSlotCompanyId, assertGoTrueUrl, generationOf, parseEnvFile,
+  GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertConnectedToDev, assertDevDatabaseUrl, assertFreshSlotSeeds, assertResetSeeds, assertSlotCompanyId, assertGoTrueUrl, generationOf, parseEnvFile,
   slotCompanyId, slotEmail, slotEnvKeys, upsertEnvKeys,
 } from './slotConfig';
 import { seedSlotViaApp } from './seedSlotClient';
@@ -108,6 +108,7 @@ async function main(): Promise<void> {
       try {
         if (resetSlot !== undefined) companyId = (await retireSlotCompany(db, n, companyId)).id;
         const fresh = await ensureCompany(db, n, companyId, generationOf(companyId));
+        assertFreshSlotSeeds(n, fresh, seedUrl, dryRun);
         await ensureUser(db, n, companyId, userId);
         const report = await readSlotReport(db, companyId);
         say(formatSlotReport(`slot ${n}`, report));

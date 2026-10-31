@@ -2,7 +2,7 @@
 // numbers its runners, and it adds keys to the shared env file without touching anything else in it.
 import { describe, expect, it } from 'vitest';
 import {
-  EXPECTED_GOTRUE_URL, GOLDEN_SLOTS, MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertConnectedToDev, assertGoTrueUrl, assertResetSeeds, assertSlotCompanyId, generationOf,
+  EXPECTED_GOTRUE_URL, GOLDEN_SLOTS, MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertDevDatabaseUrl, assertConnectedToDev, assertFreshSlotSeeds, assertGoTrueUrl, assertResetSeeds, assertSlotCompanyId, generationOf,
   parseEnvFile, slotCompanyId, slotCompanyName, slotEnvKeys, upsertEnvKeys,
 } from '../../../scripts/ci/golden/slotConfig';
 
@@ -110,6 +110,18 @@ describe('assertResetSeeds', () => {
     expect(() => assertResetSeeds(2, 'http://localhost:3450', false)).not.toThrow();
     expect(() => assertResetSeeds(2, undefined, true)).not.toThrow();
     expect(() => assertResetSeeds(undefined, undefined, false)).not.toThrow();
+  });
+});
+
+describe('assertFreshSlotSeeds', () => {
+  it('refuses to activate a fresh slot without seed data', () => {
+    expect(() => assertFreshSlotSeeds(3, true, undefined, false)).toThrow(/new slot 3 needs --seed-url/);
+  });
+
+  it('allows seeded, existing, and rolled-back dry-run slots', () => {
+    expect(() => assertFreshSlotSeeds(3, true, 'http://localhost:3450', false)).not.toThrow();
+    expect(() => assertFreshSlotSeeds(3, false, undefined, false)).not.toThrow();
+    expect(() => assertFreshSlotSeeds(3, true, undefined, true)).not.toThrow();
   });
 });
 
