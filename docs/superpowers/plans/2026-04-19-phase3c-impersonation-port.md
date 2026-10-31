@@ -93,7 +93,7 @@ Expected: `CREATE TABLE`, `CREATE INDEX`, `GRANT`.
 
 ```bash
 CHECKSUM=$(sha256sum scripts/migrations/sql/355_admin_impersonation_stash.sql | awk '{print $1}')
-psql 'postgresql://migration_admin:398ae138816873a688e534b28ba9116b@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
+psql "${MIGRATION_ADMIN_DATABASE_URL:?set MIGRATION_ADMIN_DATABASE_URL in the environment}" \
   -c "INSERT INTO schema_migrations (version, name, checksum) VALUES ('355', '355_admin_impersonation_stash.sql', '$CHECKSUM') ON CONFLICT DO NOTHING RETURNING name"
 ```
 
@@ -102,7 +102,7 @@ Expected: row with `355_admin_impersonation_stash.sql`.
 - [ ] **Step 4: Verify grant**
 
 ```bash
-psql 'postgresql://migration_admin:398ae138816873a688e534b28ba9116b@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
+psql "${MIGRATION_ADMIN_DATABASE_URL:?set MIGRATION_ADMIN_DATABASE_URL in the environment}" \
   -c "SELECT has_table_privilege('platform_admin', 'admin_impersonation_stash', 'INSERT') AS can_insert, has_table_privilege('platform_admin', 'admin_impersonation_stash', 'DELETE') AS can_delete"
 ```
 
@@ -1333,7 +1333,7 @@ Expected: 0 rows in stash. At least one `impersonation_start` and one `impersona
 psql 'postgresql://supabase_admin:<SUPABASE_ADMIN_PASSWORD>@100.96.203.105:5437/isaflow?sslmode=disable' \
   -f scripts/migrations/sql/355_admin_impersonation_stash.sql
 CHECKSUM=$(sha256sum scripts/migrations/sql/355_admin_impersonation_stash.sql | awk '{print $1}')
-psql 'postgresql://migration_admin:398ae138816873a688e534b28ba9116b@100.96.203.105:5437/isaflow?sslmode=disable' \
+psql "${MIGRATION_ADMIN_DATABASE_URL:?set MIGRATION_ADMIN_DATABASE_URL in the environment}" \
   -c "INSERT INTO schema_migrations (version, name, checksum) VALUES ('355', '355_admin_impersonation_stash.sql', '$CHECKSUM') ON CONFLICT DO NOTHING RETURNING name"
 ```
 
