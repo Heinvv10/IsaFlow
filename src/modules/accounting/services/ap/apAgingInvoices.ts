@@ -19,6 +19,9 @@ import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/s
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 
+/** Shown for a bill whose supplier is missing or belongs to another company, so the bill stays in every total. */
+export const UNKNOWN_SUPPLIER = 'Unknown supplier';
+
 /**
  * Open bills as at `asAtStr`, oldest due first. `supplierId` narrows to one
  * supplier; null reads every supplier of the company.
@@ -30,14 +33,19 @@ export async function fetchAPAgingInvoices(
   supplierId: string | null = null,
 ): Promise<OpenAgingInvoice[]> {
   const rows = (await sql`
-    SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
+    SELECT si.id, si.supplier_id AS entity_id, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS entity_name,
       COALESCE(si.due_date, si.invoice_date) AS due_date,
       (si.due_date IS NULL) AS due_date_missing,
       si.invoice_number, si.invoice_date, si.reference, si.total_amount,
       ${sql.unsafe(effectivePaidExpr('ap'))} AS amount_paid,
       (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) AS balance
     FROM supplier_invoices si
-    JOIN suppliers s ON s.id = si.supplier_id
+    -- supplier_id is a bare FK to suppliers(id), so it can name ANOTHER
+    -- tenant's supplier. Company-scoped so that name never reaches this
+    -- tenant's list; LEFT so the bill is not dropped either (the report's
+    -- summary reads supplier_invoices alone and still counts it). Same shape
+    -- as ar/arAgingInvoices.
+    LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     LEFT JOIN LATERAL (
       ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
     ) unpaid ON TRUE
