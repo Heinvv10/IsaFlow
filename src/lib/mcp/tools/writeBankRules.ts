@@ -11,12 +11,11 @@
  * silently re-routed every future reload back to it — and it should not
  * require restating the rule's whole shape.
  */
-import type { McpTool, McpToolContext, McpToolResult } from '../types';
+import type { McpTool, McpToolResult } from '../types';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import {
   createRule, updateRule, toggleRule, validateCreateRuleTargets, validateUpdateRuleTargets, type RuleOutcome,
 } from '@/modules/accounting/services/bank/bankRulesService';
-import type { RuleWriteGuard } from '@/modules/accounting/services/bank/bankRuleChangeControl';
 import type {
   RuleCreateInput,
   RuleMatchField,
@@ -43,6 +42,13 @@ import {
   parseRefs,
   refsBelongToCompany,
 } from './bankRuleShared';
+import {
+  AutoPostScopeError,
+  autoPostScopeError,
+  autoPostScopeRefusal,
+  lockedAutoPostScopeGuard,
+  previewScopeRefusal,
+} from './bankRulePostingScope';
 
 /**
  * Under the `bank_rule` switch a change that makes a rule auto-post, or moves
@@ -51,21 +57,6 @@ import {
  * approve it (there is no decide tool).
  */
 const HELD_HINT = 'a person must approve it on the Bank rules page before it takes effect';
-const AUTO_POST_SCOPE_REFUSAL = 'Turning on or keeping automatic posting needs the "Post to ledger" '
-  + 'permission (write:post). Set auto_create_entry=false to create or update the rule without '
-  + 'automatic posting, or reconnect with posting allowed. Nothing was changed.';
-
-/** Per-call scope gate: handler refusals are audited as `rejected` by the registry. */
-const autoPostScopeRefusal = (ctx: McpToolContext, autoPosts: boolean): McpToolResult | null => (
-  autoPosts && !ctx.scopes.includes('write:post') ? toolError(AUTO_POST_SCOPE_REFUSAL) : null
-);
-
-class AutoPostScopeError extends Error {}
-const lockedAutoPostScopeGuard = (
-  ctx: McpToolContext, autoPosts: (after: Record<string, unknown>) => boolean,
-): RuleWriteGuard => (after) => {
-  if (autoPosts(after) && !ctx.scopes.includes('write:post')) throw new AutoPostScopeError(AUTO_POST_SCOPE_REFUSAL);
-};
 
 const dryRun = (data: Record<string, unknown>): McpToolResult => ({
   ...ok({ dry_run: true, ...data }),
@@ -141,12 +132,16 @@ export const createBankRuleTool: McpTool = {
 
     try {
       if (args.dry_run === true) {
+        const previewRefusal = await previewScopeRefusal(ctx, true, autoCreateEntry);
+        if (previewRefusal) return previewRefusal;
         await validateCreateRuleTargets(ctx.companyId, input);
         return dryRun({ action: 'create_bank_rule', auto_create_entry: autoCreateEntry });
       }
-      const written = await createRule(ctx.companyId, input, ctx.userId);
+      const written = await createRule(ctx.companyId, input, ctx.userId,
+        lockedAutoPostScopeGuard(ctx, (after) => after.auto_create_entry === true));
       return reply(written);
     } catch (err) {
+      if (err instanceof AutoPostScopeError) return autoPostScopeError();
       return toolError(safeErrorText(err, 'Failed to create bank rule.'));
     }
   },
@@ -211,7 +206,8 @@ export const updateBankRuleTool: McpTool = {
     const resultingAutoCreateEntry = args.auto_create_entry === false
       ? false
       : args.auto_create_entry === true || rule.autoCreateEntry;
-    const scopeRefusal = autoPostScopeRefusal(ctx, resultingAutoCreateEntry);
+    const resultingIsActive = typeof args.is_active === 'boolean' ? args.is_active : rule.isActive;
+    const scopeRefusal = autoPostScopeRefusal(ctx, resultingIsActive && resultingAutoCreateEntry);
     if (scopeRefusal) return scopeRefusal;
     const refs = parseRefs(args);
     if (!(await refsBelongToCompany(ctx.companyId, refs))) return toolError(NOT_FOUND);
@@ -226,13 +222,17 @@ export const updateBankRuleTool: McpTool = {
 
     try {
       if (args.dry_run === true) {
+        const previewRefusal = await previewScopeRefusal(ctx, resultingIsActive, resultingAutoCreateEntry);
+        if (previewRefusal) return previewRefusal;
         await validateUpdateRuleTargets(ctx.companyId, ruleId, input);
         return dryRun({ action: 'update_bank_rule', rule_id: ruleId, auto_create_entry: resultingAutoCreateEntry });
       }
       const written = await updateRule(ctx.companyId, ruleId, input, ctx.userId,
-        lockedAutoPostScopeGuard(ctx, (after) => after.auto_create_entry === true));
+        lockedAutoPostScopeGuard(ctx,
+          (after) => after.is_active === true && after.auto_create_entry === true));
       return reply(written);
     } catch (err) {
+      if (err instanceof AutoPostScopeError) return autoPostScopeError();
       return toolError(safeErrorText(err, 'Failed to update bank rule.'));
     }
   },
@@ -278,7 +278,7 @@ export const disableBankRuleTool: McpTool = {
       if (written.status === 'pending_approval') return reply(written);
       return ok({ id: ruleId, rule_name: rule.ruleName, is_active: isActive, already: false });
     } catch (err) {
-      if (err instanceof AutoPostScopeError) return toolError(err.message);
+      if (err instanceof AutoPostScopeError) return autoPostScopeError();
       throw err;
     }
   },

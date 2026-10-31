@@ -26,7 +26,7 @@ import { lockForRuleWrite } from './bankRuleAutoPostLock';
 export type RuleProjection = Record<string, unknown>;
 export interface HeldRuleChange { status: 'pending_approval'; changeId: string }
 export type RuleWrite = { status: 'applied'; row: Record<string, unknown> } | HeldRuleChange;
-export type RuleWriteGuard = (after: RuleProjection) => void | Promise<void>;
+export type RuleWriteGuard = (after: RuleProjection, postsMoney: boolean) => void | Promise<void>;
 
 /** The columns a new rule's caller sets; the rest take the table's defaults (RULE_DEFAULTS). */
 export interface NewRuleColumns {
@@ -51,17 +51,27 @@ const RULE_DEFAULTS = { is_active: true, auto_approve: false, category: null, ta
 async function classify(companyId: string, before: RuleProjection | null, proposed: RuleProjection) {
   const rows = (await sql`
     SELECT n.after,
+           public.bank_rule_posts_money(${companyId}::UUID, n.after) AS posts_money,
            public.bank_rule_change_needs_approval(${companyId}::UUID, ${json(before)}::jsonb, n.after)
              AND EXISTS (SELECT 1 FROM approval_enforcement ae
                          WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ${BANK_RULE}) AS held,
            (${json(before)}::jsonb - 'is_active') = (n.after - 'is_active') AS toggle_only
     FROM (SELECT public.bank_rule_projection(to_jsonb(jsonb_populate_record(NULL::bank_categorisation_rules,
             ${json(proposed)}::jsonb))) AS after) n
-  `) as { after: RuleProjection; held: boolean; toggle_only: boolean | null }[];
-  return { after: rows[0]!.after, held: rows[0]!.held === true, toggleOnly: rows[0]!.toggle_only === true };
+  `) as { after: RuleProjection; posts_money: boolean; held: boolean; toggle_only: boolean | null }[];
+  return { after: rows[0]!.after, postsMoney: rows[0]!.posts_money === true,
+    held: rows[0]!.held === true, toggleOnly: rows[0]!.toggle_only === true };
 }
 
 const json = (v: unknown): string | null => (v === null || v === undefined ? null : JSON.stringify(v));
+
+/** Side-effect-free preview of migration 877's authoritative unattended-posting predicate. */
+export async function rulePostsMoney(companyId: string, projection: RuleProjection): Promise<boolean> {
+  const rows = (await sql`
+    SELECT public.bank_rule_posts_money(${companyId}::UUID, ${json(projection)}::jsonb) AS posts_money
+  `) as { posts_money: boolean }[];
+  return rows[0]!.posts_money === true;
+}
 
 /** Records a held change. `before` is read by the database as the rule stands (it is locked), so it cannot drift. */
 async function hold(companyId: string, ruleId: string | null, kind: 'create' | 'update' | 'toggle', after: RuleProjection,
@@ -79,9 +89,12 @@ async function hold(companyId: string, ruleId: string | null, kind: 'create' | '
 }
 
 /** Creates a rule, or holds the creation when it would auto-post under the switch. */
-export async function writeNewRule(companyId: string, cols: NewRuleColumns, userId: string): Promise<RuleWrite> {
+export async function writeNewRule(
+  companyId: string, cols: NewRuleColumns, userId: string, guard?: RuleWriteGuard,
+): Promise<RuleWrite> {
   await lockForRuleWrite(companyId);
-  const { after, held } = await classify(companyId, null, { ...RULE_DEFAULTS, ...cols });
+  const { after, postsMoney, held } = await classify(companyId, null, { ...RULE_DEFAULTS, ...cols });
+  await guard?.(after, postsMoney);
   if (held) return hold(companyId, null, 'create', after, userId);
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -110,8 +123,8 @@ export async function writeRuleChange(
   const before = await lockRuleProjection(companyId, ruleId);
   if (!before) throw new Error(`Rule ${ruleId} not found`);
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
-  const { after, held, toggleOnly } = await classify(companyId, before, { ...before, ...defined });
-  await guard?.(after);
+  const { after, postsMoney, held, toggleOnly } = await classify(companyId, before, { ...before, ...defined });
+  await guard?.(after, postsMoney);
   if (held) return hold(companyId, ruleId, toggleOnly ? 'toggle' : 'update', after, userId);
   // `after` is the locked row with the patch over it, so setting the editable
   // columns from it moves exactly the named ones.

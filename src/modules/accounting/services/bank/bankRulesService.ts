@@ -48,7 +48,8 @@ export async function getRules(companyId: string): Promise<BankCategorisationRul
 export async function createRule(
   companyId: string,
   input: RuleCreateInput,
-  userId: string
+  userId: string,
+  guard?: RuleWriteGuard,
 ): Promise<RuleOutcome> {
   await validateCreateRuleTargets(companyId, input);
   const vatCode = input.vatCode || 'none';
@@ -68,7 +69,7 @@ export async function createRule(
     gl_account_id: input.glAccountId || null, supplier_id: input.supplierId || null, client_id: input.clientId || null,
     description_template: input.descriptionTemplate || null, priority: input.priority || 100,
     auto_create_entry: input.autoCreateEntry === true, vat_code: vatCode, auto_apply: autoApply,
-  }, userId));
+  }, userId, guard));
   if (written.status === 'applied') log.info('Created bank rule', { id: written.id, ruleName: input.ruleName }, 'accounting');
   return written;
 }
