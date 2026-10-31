@@ -64,12 +64,12 @@ export function parseLineItems(recurringId: string, raw: unknown): TemplateLine[
     }
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new RecurringInvoiceTemplateError(
-        `Recurring invoice ${recurringId} line ${i + 1} ("${description}"): quantity must be a positive number`,
+        `Recurring invoice ${recurringId} line ${i + 1}: quantity must be a positive number`,
       );
     }
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       throw new RecurringInvoiceTemplateError(
-        `Recurring invoice ${recurringId} line ${i + 1} ("${description}"): unit price must be zero or more`,
+        `Recurring invoice ${recurringId} line ${i + 1}: unit price must be zero or more`,
       );
     }
     return { description, quantity, unitPrice, amount: round2(quantity * unitPrice) };
