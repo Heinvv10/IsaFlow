@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inWorkspace, parentOf, parseListeners, selectOrphans, selfAndAncestors, stopOrphan, workspaceProblem, type ProcessOps } from '../../../scripts/ci/golden/killSlotOrphans';
+import { inWorkspace, parentOf, parseListeners, selectOrphans, selfAndAncestors, startTimeOf, stopOrphan, workspaceProblem, type ProcessOps } from '../../../scripts/ci/golden/killSlotOrphans';
 
 const SS = [
   'State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
@@ -61,12 +61,14 @@ describe('a workspace that is too broad matches nothing', () => {
 
 describe('stopOrphan re-checks the pid before each signal', () => {
   const WS = '/w/IsaFlow/IsaFlow';
-  function fakeOps(cwds: Array<string | null>, aliveAnswers: boolean[]) {
+  function fakeOps(cwds: Array<string | null>, aliveAnswers: boolean[], startTimes: Array<string | null> = ['100']) {
     const sent: string[] = [];
     let c = 0;
     let a = 0;
+    let s = 0;
     const ops: ProcessOps = {
       cwdOf: () => cwds[Math.min(c++, cwds.length - 1)] ?? null,
+      startTimeOf: () => startTimes[Math.min(s++, startTimes.length - 1)] ?? null,
       alive: () => aliveAnswers[Math.min(a++, aliveAnswers.length - 1)] ?? false,
       kill: (_pid, signal) => { sent.push(signal); },
       sleep: async () => undefined,
@@ -97,9 +99,19 @@ describe('stopOrphan re-checks the pid before each signal', () => {
     await expect(stopOrphan(4242, WS, ops)).resolves.toBe('reused');
     expect(sent).toEqual(['SIGTERM']);
   });
+
+  it('does not SIGKILL when the pid was reused in the same workspace during the wait', async () => {
+    const { ops, sent } = fakeOps([WS], [true], ['100', '100', '200']);
+    await expect(stopOrphan(4242, WS, ops)).resolves.toBe('reused');
+    expect(sent).toEqual(['SIGTERM']);
+  });
 });
 
 describe('the /proc walk that protects this process and its ancestors', () => {
+  it('reads the current process start time from field 22', () => {
+    expect(startTimeOf(process.pid)).toMatch(/^\d+$/);
+  });
+
   it('parentOf reads the parent pid from /proc/<pid>/stat, not its neighbours (a detached child leads its own process group)', () => {
     expect(parentOf(process.pid)).toBe(process.ppid);
     const child = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
