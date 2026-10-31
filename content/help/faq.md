@@ -35,7 +35,7 @@ Only an owner can make someone else an owner, and a company always keeps at leas
 Yes. Bureau accounts get a **bureau dashboard** that shows the work owed across your client companies, most urgent first. Each client stays a separate company with its own books. The bureau dashboard is set up with you during onboarding, so [contact us](https://isaflow.co.za/contact) to get started.
 
 ### Who can link or unlink client companies to my bureau?
-Only the bureau owner can link or unlink clients on the client roster, and only for companies where they're an owner or admin. Other bureau members can view the roster.
+Only the bureau owner can link a client company, and only for companies where they're an owner or admin. The bureau owner can unlink any client from the roster. A client company's own owner or admin is also allowed to withdraw their company from a bureau. Other bureau members can view the roster.
 
 ### Can one client company ever see another client's data?
 No. Each company's books are kept separate. If you ever see a name, figure or document you don't recognise, **stop and tell us straight away** (see [Something looks wrong?](/help/something-looks-wrong)). We treat this as urgent.
