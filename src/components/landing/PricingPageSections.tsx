@@ -62,14 +62,14 @@ export function PayAsYouGoSection() {
               <p className="text-sm font-semibold text-teal-600 tracking-widest uppercase mb-3">Prepaid Flows</p>
               <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 mb-3">{PAYG_PLAN.name}</h2>
               <p className="text-gray-600 mb-5">{PAYG_PLAN.desc}</p>
-              <div className="flex items-baseline gap-1 mb-5"><span className="text-4xl font-extrabold text-gray-900">{PAYG_PLAN.price}</span><span className="text-sm text-ink-faint">{PAYG_PLAN.period}</span></div>
+              <div className="flex items-baseline gap-1 mb-5"><span className="text-4xl font-extrabold text-gray-900">{PAYG_PLAN.price}</span><span className="text-sm text-gray-600">{PAYG_PLAN.period}</span></div>
               <ul className="space-y-2 mb-5">{PAYG_PLAN.limits.map((limit) => <li key={limit} className="flex items-center gap-2 text-sm text-gray-700"><Check className="w-4 h-4 text-teal-500" />{limit}</li>)}</ul>
-              <p className="text-sm text-ink-faint">{PAYG_PLAN.eligibility}</p>
+              <p className="text-sm text-gray-600">{PAYG_PLAN.eligibility}</p>
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Choose a Flow bundle</h3>
               <div className="grid sm:grid-cols-2 gap-3 mb-5">{PAYG_PLAN.bundles.map((bundle) => <div key={bundle.flows} className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3"><span className="font-semibold text-gray-900">{bundle.flows.toLocaleString('en-ZA')} Flows</span><span className="text-teal-700 font-bold">{bundle.price}</span></div>)}</div>
-              <p className="text-sm text-ink-faint mb-6">{PAYG_PLAN.topupNote}</p>
+              <p className="text-sm text-gray-600 mb-6">{PAYG_PLAN.topupNote}</p>
               <a href="/contact" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors">Ask about Pay-As-You-Go <ArrowRight className="w-4 h-4" /></a>
             </div>
           </div>
