@@ -12,6 +12,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', async (orig) => ({
   ...(await orig<object>()),
   fiscalYearForDate: (c: string, d: string) => fakeFiscalYearForDate(c, d),
+  getFiscalYear: (_c: string, fiscalYear: number) => Promise.resolve(W.years.find((y) => y.fiscalYear === fiscalYear) ?? null),
 }));
 
 import { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
@@ -104,6 +105,14 @@ describe("partialWindow 'absent': the engine's rule, its verdicts copied", () =>
     expect(r.splitsMonth).toBe(true);
     expect(r.budgetAbsentYears).toContain(2027);
     expect(line(r, SALES)).toMatchObject({ budgeted: false, budget_verdict: 'absent' });
+  });
+
+  it('refuses a named version when a mid-month boundary reaches a year that owns no complete budget month', async () => {
+    W.years = [{ fiscalYear: 2026, startDate: '2025-03-15', endDate: '2026-03-14' }, { fiscalYear: 2027, startDate: '2026-03-15', endDate: '2027-03-14' }];
+    W.versions = { 2026: 'v26' };
+    await expect(getBudgetVariance(CO, '2026-03-01', '2026-03-20', {
+      partialWindow: 'absent', versionId: 'v26',
+    })).rejects.toThrow(/FY2026; the window reaches FY2027/);
   });
 
   it('LB-3: the partial count is the engine\'s, a partial account with no actual included', async () => {

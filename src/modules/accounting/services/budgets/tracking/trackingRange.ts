@@ -88,7 +88,15 @@ export async function buildRangeTracking(
   const filter = await resolveTrackingFilter(companyId, opts);
   // ONE registry walk: P1's scope and the years the range touches by date come from the same lookups.
   const { scope: primary, years: dateYears } = await mapRegistryMiss(() => primaryVersionScopeAndYears(companyId, startDate, endDate));
-  const scope = opts.versionId ? await namedVersionScopeOf(companyId, opts.versionId, primary) : primary;
+  let scope = primary;
+  if (opts.versionId) {
+    // Validate against every year reached by DATE, including a year that starts mid-month late
+    // enough to own no complete budget month. Keep P1's month allocation for the actual read.
+    await namedVersionScopeOf(companyId, opts.versionId, dateYears.map((y) => ({
+      fiscalYear: y.fiscalYear, first: y.startDate, last: y.endDate,
+    })));
+    scope = primary.map((s) => ({ ...s, versionId: opts.versionId! }));
+  }
   // Each scoped year with its months. The year holding the end is FY*: when P1 gave it no month (it
   // starts mid-month inside the range), `budgetAbsentYears` judges it over the range all the same.
   const years: WindowYear[] = scope.map((s) => ({ fiscalYear: s.fiscalYear, months: budgetMonthKeysInWindow(s.first, s.last) }));

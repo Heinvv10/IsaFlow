@@ -53,6 +53,11 @@ export function fakeSql(strings: TemplateStringsArray, ...values: unknown[]): Pr
     const labels = values.find(Array.isArray) as number[];
     return Promise.resolve(labels.filter((l) => W.versions[l]).map((l) => ({ id: W.versions[l], fiscal_year: l })));
   }
+  if (q.includes('SELECT fiscal_year FROM budget_versions WHERE id')) {
+    const id = values.find((v) => typeof v === 'string' && Object.values(W.versions).includes(v)) as string | undefined;
+    const fiscalYear = id === undefined ? undefined : Object.entries(W.versions).find(([, version]) => version === id)?.[0];
+    return Promise.resolve(fiscalYear === undefined ? [] : [{ fiscal_year: Number(fiscalYear) }]);
+  }
   if (q.includes('FROM budget_versions')) {
     const ids = values.find(Array.isArray) as string[];
     return Promise.resolve(ids.map((id) => ({ id, name: 'Original', kind: 'original', status: 'draft', is_primary: true })));
