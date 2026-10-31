@@ -101,8 +101,11 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
     });
 
     it('explains eligibility and does not duplicate the page-wide VAT note', () => {
+      expect(PAYG_PLAN.desc).toBe(
+        'Prepaid Flows with no monthly fee for eligible low-volume businesses.',
+      );
       expect(PAYG_PLAN.eligibility).toBe(
-        'For companies under R1 million annual turnover. Start with the free trial, then ask us to switch an eligible company to Pay-As-You-Go.',
+        'Eligible if your company has under R1 million annual turnover, averages fewer than 200 posted journal entries per month, or is approved by our team. Start with the free trial, then ask us to switch an eligible company to Pay-As-You-Go.',
       );
       expect(PAYG_PLAN.topupNote).toBe(
         'Top up by buying another bundle whenever you need more Flows.',
