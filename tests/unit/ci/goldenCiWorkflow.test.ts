@@ -1,6 +1,5 @@
-// TEXT GUARDS: these assert on ci.yml's source, not on what the job does when it runs. They stop the mapping and the
-// clean-up step drifting apart in review; the behaviour proof for the clean-up is the real-listener test in
-// goldenKillSlotOrphans.test.ts.
+// TEXT GUARDS: these assert on ci.yml's source, not on what the job does when it runs. The free-port helper's
+// real-listener behaviour is covered by goldenFreePort.test.ts.
 // The golden-paths job in ci.yml maps a runner to a slot with a shell `case`; slotConfig.ts owns the slot numbers. Nothing
 // else ties them together, so a copy-pasted runner arm that reuses a slot (two runners on one company, the thing slots
 // exist to prevent) or a slot with no runner would pass every other test.
@@ -18,21 +17,18 @@ function runnerSlotArms(workflow: string): Array<{ runner: string; slot: number 
   return [...body.matchAll(/^\s*([A-Za-z0-9_.-]+)\)\s*slot=(\d+)\s*;;/gm)].map((m) => ({ runner: m[1]!, slot: Number(m[2]) }));
 }
 
-describe('ci.yml slot port window and orphan clean-up', () => {
-  const step = CI.slice(CI.indexOf('slot_lo=$((3300'));
+describe('ci.yml dev-server port and process clean-up', () => {
+  const step = CI.slice(CI.indexOf('GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts'));
 
-  it('draws the dev-server port from the same window the orphan clean-up covers', () => {
-    expect(CI).toContain('slot_lo=$((3300 + (slot - 1) * 166))');
-    expect(CI).toContain('slot_hi=$((slot_lo + 165))');
-    expect(CI).toContain('candidate=$((slot_lo + RANDOM % 166))');
-    expect(CI).toContain('killSlotOrphans.ts "$slot_lo" "$slot_hi"');
+  it('picks a verified free port before it boots the dev server', () => {
+    const at = (needle: string): number => step.indexOf(needle);
+    expect(at('golden-free-port.ts 3300 3799')).toBeGreaterThan(-1);
+    expect(at('golden-free-port.ts 3300 3799')).toBeLessThan(at('setsid bunx next dev'));
   });
 
-  it('cleans the window before it picks a port and boots the dev server', () => {
-    const at = (needle: string): number => step.indexOf(needle);
-    expect(at('killSlotOrphans.ts')).toBeGreaterThan(-1);
-    expect(at('killSlotOrphans.ts')).toBeLessThan(at('candidate=$((slot_lo'));
-    expect(at('killSlotOrphans.ts')).toBeLessThan(at('bunx next dev'));
+  it('starts a process group and stops that exact group on exit', () => {
+    expect(step).toContain('setsid bunx next dev');
+    expect(step).toContain("trap 'kill -- -$DEVPID 2>/dev/null || true' EXIT");
   });
 
   it('never kills by pattern', () => {
