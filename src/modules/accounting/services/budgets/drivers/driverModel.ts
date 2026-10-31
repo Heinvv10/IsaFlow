@@ -9,10 +9,15 @@
  * longer an income-statement account (retyped since), or its months no longer lie inside the
  * version. It is left out of the engine input with a labelled message, and the caller freezes its
  * row, so one stale driver never blocks every grid save of the version. A driver SAVE still
- * refuses such a driver (`checkDriverLine`, `assertDriverMonths`).
+ * refuses such a driver (`checkDriverLine`, `assertDriverMonths`, the model's skip as backstop).
+ *
+ * A row a driver only READS (no cells, no driver of its own) at a grain its account is not budgeted
+ * at (cells or another driver's row at another grain, or another such read) is not a row either: it
+ * would put the account at two grains, which a reforecast cannot plan. Its reader is skipped.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { monthKeyToDate } from '../../reports/budgetPeriodWindow';
+import { grainOf } from '../grid/cellKey';
 import { toCents } from '../grid/cents';
 import { bandOf } from '../grid/subtotals';
 import { assertDriverMonths, monthIndex } from './driverEngine';
@@ -84,10 +89,13 @@ export async function loadVersionModel(
     list.push({ month: String(r.m), amount: toCents(Number(r.amount)), source });
     cellsOf.set(key, list);
   }
-  for (const line of lines) {
-    grains.set(rowKeyOfGrain(line), line);
-    if (line.ref) grains.set(rowKeyOfGrain(line.ref), line.ref);
-  }
+  for (const line of lines) grains.set(rowKeyOfGrain(line), line);
+  const anchored = new Set(grains.keys());
+  for (const line of lines) if (line.ref) grains.set(rowKeyOfGrain(line.ref), line.ref);
+  // A read-only row at a grain another row of its account does not share: no row (see header).
+  const grainsOf = new Map<string, Set<string>>();
+  for (const g of grains.values()) grainsOf.set(g.glAccountId, (grainsOf.get(g.glAccountId) ?? new Set()).add(grainOf(g)));
+  const clashing = new Set([...grains].filter(([key, g]) => !anchored.has(key) && grainsOf.get(g.glAccountId)!.size > 1).map(([key]) => key));
 
   const accountIds = [...new Set([...grains.values()].map((g) => g.glAccountId))];
   const accounts = (await sql`
@@ -100,6 +108,7 @@ export async function loadVersionModel(
   const rows: DriverRow[] = [];
   const cells = new Map<RowKey, Cell[]>();
   for (const [key, g] of grains) {
+    if (clashing.has(key)) continue;
     const a = byId.get(g.glAccountId);
     // Not an income-statement account (retyped since): not a row; a driver naming it is skipped below.
     if (!a || (a.account_type !== 'revenue' && a.account_type !== 'expense')) continue;
@@ -109,7 +118,7 @@ export async function loadVersionModel(
   }
 
   const placed = new Set(rows.map((r) => r.key));
-  const { defs, skipped } = placeDrivers(lines, placed, labels, months);
+  const { defs, skipped } = placeDrivers(lines, placed, labels, months, clashing);
   const unplaced = [...grains].filter(([key]) => !placed.has(key)).map(([key, g]) => ({ key, ...g }));
   const allDefs = lines.flatMap((l) => {
     try {
@@ -126,10 +135,12 @@ export async function loadVersionModel(
 /**
  * Splits the version's drivers into those that compute and those skipped, with the reason. A
  * driver is skipped when its row or the row it reads is not `placed` (not an income-statement
- * account), or its months do not lie inside the version.
+ * account, or a read at a grain its account is not budgeted at: `clashing`), or its months do not
+ * lie inside the version.
  */
 export function placeDrivers(
   lines: readonly DriverLine[], placed: ReadonlySet<RowKey>, labels: ReadonlyMap<string, string>, months: readonly string[],
+  clashing: ReadonlySet<RowKey> = new Set(),
 ): { defs: DriverDef[]; skipped: SkippedDriver[] } {
   const index = monthIndex(months);
   const defs: DriverDef[] = [];
@@ -139,7 +150,9 @@ export function placeDrivers(
     let reason: string | null = null;
     let def: DriverDef | null = null;
     if (!placed.has(key)) reason = 'the account is no longer an income-statement account';
-    else if (line.ref && !placed.has(rowKeyOfGrain(line.ref))) {
+    else if (line.ref && clashing.has(rowKeyOfGrain(line.ref))) {
+      reason = `the account it reads (${rowLabel(rowKeyOfGrain(line.ref), labels)}) is budgeted at another level (company or one dimension); read it at that level`;
+    } else if (line.ref && !placed.has(rowKeyOfGrain(line.ref))) {
       reason = `the account it reads (${rowLabel(rowKeyOfGrain(line.ref), labels)}) is no longer an income-statement account`;
     } else {
       try {
