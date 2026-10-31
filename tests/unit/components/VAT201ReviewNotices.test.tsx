@@ -1,7 +1,7 @@
 /**
  * The review notices say what the ledger could not settle, and why a return is
  * not filable; they are silent when there is nothing to say. The manual
- * mark-submitted modal repeats the filability warning without blocking.
+ * record-filing modal repeats the filability warning without blocking.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -38,7 +38,7 @@ describe('VAT201SubmitModal filability warning', () => {
   it('shows the warning and still lets the user confirm', () => {
     render(<VAT201SubmitModal {...props} sarsRef="REF-1" filabilityWarning="field 1 is negative" />);
     expect(screen.getByTestId('vat201-submit-filability-warning').textContent).toMatch(/field 1 is negative/);
-    expect((screen.getByRole('button', { name: /mark|submit|confirm/i }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: /record filing/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('shows nothing when the return is filable', () => {
