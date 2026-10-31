@@ -35,7 +35,7 @@ describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
     sqlMock
       .mockResolvedValueOnce([{
         employee_id: EMP, periods: 0, retirement_cap_periods: 1, unpaid_lines: { 'line-march': '0.00' },
-        taxable_splits: { 'line-march': { periodic: 0, annual: 90_000, annualGross: 100_000 } },
+        taxable_splits: { 'line-march': { periodic: 0, annual: 90_000, annualGross: 100_000, originalTaxable: 120_000 } },
         periodic: '0', annual: '90000', table_paye: '0', medical_credit: '0', additional_medical_credit: '0',
       }])
       .mockResolvedValueOnce([{
@@ -50,7 +50,7 @@ describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
     sqlMock
       .mockResolvedValueOnce([{
         employee_id: EMP, periods: 0, retirement_cap_periods: 1, unpaid_lines: { 'line-march': '0.00' },
-        taxable_splits: { 'line-march': { periodic: 0, annual: 70_000, annualGross: 100_000 } },
+        taxable_splits: { 'line-march': { periodic: 0, annual: 70_000, annualGross: 100_000, originalTaxable: 100_000 } },
         periodic: '0', annual: '70000', table_paye: '0', medical_credit: '0', additional_medical_credit: '0',
       }])
       .mockResolvedValueOnce([{
@@ -66,7 +66,7 @@ describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
     sqlMock
       .mockResolvedValueOnce([{
         employee_id: EMP, periods: 1, retirement_cap_periods: 1, unpaid_lines: { 'line-march': '0.00' },
-        taxable_splits: { 'line-march': { periodic: 0, annual: 0, annualGross: 0 } },
+        taxable_splits: { 'line-march': { periodic: 0, annual: 0, annualGross: 0, originalTaxable: 20_000 } },
         periodic: '20000', annual: '0', table_paye: '2000', medical_credit: '0', additional_medical_credit: '0',
       }])
       .mockResolvedValueOnce([{
@@ -79,11 +79,26 @@ describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
     expect(ytd.periodicTaxable).toBe(40_000);
   });
 
+  it('caps restoration at the taxable remuneration before the legacy deduction', async () => {
+    sqlMock
+      .mockResolvedValueOnce([{
+        employee_id: EMP, periods: 0, retirement_cap_periods: 0, unpaid_lines: { 'line-march': '0.00' },
+        taxable_splits: { 'line-march': { periodic: 0, annual: 0, annualGross: 0, originalTaxable: 20_000 } },
+        periodic: '0', annual: '0', table_paye: '0', medical_credit: '0', additional_medical_credit: '0',
+      }])
+      .mockResolvedValueOnce([{
+        employee_id: EMP, pension: '0', provident: '0', annuity: '60000', contributions: '60000', deduction: '60000',
+        legacy_taxable: '60000', legacy_by_line: { 'line-march': 60_000 }, donations: '0',
+      }]);
+    const ytd = (await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 4 }, [EMP])).get(EMP)!;
+    expect(ytd).toMatchObject({ periods: 1, retirementCapPeriods: 1, periodicTaxable: 20_000, annualPayments: 0 });
+  });
+
   it('still counts no period for a nil line the record has nothing for', async () => {
     sqlMock
       .mockResolvedValueOnce([{
         employee_id: EMP, periods: 1, retirement_cap_periods: 1, unpaid_lines: { 'line-severance': 0 },
-        taxable_splits: { 'line-severance': { periodic: 0, annual: 0, annualGross: 0 } },
+        taxable_splits: { 'line-severance': { periodic: 0, annual: 0, annualGross: 0, originalTaxable: 0 } },
         periodic: '20000', annual: '0', table_paye: '2000', medical_credit: '0', additional_medical_credit: '0',
       }])
       .mockResolvedValueOnce([]);

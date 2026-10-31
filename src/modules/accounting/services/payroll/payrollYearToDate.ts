@@ -62,15 +62,21 @@ export async function loadPayeYearToDate(
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
-             b.annual_3605
+             b.annual_3605, b.original_taxable
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
       CROSS JOIN LATERAL (
         SELECT COALESCE(SUM((item->'directive'->>'paye')::numeric) FILTER (WHERE item->'directive' IS NOT NULL), 0) AS directive_paye,
                GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
                  WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
-                   AND (item->>'isTaxable')::boolean), 0), 0) AS annual_3605
+                   AND (item->>'isTaxable')::boolean), 0), 0) AS annual_3605,
+               GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
+                 WHERE (item->>'isTaxable')::boolean
+                   AND (pc.component_type = 'earning' OR item->>'componentId' LIKE 'synthetic:termination:%')
+                   AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') !~ '^39[0-9][0-9]$'
+               ), 0), 0) AS original_taxable
         FROM jsonb_array_elements(l.component_breakdown) AS item
+        LEFT JOIN payroll_components pc ON pc.id::text = item->>'componentId' AND pc.company_id = h.company_id
       ) b
       WHERE h.company_id = ${companyId}::uuid
         AND h.id <> ${runId}::uuid
@@ -85,7 +91,8 @@ export async function loadPayeYearToDate(
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
            jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic <= 0) AS unpaid_lines,
            jsonb_object_agg(line_id::text, jsonb_build_object(
-             'periodic', periodic, 'annual', annual, 'annualGross', annual_3605
+             'periodic', periodic, 'annual', annual, 'annualGross', annual_3605,
+             'originalTaxable', original_taxable
            )) AS taxable_splits,
            SUM(periodic)::numeric AS periodic,
            SUM(annual)::numeric AS annual,
@@ -114,7 +121,8 @@ export async function loadPayeYearToDate(
     );
     const restoredCapPeriods = Object.entries(legacyTaxableByLine).filter(([lineId, deduction]) => {
       const split = (taxableSplits[lineId] ?? {}) as Record<string, unknown>;
-      return deduction > 0 && Number(split.periodic) <= 0 && Number(split.annual) <= 0;
+      const restorable = Math.min(deduction, Math.max(0, Number(split.originalTaxable)));
+      return restorable > 0 && Number(split.periodic) <= 0 && Number(split.annual) <= 0;
     }).length;
     return [String(r.employee_id), {
       periods: yearToDatePeriods(Number(r.periods), (r.unpaid_lines ?? {}) as Record<string, unknown>, restored.periodicByLine),
@@ -141,12 +149,15 @@ function restoreLegacyTaxableSplit(
   const periodicByLine: Record<string, number> = {};
   for (const [lineId, deduction] of Object.entries(legacyTaxableByLine)) {
     const split = (taxableSplits[lineId] ?? {}) as Record<string, unknown>;
+    // The old calculator floored taxable remuneration at nil, so a contribution
+    // larger than the line's taxable earnings did not reduce PAYE by its full amount.
+    const restorable = Math.min(deduction, Math.max(0, Number(split.originalTaxable)));
     // The old calculator consumed periodic pay first. Therefore any gap between
     // the gross 3605 amount and its stored annual amount is the deduction's
     // excess; only the remainder can be restored to periodic remuneration.
     const annualGap = Math.max(0, Number(split.annualGross) - Number(split.annual));
-    const annualRestored = Math.min(deduction, annualGap);
-    const periodicRestored = Math.max(0, deduction - annualRestored);
+    const annualRestored = Math.min(restorable, annualGap);
+    const periodicRestored = Math.max(0, restorable - annualRestored);
     annual += annualRestored;
     periodic += periodicRestored;
     if (periodicRestored > 0) periodicByLine[lineId] = periodicRestored;
