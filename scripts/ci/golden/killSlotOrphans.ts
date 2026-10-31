@@ -60,6 +60,12 @@ export function selectOrphans(
 }
 
 const procCwd = (pid: number): string | null => { try { return readlinkSync(`/proc/${pid}/cwd`); } catch { return null; } };
+export const startTimeOf = (pid: number): string | null => {
+  try {
+    const fields = readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /, '').split(/\s+/);
+    return fields[19] || null;
+  } catch { return null; }
+};
 export const parentOf = (pid: number): number | null => {
   try { return Number(/^\d+ \(.*\) \S (\d+) /.exec(readFileSync(`/proc/${pid}/stat`, 'utf8'))?.[1]) || null; } catch { return null; }
 };
@@ -73,8 +79,8 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const say = (line: string): void => { process.stdout.write(`${line}\n`); };
 
 /** The process operations stopOrphan uses, so a test can stand in for them. */
-export interface ProcessOps { cwdOf(pid: number): string | null; alive(pid: number): boolean; kill(pid: number, signal: 'SIGTERM' | 'SIGKILL'): void; sleep(ms: number): Promise<void> }
-const realOps: ProcessOps = { cwdOf: procCwd, alive, kill: (pid, signal) => process.kill(pid, signal), sleep };
+export interface ProcessOps { cwdOf(pid: number): string | null; startTimeOf(pid: number): string | null; alive(pid: number): boolean; kill(pid: number, signal: 'SIGTERM' | 'SIGKILL'): void; sleep(ms: number): Promise<void> }
+const realOps: ProcessOps = { cwdOf: procCwd, startTimeOf, alive, kill: (pid, signal) => process.kill(pid, signal), sleep };
 
 /**
  * SIGTERM, then SIGKILL after 5 s. The pid was chosen by cwd a moment ago, but a pid can be reused: its cwd is read
@@ -82,11 +88,13 @@ const realOps: ProcessOps = { cwdOf: procCwd, alive, kill: (pid, signal) => proc
  * @returns 'stopped', or 'reused' when the pid no longer belongs to the workspace
  */
 export async function stopOrphan(pid: number, workspace: string, ops: ProcessOps = realOps): Promise<'stopped' | 'reused'> {
-  if (!inWorkspace(ops.cwdOf(pid), workspace)) return 'reused';
+  const startTime = ops.startTimeOf(pid);
+  const stillOriginal = (): boolean => startTime !== null && ops.startTimeOf(pid) === startTime && inWorkspace(ops.cwdOf(pid), workspace);
+  if (!stillOriginal()) return 'reused';
   ops.kill(pid, 'SIGTERM');
   for (let i = 0; i < 25 && ops.alive(pid); i++) await ops.sleep(200);
   if (ops.alive(pid)) {
-    if (!inWorkspace(ops.cwdOf(pid), workspace)) return 'reused';
+    if (!stillOriginal()) return 'reused';
     ops.kill(pid, 'SIGKILL');
   }
   return 'stopped';
