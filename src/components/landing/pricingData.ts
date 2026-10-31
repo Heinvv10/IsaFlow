@@ -43,7 +43,7 @@ export interface PaygPlan {
   eligibility: string;
   limits: string[];
   bundles: PaygBundle[];
-  autoTopupNote: string;
+  topupNote: string;
 }
 
 export const PAYG_PLAN: PaygPlan = {
@@ -59,7 +59,7 @@ export const PAYG_PLAN: PaygPlan = {
     { flows: 1_500, price: 'R 150' },
     { flows: 2_500, price: 'R 250' },
   ],
-  autoTopupNote: 'Optional auto top-up settings are available.',
+  topupNote: 'Top up by buying another bundle whenever you need more Flows.',
 };
 
 export const BUREAU_SKUS: BureauSku[] = [
