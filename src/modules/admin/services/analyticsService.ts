@@ -232,7 +232,7 @@ async function getChurnSignals(): Promise<UsageAnalytics['churn_signals']> {
 const SETTINGS_DEFAULTS: PlatformSettings = {
   maintenance_mode: false,
   registration_enabled: true,
-  default_trial_days: 14,
+  default_trial_days: 30,
   max_companies_per_user: 5,
   smtp_configured: false,
 };
