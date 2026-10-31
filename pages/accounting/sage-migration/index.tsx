@@ -128,8 +128,9 @@ export default function SageMigrationPage() {
               <div className="p-5 rounded-lg bg-blue-500/10 border border-blue-500/20">
                 <p className="font-semibold text-blue-400 mb-1">Moving from Sage?</p>
                 <p className="text-sm text-[var(--ff-text-secondary)] mb-3">
-                  Export your accounts, customers, suppliers, trial balance and unpaid invoices from Sage as CSV or
-                  Excel files, then upload them step by step in the Migration Wizard.
+                  Export your accounts, customers, suppliers, trial balance and unpaid invoices from Sage as CSV
+                  files, then upload them step by step in the Migration Wizard. If Sage gives you an Excel file,
+                  save it as CSV UTF-8 first.
                 </p>
                 <Link href="/accounting/migration" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
                   Import from Sage
