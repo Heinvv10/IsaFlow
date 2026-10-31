@@ -33,6 +33,7 @@ import { VAT201SarsSubmit } from '@/components/accounting/sars/VAT201SarsSubmit'
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CaptureInboxPanel, type CaptureEventRow } from '@/components/accounting/capture/CaptureInboxPanel';
 import { RollbackButton } from '@/components/accounting/migration/WizardParts';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -181,8 +182,8 @@ describe('VAT period unlock', () => {
 describe('VatPeriodLockForm exception count', () => {
   const pick = () => {
     const { container } = render(<VatPeriodLockForm onLock={vi.fn().mockResolvedValue(null)} />);
-    fireEvent.change(container.querySelector('input[name="periodStart"]')!, { target: { value: '2026-03-01' } });
-    fireEvent.change(container.querySelector('input[name="periodEnd"]')!, { target: { value: '2026-04-30' } });
+    typeDate(container.querySelector('#vat-lock-periodStart')!, '2026-03-01');
+    typeDate(container.querySelector('#vat-lock-periodEnd')!, '2026-04-30');
   };
   it('a failed count says it could not check instead of silently showing nothing', async () => {
     serve(on('GET', 'vat-exceptions', empty500));

@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { AssetFleetPanel } from '@/components/assets/AssetFleetPanel';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/utils/toast', () => ({ notify: { success: vi.fn(), error: vi.fn() } }));
@@ -52,7 +53,7 @@ it('adds a fuel record with the route body (blank optionals left out)', async ()
   serve();
   render(<AssetFleetPanel assetId="as-1" />);
   await screen.findByText('40 L');
-  fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-10-03' } });
+  typeDate(screen.getByLabelText('Date'), '2026-10-03');
   fireEvent.change(screen.getByLabelText('Litres'), { target: { value: '45.5' } });
   fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '910.25' } });
   fireEvent.change(screen.getByLabelText('Supplier'), { target: { value: ' Shell ' } });

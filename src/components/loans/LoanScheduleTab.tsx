@@ -2,11 +2,13 @@
  * LoanScheduleTab — schedule table + what-if side panel.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { SlidersHorizontal, X, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ScheduleRow, LoanEvent } from './types';
 import { LoanScheduleTable } from './LoanScheduleTable';
+import { useDateGate } from '@/components/forms/GatedDateField';
+import { WhatIfEventRow, type WhatIfEvent } from './WhatIfEventRow';
 
 interface Props {
   loanId: string;
@@ -14,24 +16,20 @@ interface Props {
   loading: boolean;
 }
 
-interface WhatIfEvent {
-  kind: string;
-  date: string;
-  amount: string;
-}
-
 export function LoanScheduleTab({ loanId, rows, loading }: Props) {
+  const dateGate = useDateGate();
   const [showPanel, setShowPanel] = useState(false);
   const [previewRows, setPreviewRows] = useState<ScheduleRow[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const nextId = useRef(1);
   const [events, setEvents] = useState<WhatIfEvent[]>([
-    { kind: 'LUMP', date: '', amount: '' },
+    { id: 0, kind: 'LUMP', date: '', amount: '' },
   ]);
 
-  const addEvent = () => setEvents(ev => [...ev, { kind: 'LUMP', date: '', amount: '' }]);
+  const addEvent = () => setEvents(ev => [...ev, { id: nextId.current++, kind: 'LUMP', date: '', amount: '' }]);
   const removeEvent = (i: number) => setEvents(ev => ev.filter((_, idx) => idx !== i));
-  const updateEvent = (i: number, field: keyof WhatIfEvent, value: string) =>
+  const updateEvent = (i: number, field: Exclude<keyof WhatIfEvent, 'id'>, value: string) =>
     setEvents(ev => ev.map((e, idx) => idx === i ? { ...e, [field]: value } : e));
 
   const runPreview = async () => {
@@ -105,41 +103,10 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
           )}
 
           {events.map((ev, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
-              <select
-                value={ev.kind}
-                onChange={e => updateEvent(i, 'kind', e.target.value)}
-                className="ff-select text-xs"
-              >
-                <option value="LUMP">Lump Sum</option>
-                <option value="SKIP">Skip</option>
-              </select>
-              <input
-                type="date"
-                value={ev.date}
-                onChange={e => updateEvent(i, 'date', e.target.value)}
-                className="ff-input text-xs"
-              />
-              {ev.kind === 'LUMP' ? (
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Amount"
-                  value={ev.amount}
-                  onChange={e => updateEvent(i, 'amount', e.target.value)}
-                  className="ff-input text-xs"
-                />
-              ) : (
-                <div />
-              )}
-              <button
-                onClick={() => removeEvent(i)}
-                className="text-[var(--ff-text-tertiary)] hover:text-red-400 p-1"
-                disabled={events.length === 1}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
+            <WhatIfEventRow
+              key={ev.id} event={ev} position={i + 1} gate={dateGate} canRemove={events.length > 1}
+              onChange={(field, value) => updateEvent(i, field, value)} onRemove={() => removeEvent(i)}
+            />
           ))}
 
           <div className="flex items-center gap-2">
@@ -151,7 +118,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
             </button>
             <button
               onClick={runPreview}
-              disabled={previewLoading}
+              disabled={previewLoading || dateGate.blocked}
               className="ml-auto inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-medium disabled:opacity-50"
             >
               {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Run Preview'}

@@ -12,6 +12,7 @@ import type { StaffRate } from '@/modules/accounting/services/practice/practiceS
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { formatAmount } from '@/lib/money/formatMoney';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -36,6 +37,7 @@ const EMPTY_FORM: FormState = {
 };
 
 export default function StaffRatesPage() {
+  const dateGate = useDateGate();
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [selectedUser, setSelectedUser] = useState('');
   const [rates, setRates] = useState<StaffRate[]>([]);
@@ -239,30 +241,17 @@ export default function StaffRatesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Effective From</label>
-                  <input
-                    type="date"
-                    value={form.effectiveFrom}
-                    onChange={(e) => setForm((f) => ({ ...f, effectiveFrom: e.target.value }))}
-                    className={INPUT}
-                    required
-                  />
+                  <GatedDateField gate={dateGate} gateKey="effective-from" label="Effective From" required value={form.effectiveFrom || null} onValue={(iso) => setForm((f) => ({ ...f, effectiveFrom: iso }))} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Effective To (optional)</label>
-                  <input
-                    type="date"
-                    value={form.effectiveTo}
-                    onChange={(e) => setForm((f) => ({ ...f, effectiveTo: e.target.value }))}
-                    className={INPUT}
-                  />
+                  <GatedDateField gate={dateGate} gateKey="effective-to-optional" label="Effective To (optional)" value={form.effectiveTo || null} onValue={(iso) => setForm((f) => ({ ...f, effectiveTo: iso }))} />
                 </div>
               </div>
 
               <div className="flex justify-end mt-4">
                 <button
                   type="submit"
-                  disabled={adding}
+                  disabled={adding || dateGate.blocked}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
                 >
                   {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
