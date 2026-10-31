@@ -33,10 +33,11 @@ describe('report filter dates', () => {
     const { container } = render(<SalesByItem />);
     await waitFor(() => expect(reportUrls().length).toBe(1));
     const to = dateFieldInputs(container)[1]!;
-    fireEvent.change(to, { target: { value: 'eom' } });
+    // A fixed past date: 'eom' equals the default (today) on a month's last day, so nothing changed and nothing fetched.
+    fireEvent.change(to, { target: { value: '15 Jan 2025' } });
     fireEvent.keyDown(to, { key: 'Enter' });
     await waitFor(() => expect(reportUrls().length).toBe(2));
-    expect(reportUrls().at(-1)).toMatch(/to=\d{4}-\d{2}-\d{2}$/);
+    expect(reportUrls().at(-1)).toMatch(/to=2025-01-15$/);
   });
 
   it('refused text ("zz") never changes the filter, so it never fetches', async () => {

@@ -255,40 +255,31 @@ jobs:
           # keys: only the Playwright command below sees one slot's password.
           grep -v '^GOLDEN_SLOT_' /home/hein/isaflow-ci.env > .env.local
           bunx playwright install chromium
-          # Ephemeral port, never one that is already bound: a stale or foreign
-          # server (docker-proxy answers on 3400/3420/3430) would pass the health
-          # check and the suite would test OLD code or someone else's service.
-          # The specs that check the host allow 3300-3799; each slot draws from a
-          # window of its own inside it (166 ports), so two runners never pick the
-          # same port. Disjoint windows rule out a check-then-bind race, which a
-          # wider shared window would leave open. Next.js refuses fetch-spec "bad
-          # ports"; 3659 (apple-sasl) is the only one in 3300-3799 and failed a
-          # boot on 2026-10-28, so it is never drawn (it sits in slot 3's window).
-          slot_lo=$((3300 + (slot - 1) * 166))
-          slot_hi=$((slot_lo + 165))
-          # A dev server an earlier timed-out job of this runner left in the window would keep writing to the slot.
-          # Stops only listeners whose cwd is in this runner's workspace, by exact pid (never a pattern); see the script.
-          bun scripts/ci/golden/killSlotOrphans.ts "$slot_lo" "$slot_hi" || true
-          GOLDEN_PORT=""
-          for _ in $(seq 1 50); do
-            candidate=$((slot_lo + RANDOM % 166))
-            [ "$candidate" -eq 3659 ] && continue
-            if ! ss -ltn | awk '{print $4}' | grep -qE ":${candidate}\$"; then GOLDEN_PORT=$candidate; break; fi
-          done
-          if [ -z "$GOLDEN_PORT" ]; then echo "::error::no free port in the window of slot $slot"; exit 1; fi
-          bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
+          # Ephemeral port that nothing listens on: a stale next dev from an
+          # earlier cancelled run, or one of velo's docker apps in 3300-3799,
+          # would answer the health check (and the login) in place of this
+          # job's server. Skips Next.js's bad ports too.
+          GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts 3300 3799)
+          [ -n "$GOLDEN_PORT" ] || { echo "::error::golden-free-port printed no port"; exit 1; }
+          # setsid: its own process group, so the trap stops next's children
+          # too, not only the bunx wrapper.
+          setsid bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
           DEVPID=$!
-          trap 'kill $DEVPID 2>/dev/null || true' EXIT
+          trap 'kill -- -$DEVPID 2>/dev/null || true' EXIT
+          # Ready only when OUR server says so: next dev logs "Ready in" once
+          # it has bound the port (it exits on EADDRINUSE with -p, never
+          # logging it), so another server answering the port is not enough.
+          # grep -q only: the log is never printed (see below).
           for i in $(seq 1 90); do
-            curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null && break
+            kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited during boot (port $GOLDEN_PORT) — see golden-dev.log in the runner workdir"; exit 1; }
+            grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null && break
             sleep 2
           done
           # Do NOT cat/tail golden-dev.log here: the boot log can echo values
           # from .env.local, and GitHub only redacts registered secrets —
           # runner-local env values would land in the public job log.
-          curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
-          # The health answer must come from OUR server: if it died (port taken
-          # after the check), whatever answers is not what this job is testing.
+          { grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null; } || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
+          # The answer must come from OUR server, not whatever took the port.
           kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
           # Only this command sees the slot's login, in its own subshell.
           ( export GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden )
