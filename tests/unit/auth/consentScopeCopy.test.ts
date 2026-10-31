@@ -21,7 +21,7 @@ import { SCOPE_LABELS } from '@/lib/auth/consentScopeLabels';
 const MUST_MENTION: Partial<Record<string, string[]>> = {
   'write:invoices': ['invoice', 'credit note'],
   'read:invoices': ['invoice'],
-  'write:journals': ['draft', 'journal'],
+  'write:journals': ['draft', 'journal', 'bank transaction', 'dimension', 'audit snapshot'],
   'write:post': ['journal', 'revers'],
   'write:bank-tx': ['bank'],
   'write:accounts': ['account'],
@@ -63,16 +63,15 @@ describe('scope copy — PAT page and OAuth consent screen agree', () => {
     }
   });
 
-  it('describes write:journals as draft-only', () => {
-    const postingNotice = 'Posting them needs the separate posting permission (write:post).';
+  it('discloses every mutation available without write:post', () => {
     const consentCopy = SCOPE_LABELS['write:journals'];
     const patCopy = PAT_SCOPE_META['write:journals'].desc;
 
-    expect(consentCopy).toBe('Create draft journals');
-    expect(consentCopy).not.toMatch(/\bpost/i);
-    expect(consentCopy).not.toMatch(/\bedit/i);
-    expect(patCopy).toContain(postingNotice);
-    expect(patCopy.replace(postingNotice, '')).not.toMatch(/\bpost\w*/i);
-    expect(patCopy).not.toMatch(/\bedit/i);
+    expect(consentCopy).toBe(
+      'Create draft journals, rewrite allocated bank transaction dimensions, and take audit snapshots with report access',
+    );
+    expect(patCopy).toBe(
+      'Create draft GL journals and rewrite dimension fields on up to 2,000 allocated bank transactions, including clearing existing fields. With read:reports, take append-only audit snapshots. Posting, reversals, period changes, journal tagging, and other ledger changes also need write:post.',
+    );
   });
 });
