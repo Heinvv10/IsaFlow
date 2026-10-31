@@ -1,9 +1,16 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { vi } from 'vitest';
+import { budgetElsewhereNotice, noBudgetYearNotice } from '@/modules/accounting/services/budgets/tracking/trackingNoticeText';
 import {
   ComparatorNotices, comparatorNotices, BUDGET_NONE, BUDGET_FAILED, TREND_FAILED,
-  COMPANY_WIDE_UNAVAILABLE,
+  COMPANY_WIDE_UNAVAILABLE, BUDGET_WHOLE_MONTHS, type BudgetInfo,
 } from '@/components/accounting/reportControls/ComparatorNotices';
+
+const INFO = (over: Partial<BudgetInfo> = {}): BudgetInfo => ({
+  budgetAbsentYears: [], budgetOutsideFilterYears: [], unallocatedBudget: { income: 0, expense: 0 }, partialBudgetCount: 0, splitsMonth: false,
+  retryAfterSecs: null, rejection: null, ...over,
+});
 
 afterEach(cleanup);
 
@@ -61,5 +68,91 @@ describe('<ComparatorNotices />', () => {
     render(<ComparatorNotices budgetState="none" trendFailed={false} />);
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByText(BUDGET_NONE)).toBeInTheDocument();
+  });
+});
+
+describe('comparatorNotices: the budget under a filter (budgets P3 PR-C)', () => {
+  it('the dimension notice names the trend only: the budget column follows the filter now', () => {
+    expect(COMPANY_WIDE_UNAVAILABLE).toMatch(/12-month trend/);
+    expect(COMPANY_WIDE_UNAVAILABLE).not.toMatch(/budget/i);
+  });
+
+  it('a year with no budget in the window is named, never "no budget captured"', () => {
+    const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026] }) });
+    expect(n).toEqual([{ tone: 'info', text: noBudgetYearNotice(2026) }]);
+    // One notice per year, as Budget vs Actual prints them.
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026, 2028] }) }).map((x) => x.text))
+      .toEqual([noBudgetYearNotice(2026), noBudgetYearNotice(2028)]);
+  });
+
+  it('budget set above the filter is reported per polarity and never summed; it replaces "no budget captured"', () => {
+    const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ unallocatedBudget: { income: 300, expense: 1200 } }) });
+    expect(n).toHaveLength(1);
+    expect(n[0]!.text).toMatch(/^R\s?300\.00 of income budget and R\s?1[\s ]?200\.00 of expense budget on these accounts is set at company level or above this filter/);
+    expect(n[0]!.text).not.toMatch(/1[\s ]?500/);
+    const avail = comparatorNotices({ budgetState: 'available', trendFailed: false, budget: INFO({ unallocatedBudget: { income: 0, expense: 1200 } }) });
+    expect(avail[0]!.text).toMatch(/^R\s?1[\s ]?200\.00 of expense budget on these accounts/);
+  });
+
+  it('lines budgeted for only part of the window are named, beside a column that has budgets', () => {
+    expect(comparatorNotices({ budgetState: 'available', trendFailed: false, budget: INFO({ partialBudgetCount: 2 }) }))
+      .toEqual([{ tone: 'info', text: '2 accounts have a budget for only part of this window; their Budget is blank.' }]);
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ partialBudgetCount: 1 }) }))
+      .toEqual([{ tone: 'info', text: '1 account has a budget for only part of this window; its Budget is blank.' }]);
+  });
+
+  it('a refused budget request says how long to wait, and offers a retry', () => {
+    expect(comparatorNotices({ budgetState: 'limited', trendFailed: false, budget: INFO({ retryAfterSecs: 250 }) }))
+      .toEqual([{ tone: 'error', text: 'Too many report requests, so the Budget column is empty: try again in 5 minutes.', retry: true }]);
+    expect(comparatorNotices({ budgetState: 'limited', trendFailed: false, budget: INFO({ retryAfterSecs: 1 }) })[0]!.text)
+      .toMatch(/try again in 1 second\.$/);
+    // The shared withAuth limiter sends no Retry-After.
+    expect(comparatorNotices({ budgetState: 'limited', trendFailed: false })[0]!.text).toMatch(/try again in about a minute\.$/);
+  });
+});
+
+describe('the absent-year notice is ONE string on both pages (review r3)', () => {
+  it('the income statement and Budget vs Actual print the same words for the same year', () => {
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2026] }) })[0]!.text)
+      .toBe('No budget for FY2026 in this window: its Budget and variance columns are shown as —, never as zero.');
+    expect(noBudgetYearNotice(2026)).toBe('No budget for FY2026 in this window: its Budget and variance columns are shown as —, never as zero.');
+  });
+});
+
+describe('<ComparatorNotices /> retry', () => {
+  it('the refusal carries a Retry button that calls back once per click', () => {
+    const onRetryBudget = vi.fn();
+    render(<ComparatorNotices budgetState="limited" trendFailed={false} budget={INFO({ retryAfterSecs: 30 })} onRetryBudget={onRetryBudget} />);
+    expect(screen.getByRole('alert').textContent).toContain('try again in 30 seconds.');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetryBudget).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('comparatorNotices: whole months, absent years, a budget elsewhere, a refused window (PR-C review r1 R4; r2 R8, R10)', () => {
+  it('a window that splits a budget month says budgets are set by whole month, and nothing else about the budget', () => {
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ splitsMonth: true, budgetAbsentYears: [2027] }) }))
+      .toEqual([{ tone: 'info', text: BUDGET_WHOLE_MONTHS }]);
+    expect(BUDGET_WHOLE_MONTHS).toBe('Budgets are set by whole month. Choose a window from the 1st to a month end to compare.');
+  });
+
+  it('a year with no budget says so in the sentence Budget vs Actual uses: nothing about the years that do (R10 F2)', () => {
+    expect(comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetAbsentYears: [2028] }) }))
+      .toEqual([{ tone: 'info', text: 'No budget for FY2028 in this window: its Budget and variance columns are shown as —, never as zero.' }]);
+  });
+
+  it('a year whose budget is all at other dimensions is not "no budget": it says the budget is not at this filter (R8)', () => {
+    const n = comparatorNotices({ budgetState: 'none', trendFailed: false, budget: INFO({ budgetOutsideFilterYears: [2027] }) });
+    expect(n).toEqual([{ tone: 'info', text: 'FY2027 has a budget, but none of it is at this filter.' }]);
+    expect(comparatorNotices({ budgetState: 'available', trendFailed: false, budget: INFO({ budgetOutsideFilterYears: [2026, 2027] }) }).map((x) => x.text))
+      .toEqual([budgetElsewhereNotice(2026), budgetElsewhereNotice(2027)]);
+  });
+
+  it("a window the server refused shows the server's reason as an error, with no advice to reload (R10 F4)", () => {
+    const n = comparatorNotices({ budgetState: 'refused', trendFailed: false, budget: INFO({ rejection: 'A window is at most 24 months' }) });
+    expect(n).toEqual([{ tone: 'error', text: 'The Budget column is empty. A window is at most 24 months.' }]);
+    expect(n[0]!.text).not.toMatch(/reload|loading failure/i);
+    expect(comparatorNotices({ budgetState: 'refused', trendFailed: false, budget: INFO({ rejection: 'Ends first.' }) })[0]!.text)
+      .toBe('The Budget column is empty. Ends first.');
   });
 });
