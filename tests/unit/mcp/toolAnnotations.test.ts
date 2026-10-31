@@ -71,12 +71,12 @@ describe('MCP tool annotations', () => {
       'update_bank_rule',
       'update_customer',
       'update_gl_account',
+      'suggest_bank_allocation',
     ];
     const additive = [
       'create_draft_invoice',
       'create_customer',
       'log_time_entry',
-      'suggest_bank_allocation',
       'attach_document',
     ];
 
