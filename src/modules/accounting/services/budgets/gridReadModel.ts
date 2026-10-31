@@ -31,6 +31,7 @@ import { bandTotals, ownMonths } from './gridTotals';
 import type { GridCell, GridCellsOnly, GridReadModel, GridSelector } from './gridReadTypes';
 import type { CellSource } from './drivers/driverTypes';
 import { listDriverLines } from './drivers/driverRepository';
+import { visibleDriverLines, type PerHeadAccess } from './drivers/perHeadAccess';
 
 interface Resolved { id: string; fiscalYear: number }
 
@@ -100,7 +101,8 @@ export async function loadGridCells(companyId: string, sel: GridSelector): Promi
   return { versionId: found.id, updatedAt: token, cells };
 }
 
-export async function loadGridReadModel(companyId: string, sel: GridSelector): Promise<GridReadModel> {
+/** `access` decides whether per_head drivers carry their rate (budget writers) or not (readers): perHeadAccess. */
+export async function loadGridReadModel(companyId: string, sel: GridSelector, access: PerHeadAccess): Promise<GridReadModel> {
   const found = await resolveVersion(companyId, sel);
   const label = found?.fiscalYear ?? sel.fiscalYear;
   if (label === undefined) throw inputError('Name a version or a financial year');
@@ -130,7 +132,7 @@ export async function loadGridReadModel(companyId: string, sel: GridSelector): P
   const grains: Map<string, AccountGrain> = accountGrains(cents);
   const accounts = await loadGridAccounts(companyId, own, grains, monthCount, await loadGridNotes(companyId, year.fiscalYear));
   const dimensions = await loadGridDimensions(companyId, { cc1: [...used.cc1], cc2: [...used.cc2], bu: [...used.bu] });
-  const drivers = await listDriverLines(companyId, found.id);
+  const drivers = visibleDriverLines(await listDriverLines(companyId, found.id), access);
 
   return {
     version: { ...version, updatedAt: token, status: status as BudgetVersion['status'] }, updatedAt: token, year, accounts, dimensions, cells, grains: Object.fromEntries(grains), drivers,
