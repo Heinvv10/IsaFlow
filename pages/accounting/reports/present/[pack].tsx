@@ -14,7 +14,7 @@ import { PresentDeck } from '@/components/accounting/present/PresentDeck';
 import { buildSlides, type ReportPack, type Slide } from '@/components/accounting/present/presentSlides';
 import { PresentSlide } from '@/components/accounting/present/PresentSlide';
 import type { BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
-import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 
@@ -29,7 +29,8 @@ export default function PresentPackPage() {
   const [slides, setSlides] = useState<Slide[] | null>(null);
   const [trends, setTrends] = useState<AccountTrends | null>(null);
   const [trendsFailed, setTrendsFailed] = useState(false);
-  const [budget, setBudget] = useState<BudgetVsActualLine[]>([]);
+  const [budget, setBudget] = useState<TrackedLine[]>([]);
+  const [budgetBands, setBudgetBands] = useState<BudgetVarianceTracked['bands'] | undefined>(undefined);
   const [budgetedCount, setBudgetedCount] = useState(0);
   const [budgetInfo, setBudgetInfo] = useState<BudgetInfo | undefined>(undefined);
   const [budgetFailed, setBudgetFailed] = useState(false);
@@ -54,7 +55,7 @@ export default function PresentPackPage() {
     // invalid pack — a client-side navigation from an unknown pack to a
     // known one must not keep the old "Unknown pack" banner on screen.
     setError('');
-    setSlides(null); setIncome(null); setTrends(null); setBudget([]); setBudgetedCount(0); setBudgetInfo(undefined);
+    setSlides(null); setIncome(null); setTrends(null); setBudget([]); setBudgetBands(undefined); setBudgetedCount(0); setBudgetInfo(undefined);
     let live = true;
     setTrendsFailed(false);
     setBudgetFailed(false);
@@ -95,6 +96,7 @@ export default function PresentPackPage() {
         setTrendsLoading(false);
         if (budgetResult.status === 'fulfilled') {
           setBudget(budgetResult.value.lines);
+          setBudgetBands(budgetResult.value.bands);
           setBudgetedCount(budgetResult.value.budgetedCount);
           // Why a count of 0 is not "no budget captured": the comparator withholds a budget that exists.
           const b = budgetResult.value;
@@ -137,13 +139,13 @@ export default function PresentPackPage() {
       <PresentSlide
         slide={slide} income={income} incomeLoading={incomeLoading}
         trends={trends} trendsFailed={trendsFailed} trendsLoading={trendsLoading}
-        budget={budget} budgetedCount={budgetedCount} budgetInfo={budgetInfo}
+        budget={budget} budgetBands={budgetBands} budgetedCount={budgetedCount} budgetInfo={budgetInfo}
         budgetFailed={budgetFailed} budgetLoading={budgetLoading}
       />
     ),
     [
       income, incomeLoading, trends, trendsFailed, trendsLoading,
-      budget, budgetedCount, budgetInfo, budgetFailed, budgetLoading,
+      budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading,
     ],
   );
 

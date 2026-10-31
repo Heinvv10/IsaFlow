@@ -8,8 +8,10 @@ import { BudgetBulletRow } from '@/components/accounting/charts/BudgetBulletRow'
 import { SmallMultiples } from '@/components/accounting/charts/SmallMultiples';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import { applyBudgetComparator, applyTrend, hasBudgetData } from '@/modules/accounting/services/reports/statementRows/comparators';
+import { applyBudgetBands, withBudgetedLines } from '@/modules/accounting/services/reports/statementRows/budgetComparatorBands';
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { BUDGET_NONE, comparatorNotices, type BudgetInfo } from '@/components/accounting/reportControls/ComparatorNotices';
@@ -49,7 +51,7 @@ function accountNames(income: IncomeStatementReport | null): Map<string, string>
 export function PresentSlide({
   slide, income, incomeLoading = false,
   trends, trendsFailed, trendsLoading = false,
-  budget, budgetedCount, budgetInfo, budgetFailed, budgetLoading = false,
+  budget, budgetBands, budgetedCount, budgetInfo, budgetFailed, budgetLoading = false,
 }: {
   slide: Slide;
   income: IncomeStatementReport | null;
@@ -63,9 +65,11 @@ export function PresentSlide({
   trendsFailed: boolean;
   /** The trends fetch is in flight. See `incomeLoading`. */
   trendsLoading?: boolean;
-  budget: BudgetVsActualLine[];
-  /** Mirrors `useStatementComparators`: `applyBudgetComparator` runs only
-   *  when a real budget was captured, never on an empty one. */
+  budget: Array<BudgetVsActualLine & Partial<Pick<TrackedLine, 'budget_verdict' | 'band'>>>;
+  /** Engine band and profit-total budgets. Its presence identifies the tracked comparator payload. */
+  budgetBands?: BudgetVarianceTracked['bands'];
+  /** Legacy/P0 payloads need the captured-budget guard. Tracked payloads are identified by
+   *  `budgetBands` and applied even at zero so their absent verdicts reach the grid. */
   budgetedCount: number;
   /** What the comparator said about the window beyond its lines (a split month, an absent year,
    *  partial or above-filter budgets): why `budgetedCount` is 0 when a budget does exist. */
@@ -99,11 +103,16 @@ export function PresentSlide({
     }
     const base = toIncomeStatementRows(income, { comparative: false });
     const withTrend = trends ? applyTrend(base, trends) : base;
-    const rows = hasBudgetData(budgetedCount) ? applyBudgetComparator(withTrend, budget) : withTrend;
+    const rows = budgetBands !== undefined
+      ? applyBudgetBands(
+        applyBudgetComparator(withBudgetedLines(withTrend, budget as TrackedLine[]), budget),
+        budgetBands,
+      )
+      : hasBudgetData(budgetedCount) ? applyBudgetComparator(withTrend, budget) : withTrend;
     return (
       <>
         <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
-        <StatementGrid rows={rows} columns={{ ...COLUMNS }} title="Statement of Comprehensive Income" />
+        <StatementGrid rows={rows} columns={{ ...COLUMNS }} title="Statement of Comprehensive Income" budgetCells />
       </>
     );
   }
