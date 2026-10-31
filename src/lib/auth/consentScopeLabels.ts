@@ -21,7 +21,7 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   'write:invoices': 'Create and edit invoices, and raise or cancel credit notes against them',
   'read:bank-tx': 'Read your bank transactions',
   'write:bank-tx': 'Allocate and post bank transactions',
-  'write:journals': 'Post General Ledger journals',
+  'write:journals': 'Create draft journals, rewrite allocated bank transaction dimensions, and take audit snapshots with report access',
   'write:accounts': 'Create and edit your chart of accounts',
   'read:reports': 'Read your financial reports',
   'read:contacts': 'Read your customers and suppliers',
