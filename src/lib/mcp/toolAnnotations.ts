@@ -3,7 +3,9 @@ import type { McpTool, McpToolAnnotations } from './types';
 /**
  * Non-posting writes need an explicit classification because `write` alone
  * cannot distinguish an additive create from an update that replaces state.
- * Posting tools are always destructive; reads are never destructive.
+ * Posting tools are always destructive; reads are never destructive. An
+ * unclassified write defaults to destructive at runtime so `tools/list`
+ * remains available, while the registry test requires explicit coverage.
  */
 const NON_DESTRUCTIVE_WRITES = new Set([
   'create_draft_invoice',
@@ -59,17 +61,24 @@ const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
   'sync_bank_dimensions',
 ]);
 
-function destructiveHintFor(tool: Pick<McpTool, 'name' | 'write' | 'requiresPost'>): boolean {
+type AnnotationTool = Pick<McpTool, 'name' | 'write' | 'requiresPost'>;
+
+export function hasExplicitDestructiveHintClassification(tool: AnnotationTool): boolean {
+  return (
+    NON_DESTRUCTIVE_WRITES.has(tool.name) ||
+    DESTRUCTIVE_NON_POSTING_WRITES.has(tool.name)
+  );
+}
+
+function destructiveHintFor(tool: AnnotationTool): boolean {
   if (!tool.write) return false;
   if (tool.requiresPost) return true;
   if (NON_DESTRUCTIVE_WRITES.has(tool.name)) return false;
-  if (DESTRUCTIVE_NON_POSTING_WRITES.has(tool.name)) return true;
-
-  throw new Error(`MCP tool annotations: classify non-posting write "${tool.name}"`);
+  return true;
 }
 
 export function toolAnnotationsFor(
-  tool: Pick<McpTool, 'name' | 'write' | 'requiresPost'>,
+  tool: AnnotationTool,
 ): McpToolAnnotations {
   return {
     readOnlyHint: !tool.write,

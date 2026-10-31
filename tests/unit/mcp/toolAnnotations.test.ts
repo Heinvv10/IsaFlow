@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import {
+  hasExplicitDestructiveHintClassification,
+  toolAnnotationsFor,
+} from '@/lib/mcp/toolAnnotations';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 
 describe('MCP tool annotations', () => {
@@ -25,6 +29,30 @@ describe('MCP tool annotations', () => {
       if (!tool.write) expect(annotations!.destructiveHint, tool.name).toBe(false);
       if (tool.requiresPost) expect(annotations!.destructiveHint, tool.name).toBe(true);
     }
+  });
+
+  it('explicitly classifies every registered non-posting write', () => {
+    const unclassified = mcpRegistry
+      .listTools()
+      .filter(
+        (tool) =>
+          tool.write &&
+          !tool.requiresPost &&
+          !hasExplicitDestructiveHintClassification(tool),
+      )
+      .map((tool) => tool.name);
+
+    expect(unclassified).toEqual([]);
+  });
+
+  it('defaults an unclassified write to destructive without throwing', () => {
+    expect(
+      toolAnnotationsFor({
+        name: 'future_unclassified_write',
+        write: true,
+        requiresPost: false,
+      }).destructiveHint,
+    ).toBe(true);
   });
 
   it('distinguishes destructive state changes from additive non-posting writes', () => {
