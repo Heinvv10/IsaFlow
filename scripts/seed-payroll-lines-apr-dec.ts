@@ -4,9 +4,10 @@
  * Context: an earlier simulator created payroll_run_headers for months 4-12 with
  * artificial totals but zero per-employee lines. UIF declarations therefore show
  * 0 totals. This script:
- *   1. For each month 4-12: resets the header to 'draft' (deletes stale GL journal),
- *      calls calculatePayrollRun (inserts real per-employee lines + correct totals),
- *      then approvePayrollRun (posts a correct GL journal entry).
+ *   1. For each safe unposted month 4-12, calculates real per-employee lines.
+ *      Posting then pauses at the normal R-035 gate until a person approves
+ *      the run in ISAFlow; rerunning posts a run whose approval is cleared.
+ *      Posted/paid history is never dismantled by this repair script.
  *   2. Prints a verification summary.
  *
  * Run:
@@ -21,6 +22,7 @@ import { createSql, closeSql } from './_pg';
 import { withAlsTransaction } from '../src/lib/alsTransaction';
 import { calculatePayrollRun } from '../src/modules/accounting/services/payroll/payrollRunService';
 import { approvePayrollRun }   from '../src/modules/accounting/services/payroll/payrollApprovalService';
+import { ApprovalRequiredError } from '../src/modules/accounting/services/gl/approvalGate';
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -136,8 +138,28 @@ async function main(): Promise<void> {
 
     const existing = await countLines(header.id);
     if (existing > 0) {
+      if (!header.journal_entry_id) {
+        try {
+          const approved = await withAlsTransaction(
+            { companyId: COMPANY_ID, userId: ADMIN_ID },
+            () => approvePayrollRun(COMPANY_ID, header.id, ADMIN_ID),
+          );
+          console.log(`month=${month}: existing lines posted as ${approved.journalEntryId}`);
+        } catch (error) {
+          if (!(error instanceof ApprovalRequiredError)) throw error;
+          console.log(`month=${month}: calculated; approve the run in ISAFlow, then rerun this script`);
+        }
+        continue;
+      }
       console.log(
         `month=${month}: already has ${existing} line(s), status=${header.status} — skipping`,
+      );
+      continue;
+    }
+
+    if (header.journal_entry_id || header.status === 'approved' || header.status === 'paid') {
+      console.error(
+        `month=${month}: REFUSED — posted/approved history has no lines; repair it through the governed reopen/reversal workflow`,
       );
       continue;
     }
@@ -157,7 +179,13 @@ async function main(): Promise<void> {
     const calculated = await withAlsTransaction(actor, () => calculatePayrollRun(header.id, COMPANY_ID, ADMIN_ID));
 
     // approvePayrollRun: status must be in ['draft','calculated','processed']
-    const approved = await withAlsTransaction(actor, () => approvePayrollRun(COMPANY_ID, header.id, ADMIN_ID));
+    let journalEntryId = 'awaiting human approval';
+    try {
+      const approved = await withAlsTransaction(actor, () => approvePayrollRun(COMPANY_ID, header.id, ADMIN_ID));
+      journalEntryId = approved.journalEntryId;
+    } catch (error) {
+      if (!(error instanceof ApprovalRequiredError)) throw error;
+    }
 
     console.log(
       `month=${month}: lines=${calculated.employeeCount} ` +
@@ -165,7 +193,7 @@ async function main(): Promise<void> {
       `paye=R${calculated.totalPaye.toFixed(2)} ` +
       `uif=R${calculated.totalUif.toFixed(2)} ` +
       `net=R${calculated.totalNet.toFixed(2)} ` +
-      `je=${approved.journalEntryId}`,
+      `je=${journalEntryId}`,
     );
   }
 

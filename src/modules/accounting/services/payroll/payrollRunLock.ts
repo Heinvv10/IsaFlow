@@ -35,7 +35,7 @@ import {
   setLocalLockTimeout,
 } from './payrollRunLoanApplication';
 import { lockJournalChain } from './payrollJournalChain';
-import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
+import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 export type PayrollRunStatus = 'draft' | 'calculated' | 'approved' | 'paid' | 'cancelled';
 
@@ -267,13 +267,11 @@ export async function reopenPayrollRun(opts: {
   `) as DbRow[];
   if (!reopened[0]) throw new PayrollRunReopenRefusedError('Payroll run changed while it was being reopened — it is no longer approved.');
 
-  const reviewedHash = run.approved_plan_hash == null ? null : String(run.approved_plan_hash);
-  if (reviewedHash) {
-    await recordPayRunApprovalAudit({
-      companyId: opts.companyId, runId: opts.runId, actorId: opts.userId,
-      event: 'reopened', planHash: reviewedHash, metadata: { reason },
-    });
-  }
+  const reviewedHash = run.approved_plan_hash == null ? GRANDFATHERED_PLAN_HASH : String(run.approved_plan_hash);
+  await recordPayRunApprovalAudit({
+    companyId: opts.companyId, runId: opts.runId, actorId: opts.userId,
+    event: 'reopened', planHash: reviewedHash, metadata: { reason },
+  });
 
   log.info(
     'Payroll run reopened',

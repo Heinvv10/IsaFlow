@@ -5,7 +5,10 @@ vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({
 }));
 
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
-import { recordPayRunApprovalAudit } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
+import {
+  GRANDFATHERED_PLAN_HASH,
+  recordPayRunApprovalAudit,
+} from '@/modules/accounting/services/payroll/payRunApprovalAudit';
 
 describe('pay-run approval audit', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -26,4 +29,8 @@ describe('pay-run approval audit', () => {
       }));
     },
   );
+
+  it('uses an explicit unavailable marker when history has no trustworthy plan hash', () => {
+    expect(GRANDFATHERED_PLAN_HASH).toBe('grandfathered-plan-hash-unavailable');
+  });
 });

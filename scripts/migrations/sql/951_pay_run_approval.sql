@@ -6,11 +6,13 @@
 -- existing draft/calculated runs require approval before their first post.
 -- Nullable columns avoid a table rewrite. No new tenant table is introduced.
 --
--- Rollback (code must be rolled back first): drop the two 951 triggers/functions,
--- delete pay_run enforcement/rules, restore the three *_pre_payroll_951 functions,
--- restore the two company foreign keys without ON DELETE CASCADE, restore the
--- approval_enforcement CHECK without pay_run, then drop the five payroll run
--- header columns. Approval/audit history is intentionally retained.
+-- Rollback (code must be rolled back first): drop all three 951 triggers and
+-- the two trigger functions; set pay_run approval requests' rule_id to NULL so
+-- their history survives, then delete pay_run enforcement/rules; drop uq_approval_rules_one_pay_run;
+-- restore the three *_pre_payroll_951 functions;
+-- restore the two company foreign keys without ON DELETE CASCADE and the
+-- approval_enforcement CHECK without pay_run; then drop the five payroll run
+-- header columns. Approval-request and audit history are intentionally retained.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';

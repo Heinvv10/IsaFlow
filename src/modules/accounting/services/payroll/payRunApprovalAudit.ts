@@ -3,6 +3,9 @@ import { logAuditOrThrow, type AuditAction } from '../core/auditTrailService';
 export type PayRunApprovalEvent =
   | 'prepared' | 'requested' | 'authorised' | 'declined' | 'executed' | 'reopened' | 'reversed';
 
+/** Historical 951 rows have no trustworthy reviewed hash; record that fact instead of omitting their event. */
+export const GRANDFATHERED_PLAN_HASH = 'grandfathered-plan-hash-unavailable';
+
 const ACTION: Record<PayRunApprovalEvent, AuditAction> = {
   prepared: 'update', requested: 'update', authorised: 'approve', declined: 'reject',
   executed: 'post', reopened: 'update', reversed: 'reverse',

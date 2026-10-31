@@ -145,6 +145,16 @@ afterAll(async () => {
 });
 
 describe('K-079: approving a run that claims ETI', () => {
+  it('returns a controlled 409 when human approval is missing and leaves the run untouched', async () => {
+    const id = await run(companyA, 2, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 0, net: 79250 });
+    const res = await callApprove(id);
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({
+      error: expect.objectContaining({ details: expect.objectContaining({ reason: 'APPROVAL_REQUIRED' }) }),
+    });
+    expect(await header(id)).toEqual({ status: 'calculated', journal_entry_id: null });
+  });
+
   it('ETI below PAYE: posts a balanced journal with 2140 = paye − eti and links it to the run', async () => {
     // employee UIF 750 + employer UIF 750; net = gross − paye − employee UIF.
     const id = await run(companyA, 3, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
@@ -261,6 +271,10 @@ describe('K-079: approving a run that claims ETI', () => {
       [id],
     )).rows[0].grandfathered).toBe(true);
 
+    // Migration-951 history has no knowable reviewed hash. Preserve that
+    // exact legacy shape for the reopen-audit assertion below.
+    await pool.query('UPDATE payroll_run_headers SET approved_plan_hash=NULL WHERE id=$1', [id]);
+
     expect((await call(reopen as typeof approve, 'reopen', id, companyA, {
       reason: 'Correct grandfathered recovery run',
     })).statusCode).toBe(200);
@@ -268,6 +282,19 @@ describe('K-079: approving a run that claims ETI', () => {
       'SELECT approval_grandfathered_at IS NULL AS cleared FROM payroll_run_headers WHERE id=$1',
       [id],
     )).rows[0].cleared).toBe(true);
+    const reopenAudit = (await pool.query<{ plan_hash: string; reason: string }>(
+      `SELECT changes->'metadata'->>'planHash' AS plan_hash,
+              changes->'metadata'->>'reason' AS reason
+         FROM audit_log
+        WHERE company_id=$1 AND entity_type='payroll_run' AND entity_id=$2
+          AND changes->'metadata'->>'event'='reopened'
+        ORDER BY created_at DESC LIMIT 1`,
+      [companyA, id],
+    )).rows[0];
+    expect(reopenAudit).toEqual({
+      plan_hash: 'grandfathered-plan-hash-unavailable',
+      reason: 'Correct grandfathered recovery run',
+    });
   });
 
   it('a run reopened after approval keeps its journal and re-approves onto it', async () => {

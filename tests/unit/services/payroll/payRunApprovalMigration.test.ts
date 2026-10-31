@@ -32,4 +32,10 @@ describe('migration 951 pay-run approval contract', () => {
     expect(migration).toContain('h.approval_plan_hash');
     expect(migration).toContain('approval_document_digest_pre_payroll_951');
   });
+
+  it('documents a rollback that can retain pay-run request history', () => {
+    expect(migration).toContain("set pay_run approval requests' rule_id to NULL");
+    expect(migration).toContain('drop uq_approval_rules_one_pay_run');
+    expect(migration).toContain('drop all three 951 triggers');
+  });
 });

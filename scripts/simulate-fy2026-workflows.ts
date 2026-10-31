@@ -13,7 +13,6 @@
  *
  * Per-module try/catch so one failure doesn't kill the loop.
  * Fully idempotent — re-runs skip already-done work.
- *
  * Run:
  *   export $(sudo grep -E '^(MIGRATION_ADMIN_DATABASE_URL|DATABASE_URL)=' /home/velo/isaflow/.env.local | xargs)
  *   npx tsx scripts/simulate-fy2026-workflows.ts
@@ -25,11 +24,11 @@ import { randomUUID } from 'crypto';
 import { als } from '../src/lib/als';
 import { rollbackFailed } from '../src/lib/rollbackFailed';
 
-// Real services — via relative paths. tsx resolves the @/ aliases
-// inside these files via the root tsconfig paths.
+// Real services — tsx resolves their @/ aliases via the root tsconfig paths.
 import { generateWipInvoice } from '../src/modules/accounting/services/practice/practiceWipService';
 import { withAlsTransaction } from '../src/lib/alsTransaction';
 import { approvePayrollRun } from '../src/modules/accounting/services/payroll/payrollApprovalService';
+import { ApprovalRequiredError } from '../src/modules/accounting/services/gl/approvalGate';
 import {
   createPayrollRun,
   calculatePayrollRun,
@@ -80,7 +79,6 @@ const VAT_MONTHS  = new Set([2, 4, 6, 8, 10, 12]);
 const PAYROLL_ACTOR = { companyId: COMPANY_ID, userId: ADMIN_ID };
 
 // ── PREREQ: link each practice_client to a customer ─────────────────────────
-
 async function linkPracticeClients(): Promise<void> {
   const clients = await sql.query<{id:string;legal_name:string;link_customer_id:string|null}>(
     `SELECT id,legal_name,link_customer_id FROM practice_clients WHERE company_id=$1 AND status='active'`,
@@ -169,6 +167,10 @@ async function runPayrollApprove(month: number, year: number, errors: Err[]): Pr
     console.log(`  [payroll] run ${runId.slice(0,8)} approved — JE ${approved.journalEntryId?.slice(0,8) ?? '?'} gross R${approved.totalGross?.toFixed(2) ?? '?'} PAYE R${approved.totalPaye?.toFixed(2) ?? '?'} net R${approved.totalNet?.toFixed(2) ?? '?'}`);
     return runId;
   } catch (err) {
+    if (err instanceof ApprovalRequiredError) {
+      console.log(`  [payroll] ${year}-${month} calculated; approve it in ISAFlow, then rerun the simulator`);
+      return null;
+    }
     errors.push({ month, module: 'payroll', message: errText(err) });
     console.error(`  [payroll] ERROR ${year}-${month}: ${errText(err)}`);
     return null;

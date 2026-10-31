@@ -33,6 +33,7 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { MAX_CHAIN_JOURNALS, findChainRoot, lockJournalChain, readJournalChain } from './payrollJournalChain';
 import { lockPayrollRunHeader, withBoundedLockWait } from './payrollRunLock';
 import { PayrollLoanLockTimeoutError } from './payrollRunLoanApplication';
+import { GRANDFATHERED_PLAN_HASH } from './payRunApprovalAudit';
 
 /** Raised before the reversal writes anything; its message is for the caller. */
 export class PayrollJournalReversalRefusedError extends Error {
@@ -81,7 +82,8 @@ interface RunRef { id: string; status: string; linksRoot: boolean; planHash: str
 async function payRunOf(companyId: string, rootId: string, description: string, db: TxSql): Promise<RunRef | null> {
   const period = RUN_JOURNAL.exec(description);
   const rows = (await db`
-    SELECT id, status, (journal_entry_id = ${rootId}::uuid) AS links_root, approved_plan_hash
+    SELECT id, status, (journal_entry_id = ${rootId}::uuid) AS links_root,
+           approved_plan_hash, approval_grandfathered_at
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND (journal_entry_id = ${rootId}::uuid
@@ -91,7 +93,9 @@ async function payRunOf(companyId: string, rootId: string, description: string, 
   `) as DbRow[];
   return rows[0] ? {
     id: String(rows[0].id), status: String(rows[0].status), linksRoot: rows[0].links_root === true,
-    planHash: rows[0].approved_plan_hash == null ? null : String(rows[0].approved_plan_hash),
+    planHash: rows[0].approved_plan_hash == null
+      ? rows[0].approval_grandfathered_at == null ? null : GRANDFATHERED_PLAN_HASH
+      : String(rows[0].approved_plan_hash),
   } : null;
 }
 

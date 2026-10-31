@@ -26,6 +26,7 @@ import {
   approvePayrollRun,
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -58,6 +59,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // The 5s wait for the run or its journal ran out: raised before any write,
     // answered as calculate answers it.
     if (respondIfLockTimeout(res, err)) return;
+    if (err instanceof ApprovalRequiredError) {
+      return apiResponse.conflict(res, err.message, { reason: err.reason, requestId: err.requestId });
+    }
     if (err instanceof PayrollApprovalConflictError) return apiResponse.conflict(res, err.message);
     if (err instanceof PayrollApprovalRefusedError) return apiResponse.badRequest(res, err.message);
     throw err;
