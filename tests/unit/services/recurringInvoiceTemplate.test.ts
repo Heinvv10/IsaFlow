@@ -57,9 +57,10 @@ describe('parseLineItems', () => {
     }
   });
 
-  it('names the offending line number and description', () => {
+  it('names the offending line by number only: the description is customer text and the message reaches error capture', () => {
     expect(() => parseLineItems(ID, [good[0], { description: 'Bad line', quantity: 0, unitPrice: 1 }]))
-      .toThrow(/line 2 \("Bad line"\)/);
+      .toThrow(/line 2: quantity must be a positive number/);
+    expect(() => parseLineItems(ID, [good[0], { description: 'Bad line', quantity: 0, unitPrice: 1 }])).not.toThrow(/Bad line/);
   });
 });
 
