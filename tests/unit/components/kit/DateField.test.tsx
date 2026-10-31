@@ -60,7 +60,7 @@ describe('DateField', () => {
     render(<Harness spy={spy} />);
     commit('1 Oct 2026');
     expect(input().value).toBe(shown(2026, 10, 1));
-    expect(spy).toHaveBeenCalledExactlyOnceWith('2026-10-01', { valid: true, reason: null });
+    expect(spy).toHaveBeenCalledExactlyOnceWith('2026-10-01', { valid: true, code: null, reason: null });
     expect(out()).toBe('2026-10-01');
   });
 
@@ -184,14 +184,14 @@ describe('DateField', () => {
     expect(spy.mock.calls[0]?.[0]).toBeNull();
     expect(spy.mock.calls[0]?.[1]).toMatchObject({ valid: false });
     commit('1 Oct 2026');
-    expect(spy).toHaveBeenLastCalledWith('2026-10-01', { valid: true, reason: null });
+    expect(spy).toHaveBeenLastCalledWith('2026-10-01', { valid: true, code: null, reason: null });
   });
 
   it('an out-of-range date is a refusal too, so the form can block submit', () => {
     const spy = vi.fn();
     render(<Harness spy={spy} maxDate="2026-12-31" />);
     commit('1 Jan 2027');
-    expect(spy).toHaveBeenLastCalledWith(null, { valid: false, reason: `The date must be on or before ${shown(2026, 12, 31)}.` });
+    expect(spy).toHaveBeenLastCalledWith(null, { valid: false, code: 'after-max', reason: `The date must be on or before ${shown(2026, 12, 31)}.` });
   });
 
   it('minDate and maxDate are inclusive', () => {
@@ -394,7 +394,7 @@ describe('DateField', () => {
       type('garbage');
       pressEnter();
       expect(submitted).toHaveBeenCalledExactlyOnceWith(null);
-      expect(onValidity).toHaveBeenCalledExactlyOnceWith(null, { valid: false, reason: expect.stringContaining('garbage') });
+      expect(onValidity).toHaveBeenCalledExactlyOnceWith(null, { valid: false, code: 'unreadable', reason: expect.stringContaining('garbage') });
       expect(screen.getByRole('alert')).toBeTruthy();
     });
   });
