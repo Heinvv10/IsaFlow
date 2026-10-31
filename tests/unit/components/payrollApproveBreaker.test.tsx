@@ -37,7 +37,7 @@ function serve(approve: () => Response | Promise<Response>, preview: unknown = p
 
 async function openDialog() {
   render(<PayrollRunDetailPage />);
-  fireEvent.click(await screen.findByRole('button', { name: /review & approve/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /post approved run/i }));
   return screen.findByRole('dialog');
 }
 
@@ -51,7 +51,7 @@ describe('BRK-596 UI repros', () => {
     fireEvent.click(btn); fireEvent.click(btn); fireEvent.click(btn);
     await waitFor(() => expect(calls(APPROVE_URL).length).toBeGreaterThan(0));
     fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /review & approve/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /post approved run/i }));
     const d2 = await screen.findByRole('dialog');
     await within(d2).findByText('Other Employee Deductions Payable');
     fireEvent.click(within(d2).getByRole('button', { name: /approve and post journal/i }));
@@ -84,12 +84,12 @@ describe('BRK-596 UI repros', () => {
     expect(screen.queryByText(/payroll approved/i)).toBeNull();
   });
 
-  it('UI-4: a viewer is not offered Review & approve', async () => {
+  it('UI-4: a viewer is not offered Post approved run', async () => {
     company.role = 'viewer';
     serve(() => fail(403, 'Your role (viewer) does not allow this action.'));
     render(<PayrollRunDetailPage />);
     await screen.findByText('Riaan Smit');
-    expect(screen.queryByRole('button', { name: /review & approve/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /post approved run/i })).toBeNull();
   });
 
   it('UI-5: a transport failure after the server may have committed reloads the run', async () => {

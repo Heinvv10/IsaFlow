@@ -79,8 +79,8 @@ describeIfDisposable('an invoice line\'s job is approval content (migration 874)
   afterAll(async () => {
     if (!f) return;
     await sql`DELETE FROM approval_requests WHERE company_id = ${f.fx.companyId}::UUID`;
-    await sql`DELETE FROM approval_rules WHERE company_id = ${f.fx.companyId}::UUID`;
-    await sql`DELETE FROM approval_enforcement WHERE company_id = ${f.fx.companyId}::UUID`;
+    await sql`DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = ${f.fx.companyId}::UUID`;
+    await sql`DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = ${f.fx.companyId}::UUID`;
     await dropLineRevenue(f);
   });
 

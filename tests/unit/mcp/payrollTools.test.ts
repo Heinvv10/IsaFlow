@@ -42,12 +42,16 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({
   postPayrollRunJournal: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalControl', () => ({
+  assertPayRunApproved: vi.fn(),
+}));
 
 import { listPayrollEmployeesPage } from '@/modules/accounting/services/payroll/payrollEmployeeQueryService';
 import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRunQueryService';
 import { createPayrollRun, getPayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { buildPayrollJournalPlan } from '@/modules/accounting/services/payroll/payrollJournalBuilder';
 import { postPayrollRunJournal } from '@/modules/accounting/services/payroll/payrollJournalPostingService';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
 
 import { listEmployeesTool, listPayRunsTool } from '@/lib/mcp/tools/payroll';
 import { createPayRunTool, postPayrollJournalTool } from '@/lib/mcp/tools/writePayroll';
@@ -125,6 +129,7 @@ beforeEach(() => {
   vi.mocked(getPayrollRun).mockResolvedValue(RUN_ROW);
   vi.mocked(buildPayrollJournalPlan).mockResolvedValue(plan());
   vi.mocked(postPayrollRunJournal).mockResolvedValue('je-new');
+  vi.mocked(assertPayRunApproved).mockResolvedValue({ grandfathered: false, planHash: 'plan-a' });
   vi.mocked(createPayrollRun).mockResolvedValue({ ...RUN_ROW, status: 'draft' });
 });
 
@@ -282,6 +287,14 @@ describe('create_pay_run', () => {
 });
 
 describe('post_payroll_journal — the dry run is the deliverable', () => {
+  it('refuses both preview and execution until a person approves the pay run in ISAFlow', async () => {
+    vi.mocked(assertPayRunApproved).mockRejectedValue(new Error('Pay run has no reviewed approval plan'));
+    const res = await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('A person must approve this pay run in ISAFlow');
+    expect(postPayrollRunJournal).not.toHaveBeenCalled();
+  });
+
   it('returns the FULL journal, not a count, and every employer contribution is in it', async () => {
     const res = await postPayrollJournalTool.handler({ run_id: RUN, dry_run: true, ...KEY }, ctx);
     const out = json(res);

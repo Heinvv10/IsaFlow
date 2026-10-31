@@ -35,6 +35,7 @@ import {
   setLocalLockTimeout,
 } from './payrollRunLoanApplication';
 import { lockJournalChain } from './payrollJournalChain';
+import { GRANDFATHERED_PLAN_HASH, recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 export type PayrollRunStatus = 'draft' | 'calculated' | 'approved' | 'paid' | 'cancelled';
 
@@ -163,7 +164,12 @@ export interface CalculatedRunTotals {
  * refusal: under a request it is a 500 and rolls back (withAuth COMMITs a 4xx).
  * Test: tests/integration/w3-01-calculate-approve-race.int.test.ts.
  */
-export async function saveCalculatedRunTotals(runId: string, companyId: string, t: CalculatedRunTotals): Promise<DbRow> {
+export async function saveCalculatedRunTotals(
+  runId: string,
+  companyId: string,
+  t: CalculatedRunTotals,
+  preparedBy: string | null,
+): Promise<DbRow> {
   const updated = (await sql`
     UPDATE payroll_run_headers SET
       status         = 'calculated',
@@ -175,6 +181,9 @@ export async function saveCalculatedRunTotals(runId: string, companyId: string, 
       total_eti      = ${t.eti},
       total_net      = ${t.net},
       employee_count = ${t.employeeCount},
+      prepared_by     = ${preparedBy}::uuid,
+      approval_plan_hash = NULL,
+      approval_revision = gen_random_uuid(),
       updated_at     = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
       AND status NOT IN ('approved', 'paid', 'cancelled')
@@ -238,6 +247,9 @@ export async function reopenPayrollRun(opts: {
        SET status = 'calculated',
            approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)
            approved_at = NULL,
+           approval_grandfathered_at = NULL,
+           approval_plan_hash = NULL,
+           approval_revision = gen_random_uuid(),
            reopened_at = c.now,
            approval_history = COALESCE(h.approval_history, '{}'::tstzmultirange)
              + tstzmultirange(tstzrange(CASE WHEN h.approved_at > c.now THEN c.now ELSE h.approved_at END, c.now, '[)')),
@@ -254,6 +266,12 @@ export async function reopenPayrollRun(opts: {
      RETURNING h.id
   `) as DbRow[];
   if (!reopened[0]) throw new PayrollRunReopenRefusedError('Payroll run changed while it was being reopened — it is no longer approved.');
+
+  const reviewedHash = run.approved_plan_hash == null ? GRANDFATHERED_PLAN_HASH : String(run.approved_plan_hash);
+  await recordPayRunApprovalAudit({
+    companyId: opts.companyId, runId: opts.runId, actorId: opts.userId,
+    event: 'reopened', planHash: reviewedHash, metadata: { reason },
+  });
 
   log.info(
     'Payroll run reopened',

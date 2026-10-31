@@ -31,7 +31,7 @@ import { sql } from '@/lib/neon';
 import type { DocumentType } from './approvalService';
 import { checkApproval } from './approvalMatching';
 import { requiredRank } from './approvalAuthority';
-import { resolveApprovalDocument } from './approvalDocuments';
+import { resolveApprovalDocument, type ApprovalDocument } from './approvalDocuments';
 import { isEnforced } from './approvalEnforcement';
 import type { ApprovalState, DocumentApprovalState } from '../../types/approval.types';
 
@@ -59,6 +59,7 @@ const LABELS: Record<DocumentType, string> = {
   supplier_payment: 'Supplier payment',
   payment_batch: 'Payment batch',
   manual_journal: 'Manual journal',
+  pay_run: 'Pay run',
 };
 
 /** What the gate holds back: money leaving the business is PAID, every other document is posted (R-035 PR5). */
@@ -106,10 +107,15 @@ type Outcome =
   | { enforced: true; rule: null }
   | { enforced: true; rule: { approverRole: string; name: string }; refusal: ApprovalGateRefusal | null; approvedId: string | null };
 
-async function gateOutcome(companyId: string, documentType: DocumentType, documentId: string): Promise<Outcome> {
+async function gateOutcome(
+  companyId: string,
+  documentType: DocumentType,
+  documentId: string,
+  suppliedDocument?: ApprovalDocument,
+): Promise<Outcome> {
   if (!(await isEnforced(companyId, documentType))) return { enforced: false };
 
-  const document = await resolveApprovalDocument(companyId, documentType, documentId);
+  const document = suppliedDocument ?? await resolveApprovalDocument(companyId, documentType, documentId);
   const check = await checkApproval(companyId, documentType, documentId, document.amount);
   const rule = check.matchedRule;
   if (!rule) return { enforced: true, rule: null };
@@ -141,6 +147,38 @@ async function gateOutcome(companyId: string, documentType: DocumentType, docume
   // Approved at a sufficient rank, but for content the document no longer has.
   if (ranked[0]) return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_STALE', String(ranked[0].id)) };
   return { enforced: true, rule, approvedId: null, refusal: refusal('APPROVAL_REQUIRED', null) };
+}
+
+/** Read-only gate evaluation against caller-derived facts (payroll's locked journal plan). */
+export async function describeApprovalGateForDocument(
+  companyId: string,
+  documentType: DocumentType,
+  documentId: string,
+  document: ApprovalDocument,
+): Promise<DocumentApprovalState> {
+  const outcome = await gateOutcome(companyId, documentType, documentId, document);
+  if (!outcome.enforced || !outcome.rule) {
+    return { state: 'not_required', enforced: outcome.enforced, requiredRole: null, ruleName: null, requestId: null };
+  }
+  const { rule, refusal } = outcome;
+  return {
+    state: refusal ? STATE_OF[refusal.reason] : 'approved',
+    enforced: true,
+    requiredRole: rule.approverRole,
+    ruleName: rule.name,
+    requestId: refusal ? refusal.requestId : outcome.approvedId,
+  };
+}
+
+/** Throws unless an approval clears the exact supplied document digest. */
+export async function assertApprovalClearedForDocument(
+  companyId: string,
+  documentType: DocumentType,
+  documentId: string,
+  document: ApprovalDocument,
+): Promise<void> {
+  const outcome = await gateOutcome(companyId, documentType, documentId, document);
+  if (outcome.enforced && outcome.rule && outcome.refusal) throw new ApprovalRequiredError(outcome.refusal);
 }
 
 /** Read-only. Null when the document may be posted, else why not. */

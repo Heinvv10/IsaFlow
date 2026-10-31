@@ -40,8 +40,8 @@ afterAll(async () => {
   if (fx) {
     await pool.query('DELETE FROM audit_log WHERE company_id = $1', [fx.companyId]);
     await pool.query('DELETE FROM approval_requests WHERE company_id = $1', [fx.companyId]);
-    await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [fx.companyId]);
-    await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [fx.companyId]);
+    await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [fx.companyId]);
+    await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [fx.companyId]);
     await pool.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = ANY($2::text[])', [fx.companyId, Object.values(u)]);
     await dropLateFixture(fx);
   }

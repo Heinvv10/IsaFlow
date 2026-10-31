@@ -37,6 +37,7 @@ import {
   payrollReversalRefusal,
   refuseReversalAgainstPayRun,
 } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
+import { GRANDFATHERED_PLAN_HASH } from '@/modules/accounting/services/payroll/payRunApprovalAudit';
 
 const journal = (id: string, description = 'Payroll run 2026-04') => ({ id, entryNumber: `JE-${id}`, entryDate: '2026-04-30', status: 'posted', description });
 function chain(state: 'in_force' | 'out' | 'unclear', opts: { broken?: boolean; description?: string } = {}) {
@@ -127,5 +128,16 @@ describe('refuseReversalAgainstPayRun (the live path)', () => {
     chain('in_force', { description: 'UIF declaration 2026-04' });
     await refuseReversalAgainstPayRun('c1', PAYROLL);
     expect(lockPayrollRunHeader).not.toHaveBeenCalled();
+  });
+
+  it('retains an honest audit marker after reopen clears the grandfather flag', async () => {
+    chain('in_force');
+    db.run = {
+      id: 'run-1', status: 'calculated', links_root: true,
+      approved_plan_hash: null, approval_grandfathered_at: null,
+    };
+    await expect(refuseReversalAgainstPayRun('c1', PAYROLL)).resolves.toEqual({
+      runId: 'run-1', planHash: GRANDFATHERED_PLAN_HASH,
+    });
   });
 });
