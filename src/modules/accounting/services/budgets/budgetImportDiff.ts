@@ -171,7 +171,7 @@ export async function checkImportVersion(companyId: string, versionId: string): 
  */
 export async function buildImportPreview(companyId: string, versionId: string, file: Buffer): Promise<ImportPreview> {
   const wb = await readBudgetWorkbook(file);
-  const preview = previewImport(await loadGridReadModel(companyId, { versionId }), versionId, wb);
+  const preview = previewImport(await loadGridReadModel(companyId, { versionId }, 'totals'), versionId, wb);
   const at = await changedAt(companyId, versionId, preview.changes);
   return { ...preview, changes: preview.changes.map((c) => ({ ...c, currentChangedAt: at.get(c.key) ?? null })) };
 }
