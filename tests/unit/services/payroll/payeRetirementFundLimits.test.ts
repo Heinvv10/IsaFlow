@@ -57,12 +57,14 @@ describe('s11F limits in the cumulative PAYE', () => {
         bonus: next() < (lowPayBigBonus ? 0.5 : 0.2) ? Math.round(next() * 3_000_000) : 0,
       }));
       let paid = 0;
+      let capPeriods = 0;
       for (const [i, m] of year(months).entries()) {
         if (months[i]!.salary > 0) paid += 1;
+        capPeriods = Math.max(capPeriods, paid + (paid > 0 && months[i]!.salary === 0 && (months[i]!.bonus ?? 0) > 0 ? 1 : 0));
         const at = `seed ${seed} month ${i + 1}`;
         expect(m.deductedToDate, at).toBeLessThanOrEqual(m.contributedToDate + 0.01);
         // "At any time during the year" at most the cap × the periods paid ÷ 12 (G21 (2027) p. 10).
-        expect(m.deductedToDate, at).toBeLessThanOrEqual((430_000 * Math.max(paid, 1)) / 12 + 0.01);
+        expect(m.deductedToDate, at).toBeLessThanOrEqual((430_000 * Math.max(capPeriods, 1)) / 12 + 0.01);
       }
     }
   });
@@ -87,6 +89,14 @@ describe('s11F limits in the cumulative PAYE', () => {
     // = 666 339 + 45% × 95 566.67 = 709 344.00 − 17 820 = 691 524.00, all of it the bonus's.
     const m = year([{ salary: 10_000, contribution: 500_000, bonus: 2_000_000 }])[0]!;
     expect([m.deductedToDate, m.regular.monthlyPaye, m.annualPaymentPaye]).toEqual([35_833.33, 0, 691_524]);
+  });
+
+  it('a bonus-only seventh period after six salary periods raises the cap to 7/12', () => {
+    const months = year([
+      ...Array(6).fill({ salary: 10_000, contribution: 100_000 }),
+      { salary: 0, contribution: 500_000, bonus: 2_000_000 },
+    ]);
+    expect([months[6]!.retirementDeduction, months[6]!.deductedToDate]).toEqual([234_333.33, 250_833.33]);
   });
 
   it('a donation (4030, s18A) does not shrink the 27.5% base: R20 000, R1 000 donated, R8 000 RA deducts 5 500', () => {
