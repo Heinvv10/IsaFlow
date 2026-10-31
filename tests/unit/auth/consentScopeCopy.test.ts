@@ -65,11 +65,14 @@ describe('scope copy — PAT page and OAuth consent screen agree', () => {
 
   it('describes write:journals as draft-only', () => {
     const postingNotice = 'Posting them needs the separate posting permission (write:post).';
+    const consentCopy = SCOPE_LABELS['write:journals'];
     const patCopy = PAT_SCOPE_META['write:journals'].desc;
 
-    expect(SCOPE_LABELS['write:journals']).toBe('Create and edit draft journals');
-    expect(SCOPE_LABELS['write:journals']).not.toMatch(/\bpost/i);
+    expect(consentCopy).toBe('Create draft journals');
+    expect(consentCopy).not.toMatch(/\bpost/i);
+    expect(consentCopy).not.toMatch(/\bedit/i);
     expect(patCopy).toContain(postingNotice);
     expect(patCopy.replace(postingNotice, '')).not.toMatch(/\bpost\w*/i);
+    expect(patCopy).not.toMatch(/\bedit/i);
   });
 });
