@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({ sql: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: m.sql }));
 
 import { loadVersionModel } from '@/modules/accounting/services/budgets/drivers/driverModel';
+import { computeVersion } from '@/modules/accounting/services/budgets/drivers/driverEngine';
 import { rowKeyOfGrain, type DriverGrain, type DriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
 import { unplacedActuals } from '@/modules/accounting/services/budgets/drivers/reforecast';
 
@@ -26,10 +27,10 @@ const accounts = [
   { id: COGS, account_code: '5100', account_name: 'Cost of sales', account_type: 'expense', account_subtype: 'cost_of_sales' },
 ];
 
-function db(cells: Array<{ a: string; c1: string | null }>) {
+function db(cells: Array<{ a: string; c1: string | null; amount?: string; amount_source?: string }>) {
   m.sql.mockImplementation(async (strings: TemplateStringsArray) => {
     if (strings.join('').includes('budget_month_amounts')) {
-      return cells.map((c) => ({ ...c, c2: null, b: null, m: '2026-03', amount: '100.00', amount_source: 'manual' }));
+      return cells.map((c) => ({ c2: null, b: null, m: '2026-03', amount: '100.00', amount_source: 'manual', ...c }));
     }
     return accounts;
   });
@@ -67,5 +68,22 @@ describe('loadVersionModel: a read at another grain', () => {
     const model = await loadVersionModel('co', 'v', MONTHS, [cogsReading(grain(SALES))]);
     expect(model.rows.map((r) => r.key)).toContain(rowKeyOfGrain(grain(SALES)));
     expect(model.skipped).toEqual([]);
+  });
+
+  it('recompute keeps an existing driver active when its reference grain empties, writing 0 with REF_MISSING', async () => {
+    db([
+      { a: SALES, c1: CC1 },
+      { a: COGS, c1: null, amount: '380.00', amount_source: 'driver' },
+    ]);
+    const model = await loadVersionModel('co', 'v', MONTHS, [cogsReading(grain(SALES))], 'recompute');
+    const result = computeVersion({
+      months: model.months, rows: model.rows, cells: model.cells, drivers: model.defs,
+      closedMonths: model.closedMonths, rounding: 1, headcount: () => 0,
+    });
+    expect(result.writes).toContainEqual({ rowKey: rowKeyOfGrain(grain(COGS)), month: '2026-03', amount: 0, source: 'driver' });
+    expect(result.warnings).toEqual([{
+      code: 'REF_MISSING', rowKey: rowKeyOfGrain(grain(COGS)),
+      message: expect.stringContaining('Referenced row'),
+    }]);
   });
 });
