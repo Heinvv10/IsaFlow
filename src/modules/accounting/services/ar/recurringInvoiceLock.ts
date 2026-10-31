@@ -22,8 +22,10 @@ const LOCK_NOT_AVAILABLE = '55P03';
  */
 export class RecurringInvoiceLockTimeoutError extends Error {
   readonly code = 'RECURRING_INVOICE_LOCK_TIMEOUT';
-  constructor(recurringId: string) {
-    super(`Recurring invoice ${recurringId} is being run by another request — retry in a moment.`);
+  constructor(recurringId: string, action: 'run' | 'edit' = 'run') {
+    super(action === 'edit'
+      ? `Recurring invoice ${recurringId} is locked by another request (a run or another edit) — retry the edit in a moment.`
+      : `Recurring invoice ${recurringId} is being run by another request — retry in a moment.`);
     this.name = 'RecurringInvoiceLockTimeoutError';
   }
 }
@@ -37,7 +39,9 @@ export class RecurringInvoiceLockTimeoutError extends Error {
  * runs are serialised when they are not. Both production callers
  * (recurring-invoices-run.ts, recurring-invoices-action.ts) run under withAuth.
  */
-export async function lockRecurringTemplate(companyId: string, id: string): Promise<DbRow | null> {
+export async function lockRecurringTemplate(
+  companyId: string, id: string, action: 'run' | 'edit' = 'run',
+): Promise<DbRow | null> {
   const client = als.getStore()?.client;
   if (!client) {
     throw new Error(
@@ -66,7 +70,7 @@ export async function lockRecurringTemplate(companyId: string, id: string): Prom
   } catch (err) {
     if (typeof err === 'object' && err !== null
       && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE) {
-      throw new RecurringInvoiceLockTimeoutError(id);
+      throw new RecurringInvoiceLockTimeoutError(id, action);
     }
     throw err;
   }
