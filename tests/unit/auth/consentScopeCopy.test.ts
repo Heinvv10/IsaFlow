@@ -21,6 +21,7 @@ import { SCOPE_LABELS } from '@/lib/auth/consentScopeLabels';
 const MUST_MENTION: Partial<Record<string, string[]>> = {
   'write:invoices': ['invoice', 'credit note'],
   'read:invoices': ['invoice'],
+  'write:journals': ['draft', 'journal'],
   'write:post': ['journal', 'revers'],
   'write:bank-tx': ['bank'],
   'write:accounts': ['account'],
@@ -60,5 +61,15 @@ describe('scope copy — PAT page and OAuth consent screen agree', () => {
       const desc = PAT_SCOPE_META[scope]?.desc ?? '';
       expect(desc.length, `${scope} PAT desc is ${desc.length} chars`).toBeLessThanOrEqual(340);
     }
+  });
+
+  it('describes write:journals as draft-only', () => {
+    const postingNotice = 'Posting them needs the separate posting permission (write:post).';
+    const patCopy = PAT_SCOPE_META['write:journals'].desc;
+
+    expect(SCOPE_LABELS['write:journals']).toBe('Create and edit draft journals');
+    expect(SCOPE_LABELS['write:journals']).not.toMatch(/\bpost/i);
+    expect(patCopy).toContain(postingNotice);
+    expect(patCopy.replace(postingNotice, '')).not.toMatch(/\bpost\w*/i);
   });
 });
