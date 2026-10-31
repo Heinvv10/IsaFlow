@@ -60,7 +60,7 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
   },
   'write:journals': {
     label: 'Write journals',
-    desc: 'Create and edit draft General Ledger journal entries. Posting them needs the separate posting permission (write:post).',
+    desc: 'Create draft General Ledger journal entries. Posting them needs the separate posting permission (write:post).',
   },
   'read:contacts': {
     label: 'Read contacts',
