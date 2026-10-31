@@ -10,6 +10,8 @@ vi.mock('@/modules/accounting/services/bank/bankRulesService', () => ({
   createRule: vi.fn(),
   updateRule: vi.fn(),
   toggleRule: vi.fn(),
+  validateCreateRuleTargets: vi.fn(),
+  validateUpdateRuleTargets: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn(),
@@ -24,12 +26,15 @@ import {
   getRules,
   toggleRule,
   updateRule,
+  validateCreateRuleTargets,
+  validateUpdateRuleTargets,
 } from '@/modules/accounting/services/bank/bankRulesService';
 import {
   createBankRuleTool,
   disableBankRuleTool,
   updateBankRuleTool,
 } from '@/lib/mcp/tools/writeBankRules';
+import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 import type { BankCategorisationRule } from '@/modules/accounting/types/bank.types';
 
@@ -84,6 +89,9 @@ function resultJson(result: McpToolResult): Record<string, unknown> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(validateCreateRuleTargets).mockResolvedValue(undefined);
+  vi.mocked(validateUpdateRuleTargets).mockResolvedValue(undefined);
+  vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
 });
 
 describe('create_bank_rule automatic-posting scope', () => {
@@ -137,6 +145,21 @@ describe('create_bank_rule automatic-posting scope', () => {
     );
     expect(resultJson(preview)).toMatchObject({ dry_run: true, auto_create_entry: true });
     expect(preview.wroteNothing).toBe(true);
+    expect(createRule).not.toHaveBeenCalled();
+  });
+
+  it('runs the live target validation on dry run and surfaces its refusal', async () => {
+    vi.mocked(validateCreateRuleTargets).mockRejectedValue(
+      new Error('Rule "Bank charges" posts to the accounts payable control account'),
+    );
+
+    const result = await createBankRuleTool.handler(
+      { ...CREATE_ARGS, gl_account_id: RULE_ID, dry_run: true },
+      ctx(['write:bank-tx']),
+    );
+
+    expect(errorText(result)).toMatch(/accounts payable control account/);
+    expect(validateCreateRuleTargets).toHaveBeenCalledOnce();
     expect(createRule).not.toHaveBeenCalled();
   });
 });
@@ -208,6 +231,38 @@ describe('update_bank_rule automatic-posting scope', () => {
     expect(preview.wroteNothing).toBe(true);
     expect(updateRule).not.toHaveBeenCalled();
   });
+
+  it('refuses when the locked writer sees auto-post enabled after the pre-read saw it disabled', async () => {
+    vi.mocked(getRules).mockResolvedValue([rule(false)]);
+    vi.mocked(updateRule).mockImplementation(async (_company, _id, _input, _user, guard) => {
+      await guard?.({ auto_create_entry: true });
+      return rule(true);
+    });
+
+    const result = await updateBankRuleTool.handler(
+      { rule_id: RULE_ID, rule_name: 'Renamed', ...KEY },
+      ctx(['write:bank-tx']),
+    );
+
+    expect(errorText(result)).toMatch(/post to ledger/i);
+    expect(updateRule).toHaveBeenCalledOnce();
+  });
+
+  it('runs the live target validation on dry run and surfaces its refusal', async () => {
+    vi.mocked(getRules).mockResolvedValue([rule(false)]);
+    vi.mocked(validateUpdateRuleTargets).mockRejectedValue(
+      new Error('Rule "Bank charges" posts to the accounts payable control account'),
+    );
+
+    const result = await updateBankRuleTool.handler(
+      { rule_id: RULE_ID, gl_account_id: RULE_ID, dry_run: true, ...KEY },
+      ctx(['write:bank-tx']),
+    );
+
+    expect(errorText(result)).toMatch(/accounts payable control account/);
+    expect(validateUpdateRuleTargets).toHaveBeenCalledOnce();
+    expect(updateRule).not.toHaveBeenCalled();
+  });
 });
 
 describe('disable_bank_rule automatic-posting scope', () => {
@@ -221,5 +276,21 @@ describe('disable_bank_rule automatic-posting scope', () => {
 
     expect(errorText(result)).toMatch(/post to ledger/i);
     expect(toggleRule).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the locked writer sees auto-post enabled after the pre-read saw it disabled', async () => {
+    vi.mocked(getRules).mockResolvedValue([rule(false, false)]);
+    vi.mocked(toggleRule).mockImplementation(async (_company, _id, _active, _user, guard) => {
+      await guard?.({ auto_create_entry: true, is_active: true });
+      return rule(true, true);
+    });
+
+    const result = await disableBankRuleTool.handler(
+      { rule_id: RULE_ID, enable: true, ...KEY },
+      ctx(['write:bank-tx']),
+    );
+
+    expect(errorText(result)).toMatch(/post to ledger/i);
+    expect(toggleRule).toHaveBeenCalledOnce();
   });
 });

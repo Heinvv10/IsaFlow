@@ -26,6 +26,7 @@ import { lockForRuleWrite } from './bankRuleAutoPostLock';
 export type RuleProjection = Record<string, unknown>;
 export interface HeldRuleChange { status: 'pending_approval'; changeId: string }
 export type RuleWrite = { status: 'applied'; row: Record<string, unknown> } | HeldRuleChange;
+export type RuleWriteGuard = (after: RuleProjection) => void | Promise<void>;
 
 /** The columns a new rule's caller sets; the rest take the table's defaults (RULE_DEFAULTS). */
 export interface NewRuleColumns {
@@ -102,12 +103,15 @@ export async function writeNewRule(companyId: string, cols: NewRuleColumns, user
  * locked first, so what is classified is what is written. Throws
  * `Rule <id> not found` (as updateRule always has) for a rule not in the company.
  */
-export async function writeRuleChange(companyId: string, ruleId: string, patch: RulePatch, userId: string): Promise<RuleWrite> {
+export async function writeRuleChange(
+  companyId: string, ruleId: string, patch: RulePatch, userId: string, guard?: RuleWriteGuard,
+): Promise<RuleWrite> {
   await lockForRuleWrite(companyId);
   const before = await lockRuleProjection(companyId, ruleId);
   if (!before) throw new Error(`Rule ${ruleId} not found`);
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
   const { after, held, toggleOnly } = await classify(companyId, before, { ...before, ...defined });
+  await guard?.(after);
   if (held) return hold(companyId, ruleId, toggleOnly ? 'toggle' : 'update', after, userId);
   // `after` is the locked row with the patch over it, so setting the editable
   // columns from it moves exactly the named ones.

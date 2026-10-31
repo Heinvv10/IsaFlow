@@ -25,6 +25,8 @@ vi.mock('@/modules/accounting/services/bank/bankRulesService', () => ({
   createRule: vi.fn(),
   updateRule: vi.fn(),
   toggleRule: vi.fn(),
+  validateCreateRuleTargets: vi.fn(),
+  validateUpdateRuleTargets: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn(),

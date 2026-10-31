@@ -104,6 +104,22 @@ describe('updateRule — auto_apply', () => {
       updateRule(COMPANY, RULE, { autoApply: 'fifo ' as never }, USER),
     ).rejects.toThrow(/auto_apply must be one of/);
   });
+
+  it('runs a write guard against the locked resulting row before any update', async () => {
+    mockSql
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ p: { auto_create_entry: true, rule_name: 'Reload' } }] as never)
+      .mockResolvedValueOnce([{
+        after: { auto_create_entry: true, rule_name: 'Renamed' }, held: false, toggle_only: false,
+      }] as never);
+    const guard = vi.fn(() => { throw new Error('locked refusal'); });
+
+    await expect(updateRule(COMPANY, RULE, { ruleName: 'Renamed' }, USER, guard))
+      .rejects.toThrow('locked refusal');
+
+    expect(guard).toHaveBeenCalledWith({ auto_create_entry: true, rule_name: 'Renamed' });
+    expect(mockSql.mock.calls.some((call) => call[0].join('').includes('UPDATE bank_categorisation_rules'))).toBe(false);
+  });
 });
 
 describe('mapRuleRow — a rule written before the column existed', () => {

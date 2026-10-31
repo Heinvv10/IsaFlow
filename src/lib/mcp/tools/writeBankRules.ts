@@ -13,8 +13,12 @@
  */
 import type { McpTool, McpToolContext, McpToolResult } from '../types';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
-import { createRule, updateRule, toggleRule, type RuleOutcome } from '@/modules/accounting/services/bank/bankRulesService';
+import {
+  createRule, updateRule, toggleRule, validateCreateRuleTargets, validateUpdateRuleTargets, type RuleOutcome,
+} from '@/modules/accounting/services/bank/bankRulesService';
+import type { RuleWriteGuard } from '@/modules/accounting/services/bank/bankRuleChangeControl';
 import type {
+  RuleCreateInput,
   RuleMatchField,
   RuleMatchType,
   RuleVatCode,
@@ -55,6 +59,13 @@ const AUTO_POST_SCOPE_REFUSAL = 'Turning on or keeping automatic posting needs t
 const autoPostScopeRefusal = (ctx: McpToolContext, autoPosts: boolean): McpToolResult | null => (
   autoPosts && !ctx.scopes.includes('write:post') ? toolError(AUTO_POST_SCOPE_REFUSAL) : null
 );
+
+class AutoPostScopeError extends Error {}
+const lockedAutoPostScopeGuard = (
+  ctx: McpToolContext, autoPosts: (after: Record<string, unknown>) => boolean,
+): RuleWriteGuard => (after) => {
+  if (autoPosts(after) && !ctx.scopes.includes('write:post')) throw new AutoPostScopeError(AUTO_POST_SCOPE_REFUSAL);
+};
 
 const dryRun = (data: Record<string, unknown>): McpToolResult => ({
   ...ok({ dry_run: true, ...data }),
@@ -122,27 +133,18 @@ export const createBankRuleTool: McpTool = {
 
     const refs = parseRefs(args);
     if (!(await refsBelongToCompany(ctx.companyId, refs))) return toolError(NOT_FOUND);
-    if (args.dry_run === true) {
-      return dryRun({ action: 'create_bank_rule', auto_create_entry: autoCreateEntry });
-    }
+    const input: RuleCreateInput = {
+      ruleName, matchField: matchField as RuleMatchField, matchType: matchType as RuleMatchType, matchPattern, ...refs,
+      descriptionTemplate: strArg(args, 'description_template'), priority, autoCreateEntry,
+      vatCode: vatCode as RuleVatCode | undefined, ...(autoApply === undefined ? {} : { autoApply }),
+    };
 
     try {
-      const written = await createRule(
-        ctx.companyId,
-        {
-          ruleName,
-          matchField: matchField as RuleMatchField,
-          matchType: matchType as RuleMatchType,
-          matchPattern,
-          ...refs,
-          descriptionTemplate: strArg(args, 'description_template'),
-          priority,
-          autoCreateEntry,
-          vatCode: vatCode as RuleVatCode | undefined,
-          ...(autoApply === undefined ? {} : { autoApply }),
-        },
-        ctx.userId,
-      );
+      if (args.dry_run === true) {
+        await validateCreateRuleTargets(ctx.companyId, input);
+        return dryRun({ action: 'create_bank_rule', auto_create_entry: autoCreateEntry });
+      }
+      const written = await createRule(ctx.companyId, input, ctx.userId);
       return reply(written);
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to create bank rule.'));
@@ -213,30 +215,22 @@ export const updateBankRuleTool: McpTool = {
     if (scopeRefusal) return scopeRefusal;
     const refs = parseRefs(args);
     if (!(await refsBelongToCompany(ctx.companyId, refs))) return toolError(NOT_FOUND);
-    if (args.dry_run === true) {
-      return dryRun({
-        action: 'update_bank_rule',
-        rule_id: ruleId,
-        auto_create_entry: resultingAutoCreateEntry,
-      });
-    }
+    const input: Partial<RuleCreateInput> & { isActive?: boolean } = {
+      ruleName: strArg(args, 'rule_name'), matchField: matchField as RuleMatchField | undefined,
+      matchType: matchType as RuleMatchType | undefined, matchPattern: strArg(args, 'match_pattern'), ...refs,
+      descriptionTemplate: strArg(args, 'description_template'), priority,
+      ...(typeof args.auto_create_entry === 'boolean' ? { autoCreateEntry: args.auto_create_entry } : {}),
+      ...(typeof args.is_active === 'boolean' ? { isActive: args.is_active } : {}),
+      vatCode: vatCode as RuleVatCode | undefined, ...(autoApply === undefined ? {} : { autoApply }),
+    };
 
     try {
-      const written = await updateRule(ctx.companyId, ruleId, {
-        ruleName: strArg(args, 'rule_name'),
-        matchField: matchField as RuleMatchField | undefined,
-        matchType: matchType as RuleMatchType | undefined,
-        matchPattern: strArg(args, 'match_pattern'),
-        ...refs,
-        descriptionTemplate: strArg(args, 'description_template'),
-        priority,
-        ...(typeof args.auto_create_entry === 'boolean'
-          ? { autoCreateEntry: args.auto_create_entry }
-          : {}),
-        ...(typeof args.is_active === 'boolean' ? { isActive: args.is_active } : {}),
-        vatCode: vatCode as RuleVatCode | undefined,
-        ...(autoApply === undefined ? {} : { autoApply }),
-      }, ctx.userId);
+      if (args.dry_run === true) {
+        await validateUpdateRuleTargets(ctx.companyId, ruleId, input);
+        return dryRun({ action: 'update_bank_rule', rule_id: ruleId, auto_create_entry: resultingAutoCreateEntry });
+      }
+      const written = await updateRule(ctx.companyId, ruleId, input, ctx.userId,
+        lockedAutoPostScopeGuard(ctx, (after) => after.auto_create_entry === true));
       return reply(written);
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to update bank rule.'));
@@ -278,8 +272,14 @@ export const disableBankRuleTool: McpTool = {
     const scopeRefusal = autoPostScopeRefusal(ctx, isActive && rule.autoCreateEntry);
     if (scopeRefusal) return scopeRefusal;
 
-    const written = await toggleRule(ctx.companyId, ruleId, isActive, ctx.userId);
-    if (written.status === 'pending_approval') return reply(written);
-    return ok({ id: ruleId, rule_name: rule.ruleName, is_active: isActive, already: false });
+    try {
+      const written = await toggleRule(ctx.companyId, ruleId, isActive, ctx.userId,
+        lockedAutoPostScopeGuard(ctx, (after) => after.is_active === true && after.auto_create_entry === true));
+      if (written.status === 'pending_approval') return reply(written);
+      return ok({ id: ruleId, rule_name: rule.ruleName, is_active: isActive, already: false });
+    } catch (err) {
+      if (err instanceof AutoPostScopeError) return toolError(err.message);
+      throw err;
+    }
   },
 };
