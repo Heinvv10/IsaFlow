@@ -11,9 +11,10 @@
  * row, so one stale driver never blocks every grid save of the version. A driver SAVE still
  * refuses such a driver (`checkDriverLine`, `assertDriverMonths`, the model's skip as backstop).
  *
- * A row a driver only READS (no cells, no driver of its own) at a grain its account is not budgeted
- * at (cells or another driver's row at another grain, or another such read) is not a row either: it
- * would put the account at two grains, which a reforecast cannot plan. Its reader is skipped.
+ * Planning and driver-save validation omit a row a driver only READS at a grain its account is not
+ * budgeted at: a reforecast cannot plan the same account at two grains. Operational recomputes keep
+ * an existing driver's read row, however, so an emptied reference computes 0 with REF_MISSING
+ * instead of freezing the driven row at its stale value.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { monthKeyToDate } from '../../reports/budgetPeriodWindow';
@@ -51,6 +52,8 @@ export interface VersionModel {
   labels: Map<string, string>;
 }
 
+export type ReferenceGrainPolicy = 'strict' | 'recompute';
+
 const id = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
 
 /** "5100 Cost of sales (CC1)" for a row key. */
@@ -68,6 +71,7 @@ export const labelKeys = (text: string, labels: ReadonlyMap<string, string>): st
 
 export async function loadVersionModel(
   companyId: string, versionId: string, months: string[], lines: readonly DriverLine[],
+  referenceGrainPolicy: ReferenceGrainPolicy = 'strict',
 ): Promise<VersionModel> {
   const cellRows = (await sql`
     SELECT gl_account_id::text AS a, cc1_id::text AS c1, cc2_id::text AS c2, bu_id::text AS b, to_char(month, 'YYYY-MM') AS m,
@@ -95,7 +99,9 @@ export async function loadVersionModel(
   // A read-only row at a grain another row of its account does not share: no row (see header).
   const grainsOf = new Map<string, Set<string>>();
   for (const g of grains.values()) grainsOf.set(g.glAccountId, (grainsOf.get(g.glAccountId) ?? new Set()).add(grainOf(g)));
-  const clashing = new Set([...grains].filter(([key, g]) => !anchored.has(key) && grainsOf.get(g.glAccountId)!.size > 1).map(([key]) => key));
+  const clashing = referenceGrainPolicy === 'strict'
+    ? new Set([...grains].filter(([key, g]) => !anchored.has(key) && grainsOf.get(g.glAccountId)!.size > 1).map(([key]) => key))
+    : new Set<RowKey>();
 
   const accountIds = [...new Set([...grains.values()].map((g) => g.glAccountId))];
   const accounts = (await sql`
