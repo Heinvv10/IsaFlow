@@ -37,9 +37,9 @@ export function VAT201SubmitModal({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 w-full max-w-md mx-4">
-        <h3 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Mark as Submitted to SARS</h3>
+        <h3 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Record as filed on eFiling</h3>
         <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
-          Enter the SARS eFiling reference number after submitting the return on the SARS eFiling portal.
+          This records a filing you completed on SARS eFiling. ISAFlow does not send this return to SARS. Enter the SARS eFiling reference number.
         </p>
         {filabilityWarning && (
           <p data-testid="vat201-submit-filability-warning" className="text-sm text-amber-400 mb-4">
@@ -72,7 +72,7 @@ export function VAT201SubmitModal({
             disabled={submitting || !sarsRef.trim() || (blocked && !isOwnerOrAdmin) || needsReason}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-success-700 text-white text-sm font-medium hover:bg-success-800 disabled:opacity-50">
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {blocked && isOwnerOrAdmin ? 'Override and confirm' : 'Confirm'}
+            {blocked && isOwnerOrAdmin ? 'Override and record filing' : 'Record filing'}
           </button>
         </div>
       </div>
