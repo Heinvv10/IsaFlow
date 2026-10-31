@@ -57,9 +57,9 @@ describe('the comparator filter = the engine', () => {
       expect([line.account_code, line.actual_amount, line.budgeted, line.budgeted ? line.budget_amount : null])
         .toEqual([e.accountCode, e.actual, e.budget !== null, e.budget]);
     }
-    // Every engine line with a figure is in the facade's lines.
-    const printed = want.lines.filter((l) => l.budget !== null || l.actual !== 0).map((l) => l.accountId).sort();
-    expect(got.lines.map((l) => l.account_id).sort()).toEqual(printed);
+    // The facade keeps every engine-retained line, including a zero-actual line whose partial or
+    // above-filter budget explains a withheld band and its notice.
+    expect(got.lines.map((l) => l.account_id).sort()).toEqual(want.lines.map((l) => l.accountId).sort());
     expect(got.unallocatedBudget).toEqual(want.notices.unallocatedBudget);
     expect(got.version).toEqual(want.version);
     // The years with no budget, and those with one none of which is at this filter (review r2, R8):
