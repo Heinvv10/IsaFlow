@@ -4,6 +4,7 @@ import { calculateCumulativePaye } from './payeCumulative';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
+import { cappedRetirementDeduction } from './retirementDeductionCap';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -32,6 +33,11 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   let periodicTaxable = 0;
   let annualPayments = 0;
   let taxableDeductions = 0;
+  // Taxable retirement-fund contributions (SARS codes 4001 pension, 4003
+  // provident, 4006 RA) tracked separately so the s11F cap can be applied for
+  // SDL. Source-code classification is authoritative because the seeded 4001
+  // and 4006 components are not flagged isTaxable.
+  let retirementDeductions = 0;
   let directivePaye = 0;
   let uifLeviable = 0;
   let sdlLeviable = 0;
@@ -81,8 +87,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       }
     } else if (component.componentType === 'deduction') {
       totalDeductions += amount;
-      if (component.isTaxable) taxableDeductions += amount;
-      if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
+      const sarsCode = normaliseSarsCode(component.sarsSourceCode);
+      if (component.isTaxable) {
+        taxableDeductions += amount;
+      }
+      if (sarsCode === '4001' || sarsCode === '4003' || sarsCode === '4006') retirementDeductions += amount;
+      if (sarsCode === '4005') medicalSchemeFees += amount;
     }
   }
 
@@ -96,6 +106,39 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
   const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
   const taxableIncome = regularTaxable + annualTaxable;
+  // SDL is levied on the "balance of remuneration" after para 2(4) deductions
+  // (SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027)
+  // "SDL liable amount"). Retirement-fund contributions (4001/4003/4006)
+  // reduce the base, subject to the cumulative s11F cap. Donation deductions
+  // are not supported because payroll does not record the required s18A receipt
+  // or whether the recipient is an approved organisation.
+  // All other taxable deductions (union fees, medical 4005, garnishees, loans,
+  // etc.) do NOT reduce SDL even if isTaxable is true.
+  //
+  // PAYE continues using the uncapped full taxableDeductions (all codes) until
+  // PR #891. SDL and PAYE bases therefore diverge for:
+  //   - Retirement contributions above the s11F cap.
+  //   - Non-allowlisted taxable deductions (e.g. union fees): reduce PAYE only.
+  //   - Donations: reduce PAYE only until their s18A qualification is modelled.
+  //
+  // Unsupported for both PAYE and SDL: employer retirement contributions as
+  // deemed employee contributions.
+  const fourthScheduleRemuneration = periodicTaxable + annualPayments;
+  const sdlRetirementAllowable = cappedRetirementDeduction(
+    retirementDeductions,
+    fourthScheduleRemuneration,
+    12,
+    taxYear,
+    {
+      periods: input.ytd?.sdlRemuneratedPeriods ?? 0,
+      remuneration: input.ytd?.sdlRemuneration ?? 0,
+      retirementContributions: input.ytd?.sdlRetirementContributions ?? 0,
+    },
+  );
+  const para24DeductionsForSdl = Math.max(
+    0,
+    Math.min(sdlRetirementAllowable, fourthScheduleRemuneration),
+  );
 
   const medicalBeneficiaries = employee.medicalAidMainMember
     ? 1 + employee.medicalAidDependantsCount
@@ -128,12 +171,16 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? { employeeContribution: 0, employerContribution: 0, isCapped: false }
     : calculateUIF(uifLeviable, taxYear);
 
+  // SDL exclusions (components not SDL-applicable) are already out of
+  // sdlLeviable; the s11F-capped para 2(4) deductions come off what remains, never below nil.
+  const sdlLeviableAfterDeductions = Math.max(0, sdlLeviable - para24DeductionsForSdl);
+
   // Leviability depends on the employer's twelve-month remuneration, not on
   // this line, so a caller costing a full run defers and applies the threshold
   // once it knows that total.
   const sdl = annualPayrollEstimate === 'defer'
     ? 0
-    : calculateSDL(sdlLeviable, annualPayrollEstimate, taxYear);
+    : calculateSDL(sdlLeviableAfterDeductions, annualPayrollEstimate, taxYear);
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
@@ -177,7 +224,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     medicalSchemeFees: round2(medicalSchemeFees),
     uif,
     sdl: Math.round(sdl * 100) / 100,
-    sdlLeviable: Math.round(sdlLeviable * 100) / 100,
+    sdlLeviable: round2(sdlLeviableAfterDeductions),
     eti: etiRaw,
     netPay: Math.max(0, netPay),
     componentBreakdown: breakdown,
