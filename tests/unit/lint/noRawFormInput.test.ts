@@ -19,11 +19,20 @@ const file = 'src/components/accounting/SomeForm.tsx';
 tester.run('no-raw-form-input', noRawFormInput, {
   valid: [
     { code: '<input aria-label="Search" />', filename: file, options: NONE },
-    { code: '<input aria-labelledby="h1" />', filename: file, options: NONE },
+    { code: '<><h1 id="h1">Title</h1><input aria-labelledby="h1" /></>', filename: file, options: NONE },
+    { code: '<><input aria-labelledby="x h1" /><span id="h1">Title</span></>', filename: file, options: NONE },
+    // a non-empty title is a name, as it is for select and textarea
+    { code: '<input title="Search" />', filename: file, options: NONE },
+    { code: '<input title={label} />', filename: file, options: NONE },
+    // text, an expression, a component or an aria-label on the wrapping label is a name
+    { code: '<label>{text}<input /></label>', filename: file, options: NONE },
+    { code: '<label><Trans /><input /></label>', filename: file, options: NONE },
+    { code: '<label aria-label="Name"><input /></label>', filename: file, options: NONE },
+    { code: '<label {...p}><input /></label>', filename: file, options: NONE },
     { code: '<><input id="n" /><label htmlFor="n">Name</label></>', filename: file, options: NONE },
     { code: '<><label htmlFor="n">Name</label><input id="n" /></>', filename: file, options: NONE },
     { code: '<label>Name <input /></label>', filename: file, options: NONE },
-    { code: '<label><span><input /></span></label>', filename: file, options: NONE },
+    { code: '<label><span>Name</span><input /></label>', filename: file, options: NONE },
     { code: '<input id={id} />', filename: file, options: NONE },
     { code: '<input id={`row-${i}`} />', filename: file, options: NONE },
     { code: '<input {...props} />', filename: file, options: NONE },
@@ -47,6 +56,13 @@ tester.run('no-raw-form-input', noRawFormInput, {
     // listed files keep what they have
   ],
   invalid: [
+    // aria-labelledby at an id written nowhere in the file names nothing (same as select and textarea)
+    { code: '<input aria-labelledby="h1" />', filename: file, options: NONE, errors: [{ messageId: 'danglingLabelledby', data: { ids: 'h1' } }] },
+    { code: '<><input aria-labelledby="a b" /><span id="c">x</span></>', filename: file, options: NONE, errors: [{ messageId: 'danglingLabelledby', data: { ids: 'a b' } }] },
+    { code: '<input title="" />', filename: file, options: NONE, errors: [{ messageId: 'unlabelled' }] },
+    // a wrapping label with no text, no expression, no component and no aria names nothing
+    { code: '<label><input /></label>', filename: file, options: NONE, errors: [{ messageId: 'unlabelled' }] },
+    { code: '<label>  <span> </span><input /></label>', filename: file, options: NONE, errors: [{ messageId: 'unlabelled' }] },
     { code: '<input type="date" aria-label="Due" />', filename: file, options: NONE, errors: [{ messageId: 'rawDate' }] },
     { code: "<input type={'date'} aria-label=\"Due\" />", filename: file, options: NONE, errors: [{ messageId: 'rawDate' }] },
     {
@@ -86,9 +102,9 @@ tester.run('no-raw-form-input', noRawFormInput, {
     { code: '<input id={undefined} />', filename: file, options: NONE, errors: [{ messageId: 'unlabelled' }] },
     { code: '<input id={undefined} aria-label={undefined} />', filename: file, options: NONE, errors: [{ messageId: 'unlabelled' }] },
     // a listed file may not gain raw inputs: only the reports beyond its count are reported
-    { code: '<><input /><input /><input /></>', filename: file, options: [{ allowlist: { [file]: 2 } }], errors: [{ messageId: 'unlabelled', line: 1, column: 21 }] },
-    { code: '<><input /><input /></>', filename: file, options: [{ allowlist: { [file]: 1 } }], errors: [{ messageId: 'unlabelled', line: 1, column: 12 }] },
-    { code: '<input type="date" />', filename: file, options: [{ allowlist: { [file]: 1 } }], errors: [{ messageId: 'unlabelled' }] },
+    { code: '<><input /><input /><input /></>', filename: file, options: [{ allowlist: { [file]: 2 } }], errors: [{ messageId: 'overList', line: 1, column: 21 }] },
+    { code: '<><input /><input /></>', filename: file, options: [{ allowlist: { [file]: 1 } }], errors: [{ messageId: 'overList', line: 1, column: 12 }] },
+    { code: '<input type="date" />', filename: file, options: [{ allowlist: { [file]: 1 } }], errors: [{ messageId: 'overList' }] },
     { code: '<input />', filename: file, options: [{ allowlist: { [file]: 0 } }], errors: [{ messageId: 'unlabelled' }] },
     { code: '<input />', filename: 'constructor', options: [{ allowlist: {} }], errors: [{ messageId: 'unlabelled' }] },
     { code: '<input />', filename: '__proto__', options: [{ allowlist: {} }], errors: [{ messageId: 'unlabelled' }] },
