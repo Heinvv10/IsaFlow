@@ -20,6 +20,13 @@ export interface TaxYearConfig {
   medicalCreditAdditional: number;
   uifCeiling: number;
   sdlThresholdAnnual: number;
+  /**
+   * Section 11F(2)(a) annual retirement-fund deduction cap. The allowable
+   * deduction is the lesser of this (apportioned to the pay period) and 27.5%
+   * of Fourth Schedule remuneration (SARS PAYE-GEN-01-G21 (2027) Rev 1 s7.3.1;
+   * PAYE-GEN-01-G20 (2026) s7.3.1).
+   */
+  s11fAnnualCapRands: number;
 }
 
 /** Thrown for a tax year with no registered tables; never answered with another year's figures. */
@@ -58,11 +65,17 @@ const TAX_2025: TaxYearConfig = {
   medicalCreditAdditional:   246,
   uifCeiling:      17_712,
   sdlThresholdAnnual: 500_000,
+  // s11F annual cap: R350 000 for tax year 2025.
+  // Source: PAYE-GEN-01-G20 (2026 tax year guide) Rev 1 s7.3.1 cites R350 000.
+  // The 2025 guide (PAYE-GEN-01-G19) was not fetched in this PR — marked unverified.
+  s11fAnnualCapRands: 350_000, // unverified for 2025 in this PR (no SARS source fetched)
 };
 
 const TAX_2026: TaxYearConfig = {
   ...TAX_2025,
   year: 2026,
+  // Source: SARS PAYE-GEN-01-G20 (2026 tax year) Rev 1 s7.3.1 — R350 000 annual limit.
+  s11fAnnualCapRands: 350_000,
 };
 
 // Tax year 2027 = 1 March 2026 to 28 February 2027 (SARS 2026/27).
@@ -95,6 +108,8 @@ const TAX_2027: TaxYearConfig = {
   // Same as 2026; SARS-checked 2026-10-19 (see above).
   uifCeiling:         TAX_2026.uifCeiling,
   sdlThresholdAnnual: TAX_2026.sdlThresholdAnnual,
+  // Source: SARS PAYE-GEN-01-G21 (2027 tax year) Rev 1 s7.3.1 — R430 000 annual limit.
+  s11fAnnualCapRands: 430_000,
 };
 
 const TAX_TABLE_REGISTRY: Record<number, TaxYearConfig> = {

@@ -50,6 +50,7 @@ export async function loadPayeYearToDate(
   const rows = (await sql`
     WITH split AS (
       SELECT l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
+             b.sdl_remuneration, b.sdl_retirement,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
       FROM payroll_run_lines l
@@ -58,7 +59,12 @@ export async function loadPayeYearToDate(
         SELECT COALESCE(SUM((item->'directive'->>'paye')::numeric) FILTER (WHERE item->'directive' IS NOT NULL), 0) AS directive_paye,
                GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
                  WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
-                   AND (item->>'isTaxable')::boolean), 0), 0) AS annual_3605
+                   AND (item->>'isTaxable')::boolean), 0), 0) AS annual_3605,
+               GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
+                 WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') ~ '^(36|37|38)'
+                   AND (item->>'isTaxable')::boolean), 0), 0) AS sdl_remuneration,
+               GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
+                 WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') IN ('4001', '4003', '4006')), 0), 0) AS sdl_retirement
         FROM jsonb_array_elements(l.component_breakdown) AS item
       ) b
       WHERE h.company_id = ${companyId}::uuid
@@ -75,7 +81,10 @@ export async function loadPayeYearToDate(
            SUM(paye - directive_paye)::numeric AS table_paye,
            -- SUM skips a line written before migration 926 (NULL: recorded nothing).
            SUM(medical_credit)::numeric AS medical_credit,
-           SUM(additional_medical_credit)::numeric AS additional_medical_credit
+           SUM(additional_medical_credit)::numeric AS additional_medical_credit,
+           COUNT(*) FILTER (WHERE sdl_remuneration > 0)::int AS sdl_remunerated_periods,
+           SUM(sdl_remuneration)::numeric AS sdl_remuneration,
+           SUM(sdl_retirement)::numeric AS sdl_retirement
     FROM split
     GROUP BY employee_id
   `) as DbRow[];
@@ -92,6 +101,9 @@ export async function loadPayeYearToDate(
     medicalCredit: round2(Number(r.medical_credit)),
     additionalMedicalCredit: round2(Number(r.additional_medical_credit)),
     medicalSchemeFees: fees.get(String(r.employee_id))?.fees ?? 0,
+    sdlRemuneratedPeriods: Number(r.sdl_remunerated_periods),
+    sdlRemuneration: round2(Number(r.sdl_remuneration)),
+    sdlRetirementContributions: round2(Number(r.sdl_retirement)),
   }]));
 }
 
