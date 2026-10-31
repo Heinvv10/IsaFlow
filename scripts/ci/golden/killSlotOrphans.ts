@@ -6,8 +6,8 @@
  *
  * The window is not exclusive: other worktrees' dev servers and docker-proxy listen inside 3300-3799. So a listener is
  * stopped only when it is a process of this runner's workspace (its cwd is under $GITHUB_WORKSPACE), by its exact pid
- * taken from `ss`, never by a name pattern and never for this process or one of its ancestors. Best effort: it reports
- * what it stopped and always exits 0 (a job must not fail because there was nothing to clean).
+ * taken from `ss`, never by a name pattern and never for this process or one of its ancestors. Discovery and stop
+ * failures are fatal: selecting another port while the old process survives would let two jobs write the same slot.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readlinkSync } from 'node:fs';
@@ -96,27 +96,43 @@ export async function stopOrphan(pid: number, workspace: string, ops: ProcessOps
   if (ops.alive(pid)) {
     if (!stillOriginal()) return 'reused';
     ops.kill(pid, 'SIGKILL');
+    for (let i = 0; i < 10 && ops.alive(pid); i++) await ops.sleep(100);
+    if (ops.alive(pid) && stillOriginal()) throw new Error(`pid ${pid} is still alive after SIGKILL`);
   }
   return 'stopped';
+}
+
+export interface CleanupOptions {
+  listListeners?: () => string;
+  cwdOf?: (pid: number) => string | null;
+  protectedPids?: ReadonlySet<number>;
+  stop?: (pid: number, workspace: string) => Promise<'stopped' | 'reused'>;
+  say?: (line: string) => void;
+}
+
+export async function cleanupSlotOrphans(first: number, last: number, workspace: string, options: CleanupOptions = {}): Promise<void> {
+  const problem = workspaceProblem(workspace);
+  if (problem) throw new Error(problem);
+  const report = options.say ?? say;
+  const cwdOf = options.cwdOf ?? procCwd;
+  const listeners = parseListeners((options.listListeners ?? (() => execFileSync('ss', ['-ltnp'], { encoding: 'utf8' })))());
+  const victims = selectOrphans(listeners, first, last, workspace, cwdOf, options.protectedPids ?? selfAndAncestors());
+  for (const pid of victims) {
+    const port = listeners.find((l) => l.pid === pid)!.port;
+    report(`killSlotOrphans: stopping pid ${pid} (listening on ${port}, cwd ${cwdOf(pid)}), left behind by an earlier job of this runner`);
+    if (await (options.stop ?? stopOrphan)(pid, workspace) === 'reused') {
+      report(`killSlotOrphans: pid ${pid} is no longer a process of this workspace, left alone`);
+    }
+  }
+  if (victims.length === 0) report(`killSlotOrphans: nothing of this workspace listens on ${first}-${last}`);
 }
 
 async function main(): Promise<void> {
   const [first, last] = process.argv.slice(2, 4).map(Number);
   if (!Number.isInteger(first) || !Number.isInteger(last) || first! > last!) throw new Error('usage: killSlotOrphans.ts <firstPort> <lastPort>');
-  const workspace = process.env.GITHUB_WORKSPACE ?? '';
-  const problem = workspaceProblem(workspace);
-  if (problem) { say(`killSlotOrphans: ${problem}; nothing is safe to stop, skipping`); return; }
-  const protectedPids = selfAndAncestors();
-  const listeners = parseListeners(execFileSync('ss', ['-ltnp'], { encoding: 'utf8' }));
-  const victims = selectOrphans(listeners, first!, last!, workspace, procCwd, protectedPids);
-  for (const pid of victims) {
-    const port = listeners.find((l) => l.pid === pid)!.port;
-    say(`killSlotOrphans: stopping pid ${pid} (listening on ${port}, cwd ${procCwd(pid)}), left behind by an earlier job of this runner`);
-    try { if (await stopOrphan(pid, workspace) === 'reused') say(`killSlotOrphans: pid ${pid} is no longer a process of this workspace, left alone`); } catch (err) { say(`killSlotOrphans: could not stop pid ${pid}: ${(err as Error).message}`); }
-  }
-  if (victims.length === 0) say(`killSlotOrphans: nothing of this workspace listens on ${first}-${last}`);
+  await cleanupSlotOrphans(first!, last!, process.env.GITHUB_WORKSPACE ?? '');
 }
 
 if (import.meta.main) {
-  main().then(() => process.exit(0), (err: unknown) => { process.stderr.write(`killSlotOrphans: ${(err as Error).message}\n`); process.exit(0); });
+  main().then(() => process.exit(0), (err: unknown) => { process.stderr.write(`killSlotOrphans: ${(err as Error).message}\n`); process.exit(1); });
 }

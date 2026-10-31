@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inWorkspace, parentOf, parseListeners, selectOrphans, selfAndAncestors, startTimeOf, stopOrphan, workspaceProblem, type ProcessOps } from '../../../scripts/ci/golden/killSlotOrphans';
+import { cleanupSlotOrphans, inWorkspace, parentOf, parseListeners, selectOrphans, selfAndAncestors, startTimeOf, stopOrphan, workspaceProblem, type ProcessOps } from '../../../scripts/ci/golden/killSlotOrphans';
 
 const SS = [
   'State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process',
@@ -89,8 +89,14 @@ describe('stopOrphan re-checks the pid before each signal', () => {
   });
 
   it('escalates to SIGKILL for a process of the workspace that ignores SIGTERM', async () => {
-    const { ops, sent } = fakeOps([WS, WS], [true]);
+    const { ops, sent } = fakeOps([WS, WS], [...Array<boolean>(27).fill(true), false]);
     await expect(stopOrphan(4242, WS, ops)).resolves.toBe('stopped');
+    expect(sent).toEqual(['SIGTERM', 'SIGKILL']);
+  });
+
+  it('fails when SIGKILL does not stop the original process', async () => {
+    const { ops, sent } = fakeOps([WS, WS], [true]);
+    await expect(stopOrphan(4242, WS, ops)).rejects.toThrow(/still alive after SIGKILL/);
     expect(sent).toEqual(['SIGTERM', 'SIGKILL']);
   });
 
@@ -151,6 +157,25 @@ describe('selectOrphans', () => {
   });
 });
 
+describe('cleanupSlotOrphans fails closed', () => {
+  it('propagates an ss failure', async () => {
+    await expect(cleanupSlotOrphans(3300, 3465, '/w/IsaFlow/IsaFlow', {
+      listListeners: () => { throw new Error('ss unavailable'); },
+      say: () => undefined,
+    })).rejects.toThrow(/ss unavailable/);
+  });
+
+  it('propagates a failed kill', async () => {
+    await expect(cleanupSlotOrphans(3300, 3465, '/w/IsaFlow/IsaFlow', {
+      listListeners: () => 'LISTEN 0 511 127.0.0.1:3341 0.0.0.0:* users:(("node",pid=222,fd=19))',
+      cwdOf: () => '/w/IsaFlow/IsaFlow',
+      protectedPids: new Set(),
+      stop: async () => { throw new Error('EPERM'); },
+      say: () => undefined,
+    })).rejects.toThrow(/EPERM/);
+  });
+});
+
 describe('the script, against real listeners', () => {
   const children: ChildProcess[] = [];
   const dirs: string[] = [];
@@ -198,20 +223,20 @@ describe('the script, against real listeners', () => {
     expect(outsider.exitCode === null && outsider.signalCode === null).toBe(true);
   }, 90_000);
 
-  it('does nothing, and exits 0, with GITHUB_WORKSPACE="/" (every cwd would match)', async () => {
+  it('fails closed with GITHUB_WORKSPACE="/" (every cwd would match)', async () => {
     const port = await freePort();
     const c = await listenerIn(scratch(), port);
     const res = run(port, port, '/');
-    expect(res.status).toBe(0);
-    expect(res.stdout).toContain('GITHUB_WORKSPACE "/"');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('GITHUB_WORKSPACE "/"');
     expect(c.exitCode === null && c.signalCode === null).toBe(true);
   }, 90_000);
 
-  it('does nothing, and exits 0, without GITHUB_WORKSPACE', async () => {
+  it('fails closed without GITHUB_WORKSPACE', async () => {
     const port = await freePort();
     const c = await listenerIn(scratch(), port);
     const res = run(port, port, '');
-    expect(res.status).toBe(0);
+    expect(res.status).toBe(1);
     expect(c.exitCode === null && c.signalCode === null).toBe(true);
   }, 90_000);
 });

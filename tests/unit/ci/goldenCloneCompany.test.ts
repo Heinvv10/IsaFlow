@@ -195,11 +195,19 @@ describe('cloneCompany', () => {
   function fakeDb(opts: { targetExists: boolean; heldTables: string[]; sourceExists?: boolean; childOf?: Record<string, string>; leaks?: string[] }) {
     const inserts: string[] = [];
     const scans: string[] = [];
+    const statements: string[] = [];
     const db = {
       query: async (text: string, params: unknown[] = []) => {
         if (text.startsWith('SELECT 1 FROM companies WHERE id = $1::uuid')) {
           const exists = params[0] === 'target' ? opts.targetExists : (opts.sourceExists ?? true);
           return { rowCount: exists ? 1 : 0, rows: [] };
+        }
+        if (text.includes('FROM pg_attribute a WHERE a.attrelid') && params[0] === 'public.companies') {
+          return { rowCount: 3, rows: [
+            { name: 'id', type: 'uuid', not_null: true, generated: false },
+            { name: 'name', type: 'text', not_null: true, generated: false },
+            { name: 'netcash_service_key', type: 'character varying(100)', not_null: false, generated: false },
+          ] };
         }
         if (text.includes('FROM pg_attribute a WHERE a.attrelid')) {
           return { rowCount: 2, rows: [{ name: 'id', type: 'uuid', not_null: true, generated: false }, { name: 'company_id', type: 'uuid', not_null: true, generated: false }] };
@@ -221,21 +229,30 @@ describe('cloneCompany', () => {
           scans.push(`${scan[1]}.${scan[2]}`);
           return { rowCount: 1, rows: [{ n: opts.leaks?.includes(`${scan[1]}.${scan[2]}`) ? 2 : 0 }] };
         }
-        if (text.startsWith('INSERT INTO companies')) { inserts.push('companies'); return { rowCount: 1, rows: [] }; }
+        if (text.startsWith('INSERT INTO companies')) { inserts.push('companies'); statements.push(text); return { rowCount: 1, rows: [] }; }
         const ins = /^INSERT INTO "(\w+)"/.exec(text);
         if (ins) { inserts.push(ins[1]!); return { rowCount: 3, rows: [] }; }
         throw new Error(`unexpected query: ${text}`);
       },
     };
-    return { db: db as unknown as ClientBase, inserts, scans };
+    return { db: db as unknown as ClientBase, inserts, scans, statements };
   }
   const opts = { sourceId: 'source', targetId: 'target', company: { name: 'Slot' } };
 
   it('creates the company and copies every table when the target does not exist', async () => {
-    const { db, inserts } = fakeDb({ targetExists: false, heldTables: [] });
+    const { db, inserts, statements } = fakeDb({ targetExists: false, heldTables: [] });
     const result = await cloneCompany(db, opts);
     expect(result.created).toBe(true);
     expect(inserts).toEqual(['companies', ...COPIED_TABLES]);
+    expect(statements[0]).toBe('INSERT INTO companies ("id", "name") VALUES ($1::uuid, $2::text)');
+    expect(statements[0]).not.toContain('netcash_service_key');
+  });
+
+  it('refuses a company field outside the slot allowlist', async () => {
+    const { db, inserts } = fakeDb({ targetExists: false, heldTables: [] });
+    await expect(cloneCompany(db, { ...opts, company: { name: 'Slot', netcash_enabled: true } }))
+      .rejects.toThrow(/company field netcash_enabled is not safe to copy/);
+    expect(inserts).toEqual([]);
   });
 
   it('on a company that exists copies only the tables it holds nothing in (a top-up, never a second copy)', async () => {

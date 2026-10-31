@@ -136,6 +136,11 @@ export interface CloneOptions {
   company: Record<string, string | boolean | null>;
 }
 
+/** Only slot identity fields may be supplied. Every other companies column takes its database default. */
+const SAFE_COMPANY_FIELDS = new Set([
+  'name', 'registered_name', 'trading_name', 'registration_number', 'email', 'is_demo', 'onboarding_request_key',
+]);
+
 export interface CloneResult {
   /** The target company did not exist and this call created it. */
   created: boolean;
@@ -179,16 +184,18 @@ async function assertNoSourceReferences(
 
 async function insertCompanyRow(db: ClientBase, opts: CloneOptions): Promise<void> {
   const company = await readFacts(db, 'companies');
-  const live = company.columns.filter((c) => !c.generated);
   const overrides = Object.entries(opts.company);
-  const exprs = live.map((c) => {
-    if (c.name === 'id') return '$1::uuid';
-    const at = overrides.findIndex(([k]) => k === c.name);
-    return at >= 0 ? `$${at + 3}::${c.type}` : q(c.name);
+  for (const [name] of overrides) {
+    if (!SAFE_COMPANY_FIELDS.has(name)) throw new Error(`company field ${name} is not safe to copy into a golden slot`);
+  }
+  const fields = overrides.map(([name]) => {
+    const column = company.columns.find((c) => c.name === name && !c.generated);
+    if (!column) throw new Error(`company field ${name} does not exist or is generated`);
+    return column;
   });
   await db.query(
-    `INSERT INTO companies (${live.map((c) => q(c.name)).join(', ')}) SELECT ${exprs.join(', ')} FROM companies WHERE id = $2::uuid`,
-    [opts.targetId, opts.sourceId, ...overrides.map(([, v]) => v)]);
+    `INSERT INTO companies (${['id', ...fields.map((c) => c.name)].map(q).join(', ')}) VALUES ($1::uuid, ${fields.map((c, i) => `$${i + 2}::${c.type}`).join(', ')})`,
+    [opts.targetId, ...overrides.map(([, v]) => v)]);
 }
 
 /**
