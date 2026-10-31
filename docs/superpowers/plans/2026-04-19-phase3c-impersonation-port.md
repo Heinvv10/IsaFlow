@@ -83,7 +83,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE admin_impersonation_stash TO platf
 
 Run:
 ```bash
-psql 'postgresql://supabase_admin:a23f6104debd1d3e88e8f00c0067f22f@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
+psql 'postgresql://supabase_admin:<SUPABASE_ADMIN_PASSWORD>@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
   -f scripts/migrations/sql/355_admin_impersonation_stash.sql
 ```
 
@@ -1330,7 +1330,7 @@ Expected: 0 rows in stash. At least one `impersonation_start` and one `impersona
 - [ ] **Step 1: Apply migration 355 on prod as `supabase_admin`**
 
 ```bash
-psql 'postgresql://supabase_admin:a23f6104debd1d3e88e8f00c0067f22f@100.96.203.105:5437/isaflow?sslmode=disable' \
+psql 'postgresql://supabase_admin:<SUPABASE_ADMIN_PASSWORD>@100.96.203.105:5437/isaflow?sslmode=disable' \
   -f scripts/migrations/sql/355_admin_impersonation_stash.sql
 CHECKSUM=$(sha256sum scripts/migrations/sql/355_admin_impersonation_stash.sql | awk '{print $1}')
 psql 'postgresql://migration_admin:398ae138816873a688e534b28ba9116b@100.96.203.105:5437/isaflow?sslmode=disable' \
