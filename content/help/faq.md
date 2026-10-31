@@ -63,7 +63,7 @@ Users with the owner, admin or manager role.
 Chart of accounts, journals (manual and recurring), customers and invoicing (quotes, invoices, credit notes, receipts, statements), suppliers and payments, bank reconciliation, VAT201 preparation, budgets and a full set of reports, including income statement, balance sheet, trial balance, cash flow and aging. Some extras depend on your plan; see https://isaflow.co.za/pricing.
 
 ### Which bank statement formats can I import?
-CSV, OFX, QFX, QIF, MT940 and PDF. CSV and PDF statements from ABSA, FNB, Nedbank, Capitec and Standard Bank are detected automatically. ISAFlow doesn't have live bank feeds from banks. If you bank with ABSA Business Banking, ask us about the ISAFlow Bank Connector browser extension.
+CSV, OFX, QFX, QIF, MT940 and PDF. CSV and PDF statements from ABSA, FNB, Nedbank, Capitec and Standard Bank are detected automatically. ISAFlow doesn't have live bank feeds from banks.
 
 ### Why won't ISAFlow let me post to a particular account?
 If an account is a *header* with sub-accounts under it, ISAFlow won't post to it. That's by design, to keep your reports clean. Choose one of its sub-accounts instead.
