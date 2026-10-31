@@ -877,7 +877,7 @@ export default withAdmin(handler);
 The migration 352 grants don't cover the `auth` schema's tables (only `public`). Run once as superuser to grant SELECT on this table to `platform_admin`:
 
 ```bash
-psql 'postgresql://supabase_admin:a23f6104debd1d3e88e8f00c0067f22f@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
+psql 'postgresql://supabase_admin:<SUPABASE_ADMIN_PASSWORD>@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
   -c "GRANT SELECT ON TABLE auth.mfa_factors TO platform_admin"
 ```
 
@@ -1526,7 +1526,7 @@ GRANT SELECT ON TABLE auth.mfa_factors TO platform_admin;
 - [ ] **Step 2: Apply on dev as supabase_admin**
 
 ```bash
-psql 'postgresql://supabase_admin:a23f6104debd1d3e88e8f00c0067f22f@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
+psql 'postgresql://supabase_admin:<SUPABASE_ADMIN_PASSWORD>@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
   -f scripts/migrations/sql/354_drop_custom_2fa.sql
 ```
 
@@ -1536,14 +1536,14 @@ Expected: `DROP INDEX` (×3), `DROP TABLE` (×2), `GRANT`.
 
 ```bash
 CHECKSUM=$(sha256sum scripts/migrations/sql/354_drop_custom_2fa.sql | awk '{print $1}')
-psql 'postgresql://migration_admin:398ae138816873a688e534b28ba9116b@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
+psql "${MIGRATION_ADMIN_DATABASE_URL:?set MIGRATION_ADMIN_DATABASE_URL in the environment}" \
   -c "INSERT INTO schema_migrations (version, name, checksum) VALUES ('354', '354_drop_custom_2fa.sql', '$CHECKSUM') ON CONFLICT DO NOTHING"
 ```
 
 - [ ] **Step 4: Confirm dev tables are gone**
 
 ```bash
-psql 'postgresql://migration_admin:398ae138816873a688e534b28ba9116b@100.96.203.105:5437/isaflow_dev?sslmode=disable' \
+psql "${MIGRATION_ADMIN_DATABASE_URL:?set MIGRATION_ADMIN_DATABASE_URL in the environment}" \
   -c "SELECT to_regclass('public.user_2fa'), to_regclass('public.user_trusted_devices')"
 ```
 
@@ -1651,10 +1651,10 @@ If nothing is set, GoTrue v2.186.0 defaults to MFA enabled — proceed. If any l
 - [ ] **Step 2: Apply migration 354 on prod as supabase_admin**
 
 ```bash
-psql 'postgresql://supabase_admin:a23f6104debd1d3e88e8f00c0067f22f@100.96.203.105:5437/isaflow?sslmode=disable' \
+psql 'postgresql://supabase_admin:<SUPABASE_ADMIN_PASSWORD>@100.96.203.105:5437/isaflow?sslmode=disable' \
   -f scripts/migrations/sql/354_drop_custom_2fa.sql
 CHECKSUM=$(sha256sum scripts/migrations/sql/354_drop_custom_2fa.sql | awk '{print $1}')
-psql 'postgresql://migration_admin:398ae138816873a688e534b28ba9116b@100.96.203.105:5437/isaflow?sslmode=disable' \
+psql "${MIGRATION_ADMIN_DATABASE_URL:?set MIGRATION_ADMIN_DATABASE_URL in the environment}" \
   -c "INSERT INTO schema_migrations (version, name, checksum) VALUES ('354', '354_drop_custom_2fa.sql', '$CHECKSUM') ON CONFLICT DO NOTHING"
 ```
 
