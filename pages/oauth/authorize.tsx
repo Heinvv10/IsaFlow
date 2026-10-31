@@ -38,11 +38,12 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState(props.ok ? props.selectedCompanyId : '');
-  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>(() => {
-    if (!props.ok) return {};
-    const { optIn } = partitionRequestedScopes(props.scopes);
-    return checkedRequestedOptIns(optIn, props.previouslyGrantedScopesByCompany[props.selectedCompanyId]);
-  });
+  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>(() => props.ok
+    ? checkedRequestedOptIns(
+      partitionRequestedScopes(props.scopes).optIn,
+      props.previouslyGrantedScopesByCompany[props.selectedCompanyId],
+    )
+    : {});
 
   if (!props.ok) return <ConsentRejected error={props.error} />;
 
