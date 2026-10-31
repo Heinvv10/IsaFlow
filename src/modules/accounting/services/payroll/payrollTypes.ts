@@ -176,6 +176,12 @@ export interface PayeYearToDate {
   additionalMedicalCredit: number;
   /** Medical scheme fees deducted on those lines (4005; a line before 926 from its breakdown, payrollMedicalRecord). */
   medicalSchemeFees: number;
+  /** Earlier remunerated periods used to apportion the cumulative s11F annual cap. */
+  sdlRemuneratedPeriods?: number;
+  /** Fourth Schedule remuneration before deductions on those earlier lines. */
+  sdlRemuneration?: number;
+  /** Retirement contributions (4001/4003/4006) on those earlier lines. */
+  sdlRetirementContributions?: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */

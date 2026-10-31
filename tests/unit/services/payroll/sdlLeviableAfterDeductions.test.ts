@@ -75,14 +75,14 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     expect(r.sdl).toBe(370);
   });
 
-  it('uses exactly the PAYE para 2(4) figure: a deduction not allowed for PAYE (not flagged taxable) is not deducted', () => {
-    const notDeductible: EmployeeComponent = {
+  it('recognises seeded retirement components even when isTaxable is false', () => {
+    const seededPension: EmployeeComponent = {
       component: comp('4001', { componentType: 'deduction', isTaxable: false, isUifApplicable: false, isSdlApplicable: false }),
       amount: 2_250,
     };
-    const r = line([salary(30_000), notDeductible]);
+    const r = line([salary(30_000), seededPension]);
     expect(r.taxableIncome).toBe(30_000);
-    expect(r.sdlLeviable).toBe(30_000);
+    expect(r.sdlLeviable).toBe(27_750);
   });
 
   it('s11F cap applied to SDL: R20 000 salary + R8 000 RA (40%) → SDL deducts R5 500 (27.5% cap), SDL = R145', () => {
@@ -105,6 +105,26 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
     const expectedLeviable = Math.max(0, 200_000 - annualCapMonthly);
     expect(r.sdlLeviable).toBeCloseTo(expectedLeviable, 2);
     expect(r.sdl).toBeCloseTo(expectedLeviable * 0.01, 2);
+  });
+
+  it('uses the remaining cumulative annual cap for a February catch-up contribution', () => {
+    const r = calculatePayrollLine({
+      employee: {
+        id: 'emp-1', companyId: 'co-1', employeeNumber: 'E1', firstName: 'A', lastName: 'B',
+        idNumber: '9001015009087', taxNumber: '1234567890', employmentType: 'permanent',
+        startDate: new Date('2020-01-01'), dateOfBirth: new Date('1990-01-01'),
+        uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
+      },
+      components: [salary(200_000), ra(100_000)],
+      period: { month: 2, year: 2027 }, taxYear: 2027, annualPayrollEstimate: 1_000_000,
+      ytd: {
+        periods: 11, periodicTaxable: 1_870_000, annualPayments: 0, tablePaye: 0,
+        medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
+        sdlRemuneratedPeriods: 11, sdlRemuneration: 2_200_000, sdlRetirementContributions: 330_000,
+      },
+    });
+    expect(r.sdlLeviable).toBe(100_000);
+    expect(r.sdl).toBe(1_000);
   });
 
   it('s11F cap — 2026 tax year (R350 000 annual cap): monthly cap ≈ R29 167', () => {
@@ -168,35 +188,12 @@ describe('SDL leviable amount after para 2(4) deductions (SARS SDL-GEN-01-G01 Re
   });
 });
 
-describe('SDL para 2(4)(f): s18A donations (4030) allowlist and 5% cap (SARS PAYE-GEN-01-G21 (2027) Rev 1 \'Donations\' para 2(4)(f))', () => {
-  it('R30 000 salary + R10 000 donation (4030) → donation capped at 5% = R1 500, SDL R285', () => {
-    // Source: SARS PAYE-GEN-01-G21 (2027) Rev 1 'Donations' para 2(4)(f).
-    // 5% × R30 000 = R1 500 (percentage cap binds at R10 000 contribution).
-    // SDL leviable = R30 000 − R1 500 = R28 500; SDL = R285.
+describe('SDL para 2(4)(f): unsupported donation qualification', () => {
+  it('does not deduct 4030 without a modelled s18A receipt and approved organisation', () => {
     const r = line([salary(30_000), donation(10_000)]);
-    expect(r.sdlLeviable).toBe(28_500);
-    expect(r.sdl).toBe(285);
-  });
-
-  it('donation within the 5% cap: full donation allowed, SDL not over-capped', () => {
-    // R30 000 salary + R500 donation; 5% × R30 000 = R1 500 > R500 → full amount.
-    // SDL leviable = R29 500; SDL = R295.
-    const r = line([salary(30_000), donation(500)]);
-    expect(r.sdlLeviable).toBe(29_500);
-    expect(r.sdl).toBe(295);
-  });
-
-  it('donation + RA combined: 5% applies to remuneration AFTER the capped RA deduction', () => {
-    // Source: SARS PAYE-GEN-01-G21 (2027) Rev 1 'Donations' para 2(4)(f).
-    // R20 000 salary + R4 000 RA + R2 000 donation.
-    // s11F cap: 27.5% × R20 000 = R5 500 > R4 000 → full RA allowed (R4 000).
-    // Donation base: R20 000 − R4 000 = R16 000; 5% × R16 000 = R800.
-    // Donation allowable: min(R2 000, R800) = R800.
-    // para 2(4) for SDL: R4 000 + R800 = R4 800.
-    // SDL leviable = R20 000 − R4 800 = R15 200; SDL = R152.
-    const r = line([salary(20_000), ra(4_000), donation(2_000)]);
-    expect(r.sdlLeviable).toBe(15_200);
-    expect(r.sdl).toBe(152);
+    expect(r.taxableIncome).toBe(20_000);
+    expect(r.sdlLeviable).toBe(30_000);
+    expect(r.sdl).toBe(300);
   });
 
   it('non-allowlisted taxable deduction (union fees 4018) does NOT reduce SDL', () => {

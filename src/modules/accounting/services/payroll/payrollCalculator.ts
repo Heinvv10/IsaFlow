@@ -35,13 +35,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   let taxableDeductions = 0;
   // Taxable retirement-fund contributions (SARS codes 4001 pension, 4003
   // provident, 4006 RA) tracked separately so the s11F cap can be applied for
-  // SDL. These are the only deductions that reduce the SDL base, along with
-  // s18A donations (4030) capped at 5% after the retirement deduction.
-  let taxableRetirementDeductions = 0;
-  // s18A donations (SARS code 4030): tracked separately; capped at 5% of
-  // (remuneration − capped retirement) for SDL (para 2(4)(f) Fourth Schedule).
-  // Receipt (s18A certificate) not tracked in payroll — limitation.
-  let taxableDonationDeductions = 0;
+  // SDL. Source-code classification is authoritative because the seeded 4001
+  // and 4006 components are not flagged isTaxable.
+  let retirementDeductions = 0;
   let directivePaye = 0;
   let uifLeviable = 0;
   let sdlLeviable = 0;
@@ -91,17 +87,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       }
     } else if (component.componentType === 'deduction') {
       totalDeductions += amount;
+      const sarsCode = normaliseSarsCode(component.sarsSourceCode);
       if (component.isTaxable) {
         taxableDeductions += amount;
-        const sarsCode = normaliseSarsCode(component.sarsSourceCode);
-        if (sarsCode === '4001' || sarsCode === '4003' || sarsCode === '4006') {
-          taxableRetirementDeductions += amount;
-        }
-        if (sarsCode === '4030') {
-          taxableDonationDeductions += amount;
-        }
       }
-      if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
+      if (sarsCode === '4001' || sarsCode === '4003' || sarsCode === '4006') retirementDeductions += amount;
+      if (sarsCode === '4005') medicalSchemeFees += amount;
     }
   }
 
@@ -117,15 +108,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const taxableIncome = regularTaxable + annualTaxable;
   // SDL is levied on the "balance of remuneration" after para 2(4) deductions
   // (SDL Act s3(4); SARS SDL-GEN-01-G01 Rev 5 s6; PAYE-GEN-01-G21 (2027)
-  // "SDL liable amount"). SDL uses an EXPLICIT ALLOWLIST — only two categories
-  // of deduction reduce the SDL base:
-  //   1. Retirement-fund contributions (4001/4003/4006), capped by s11F:
-  //      min(27.5% × remuneration, annualCap / 12). Source: PAYE-GEN-01-G21
-  //      (2027) Rev 1 s7.3.1; PAYE-GEN-01-G20 (2026) s7.3.1.
-  //   2. s18A donations (4030), capped at 5% of remuneration AFTER the capped
-  //      retirement deduction. Source: PAYE-GEN-01-G21 (2027) Rev 1 'Donations'
-  //      para 2(4)(f); s18A(2)(a). Limitation: receipt (s18A certificate) not
-  //      tracked in payroll — this cap is computed but not receipt-verified.
+  // "SDL liable amount"). Retirement-fund contributions (4001/4003/4006)
+  // reduce the base, subject to the cumulative s11F cap. Donation deductions
+  // are not supported because payroll does not record the required s18A receipt
+  // or whether the recipient is an approved organisation.
   // All other taxable deductions (union fees, medical 4005, garnishees, loans,
   // etc.) do NOT reduce SDL even if isTaxable is true.
   //
@@ -133,22 +119,25 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // PR #891. SDL and PAYE bases therefore diverge for:
   //   - Retirement contributions above the s11F cap.
   //   - Non-allowlisted taxable deductions (e.g. union fees): reduce PAYE only.
-  //   - Donations above the 5% cap: full amount reduces PAYE, capped for SDL.
+  //   - Donations: reduce PAYE only until their s18A qualification is modelled.
   //
   // Unsupported for both PAYE and SDL: employer retirement contributions as
   // deemed employee contributions.
   const fourthScheduleRemuneration = periodicTaxable + annualPayments;
   const sdlRetirementAllowable = cappedRetirementDeduction(
-    taxableRetirementDeductions,
+    retirementDeductions,
     fourthScheduleRemuneration,
     12,
     taxYear,
+    {
+      periods: input.ytd?.sdlRemuneratedPeriods ?? 0,
+      remuneration: input.ytd?.sdlRemuneration ?? 0,
+      retirementContributions: input.ytd?.sdlRetirementContributions ?? 0,
+    },
   );
-  const sdlDonationBase = Math.max(0, fourthScheduleRemuneration - sdlRetirementAllowable);
-  const sdlDonationAllowable = Math.min(taxableDonationDeductions, sdlDonationBase * 0.05);
   const para24DeductionsForSdl = Math.max(
     0,
-    Math.min(sdlRetirementAllowable + sdlDonationAllowable, fourthScheduleRemuneration),
+    Math.min(sdlRetirementAllowable, fourthScheduleRemuneration),
   );
 
   const medicalBeneficiaries = employee.medicalAidMainMember

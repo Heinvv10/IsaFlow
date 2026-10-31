@@ -22,7 +22,7 @@
 import { getTaxYearConfig } from './taxTables';
 
 /**
- * Returns the s11F-limited retirement-fund deduction for a single pay period.
+ * Returns the current period's share of the cumulative s11F deduction.
  *
  * @param retirementContributions - Total taxable retirement contributions for
  *   the period (SARS codes 4001 pension, 4003 provident, 4006 RA), already
@@ -38,10 +38,25 @@ export function cappedRetirementDeduction(
   fourthScheduleRemuneration: number,
   periodsPerYear: number,
   taxYear: number,
+  ytd: {
+    periods: number;
+    remuneration: number;
+    retirementContributions: number;
+  } = { periods: 0, remuneration: 0, retirementContributions: 0 },
 ): number {
   const config = getTaxYearConfig(taxYear); // throws UnsupportedTaxYearError if unknown
-  const periodCap = config.s11fAnnualCapRands / periodsPerYear;
-  const percentageCap = 0.275 * fourthScheduleRemuneration;
-  const allowable = Math.min(periodCap, percentageCap);
-  return Math.min(retirementContributions, allowable);
+  const currentPeriods = fourthScheduleRemuneration > 0 ? 1 : 0;
+  const previousPeriods = Math.min(periodsPerYear, Math.max(0, ytd.periods));
+  const cumulativePeriods = Math.min(periodsPerYear, previousPeriods + currentPeriods);
+  const previousAllowable = Math.min(
+    Math.max(0, ytd.retirementContributions),
+    Math.max(0, ytd.remuneration) * 0.275,
+    config.s11fAnnualCapRands * previousPeriods / periodsPerYear,
+  );
+  const cumulativeAllowable = Math.min(
+    Math.max(0, ytd.retirementContributions + retirementContributions),
+    Math.max(0, ytd.remuneration + fourthScheduleRemuneration) * 0.275,
+    config.s11fAnnualCapRands * cumulativePeriods / periodsPerYear,
+  );
+  return Math.min(retirementContributions, Math.max(0, cumulativeAllowable - previousAllowable));
 }
