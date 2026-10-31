@@ -100,3 +100,21 @@ export function assignShards<T extends { file: string }>(
   }
   return out;
 }
+
+/**
+ * How many shards the gate runs: one per CPU less one, at most MAX_SHARDS (6:
+ * what velo's 32 cores ran for months). A shard is a vitest process plus its
+ * own PostgreSQL, so more shards than CPUs only slows each one down, and the
+ * suites with a wall-clock budget (audit-snapshots-versions) then miss it: six
+ * shards on a 4-vCPU GitHub runner failed it on 2 of 4 runs. `override` is
+ * CI_INT_SHARDS; anything but a positive integer is refused.
+ */
+export const MAX_SHARDS = 6;
+export function shardCount(cpus: number, override?: string): number {
+  if (override !== undefined && override !== '') {
+    const n = Number(override);
+    if (!Number.isInteger(n) || n < 1) throw new Error(`CI_INT_SHARDS must be a positive integer, got '${override}'`);
+    return n;
+  }
+  return Math.min(MAX_SHARDS, Math.max(1, Math.floor(cpus) - 1));
+}
