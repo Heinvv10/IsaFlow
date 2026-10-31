@@ -580,15 +580,14 @@ export async function getConsentScopesByCompany(
   companyIds: readonly string[],
 ): Promise<Record<string, string[]>> {
   if (companyIds.length === 0) return {};
-  const rows = (await migrationAdminPool().query(
-    `SELECT company_id, scopes
-       FROM oauth_authorisations
-      WHERE user_id = $1
-        AND oauth_app_id = $2::uuid
-        AND company_id = ANY($3::uuid[])
-        AND revoked_at IS NULL`,
-    [userId, oauthAppId, [...companyIds]],
-  )).rows as Row[];
+  const rows = (await sql`
+    SELECT company_id, scopes
+      FROM oauth_authorisations
+     WHERE user_id = ${userId}
+       AND oauth_app_id = ${oauthAppId}::uuid
+       AND company_id = ANY(${[...companyIds]}::uuid[])
+       AND revoked_at IS NULL
+  `) as Row[];
 
   return Object.fromEntries(rows.map((row) => [
     row.company_id as string,
