@@ -248,6 +248,7 @@ jobs:
             echo "::error::GOLDEN_SLOT_${slot}_{COMPANY_ID,EMAIL,PASSWORD} missing from /home/hein/isaflow-ci.env; run scripts/ci/golden/provision-slots.ts"
             exit 1
           fi
+          GOLDEN_SLOT_NUMBER=$slot
           # GitHub redacts only registered secrets; this one is runner-local.
           echo "::add-mask::$GOLDEN_USER_PASSWORD"
           echo "GOLDEN SLOT $slot (company $GOLDEN_COMPANY_ID, user $GOLDEN_USER_EMAIL) on runner $RUNNER_NAME"
@@ -285,4 +286,4 @@ jobs:
           # The answer must come from OUR server, not whatever took the port.
           kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
           # Only this command sees the slot's login, in its own subshell.
-          ( export GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden )
+          ( export GOLDEN_SLOT_NUMBER GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden )

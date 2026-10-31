@@ -7,6 +7,8 @@
  * E2E_ADMIN_* and works in that user's default company, exactly as before slots existed.
  */
 
+import { assertSlotCompanyId, slotEmail } from '../../../../scripts/ci/golden/slotConfig';
+
 export interface GoldenSlot {
   companyId: string;
   email: string;
@@ -14,19 +16,23 @@ export interface GoldenSlot {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const KEYS = ['GOLDEN_COMPANY_ID', 'GOLDEN_USER_EMAIL', 'GOLDEN_USER_PASSWORD'] as const;
+const KEYS = ['GOLDEN_SLOT_NUMBER', 'GOLDEN_COMPANY_ID', 'GOLDEN_USER_EMAIL', 'GOLDEN_USER_PASSWORD'] as const;
 
 /**
  * @returns the slot, or null when none of the three variables is set.
  * @throws when only some are set: falling back to the default company then would put two runs back on one company.
  */
 export function readGoldenSlot(env: Record<string, string | undefined>): GoldenSlot | null {
-  const [companyId, email, password] = KEYS.map((k) => env[k] ?? '');
-  if (!companyId && !email && !password) return null;
-  if (!companyId || !email || !password) {
-    throw new Error(`a golden slot needs GOLDEN_COMPANY_ID, GOLDEN_USER_EMAIL and GOLDEN_USER_PASSWORD together; missing: ${KEYS.filter((k) => !env[k]).join(', ')}`);
+  const [slotText, companyId, email, password] = KEYS.map((k) => env[k] ?? '');
+  if (!slotText && !companyId && !email && !password) return null;
+  if (!slotText || !companyId || !email || !password) {
+    throw new Error(`a golden slot needs GOLDEN_SLOT_NUMBER, GOLDEN_COMPANY_ID, GOLDEN_USER_EMAIL and GOLDEN_USER_PASSWORD together; missing: ${KEYS.filter((k) => !env[k]).join(', ')}`);
   }
+  if (!/^[123]$/.test(slotText)) throw new Error(`GOLDEN_SLOT_NUMBER must be 1, 2 or 3, got "${slotText}"`);
   if (!UUID.test(companyId)) throw new Error(`GOLDEN_COMPANY_ID must be a uuid, got "${companyId}"`);
+  const slot = Number(slotText);
+  assertSlotCompanyId(slot, companyId);
+  if (email !== slotEmail(slot)) throw new Error(`slot ${slot}: GOLDEN_USER_EMAIL must be ${slotEmail(slot)}, got "${email}"`);
   return { companyId, email, password };
 }
 
