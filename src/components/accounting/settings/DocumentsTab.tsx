@@ -80,8 +80,8 @@ export function DocumentsTab({ docNumbers, messages, docDisplayFields, onDocNumC
                 {docNumbers.map(d => (
                   <tr key={d.documentType} className="border-b border-[var(--ff-border-primary)] last:border-0">
                     <td className="py-2 text-[var(--ff-text-primary)]">{DOC_NUMBER_LABELS[d.documentType] || d.documentType}</td>
-                    <td className="py-2"><input className={`${INPUT_CLS} max-w-[100px]`} value={d.prefix} onChange={e => onDocNumChange(d.documentType, 'prefix', e.target.value)} /></td>
-                    <td className="py-2"><input type="number" min="1" className={`${INPUT_CLS} max-w-[120px]`} value={d.nextNumber} onChange={e => onDocNumChange(d.documentType, 'nextNumber', Number(e.target.value))} /></td>
+                    <td className="py-2"><input aria-label={`${DOC_NUMBER_LABELS[d.documentType] || d.documentType} prefix`} className={`${INPUT_CLS} max-w-[100px]`} value={d.prefix} onChange={e => onDocNumChange(d.documentType, 'prefix', e.target.value)} /></td>
+                    <td className="py-2"><input aria-label={`${DOC_NUMBER_LABELS[d.documentType] || d.documentType} next number`} type="number" min="1" className={`${INPUT_CLS} max-w-[120px]`} value={d.nextNumber} onChange={e => onDocNumChange(d.documentType, 'nextNumber', Number(e.target.value))} /></td>
                     <td className="py-2 text-[var(--ff-text-tertiary)] font-mono text-xs">{d.prefix}{String(d.nextNumber).padStart(d.padding, '0')}</td>
                   </tr>
                 ))}
@@ -98,8 +98,8 @@ export function DocumentsTab({ docNumbers, messages, docDisplayFields, onDocNumC
         <div className="space-y-3">
           {STATEMENT_MSG_TYPES.map(m => (
             <div key={m.key}>
-              <label className={LABEL_CLS}>{m.label}</label>
-              <input className={INPUT_CLS} value={messages[m.key] || ''} onChange={e => onMessageChange(m.key, e.target.value)} placeholder={`Message for ${m.label.toLowerCase()} balances...`} />
+              <label htmlFor={`documents-tab-statement-${m.key}`} className={LABEL_CLS}>{m.label}</label>
+              <input id={`documents-tab-statement-${m.key}`} className={INPUT_CLS} value={messages[m.key] || ''} onChange={e => onMessageChange(m.key, e.target.value)} placeholder={`Message for ${m.label.toLowerCase()} balances...`} />
             </div>
           ))}
         </div>
@@ -112,8 +112,8 @@ export function DocumentsTab({ docNumbers, messages, docDisplayFields, onDocNumC
         <div className="space-y-3">
           {CUSTOMER_MSG_TYPES.map(m => (
             <div key={m.key}>
-              <label className={LABEL_CLS}>{m.label}</label>
-              <textarea className={INPUT_CLS} rows={2} value={messages[m.key] || ''} onChange={e => onMessageChange(m.key, e.target.value)} placeholder={`Default message for ${m.label.toLowerCase()}...`} />
+              <label htmlFor={`documents-tab-customer-${m.key}`} className={LABEL_CLS}>{m.label}</label>
+              <textarea id={`documents-tab-customer-${m.key}`} className={INPUT_CLS} rows={2} value={messages[m.key] || ''} onChange={e => onMessageChange(m.key, e.target.value)} placeholder={`Default message for ${m.label.toLowerCase()}...`} />
             </div>
           ))}
         </div>
@@ -125,8 +125,8 @@ export function DocumentsTab({ docNumbers, messages, docDisplayFields, onDocNumC
         <div className="space-y-3">
           {SUPPLIER_MSG_TYPES.map(m => (
             <div key={m.key}>
-              <label className={LABEL_CLS}>{m.label}</label>
-              <textarea className={INPUT_CLS} rows={2} value={messages[m.key] || ''} onChange={e => onMessageChange(m.key, e.target.value)} placeholder={`Default message for ${m.label.toLowerCase()}...`} />
+              <label htmlFor={`documents-tab-supplier-${m.key}`} className={LABEL_CLS}>{m.label}</label>
+              <textarea id={`documents-tab-supplier-${m.key}`} className={INPUT_CLS} rows={2} value={messages[m.key] || ''} onChange={e => onMessageChange(m.key, e.target.value)} placeholder={`Default message for ${m.label.toLowerCase()}...`} />
             </div>
           ))}
         </div>
