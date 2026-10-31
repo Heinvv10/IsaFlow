@@ -146,7 +146,9 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
     await expect(problems).toHaveCount(0);
     await expect(page.getByText('Balanced', { exact: true })).toBeVisible();
     await expect(page.locator('tbody tr')).toHaveCount(4);
-    await page.locator('input[type="date"]').fill(effectiveDate);
+    const dateBox = page.getByLabel(/^Effective date/);
+    await dateBox.fill(effectiveDate);
+    await dateBox.press('Tab');
     await page.getByRole('button', { name: 'Set Opening Balances' }).click();
     const posted = page.getByText(/Opening balances posted: 4 account line\(s\)\. Journal entry [0-9a-f-]{36}/);
     await expect(posted).toBeVisible({ timeout: 30_000 });

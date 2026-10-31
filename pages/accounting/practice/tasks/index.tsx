@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { useAuth } from '@/contexts/AuthContext';
 import type { PracticeTask, PracticeTaskInput } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface JobOption { id: string; title: string }
 type TabKey = 'my' | 'overdue' | 'upcoming' | 'all' | 'unassigned';
@@ -53,6 +54,7 @@ function filterTab(tasks: PracticeTask[], tab: TabKey, uid?: string): PracticeTa
 }
 
 export default function PracticeTasksPage() {
+  const dateGate = useDateGate();
   const router = useRouter();
   const { user } = useAuth();
   const tab = ((router.query.tab as TabKey | undefined) ?? 'my');
@@ -241,7 +243,7 @@ export default function PracticeTasksPage() {
             ) : (
               <input value={qaAssigned} onChange={e => setQaAssigned(e.target.value)} placeholder="Assigned to (user id)" className={`w-40 ${inputCls}`} />
             )}
-            <input type="date" value={qaDue} onChange={e => setQaDue(e.target.value)} className={inputCls} />
+            <GatedDateField gate={dateGate} gateKey="due-date" label="Due date" value={qaDue || null} onValue={iso => setQaDue(iso)} />
             <select value={qaPriority} onChange={e => setQaPriority(e.target.value as PracticeTask['priority'])} className={inputCls}>
               {(['low', 'normal', 'high', 'urgent'] as const).map(p => <option key={p} value={p}>{PRI_LBL[p]}</option>)}
             </select>
@@ -249,7 +251,7 @@ export default function PracticeTasksPage() {
               <option value="">No Job</option>
               {jobs.map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
             </select>
-            <button type="submit" disabled={qaAdding || !qaTitle.trim()}
+            <button type="submit" disabled={qaAdding || !qaTitle.trim() || dateGate.blocked}
               className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
               {qaAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
             </button>
