@@ -19,7 +19,7 @@ import { assignShards, routeSuite } from './suiteRoute';
  * wall time, never correctness. A hand-kept list of ten went stale within a
  * day (the audit-snapshots suites, ~1,100 s, all counted 3 s and landed on one
  * shard, which then ran 10-13 min while the lightest ran 3). Re-measure when a
- * new slow suite lands or one shard's `[integration] shard i/6 ... Ns` line in
+ * new slow suite lands or one shard's `[integration] shard i/N ... Ns` line in
  * the gate log runs well past the others.
  */
 // cwd is the repo root: run.sh cds there before calling plan.ts.
