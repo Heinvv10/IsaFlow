@@ -127,10 +127,11 @@ describe('EMP201', () => {
     render(<Emp201Page />);
     fireEvent.click(screen.getByRole('button', { name: /Generate/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Save Draft/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /Mark as Submitted/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Record as filed on eFiling/ }));
+    expect(screen.getByText(/ISAFlow does not send this return to SARS/)).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText('SARS reference number'), { target: { value: 'REF1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
-    expect(await screen.findByText('Could not mark the EMP201 as submitted - try again')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Record filing' }));
+    expect(await screen.findByText('Could not record the EMP201 as filed - try again')).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/Something went wrong/);
   });
 });
