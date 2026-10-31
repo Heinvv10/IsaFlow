@@ -35,6 +35,7 @@ vi.mock('@/lib/logger', () => ({
 import { log } from '@/lib/logger';
 import {
   exchangeCode,
+  getConsentScopesByCompany,
   refreshAccessToken,
   OauthExchangeError,
 } from '@/lib/auth/oauth';
@@ -80,6 +81,25 @@ beforeEach(() => {
   adminQueryMock.mockReset();
   adminQueryMock.mockResolvedValue({ rows: [], rowCount: 0 });
   vi.mocked(log.warn).mockClear();
+});
+
+describe('getConsentScopesByCompany', () => {
+  it('reads only this app, user and eligible companies, excluding revoked grants', async () => {
+    const otherCompany = '33333333-3333-3333-3333-333333333333';
+    mockAdminOnce([
+      { company_id: COMPANY_ID, scopes: ['read:reports', 'write:journals'] },
+      { company_id: otherCompany, scopes: ['read:reports'] },
+    ]);
+
+    await expect(getConsentScopesByCompany(USER_ID, APP_ID, [COMPANY_ID, otherCompany])).resolves.toEqual({
+      [COMPANY_ID]: ['read:reports', 'write:journals'],
+      [otherCompany]: ['read:reports'],
+    });
+    expect(adminText(0)).toContain('oauth_app_id = $2::uuid');
+    expect(adminText(0)).toContain('company_id = ANY($3::uuid[])');
+    expect(adminText(0)).toContain('revoked_at IS NULL');
+    expect(adminValues(0)).toEqual([USER_ID, APP_ID, [COMPANY_ID, otherCompany]]);
+  });
 });
 
 describe('exchangeCode (auth-code grant)', () => {

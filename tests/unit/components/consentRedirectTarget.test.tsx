@@ -7,7 +7,11 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 // Server-only modules the page imports at module scope.
-vi.mock('@/lib/auth/oauth', () => ({ getOauthAppByClientId: vi.fn(), OAUTH_SCOPES: ['read:invoices'] }));
+vi.mock('@/lib/auth/oauth', () => ({
+  getOauthAppByClientId: vi.fn(),
+  getConsentScopesByCompany: vi.fn(async () => ({})),
+  OAUTH_SCOPES: ['read:invoices'],
+}));
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getUserCompanies: vi.fn() }));
 vi.mock('@/lib/auth/gotrue', () => ({ verifyToken: vi.fn() }));
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
@@ -25,6 +29,7 @@ const props = (redirectUri: string) => ({
   codeChallengeMethod: 'S256' as const,
   companies: [{ companyId: 'c1', companyName: 'Acme (Pty) Ltd', role: 'owner' }],
   selectedCompanyId: 'c1',
+  previouslyGrantedScopesByCompany: {},
 });
 
 describe('consent screen — where the authorisation goes', () => {

@@ -29,6 +29,8 @@ export interface AuthorizePageProps {
   companies: ConsentCompany[];
   /** Pre-selected company (active company when it is a membership). */
   selectedCompanyId: string;
+  /** Existing live grant for this app/user, used only to prefill re-consent. */
+  previouslyGrantedScopesByCompany: Record<string, string[]>;
 }
 
 export interface AuthorizePageErrorProps {

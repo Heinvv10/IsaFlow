@@ -14,7 +14,11 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/lib/auth/gotrue', () => ({ verifyToken: vi.fn(async () => ({ sub: 'user-1' })) }));
 vi.mock('@/lib/auth/oauth', async () => {
   const scopes = await import('@/lib/auth/oauthScopes');
-  return { getOauthAppByClientId: vi.fn(), OAUTH_SCOPES: scopes.OAUTH_SCOPES };
+  return {
+    getOauthAppByClientId: vi.fn(),
+    getConsentScopesByCompany: vi.fn(),
+    OAUTH_SCOPES: scopes.OAUTH_SCOPES,
+  };
 });
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getUserCompanies: vi.fn() }));
 vi.mock('@/modules/admin/services/featureFlagService', () => ({
@@ -23,7 +27,7 @@ vi.mock('@/modules/admin/services/featureFlagService', () => ({
 }));
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(), apiErrorMessage: vi.fn(), assertOk: vi.fn() }));
 
-import { getOauthAppByClientId } from '@/lib/auth/oauth';
+import { getConsentScopesByCompany, getOauthAppByClientId } from '@/lib/auth/oauth';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { DEFAULT_MCP_SCOPES } from '@/lib/auth/oauthScopes';
@@ -65,6 +69,7 @@ beforeEach(() => {
   vi.mocked(getUserCompanies).mockResolvedValue([
     { companyId: COMPANY, companyName: 'Demo Co (Fictional)', isDefault: true },
   ] as never);
+  vi.mocked(getConsentScopesByCompany).mockResolvedValue({});
 });
 
 describe('DEFAULT_MCP_SCOPES', () => {
@@ -120,10 +125,21 @@ describe('/oauth/authorize getServerSideProps — scope handling', () => {
     expect(props).toEqual({ ok: false, error: UNKNOWN_SCOPE_MESSAGE });
   });
 
-  it('write:post requested is still opt-in, never auto-granted', async () => {
-    const props = await propsFor({ scope: 'read:reports write:post' });
+  it('all requested write scopes are opt-in, while reads stay automatic', async () => {
+    const props = await propsFor({ scope: 'read:reports write:journals write:post' });
     const { autoGranted, optIn } = partitionRequestedScopes(props.scopes as string[]);
     expect(autoGranted).toEqual(['read:reports']);
-    expect(optIn).toEqual(['write:post']);
+    expect(optIn).toEqual(['write:journals', 'write:post']);
+  });
+
+  it('provides only this app and user\'s existing company grants for prefill', async () => {
+    vi.mocked(getConsentScopesByCompany).mockResolvedValue({
+      [COMPANY]: ['read:reports', 'write:journals'],
+    });
+    const props = await propsFor({ scope: 'read:reports write:journals write:accounts' });
+    expect(props.previouslyGrantedScopesByCompany).toEqual({
+      [COMPANY]: ['read:reports', 'write:journals'],
+    });
+    expect(getConsentScopesByCompany).toHaveBeenCalledWith('user-1', 'app-1', [COMPANY]);
   });
 });

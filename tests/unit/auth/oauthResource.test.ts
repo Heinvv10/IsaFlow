@@ -15,7 +15,11 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/lib/auth/gotrue', () => ({ verifyToken: vi.fn(async () => ({ sub: 'user-1' })) }));
 vi.mock('@/lib/auth/oauth', async () => {
   const scopes = await import('@/lib/auth/oauthScopes');
-  return { getOauthAppByClientId: vi.fn(), OAUTH_SCOPES: scopes.OAUTH_SCOPES };
+  return {
+    getOauthAppByClientId: vi.fn(),
+    getConsentScopesByCompany: vi.fn(async () => ({})),
+    OAUTH_SCOPES: scopes.OAUTH_SCOPES,
+  };
 });
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getUserCompanies: vi.fn() }));
 vi.mock('@/modules/admin/services/featureFlagService', () => ({
