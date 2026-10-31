@@ -45,28 +45,42 @@ async function assertEmployeeInCompany(employeeId: string, companyId: string): P
   }
 }
 
+/** A real calendar day written YYYY-MM-DD (2026-02-30 is not one). */
+export function isCalendarDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number) as [number, number, number];
+  const utc = new Date(Date.UTC(y, m - 1, d));
+  return utc.getUTCFullYear() === y && utc.getUTCMonth() === m - 1 && utc.getUTCDate() === d;
+}
+
+/**
+ * The dates are the date column's own 'YYYY-MM-DD', stored as given: no Date
+ * and so no timezone to shift them. They were Dates rendered with
+ * toISOString(), and the MCP tool's local-midnight Date lost a day east of
+ * UTC: a once-off dated the 1st was stored on the previous day and closed at
+ * the previous month-end, so it dropped out of its run (PAYE 4c).
+ */
 export async function assignComponentToEmployee(
   companyId: string,
   employeeId: string,
   componentId: string,
   amount: number,
-  effectiveFrom: Date,
-  effectiveTo?: Date,
+  effectiveFrom: string,
+  effectiveTo?: string,
   isRecurring: boolean = true,
 ): Promise<EmployeeComponentAssignment> {
+  for (const [field, day] of [['effectiveFrom', effectiveFrom], ['effectiveTo', effectiveTo]] as const) {
+    if (day !== undefined && !isCalendarDay(day)) throw new Error(`${field} must be a calendar date written YYYY-MM-DD (got ${String(day)})`);
+  }
   await assertEmployeeInCompany(employeeId, companyId);
 
   log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 
-  const effectiveFromStr = effectiveFrom.toISOString().slice(0, 10);
   // Once-off → auto-cap effective_to at end of effective_from's month so the
   // assignment dies after the period it was captured for. Caller-supplied
   // effectiveTo wins if provided.
-  const effectiveToStr = effectiveTo
-    ? effectiveTo.toISOString().slice(0, 10)
-    : isRecurring
-    ? null
-    : endOfMonthIso(effectiveFrom.getUTCFullYear(), effectiveFrom.getUTCMonth() + 1);
+  const [fromYear, fromMonth] = effectiveFrom.split('-').map(Number) as [number, number];
+  const effectiveToStr = effectiveTo ?? (isRecurring ? null : endOfMonthIso(fromYear, fromMonth));
 
   const rows = (await sql`
     INSERT INTO payroll_employee_components (
@@ -75,7 +89,7 @@ export async function assignComponentToEmployee(
       ${employeeId}::uuid,
       ${componentId}::uuid,
       ${amount},
-      ${effectiveFromStr},
+      ${effectiveFrom},
       ${effectiveToStr},
       ${isRecurring}
     )

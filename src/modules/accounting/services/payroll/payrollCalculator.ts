@@ -1,6 +1,7 @@
 import { getAge } from './payeEngine';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
 import { calculateCumulativePaye } from './payeCumulative';
+import { employerContributionWarning, employerFundBenefitWarning, isEmployerFundBenefitCode, isRetirementContributionCode } from './retirementFund';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
@@ -41,11 +42,19 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // (the 3810 fringe benefit, deemed paid by the employee) is not supported.
   // They decide the 65+ additional medical expenses tax credit (payeEngine).
   let medicalSchemeFees = 0;
+  // Employee retirement fund contributions: deductions coded 4001/4003/4006,
+  // deducted before PAYE within section 11F (payeCumulative, retirementFund).
+  let retirementContributions = 0;
+  // Donations (4030, s18A) deducted as taxable deductions: the s11F base is taken before them (payeCumulative).
+  let donations = 0;
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
 
   for (const { component, amount, directive } of components) {
+    // Only a retirement contribution can be paid outside payroll (CHECK on payroll_components, migration 948).
+    const contribution = component.componentType === 'deduction' && isRetirementContributionCode(component.sarsSourceCode);
+    const outsidePayroll = contribution && component.paidOutsidePayroll === true;
     breakdown.push({
       componentId: component.id,
       componentName: component.name,
@@ -54,12 +63,16 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       isTaxable: component.isTaxable,
       isUifApplicable: component.isUifApplicable,
       ...(directive ? { directive } : {}),
+      // Marked on the line itself, so the certificate never re-reads today's components (payrollRetirementRecord).
+      ...(contribution ? { retirementContribution: true as const } : {}),
+      ...(outsidePayroll ? { paidOutsidePayroll: true as const } : {}),
     });
 
     if (component.componentType === 'earning') {
       grossPay += amount;
       if (component.isUifApplicable) uifLeviable += amount;
       if (component.isSdlApplicable) sdlLeviable += amount;
+      if (isEmployerFundBenefitCode(component.sarsSourceCode)) warnings.push(employerFundBenefitWarning(component.name, component.sarsSourceCode, amount));
       const treatment = payeTreatment(component.sarsSourceCode);
       // Any lump-sum earning, taxable flag or not: para 9(3) of the Fourth
       // Schedule requires the directive before a lump sum is paid at all.
@@ -80,9 +93,18 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         periodicTaxable += amount;
       }
     } else if (component.componentType === 'deduction') {
-      totalDeductions += amount;
-      if (component.isTaxable) taxableDeductions += amount;
+      // Paid by the employee to the fund directly: off the tax, not off the pay (nor the 2175 journal line).
+      if (!outsidePayroll) totalDeductions += amount;
+      // A retirement contribution by its code, whatever its taxable flag: capped below, never the uncapped path.
+      if (contribution) retirementContributions += amount;
+      else if (component.isTaxable) {
+        taxableDeductions += amount;
+        if (normaliseSarsCode(component.sarsSourceCode) === '4030') donations += amount;
+      }
       if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
+    } else {
+      // An employer's contribution (PAYE 4b): neither the fringe benefit nor the deemed contribution is computed.
+      warnings.push(employerContributionWarning(component.name, amount));
     }
   }
 
@@ -95,7 +117,6 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   }
   const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
   const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
-  const taxableIncome = regularTaxable + annualTaxable;
 
   const medicalBeneficiaries = employee.medicalAidMainMember
     ? 1 + employee.medicalAidDependantsCount
@@ -112,7 +133,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
         + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
     });
   }
-  const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit } = calculateCumulativePaye({
+  const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction } = calculateCumulativePaye({
     regularTaxable,
     annualPayments: annualTaxable,
     ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
@@ -120,7 +141,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     rebateAge,
     monthlyMedicalBeneficiaries: medicalBeneficiaries,
     medicalSchemeFees,
+    retirementContributions,
+    donations,
   });
+  // Taxable remuneration BEFORE the retirement fund deduction, which is its own figure (retirementDeduction): a
+  // line's record can exceed its pay (a catch-up contribution), and taxable_income must not go negative.
+  const taxableIncome = regularTaxable + annualTaxable;
   const payeSplit = { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
 
@@ -175,6 +201,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     medicalCredit,
     additionalMedicalCredit,
     medicalSchemeFees: round2(medicalSchemeFees),
+    retirementContributions: round2(retirementContributions),
+    retirementDeduction,
     uif,
     sdl: Math.round(sdl * 100) / 100,
     sdlLeviable: Math.round(sdlLeviable * 100) / 100,

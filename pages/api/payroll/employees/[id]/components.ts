@@ -16,6 +16,7 @@ import {
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   assignComponentToEmployee,
+  isCalendarDay,
   endEmployeeComponent,
   listEmployeeComponentAssignments,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
@@ -51,14 +52,16 @@ async function handler(
     if (!componentId) return apiResponse.badRequest(res, 'componentId is required');
     if (amount === undefined || amount === null) return apiResponse.badRequest(res, 'amount is required');
     if (!effectiveFrom) return apiResponse.badRequest(res, 'effectiveFrom is required');
+    if (!isCalendarDay(effectiveFrom)) return apiResponse.badRequest(res, 'effectiveFrom must be a date written YYYY-MM-DD');
+    if (effectiveTo && !isCalendarDay(effectiveTo)) return apiResponse.badRequest(res, 'effectiveTo must be a date written YYYY-MM-DD');
 
     const assignment = await assignComponentToEmployee(
       companyId,
       id,
       componentId,
       Number(amount),
-      new Date(effectiveFrom),
-      effectiveTo ? new Date(effectiveTo) : undefined,
+      effectiveFrom,
+      effectiveTo || undefined,
       isRecurring !== false, // default true
     );
 
