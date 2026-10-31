@@ -125,6 +125,16 @@ describe('payroll/emp501 (route: data = { taxYear, rows, totalEmp201, totalIrp5,
     expect(await screen.findByText('Could not load the EMP501 reconciliation - try again')).toBeDefined();
     expect(screen.queryByText('D2 March')).toBeNull(); expectNoJargon();
   });
+  it('directs a balanced EMP501 to e@syFile for filing', async () => {
+    serve(on('GET', 'emp501/reconciliation', () => ok({
+      ...summary,
+      totalIrp5: 3000,
+      totalVariance: 0,
+      rows: [{ ...summary.rows[0], irp5Paye: 1500, variance: 0, status: 'balanced' }],
+    })));
+    render(<Emp501Page />);
+    expect(await screen.findByText('All periods reconcile. Ready for filing through e@syFile')).toBeDefined();
+  });
 });
 
 describe('fraud/signals (route: data = { alerts, total })', () => {

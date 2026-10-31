@@ -44,7 +44,7 @@ const REPORT_DESCRIPTIONS: Record<string, string> = {
   'cash-flow':               'Cash movements from operating, investing, and financing activities',
   'trial-balance':           'All ledger account balances presented in debit and credit columns',
   // Tax & Budget
-  'vat-return':              'VAT201 return calculation and summary prepared for SARS submission',
+  'vat-return':              'VAT201 return calculation and summary prepared for filing on SARS eFiling',
   'budget-vs-actual':        'Budgeted figures compared to actuals with variance and percentage analysis',
   // Transaction Reports
   'general-ledger':          'Complete transaction history across all accounts for a selected period',
