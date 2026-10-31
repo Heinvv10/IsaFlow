@@ -72,7 +72,7 @@ parse_url "$LIVE_DB_URL"
 SUPABASE_HOST="localhost"
 SUPABASE_PORT="5437"            # direct port of the supabase-db container
 SUPABASE_SUPERUSER="postgres"
-SUPABASE_SUPERPASS="${SUPABASE_SUPERPASS:?set SUPABASE_SUPERPASS (supabase_admin password) in the environment}"
+SUPABASE_SUPERPASS="${SUPABASE_SUPERPASS:?set SUPABASE_SUPERPASS (postgres password) in the environment}"
 SUPABASE_DB="isaflow"
 
 # App-runtime connection. Direct TCP to the Postgres container (:5437).
