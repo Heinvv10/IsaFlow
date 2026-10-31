@@ -96,6 +96,8 @@ describe('sars/index (routes: sars-compliance -> { events }, sars-submissions ->
     expect(await screen.findByText('D2 VAT return falls due')).toBeDefined();
     const tr = screen.getByText('D2-FORM').closest('tr') as HTMLElement;
     expect(tr.textContent).toContain('D2-REF-77');
+    expect(tr.textContent).toContain('Filed on eFiling');
+    expect(tr.textContent).not.toContain('submitted');
     expect(screen.getByText('10d')).toBeDefined();
   });
   it('days left count the local calendar day east and west of UTC', async () => {

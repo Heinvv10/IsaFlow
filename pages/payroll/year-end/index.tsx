@@ -104,7 +104,7 @@ export default function YearEndPage() {
               </div>
               <div>
                 <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Year-End Workflow</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Guided IRP5 / EMP501 / e@syFile submission</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">Guided IRP5 / EMP501 / e@syFile filing preparation</p>
               </div>
             </div>
             <select
@@ -247,7 +247,7 @@ function buildSteps(status: YearEndStatus | null, downloadEasyFile: () => void):
     {
       id: 'emp501',
       title: 'Reconcile EMP501',
-      description: 'Total declared EMP201 PAYE must equal the sum of IRP5 PAYE before submission.',
+      description: 'Total declared EMP201 PAYE must equal the sum of IRP5 PAYE before filing.',
       state: status.emp501.balanced ? 'done' : 'pending',
       detail: status.emp501.totalEmp201 > 0
         ? `EMP201 ${formatCurrency(status.emp501.totalEmp201)} · IRP5 ${formatCurrency(status.emp501.totalIrp5)} · variance ${formatCurrency(Math.abs(status.emp501.totalVariance))}`
@@ -266,7 +266,7 @@ function buildSteps(status: YearEndStatus | null, downloadEasyFile: () => void):
     {
       id: 'submit',
       title: 'Submit reconciliation on SARS e@syFile',
-      description: 'Import the .irp5 file into e@syFile Thin Client, reconcile with EMP201 declarations, and submit to SARS.',
+      description: 'Import the .irp5 file into e@syFile Thin Client, reconcile with your EMP201 declarations, then submit it to SARS from e@syFile.',
       state: 'pending',
       action: {
         label: 'Open SARS e@syFile',

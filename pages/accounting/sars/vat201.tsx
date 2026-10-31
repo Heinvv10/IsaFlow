@@ -160,11 +160,11 @@ export default function VAT201Page() {
         // only) the override box, instead of only a generic error banner.
         const counts = json?.error?.details?.counts as VatGateCounts | undefined;
         if (counts) setSubmitBlockedCounts(counts);
-        throw new ApiRequestError(json?.error?.message || json?.message || 'Could not mark the VAT201 as submitted - try again', res.status);
+        throw new ApiRequestError(json?.error?.message || json?.message || 'Could not record the VAT201 as filed - try again', res.status);
       }
-      setSuccess('VAT201 marked as submitted to SARS');
+      setSuccess('VAT201 recorded as filed on eFiling');
       setShowSubmitModal(false); setSarsRef(''); setSubmitBlockedCounts(null); setOverrideReason('');
-    } catch (err) { setError(apiErrorMessage(err, 'Could not mark the VAT201 as submitted - try again')); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not record the VAT201 as filed - try again')); }
     finally { setSubmitting(false); }
   };
 
@@ -237,7 +237,7 @@ export default function VAT201Page() {
                 {savedId && (
                   <button onClick={() => { setSubmitBlockedCounts(null); setOverrideReason(''); setShowSubmitModal(true); }}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
-                    <Send className="h-4 w-4" /> Mark as Submitted (manual)
+                    <Send className="h-4 w-4" /> Record as filed on eFiling
                   </button>
                 )}
               </div>
