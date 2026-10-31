@@ -9,7 +9,7 @@ import type { Band, Metric } from '@/modules/accounting/services/budgets/grid/su
 import type { CellKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { RowKind } from '@/modules/accounting/services/budgets/grid/selection';
 import type { CellSource } from '@/modules/accounting/services/budgets/drivers/driverTypes';
-import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import type { VisibleDriverLine } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 
 export type { BudgetVersion, BudgetVersionStatus };
 
@@ -91,7 +91,7 @@ export interface GridRowSnapshot {
   /** P4: per month, where the loaded figure came from (manual / driver / override / actual); null = no cell. */
   sources: readonly (CellSource | null)[];
   /** P4: this row's driver line (the account at the view's grain); null when none. */
-  driver: StoredDriverLine | null;
+  driver: VisibleDriverLine | null;
   /** P4: the last recompute's warning for this row's driver (skipped, or an input read as 0); null when none. */
   driverWarning: string | null;
 }

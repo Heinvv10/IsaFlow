@@ -5,15 +5,17 @@
  * the route answers no names, ID numbers or pay, and nothing here asks for them. The version's
  * planned hires are edited inline below the counts (`PlannedHires`). Every write goes through
  * the workspace's driver write path (token sent and adopted, grid reloaded); the panel then reads
- * the counts and hires again.
+ * the counts and hires again. A budget reader gets no counts (perHeadAccess, POPIA): the panel says
+ * so in place of the table.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
 import { failureText } from '@/components/accounting/budgets/workspace/failureText';
 import {
-  deleteHire, fetchHeadcount, listHires, refreshHeadcount, saveHire, type StoredPlannedHire, type VersionHeadcount,
+  deleteHire, fetchHeadcount, listHires, refreshHeadcount, saveHire, type RestrictedHeadcount, type StoredPlannedHire, type VersionHeadcount,
 } from './driverClient';
+import { PER_HEAD_RESTRICTED_NOTE } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 import type { ScopeOption } from './DriverKindFields';
 import { PlannedHires, type HireInput } from './PlannedHires';
 import type { DriverActions } from './useDriverActions';
@@ -38,7 +40,9 @@ const ROWS: ReadonlyArray<{ key: 'payroll' | 'hires' | 'total'; label: string }>
 
 export function HeadcountPanel({ versionId, months, costCentres, editable, runWrite, onCountsChanged }: HeadcountPanelProps) {
   const [scope, setScope] = useState('');
-  const [counts, setCounts] = useState<VersionHeadcount | null>(null);
+  const [answer, setAnswer] = useState<VersionHeadcount | RestrictedHeadcount | null>(null);
+  const counts = answer && 'months' in answer ? answer : null;
+  const restricted = answer !== null && 'perHeadRestricted' in answer;
   const [hires, setHires] = useState<StoredPlannedHire[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,7 +52,7 @@ export function HeadcountPanel({ versionId, months, costCentres, editable, runWr
     let gone = false;
     void Promise.all([fetchHeadcount(versionId, scope === '' ? null : scope), listHires(versionId)]).then(([c, h]) => {
       if (gone) return;
-      if (c.ok) setCounts(c.data);
+      if (c.ok) setAnswer(c.data);
       if (h.ok) setHires(h.data.hires);
       // A good read clears an earlier failure; a failed one says which.
       setError(!c.ok ? failureText(c) : !h.ok ? failureText(h) : null);
@@ -95,10 +99,14 @@ export function HeadcountPanel({ versionId, months, costCentres, editable, runWr
           </button>
         )}
       </div>
-      <p className="text-xs text-[var(--ff-text-tertiary)]" data-testid="headcount-as-of">
-        Counts only: payroll actives are read from payroll (never names or pay){counts ? `; as of ${stamp(counts.asOf)}` : ''}.
-        Payroll changes reach the per-head drivers when you refresh.
-      </p>
+      {restricted ? (
+        <p className="text-xs text-[var(--ff-text-tertiary)]" data-testid="headcount-restricted">{PER_HEAD_RESTRICTED_NOTE}</p>
+      ) : (
+        <p className="text-xs text-[var(--ff-text-tertiary)]" data-testid="headcount-as-of">
+          Counts only: payroll actives are read from payroll (never names or pay){counts ? `; as of ${stamp(counts.asOf)}` : ''}.
+          Payroll changes reach the per-head drivers when you refresh.
+        </p>
+      )}
       {error && <p role="alert" className="text-sm text-error-700 dark:text-error-400">{error}</p>}
       {counts && (
         <div className="overflow-x-auto">
