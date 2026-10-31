@@ -1,5 +1,5 @@
 // TEXT GUARDS: these assert on ci.yml's source, not on what the job does when it runs. The free-port helper's
-// real-listener behaviour is covered by goldenFreePort.test.ts.
+// real-listener behaviour and orphan cleanup are covered by goldenFreePort.test.ts and goldenKillSlotOrphans.test.ts.
 // The golden-paths job in ci.yml maps a runner to a slot with a shell `case`; slotConfig.ts owns the slot numbers. Nothing
 // else ties them together, so a copy-pasted runner arm that reuses a slot (two runners on one company, the thing slots
 // exist to prevent) or a slot with no runner would pass every other test.
@@ -18,12 +18,15 @@ function runnerSlotArms(workflow: string): Array<{ runner: string; slot: number 
 }
 
 describe('ci.yml dev-server port and process clean-up', () => {
-  const step = CI.slice(CI.indexOf('GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts'));
+  const step = CI.slice(CI.indexOf('slot_lo=$((3300'));
 
-  it('picks a verified free port before it boots the dev server', () => {
+  it('cleans and picks a verified free port within the slot window before boot', () => {
     const at = (needle: string): number => step.indexOf(needle);
-    expect(at('golden-free-port.ts 3300 3799')).toBeGreaterThan(-1);
-    expect(at('golden-free-port.ts 3300 3799')).toBeLessThan(at('setsid bunx next dev'));
+    expect(step).toContain('slot_lo=$((3300 + (slot - 1) * 166))');
+    expect(step).toContain('slot_hi=$((slot_lo + 165))');
+    expect(at('killSlotOrphans.ts "$slot_lo" "$slot_hi"')).toBeGreaterThan(-1);
+    expect(at('golden-free-port.ts "$slot_lo" "$slot_hi"')).toBeGreaterThan(at('killSlotOrphans.ts'));
+    expect(at('golden-free-port.ts "$slot_lo" "$slot_hi"')).toBeLessThan(at('setsid bunx next dev'));
   });
 
   it('starts a process group and stops that exact group on exit', () => {

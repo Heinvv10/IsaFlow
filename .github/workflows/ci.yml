@@ -255,11 +255,14 @@ jobs:
           # keys: only the Playwright command below sees one slot's password.
           grep -v '^GOLDEN_SLOT_' /home/hein/isaflow-ci.env > .env.local
           bunx playwright install chromium
-          # Ephemeral port that nothing listens on: a stale next dev from an
-          # earlier cancelled run, or one of velo's docker apps in 3300-3799,
-          # would answer the health check (and the login) in place of this
-          # job's server. Skips Next.js's bad ports too.
-          GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts 3300 3799)
+          # Each slot has a disjoint port window, so runners cannot race for
+          # the same port after the free-port probe releases it. Stop only a
+          # server this runner's workspace left in its own window, then choose
+          # an actually bindable port there (also skipping Next.js bad ports).
+          slot_lo=$((3300 + (slot - 1) * 166))
+          slot_hi=$((slot_lo + 165))
+          bun scripts/ci/golden/killSlotOrphans.ts "$slot_lo" "$slot_hi" || true
+          GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts "$slot_lo" "$slot_hi")
           [ -n "$GOLDEN_PORT" ] || { echo "::error::golden-free-port printed no port"; exit 1; }
           # setsid: its own process group, so the trap stops next's children
           # too, not only the bunx wrapper.
