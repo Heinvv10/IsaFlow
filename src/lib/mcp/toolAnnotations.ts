@@ -11,7 +11,6 @@ const NON_DESTRUCTIVE_WRITES = new Set([
   'create_draft_invoice',
   'create_draft_quote',
   'create_draft_journal',
-  'suggest_bank_allocation',
   'import_bank_statement',
   'create_gl_account',
   'create_supplier_invoice',
@@ -34,6 +33,7 @@ const NON_DESTRUCTIVE_WRITES = new Set([
 ]);
 
 const DESTRUCTIVE_NON_POSTING_WRITES = new Set([
+  'suggest_bank_allocation',
   'update_supplier_invoice',
   'undo_bank_import',
   'update_gl_account',
