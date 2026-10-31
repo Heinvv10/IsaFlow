@@ -1,12 +1,13 @@
 /**
  * Words for a budget driver (P4 spec §7): the row-header chip ("38% × Sales", "+2% m/m from Mar",
  * "R 32 000 × heads", "R 15 000 fixed", "5% of Turnover") and the longer description its tooltip
- * and accessible name carry. Pure; React escapes the text where it lands (no HTML is built).
+ * and accessible name carry. A reader's per_head line has no rate (perHeadAccess): its words name none. Pure; React escapes the text where it lands (no HTML is built).
  */
 import { formatMoney } from '@/lib/money/formatMoney';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
 import { BAND_LABEL } from '@/modules/accounting/services/budgets/grid/subtotals';
 import type { DriverGrain, DriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import { isRestrictedPerHead, PER_HEAD_RESTRICTED_NOTE, type RestrictedPerHeadLine } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 
 /** "5000 Cost of sales" for an account id; the id itself when the account is not listed. */
 export type AccountLabelOf = (accountId: string) => string;
@@ -30,10 +31,10 @@ function refName(line: DriverLine, accountName: (id: string) => string): string 
 }
 
 /** The chip text. `accountName` answers the account's NAME only (the chip is short). */
-export function driverChipText(line: DriverLine, accountName: (id: string) => string): string {
+export function driverChipText(line: DriverLine | RestrictedPerHeadLine, accountName: (id: string) => string): string {
   switch (line.kind) {
     case 'fixed': return `${rand(line.amount ?? 0)} fixed`;
-    case 'per_head': return `${rand(line.amount ?? 0)} × heads`;
+    case 'per_head': return isRestrictedPerHead(line) ? 'Per head × heads' : `${rand(line.amount ?? 0)} × heads`;
     case 'pct_of_line': return `${pctText(line.pct ?? 0)} × ${refName(line, accountName)}`;
     case 'pct_of_section': return `${pctText(line.pct ?? 0)} of ${line.section ? BAND_LABEL[line.section] : '?'}`;
     case 'growth': {
@@ -49,12 +50,16 @@ export function rangeText(line: Pick<DriverLine, 'fromMonth' | 'toMonth'>): stri
 }
 
 /** The chip's tooltip and accessible description: what the driver computes, over which months, at which rounding. */
-export function driverDescription(line: DriverLine, accountLabel: AccountLabelOf, memberLabel: (id: string) => string, scopeLabel: (id: string | null) => string): string {
+export function driverDescription(line: DriverLine | RestrictedPerHeadLine, accountLabel: AccountLabelOf, memberLabel: (id: string) => string, scopeLabel: (id: string | null) => string): string {
   const range = rangeText(line);
   const rounding = line.rounding === 1 ? '' : `, rounded to ${formatMoney(line.rounding, { decimals: 0 })}`;
   switch (line.kind) {
     case 'fixed': return `${rand(line.amount ?? 0)} a month, ${range}${rounding}`;
-    case 'per_head': return `${rand(line.amount ?? 0)} per head × headcount (${scopeLabel(line.headcountCostCentreId)}), ${range}${rounding}`;
+    case 'per_head': {
+      const scope = scopeLabel(line.headcountCostCentreId);
+      if (isRestrictedPerHead(line)) return `Per head × headcount (${scope}), ${range}${rounding}. ${PER_HEAD_RESTRICTED_NOTE.slice(0, -1)}`;
+      return `${rand(line.amount ?? 0)} per head × headcount (${scope}), ${range}${rounding}`;
+    }
     case 'pct_of_line': return `${pctText(line.pct ?? 0)} of ${line.ref ? grainLabel(line.ref, accountLabel, memberLabel) : '?'}, ${range}${rounding}`;
     case 'pct_of_section': {
       const scope = line.scope === 'company' ? 'all levels' : 'this row\'s level';
