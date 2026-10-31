@@ -104,6 +104,10 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
       expect(PAYG_PLAN.eligibility).toBe(
         'For companies under R1 million annual turnover. Start with the free trial, then ask us to switch an eligible company to Pay-As-You-Go.',
       );
+      expect(PAYG_PLAN.topupNote).toBe(
+        'Top up by buying another bundle whenever you need more Flows.',
+      );
+      expect(PAYG_PLAN).not.toHaveProperty('autoTopupNote');
       expect(PAYG_PLAN).not.toHaveProperty('checkoutNote');
     });
   });

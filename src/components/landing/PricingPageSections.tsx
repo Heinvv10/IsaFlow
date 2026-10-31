@@ -69,7 +69,7 @@ export function PayAsYouGoSection() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Choose a Flow bundle</h3>
               <div className="grid sm:grid-cols-2 gap-3 mb-5">{PAYG_PLAN.bundles.map((bundle) => <div key={bundle.flows} className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3"><span className="font-semibold text-gray-900">{bundle.flows.toLocaleString('en-ZA')} Flows</span><span className="text-teal-700 font-bold">{bundle.price}</span></div>)}</div>
-              <p className="text-sm text-gray-500 mb-6">{PAYG_PLAN.autoTopupNote}</p>
+              <p className="text-sm text-gray-500 mb-6">{PAYG_PLAN.topupNote}</p>
               <a href="/contact" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors">Ask about Pay-As-You-Go <ArrowRight className="w-4 h-4" /></a>
             </div>
           </div>
