@@ -67,22 +67,26 @@ function AbsentCell({ reason }: { reason?: Comparison['absentReason'] }) {
 const trackedFigure = (n: number, cents: boolean, tracking: boolean) =>
   tracking && n === 0 ? (cents ? '0.00' : '0') : formatStatementFigure(n, { cents });
 
-function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey, tracking, onVariance }: {
+function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey, tracking, budgetCells, onVariance }: {
   c: Comparison | undefined; blank: boolean; columns: StatementColumns;
   maxVariance: Record<ComparatorKey, number>; cents: boolean; comparatorKey: ComparatorKey;
   /** Budget vs Actual: zero budget as 0.00, Var % of a zero budget "—", Var R opens the drill. */
   tracking: boolean; onVariance?: { open: () => void; label: string };
+  /** The statement pages' Budget column printed as Budget vs Actual prints it (zero 0.00, Var % of a zero "—"); no drill. */
+  budgetCells: boolean;
 }) {
+  // The zero rules apply to Budget vs Actual's every comparator and to a statement page's Budget column.
+  const zeroRules = tracking || (budgetCells && comparatorKey === 'budget');
   const show = !blank && c !== undefined;
   // An absent comparator prints "—" in every cell, with no bar and no colour.
   const absent = show && c.absent === true;
   const figure = show && !absent && c.variance !== undefined ? varianceAmount(c.variance, cents) : '';
   // Var % of a zero budget is "—" on Budget vs Actual: the absent glyph, so it carries no colour either.
-  const pctDash = tracking && show && !absent && c.variancePct === undefined && c.value === 0 && c.variance !== undefined;
+  const pctDash = zeroRules && show && !absent && c.variancePct === undefined && c.value === 0 && c.variance !== undefined;
   return (
     <>
       <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
-        {absent ? <AbsentCell reason={c.absentReason} /> : show ? trackedFigure(c.value, cents, tracking && comparatorKey === 'budget') : ''}
+        {absent ? <AbsentCell reason={c.absentReason} /> : show ? trackedFigure(c.value, cents, zeroRules && comparatorKey === 'budget') : ''}
       </td>
       {columns.variance && (
         <>
@@ -162,7 +166,7 @@ function RowLabel({ row, expanded, onToggle }: {
   return <>{row.label}</>;
 }
 
-export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst = false, expanded, onToggle, onEvidence, onOpenNote, drill, tracking = false }: {
+export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst = false, expanded, onToggle, onEvidence, onOpenNote, drill, tracking = false, budgetCells = false }: {
   row: StatementRow; columns: StatementColumns; maxVariance: Record<ComparatorKey, number>; cents: boolean;
   /** Pin the label column on horizontal scroll (see StatementGrid `sticky`). */
   stickyFirst?: boolean;
@@ -170,6 +174,8 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
   onOpenNote?: (rowId: string) => void; drill?: ReactNode;
   /** Budget vs Actual cells (StatementGrid `budgetTracking`). */
   tracking?: boolean;
+  /** The Budget column's zero rules on a statement page (StatementGrid `budgetCells`). */
+  budgetCells?: boolean;
 }) {
   // A band header repeats its subtotal's figure and the placeholder has none:
   // neither prints a number.
@@ -198,7 +204,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, stickyFirst
           <Fragment key={c.key}>
             <ComparatorCells c={row[c.key]} blank={blank} columns={columns}
               maxVariance={maxVariance} cents={cents} comparatorKey={c.key}
-              tracking={tracking} onVariance={c.key === 'budget' ? onVariance : undefined} />
+              tracking={tracking} budgetCells={budgetCells} onVariance={c.key === 'budget' ? onVariance : undefined} />
           </Fragment>
         ))}
         {columns.trend && <td className="px-2 text-[var(--ff-text-secondary)]">{row.trend && <Sparkline points={row.trend} />}</td>}
