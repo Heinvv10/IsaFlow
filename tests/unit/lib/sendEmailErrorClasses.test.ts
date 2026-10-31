@@ -3,7 +3,7 @@
  * just as an AI call that timed out does. Only a failure that proves the
  * message was not accepted gives the daily send unit back.
  *
- * The real sendEmail and the real nodemailer 8 talk to a small SMTP server in
+ * The real sendEmail and the real nodemailer 9 talk to a small SMTP server in
  * this process, which can refuse at each step or drop the connection. The
  * classes nodemailer cannot be made to produce here quickly (a timeout, DNS)
  * are given as the error shapes its source produces (lib/smtp-connection).
@@ -11,6 +11,8 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import nodemailer from 'nodemailer';
+import nodemailerPackage from 'nodemailer/package.json';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -63,6 +65,18 @@ async function used(work: () => Promise<unknown>): Promise<number> {
   return ctx.quotaCharges![0]!.used;
 }
 const send = () => sendEmail({ to: 'a@b.co', subject: 's', html: '<p>h</p>' });
+const sendDirect = () => nodemailer.createTransport({
+  host: '127.0.0.1', port, secure: false, auth: { user: 'u', pass: 'p' },
+}).sendMail({
+  from: 'accounts@isaflow.co.za',
+  to: 'a@b.co',
+  subject: 'Nodemailer 9 compatibility',
+  html: '<p><img src="cid:isaflow-logo@isaflow.co.za" alt="ISAFlow" /></p>',
+  attachments: [{
+    filename: 'logo.png', content: Buffer.from('local-test-image'),
+    contentType: 'image/png', cid: 'isaflow-logo@isaflow.co.za',
+  }],
+});
 
 beforeAll(async () => {
   server = createServer(smtp);
@@ -82,6 +96,20 @@ describe('sendEmail — which SMTP failures use the daily send unit (R-175)', ()
 
   it('accepted: used', async () => {
     expect(await used(async () => expect((await send()).success).toBe(true))).toBe(1);
+  });
+
+  it('uses nodemailer 9 to send HTML with a CID attachment to the in-process server', async () => {
+    expect(nodemailerPackage.version).toMatch(/^9\./);
+    await expect(sendDirect()).resolves.toMatchObject({ accepted: ['a@b.co'], rejected: [] });
+  });
+
+  it.each([
+    ['EAUTH with the SMTP reply', { auth: '535 bad credentials' }, { code: 'EAUTH', responseCode: 535 }],
+    ['EENVELOPE with the SMTP reply', { mail: '550 sender refused' }, { code: 'EENVELOPE', responseCode: 550 }],
+    ['EMESSAGE with the SMTP reply', { end: '554 message refused' }, { code: 'EMESSAGE', responseCode: 554 }],
+  ] as const)('nodemailer 9 preserves %s', async (_label, r, expected) => {
+    replies = r;
+    await expect(sendDirect()).rejects.toMatchObject(expected);
   });
 
   it.each([
