@@ -2,7 +2,8 @@ import Link from 'next/link';
 import type { GetStaticPaths, GetStaticProps } from 'next';
 import { ArticleBody } from '@/components/landing/blog/ArticleBody';
 import { BlogHead } from '@/components/landing/blog/BlogHead';
-import { BlogShell, Breadcrumb } from '@/components/landing/blog/BlogShell';
+import { BlogShell } from '@/components/landing/blog/BlogShell';
+import { HelpArticleBand } from '@/components/landing/help/HelpBands';
 import { SITE_URL } from '@/lib/blog/constants';
 import { breadcrumbJsonLd } from '@/lib/blog/seo';
 import { HELP_URL } from '@/lib/help/constants';
@@ -55,20 +56,7 @@ export default function HelpPage({ document, html, faqJsonLd }: HelpPageProps) {
         type="website"
         jsonLd={structuredData}
       />
-      <BlogShell band={(
-        <div className="max-w-3xl">
-          <Breadcrumb trail={[
-            { name: 'Home', href: '/' },
-            { name: 'Help', href: '/help' },
-            { name: document.title },
-          ]} />
-          <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl">{document.title}</h1>
-          <p className="mt-5 text-lg text-white/70">{document.description}</p>
-          <p className="mt-6 text-sm text-white/70">
-            Updated <time dateTime={document.updated}>{document.updated}</time>
-          </p>
-        </div>
-      )}>
+      <BlogShell band={<HelpArticleBand document={document} />}>
         <article className="mx-auto max-w-3xl px-4 py-14 sm:px-6 lg:px-8">
           <ArticleBody html={html} />
           <p className="mt-14 border-t border-slate-200 pt-8 text-sm font-semibold">

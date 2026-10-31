@@ -2,7 +2,8 @@ import Link from 'next/link';
 import type { GetStaticProps } from 'next';
 import { ArrowRight } from 'lucide-react';
 import { BlogHead } from '@/components/landing/blog/BlogHead';
-import { BlogShell, Breadcrumb } from '@/components/landing/blog/BlogShell';
+import { BlogShell } from '@/components/landing/blog/BlogShell';
+import { HelpIndexBand } from '@/components/landing/help/HelpBands';
 import { SITE_URL } from '@/lib/blog/constants';
 import { breadcrumbJsonLd } from '@/lib/blog/seo';
 import { loadAllHelpDocuments, type HelpFrontmatter } from '@/lib/help/content';
@@ -31,14 +32,7 @@ export default function HelpIndexPage({ documents }: HelpIndexProps) {
           { name: 'Help', url: HELP_URL },
         ])]}
       />
-      <BlogShell band={(
-        <>
-          <Breadcrumb trail={[{ name: 'Home', href: '/' }, { name: 'Help' }]} />
-          <p className="mb-4 text-sm font-semibold uppercase tracking-widest text-teal-400">ISAFlow Help</p>
-          <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl">Help centre</h1>
-          <p className="mt-5 max-w-2xl text-lg text-white/70">{HELP_DESCRIPTION}</p>
-        </>
-      )}>
+      <BlogShell band={<HelpIndexBand />}>
         <section className="mx-auto max-w-5xl px-4 py-14 sm:px-6 lg:px-8" aria-labelledby="help-guides-heading">
           <h2 id="help-guides-heading" className="mb-8 text-2xl font-bold tracking-tight text-slate-900">
             Frequently asked questions and guides
