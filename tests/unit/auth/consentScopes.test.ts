@@ -5,7 +5,6 @@ import {
   isOptInScope,
   partitionRequestedScopes,
   buildGrantedScopes,
-  checkedRequestedOptIns,
 } from '@/lib/auth/consentScopes';
 import { PAT_SCOPES } from '@/lib/auth/patScopes';
 import { OAUTH_SCOPES } from '@/lib/auth/oauthScopes';
@@ -66,14 +65,5 @@ describe('buildGrantedScopes', () => {
       'write:journals': true,
       'write:accounts': true,
     })).toEqual([...autoGranted, 'write:journals']);
-  });
-});
-
-describe('checkedRequestedOptIns', () => {
-  it('prechecks only requested writes already granted to this connection', () => {
-    expect(checkedRequestedOptIns(
-      ['write:journals', 'write:accounts'],
-      ['read:reports', 'write:journals', 'write:post'],
-    )).toEqual({ 'write:journals': true, 'write:accounts': false });
   });
 });

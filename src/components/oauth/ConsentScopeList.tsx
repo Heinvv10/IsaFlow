@@ -35,7 +35,7 @@ export function ConsentScopeList({ autoGranted, optIn, optInChecked, onToggle }:
 
       {optIn.length > 0 && (
         <div className="space-y-2 pt-1">
-          <p className="text-xs text-ink-muted">
+          <p className="text-xs text-slate-300">
             Write permissions let this AI change your data. It only gets the write permissions you tick.
           </p>
           {optIn.map((s) => {

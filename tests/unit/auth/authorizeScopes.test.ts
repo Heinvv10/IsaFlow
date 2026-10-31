@@ -16,7 +16,6 @@ vi.mock('@/lib/auth/oauth', async () => {
   const scopes = await import('@/lib/auth/oauthScopes');
   return {
     getOauthAppByClientId: vi.fn(),
-    getConsentScopesByCompany: vi.fn(),
     OAUTH_SCOPES: scopes.OAUTH_SCOPES,
   };
 });
@@ -27,7 +26,7 @@ vi.mock('@/modules/admin/services/featureFlagService', () => ({
 }));
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn(), apiErrorMessage: vi.fn(), assertOk: vi.fn() }));
 
-import { getConsentScopesByCompany, getOauthAppByClientId } from '@/lib/auth/oauth';
+import { getOauthAppByClientId } from '@/lib/auth/oauth';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { DEFAULT_MCP_SCOPES } from '@/lib/auth/oauthScopes';
@@ -69,7 +68,6 @@ beforeEach(() => {
   vi.mocked(getUserCompanies).mockResolvedValue([
     { companyId: COMPANY, companyName: 'Demo Co (Fictional)', isDefault: true },
   ] as never);
-  vi.mocked(getConsentScopesByCompany).mockResolvedValue({});
 });
 
 describe('DEFAULT_MCP_SCOPES', () => {
@@ -132,14 +130,8 @@ describe('/oauth/authorize getServerSideProps — scope handling', () => {
     expect(optIn).toEqual(['write:journals', 'write:post']);
   });
 
-  it('provides only this app and user\'s existing company grants for prefill', async () => {
-    vi.mocked(getConsentScopesByCompany).mockResolvedValue({
-      [COMPANY]: ['read:reports', 'write:journals'],
-    });
+  it('does not load or attach existing grants for write-scope defaults', async () => {
     const props = await propsFor({ scope: 'read:reports write:journals write:accounts' });
-    expect(props.previouslyGrantedScopesByCompany).toEqual({
-      [COMPANY]: ['read:reports', 'write:journals'],
-    });
-    expect(getConsentScopesByCompany).toHaveBeenCalledWith('user-1', 'app-1', [COMPANY]);
+    expect(props).not.toHaveProperty('previouslyGrantedScopesByCompany');
   });
 });

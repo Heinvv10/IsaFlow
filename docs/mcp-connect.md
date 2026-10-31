@@ -96,9 +96,10 @@ Every requested `write:*` scope is **unchecked by default**, even if the client 
 it. Read scopes and `offline_access` are granted as shown. The server grants only the
 requested write scopes you tick, so a client cannot add one through a changed form.
 
-On re-authorisation, a write scope already granted to the same app, user and company is
-pre-ticked. Newly requested write scopes stay unticked. Existing access and refresh tokens
-keep their stored scopes until the connection is re-authorised or revoked.
+Every requested write scope also starts unticked on re-authorisation. Completing
+re-authorisation replaces the stored grant with the read permissions shown and only the
+write permissions ticked in that flow. Existing access and refresh tokens keep their stored
+scopes until the connection is re-authorised or revoked.
 
 What `write:post` actually allows, in full: posting journals, finalizing (approving)
 customer invoices, and allocating bank transactions on the agent's own initiative. **A
