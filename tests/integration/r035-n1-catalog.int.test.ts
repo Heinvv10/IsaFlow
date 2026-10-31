@@ -113,7 +113,7 @@ const HELPERS: Record<string, HelperPin> = {
   'public.approval_request_bindable_rule(uuid,text,uuid,numeric,uuid)': { md5: 'abddb5e6c6ece5fa11fb10c1f9398af5', result: 'approval_rules', definer: false, volatility: 's' },
   'public.approval_request_caller_bypasses()': { md5: '6cd0733f7baaa32803c10537f2398b4f', result: 'boolean', definer: false, volatility: 's' },
   'public.approval_request_caller_sees(uuid)': { md5: 'beb6f8e6bdd2e48e1ea318e2e438efb0', result: 'boolean', definer: false, volatility: 's' },
-  'public.approval_request_document_facts(uuid,text,uuid)': { md5: '0187d00a4b6c125e78b365b6c3f3a187',
+  'public.approval_request_document_facts(uuid,text,uuid)': { md5: '20dc1e56a5ba98af5404efa96abfc837',
     result: 'TABLE(amount numeric, reference text, digest text)', definer: false, volatility: 's' },
   'public.approval_request_document_facts_pre_payroll_951(uuid,text,uuid)': { md5: '61befd6901fc2480193afc20c7ac9826',
     result: 'TABLE(amount numeric, reference text, digest text)', definer: false, volatility: 's' },
@@ -180,6 +180,16 @@ describeIfDb('approval_requests catalogue (R-035 N1)', () => {
     expect(rows, NOT_APPLIED).toHaveLength(1);
     expect(rows[0]).toEqual({ result: 'text', definer: false, volatility: 's',
       last_config: expect.stringMatching(/^search_path=.*pg_temp$/), owner_bypasses: true });
+  });
+
+  it.each([
+    'public.approval_document_authors(uuid,text,uuid)',
+    'public.approval_document_authors_pre_payroll_951(uuid,text,uuid)',
+  ])('%s remains executable by app_user without exposure to PUBLIC', async (fn) => {
+    const { rows: [privileges] } = await pool.query(`
+      SELECT has_function_privilege('app_user', $1, 'EXECUTE') AS app,
+             has_function_privilege('public', $1, 'EXECUTE') AS public`, [fn]);
+    expect(privileges).toEqual({ app: true, public: false });
   });
 
   it('the triggers on approval_requests are exactly the insert guard, enabled, BEFORE INSERT FOR EACH ROW; audit_log has none', async () => {

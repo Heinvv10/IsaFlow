@@ -27,7 +27,7 @@ beforeAll(async () => {
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, other]);
 });
 afterAll(async () => {
-  await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [company]);
+  await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [company]);
   await pool.query('DELETE FROM audit_log WHERE company_id = $1', [company]);
   await pool.query('DELETE FROM company_users WHERE user_id = $1', [other]);
   await pool.query('DELETE FROM users WHERE id = $1', [other]);

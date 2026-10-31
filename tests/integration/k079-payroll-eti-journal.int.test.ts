@@ -17,7 +17,9 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import reopen from '../../pages/api/payroll/runs/[id]/reopen';
+import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { previewPayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalService';
+import { callRoute } from './r035-approval.helpers';
 
 const fault = vi.hoisted(() => ({ armed: false, fired: false }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', async (importOriginal) => {
@@ -52,9 +54,9 @@ interface Totals { gross: number; paye: number; uif: number; sdl: number; eti: n
 async function run(company: string, month: number, t: Totals): Promise<string> {
   return (await pool.query<{ id: string }>(
     `INSERT INTO payroll_run_headers(company_id,period_month,period_year,status,total_gross,total_taxable,
-       total_paye,total_uif,total_sdl,total_eti,total_net,employee_count)
-     VALUES($1,$2,2026,'calculated',$3,$3,$4,$5,$6,$7,$8,1) RETURNING id`,
-    [company, month, t.gross, t.paye, t.uif, t.sdl, t.eti, t.net])).rows[0]!.id;
+       total_paye,total_uif,total_sdl,total_eti,total_net,employee_count,prepared_by,approval_revision)
+     VALUES($1,$2,2026,'calculated',$3,$3,$4,$5,$6,$7,$8,1,$9,gen_random_uuid()) RETURNING id`,
+    [company, month, t.gross, t.paye, t.uif, t.sdl, t.eti, t.net, admin])).rows[0]!.id;
 }
 
 async function call(route: typeof approve, action: string, runId: string, company = companyA, body?: unknown) {
@@ -70,6 +72,21 @@ async function call(route: typeof approve, action: string, runId: string, compan
 // W3-01 round 2: the route requires the hash of the plan the caller reviewed.
 const callApprove = async (runId: string, company = companyA) =>
   call(approve, 'approve', runId, company, { expectedPlanHash: (await previewPayrollApproval(company, runId))?.planHash ?? 'no-such-run' });
+async function clearApproval(runId: string, company = companyA): Promise<void> {
+  const raised = await callRoute(approvalRequests, token, company, 'POST', {
+    action: 'request', documentType: 'pay_run', documentId: runId,
+  }, '/api/accounting/approval-requests');
+  expect(raised.state.statusCode, JSON.stringify(raised.state.body)).toBe(200);
+  const request = (raised.state.body as { data: { id: string; documentDigest: string } }).data;
+  const decided = await callRoute(approvalRequests, token, company, 'POST', {
+    action: 'approve', requestId: request.id, expectedDigest: request.documentDigest,
+  }, '/api/accounting/approval-requests');
+  expect(decided.state.statusCode, JSON.stringify(decided.state.body)).toBe(200);
+}
+const callApproved = async (runId: string, company = companyA) => {
+  await clearApproval(runId, company);
+  return callApprove(runId, company);
+};
 const approvedJournal = (res: { body: unknown }) =>
   (res.body as { data: { journalEntryId: string } }).data.journalEntryId;
 
@@ -106,13 +123,15 @@ beforeAll(async () => {
   for (const c of [companyA, companyB]) {
     await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [c, admin]);
   }
-  token = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+  token = await new SignJWT({ sub: admin, aal: 'aal2', session_id: crypto.randomUUID() }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 
 afterAll(async () => {
   const ids = [companyA, companyB];
   try {
+    await pool.query('DELETE FROM audit_log WHERE company_id = ANY($1)', [ids]);
+    await pool.query('DELETE FROM approval_requests WHERE company_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM payroll_run_headers WHERE company_id = ANY($1)', [ids]);
     await pool.query('DELETE FROM gl_journal_lines WHERE journal_entry_id IN (SELECT id FROM gl_journal_entries WHERE company_id = ANY($1))', [ids]);
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1)', [ids]);
@@ -129,7 +148,7 @@ describe('K-079: approving a run that claims ETI', () => {
   it('ETI below PAYE: posts a balanced journal with 2140 = paye − eti and links it to the run', async () => {
     // employee UIF 750 + employer UIF 750; net = gross − paye − employee UIF.
     const id = await run(companyA, 3, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
-    const res = await callApprove(id);
+    const res = await callApproved(id);
     expect(res.statusCode).toBe(200);
 
     const h = await header(id);
@@ -146,7 +165,7 @@ describe('K-079: approving a run that claims ETI', () => {
   it('ETI above PAYE: books only the ETI PAYE can absorb, and still posts balanced', async () => {
     // Low-wage staff: PAYE 300, ETI 2 500, SDL-exempt. EMP201 payable is 0.
     const id = await run(companyA, 4, { gross: 10000, paye: 300, uif: 200, sdl: 0, eti: 2500, net: 9600 });
-    const res = await callApprove(id);
+    const res = await callApproved(id);
     expect(res.statusCode).toBe(200);
 
     const h = await header(id);
@@ -164,7 +183,7 @@ describe('K-079: approving a run that claims ETI', () => {
 
   it('no ETI: the journal is unchanged — 2140 carries the full PAYE', async () => {
     const id = await run(companyA, 5, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 0, net: 79250 });
-    const res = await callApprove(id);
+    const res = await callApproved(id);
     expect(res.statusCode).toBe(200);
 
     const j = await journal((await header(id)).journal_entry_id!);
@@ -210,13 +229,14 @@ describe('K-079: approving a run that claims ETI', () => {
 
     // The same month in another tenant is not closed by this one's period.
     const other = await run(companyB, 8, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
-    expect((await callApprove(other, companyB)).statusCode).toBe(200);
+    expect((await callApproved(other, companyB)).statusCode).toBe(200);
   });
 
   it('a failure AFTER the status write is a 5xx and rolls the approval back', async () => {
     const id = await run(companyA, 11, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
     fault.armed = true;
     fault.fired = false;
+    await clearApproval(id);
     const res = await callApprove(id);
     expect(fault.fired).toBe(true);
     expect(res.statusCode).toBeGreaterThanOrEqual(500);
@@ -225,7 +245,10 @@ describe('K-079: approving a run that claims ETI', () => {
 
   it('a run stranded approved with no journal (before this fix) re-approves and posts', async () => {
     const id = await run(companyA, 10, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
-    await pool.query("UPDATE payroll_run_headers SET status='approved' WHERE id=$1", [id]);
+    await pool.query(
+      "UPDATE payroll_run_headers SET status='approved', approval_grandfathered_at=clock_timestamp() WHERE id=$1",
+      [id],
+    );
     const res = await callApprove(id);
     expect(res.statusCode).toBe(200);
     const h = await header(id);
@@ -233,11 +256,23 @@ describe('K-079: approving a run that claims ETI', () => {
     const j = await journal(h.journal_entry_id!);
     expect(j.debit).toBe(j.credit);
     expect(j.by('2140').map((l) => Number(l.credit))).toEqual([19500]);
+    expect((await pool.query(
+      'SELECT approval_grandfathered_at IS NOT NULL AS grandfathered FROM payroll_run_headers WHERE id=$1',
+      [id],
+    )).rows[0].grandfathered).toBe(true);
+
+    expect((await call(reopen as typeof approve, 'reopen', id, companyA, {
+      reason: 'Correct grandfathered recovery run',
+    })).statusCode).toBe(200);
+    expect((await pool.query(
+      'SELECT approval_grandfathered_at IS NULL AS cleared FROM payroll_run_headers WHERE id=$1',
+      [id],
+    )).rows[0].cleared).toBe(true);
   });
 
   it('a run reopened after approval keeps its journal and re-approves onto it', async () => {
     const id = await run(companyA, 9, { gross: 100000, paye: 20000, uif: 1500, sdl: 1000, eti: 500, net: 79250 });
-    const first = await callApprove(id);
+    const first = await callApproved(id);
     expect(first.statusCode).toBe(200);
     const journalId = approvedJournal(first);
 
@@ -252,6 +287,7 @@ describe('K-079: approving a run that claims ETI', () => {
       `UPDATE fiscal_periods SET status='closed'
         WHERE company_id=$1 AND start_date <= DATE '2026-09-30' AND end_date >= DATE '2026-09-30'`, [companyA]);
     await pool.query("UPDATE gl_accounts SET is_active=false WHERE company_id=$1 AND account_code='2160'", [companyA]);
+    await clearApproval(id);
     const again = await callApprove(id).finally(() =>
       pool.query("UPDATE gl_accounts SET is_active=true WHERE company_id=$1 AND account_code='2160'", [companyA]));
     expect(again.statusCode).toBe(200);

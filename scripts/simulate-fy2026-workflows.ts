@@ -162,7 +162,7 @@ async function runPayrollApprove(month: number, year: number, errors: Err[]): Pr
       const run = await createPayrollRun(COMPANY_ID, { year, month }, ADMIN_ID);
       runId = run.id;
       // In one transaction, so the run's header lock holds for the calculation (W3-01 round 5).
-      await withAlsTransaction(PAYROLL_ACTOR, () => calculatePayrollRun(run.id, COMPANY_ID));
+      await withAlsTransaction(PAYROLL_ACTOR, () => calculatePayrollRun(run.id, COMPANY_ID, ADMIN_ID));
     }
     const approvedRunId = runId;
     const approved = await withAlsTransaction(PAYROLL_ACTOR, () => approvePayrollRun(COMPANY_ID, approvedRunId, ADMIN_ID));

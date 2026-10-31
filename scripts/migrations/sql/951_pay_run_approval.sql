@@ -8,8 +8,9 @@
 --
 -- Rollback (code must be rolled back first): drop the two 951 triggers/functions,
 -- delete pay_run enforcement/rules, restore the three *_pre_payroll_951 functions,
--- restore the approval_enforcement CHECK without pay_run, then drop the four
--- payroll_run_headers columns. Approval/audit history is intentionally retained.
+-- restore the two company foreign keys without ON DELETE CASCADE, restore the
+-- approval_enforcement CHECK without pay_run, then drop the five payroll run
+-- header columns. Approval/audit history is intentionally retained.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
@@ -29,6 +30,16 @@ ALTER TABLE public.approval_enforcement ADD CONSTRAINT approval_enforcement_docu
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note',
   'customer_credit_note', 'supplier_credit_note', 'supplier_payment', 'payment_batch', 'manual_journal',
   'supplier_bank_details', 'bank_rule', 'pay_run'));
+
+-- Fixed pay-run rows leave only with their owning company. The immutability
+-- trigger below recognises that cascade because the company row is already
+-- gone; a direct delete while the company exists remains refused.
+ALTER TABLE public.approval_rules DROP CONSTRAINT IF EXISTS approval_rules_company_id_fkey;
+ALTER TABLE public.approval_rules ADD CONSTRAINT approval_rules_company_id_fkey
+  FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE CASCADE;
+ALTER TABLE public.approval_enforcement DROP CONSTRAINT IF EXISTS approval_enforcement_company_id_fkey;
+ALTER TABLE public.approval_enforcement ADD CONSTRAINT approval_enforcement_company_id_fkey
+  FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE CASCADE;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_approval_rules_one_pay_run
   ON public.approval_rules (company_id) WHERE document_type = 'pay_run';
@@ -74,12 +85,21 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-  IF OLD.document_type = 'pay_run'
-     OR (TG_OP <> 'DELETE' AND NEW.document_type = 'pay_run') THEN
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.document_type = 'pay_run'
+       AND NOT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = OLD.company_id) THEN
+      RETURN OLD;
+    END IF;
+    IF OLD.document_type = 'pay_run' THEN
+      RAISE EXCEPTION 'Pay-run approval is always on and its fixed rule cannot be changed'
+        USING ERRCODE = 'RA035';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF OLD.document_type = 'pay_run' OR NEW.document_type = 'pay_run' THEN
     RAISE EXCEPTION 'Pay-run approval is always on and its fixed rule cannot be changed'
       USING ERRCODE = 'RA035';
   END IF;
-  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END
 $$;
@@ -146,7 +166,8 @@ BEGIN
       pg_catalog.lpad(h.period_month::pg_catalog.text, 2, '0') || '/' || h.period_year::pg_catalog.text,
       h.approval_plan_hash
     FROM public.payroll_run_headers h
-    WHERE h.id = p_document_id AND h.company_id = p_company_id;
+    WHERE h.id = p_document_id AND h.company_id = p_company_id
+      AND h.prepared_by IS NOT NULL AND h.approval_plan_hash IS NOT NULL;
   ELSE
     RETURN QUERY SELECT f.amount, f.reference, f.digest
     FROM public.approval_request_document_facts_pre_payroll_951(
@@ -159,9 +180,13 @@ $$;
 -- These helpers are reached only through the reviewed SECURITY DEFINER writers.
 REVOKE ALL ON FUNCTION public.approval_document_authors(
   pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.approval_document_authors(
+  pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid) TO app_user;
 REVOKE ALL ON FUNCTION public.approval_request_document_facts(
   pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.approval_document_authors_pre_payroll_951(
   pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.approval_document_authors_pre_payroll_951(
+  pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid) TO app_user;
 REVOKE ALL ON FUNCTION public.approval_request_document_facts_pre_payroll_951(
   pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid) FROM PUBLIC;

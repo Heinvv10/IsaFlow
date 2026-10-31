@@ -154,7 +154,7 @@ async function main(): Promise<void> {
     // without it the run's header lock lasts a single statement, and an
     // approval landing mid-calculation left header, lines and journal disagreeing.
     const actor = { companyId: COMPANY_ID, userId: ADMIN_ID };
-    const calculated = await withAlsTransaction(actor, () => calculatePayrollRun(header.id, COMPANY_ID));
+    const calculated = await withAlsTransaction(actor, () => calculatePayrollRun(header.id, COMPANY_ID, ADMIN_ID));
 
     // approvePayrollRun: status must be in ['draft','calculated','processed']
     const approved = await withAlsTransaction(actor, () => approvePayrollRun(COMPANY_ID, header.id, ADMIN_ID));

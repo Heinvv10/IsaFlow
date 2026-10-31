@@ -165,7 +165,7 @@ describe('the legacy Post to GL stays ungated (Q7)', () => {
     expect((await invoiceState(pool, draft.id)).journals).toBe(0);
 
     // Approved before enforcement was switched on, never posted: the legacy case Q7 leaves ungated.
-    await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [c]);
+    await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [c]);
     const legacy = await plantInvoice(pool, c, u.a, { status: 'approved' });
     await enforceInvoices(pool, c, u.b);
     const posted = await postGl(c, legacy.id);
@@ -177,7 +177,7 @@ describe('the legacy Post to GL stays ungated (Q7)', () => {
 describe('the Enforce switch preview', () => {
   it('counts the draft and pending invoices a rule holds, and not the cleared, posted or unmatched ones', async () => {
     const c = await gatedCompany();
-    await pool.query('UPDATE approval_rules SET condition_operator = $2, condition_value = 1000 WHERE company_id = $1',
+    await pool.query("UPDATE approval_rules SET condition_operator = $2, condition_value = 1000 WHERE company_id = $1 AND document_type <> 'pay_run'",
       [c, 'greater_than']);
     await plantInvoice(pool, c, u.a);
     const pending = await plantInvoice(pool, c, u.a);

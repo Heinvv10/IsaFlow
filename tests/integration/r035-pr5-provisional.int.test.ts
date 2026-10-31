@@ -22,8 +22,8 @@ import {
 useR127Fixture();
 // Registered after the fixture, so it runs before the fixture's purge (hooks unwind as a stack).
 afterAll(async () => {
-  await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [company]);
-  await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [company]);
+  await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [company]);
+  await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [company]);
 });
 
 const approveViaRoute = (invoiceId: string) => callRoute(
@@ -31,8 +31,8 @@ const approveViaRoute = (invoiceId: string) => callRoute(
 
 /** Every supplier payment over R100 needs an owner; enforcement on for both coupled payment types. */
 async function enforce(on: boolean): Promise<void> {
-  await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [company]);
-  await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [company]);
+  await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [company]);
+  await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [company]);
   if (!on) return;
   await plantRule(pool, company, 'owner', { documentType: 'supplier_payment', operator: 'greater_than', value: 100 });
   for (const type of ['supplier_payment', 'payment_batch']) {

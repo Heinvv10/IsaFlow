@@ -147,7 +147,9 @@ async function findDocument(
         SELECT COALESCE(total_gross, 0) AS amount,
                lpad(period_month::text, 2, '0') || '/' || period_year::text AS reference,
                approval_document_digest(company_id, 'pay_run', id) AS digest
-        FROM payroll_run_headers WHERE id = ${documentId}::UUID AND company_id = ${companyId}
+        FROM payroll_run_headers
+        WHERE id = ${documentId}::UUID AND company_id = ${companyId}
+          AND prepared_by IS NOT NULL AND approval_plan_hash IS NOT NULL
       `) as Row[]);
     case 'journal_entry':
       return first((await sql`

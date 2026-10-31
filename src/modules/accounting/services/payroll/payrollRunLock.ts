@@ -247,6 +247,7 @@ export async function reopenPayrollRun(opts: {
        SET status = 'calculated',
            approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)
            approved_at = NULL,
+           approval_grandfathered_at = NULL,
            approval_plan_hash = NULL,
            approval_revision = gen_random_uuid(),
            reopened_at = c.now,

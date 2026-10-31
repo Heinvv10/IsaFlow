@@ -83,7 +83,7 @@ describe('append-only', () => {
     const kept = await companyWithHistory();
     await pool.query('DELETE FROM suppliers WHERE company_id = $1', [doomed.c]);
     expect((await changesOf(pool, doomed.ids.supplier)).map((r) => r.op)).toEqual(['create', 'delete']);
-    await pool.query('DELETE FROM approval_rules WHERE company_id = $1', [doomed.c]);
+    await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = $1", [doomed.c]);
     await pool.query('DELETE FROM customers WHERE company_id = $1', [doomed.c]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id = $1', [doomed.c]);
     await pool.query('DELETE FROM payroll_employees WHERE company_id = $1', [doomed.c]);
@@ -117,7 +117,7 @@ describe('reading', () => {
     expect(kinds(await visible(m, c))).toEqual(['customer', 'gl_account', 'payroll_employee', 'supplier']);
     for (const admin of [o, a]) {
       expect(kinds(await visible(admin, c))).toEqual(
-        ['approval_rule', 'company', 'company_user', 'customer', 'gl_account', 'payroll_employee', 'supplier']);
+        ['approval_enforcement', 'approval_rule', 'company', 'company_user', 'customer', 'gl_account', 'payroll_employee', 'supplier']);
     }
   });
 

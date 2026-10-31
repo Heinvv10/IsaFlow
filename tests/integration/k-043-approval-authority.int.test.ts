@@ -115,7 +115,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM approval_requests WHERE company_id = ANY($1)', [[companyA, companyB]]);
-    await pool.query('DELETE FROM approval_rules WHERE company_id = ANY($1)', [[companyA, companyB]]);
+    await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id = ANY($1)", [[companyA, companyB]]);
     await deletePlantedDocuments(pool, [companyA, companyB]);
     await pool.query('DELETE FROM company_users WHERE company_id = ANY($1)', [[companyA, companyB]]);
     await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[companyA, companyB]]);

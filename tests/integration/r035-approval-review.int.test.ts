@@ -112,7 +112,7 @@ describe('MED-1 — sole-approver self-approval is narrow and evidenced', () => 
     await plantRule(pool, company, 'owner');
     await enforce(company);
     const requestId = await raise(u.owner, company, (await plantBill(pool, company, u.owner)).id);
-    await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [company]);
+    await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [company]);
     expect(reasonOf(await approve(u.owner, company, requestId))).toBe('SELF_APPROVAL_FORBIDDEN');
   });
 

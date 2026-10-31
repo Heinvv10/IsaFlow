@@ -139,7 +139,6 @@ export async function approvePayrollRun(
         lines_confirmed_at = clock_timestamp(),
         approved_plan_hash = ${gate.planHash},
         approval_plan_hash = ${gate.planHash},
-        approval_grandfathered_at = NULL,
         updated_at  = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
     RETURNING *

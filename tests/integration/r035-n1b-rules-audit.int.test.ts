@@ -173,7 +173,10 @@ describe('the enforcement switch', () => {
       expect(a.changes).toEqual({ fields: [], metadata: { actorRole: 'owner', enforcementId: a.entity_id,
         ...(a.action === 'delete' ? { strictestRuleRole: 'admin' } : {}) } });
     }
-    expect((await pool.query('SELECT count(*)::INT AS n FROM approval_enforcement WHERE company_id = $1', [c])).rows[0].n).toBe(0);
+    expect((await pool.query(
+      "SELECT count(*)::INT AS n FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1",
+      [c],
+    )).rows[0].n).toBe(0);
   });
 
   it('off with no active rule: no strictestRuleRole, and a manager may do it', async () => {

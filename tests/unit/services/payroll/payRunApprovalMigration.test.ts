@@ -11,9 +11,16 @@ describe('migration 951 pay-run approval contract', () => {
     expect(migration).toContain('trg_pay_run_enforcement_immutable');
   });
 
+  it('keeps fixed rows immutable while allowing an owning-company cascade', () => {
+    expect(migration).toMatch(/approval_rules_company_id_fkey[\s\S]*ON DELETE CASCADE/);
+    expect(migration).toMatch(/approval_enforcement_company_id_fkey[\s\S]*ON DELETE CASCADE/);
+    expect(migration).toContain('NOT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = OLD.company_id)');
+  });
+
   it('uses the last calculator, including bureau staff, as the content author', () => {
     expect(migration).toContain('ARRAY[h.prepared_by]');
     expect(migration).toContain("p_document_type = 'pay_run'");
+    expect(migration).toContain('AND h.prepared_by IS NOT NULL AND h.approval_plan_hash IS NOT NULL');
   });
 
   it('grandfathers only historical approved and paid runs', () => {

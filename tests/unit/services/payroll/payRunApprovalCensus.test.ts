@@ -22,6 +22,7 @@ describe('pay-run approval mutation census', () => {
     const text = source('src/modules/accounting/services/payroll/payrollRunLock.ts');
     expect(text.match(/approval_plan_hash = NULL/g)).toHaveLength(2);
     expect(text.match(/approval_revision = gen_random_uuid\(\)/g)).toHaveLength(2);
+    expect(text).toContain('approval_grandfathered_at = NULL');
   });
 
   it('records the six distinct human/control stages plus decline', () => {
