@@ -6,11 +6,17 @@
  * per email per 15 minutes. Eleven specs logging in individually would spend
  * the whole window on a single run (and break post-deploy verification
  * against prod Demo).
+ *
+ * In CI the job sets GOLDEN_COMPANY_ID/_USER_EMAIL/_USER_PASSWORD (see
+ * helpers/goldenSlot.ts) and the login is the slot user's, switched into the
+ * slot company. Without them nothing changes: E2E_ADMIN_*, that user's default
+ * company.
  */
 import { request as pwRequest, type FullConfig } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { getE2ECredentials } from '../_creds';
+import { loginGolden } from './helpers/goldenLogin';
+import { readGoldenSlot } from './helpers/goldenSlot';
 
 export const GOLDEN_STATE_FILE = 'tests/e2e/.auth/golden-session.json';
 
@@ -18,14 +24,8 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   const baseURL = config.projects[0]?.use?.baseURL;
   if (!baseURL) throw new Error('golden config must define use.baseURL');
 
-  const { email, password } = getE2ECredentials();
   const ctx = await pwRequest.newContext({ baseURL });
-  const res = await ctx.post('/api/auth/login', { data: { email, password } });
-  if (res.status() !== 200) {
-    throw new Error(`golden-paths login failed: ${res.status()} ${await res.text()}`);
-  }
-  // Middleware issues the CSRF cookie on any routed request.
-  await ctx.get('/accounting');
+  await loginGolden(ctx, readGoldenSlot(process.env));
 
   // Precondition: GL-on-approve needs the company's system-account mappings.
   // Fail HERE with an actionable message instead of letting spec b/c/e fail

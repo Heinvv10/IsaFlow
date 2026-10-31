@@ -40,8 +40,8 @@ const GOLDEN_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n     
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
 const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
+const GOLDEN_GROUP = "    concurrency:\n      group: golden-paths-${{ github.ref }}${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
-const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
 describe('the committed workflow', () => {
   it('passes', () => {
@@ -128,8 +128,8 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['a cap just under the floor', 'timeout-minutes: 59'],
     ['no timeout at all (key removed)', null],
   ])('golden-paths with %s: every run is cut short and ends cancelled', (_label, line) => {
-    const from = '    timeout-minutes: 60\n    # The suite writes to the SHARED';
-    const to = line === null ? '    # The suite writes to the SHARED' : `    ${line}\n    # The suite writes to the SHARED`;
+    const from = '    timeout-minutes: 60\n    # Each runner owns one Golden Paths slot';
+    const to = line === null ? '    # Each runner owns one Golden Paths slot' : `    ${line}\n    # Each runner owns one Golden Paths slot`;
     expect(check(edit(from, to)).length).toBeGreaterThan(0);
   });
 
@@ -151,11 +151,12 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it("golden-paths moved into the workflow's own ci- group (deadlock cancels the run)", () => {
-    expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}`, '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(GOLDEN_GROUP, '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(GOLDEN_GROUP, '    concurrency:\n      group: ci-golden\n')).length).toBeGreaterThan(0);
   });
 
-  it("golden-paths back on the one shared group (every PR push cancels the queue's pending run, #938)", () => {
-    expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-dev-demo\n')).length).toBeGreaterThan(0);
+  it("golden-paths without the -queue lane (an ordinary run cancels the queue's pending run, #938)", () => {
+    expect(check(edit(GOLDEN_GROUP, '    concurrency:\n      group: golden-paths-${{ github.ref }}\n')).length).toBeGreaterThan(0);
   });
 
   it('golden-lane taking a concurrency group (the ci- one would cancel quality)', () => {
@@ -163,8 +164,20 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it('golden-paths concurrency removed or set to cancel', () => {
-    expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
+    expect(check(edit(`${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
     expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['the old fixed group, which serialises every ref onto one slot', 'golden-paths-dev-demo'],
+    ['a per-sha group, which a fallback push would not share with PR runs', 'golden-paths-${{ github.sha }}'],
+    ['a per-runner group, which queues a job on a busy runner instead of an idle one', 'golden-paths-${{ runner.name }}'],
+  ])('golden-paths group set to %s', (_label, group) => {
+    expect(check(edit(GOLDEN_GROUP, `    concurrency:\n      group: ${group}\n`)).length).toBeGreaterThan(0);
+  });
+
+  it('golden-paths concurrency given an extra key', () => {
+    expect(check(edit(`${GOLDEN_GROUP}      cancel-in-progress: false\n`, `${GOLDEN_GROUP}      cancel-in-progress: false\n      queue: max\n`)).length).toBeGreaterThan(0);
   });
 
   it('actions: write on the workflow token (any job could then cancel the run)', () => {
