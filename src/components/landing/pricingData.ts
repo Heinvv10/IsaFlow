@@ -30,6 +30,38 @@ export const BUREAU_FIRM_PORTAL_FREE = true;
 export const VAT_INCLUSIVE = true;
 export const VAT_NOTE = 'All prices include 15% VAT.';
 
+export interface PaygBundle {
+  flows: number;
+  price: string;
+}
+
+export interface PaygPlan {
+  name: string;
+  price: string;
+  period: string;
+  desc: string;
+  eligibility: string;
+  limits: string[];
+  bundles: PaygBundle[];
+  autoTopupNote: string;
+}
+
+export const PAYG_PLAN: PaygPlan = {
+  name: 'Pay-As-You-Go',
+  price: 'R 0',
+  period: '/month',
+  desc: 'Prepaid Flows with no monthly fee for micro enterprises under R1 million annual turnover.',
+  eligibility: 'For companies under R1 million annual turnover. Start with the free trial, then ask us to switch an eligible company to Pay-As-You-Go.',
+  limits: ['1 user', '1 company'],
+  bundles: [
+    { flows: 100, price: 'R 10' },
+    { flows: 500, price: 'R 50' },
+    { flows: 1_500, price: 'R 150' },
+    { flows: 2_500, price: 'R 250' },
+  ],
+  autoTopupNote: 'Optional auto top-up settings are available.',
+};
+
 export const BUREAU_SKUS: BureauSku[] = [
   {
     name: 'Ledger',
@@ -70,10 +102,10 @@ export const CLOSE_AGENT_ADDON: AddOn = {
   name: 'Close Agent',
   price: 'R 299',
   unit: 'per entity / month',
-  desc: 'Month-end AI that proposes — you approve. Nothing posts without you.',
+  desc: 'Month-end AI that prepares entries for you to approve.',
   bullets: [
     'Reviews the period and proposes each posting',
-    'You approve every entry — no autonomous posting',
+    'Close Agent prepares entries for you to approve; AI connections only post if you give them posting permission.',
     'Every suggestion shows its evidence, expandable',
     'Full audit trail: reasoning stored on every journal',
     'Add to any direct plan or bureau client',
