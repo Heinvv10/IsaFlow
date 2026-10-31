@@ -13,13 +13,15 @@
  * row mapping the rewrite touched (cancelled_source).
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { LazyQuery } from '@/lib/neon/query';
+import { sql } from '@/lib/neon';
 import { getVatPeriodLines } from '@/modules/accounting/services/reports/vatBoxBasisQuery';
 
 type Captured = { text: string; values: unknown[] };
 let captured: Captured[] = [];
 let rows: Record<string, unknown>[] = [];
-const proto = LazyQuery.prototype as unknown as { then: (...a: unknown[]) => unknown };
+// The barrel does not export LazyQuery (R-184), so take its prototype from an
+// unawaited query; nothing below ever reaches the database.
+const proto = Object.getPrototypeOf(sql`SELECT 1`) as { then: (...a: unknown[]) => unknown };
 const realThen = proto.then;
 
 beforeEach(() => {
