@@ -30,6 +30,7 @@ export default function TermsPage() {
         <li>Legal status: {LEGAL_ENTITY.legalStatus}</li>
         <li>Registration number: {LEGAL_ENTITY.registrationNumber}</li>
         <li>Registered and physical address for legal notices: {LEGAL_ENTITY.registeredAddress}</li>
+        <li>Head office: {LEGAL_ENTITY.headOffice}</li>
         <li>Director: {LEGAL_ENTITY.director}</li>
         <li>
           Email: <a href={mail}>{LEGAL_ENTITY.contactEmail}</a>
