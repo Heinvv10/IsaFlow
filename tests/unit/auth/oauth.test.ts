@@ -39,7 +39,13 @@ import {
   refreshAccessToken,
   OauthExchangeError,
 } from '@/lib/auth/oauth';
-import { sqlMock, resetSqlMock, mockSqlOnce } from './helpers';
+import {
+  sqlMock,
+  resetSqlMock,
+  mockSqlOnce,
+  sqlCallText,
+  sqlCallValues,
+} from './helpers';
 
 /** Queue `rows` as the result of the NEXT admin-pool statement. */
 function mockAdminOnce(rows: unknown[]): void {
@@ -84,9 +90,9 @@ beforeEach(() => {
 });
 
 describe('getConsentScopesByCompany', () => {
-  it('reads only this app, user and eligible companies, excluding revoked grants', async () => {
+  it('reads on the service pool for only this app, user and eligible companies, excluding revoked grants', async () => {
     const otherCompany = '33333333-3333-3333-3333-333333333333';
-    mockAdminOnce([
+    mockSqlOnce([
       { company_id: COMPANY_ID, scopes: ['read:reports', 'write:journals'] },
       { company_id: otherCompany, scopes: ['read:reports'] },
     ]);
@@ -95,10 +101,11 @@ describe('getConsentScopesByCompany', () => {
       [COMPANY_ID]: ['read:reports', 'write:journals'],
       [otherCompany]: ['read:reports'],
     });
-    expect(adminText(0)).toContain('oauth_app_id = $2::uuid');
-    expect(adminText(0)).toContain('company_id = ANY($3::uuid[])');
-    expect(adminText(0)).toContain('revoked_at IS NULL');
-    expect(adminValues(0)).toEqual([USER_ID, APP_ID, [COMPANY_ID, otherCompany]]);
+    expect(sqlCallText(0)).toMatch(/oauth_app_id\s*=\s*\?\s*::uuid/);
+    expect(sqlCallText(0)).toMatch(/company_id\s*=\s*ANY\(\s*\?\s*::uuid\[\]\)/);
+    expect(sqlCallText(0)).toContain('revoked_at IS NULL');
+    expect(sqlCallValues(0)).toEqual([USER_ID, APP_ID, [COMPANY_ID, otherCompany]]);
+    expect(adminQueryMock).not.toHaveBeenCalled();
   });
 });
 
