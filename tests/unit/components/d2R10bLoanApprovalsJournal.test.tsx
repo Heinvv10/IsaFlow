@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 import { MSG, empty500, expectNoJargon, ok, on, refuse, serve, writeCalls } from '../helpers/d2R3a6';
 
 const route = vi.hoisted(() => ({ query: {} as Record<string, string>, isReady: true, pathname: '/', push: vi.fn(async () => true), replace: vi.fn() }));
@@ -58,7 +59,8 @@ describe('loans/new', () => {
     showCurves(); expect(screen.queryByText('D2 Prime Curve')).toBeNull(); expectNoJargon();
   });
   function fillAndCreate() {
-    render(<NewLoanPage />);
+    const { container } = render(<NewLoanPage />);
+    typeDate(dateInputs(container)[0]!, '1 Oct 2026');
     fireEvent.change(screen.getByPlaceholderText('1000000.00'), { target: { value: '250000' } });
     fireEvent.change(screen.getByPlaceholderText('60'), { target: { value: '48' } });
     fireEvent.change(screen.getByPlaceholderText('10.5'), { target: { value: '11.25' } });
@@ -80,7 +82,7 @@ describe('loans/new', () => {
     serve(on('POST', '/api/accounting/loans', () => created({ id: 'loan-d2-5' })));
     fillAndCreate();
     await waitFor(() => expect(route.push).toHaveBeenCalledWith('/accounting/loans/loan-d2-5'));
-    expect(lastBody('POST', '/api/accounting/loans')).toMatchObject({ principal: 250000, termMonths: 48, fixedRate: 11.25, rateMode: 'FIXED' });
+    expect(lastBody('POST', '/api/accounting/loans')).toMatchObject({ principal: 250000, startDate: '2026-10-01', termMonths: 48, fixedRate: 11.25, rateMode: 'FIXED' });
   });
 });
 

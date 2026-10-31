@@ -10,6 +10,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Employee { id: string; employeeNumber: string; firstName: string; lastName: string }
 interface Event {
@@ -49,6 +50,7 @@ const STATUSES = [
 const zar = (n: number) => formatMoney(n, { decimals: 0 });
 
 export default function TrainingPage() {
+  const dateGate = useDateGate();
   const [events, setEvents] = useState<Event[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,18 +193,14 @@ export default function TrainingPage() {
               <input type="text" placeholder="Provider" value={form.provider}
                 onChange={e => setForm({ ...form, provider: e.target.value })}
                 className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-              <input type="date" value={form.plannedStart}
-                onChange={e => setForm({ ...form, plannedStart: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
-              <input type="date" value={form.plannedEnd}
-                onChange={e => setForm({ ...form, plannedEnd: e.target.value })}
-                className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
+              <GatedDateField gate={dateGate} gateKey="planned-start" label="Planned start" value={form.plannedStart || null} onValue={iso => setForm({ ...form, plannedStart: iso })} />
+              <GatedDateField gate={dateGate} gateKey="planned-end" label="Planned end" value={form.plannedEnd || null} onValue={iso => setForm({ ...form, plannedEnd: iso })} />
               <input type="number" step="0.01" placeholder="Cost planned" value={form.costPlanned}
                 onChange={e => setForm({ ...form, costPlanned: Number(e.target.value) })}
                 className="rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]" />
             </div>
             <div className="flex justify-end">
-              <button onClick={handleCreate} disabled={saving || !form.employeeId || !form.description.trim()}
+              <button onClick={handleCreate} disabled={saving || !form.employeeId || !form.description.trim() || dateGate.blocked}
                 className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
                 {saving ? 'Saving...' : 'Save'}
               </button>

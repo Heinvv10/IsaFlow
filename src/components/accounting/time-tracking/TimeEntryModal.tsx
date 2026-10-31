@@ -1,4 +1,5 @@
 import { X, Loader2 } from 'lucide-react';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface Customer { id: string; companyName: string }
 
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export function TimeEntryModal({ form, editId, busy, customers, onClose, onSubmit, onChange }: Props) {
+  const dateGate = useDateGate();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-lg mx-4 p-6">
@@ -38,10 +40,7 @@ export function TimeEntryModal({ form, editId, busy, customers, onClose, onSubmi
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
-              <input type="date" required value={form.entryDate}
-                onChange={e => onChange('entryDate', e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+              <GatedDateField gate={dateGate} gateKey="date" label="Date" required value={form.entryDate || null} onValue={iso => onChange('entryDate', iso)} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project</label>
@@ -101,7 +100,7 @@ export function TimeEntryModal({ form, editId, busy, customers, onClose, onSubmi
               className="px-4 py-2 text-sm border rounded-lg text-gray-700 dark:text-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700">
               Cancel
             </button>
-            <button type="submit" disabled={busy === 'save'}
+            <button type="submit" disabled={busy === 'save' || dateGate.blocked}
               className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
               {busy === 'save' && <Loader2 className="w-4 h-4 animate-spin" />}
               {editId ? 'Update' : 'Save'}
