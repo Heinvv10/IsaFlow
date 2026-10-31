@@ -50,8 +50,8 @@ export const PAYG_PLAN: PaygPlan = {
   name: 'Pay-As-You-Go',
   price: 'R 0',
   period: '/month',
-  desc: 'Prepaid Flows with no monthly fee for micro enterprises under R1 million annual turnover.',
-  eligibility: 'For companies under R1 million annual turnover. Start with the free trial, then ask us to switch an eligible company to Pay-As-You-Go.',
+  desc: 'Prepaid Flows with no monthly fee for eligible low-volume businesses.',
+  eligibility: 'Eligible if your company has under R1 million annual turnover, averages fewer than 200 posted journal entries per month, or is approved by our team. Start with the free trial, then ask us to switch an eligible company to Pay-As-You-Go.',
   limits: ['1 user', '1 company'],
   bundles: [
     { flows: 100, price: 'R 10' },
