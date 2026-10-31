@@ -122,7 +122,7 @@ describe('calculate_pay_run', () => {
     expect(out.period).toBe('04/2025');
     expect(out.total_gross).toBe(250000);
     expect(out.total_paye).toBe(45000);
-    expect(calculatePayrollRun).toHaveBeenCalledWith(RUN, COMPANY);
+    expect(calculatePayrollRun).toHaveBeenCalledWith(RUN, COMPANY, ctx().userId);
   });
 
   it('warns that the post-March-2026 ETI table is unconfirmed when ETI is claimed', async () => {

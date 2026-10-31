@@ -99,9 +99,9 @@ export const reasonOf = (result: { state: { body: unknown } }) =>
 export async function cleanup(pool: Pool, companies: string[], users: string[]): Promise<void> {
   try {
     await pool.query('DELETE FROM audit_log WHERE company_id=ANY($1)', [companies]);
-    await pool.query('DELETE FROM approval_enforcement WHERE company_id=ANY($1)', [companies]);
+    await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id=ANY($1)", [companies]);
     await pool.query('DELETE FROM approval_requests WHERE company_id=ANY($1)', [companies]);
-    await pool.query('DELETE FROM approval_rules WHERE company_id=ANY($1)', [companies]);
+    await pool.query("DELETE FROM approval_rules WHERE document_type <> 'pay_run' AND company_id=ANY($1)", [companies]);
     await pool.query('DELETE FROM supplier_invoices WHERE company_id=ANY($1)', [companies]);
     await pool.query('DELETE FROM customer_invoice_items WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id=ANY($1))', [companies]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id=ANY($1)', [companies]);

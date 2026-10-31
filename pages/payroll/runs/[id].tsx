@@ -15,6 +15,8 @@ import { canWrite } from '@/lib/auth/writeRoles';
 import { PayrollRunWarnings, type RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
 import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -47,6 +49,7 @@ interface RunDetail {
   totalNet: number;
   employeeCount: number;
   journalEntryId: string | null;
+  approval: DocumentApprovalState | null;
   lines: Line[];
 }
 
@@ -176,7 +179,8 @@ export default function PayrollRunDetailPage() {
   const canReopen = run.status === 'approved';
   // approvePayrollRun's own states; an approved run without its journal was
   // stranded before K-079 and re-approving it posts the journal.
-  const canApprove = canWrite(companyRole) && (run.status === 'calculated' || run.status === 'processed'
+  const cleared = !isApprovalHeld(run.approval) && run.approval?.state === 'approved';
+  const canApprove = canWrite(companyRole) && ((cleared && ['calculated', 'processed'].includes(run.status))
     || (run.status === 'approved' && !run.journalEntryId));
 
   return (
@@ -240,7 +244,7 @@ export default function PayrollRunDetailPage() {
                 <button onClick={() => setApproveOpen(true)}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium"
                   title="Review the journal this run will post, then approve it">
-                  <ShieldCheck className="h-4 w-4" /> Review &amp; approve
+                  <ShieldCheck className="h-4 w-4" /> Post approved run
                 </button>
               )}
             </div>
@@ -248,6 +252,8 @@ export default function PayrollRunDetailPage() {
         </div>
 
         <div className="p-6 space-y-6">
+          <DocumentApprovalPanel documentType="pay_run" documentId={run.id} noun="pay run"
+            approval={run.approval} onChanged={() => load()} />
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
           )}

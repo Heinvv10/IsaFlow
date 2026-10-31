@@ -26,6 +26,7 @@ export function runBody(overrides: Record<string, unknown> = {}) {
     id: RUN_ID, companyId: 'c1', periodMonth: 9, periodYear: 2026, status: 'calculated',
     totalGross: 75000, totalPaye: 19966.33, totalUif: 354.24, totalSdl: 750, totalEti: 0,
     totalNet: 41681.55, employeeCount: 1, journalEntryId: null,
+    approval: { state: 'approved', enforced: true, requiredRole: 'manager', ruleName: 'All pay runs', requestId: 'ar-1' },
     lines: [line('1', 'Riaan Smit')],
     ...overrides,
   };

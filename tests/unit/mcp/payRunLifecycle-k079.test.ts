@@ -53,6 +53,7 @@ import {
 import { PayrollApprovalConflictError, PayrollApprovalRefusedError } from '@/modules/accounting/services/payroll/payrollApprovalRefusal';
 import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { approvePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -113,6 +114,15 @@ describe('approve_pay_run — K-079', () => {
     expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...LIVE }, ctx())))
       .toContain('no GL account for 2140');
     expect(previewPayrollApproval).not.toHaveBeenCalled();
+  });
+
+  it('refuses connector execution until a person clears the pay run in ISAFlow', async () => {
+    vi.mocked(approvePayrollRun).mockRejectedValue(new ApprovalRequiredError({
+      reason: 'APPROVAL_REQUIRED', requiredRole: 'manager', ruleName: 'All pay runs',
+      requestId: null, documentType: 'pay_run', documentReference: '04/2025',
+    }));
+    expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...LIVE }, ctx())))
+      .toContain('A person must approve this pay run in ISAFlow');
   });
 
   it('dry run asks the same blocker question, scoped to the company', async () => {

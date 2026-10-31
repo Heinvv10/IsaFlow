@@ -18,6 +18,7 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { buildPayrollJournalPlan, type PayrollJournalPlan } from './payrollJournalBuilder';
+import { assertPayRunApproved } from './payRunApprovalControl';
 
 type Row = DbRow;
 
@@ -52,6 +53,8 @@ export async function postPayrollRunJournal(
   userId: string,
   opts?: { postingAgent?: string; plan?: PayrollJournalPlan },
 ): Promise<string> {
+  // Shared by UI approval, MCP recovery posting and every future payroll finaliser.
+  await assertPayRunApproved(companyId, runId);
   const plan = opts?.plan ?? await buildPayrollJournalPlan(companyId, runId);
   if (!plan) throw new Error(`Payroll run ${runId} not found`);
 

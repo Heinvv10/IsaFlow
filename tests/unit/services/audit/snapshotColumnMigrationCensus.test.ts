@@ -96,6 +96,9 @@ const READ_BY_HAND = new Set([
   '885_bank_rule_switch_definer.sql', '891_audit_snapshots.sql', '903_categorization_decisions.sql',
   // 930 (S-07c): GRANT/REVOKE EXECUTE ON FUNCTION and a definer list naming manual_journal_approval_gate(); no DDL on either table.
   '930_credential_membership_writes_off_app_pools.sql',
+  // 951 (2026-10-31, pay-run approval): EXECUTE only as GRANT EXECUTE ON FUNCTION / EXECUTE FUNCTION in CREATE TRIGGER;
+  // "journal" is only the R-035 document-type list ('journal_entry', 'manual_journal'), as in 708/862/881. No DDL on gl_journal_entries / gl_journal_lines, no dynamic SQL.
+  '951_pay_run_approval.sql',
 ]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */

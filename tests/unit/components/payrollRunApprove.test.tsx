@@ -48,7 +48,7 @@ function serve(approve: () => Response | Promise<Response>, opts: { preview?: un
 
 async function openAndConfirm(button = /approve and post journal/i) {
   render(<PayrollRunDetailPage />);
-  fireEvent.click(await screen.findByRole('button', { name: /review & approve/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /post approved run/i }));
   const dialog = await screen.findByRole('dialog');
   const confirm = await within(dialog).findByRole('button', { name: button });
   await waitFor(() => expect((confirm as HTMLButtonElement).disabled).toBe(false));
@@ -57,10 +57,19 @@ async function openAndConfirm(button = /approve and post journal/i) {
 }
 
 describe('payroll run page — approve (PAY-01)', () => {
-  it('a calculated run offers Review & approve, shows the journal, and POSTs /approve with the previewed hash', async () => {
+  it('holds the posting action until R-035 clearance and offers submit for approval', async () => {
+    fetchMock.mockImplementation(async () => ok(runBody({
+      approval: { state: 'required', enforced: true, requiredRole: 'manager', ruleName: 'All pay runs', requestId: null },
+    })));
+    render(<PayrollRunDetailPage />);
+    expect(await screen.findByRole('button', { name: /submit for approval/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /post approved run/i })).toBeNull();
+  });
+
+  it('an R-035-cleared run offers Post approved run, shows the journal, and POSTs /approve with the previewed hash', async () => {
     serve(() => approvedResult('je-123'));
     render(<PayrollRunDetailPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /review & approve/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /post approved run/i }));
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByText('Other Employee Deductions Payable')).toBeTruthy();
     expect(within(dialog).getAllByText(/75[\s ]927\.12/).length).toBeGreaterThan(0);
@@ -104,7 +113,7 @@ describe('payroll run page — approve (PAY-01)', () => {
     const detail = "The fiscal period covering 2026-09-30 is 'closed', so the payroll journal cannot post into it.";
     serve(() => approvedResult('je-1'), { preview: planBody({ code: 'closed_period', detail }) });
     render(<PayrollRunDetailPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /review & approve/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /post approved run/i }));
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByText(detail)).toBeTruthy();
     expect((within(dialog).getByRole('button', { name: /approve and post journal/i }) as HTMLButtonElement).disabled).toBe(true);
@@ -136,15 +145,15 @@ describe('payroll run page — approve (PAY-01)', () => {
     fetchMock.mockImplementation(async () => ok(runBody({ status: 'draft', lines: [] })));
     render(<PayrollRunDetailPage />);
     await screen.findByRole('button', { name: /^calculate$/i });
-    expect(screen.queryByRole('button', { name: /review & approve/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /post approved run/i })).toBeNull();
   });
 
-  it.each(['viewer', null])('role %s is not offered Review & approve', async (role) => {
+  it.each(['viewer', null])('role %s is not offered Post approved run', async (role) => {
     company.role = role;
     serve(() => approvedResult('je-1'));
     render(<PayrollRunDetailPage />);
     await screen.findByText('Riaan Smit');
-    expect(screen.queryByRole('button', { name: /review & approve/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /post approved run/i })).toBeNull();
   });
 
   // Round 6: the calculate route is withWriteAccess (a viewer gets 403), so the page must not offer it.
@@ -208,7 +217,7 @@ describe('payroll run page — after approval (review round 1)', () => {
       ? ok(runBody({ id: OTHER, periodMonth: 10, lines: [line('9', 'Other Person')] }))
       : base(url, init)));
     const view = render(<PayrollRunDetailPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /review & approve/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /post approved run/i }));
     const dialog = await screen.findByRole('dialog');
     await within(dialog).findByText('Other Employee Deductions Payable');
     fireEvent.click(within(dialog).getByRole('button', { name: /approve and post journal/i }));

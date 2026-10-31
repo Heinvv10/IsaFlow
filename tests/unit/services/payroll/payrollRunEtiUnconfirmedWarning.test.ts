@@ -32,6 +32,12 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunLoanApplication', () =>
 vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({
   journalInForceOrNull: vi.fn(async () => null),
 }));
+vi.mock('@/modules/accounting/services/payroll/payrollApprovalGate', () => ({
+  judgePayrollApproval: vi.fn(async () => ({ planHash: 'plan-a' })),
+}));
+vi.mock('@/modules/accounting/services/payroll/payRunApprovalAudit', () => ({
+  recordPayRunApprovalAudit: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollComponentService', () => ({
   getEmployeeComponents: vi.fn(async () => [{
     component: {

@@ -19,6 +19,8 @@ import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
 import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
+import { judgePayrollApproval } from './payrollApprovalGate';
+import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -112,6 +114,7 @@ export async function getPayrollRun(
 export async function calculatePayrollRun(
   runId: string,
   companyId: string,
+  preparedBy: string | null = null,
 ): Promise<PayrollRunSummary> {
   log.info('Calculating payroll run', { runId, companyId }, 'payrollRunService');
 
@@ -261,7 +264,19 @@ export async function calculatePayrollRun(
   const updated = await saveCalculatedRunTotals(runId, companyId, {
     gross: r(totalGross), paye: r(totalPaye), uif: r(totalUifEmployee + totalUifEmployer),
     sdl: r(totalSdl), eti: r(totalEti), net: r(totalNet), employeeCount: lineInserts.length,
-  });
+  }, preparedBy ?? (run.created_by == null ? null : String(run.created_by)));
+  const author = preparedBy ?? (run.created_by == null ? null : String(run.created_by));
+  const approval = await judgePayrollApproval(companyId, runId);
+  if (!approval) throw new Error('Calculated payroll run disappeared before its approval plan was recorded');
+  await sql`
+    UPDATE payroll_run_headers SET approval_plan_hash = ${approval.planHash}
+    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+  `;
+  if (author) {
+    await recordPayRunApprovalAudit({
+      companyId, runId, actorId: author, event: 'prepared', planHash: approval.planHash,
+    });
+  }
 
   log.info(
     'Payroll run calculated',

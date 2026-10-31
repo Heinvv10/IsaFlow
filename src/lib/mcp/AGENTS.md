@@ -23,6 +23,7 @@ audit/idempotency, types. Exposed to clients via `pages/api/mcp/index.ts`
   `'rejected'`.
 - `McpToolContext.companyRole` is the caller's `company_users.role`, taken from the bearer pipeline's membership check (`pages/api/mcp/index.ts`). Every `write: true` tool, and every tool with `requiresWriteRole: true` (per-employee payroll reads), is refused by the registry (`roleFence.ts`), before its handler, unless the role is owner/admin/manager; a missing role is refused (audit 2026-10-18 S-01: a viewer's token with write:post posted journals). A tool that needs a `write:*` scope or `requiresPost` must be `write: true` — `tests/unit/mcp/writeToolRoleFence.test.ts` fails otherwise. At mint, `scopesRoleMayNotHold` (`src/lib/auth/writeRoles.ts`) refuses a PAT write scope to a non-writing role and drops write scopes from an OAuth consent for one. A scope alone never opens one. `list_employees` is not fenced: it gives a viewer names only (handler checks the role).
 - Handler errors surface as a GENERIC message (no stack/SQL); audited `'error'`.
+- Payroll R-035 (2026-10-31): `calculate_pay_run` records the token user as the run's preparer. Agents never raise or decide approvals. `approve_pay_run` and `post_payroll_journal` return "A person must approve this pay run in ISAFlow" until a human R-035 request clears the exact `planHash`; the reusable service guard remains authoritative under the payroll lock.
 
 ## Main signatures
 
