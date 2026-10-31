@@ -247,7 +247,7 @@ export const updateBankRuleTool: McpTool = {
 export const disableBankRuleTool: McpTool = {
   name: 'disable_bank_rule',
   description:
-    'Deactivate a bank categorisation rule so it stops matching. The rule is kept, not deleted — pass enable=true to turn it back on. This is the safe way to stop a rule that posts to an account you are retiring.',
+    'Deactivate a bank categorisation rule so it stops matching. The rule is kept, not deleted — pass enable=true to turn it back on. Reactivating a rule with auto_create_entry=true requires the "Post to ledger" permission (write:post). This is the safe way to stop a rule that posts to an account you are retiring.',
   scope: 'write:bank-tx',
   write: true,
   inputSchema: {
@@ -275,6 +275,8 @@ export const disableBankRuleTool: McpTool = {
       // same key must not read "changed" when nothing did.
       return ok({ id: ruleId, rule_name: rule.ruleName, is_active: isActive, already: true });
     }
+    const scopeRefusal = autoPostScopeRefusal(ctx, isActive && rule.autoCreateEntry);
+    if (scopeRefusal) return scopeRefusal;
 
     const written = await toggleRule(ctx.companyId, ruleId, isActive, ctx.userId);
     if (written.status === 'pending_approval') return reply(written);

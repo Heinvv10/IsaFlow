@@ -22,10 +22,12 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 import {
   createRule,
   getRules,
+  toggleRule,
   updateRule,
 } from '@/modules/accounting/services/bank/bankRulesService';
 import {
   createBankRuleTool,
+  disableBankRuleTool,
   updateBankRuleTool,
 } from '@/lib/mcp/tools/writeBankRules';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -54,7 +56,7 @@ function ctx(scopes: string[]): McpToolContext {
   };
 }
 
-function rule(autoCreateEntry: boolean): BankCategorisationRule {
+function rule(autoCreateEntry: boolean, isActive = true): BankCategorisationRule {
   return {
     id: RULE_ID,
     ruleName: 'Bank charges',
@@ -62,7 +64,7 @@ function rule(autoCreateEntry: boolean): BankCategorisationRule {
     matchType: 'contains',
     matchPattern: 'BANK CHARGE',
     priority: 100,
-    isActive: true,
+    isActive,
     autoCreateEntry,
     vatCode: 'none',
     createdAt: '2026-01-01',
@@ -205,5 +207,19 @@ describe('update_bank_rule automatic-posting scope', () => {
     });
     expect(preview.wroteNothing).toBe(true);
     expect(updateRule).not.toHaveBeenCalled();
+  });
+});
+
+describe('disable_bank_rule automatic-posting scope', () => {
+  it('refuses reactivating an auto-posting rule without write:post', async () => {
+    vi.mocked(getRules).mockResolvedValue([rule(true, false)]);
+
+    const result = await disableBankRuleTool.handler(
+      { rule_id: RULE_ID, enable: true, ...KEY },
+      ctx(['write:bank-tx']),
+    );
+
+    expect(errorText(result)).toMatch(/post to ledger/i);
+    expect(toggleRule).not.toHaveBeenCalled();
   });
 });
