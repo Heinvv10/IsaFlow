@@ -5,7 +5,7 @@
 
 Budget drivers (Budgets P4, spec `docs/plans/budgets/P4-drivers-forecast-spec.md` §1, §2, §4, §5, §6).
 
-- **Engine files are PURE** (no `@/lib/neon`, no I/O; PR-1): `driverTypes.ts`, `driverGraph.ts`, `driverEngine.ts`, `headcount.ts`, `reforecast.ts`; also `driverLine.ts`, `driverErrors.ts`, `driverApiTypes.ts` (PR-3).
+- **Engine files are PURE** (no `@/lib/neon`, no I/O; PR-1): `driverTypes.ts`, `driverGraph.ts`, `driverEngine.ts`, `headcount.ts`, `reforecast.ts`; also `driverLine.ts`, `driverErrors.ts`, `driverApiTypes.ts` (PR-3), `perHeadAccess.ts` (decision 15).
 - **Service files do I/O** (PR-3): `driverRepository.ts`, `payrollHeadcountReader.ts`, `driverHeadcount.ts`, `driverCellSources.ts`, `driverRecomputeService.ts`, `driverValidate.ts`, `driverWriteScope.ts`, `driverWriteService.ts`, `plannedHireService.ts`. They read rows, cells, drivers and payroll, call the engine, and write only what `writes` lists. Routes: `pages/api/accounting/budget-drivers/**`.
 - **Reforecast + rolling** (PR-4): `reforecastInputs.ts`, `reforecastService.ts`, `rollingForecastService.ts`, `rollingStatus.ts`, `budgetRollQueue.ts`, `budgetRollJob.ts`. Route: `pages/api/accounting/budget-versions/[id]/reforecast.ts`.
 
@@ -40,6 +40,9 @@ Budget drivers (Budgets P4, spec `docs/plans/budgets/P4-drivers-forecast-spec.md
 - `rollingStatus.ts` (GET): `{rolling, rolledThroughMonth, latestClosedMonth, staleMonths, reopenedMonths, unplaced, lastRolledAt, lastError}`. `unplaced` is recomputed (no migration) with the planner's ONE rule, `unplacedActuals` (exported by reforecast.ts, which `planReforecast` calls too), over `loadVersionModel`'s rows and `readClosedActuals`, so an auto roll's unplaced amounts stay visible; `reopenedMonths` = months holding 'actual' cells that are not closed now, for any reforecast, rolling or not; `staleMonths` only for a rolling one. Roll and create audits list unplaced amounts (`unplacedSummary`: "code month amount", at most 40), not a count.
 - Payroll labour journal lines carry no `cc1_id` (spec §11, dev 2026-10-29): labour budgeted by CC1 reforecasts those actuals as `unplaced`, never on a company row.
 
+## Per-head access (decision 15, POPIA, 2026-10-30)
+- A per_head rate is a person's budgeted pay in a one-employee centre; headcount beside the row's totals gives it back. `perHeadAccess.ts`: `perHeadAccessOf(role)` = 'full' for `canWrite` roles (owner/admin/manager), else 'totals'; `visibleDriverLines(lines, access)` removes the `amount` KEY of every per_head line for 'totals' and adds `perHeadRestricted: true` (other kinds whole). `listDrivers`, `readHeadcount` (totals: `{ costCentreId, perHeadRestricted: true }`, payroll not read, version and centre still checked) and `loadGridReadModel` take the access as a REQUIRED argument. Template and import diff pass 'totals' (they read cells only). Write answers are for writers only and are not redacted.
+
 ## Signatures
 - `driverGraph.ts`: `buildDriverGraph(rows, drivers)`, `topoOrder(graph)` (Kahn, ties by key), `assertNoCycle(rows, drivers)` (driver-save validator).
 - `driverEngine.ts`: `computeVersion({months, rows, cells, drivers, headcount, closedMonths, rounding})` → `{writes, warnings}`; `assertDriverMonths(monthIndex(months), driver)` for driver save.
@@ -63,3 +66,4 @@ Budget drivers (Budgets P4, spec `docs/plans/budgets/P4-drivers-forecast-spec.md
 - 2026-10-29: created (P4 PR-1); per-driver `rounding`; review round 1: single rounding, re-sourcing, reopened-month actuals, pct / headcount bounds.
 - 2026-10-29 (P4 PR-3): services, routes, payroll headcount reader, grid-save hook.
 - 2026-10-29 (P4 PR-4): reforecast from actuals, rolling forecast (after-commit roll on close, Roll now, toggle, status).
+- 2026-10-30: per-head rates and headcount for budget writers only (`perHeadAccess.ts`, decision 15, POPIA).
