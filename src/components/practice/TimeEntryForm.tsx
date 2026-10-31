@@ -17,6 +17,7 @@ import {
   type EntryTemplate,
 } from './practiceApi';
 import { JobBudgetPicker } from './JobBudgetPicker';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 export interface Client { id: string; legalName: string; tradingName?: string | null; }
 export interface Category { id: string; name: string; }
@@ -83,6 +84,7 @@ function workItemPlaceholder(categoryId: string, count: number, failed: boolean)
 // --- main component ---
 
 export function TimeEntryForm({ clients, categories, defaultDate, currentUserId, onSubmit, onCancel }: TimeEntryFormProps) {
+  const dateGate = useDateGate();
   const [entryDate, setEntryDate] = useState(defaultDate);
   const [hours, setHours] = useState('');
   const [practiceClientId, setPracticeClientId] = useState('');
@@ -197,8 +199,7 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
 
       <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
         <div className="md:col-span-2">
-          <label className={LABEL_CLS}>Date <span className="text-red-400">*</span></label>
-          <input type="date" required value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className={INPUT_CLS} />
+          <GatedDateField gate={dateGate} gateKey="date" label="Date" required value={entryDate || null} onValue={(iso) => setEntryDate(iso)} />
         </div>
         <div className="md:col-span-1">
           <label className={LABEL_CLS}>Hours <span className="text-red-400">*</span></label>
@@ -255,7 +256,7 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
 
       <div className="flex flex-col gap-3 pt-1">
         <div className="flex items-center gap-3">
-          <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+          <button type="submit" disabled={submitting || dateGate.blocked} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {submitting ? 'Saving…' : 'Save Entry'}
           </button>

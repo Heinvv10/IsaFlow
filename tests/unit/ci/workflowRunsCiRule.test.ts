@@ -11,7 +11,8 @@ import { checkWorkflowRunsCi, WORKFLOW_FILES } from '../../../scripts/ci/workflo
 
 const REAL = readFileSync('.github/workflows/ci.yml', 'utf8');
 const SCRIPTS = (JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }).scripts;
-const GATE_LINE = '        run: bun run ci\n';
+const GATE_LINE = '      - name: CI gate (scripts/ci/run-ci.sh static)\n        run: bun run ci static\n';
+const VELO_GATE_LINE = '        run: bun run ci velo\n';
 
 function check(yamlText: string, scripts: unknown = SCRIPTS): string[] {
   return checkWorkflowRunsCi(load(yamlText), scripts, WORKFLOW_FILES);
@@ -22,25 +23,42 @@ function edit(from: string, to: string): string {
   return REAL.replace(from, to);
 }
 
+/** static and velo share their hosted setup steps: edit the nth (0 = static's, 1 = velo's) of exactly two. */
+function editNth(from: string, to: string, nth: 0 | 1): string {
+  const parts = REAL.split(from);
+  expect(parts.length - 1, `fixture anchor must occur twice: ${from}`).toBe(2);
+  return nth === 0 ? parts[0] + to + parts[1] + from + parts[2] : parts[0] + from + parts[1] + to + parts[2];
+}
+
 const GATE_STEP = [
-  '      - name: CI gate (scripts/ci/run-ci.sh)',
-  '        run: bun run ci',
+  '      - name: CI gate (scripts/ci/run-ci.sh static)',
+  '        run: bun run ci static',
   '        env:',
   '          CI_READ_TOKEN: ${{ github.token }}',
   '          DATABASE_URL: ${{ secrets.DATABASE_URL }}',
   '          JWT_SECRET: test-secret-for-ci-only',
   '          NODE_ENV: test',
+  '          # Velo and production run in SAST; the date tests assert the local',
+  '          # day, and a hosted runner is UTC.',
+  '          TZ: Africa/Johannesburg',
   '',
 ].join('\n');
-// The install step appears in both jobs; the gate comment makes this quality's.
-const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # The gate list';
-// Unique to quality: the --ignore-scripts comment follows its checkout.
-const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # --ignore-scripts';
+// The install step appears in static and velo; the gate comment makes this static's.
+const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # Chromium for';
+// Unique to static: the hosted-setup comment follows its checkout.
+const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # GitHub-hosted only';
+const VELO_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # As in static.';
 const GOLDEN_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # A push';
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
 const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
+const VELO_PERMS = `# As in static (the merge check).\n${JOB_PERMS}`;
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
+const STATIC_HEADER = '  static:\n    name: Static gates\n';
+const VELO_HEADER = '  velo:\n    name: Browser & integration\n';
+const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]\n';
+const LIGHT = `\${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}`;
+const STATIC_RUNS_ON = `\${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
 const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
 
 describe('the committed workflow', () => {
@@ -56,9 +74,11 @@ describe('the committed workflow', () => {
 describe('refuses every way found to keep the job green while skipping gates', () => {
   const cases: Array<[string, string]> = [
     ['if: false on the gate step', edit(GATE_LINE, `${GATE_LINE}        if: false\n`)],
-    ['if: false on the job', edit(QUALITY_HEADER, `${QUALITY_HEADER}    if: false\n`)],
+    ['if: false on the static job', edit(STATIC_HEADER, `${STATIC_HEADER}    if: false\n`)],
+    ['if: false on the velo job', edit(VELO_HEADER, `${VELO_HEADER}    if: false\n`)],
+    ['if: false on the velo gate step', edit(VELO_GATE_LINE, `${VELO_GATE_LINE}        if: false\n`)],
     ['shell override prints instead of running', edit(GATE_LINE, `${GATE_LINE}        shell: cat {0}\n`)],
-    ['CI_SKIP_BUILD in the step env drops the build', edit('          NODE_ENV: test\n', '          NODE_ENV: test\n          CI_SKIP_BUILD: "1"\n')],
+    ['CI_SKIP_BUILD in the step env drops the build', edit(GATE_STEP, GATE_STEP.replace('TZ: Africa/Johannesburg\n', 'TZ: Africa/Johannesburg\n          CI_SKIP_BUILD: "1"\n'))],
     ['an earlier step rewrites run-ci.sh', edit(QUALITY_INSTALL, QUALITY_INSTALL.replace('--ignore-scripts', '--ignore-scripts && printf "exit 0\\n" > scripts/ci/run-ci.sh'))],
     ['install without --ignore-scripts (root, workspace-member and trusted-dependency lifecycle scripts run and can rewrite run-ci.sh)', edit(QUALITY_INSTALL, QUALITY_INSTALL.replace(' --ignore-scripts', ''))],
     ['an extra step before the gate', edit(QUALITY_INSTALL, `      - run: echo hi\n${QUALITY_INSTALL}`)],
@@ -69,14 +89,18 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['paths-ignore on pull_request', edit('  pull_request:\n    branches: [master]\n', '  pull_request:\n    branches: [master]\n    paths-ignore: ["**"]\n')],
     ['pull_request retargeted away from master', edit('  pull_request:\n    branches: [master]\n', '  pull_request:\n    branches: [release]\n')],
     ['quoted "continue-on-error" on the step', edit(GATE_LINE, `${GATE_LINE}        "continue-on-error": true\n`)],
-    ['continue-on-error on the job', edit(QUALITY_HEADER, `${QUALITY_HEADER}    continue-on-error: true\n`)],
-    ['flow-style step with continue-on-error', edit(GATE_STEP, '      - { name: CI gate, run: bun run ci, continue-on-error: true }\n')],
-    ['gate replaced by one hand-picked gate', edit(GATE_LINE, '        run: bun run test:unit\n')],
-    ['gate neutralised with || true', edit(GATE_LINE, '        run: bun run ci || true\n')],
+    ['continue-on-error on the static job', edit(STATIC_HEADER, `${STATIC_HEADER}    continue-on-error: true\n`)],
+    ['continue-on-error on the velo job', edit(VELO_HEADER, `${VELO_HEADER}    continue-on-error: true\n`)],
+    ['flow-style step with continue-on-error', edit(GATE_STEP, '      - { name: CI gate, run: bun run ci static, continue-on-error: true }\n')],
+    ['gate replaced by one hand-picked gate', edit(GATE_LINE, '      - run: bun run test:unit\n')],
+    ['gate neutralised with || true', edit(GATE_LINE, '      - run: bun run ci static || true\n')],
+    ['the velo job running the static group (browser-tests and integration never run)', edit(VELO_GATE_LINE, '        run: bun run ci static\n')],
+    ['the static job running the velo group', edit(GATE_LINE, '      - run: bun run ci velo\n')],
+    ['an unknown group (run-ci.sh exits 2, but the shape is refused first)', edit(VELO_GATE_LINE, '        run: bun run ci none\n')],
     // Top-level only: the jobs' own permissions blocks are indented.
     ['workflow-level env', edit('\npermissions:\n', '\nenv:\n  CI_SKIP_BUILD: "1"\n\npermissions:\n')],
     ['workflow-level defaults.run.shell', edit('\npermissions:\n', '\ndefaults:\n  run:\n    shell: cat {0}\n\npermissions:\n')],
-    ['job-level env', edit(QUALITY_HEADER, `${QUALITY_HEADER}    env:\n      SKIP_CI: "1"\n`)],
+    ['job-level env', edit(STATIC_HEADER, `${STATIC_HEADER}    env:\n      SKIP_CI: "1"\n`)],
   ];
 
   it.each(cases)('%s', (_label, mutated) => {
@@ -84,7 +108,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it('the real step parked in a decoy job while quality runs one gate', () => {
-    const mutated = edit(GATE_LINE, '        run: bun run test:unit\n') + [
+    const mutated = edit(GATE_LINE, '      - run: bun run test:unit\n') + [
       '  decoy:',
       '    if: false',
       '    runs-on: ubuntu-latest',
@@ -118,9 +142,19 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['a fractional timeout', 'timeout-minutes: 20.5'],
     ['no timeout floor (key removed)', null],
   ])('%s: the check ends cancelled, never red', (_label, line) => {
-    // Anchored on quality's own comment: golden-paths has a timeout-minutes too.
-    const from = 'so 120.\n    timeout-minutes: 120\n';
-    expect(check(edit(from, line === null ? 'so 120.\n' : `so 120.\n    ${line}\n`)).length).toBeGreaterThan(0);
+    // Anchored on the velo job's own comment: golden-paths has a timeout-minutes too.
+    const from = 'so 90.\n    timeout-minutes: 90\n';
+    expect(check(edit(from, line === null ? 'so 90.\n' : `so 90.\n    ${line}\n`)).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['the old 30-minute cap', 'timeout-minutes: 30'],
+    ['a cap just under the floor', 'timeout-minutes: 59'],
+    ['no timeout at all (key removed)', null],
+  ])('golden-paths with %s: every run is cut short and ends cancelled', (_label, line) => {
+    const from = '    timeout-minutes: 60\n    # The suite writes to the SHARED';
+    const to = line === null ? '    # The suite writes to the SHARED' : `    ${line}\n    # The suite writes to the SHARED`;
+    expect(check(edit(from, to)).length).toBeGreaterThan(0);
   });
 
   it.each([
@@ -165,7 +199,8 @@ describe('refuses every way found to keep the job green while skipping gates', (
 
   it.each([
     ['golden-paths', GOLDEN_PERMS],
-    ['quality', QUALITY_PERMS],
+    ['static', QUALITY_PERMS],
+    ['velo', VELO_PERMS],
   ])('%s widening its own token', (_job, from) => {
     expect(check(edit(from, from.replace('actions: read', 'actions: write'))).length).toBeGreaterThan(0);
     expect(check(edit(from, from.replace('      pull-requests: read\n', '      pull-requests: read\n      checks: write\n'))).length).toBeGreaterThan(0);
@@ -178,7 +213,8 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it.each([
-    ['quality', QUALITY_CHECKOUT],
+    ['static', QUALITY_CHECKOUT],
+    ['velo', VELO_CHECKOUT],
     ['golden-paths', GOLDEN_CHECKOUT],
   ])('%s leaving its read token in .git/config (persist-credentials dropped or true)', (_job, from) => {
     expect(check(edit(from, from.replace('          persist-credentials: false\n', ''))).length).toBeGreaterThan(0);
@@ -187,7 +223,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it('CI_READ_TOKEN set to anything but the job token (the merge check trusts the API it reaches)', () => {
-    expect(check(edit('          CI_READ_TOKEN: ${{ github.token }}\n          DATABASE_URL', '          CI_READ_TOKEN: ${{ secrets.OTHER }}\n          DATABASE_URL')).length).toBeGreaterThan(0);
+    expect(check(edit(GATE_STEP, GATE_STEP.replace('${{ github.token }}', '${{ secrets.OTHER }}'))).length).toBeGreaterThan(0);
   });
 
   it('a fourth job in ci.yml', () => {
@@ -195,26 +231,62 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it('runs-on a label no runner has, so the job queues forever and never goes red', () => {
-    expect(check(edit(`${QUALITY_HEADER}    runs-on: [self-hosted, linux, velo]\n`, `${QUALITY_HEADER}    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
+    expect(check(edit(`${VELO_HEADER}    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n`, `${VELO_HEADER}    needs: route\n    runs-on: [nonexistent-label]\n`)).length).toBeGreaterThan(0);
+    expect(check(edit(`    needs: route\n    runs-on: ${STATIC_RUNS_ON}\n    # Hosted: 40`, `    needs: route\n    runs-on: [nonexistent-label]\n    # Hosted: 40`)).length).toBeGreaterThan(0);
+    expect(check(edit(`  route:\n    name: CI route\n    runs-on: ${LIGHT}\n`, '  route:\n    name: CI route\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
+    expect(check(edit(`    if: \${{ always() }}\n    runs-on: ${LIGHT}\n`, '    if: ${{ always() }}\n    runs-on: [nonexistent-label]\n')).length).toBeGreaterThan(0);
   });
 
   it('the quality job removed or renamed', () => {
     expect(check(edit('  quality:\n', '  checks:\n')).length).toBeGreaterThan(0);
+    expect(check(edit(QUALITY_HEADER, '  quality:\n    name: Type Check and Lint\n')).length).toBeGreaterThan(0);
   });
 });
 
-describe('accepts equivalent spellings of the one allowed shape', () => {
-  it('a nameless step, a quoted command and a trailing comment', () => {
-    expect(check(edit('      - name: CI gate (scripts/ci/run-ci.sh)\n        run: bun run ci\n', '      - run: bun run ci\n'))).toEqual([]);
-    expect(check(edit(GATE_LINE, '        run: "bun run ci"\n'))).toEqual([]);
-    expect(check(edit(GATE_LINE, '        run: bun run ci  # every gate\n'))).toEqual([]);
-  });
+describe('the required check passes only when both gate groups passed', () => {
+  const cases: Array<[string, string]> = [
+    ['aggregator skipped when a group fails (if: success())', edit("    if: ${{ always() }}\n", '    if: ${{ success() }}\n')],
+    ['aggregator without if (skipped, which counts as passing)', edit("    if: ${{ always() }}\n", '')],
+    ['aggregator if: !cancelled() (a cancelled run skips the required check)', edit("    if: ${{ always() }}\n", '    if: ${{ !cancelled() }}\n')],
+    ['aggregator stops waiting for velo', edit('    needs: [route, static, velo]\n', '    needs: [route, static]\n')],
+    ['aggregator ignores the velo result', edit(AGGREGATE, AGGREGATE.replace(' && [ "$VELO" = "success" ]', ''))],
+    ['aggregator accepts any static result', edit(AGGREGATE, AGGREGATE.replace(' && [ "$STATIC" = "success" ]', ''))],
+    ['the velo fallback back in the aggregator (it queues forever once velo is paused)', edit('    needs: [route, static, velo]\n', '    needs: [route, static, static-fallback, velo]\n')],
+    ['aggregator accepts skipped', edit(AGGREGATE, AGGREGATE.replace('[ "$STATIC" = "success" ]', '[ "$STATIC" != "failure" ]'))],
+    ['static apt step installs something else', edit(' --no-install-recommends ghostscript\n', ' --no-install-recommends ghostscript && printf "exit 0\\n" > scripts/ci/run-ci.sh\n')],
+    ['velo apt step installs something else', edit(' libreoffice-calc-nogui poppler-utils\n', ' libreoffice-calc-nogui poppler-utils && printf "exit 0\\n" > scripts/ci/run-ci.sh\n')],
+    ['velo browser step rewriting what the gate runs', edit('        run: bunx playwright install --with-deps chromium\n\n      - name: CI gate (scripts/ci/run-ci.sh velo)', '        run: bunx playwright install --with-deps chromium && true\n\n      - name: CI gate (scripts/ci/run-ci.sh velo)')],
+    ['aggregator neutralised with || true', edit(AGGREGATE, AGGREGATE.replace('\n', ' || true\n'))],
+    ['aggregator reads a result that is not the job\'s', edit('          VELO: ${{ needs.velo.result }}\n', "          VELO: success\n")],
+    ['continue-on-error on the aggregator', edit(QUALITY_HEADER, `${QUALITY_HEADER}    continue-on-error: true\n`)],
+    ['a second aggregator step that always passes', edit(AGGREGATE, `${AGGREGATE}      - run: exit 0\n`)],
+    ['static timeout no longer pinned', edit("    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}\n", '    timeout-minutes: 1\n')],
+    ['static no longer needs route (its runs-on reads route\'s output)', edit(`${STATIC_HEADER}    needs: route\n`, STATIC_HEADER)],
+    ['velo no longer needs route', edit(`${VELO_HEADER}    needs: route\n`, VELO_HEADER)],
+    ['velo apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16", '      - run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends postgresql-16')],
+    ['velo without its browser install (browser-tests cannot launch Chromium)', edit("      # As in static: Chromium for browser-tests.\n      - if: ${{ runner.environment == 'github-hosted' }}\n        run: bunx playwright install --with-deps chromium\n", '')],
+    ['a hosted setup step that runs on velo too (static)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 0)],
+    ['a hosted setup step that runs on velo too (velo)', editNth("      - if: ${{ runner.environment == 'github-hosted' }}\n        uses: actions/setup-node@v6\n", '      - uses: actions/setup-node@v6\n', 1)],
+    ['setup-bun unpinned to a moving tag (static)', editNth('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', 'oven-sh/setup-bun@v2', 0)],
+    ['setup-bun unpinned to a moving tag (velo)', editNth('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6', 'oven-sh/setup-bun@v2', 1)],
+    ['another bun version on hosted (static)', editNth('          bun-version: 1.3.9\n', '          bun-version: latest\n', 0)],
+    ['another bun version on hosted (velo)', editNth('          bun-version: 1.3.9\n', '          bun-version: latest\n', 1)],
+    ['node_modules restored from the cache (static)', editNth('          path: ~/.bun/install/cache\n', '          path: node_modules\n', 0)],
+    ['node_modules restored from the cache (velo)', editNth('          path: ~/.bun/install/cache\n', '          path: node_modules\n', 1)],
+    ['route output widened to another key', edit('      hosted: ${{ steps.route.outputs.hosted }}\n', '      hosted: ${{ steps.route.outputs.hosted }}\n      labels: x\n')],
+    ['route step swaps the runner\'s bun before static runs on velo', edit('          if [ "$CI_HOSTED" = "off" ]; then\n', '          cp /bin/true "$HOME/.bun/bin/bun"\n          if [ "$CI_HOSTED" = "off" ]; then\n')],
+    ['route step dropped (output never set)', edit('      - name: Hosted or velo?\n', '      - name: Hosted or velo?\n        if: false\n')],
+    ['a decoy job named like the required check (newest run wins in the queue)', edit('    name: Golden Paths lane\n', '    name: Type Check, Lint & Test\n')],
+    ['static renamed to the required check', edit('    name: Static gates\n', '    name: Type Check, Lint & Test\n')],
+    ['golden-paths renamed (its required check never reports)', edit('    name: Golden Paths E2E (blocking)\n', '    name: Golden Paths E2E\n')],
+    ['a decoy whose name renders as the required check through an expression', edit('    name: Golden Paths lane\n', "    name: \"Type Check, Lint ${{ '&' }} Test\"\n")],
+    ['the apt step running on velo too', edit("      - if: ${{ runner.environment == 'github-hosted' }}\n        run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends ghostscript", '      - run: |\n          sudo apt-get update -qq\n          sudo apt-get install -y -qq --no-install-recommends ghostscript')],
+    ['the browser step rewriting what the gate runs', edit('        run: bunx playwright install --with-deps chromium\n\n      # The gate list', '        run: bunx playwright install --with-deps chromium && printf "exit 0\\n" > scripts/ci/run-ci.sh\n\n      # The gate list')],
+    ['TZ set to dodge the local-day tests', edit('          # day, and a hosted runner is UTC.\n          TZ: Africa/Johannesburg\n', '          # day, and a hosted runner is UTC.\n          TZ: UTC\n')],
+    ['route taking a concurrency group', edit('    name: CI route\n', '    name: CI route\n    concurrency:\n      group: ci-${{ github.ref }}\n')],
+  ];
 
-  it('quality without the job permissions block, and then a checkout without inputs', () => {
-    const narrow = edit(QUALITY_PERMS, QUALITY_PERMS.replace(JOB_PERMS, ''));
-    expect(checkWorkflowRunsCi(load(narrow), SCRIPTS, WORKFLOW_FILES)).toEqual([]);
-    const bare = narrow.replace(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('        with:\n          fetch-depth: 0\n          persist-credentials: false\n', ''));
-    expect(bare).not.toBe(narrow);
-    expect(checkWorkflowRunsCi(load(bare), SCRIPTS, WORKFLOW_FILES)).toEqual([]);
+  it.each(cases)('refuses: %s', (_label, mutated) => {
+    expect(check(mutated).length).toBeGreaterThan(0);
   });
 });

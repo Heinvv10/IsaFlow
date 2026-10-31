@@ -28,6 +28,7 @@ import BureauDashboardPage from '../../../pages/bureau/index';
 import BureauClientsPage from '../../../pages/bureau/clients/index';
 import LeaveDetailPage from '../../../pages/payroll/leave/[id]';
 import NewLeaveRequestPage from '../../../pages/payroll/leave/new';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 useApiJsonOverMock();
 configure({ asyncUtilTimeout: 4000 });   // the full suite runs on a loaded host
@@ -127,9 +128,9 @@ describe('payroll leave pages show the server message', () => {
     }));
     fireEvent.change(emp!, { target: { value: 'e1' } });
     fireEvent.change(type!, { target: { value: 't1' } });
-    const [start, end] = Array.from(container.querySelectorAll('input[type="date"]'));
-    fireEvent.change(start!, { target: { value: '2026-10-05' } });
-    fireEvent.change(end!, { target: { value: '2026-10-07' } });
+    const [start, end] = dateInputs(container);
+    typeDate(start!, '2026-10-05');
+    typeDate(end!, '2026-10-07');
     fireEvent.submit(container.querySelector('form')!);
     expect(await screen.findByText(expected)).toBeTruthy();
     expect(screen.queryByText(/HTTP \d+|Unexpected end/)).toBeNull();
@@ -185,9 +186,9 @@ describe('success: pages render and complete with a valid envelope', () => {
     }));
     fireEvent.change(emp!, { target: { value: 'e1' } });
     fireEvent.change(type!, { target: { value: 't1' } });
-    const [start, end] = Array.from(container.querySelectorAll('input[type="date"]'));
-    fireEvent.change(start!, { target: { value: '2026-10-05' } });
-    fireEvent.change(end!, { target: { value: '2026-10-07' } });
+    const [start, end] = dateInputs(container);
+    typeDate(start!, '2026-10-05');
+    typeDate(end!, '2026-10-07');
     fireEvent.submit(container.querySelector('form')!);
     await vi.waitFor(() => expect(router.push).toHaveBeenCalledWith('/payroll/leave'));
   });

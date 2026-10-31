@@ -28,6 +28,7 @@ import { LoanEventsTab } from '@/components/loans/LoanEventsTab';
 import { LoanOverviewTab } from '@/components/loans/LoanOverviewTab';
 import { LoanScheduleTab } from '@/components/loans/LoanScheduleTab';
 import type { Loan } from '@/components/loans/types';
+import { dateInputs, typeDate } from '../../helpers/typeDate';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); routerState.query = {}; });
@@ -112,7 +113,7 @@ describe('loans: refusal message reaches the user', () => {
       method(init) === 'POST' ? refuse(MSG, 422) : ok([]));
     const { container } = render(<NewLoanPage />);
     fireEvent.change(screen.getByPlaceholderText('1000000.00'), { target: { value: '5000000' } });
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-02-01' } });
+    typeDate(dateInputs(container)[0]!, '2026-02-01');
     fireEvent.change(screen.getByPlaceholderText('60'), { target: { value: '60' } });
     fireEvent.change(screen.getByPlaceholderText('10.5'), { target: { value: '11' } });
     fireEvent.submit(screen.getByRole('button', { name: /create loan/i }).closest('form')!);
@@ -132,7 +133,7 @@ describe('loans: refusal message reaches the user', () => {
     vi.mocked(apiFetch).mockReset().mockImplementation(async () => refuse(MSG, 422));
     const { container } = render(<LoanEventsTab loanId="loan-1" events={[]} onRefresh={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /add event/i }));
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-03-01' } });
+    typeDate(dateInputs(container)[0]!, '2026-03-01');
     fireEvent.change(screen.getByPlaceholderText('Amount (ZAR)'), { target: { value: '5000' } });
     fireEvent.submit(screen.getByRole('button', { name: /save event/i }).closest('form')!);
     await sees(MSG);
@@ -143,7 +144,7 @@ describe('loans: refusal message reaches the user', () => {
     vi.mocked(apiFetch).mockReset().mockImplementation(async () => refuse(MSG, 422));
     const { container } = render(<LoanScheduleTab loanId="loan-1" rows={[]} loading={false} />);
     fireEvent.click(screen.getByRole('button', { name: /preview what-if/i }));
-    fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2025-01-01' } });
+    typeDate(dateInputs(container)[0]!, '2025-01-01');
     fireEvent.click(screen.getByRole('button', { name: /run preview/i }));
     await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalled());
     await sees(MSG);
