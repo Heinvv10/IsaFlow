@@ -1,10 +1,9 @@
 /**
  * MCP write tools: bank categorisation rules.
  *
- * None of these post anything by themselves — a rule only posts when an import
- * or a rule sweep runs it — so none is `requiresPost`. `auto_create_entry` is
- * the field that decides whether a rule posts a journal on match, so it is
- * stated in every description and surfaced in every reply rather than buried.
+ * None of these post anything during the call, so none is blanket
+ * `requiresPost`. Creating, setting or keeping `auto_create_entry=true` still
+ * needs `write:post`, because a later import or rule sweep posts through it.
  *
  * `disable_bank_rule` is separate from `update_bank_rule` because "stop this
  * rule firing" is the correction an agent needs most — during the Velocity
@@ -12,7 +11,7 @@
  * silently re-routed every future reload back to it — and it should not
  * require restating the rule's whole shape.
  */
-import type { McpTool } from '../types';
+import type { McpTool, McpToolContext, McpToolResult } from '../types';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { createRule, updateRule, toggleRule, type RuleOutcome } from '@/modules/accounting/services/bank/bankRulesService';
 import type {
@@ -48,6 +47,20 @@ import {
  * approve it (there is no decide tool).
  */
 const HELD_HINT = 'a person must approve it on the Bank rules page before it takes effect';
+const AUTO_POST_SCOPE_REFUSAL = 'Turning on or keeping automatic posting needs the "Post to ledger" '
+  + 'permission (write:post). Set auto_create_entry=false to create or update the rule without '
+  + 'automatic posting, or reconnect with posting allowed. Nothing was changed.';
+
+/** Per-call scope gate: handler refusals are audited as `rejected` by the registry. */
+const autoPostScopeRefusal = (ctx: McpToolContext, autoPosts: boolean): McpToolResult | null => (
+  autoPosts && !ctx.scopes.includes('write:post') ? toolError(AUTO_POST_SCOPE_REFUSAL) : null
+);
+
+const dryRun = (data: Record<string, unknown>): McpToolResult => ({
+  ...ok({ dry_run: true, ...data }),
+  wroteNothing: true,
+});
+
 const reply = (written: RuleOutcome) => (written.status === 'pending_approval'
   ? ok({ status: 'pending_approval', change_id: written.changeId,
     message: `Held for approval (change ${written.changeId}) — ${HELD_HINT}. Nothing was changed yet.` })
@@ -57,7 +70,8 @@ export const createBankRuleTool: McpTool = {
   name: 'create_bank_rule',
   description:
     'Create a bank categorisation rule. It applies to transactions matched from now on — creating a rule does NOT post anything by itself. ' +
-    'auto_create_entry=true means every future match posts a journal automatically without review; leave it false unless that is what you want. ' +
+    'auto_create_entry=true means every future match posts a journal automatically without review and requires the "Post to ledger" permission (write:post); leave it false unless that is what you want. ' +
+    'dry_run=true validates and previews without writing. ' +
     'Where the company requires approval of bank-rule changes, an auto-posting rule is held for a person to approve (status pending_approval). ' +
     'Check list_bank_rules first: a more specific rule with a lower priority wins, and two rules matching the same pattern is how a migration gets silently undone.',
   scope: 'write:bank-tx',
@@ -70,6 +84,7 @@ export const createBankRuleTool: McpTool = {
       match_type: { type: 'string', enum: [...MATCH_TYPES] },
       match_pattern: { type: 'string' },
       ...RULE_TARGET_PROPERTIES,
+      dry_run: { type: 'boolean', description: 'Validate and preview only; writes nothing.' },
       idempotency_key: { type: 'string' },
     },
     required: ['rule_name', 'match_field', 'match_type', 'match_pattern', 'idempotency_key'],
@@ -98,12 +113,18 @@ export const createBankRuleTool: McpTool = {
     if (autoApply === 'invalid') {
       return toolError(`auto_apply must be one of: ${AUTO_APPLY_MODES.join(', ')}`);
     }
+    const autoCreateEntry = args.auto_create_entry === true;
+    const scopeRefusal = autoPostScopeRefusal(ctx, autoCreateEntry);
+    if (scopeRefusal) return scopeRefusal;
 
     const bad = guardCastableArgs(args, { uuid: ['gl_account_id', 'supplier_id', 'client_id'] });
     if (bad) return bad;
 
     const refs = parseRefs(args);
     if (!(await refsBelongToCompany(ctx.companyId, refs))) return toolError(NOT_FOUND);
+    if (args.dry_run === true) {
+      return dryRun({ action: 'create_bank_rule', auto_create_entry: autoCreateEntry });
+    }
 
     try {
       const written = await createRule(
@@ -116,7 +137,7 @@ export const createBankRuleTool: McpTool = {
           ...refs,
           descriptionTemplate: strArg(args, 'description_template'),
           priority,
-          autoCreateEntry: args.auto_create_entry === true,
+          autoCreateEntry,
           vatCode: vatCode as RuleVatCode | undefined,
           ...(autoApply === undefined ? {} : { autoApply }),
         },
@@ -133,6 +154,8 @@ export const updateBankRuleTool: McpTool = {
   name: 'update_bank_rule',
   description:
     'Update a bank categorisation rule. Pass only the fields to change. Re-pointing gl_account_id is the fix for a rule that still routes to a retired account. ' +
+    'Setting auto_create_entry=true, or changing any other field while the stored rule keeps auto_create_entry=true, requires the "Post to ledger" permission (write:post). Setting auto_create_entry=false does not. ' +
+    'dry_run=true validates and previews without writing. ' +
     'To only stop a rule firing, use disable_bank_rule — it needs nothing but the id.',
   scope: 'write:bank-tx',
   write: true,
@@ -146,6 +169,7 @@ export const updateBankRuleTool: McpTool = {
       match_pattern: { type: 'string' },
       is_active: { type: 'boolean' },
       ...RULE_TARGET_PROPERTIES,
+      dry_run: { type: 'boolean', description: 'Validate and preview only; writes nothing.' },
       idempotency_key: { type: 'string' },
     },
     required: ['rule_id', 'idempotency_key'],
@@ -180,9 +204,22 @@ export const updateBankRuleTool: McpTool = {
 
     // Ownership of the rule AND of anything it is being re-pointed at, both
     // answered from reads before the first write.
-    if (!(await loadRule(ctx.companyId, ruleId))) return toolError(NOT_FOUND);
+    const rule = await loadRule(ctx.companyId, ruleId);
+    if (!rule) return toolError(NOT_FOUND);
+    const resultingAutoCreateEntry = args.auto_create_entry === false
+      ? false
+      : args.auto_create_entry === true || rule.autoCreateEntry;
+    const scopeRefusal = autoPostScopeRefusal(ctx, resultingAutoCreateEntry);
+    if (scopeRefusal) return scopeRefusal;
     const refs = parseRefs(args);
     if (!(await refsBelongToCompany(ctx.companyId, refs))) return toolError(NOT_FOUND);
+    if (args.dry_run === true) {
+      return dryRun({
+        action: 'update_bank_rule',
+        rule_id: ruleId,
+        auto_create_entry: resultingAutoCreateEntry,
+      });
+    }
 
     try {
       const written = await updateRule(ctx.companyId, ruleId, {
