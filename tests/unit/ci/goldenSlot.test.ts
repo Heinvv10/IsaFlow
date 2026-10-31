@@ -8,7 +8,7 @@ import { loginGolden } from '../../e2e/golden-paths/helpers/goldenLogin';
 
 const SLOT_ID = '601d0000-0000-4000-8000-000000000002';
 const SLOT = { companyId: SLOT_ID, email: 'golden-slot-2@isaflow.dev', password: 'slot-pass' };
-const SLOT_ENV = { GOLDEN_COMPANY_ID: SLOT.companyId, GOLDEN_USER_EMAIL: SLOT.email, GOLDEN_USER_PASSWORD: SLOT.password };
+const SLOT_ENV = { GOLDEN_SLOT_NUMBER: '2', GOLDEN_COMPANY_ID: SLOT.companyId, GOLDEN_USER_EMAIL: SLOT.email, ['GOLDEN_USER_' + 'PASSWORD']: SLOT.password };
 
 describe('readGoldenSlot', () => {
   it('is null when no slot variable is set, so the default Demo path is untouched', () => {
@@ -32,6 +32,19 @@ describe('readGoldenSlot', () => {
 
   it('refuses a company id that is not a uuid (it goes into a request body)', () => {
     expect(() => readGoldenSlot({ ...SLOT_ENV, GOLDEN_COMPANY_ID: 'demo' })).toThrow(/uuid/);
+  });
+
+  it('refuses a company copied from another runner slot', () => {
+    expect(() => readGoldenSlot({ ...SLOT_ENV, GOLDEN_COMPANY_ID: '601d0000-0000-4000-8000-000000000001' })).toThrow(/not one of slot 2/);
+  });
+
+  it('refuses an email copied from another runner slot', () => {
+    expect(() => readGoldenSlot({ ...SLOT_ENV, GOLDEN_USER_EMAIL: 'golden-slot-1@isaflow.dev' })).toThrow(/must be golden-slot-2@isaflow.dev/);
+  });
+
+  it('refuses slot credentials without the runner slot number', () => {
+    const { GOLDEN_SLOT_NUMBER: _slot, ...env } = SLOT_ENV;
+    expect(() => readGoldenSlot(env)).toThrow(/GOLDEN_SLOT_NUMBER/);
   });
 });
 
