@@ -133,3 +133,10 @@ export function assertResetSeeds(resetSlot: number | undefined, seedUrl: string 
     throw new Error(`--reset-slot ${resetSlot} needs --seed-url <local dev server, port 3300-3799>: a rebuilt slot without the GSEED data fails the volume specs`);
   }
 }
+
+/** A newly created slot has the same bare-clone seed requirement as a reset slot. */
+export function assertFreshSlotSeeds(slot: number, fresh: boolean, seedUrl: string | undefined, dryRun: boolean): void {
+  if (fresh && !seedUrl && !dryRun) {
+    throw new Error(`new slot ${slot} needs --seed-url <local dev server, port 3300-3799>: a fresh slot without the GSEED data fails the volume specs`);
+  }
+}
