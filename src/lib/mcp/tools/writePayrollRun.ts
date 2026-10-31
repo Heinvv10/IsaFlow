@@ -45,6 +45,7 @@ import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed } from '@/modules/
 import { UnsupportedTaxYearError, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 
 /**
  * The stamp that puts this journal in `list_agent_postings`. Without it
@@ -126,7 +127,7 @@ export const calculatePayRunTool: McpTool = {
     }
 
     try {
-      const costed = await calculatePayrollRun(runId, ctx.companyId);
+      const costed = await calculatePayrollRun(runId, ctx.companyId, ctx.userId);
       return ok({
         ...runPayload(costed),
         ...(costed.totalEti > 0 && isEtiTableUnconfirmed(new Date(costed.periodYear, costed.periodMonth - 1, 28))
@@ -283,6 +284,9 @@ export const approvePayRunTool: McpTool = {
         expectedPlanHash: expectedPlanHash as string,
       });
     } catch (err) {
+      if (err instanceof ApprovalRequiredError) {
+        return toolError('A person must approve this pay run in ISAFlow before the connector can post it.');
+      }
       if (err instanceof PayrollApprovalRefusedError) return toolError(`Not approved: ${err.message}`);
       // The bounded wait for the run or its journal ran out — before any write.
       if (err instanceof PayrollLoanLockTimeoutError) return toolError(err.message);

@@ -48,6 +48,7 @@ function mockReqRes(companyRole = 'admin') {
     body: {},
     companyId: 'co-1',
     companyRole,
+    user: { id: 'user-1' },
   } as unknown as NextApiRequest;
   const res = {
     statusCode: 0,

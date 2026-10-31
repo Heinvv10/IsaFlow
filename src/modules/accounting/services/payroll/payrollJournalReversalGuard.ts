@@ -75,13 +75,13 @@ async function directiveRevival(companyId: string, rootId: string, description: 
 /** The description postPayrollRunJournal gives a run's journal (payrollJournalBuilder). */
 const RUN_JOURNAL = /^Payroll run (\d{4})-(\d{2})$/;
 
-interface RunRef { id: string; status: string; linksRoot: boolean }
+interface RunRef { id: string; status: string; linksRoot: boolean; planHash: string | null }
 
 /** The run this journal belongs to: the one linking it, else the one for the period it names. */
 async function payRunOf(companyId: string, rootId: string, description: string, db: TxSql): Promise<RunRef | null> {
   const period = RUN_JOURNAL.exec(description);
   const rows = (await db`
-    SELECT id, status, (journal_entry_id = ${rootId}::uuid) AS links_root
+    SELECT id, status, (journal_entry_id = ${rootId}::uuid) AS links_root, approved_plan_hash
       FROM payroll_run_headers
      WHERE company_id = ${companyId}::uuid
        AND (journal_entry_id = ${rootId}::uuid
@@ -89,7 +89,10 @@ async function payRunOf(companyId: string, rootId: string, description: string, 
      ORDER BY (journal_entry_id = ${rootId}::uuid) DESC NULLS LAST
      LIMIT 1
   `) as DbRow[];
-  return rows[0] ? { id: String(rows[0].id), status: String(rows[0].status), linksRoot: rows[0].links_root === true } : null;
+  return rows[0] ? {
+    id: String(rows[0].id), status: String(rows[0].status), linksRoot: rows[0].links_root === true,
+    planHash: rows[0].approved_plan_hash == null ? null : String(rows[0].approved_plan_hash),
+  } : null;
 }
 
 async function judge(companyId: string, rootId: string, db: TxSql): Promise<string | null> {
@@ -136,19 +139,22 @@ export async function payrollReversalRefusal(companyId: string, entry: { id: str
  * and judges inside them. Throws PayrollJournalReversalRefusedError, or
  * PayrollRunBusyError when the wait runs out.
  */
-export async function refuseReversalAgainstPayRun(companyId: string, entry: { id: string; source?: string }): Promise<void> {
-  if (entry.source !== 'auto_payroll') return;
+export async function refuseReversalAgainstPayRun(
+  companyId: string,
+  entry: { id: string; source?: string },
+): Promise<{ runId: string; planHash: string | null } | null> {
+  if (entry.source !== 'auto_payroll') return null;
   const rootId = await findChainRoot(companyId, entry.id);
   if (!rootId) throw new PayrollJournalReversalRefusedError(brokenChain(entry.id));
   const chain = await readJournalChain(companyId, rootId);
   const root = chain?.journals[0];
-  if (!root) return;
+  if (!root) return null;
   const run = await payRunOf(companyId, rootId, root.description, sql);
   if (!run) {
     // No run lock to take: a directive payment's chain only ever goes from in force to out.
     const refusal = await directiveRevival(companyId, rootId, root.description, sql);
     if (refusal) throw new PayrollJournalReversalRefusedError(refusal);
-    return;
+    return null;
   }
 
   try {
@@ -160,4 +166,5 @@ export async function refuseReversalAgainstPayRun(companyId: string, entry: { id
   }
   const refusal = await judge(companyId, rootId, sql);
   if (refusal) throw new PayrollJournalReversalRefusedError(refusal);
+  return { runId: run.id, planHash: run.planHash };
 }

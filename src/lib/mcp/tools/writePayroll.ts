@@ -23,6 +23,8 @@ import { listPayRunsPage } from '@/modules/accounting/services/payroll/payrollRu
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import type { DryRunResult } from '../contracts';
 import { guardCastableArgs, NOT_FOUND, ok, toolError } from './toolHelpers';
+import { assertPayRunApproved } from '@/modules/accounting/services/payroll/payRunApprovalControl';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 
 const POST_TOOL_AGENT = 'mcp:post_payroll_journal:v1';
 
@@ -128,6 +130,15 @@ export const postPayrollJournalTool: McpTool = {
     // a genuine miss.
     const plan = await buildPayrollJournalPlan(ctx.companyId, runId);
     if (!plan) return toolError(NOT_FOUND);
+
+    try {
+      await assertPayRunApproved(ctx.companyId, runId);
+    } catch (err) {
+      if (err instanceof ApprovalRequiredError || (err instanceof Error && err.message.includes('reviewed approval plan'))) {
+        return toolError('A person must approve this pay run in ISAFlow before the connector can post it.');
+      }
+      throw err;
+    }
 
     if (plan.blockers.length > 0) {
       const detail = plan.blockers.map((b) => `${b.code}: ${b.detail}`).join(' ');

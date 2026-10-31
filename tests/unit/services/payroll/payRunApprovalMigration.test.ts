@@ -1,0 +1,28 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const migration = readFileSync(resolve('scripts/migrations/sql/951_pay_run_approval.sql'), 'utf8');
+
+describe('migration 951 pay-run approval contract', () => {
+  it('makes every existing and future company enforce the fixed all-runs rule', () => {
+    expect(migration).toContain("'All pay runs', 'pay_run', 'total', 'any'");
+    expect(migration).toContain('AFTER INSERT ON public.companies');
+    expect(migration).toContain('trg_pay_run_enforcement_immutable');
+  });
+
+  it('uses the last calculator, including bureau staff, as the content author', () => {
+    expect(migration).toContain('ARRAY[h.prepared_by]');
+    expect(migration).toContain("p_document_type = 'pay_run'");
+  });
+
+  it('grandfathers only historical approved and paid runs', () => {
+    expect(migration).toContain("WHERE status IN ('approved', 'paid')");
+    expect(migration).not.toMatch(/WHERE status IN \([^)]*calculated/);
+  });
+
+  it('binds R-035 to payroll planHash through the durable digest', () => {
+    expect(migration).toContain('h.approval_plan_hash');
+    expect(migration).toContain('approval_document_digest_pre_payroll_951');
+  });
+});

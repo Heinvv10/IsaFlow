@@ -16,6 +16,8 @@ import { judgePayrollApproval, type PayrollApprovalGate } from './payrollApprova
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, lockRunJournalForApproval } from './payrollRunLock';
 import { claimRunSeveranceDirectives } from './payrollRunDirectiveClaim';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertPayRunApproved } from './payRunApprovalControl';
+import { recordPayRunApprovalAudit } from './payRunApprovalAudit';
 
 type Row = DbRow;
 
@@ -97,6 +99,9 @@ export async function approvePayrollRun(
     throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
 
+  // R-035: clearance is for this exact locked plan and precedes the first write.
+  await assertPayRunApproved(companyId, runId, gate.planHash);
+
   // The two writes a refusal may still follow, in ONE savepoint, so a refusal
   // from either leaves neither behind, whoever catches it (the MCP tool catches
   // it as a tool error, which releases its savepoint and commits):
@@ -132,6 +137,9 @@ export async function approvePayrollRun(
         approved_by = ${userId}::uuid,
         approved_at = clock_timestamp(),
         lines_confirmed_at = clock_timestamp(),
+        approved_plan_hash = ${gate.planHash},
+        approval_plan_hash = ${gate.planHash},
+        approval_grandfathered_at = NULL,
         updated_at  = NOW()
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
@@ -156,6 +164,10 @@ export async function approvePayrollRun(
   // agent work as the token owner's own and hides it from list_agent_postings —
   // the same reason postPayrollRunJournal takes the stamp at all.
   const journalEntryId = await postPayrollRunJournal(companyId, runId, userId, { postingAgent: opts?.postingAgent, plan });
+  await recordPayRunApprovalAudit({
+    companyId, runId, actorId: userId, event: 'executed', planHash: gate.planHash,
+    metadata: { executor: opts?.postingAgent ?? 'human', journalEntryId },
+  });
 
   log.info('Payroll run approved and journal posted', { companyId, runId, journalEntryId }, 'payrollApproval');
 
