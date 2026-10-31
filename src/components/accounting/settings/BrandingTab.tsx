@@ -130,8 +130,8 @@ export function BrandingTab({ company, onChange, onCompanyChange, onError }: Pro
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className={LABEL_CLS}>Position of Logo on Invoices and Statements</label>
-            <select className={INPUT_CLS} value={company.logoPosition} onChange={e => onChange('logoPosition', e.target.value)}>
+            <label htmlFor="branding-tab-position-of-logo-on-invoices-and" className={LABEL_CLS}>Position of Logo on Invoices and Statements</label>
+            <select id="branding-tab-position-of-logo-on-invoices-and" className={INPUT_CLS} value={company.logoPosition} onChange={e => onChange('logoPosition', e.target.value)}>
               <option value="top-left">Top Left</option>
               <option value="top-center">Top Center</option>
               <option value="top-right">Top Right</option>
