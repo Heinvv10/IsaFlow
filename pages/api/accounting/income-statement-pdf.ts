@@ -2,7 +2,9 @@
  * GET /api/accounting/income-statement-pdf
  * The Income Statement as a PDF download: the query contract of
  * income-statement-xlsx, with the report rate limit a PDF render earns. A
- * `group_by` is refused: see incomeStatementPdf.ts.
+ * `group_by` is refused: see incomeStatementPdf.ts. So is a `project_id`: nothing
+ * here applies it, and an unfiltered statement must not pass for a filtered one.
+ * `comparators` names the columns the screen had on, for the PDF to say are left out.
  */
 
 import type { NextApiResponse } from 'next';
@@ -16,7 +18,11 @@ import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { getCompanyDetailsFromCompany } from '@/modules/accounting/services/core/pdfShared';
 import { isDimensionGroupBy } from '@/modules/accounting/services/reports/dimensionPnlColumns';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
-import { buildIncomeStatementPdf, incomeStatementScopeLabel } from '@/modules/accounting/services/reports/incomeStatementPdf';
+import {
+  buildIncomeStatementPdf,
+  incomeStatementScopeLabel,
+  parseComparators,
+} from '@/modules/accounting/services/reports/incomeStatementPdf';
 
 const isDateParam = (value: unknown): value is string => typeof value === 'string' && isRealCalendarDate(value);
 
@@ -25,6 +31,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId, user } = req as unknown as CompanyAuthedRequest;
   const { period_start: start, period_end: end, cost_centre_id: ccId, business_unit_id: businessUnitId, group_by: groupBy } = req.query;
+  const omittedComparators = parseComparators(req.query.comparators);
 
   if (!isDateParam(start) || !isDateParam(end)) {
     return apiResponse.badRequest(res, 'period_start and period_end are required, as YYYY-MM-DD');
@@ -41,6 +48,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       ? 'Group-by is exported to Excel only'
       : 'group_by must be one of cc1, cc2, bu');
   }
+  if (req.query.project_id !== undefined) return apiResponse.badRequest(res, 'The PDF has no project filter');
+  if (!omittedComparators) return apiResponse.badRequest(res, 'comparators must be prior, budget or both');
 
   // Each member's own bucket: one member's exports cannot lock the company out.
   if (!(await checkReportRateLimit(companyId, `income-statement-pdf:u:${user.id}`))) {
@@ -52,7 +61,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const company = await getCompanyDetailsFromCompany(companyId);
   const report = await getIncomeStatement(companyId, start, end, { costCentreId: ccId, businessUnitId });
   const scope = await incomeStatementScopeLabel(companyId, ccId, businessUnitId);
-  const pdf = await buildIncomeStatementPdf(report, company, { scope, generatedOn: localISODate() });
+  const pdf = await buildIncomeStatementPdf(report, company, { scope, generatedOn: localISODate(), omittedComparators });
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="income-statement-${start}-to-${end}.pdf"`);

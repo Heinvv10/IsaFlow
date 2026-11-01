@@ -7,16 +7,21 @@
  * PDF leaves the app with no screen to qualify the margin. See
  * incomeStatementDisclosure.ts.
  *
- * No `group_by`: the route refuses it. An A4 landscape page takes 11 amount
- * columns at 7 pt (277 mm less a 50 mm account column, at 19.8 mm for a
- * -R212,345,678.90 cell), and a dimension has as many members as it has.
+ * Every amount prints through `formatStatementFigure`: a negative in brackets,
+ * space separators, a nil (anything under half a cent) as an en dash. Margins
+ * take the same bracket through `formatPctLevel`.
+ *
+ * No `group_by`: the route refuses it. An A4 landscape page takes 10 amount
+ * columns at 7 pt (277 mm less a 50 mm account column, at 22.5 mm for a bold
+ * `(R 212 345 678.90)` before cell padding), and a dimension has as many
+ * members as it has.
  */
 
+import { formatPctLevel, formatStatementFigure } from '@/lib/format/money';
 import { sql } from '@/lib/neon';
 import type { IncomeStatementLineItem, IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
 import {
   fmtDate,
-  fmtZAR,
   hexToRgb,
   renderPageFooters,
   COLORS,
@@ -31,15 +36,25 @@ import {
   type PackPandLRow,
 } from './incomeStatementPackRows';
 
-export type IncomeStatementPdfRow =
+type IncomeStatementPdfRow =
   | { kind: 'section'; label: string }
   | { kind: 'account'; code: string; label: string; amount: number }
   | { kind: 'band'; band: PackPandLBand; label: string; amount: number; margin?: number | null }
   | { kind: 'warning'; code?: string; label: string; amount: number }
   | { kind: 'note'; label: string };
 
-/** The report's totals under the names `incomeStatementPackRows` reads. */
+const money = (amount: number): string => formatStatementFigure(amount, { cents: true, symbol: true, pack: true });
+
+/** The screen's Net Profit row and the xlsx's; the packs keep their own label. */
+const NET_PROFIT_LABEL = 'Net Profit / (Loss)';
+
+/**
+ * The report's totals under the names `incomeStatementPackRows` reads. A margin
+ * prints only on positive turnover, as in the xlsx and CSV: the service keeps
+ * one on negative turnover for the screen.
+ */
 function packSection(report: IncomeStatementReport): Record<string, unknown> {
+  const hasMargin = report.totalRevenue > 0;
   return {
     revenue: report.totalRevenue,
     costOfSales: report.totalCostOfSales,
@@ -49,8 +64,8 @@ function packSection(report: IncomeStatementReport): Record<string, unknown> {
     operatingProfit: report.operatingProfit,
     otherExpenses: report.totalOtherExpenses,
     netProfit: report.netProfit,
-    grossMargin: report.grossMarginPct,
-    netMargin: report.netMarginPct,
+    grossMargin: hasMargin ? report.grossMarginPct : null,
+    netMargin: hasMargin ? report.netMarginPct : null,
   };
 }
 
@@ -66,7 +81,7 @@ function bandRows(report: IncomeStatementReport): PackPandLRow[] {
   };
   keep('otherIncome', 'Other Income', 'grossProfit', report.otherIncome);
   keep('otherExpenses', 'Other Expenses', 'operatingProfit', report.otherExpenses);
-  return rows;
+  return rows.map((row) => (row.key === 'netProfit' ? { ...row, label: NET_PROFIT_LABEL } : row));
 }
 
 function disclosureRows(report: IncomeStatementReport): IncomeStatementPdfRow[] {
@@ -83,7 +98,7 @@ function disclosureRows(report: IncomeStatementReport): IncomeStatementPdfRow[] 
     ...(d.unnamedAccounts > 0
       ? [{ kind: 'note' as const, label: `and ${d.unnamedAccounts} further affected account(s)` }]
       : []),
-    { kind: 'note', label: 'The amounts above are repeated elsewhere in this sheet — do not add them again.' },
+    { kind: 'note', label: 'The amounts above are repeated elsewhere in this statement — do not add them again.' },
   ];
 }
 
@@ -113,7 +128,7 @@ export function incomeStatementPdfRows(report: IncomeStatementReport): IncomeSta
 }
 
 const marginCell = (margin: number | null | undefined): string =>
-  margin === undefined ? '' : margin === null ? NO_MARGIN_CELL : `${margin.toFixed(1)}%`;
+  margin === undefined ? '' : margin === null ? NO_MARGIN_CELL : formatPctLevel(margin);
 
 function tableRow(row: IncomeStatementPdfRow, accent: [number, number, number]): unknown[] {
   const AMBER = { textColor: COLORS.AMBER };
@@ -122,12 +137,12 @@ function tableRow(row: IncomeStatementPdfRow, accent: [number, number, number]):
     case 'section':
       return [{ content: row.label, colSpan: 4, styles: { fontStyle: 'bold', textColor: accent } }];
     case 'account':
-      return [row.code, row.label, { content: fmtZAR(row.amount), styles: right }, ''];
+      return [row.code, row.label, { content: money(row.amount), styles: right }, ''];
     case 'band': {
       const styles = { fontStyle: 'bold', fillColor: COLORS.SURFACE };
       return [
         { content: row.label, colSpan: 2, styles },
-        { content: fmtZAR(row.amount), styles: { ...styles, ...right } },
+        { content: money(row.amount), styles: { ...styles, ...right } },
         { content: marginCell(row.margin), styles: { ...styles, ...right } },
       ];
     }
@@ -135,7 +150,7 @@ function tableRow(row: IncomeStatementPdfRow, accent: [number, number, number]):
       return [
         { content: row.code ?? '', styles: AMBER },
         { content: row.label, styles: AMBER },
-        { content: fmtZAR(row.amount), styles: { ...AMBER, ...right } },
+        { content: money(row.amount), styles: { ...AMBER, ...right } },
         '',
       ];
     case 'note':
@@ -143,17 +158,30 @@ function tableRow(row: IncomeStatementPdfRow, accent: [number, number, number]):
   }
 }
 
-export interface IncomeStatementPdfOptions {
+const COMPARATOR_LABELS = { prior: 'Prior period', budget: 'Budget' } as const;
+type Comparator = keyof typeof COMPARATOR_LABELS;
+
+/** `comparators=prior,budget`: the columns the screen had on. Null when it names anything else. */
+export function parseComparators(value: unknown): Comparator[] | null {
+  if (value === undefined) return [];
+  if (typeof value !== 'string') return null;
+  const names = value.split(',');
+  return names.every((n): n is Comparator => n === 'prior' || n === 'budget') ? [...new Set(names)] : null;
+}
+
+interface IncomeStatementPdfOptions {
   /** The filter the figures were read under; a filtered statement must say so. */
   scope: string | null;
   /** YYYY-MM-DD. */
   generatedOn: string;
+  /** Columns the screen shows and this PDF does not: the reader of the PDF cannot see that they are gone. */
+  omittedComparators?: readonly Comparator[];
 }
 
 export async function buildIncomeStatementPdf(
   report: IncomeStatementReport,
   company: CompanyDetails,
-  { scope, generatedOn }: IncomeStatementPdfOptions,
+  { scope, generatedOn, omittedComparators = [] }: IncomeStatementPdfOptions,
 ): Promise<Buffer> {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'),
@@ -182,7 +210,14 @@ export async function buildIncomeStatementPdf(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(...COLORS.TEXT_SECONDARY);
-  const meta = [`Period: ${fmtDate(report.periodStart)} to ${fmtDate(report.periodEnd)}`, ...(scope ? [scope] : []), `Generated: ${fmtDate(generatedOn)}`];
+  const meta = [
+    `Period: ${fmtDate(report.periodStart)} to ${fmtDate(report.periodEnd)}`,
+    ...(scope ? [scope] : []),
+    ...(omittedComparators.length > 0
+      ? [`Comparators on screen, not included in this PDF: ${omittedComparators.map((c) => COMPARATOR_LABELS[c]).join(', ')}.`]
+      : []),
+    `Generated: ${fmtDate(generatedOn)}`,
+  ];
   for (const lineText of meta.flatMap((m): string[] => doc.splitTextToSize(m, pageW - margin * 2))) {
     doc.text(lineText, margin, y);
     y += 4.5;
