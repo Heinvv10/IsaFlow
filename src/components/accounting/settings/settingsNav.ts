@@ -90,3 +90,15 @@ export const TAB_IDS: TabId[] = SETTINGS_NAV.flatMap((g) => g.items.map((i) => i
 export function parseTabId(raw: unknown): TabId | null {
   return typeof raw === 'string' && (TAB_IDS as string[]).includes(raw) ? (raw as TabId) : null;
 }
+
+/**
+ * The document title for a tab: "VAT · Company settings · IsaFlow". The default tab (details) is just
+ * "Company settings · IsaFlow"; a trailing " Settings" is dropped from the label ("VAT Settings" -> "VAT").
+ */
+export function settingsTabTitle(tab: TabId): string {
+  const base = 'Company settings · IsaFlow';
+  if (tab === 'details') return base;
+  const label = SETTINGS_NAV.flatMap((g) => g.items).find((i) => i.id === tab)?.label ?? '';
+  const short = label.replace(/ Settings$/, '');
+  return short ? `${short} · ${base}` : base;
+}

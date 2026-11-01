@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { PageHeader } from '@/components/ui';
+import { PageHeader, type DateFieldCode, type FieldValidity } from '@/components/ui';
 import { AssetFinancialFields, card, inp, lbl } from '@/components/accounting/assets/AssetFinancialFields';
 import { Package, Loader2, Database } from 'lucide-react';
 import Link from 'next/link';
@@ -75,10 +75,10 @@ export default function NewAssetPage() {
 
   const update = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
   /** A committed purchase date (or a refusal of what was typed) replaces any submit-time error. */
-  const onDateChange = (iso: string | null, reason: string | null) => {
+  const onDateChange = (iso: string | null, validity: FieldValidity<DateFieldCode>) => {
     update('purchaseDate', iso ?? '');
-    // DateField's bare "Enter a date." (field emptied) gives way to the more specific message at submit.
-    setDateReason(reason === 'Enter a date.' ? null : reason);
+    // An emptied field ('empty') gives way to the more specific message at submit.
+    setDateReason(validity.valid || validity.code === 'empty' ? null : validity.reason);
     setDateError('');
   };
 
