@@ -2,7 +2,7 @@
  * Master plan wave 3, PR D: a line's discount is the customer's until the user sets it: it follows the customer, priced or
  * not, and never lands on what the user typed. Due date: invoiceDefaults.test.tsx.
  */
-import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -78,6 +78,53 @@ describe('line discount from the customer', () => {
     expect(screen.getByText('Invoice Summary').closest('.rounded-2xl')!.textContent).toMatch(/Total\s*R?\s*1[ ,\u00a0]?150\.00/);
     await submit();
     expect(sentBody('POST').items[0]!.discount).toBe(0);
+  });
+
+  it('a line typed while the customer is being read still takes the discount: 10%, R1000, 1035.00', async () => {
+    const slow: { release?: () => void } = {};
+    serve();
+    const inner = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).includes('customers?id=c-acme')) await new Promise<void>((r) => { slow.release = r; });
+      return inner(url, init);
+    });
+    await open();
+    await pickClient('c-acme');
+    await waitFor(() => expect(slow.release).toBeTruthy());
+    fillLine(0, '1000');
+    await act(async () => { slow.release!(); });
+    await waitFor(() => expect(discounts()).toEqual(['10']));
+    expect(screen.getByText('Invoice Summary').closest('.rounded-2xl')!.textContent).toMatch(/Total\s*R?\s*1[ ,\u00a0]?035\.00/);
+  });
+
+  it('a discount typed while the customer is being read stays the user\'s', async () => {
+    const slow: { release?: () => void } = {};
+    serve();
+    const inner = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).includes('customers?id=c-acme')) await new Promise<void>((r) => { slow.release = r; });
+      return inner(url, init);
+    });
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: /disc/i }));
+    await pickClient('c-acme');
+    await waitFor(() => expect(slow.release).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Discount %'), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Line' }));
+    await act(async () => { slow.release!(); });
+    await waitFor(() => expect(discounts()).toEqual(['7', '10']));
+  });
+
+  it('a line typed with no customer, then a 10% customer: left at no discount (owner decision, pr-notes)', async () => {
+    serve();
+    await open();
+    await pickClient('c-bare');
+    await waitFor(() => expect(contactCalls().length).toBe(1));
+    await waitFor(() => expect((screen.getByRole('button', { name: /^create invoice$/i }) as HTMLButtonElement).disabled).toBe(false));
+    fillLine(0, '1000');
+    await pickClient('c-acme');
+    await screen.findByText('Customer terms: 30 days');
+    expect(screen.queryByLabelText('Discount %')).toBeNull();
   });
 
   it('a priced line moves to the next customer\'s default', async () => {

@@ -101,7 +101,7 @@ test('a customer with terms and a discount fills the form; 115 incl stores unit_
   await expect(summaryFigure(page, 'Subtotal')).toHaveText(/^R\s?100\.00$/);
   await expect(summaryFigure(page, 'VAT (15%)')).toHaveText(/^R\s?15\.00$/);
   await expect(summaryFigure(page, 'Total')).toHaveText(/^R\s?115\.00$/);
-  await expect(summary(page).getByText(/you typed/i)).toHaveCount(0);
+  await expect(summary(page).getByText(/these prices come to/i)).toHaveCount(0);
 
   const id = await saveDraft(page);
   try {
@@ -167,7 +167,7 @@ test('a stored 1000 + 500 at 15% saves unchanged after inclusive and back, and a
     await pickMode(page, 'Including VAT');
     await expect(page.getByLabel('Unit price incl. VAT').first()).toHaveValue('1150');
     await expect(summaryFigure(page, 'Total')).toHaveText(/^R\s?1[\s,]?725\.00$/);
-    await expect(summary(page).getByText(/you typed/i)).toHaveCount(0);
+    await expect(summary(page).getByText(/these prices come to/i)).toHaveCount(0);
   };
   const save = async () => {
     await page.getByRole('button', { name: /save changes/i }).click();
@@ -235,12 +235,12 @@ for (const theme of THEMES) {
     await pickMode(page, 'Including VAT');
     await page.getByLabel('Quantity').fill('3');
     await page.getByLabel('Unit price').fill('10');
-    await expect(summary(page).getByText(/you typed/i)).toContainText(/30\.00 incl\. VAT; the invoice total is .*30\.02/);
+    await expect(summary(page).getByText(/these prices come to/i)).toContainText(/These prices come to .*30\.00 incl\. VAT; the invoice total is .*30\.02/);
     await shot(page, `invoice-defaults-1568-${theme}`);
     await expectNoSeriousA11yViolations(page, { key: NEW });
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(summary(page).getByText(/you typed/i)).toBeVisible();
+    await expect(summary(page).getByText(/these prices come to/i)).toBeVisible();
     expect(await sideways(page), 'the page must not scroll sideways').toBeLessThanOrEqual(390);
     await shot(page, `invoice-defaults-390-${theme}`);
 

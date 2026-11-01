@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { typeDate } from '../helpers/dateFields';
-import { ACME, BARE, contactCalls, descriptionField, invoiceDate, pickClient, pickMode, sentBody, serve, ZERO } from '../helpers/invoiceDefaultsHarness';
+import { ACME, BARE, descriptionField, INV, invoiceDate, pickClient, pickMode, sentBody, serve, ZERO } from '../helpers/invoiceDefaultsHarness';
 
 const push = vi.hoisted(() => vi.fn());
 const scan = vi.hoisted(() => ({ current: { vatRate: null as number | null, lineItems: [] as unknown[] } }));
@@ -93,13 +93,59 @@ describe('new page', () => {
   });
 });
 
+describe('a customer who never answers', () => {
+  it('gives up after 15 s: Save opens and the page says so', async () => {
+    const abort = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(abort.signal);
+    serve(CONTACTS);
+    const inner = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (!String(url).includes('customers?id=')) return inner(url, init);
+      return new Promise<Response>((_, reject) => {
+        (init as RequestInit).signal!.addEventListener('abort', () => reject(new DOMException('timed out', 'TimeoutError')));
+      });
+    });
+    render(<NewPage />);
+    await screen.findByRole('combobox', { name: 'Client' });
+    await pickClient('c-acme');
+    const create = screen.getByRole('button', { name: /^create invoice$/i }) as HTMLButtonElement;
+    await waitFor(() => expect(timeout).toHaveBeenCalledWith(15_000));
+    expect(create.disabled).toBe(true);
+    await act(async () => { abort.abort(); });
+    await waitFor(() => expect(create.disabled).toBe(false));
+    expect(screen.getAllByRole('alert').map((a) => a.textContent).join('|')).toMatch(/customer's terms/i);
+    timeout.mockRestore();
+  });
+});
+
 describe('edit page', () => {
   const load = async () => { serve(CONTACTS); render(<EditPage />); await screen.findByDisplayValue('L'); };
   const saveButton = () => screen.getByRole('button', { name: /save changes/i }) as HTMLButtonElement;
 
+  it('a conflict already on the draft warns on load, and nothing is refilled', async () => {
+    serve(CONTACTS, { ...INV, client_id: 'c-zero' });
+    render(<EditPage />);
+    await screen.findByText('This customer is zero-rated, but this invoice charges VAT at 15%.');
+    expect(rateField().value).toBe('15');
+    expect(mode()).toMatch(/Excluding VAT/);
+  });
+
+  it('Save does not wait for the loaded customer: the invoice is the invoice', async () => {
+    const slow: { release?: () => void } = {};
+    serve(CONTACTS);
+    const inner = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).includes('customers?id=')) await new Promise<void>((r) => { slow.release = r; });
+      return inner(url, init);
+    });
+    render(<EditPage />);
+    await screen.findByDisplayValue('L');
+    await waitFor(() => expect(slow.release).toBeTruthy());
+    expect(saveButton().disabled).toBe(false);
+  });
+
   it('changing to a zero-rated customer warns, and the stored rate and price stand', async () => {
     await load();
-    expect(contactCalls()).toEqual([]);
     await pickClient('c-zero');
     await screen.findByText('This customer is zero-rated, but this invoice charges VAT at 15%.');
     expect(rateField().value).toBe('15');
@@ -116,7 +162,7 @@ describe('edit page', () => {
     serve(CONTACTS);
     const inner = vi.mocked(apiFetch).getMockImplementation()!;
     vi.mocked(apiFetch).mockImplementation(async (url, init) => {
-      if (String(url).includes('customers?id=')) await new Promise<void>((_, reject) => { slow.fail = () => reject(new TypeError('Failed to fetch')); });
+      if (String(url).includes('customers?id=c-zero')) await new Promise<void>((_, reject) => { slow.fail = () => reject(new TypeError('Failed to fetch')); });
       return inner(url, init);
     });
     render(<EditPage />);

@@ -34,6 +34,7 @@ afterEach(() => { cleanup(); push.mockClear(); vi.mocked(apiFetch).mockReset(); 
 
 const open = async () => { render(<NewPage />); await screen.findByRole('combobox', { name: 'Client' }); typeDate(invoiceDate(), '1 Oct 2026'); };
 const submit = () => submitAndWait(push);
+const discountsOnScreen = () => screen.queryAllByLabelText('Discount %');
 
 describe('VAT mode', () => {
   it('a zero-rated customer pre-selects No VAT, with a hint, and posts taxRate 0', async () => {
@@ -96,8 +97,8 @@ describe('VAT mode', () => {
     await open();
     await pickMode(/Including VAT/);
     fillLine(0, '10', '3');
-    const note = await screen.findByText(/you typed/i);
-    expect(note.textContent?.replace(/\s/g, ' ')).toMatch(/You typed R ?30\.00 incl\. VAT; the invoice total is R ?30\.02/);
+    const note = await screen.findByText(/these prices come to/i);
+    expect(note.textContent?.replace(/\s/g, ' ')).toMatch(/^These prices come to R ?30\.00 incl\. VAT; the invoice total is R ?30\.02\.$/);
   });
 
   it('no message when the two agree', async () => {
@@ -106,7 +107,7 @@ describe('VAT mode', () => {
     await pickMode(/Including VAT/);
     fillLine(0, '115');
     expect(within(screen.getByText('Invoice Summary').closest('.rounded-2xl') as HTMLElement).getByText(/115\.00/)).toBeTruthy();
-    expect(screen.queryByText(/you typed/i)).toBeNull();
+    expect(screen.queryByText(/these prices come to/i)).toBeNull();
   });
 
   it('a scan carrying a rate is exclusive, as its prices are', async () => {
@@ -155,12 +156,13 @@ describe('edit page', () => {
     expect(body.taxRate).toBe(15);
   });
 
-  it('asks nothing of the customer on load: a stored invoice is not refilled', async () => {
+  it('reads the loaded customer only to warn: a stored invoice is not refilled', async () => {
     serve();
     await load();
-    expect(contactCalls()).toEqual([]);
+    await waitFor(() => expect(contactCalls().length).toBe(1));
     expect(due().value).toBe('15 Oct 2026');
     expect(hintFromCustomer()).toEqual([]);
+    expect(discountsOnScreen()).toEqual([]);
   });
 
   it('No VAT saves rate 0 on the header and the lines, at the stored price', async () => {

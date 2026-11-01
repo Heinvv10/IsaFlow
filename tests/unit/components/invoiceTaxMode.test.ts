@@ -73,6 +73,21 @@ describe('linesForModeChange', () => {
     expect(linesForModeChange(shown, 'inclusive', 'none', 15).map((l) => l.unitPrice)).toEqual([1000, 500]);
   });
 
+  it('converts nothing at a rate below 0, where the way back is not exact', () => {
+    expect(linesForModeChange(lines, 'exclusive', 'inclusive', -5).map((l) => l.unitPrice)).toEqual([1000, 500]);
+    expect(linesForModeChange(lines, 'inclusive', 'exclusive', -5).map((l) => l.unitPrice)).toEqual([1000, 500]);
+  });
+
+  it('leaves a price mid-edit as it is, either way, and still converts the rest', () => {
+    const half = [{ unitPrice: Number.NaN }, { unitPrice: 115 }];
+    expect(linesForModeChange(half, 'inclusive', 'exclusive', 15).map((l) => l.unitPrice)).toEqual([Number.NaN, 100]);
+    expect(linesForModeChange(half, 'exclusive', 'inclusive', 15).map((l) => l.unitPrice)).toEqual([Number.NaN, 132.25]);
+  });
+
+  it('converts nothing at a rate that cannot be read', () => {
+    expect(linesForModeChange(lines, 'exclusive', 'inclusive', Number.NaN).map((l) => l.unitPrice)).toEqual([1000, 500]);
+  });
+
   it('leaves the price alone between exclusive and No VAT, and keeps the rest of the line', () => {
     expect(prices('exclusive', 'none')).toEqual([1000, 500]);
     expect(prices('none', 'exclusive')).toEqual([1000, 500]);
@@ -141,7 +156,10 @@ describe('pricesToNothing', () => {
     expect(pricesToNothing('inclusive', 0.01, 150)).toBe(true); // 0.004: under half a cent
     expect(pricesToNothing('inclusive', 0.01, 15)).toBe(false); // 0.0087 rounds to a cent
     expect(pricesToNothing('inclusive', 0, 15)).toBe(false); // nothing was typed
-    expect(pricesToNothing('exclusive', 0.004, 15)).toBe(false); // sent as typed
+    expect(pricesToNothing('exclusive', 0.004, 15)).toBe(true); // the column stores 0.00
+    expect(pricesToNothing('none', 0.004, 0)).toBe(true);
+    expect(pricesToNothing('exclusive', 0.005, 15)).toBe(false); // rounds to a cent
+    expect(pricesToNothing('exclusive', Number.POSITIVE_INFINITY, 15)).toBe(false); // mid-edit, not a crash
   });
 });
 

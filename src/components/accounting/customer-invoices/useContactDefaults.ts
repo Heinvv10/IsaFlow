@@ -6,9 +6,9 @@
  * What counts as touched: a Due date edit (even one refused, or cleared, or typed and not yet committed), a VAT mode or
  * rate edit, and what a scan filled; the page reports these through `touch`. A line's discount is the customer's while
  * `discountFromDefault` holds: a fresh line starts with it, a priced line keeps it, and `editedLine` drops it when the
- * user sets the discount, or types onto a line with no default on it.
+ * user sets the discount, or types onto a line with no default on it while no customer is being read.
  *
- * The edit page does not use this: a stored invoice's figures are the invoice. It reads a changed customer only to warn
+ * The edit page does not use this: a stored invoice's figures are the invoice. It reads its customer only to warn
  * (useCustomerLookup, vatTypeWarning).
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -24,9 +24,12 @@ const TYPED_FIELDS: readonly string[] = ['description', 'quantity', 'unitPrice']
 
 type TouchableField = 'dueDate' | 'taxMode';
 
-/** The user's edit of a line. The discount they set is theirs, and typing onto a line with no default on it makes its zero theirs. */
-export function editedLine<L extends InvoiceLine>(l: L, field: string, value: string | number): L {
-  const stillDefault = field !== 'discount' && (l.discount > 0 || !TYPED_FIELDS.includes(field));
+/**
+ * The user's edit of a line. The discount they set is theirs, and typing onto a line with no default on it makes its zero
+ * theirs, unless the customer is still being read: the default it is waiting for has not had its chance yet.
+ */
+export function editedLine<L extends InvoiceLine>(l: L, field: string, value: string | number, customerPending: boolean): L {
+  const stillDefault = field !== 'discount' && (customerPending || l.discount > 0 || !TYPED_FIELDS.includes(field));
   return { ...l, [field]: value, discountFromDefault: Boolean(l.discountFromDefault) && stillDefault };
 }
 

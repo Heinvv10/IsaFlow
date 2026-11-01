@@ -36,7 +36,7 @@ describe('InvoiceSummaryCard', () => {
     expect(region.textContent).toBe('');
     rerender(card(30));
     expect(screen.getByRole('status')).toBe(region);
-    expect(region.textContent).toMatch(/You typed R\s?30\.00 incl\. VAT/);
+    expect(region.textContent).toMatch(/^These prices come to R\s?30\.00 incl\. VAT; the invoice total is R\s?30\.02\.$/);
   });
 
   it('is mounted outside inclusive too', () => {

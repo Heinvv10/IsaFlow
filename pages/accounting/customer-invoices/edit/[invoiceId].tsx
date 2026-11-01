@@ -53,8 +53,9 @@ export default function EditCustomerInvoicePage() {
   const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([]);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive'); // a stored price is ex-VAT, so it loads as one
-  const [changedClient, setChangedClient] = useState(''); // only a customer changed here is read: a stored invoice is not refilled
-  const customer = useCustomerLookup(changedClient, CUSTOMER_FAILED);
+  // Read only to warn: a stored invoice is not refilled, so Save waits for a customer changed here, not for the one it loaded with.
+  const [loadedClient, setLoadedClient] = useState('');
+  const customer = useCustomerLookup(form.clientId, CUSTOMER_FAILED);
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -72,15 +73,19 @@ export default function EditCustomerInvoicePage() {
         return;
       }
       setInvoiceNumber(invoice.invoice_number);
-      // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is.
-      if (Number(invoice.tax_rate ?? 15) === 0) setTaxMode('none');
+      // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
+      // standard rate behind it, as the new page does, so leaving No VAT does not leave a rate of 0.
+      const storedRate = Number(invoice.tax_rate ?? 15);
+      if (storedRate === 0) setTaxMode('none');
+      const clientId = String(invoice.client_id || invoice.customer_id || '');
+      setLoadedClient(clientId);
       setForm({
-        clientId: String(invoice.client_id || invoice.customer_id || ''),
+        clientId,
         invoiceDate: String(invoice.invoice_date || '').slice(0, 10),
         dueDate: invoice.due_date ? String(invoice.due_date).slice(0, 10) : '',
         billingPeriodStart: invoice.billing_period_start ? String(invoice.billing_period_start).slice(0, 10) : '',
         billingPeriodEnd: invoice.billing_period_end ? String(invoice.billing_period_end).slice(0, 10) : '',
-        taxRate: Number(invoice.tax_rate ?? 15),
+        taxRate: storedRate === 0 ? 15 : storedRate,
         notes: invoice.notes || '',
         currencyCode: invoice.currency_code || 'ZAR',
         exchangeRate: Number(invoice.exchange_rate ?? 1),
@@ -209,7 +214,7 @@ export default function EditCustomerInvoicePage() {
             <div className="min-w-0 space-y-5">
               {(error || customer.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error || customer.error}</div>}
 
-              <InvoiceHeaderFields form={form} onChange={patch => { if ('clientId' in patch) setChangedClient(patch.clientId ?? ''); setForm(p => ({ ...p, ...patch })); }} currencies={currencies} options={codingOptions}
+              <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
                 onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -222,7 +227,7 @@ export default function EditCustomerInvoicePage() {
 
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                <button onClick={handleSubmit} disabled={submitting || customer.pending} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button onClick={handleSubmit} disabled={submitting || (customer.pending && form.clientId !== loadedClient)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
                 </button>
                 <Link href={`/accounting/customer-invoices/${String(invoiceId)}`} className="block w-full mt-2 py-2.5 text-center border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold rounded-xl transition-colors text-sm">Cancel</Link>

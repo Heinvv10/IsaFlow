@@ -7,8 +7,10 @@
  *   inclusive  the price typed is gross; the form sends exVatUnitPrice(gross, rate).
  *
  * Changing the mode changes how the prices read, not what they are: the shown price converts with the mode
- * (linesForModeChange), so an untouched line saves as it was. A 2-dp price always comes back exact at a rate of 0 or more:
+ * (linesForModeChange), so it never reprices at the same rate and an untouched line saves as it was. A rate changed while
+ * inclusive holds the gross and moves the ex-VAT price. A 2-dp price always comes back exact at a rate of 0 or more:
  * grossing up moves it at most R0.005, and dividing by 1 + rate shrinks that below the half cent the way back rounds on.
+ * Below 0 the way back is not exact, so nothing converts.
  *
  * A converted price is rounded to the cent, the line is priced from it, and the VAT is rounded on the subtotal, so an
  * inclusive total can land off what was typed by up to about qty x R0.00575 at 15%, plus a cent of VAT rounding
@@ -65,24 +67,24 @@ export function grossUnitPrice(exVat: number, ratePercent: number): number {
   return toRands(p.digits * (100n * rateUnit + r.digits), rateUnit * 10n ** BigInt(p.scale));
 }
 
-/** What each line shows once the mode changes; `formRate` is the form's, since "none" keeps it. */
+/** What each line shows once the mode changes; `formRate` is the form's, since "none" keeps it. A price mid-edit is left as it is. */
 export function linesForModeChange<L extends { unitPrice: number }>(lines: readonly L[], from: TaxMode, to: TaxMode, formRate: number): L[] {
-  if ((from === 'inclusive') === (to === 'inclusive')) return [...lines];
+  if ((from === 'inclusive') === (to === 'inclusive') || !readable(formRate) || formRate < 0) return [...lines];
   const convert = to === 'inclusive' ? grossUnitPrice : exVatUnitPrice;
-  return lines.map((l) => ({ ...l, unitPrice: convert(l.unitPrice, formRate) }));
+  return lines.map((l) => (readable(l.unitPrice) ? { ...l, unitPrice: convert(l.unitPrice, formRate) } : l));
 }
 
 /** The unit price the API receives for what was typed, at the invoice's effective rate. */
 export const storedUnitPrice = (mode: TaxMode, typed: number, rate: number): number =>
   (mode === 'inclusive' ? exVatUnitPrice(typed, rate) : typed);
 
-/** A price typed above zero that is under half a cent once the VAT is out: it would store as nothing. */
+/** A price typed above zero that its numeric(…, 2) column would store as nothing, in any mode. */
 export const pricesToNothing = (mode: TaxMode, typed: number, rate: number): boolean =>
-  typed > 0 && storedUnitPrice(mode, typed, rate) === 0;
+  readable(typed) && typed > 0 && toColumnCents(storedUnitPrice(mode, typed, rate)) === 0;
 
 /** The refusal for such a line. */
 export const pricesToNothingMessage = (description: string): string =>
-  `"${description}" is under a cent once VAT is taken out - enter a higher price`;
+  `"${description}" comes to under a cent - enter a higher price`;
 
 /** The line's stored ex-VAT amount for what was typed; a half-typed field previews as 0. */
 export const lineTotalForMode = (mode: TaxMode, rate: number, l: PricedLine): number =>
