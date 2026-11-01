@@ -12,8 +12,8 @@ export function PersonalSection({ form, errors, set, fieldRef, setDate }: Sectio
           onChange={e => set('firstName', e.target.value)} autoComplete="off" />
         <Input ref={fieldRef('lastName')} label="Last name *" value={form.lastName} error={errors.lastName}
           onChange={e => set('lastName', e.target.value)} autoComplete="off" />
-        <Input label="SA ID number" value={form.idNumber} placeholder="13 digits" inputMode="numeric"
-          onChange={e => set('idNumber', e.target.value)} />
+        <Input ref={fieldRef('idNumber')} label="SA ID number" value={form.idNumber} placeholder="13 digits" inputMode="numeric"
+          error={errors.idNumber} onChange={e => set('idNumber', e.target.value)} />
         <DateField ref={fieldRef('dateOfBirth')} label="Date of birth" value={form.dateOfBirth || null}
           maxDate={todayInSast()} maxMessage="Date of birth cannot be in the future."
           error={errors.dateOfBirth} onChange={setDate('dateOfBirth')} />

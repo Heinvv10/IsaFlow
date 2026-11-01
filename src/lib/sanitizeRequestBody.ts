@@ -1,8 +1,9 @@
 /**
  * The request-body scrubber for error logs (api-error-handler). Credentials are
- * redacted; uploaded files and ID numbers are replaced by a size marker at any
- * depth, so a logged body never carries a certificate, an ID scan or an ID
- * number (onboarding complete-setup, company-directors, company-documents). Size
+ * redacted; uploaded files, ID numbers and salaries are replaced by a marker at
+ * any depth, so a logged body never carries a certificate, an ID scan, an ID
+ * number (onboarding complete-setup, company-directors, company-documents) or
+ * what someone earns next to their name (POST /api/payroll/employees). Size
  * is bounded at every level: an array of more than MAX_LOGGED_ITEMS is logged as
  * its item count, an object of more than MAX_LOGGED_KEYS as its key count, and a
  * string over LONG_STRING as its length, so a bulk body (a 20 000-cell budget
@@ -30,8 +31,8 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_FRAGMENTS.some((f) => k.includes(f));
 }
 
-/** Always a file or an ID number, whatever the value looks like. */
-const PAYLOAD_KEYS = new Set(['file_data', 'fileData', 'idDocument', 'logoData', 'idNumber', 'id_number']);
+/** Always a file, an ID number or a person's salary, whatever the value looks like. */
+const PAYLOAD_KEYS = new Set(['file_data', 'fileData', 'idDocument', 'logoData', 'idNumber', 'id_number', 'salary']);
 /** `data` is a common key (bulk rows, settings): omitted only when it is, or holds at any depth, a file (a data: URL or a long string). */
 const LONG_STRING = 1024;
 const isFileLike = (value: unknown) => typeof value === 'string' && (value.startsWith('data:') || value.length > LONG_STRING);

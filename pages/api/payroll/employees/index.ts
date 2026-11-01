@@ -1,7 +1,8 @@
 /**
  * Payroll Employees API (new payroll_employees table)
  * GET  /api/payroll/employees  - List active payroll employees (?include=terminated: leavers too)
- * POST /api/payroll/employees  - Create a payroll employee
+ * POST /api/payroll/employees  - Create a payroll employee, with an optional salary: { componentId, amount },
+ *                                amount in integer cents (unlike .../[id]/components, whose amount is rands)
  */
 
 import type { NextApiResponse } from 'next';
@@ -16,17 +17,17 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { employeeNamesOnly } from '@/modules/accounting/services/payroll/payrollEmployeeRedaction';
+import { listPayrollEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import {
-  listPayrollEmployees,
-  createPayrollEmployee,
-} from '@/modules/accounting/services/payroll/payrollEmployeeService';
-import type { PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
+  createEmployeeWithPay,
+  EmployeeOnboardingRefused,
+} from '@/modules/accounting/services/payroll/payrollEmployeeOnboarding';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
   res: NextApiResponse
 ): Promise<void> {
-  const { companyId, companyRole } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     // ?include=terminated adds leavers (the tax-directive form's employee picker).
@@ -36,38 +37,14 @@ async function handler(
   }
 
   if (req.method === 'POST') {
-    const {
-      firstName, lastName, employeeNumber, employmentType, startDate,
-      taxNumber, idNumber, dateOfBirth, uifExcluded,
-      medicalAidMainMember, medicalAidDependantsCount,
-    } = req.body as Record<string, unknown>;
-
-    if (!firstName || !lastName || !employeeNumber || !employmentType || !startDate) {
-      return apiResponse.badRequest(
-        res,
-        'firstName, lastName, employeeNumber, employmentType, startDate are required'
-      );
+    try {
+      const employee = await createEmployeeWithPay(companyId, user.id, req.body as Record<string, unknown>);
+      return apiResponse.created(res, employee);
+    } catch (err) {
+      // Raised only before the first write (a 4xx commits); anything later rethrows, so it rolls back.
+      if (err instanceof EmployeeOnboardingRefused) return apiResponse.badRequest(res, err.message);
+      throw err;
     }
-
-    const data: Omit<PayrollEmployee, 'id' | 'companyId'> = {
-      firstName: String(firstName),
-      lastName: String(lastName),
-      employeeNumber: String(employeeNumber),
-      employmentType: String(employmentType) as PayrollEmployee['employmentType'],
-      startDate: new Date(String(startDate)),
-      endDate: req.body.endDate ? new Date(String(req.body.endDate)) : undefined,
-      taxNumber: taxNumber ? String(taxNumber) : undefined,
-      idNumber: idNumber ? String(idNumber) : undefined,
-      dateOfBirth: dateOfBirth ? new Date(String(dateOfBirth)) : undefined,
-      uifExcluded: Boolean(uifExcluded),
-      // Only an explicit true makes a main member: the flag buys a monthly medical tax credit,
-      // so a default of true under-deducts PAYE for everyone captured without medical aid.
-      medicalAidMainMember: medicalAidMainMember === true,
-      medicalAidDependantsCount: Number(medicalAidDependantsCount) || 0,
-    };
-
-    const employee = await createPayrollEmployee(companyId, data);
-    return apiResponse.created(res, employee);
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

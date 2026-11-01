@@ -11,6 +11,8 @@ import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { ListEmpty } from '@/components/ui/ListEmpty';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { Drawer } from '@/components/ui/Drawer';
+import { EmployeeDrawerBody } from '@/components/payroll/EmployeeDrawerBody';
 import { MedicalAidReviewBanner } from '@/components/payroll/MedicalAidReviewBanner';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
@@ -46,6 +48,7 @@ export default function EmployeesListPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<EmployeeListItem | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -153,7 +156,8 @@ export default function EmployeesListPage() {
                   {filtered.map(e => (
                     <tr
                       key={e.id}
-                      className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]"
+                      onClick={ev => { if (!(ev.target as HTMLElement).closest('a, button')) setSelected(e); }}
+                      className="cursor-pointer border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]"
                     >
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)] font-mono text-xs">{e.employeeNumber}</td>
                       <td className="py-3 px-4">
@@ -167,7 +171,15 @@ export default function EmployeesListPage() {
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)] capitalize">{e.employmentType}</td>
                       {mayWrite && <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate ? formatDisplayDate(e.startDate) : '—'}</td>}
                       <td className="py-3 px-4"><StatusBadge active={!e.endDate || new Date(e.endDate) > new Date()} /></td>
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => setSelected(e)}
+                          aria-label={`Quick view of ${e.firstName} ${e.lastName}`}
+                          className="mr-3 text-teal-400 hover:text-teal-300 text-xs font-medium ff-focus-ring"
+                        >
+                          Quick view
+                        </button>
                         <Link href={`/payroll/employees/${e.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">
                           View
                         </Link>
@@ -180,6 +192,15 @@ export default function EmployeesListPage() {
           )}
         </div>
       </div>
+      {/* Stays mounted while closed: Drawer gives focus back only on open -> closed. w-full: it must fit a phone. */}
+      <Drawer
+        open={selected !== null}
+        onClose={() => setSelected(null)}
+        title={selected ? `${selected.firstName} ${selected.lastName}` : ''}
+        className="w-full max-w-[480px]"
+      >
+        {selected && <EmployeeDrawerBody key={selected.id} employeeId={selected.id} />}
+      </Drawer>
     </AppLayout>
   );
 }

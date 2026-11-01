@@ -14,30 +14,35 @@ import type { FieldValidity } from '@/components/ui/useParsedField';
 import { PersonalSection } from '@/components/payroll/employeeCreate/PersonalSection';
 import { EmploymentSection } from '@/components/payroll/employeeCreate/EmploymentSection';
 import { TaxAndMedicalSection } from '@/components/payroll/employeeCreate/TaxAndMedicalSection';
+import { PaySection } from '@/components/payroll/employeeCreate/PaySection';
 import {
   FIELD_ORDER, buildBody, initialForm, validateForm,
-  type DateKey, type FieldKey, type FormErrors, type FormState,
+  type DateKey, type FieldKey, type FormErrors, type FormState, type RefusedKey,
 } from '@/components/payroll/employeeCreate/types';
 
 export default function NewEmployeePage() {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(() => initialForm(todayInSast()));
   const [errors, setErrors] = useState<FormErrors>({});
-  const [refused, setRefused] = useState<Partial<Record<DateKey, string>>>({});
+  const [refused, setRefused] = useState<Partial<Record<RefusedKey, string>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const fields = useRef<Partial<Record<FieldKey, HTMLInputElement | null>>>({});
+  const fields = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
 
   const clearError = (k: string) => setErrors(prev => (k in prev ? { ...prev, [k]: undefined } : prev));
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => {
     setForm(prev => ({ ...prev, [k]: v }));
     clearError(k);
   };
-  const fieldRef = (k: FieldKey) => (el: HTMLInputElement | null) => { fields.current[k] = el; };
+  const fieldRef = (k: FieldKey) => (el: HTMLElement | null) => { fields.current[k] = el; };
   // A refused date arrives as null with valid=false; it must block submit, not read as "left empty".
   const setDate = (k: DateKey) => (iso: string | null, validity: FieldValidity) => {
     setRefused(prev => ({ ...prev, [k]: validity.valid ? undefined : (validity.reason ?? 'Enter a valid date.') }));
     set(k, iso ?? '');
+  };
+  const setSalary = (cents: number | null, validity: FieldValidity) => {
+    setRefused(prev => ({ ...prev, salaryCents: validity.valid ? undefined : (validity.reason ?? 'Enter a valid amount.') }));
+    set('salaryCents', cents);
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -99,6 +104,7 @@ export default function NewEmployeePage() {
           <PersonalSection {...section} />
           <EmploymentSection {...section} />
           <TaxAndMedicalSection {...section} />
+          <PaySection {...section} setSalary={setSalary} />
           <div className="flex items-center gap-3 pt-2">
             <button
               type="submit"

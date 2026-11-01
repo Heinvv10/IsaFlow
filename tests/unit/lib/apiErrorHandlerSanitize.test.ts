@@ -24,6 +24,13 @@ vi.mock('@/lib/cors', () => ({ safeCorsOrigin: vi.fn(() => null) }));
 
 import { sanitizeRequestBody as sanitizeBody } from '@/lib/sanitizeRequestBody';
 
+describe('sanitizeBody — pay', () => {
+  it('a new employee\'s salary is not logged next to their name', () => {
+    const out = sanitizeBody({ firstName: 'Thandi', salary: { componentId: 'c1', amount: 2500000 } }) as Record<string, unknown>;
+    expect(out).toEqual({ firstName: 'Thandi', salary: '[omitted]' });
+  });
+});
+
 describe('sanitizeBody — credential redaction', () => {
   it('redacts OAuth token-endpoint credentials that exact-matching previously missed', () => {
     const out = sanitizeBody({
