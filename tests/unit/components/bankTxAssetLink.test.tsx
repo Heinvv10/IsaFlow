@@ -92,11 +92,11 @@ it('shows the server sentence when a link is refused, and stays open', async () 
 
 it('the row action is a button when unlinked and a labelled chip when linked', () => {
   const onOpen = vi.fn();
-  const { rerender } = render(<BankTxLinkAction onOpen={onOpen} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Link to asset / fuel / service' }));
-  rerender(<BankTxLinkAction onOpen={onOpen} link={{ kind: 'fuel', id: 'fu-1', assetName: 'Hilux', label: 'Fuel 2026-10-01 R850.00' }} />);
+  const { rerender } = render(<BankTxLinkAction onOpen={onOpen} rowName="01 Oct 2026 ENGEN R 850.00" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Link to asset / fuel / service, 01 Oct 2026 ENGEN R 850.00' }));
+  rerender(<BankTxLinkAction onOpen={onOpen} rowName="01 Oct 2026 ENGEN R 850.00" link={{ kind: 'fuel', id: 'fu-1', assetName: 'Hilux', label: 'Fuel 2026-10-01 R850.00' }} />);
   expect(screen.getByText('Fuel 2026-10-01 R850.00')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Linked to Hilux — Fuel 2026-10-01 R850.00' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Linked to Hilux — Fuel 2026-10-01 R850.00, 01 Oct 2026 ENGEN R 850.00' }));
   expect(onOpen).toHaveBeenCalledTimes(2);
 });
 

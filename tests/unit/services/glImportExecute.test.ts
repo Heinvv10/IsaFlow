@@ -269,7 +269,24 @@ describe('importJournalEntries', () => {
     ).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(ImportValidationError);
     expect((err as Error).message).toBe(
-      'Import row "bad centre" (2026-08-13): cost centre "cc1" cannot be used — CC1 must name an active CC1 cost centre in this company');
+      'Import row 3 (2026-08-13): cost centre "cc1" cannot be used — CC1 must name an active CC1 cost centre in this company');
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('a row naming an unknown account code is refused by its spreadsheet row, never its description', async () => {
+    withAccounts(ACCOUNTS);
+    const err = await importJournalEntries(
+      COMPANY,
+      [
+        row({ accountCode: '4000', debit: 0, credit: 5, description: 'credit leg' }),
+        row({ accountCode: '9999', debit: 5, credit: 0, description: 'Cash to J SMITH 0123456789' }),
+      ],
+      USER,
+      false,
+    ).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(ImportValidationError);
+    expect((err as Error).message).toBe(
+      'Import row 3 (2026-08-13) references account code 9999, which does not exist or is inactive for this company');
     expect(createMock).not.toHaveBeenCalled();
   });
 });
