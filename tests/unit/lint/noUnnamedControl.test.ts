@@ -84,6 +84,8 @@ tester.run('no-unnamed-control', noUnnamedControl, {
     { code: '<textarea aria-hidden={collapsed} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<select hidden={open ? false : true} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<select aria-hidden={!!x} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<select aria-hidden="yes" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<textarea aria-hidden={`1`} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     // a wrapping label with no text, no expression, no component and no aria names nothing; option text is not label text
     { code: '<label><select /></label>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<label><select><option>A</option></select></label>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },

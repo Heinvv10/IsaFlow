@@ -34,8 +34,9 @@ const CONTROLS = new Set(['select', 'textarea']);
 const LABELABLE = new Set(['input', 'select', 'textarea']);
 
 /**
- * True for `hidden`, `hidden={true}`, `hidden="true"`, and the same for `aria-hidden`. A dynamic value
- * (`hidden={collapsed}`) may be false at runtime, so it does not exempt the control; nor does `{false}` / "false".
+ * True for `hidden`, `hidden={true}`, `hidden="true"`, and the same forms for `aria-hidden`. ARIA only
+ * accepts the exact string "true"; invalid values such as "yes" do not remove a control from the tree.
+ * A dynamic value (`hidden={collapsed}`) may be false at runtime, so it does not exempt the control.
  */
 function isHidden(node) {
   return ['hidden', 'aria-hidden'].some((n) => {
@@ -45,6 +46,7 @@ function isHidden(node) {
     const e = a.value.type === 'JSXExpressionContainer' ? a.value.expression : undefined;
     if (e?.type === 'Literal' && e.value === true) return true;
     const text = literal(a)?.trim().toLowerCase();
+    if (n === 'aria-hidden') return text === 'true';
     return text !== undefined && text !== '' && text !== 'false';
   });
 }
