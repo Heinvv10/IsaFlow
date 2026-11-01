@@ -86,7 +86,7 @@ interface Props {
 }
 
 export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove, codingOptions, supplierDefaults }: Props) {
-  const linesOverflow = useOverflowX();
+  const { attach: attachLines, overflows: linesOverflow } = useOverflowX();
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default once a line carries a dimension (a supplier default), so the user sees what will post.
   const showDimensions = codingOptions !== undefined
@@ -132,8 +132,8 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
         </p>
       )}
 
-      {linesOverflow.overflows && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
-      <div ref={linesOverflow.ref} className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto mx-5 my-4" role="region" aria-label="Invoice lines" tabIndex={0}>
+      {linesOverflow && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
+      <div ref={attachLines} className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto mx-5 my-4" role="region" aria-label="Invoice lines" tabIndex={0}>
         <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-slate-50 dark:bg-slate-800/60">
             <tr>
