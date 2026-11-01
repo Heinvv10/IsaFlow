@@ -14,6 +14,9 @@ const route = vi.hoisted(() => ({ query: {} as Record<string, string>, isReady: 
 vi.mock('next/router', () => ({ useRouter: () => route }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', loading: false, activeCompany: { id: 'c1', vatPeriod: 'monthly', vatSystemType: 'invoice' } }) }));
 vi.mock('@/components/accounting/AccountPicker', () => ({ AccountPicker: () => <div /> }));
+vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({
+  SupplierSelect: ({ onChange }: { onChange: (id: string, name: string) => void }) => <button type="button" onClick={() => onChange('s1', 'A')}>Pick supplier</button>,
+}));
 vi.mock('@/components/accounting/BalanceSheetBody', () => ({ BalanceSheetBody: () => <div /> }));
 vi.mock('@/components/accounting/reportControls/useStatementComparatorState', () => ({
   useStatementComparatorState: () => ({
