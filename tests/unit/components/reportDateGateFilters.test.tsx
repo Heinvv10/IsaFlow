@@ -14,7 +14,7 @@ const route = vi.hoisted(() => ({ query: {} as Record<string, string>, isReady: 
 vi.mock('next/router', () => ({ useRouter: () => route }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', loading: false, activeCompany: { id: 'c1', vatPeriod: 'monthly', vatSystemType: 'invoice' } }) }));
 vi.mock('@/components/accounting/AccountPicker', () => ({ AccountPicker: () => <div /> }));
-vi.mock('@/components/accounting/BalanceSheetBody', () => ({ BalanceSheetBody: () => <div /> }));
+vi.mock('@/components/accounting/BalanceSheetBody', () => ({ BalanceSheetBody: () => <div>Report body</div> }));
 vi.mock('@/components/accounting/reportControls/useStatementComparatorState', () => ({
   useStatementComparatorState: () => ({
     columns: { prior: false, budget: false, trend: false, variance: false }, setColumns: vi.fn(),
@@ -23,6 +23,8 @@ vi.mock('@/components/accounting/reportControls/useStatementComparatorState', ()
 }));
 
 const NOTICE = /Fix the date marked in red/;
+const NOT_RUN = 'Fix the date marked in red to run the report.';
+const NOTHING_FOUND = /No .* (found|available)/;
 const requested = (text: string) => vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes(text));
 const textbox = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement;
 const open = async (file: string) => {
@@ -40,28 +42,114 @@ beforeEach(() => { route.query = {}; });
 afterEach(cleanup);
 
 const select = () => screen.getAllByRole('combobox')[0] as HTMLSelectElement;
+const reports = (path: string) => vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).includes(path)).length;
 describe.each([
-  { file: 'account-transactions', date: 'To', control: () => screen.getByTestId('cost-centre-filter'), value: 'cc1', param: 'cost_centre_id=cc1' },
-  { file: 'balance-sheet', date: 'As at', control: select, value: 'cc1', param: 'cost_centre_id=cc1' },
-  { file: 'bank-transactions', date: 'To', control: select, value: '1120', param: 'account_code=1120' },
-  { file: 'cash-flow', date: 'To', control: select, value: 'C1', param: 'cost_centre=C1' },
-  { file: 'customer-communication', date: 'To', control: select, value: 'failed', param: 'status=failed' },
-  { file: 'journal-entries', date: 'To', control: select, value: 'posted', param: 'status=posted' },
-  { file: 'supplier-pos', date: 'To', control: select, value: 'sent', param: 'status=sent' },
-])('$file', ({ file, date, control, value, param }) => {
-  it('a filter changed over a refused date waits for the date, then runs', async () => {
+  { file: 'account-transactions', date: 'To', control: () => screen.getByTestId('cost-centre-filter'), value: 'cc1', param: 'cost_centre_id=cc1',
+    body: 'Opening Balance', path: 'reports-account-transactions', dateParam: 'period_end' },
+  { file: 'balance-sheet', date: 'As at', control: select, value: 'cc1', param: 'cost_centre_id=cc1',
+    body: 'Report body', path: 'reports-balance-sheet', dateParam: 'as_at_date' },
+  { file: 'bank-transactions', date: 'To', control: select, value: '1120', param: 'account_code=1120',
+    body: 'Opening Balance', path: 'reports-bank-transactions', dateParam: 'period_end' },
+  { file: 'cash-flow', date: 'To', control: select, value: 'C1', param: 'cost_centre=C1',
+    body: 'Opening Cash Balance', path: 'reports-cash-flow', dateParam: 'end_date' },
+  { file: 'customer-communication', date: 'To', control: select, value: 'failed', param: 'status=failed',
+    body: 'a@example.com', path: 'reports/customer-communication', dateParam: 'to' },
+  { file: 'journal-entries', date: 'To', control: select, value: 'posted', param: 'status=posted',
+    body: 'J1', path: 'reports-journal-entries', dateParam: 'date_to' },
+  { file: 'supplier-pos', date: 'To', control: select, value: 'sent', param: 'status=sent',
+    body: 'Supplier Total', path: 'reports-supplier-pos', dateParam: 'date_to' },
+])('$file', ({ file, date, control, value, param, body, path, dateParam }) => {
+  const openWithFilter = async () => {
     await open(file);
     await waitFor(() => expect(control()).toBeTruthy());
     await screen.findAllByRole('option', { name: /One|Savings|Failed|Posted|Sent/ });
+    await screen.findByText(body);
     const field = textbox(date);
-    const shown = field.value;
-    typeDate(field, 'zz');
-    await screen.findByText(NOTICE);
+    const refuse = async () => { typeDate(field, 'zz'); await screen.findByText(NOTICE); };
+    return { field, shown: field.value, refuse };
+  };
+
+  it('a filter changed over a refused date waits for the date, then runs', async () => {
+    const { field, shown, refuse } = await openWithFilter();
+    await refuse();
     fireEvent.change(control(), { target: { value } });
     await settle();
     expect(requested(param)).toBe(false);
     typeDate(field, shown);
     await waitFor(() => expect(requested(param)).toBe(true));
+  });
+
+  it('retyping the shown date after a refusal neither refetches nor blanks the report', async () => {
+    const { field, shown, refuse } = await openWithFilter();
+    const before = reports(path);
+    await refuse();
+    expect(screen.getByText(body)).toBeTruthy();
+    typeDate(field, shown);
+    await waitFor(() => expect(screen.queryByText(NOTICE)).toBeNull());
+    await settle();
+    expect(reports(path)).toBe(before);
+    expect(screen.getByText(body)).toBeTruthy();
+  });
+
+  it('a filter changed over a refused date hides the report, says why, and shows it again if the filter goes back', async () => {
+    const { refuse } = await openWithFilter();
+    const original = (control() as HTMLSelectElement).value;
+    const before = reports(path);
+    await refuse();
+    fireEvent.change(control(), { target: { value } });
+    await waitFor(() => expect(screen.queryByText(body)).toBeNull());
+    expect(screen.getByText(NOT_RUN)).toBeTruthy();
+    expect(screen.queryByText(NOTHING_FOUND)).toBeNull();
+    fireEvent.change(control(), { target: { value: original } });
+    await screen.findByText(body);
+    expect(screen.queryByText(NOT_RUN)).toBeNull();
+    expect(reports(path)).toBe(before);
+  });
+
+  it('a different valid date typed over a refusal fetches the new range and shows it', async () => {
+    const { field, refuse } = await openWithFilter();
+    await refuse();
+    typeDate(field, '2 Jan 2020');
+    await waitFor(() => expect(requested(`${dateParam}=2020-01-02`)).toBe(true));
+    await waitFor(() => expect(screen.queryByText(NOTICE)).toBeNull());
+    await screen.findByText(body);
+  });
+});
+
+describe.each([
+  { file: 'bank-transactions', value: '1120', param: 'account_code=1120', body: 'Opening Balance',
+    late: (d: Record<string, unknown>) => ({ ...d, openingBalance: 777 }), lateText: /777/ },
+  { file: 'cash-flow', value: 'C1', param: 'cost_centre=C1', body: 'Opening Cash Balance',
+    late: (d: Record<string, unknown>) => ({ ...d, opening_cash: 777 }), lateText: /777/ },
+  { file: 'customer-communication', value: 'failed', param: 'status=failed', body: 'a@example.com',
+    late: (d: { records: object[] }) => ({ ...d, records: [{ ...d.records[0], email: 'late@example.com' }] }), lateText: /late@example/ },
+  { file: 'journal-entries', value: 'posted', param: 'status=posted', body: 'J1',
+    late: (d: { entries: object[] }) => ({ ...d, entries: [{ ...d.entries[0], entryNumber: 'LATE' }] }), lateText: /LATE/ },
+  { file: 'supplier-pos', value: 'sent', param: 'status=sent', body: 'Supplier Total',
+    late: (d: { suppliers: object[] }) => ({ ...d, suppliers: [{ ...d.suppliers[0], supplierName: 'LATE' }] }), lateText: /LATE/ },
+] as const)('$file: an old response', ({ file, value, param, body, late, lateText }) => {
+  it('does not replace the report of the selection that followed it', async () => {
+    await open(file);
+    await screen.findAllByRole('option', { name: /Savings|Failed|Posted|Sent|One/ });
+    await screen.findByText(body);
+    const original = select().value;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const base = vi.mocked(apiFetch).getMockImplementation()!;
+    const data = gatePage(file).data as never;
+    vi.mocked(apiFetch).mockImplementation(async (url, ...rest) => {
+      if (!String(url).includes(param)) return base(url, ...rest);
+      await held;
+      return new Response(JSON.stringify({ data: late(data) }), { status: 200 });
+    });
+    fireEvent.change(select(), { target: { value } });
+    await waitFor(() => expect(requested(param)).toBe(true));
+    fireEvent.change(select(), { target: { value: original } });
+    await screen.findByText(body);
+    release();
+    await settle();
+    expect(screen.queryByText(lateText)).toBeNull();
+    expect(screen.getByText(body)).toBeTruthy();
   });
 });
 

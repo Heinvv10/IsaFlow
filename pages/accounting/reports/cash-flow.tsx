@@ -12,6 +12,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate, prevMonthRange } from '@/lib/dateUtils';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface CashFlowSection {
   section: string;
@@ -49,26 +50,32 @@ export default function CashFlowPage() {
     }).catch(err => { setCostCentres([]); log.warn('Failed to load cost centres', { err }, 'cash-flow'); setRefError(apiErrorMessage(err, 'Could not load the cost centres - try again')); });
   }, []);
 
-  const loadReport = useCallback(async () => {
+  const params = new URLSearchParams({ start_date: startDate || '', end_date: endDate || '' });
+  if (costCentreFilter) params.set('cost_centre', costCentreFilter);
+  const query = params.toString();
+
+  const loadReport = useCallback<ReportLoad>(async (latest) => {
     setIsLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ start_date: startDate || '', end_date: endDate || '' });
-      if (costCentreFilter) params.set('cost_centre', costCentreFilter);
-      const res = await apiFetch(`/api/accounting/reports-cash-flow?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-cash-flow?${query}`);
       await assertOk(res, 'Could not load the cash flow statement - try again');
       const json = await res.json();
       const data = json.data || json;
-      setReport(data.report || data);
+      if (latest()) setReport(data.report || data);
+      return true;
     } catch (err) {
-      setReport(null);
-      setError(apiErrorMessage(err, 'Could not load the cash flow statement - try again'));
+      if (latest()) {
+        setReport(null);
+        setError(apiErrorMessage(err, 'Could not load the cash flow statement - try again'));
+      }
+      return false;
     } finally {
-      setIsLoading(false);
+      if (latest()) setIsLoading(false);
     }
-  }, [startDate, endDate, costCentreFilter]);
+  }, [query]);
 
-  useEffect(() => { if (!dates.blocked) void loadReport(); }, [loadReport, dates.blocked]);
+  const stale = useGatedReportLoad(query, dates, loadReport);
 
   return (
     <AppLayout>
@@ -119,9 +126,9 @@ export default function CashFlowPage() {
             )}
           </div>
 
-          <FixDateNotice gate={dates} className="mb-4" />
+          <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {refError && <p role="alert" className="text-xs text-amber-500">{refError}</p>}
-          {isLoading ? (
+          {stale ? null : isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-green-500" />
             </div>
