@@ -6,7 +6,9 @@
  * The first-month behaviour is PINNED here, not endorsed. calculatePayrollRun reads components on
  * `new Date(year, month - 1, 28)` (payrollRunService.ts:137) and
  * getEmployeeComponents turns that into a date with toISOString() (payrollComponentService.ts:34), so in SAST the read
- * date is the 27th. Someone starting on the 28th to the 31st is on the run with no salary. Mid-month starts belong to W3.
+ * date is the 27th. A start up to the 27th gets the whole month's salary, with no part-month reduction; a start from
+ * the 28th is on the run with no salary. The gate runs in SAST (ci.yml TZ); the pins state that first. The form warns
+ * of both (firstMonthNotes). Changing the engine's behaviour belongs to W3.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -17,6 +19,7 @@ import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 import * as componentService from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
+import * as employeeService from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -29,11 +32,12 @@ let call: ReturnType<typeof routeCaller>;
 let basic = '';
 let foreign = '';
 let annual = '';
+let untaxed = '';
 
-const component = async (companyId: string, name: string, code: string, type = 'earning', active = true) =>
+const component = async (companyId: string, name: string, code: string, taxable = true) =>
   (await pool.query<{ id: string }>(
-    `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_active)
-     VALUES ($1,$2,$3,$4,$5) RETURNING id`, [companyId, name, code, type, active])).rows[0]!.id;
+    `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+     VALUES ($1,$2,$3,'earning',$4) RETURNING id`, [companyId, name, code, taxable])).rows[0]!.id;
 
 beforeAll(async () => {
   for (const [id, name] of [[company, 'Pay on create'], [other, 'Pay on create other']] as const) {
@@ -50,6 +54,7 @@ beforeAll(async () => {
   basic = (await pool.query<{ id: string }>("SELECT id FROM payroll_components WHERE company_id = $1 AND sars_source_code = '3601'", [company])).rows[0]!.id;
   foreign = (await pool.query<{ id: string }>("SELECT id FROM payroll_components WHERE company_id = $1 AND sars_source_code = '3601'", [other])).rows[0]!.id;
   annual = await component(company, 'Annual bonus', '3605');
+  untaxed = await component(company, 'Untaxed wage', '3601', false);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -70,6 +75,8 @@ const employeeRows = async (employeeNumber: string) => (await pool.query<{ id: s
 const componentRows = async (employeeId: string) => (await pool.query(
   `SELECT component_id, amount::text AS amount, effective_from::text AS effective_from, effective_to, is_recurring
      FROM payroll_employee_components WHERE employee_id = $1`, [employeeId])).rows;
+const startDateOf = async (employeeId: string) => (await pool.query<{ start_date: string }>(
+  'SELECT start_date::text AS start_date FROM payroll_employees WHERE id = $1', [employeeId])).rows[0]!.start_date;
 
 async function november(employeeId: string) {
   const made = await call(createRun as Route, 'POST', '/api/payroll/runs', undefined, { body: { month: 11, year: 2026 } });
@@ -86,13 +93,15 @@ async function november(employeeId: string) {
 
 describe('POST /api/payroll/employees with a salary', () => {
   it('one employee and one recurring component row, in rands, from the start date', async () => {
-    const out = await post(body('WP-1', '2026-11-01', { componentId: basic, amount: SALARY_CENTS }));
+    const out = await post(body('WP-1', '2026-11-01', { componentId: basic, amountCents: SALARY_CENTS }));
     expect(out.statusCode, JSON.stringify(out.body)).toBe(201);
     const rows = await employeeRows('WP-1');
     expect(rows).toHaveLength(1);
     expect(await componentRows(rows[0]!.id)).toEqual([{
       component_id: basic, amount: '25000.00', effective_from: '2026-11-01', effective_to: null, is_recurring: true,
     }]);
+    // Two writers, two date conversions: the employee and the salary must land on the same day.
+    expect(await startDateOf(rows[0]!.id)).toBe('2026-11-01');
   });
 
   it('without a salary: an employee and no component row, as before', async () => {
@@ -104,13 +113,13 @@ describe('POST /api/payroll/employees with a salary', () => {
   });
 
   it("another company's component: 400 and no employee row", async () => {
-    const out = await post(body('WP-3', '2026-11-01', { componentId: foreign, amount: SALARY_CENTS }));
+    const out = await post(body('WP-3', '2026-11-01', { componentId: foreign, amountCents: SALARY_CENTS }));
     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
     expect(await employeeRows('WP-3')).toEqual([]);
   });
 
   it('an annual-payment component: 400 and no employee row', async () => {
-    const out = await post(body('WP-4', '2026-11-01', { componentId: annual, amount: SALARY_CENTS }));
+    const out = await post(body('WP-4', '2026-11-01', { componentId: annual, amountCents: SALARY_CENTS }));
     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
     expect(await employeeRows('WP-4')).toEqual([]);
   });
@@ -122,9 +131,9 @@ describe('POST /api/payroll/employees with a salary', () => {
   });
 
   it('an employee number already in use: 400 and the first employee keeps its one salary', async () => {
-    const first = await post(body('WP-6', '2026-11-01', { componentId: basic, amount: SALARY_CENTS }));
+    const first = await post(body('WP-6', '2026-11-01', { componentId: basic, amountCents: SALARY_CENTS }));
     expect(first.statusCode, JSON.stringify(first.body)).toBe(201);
-    const again = await post(body('WP-6', '2026-12-01', { componentId: basic, amount: 100 }));
+    const again = await post(body('WP-6', '2026-12-01', { componentId: basic, amountCents: 100 }));
     expect(again.statusCode, JSON.stringify(again.body)).toBe(400);
     const rows = await employeeRows('WP-6');
     expect(rows).toHaveLength(1);
@@ -132,28 +141,68 @@ describe('POST /api/payroll/employees with a salary', () => {
   });
 
   it('a failure after the employee insert rolls the employee back (same request transaction)', async () => {
-    vi.spyOn(componentService, 'assignComponentToEmployee').mockRejectedValueOnce(new Error('assignment failed'));
-    await post(body('WP-7', '2026-11-01', { componentId: basic, amount: SALARY_CENTS })).catch(() => undefined);
+    const assign = vi.spyOn(componentService, 'assignComponentToEmployee').mockRejectedValueOnce(new Error('assignment failed'));
+    const out = await post(body('WP-7', '2026-11-01', { componentId: basic, amountCents: SALARY_CENTS }));
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(500);
+    expect(assign).toHaveBeenCalledTimes(1);
     expect(await employeeRows('WP-7')).toEqual([]);
+  });
+
+  it('a salary in `amount` (rands, as the components route takes it): 400 and no employee row', async () => {
+    const out = await post(body('WP-10', '2026-11-01', { componentId: basic, amount: SALARY_RANDS }));
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(/amountCents/);
+    expect(await employeeRows('WP-10')).toEqual([]);
+  });
+
+  it('a non-taxable component: 400 and no employee row', async () => {
+    const out = await post(body('WP-11', '2026-11-01', { componentId: untaxed, amountCents: SALARY_CENTS }));
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(await employeeRows('WP-11')).toEqual([]);
+  });
+
+  it('an end date before the start date: 400 and no employee row', async () => {
+    const out = await post({ ...body('WP-12', '2026-11-01'), endDate: '2026-10-31' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(await employeeRows('WP-12')).toEqual([]);
+  });
+
+  it('losing the race for an employee number: 400, the winner stands, no salary, and the request still commits', async () => {
+    const real = employeeService.createPayrollEmployee;
+    const insert = vi.spyOn(employeeService, 'createPayrollEmployee').mockImplementationOnce(async (companyId, data) => {
+      // Past the pre-check, before this request's insert: a real 23505 from a real committed row.
+      await pool.query(
+        `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
+         VALUES ($1, 'WP-13', 'Winner', 'Row', '2026-11-01')`, [company]);
+      return real(companyId, data);
+    });
+    const out = await post(body('WP-13', '2026-11-01', { componentId: basic, amountCents: SALARY_CENTS }));
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(/already in use/i);
+    const rows = await employeeRows('WP-13');
+    expect(rows).toHaveLength(1);
+    expect(await componentRows(rows[0]!.id)).toEqual([]);
   });
 });
 
-describe('the first run', () => {
-  it("start 1 Nov: the Nov run's gross is the salary", async () => {
-    const out = await post(body('WP-8', '2026-11-01', { componentId: basic, amount: SALARY_CENTS }));
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(201);
-    const [row] = await employeeRows('WP-8');
-    const line = await november(row!.id);
-    expect(line).toHaveLength(1);
-    expect(Number(line[0]!.gross_pay)).toBe(SALARY_RANDS);
+describe('the first run (PINNED, not endorsed: payrollRunService day 28, read through toISOString)', () => {
+  it('the gate reads the components on the 27th, which is why the line below falls between the 27th and the 28th', () => {
+    expect(new Date(2026, 10, 28).toISOString().slice(0, 10)).toBe('2026-11-27');
   });
 
-  it('start 29 Nov: PINNED, the Nov run has a line with gross 0 (payrollRunService day 28, toISOString)', async () => {
-    const out = await post(body('WP-9', '2026-11-29', { componentId: basic, amount: SALARY_CENTS }));
+  it.each([
+    ['1 Nov, the whole month', 'WP-8', '2026-11-01', SALARY_RANDS],
+    ['15 Nov, still the whole month: no part-month reduction', 'WP-14', '2026-11-15', SALARY_RANDS],
+    ['27 Nov, the last day that is paid, and in full', 'WP-15', '2026-11-27', SALARY_RANDS],
+    ['28 Nov, on the run with gross 0', 'WP-16', '2026-11-28', 0],
+    ['29 Nov, on the run with gross 0', 'WP-9', '2026-11-29', 0],
+  ])("start %s", async (_n, number, startDate, gross) => {
+    const out = await post(body(number, startDate, { componentId: basic, amountCents: SALARY_CENTS }));
     expect(out.statusCode, JSON.stringify(out.body)).toBe(201);
-    const [row] = await employeeRows('WP-9');
+    const [row] = await employeeRows(number);
     const line = await november(row!.id);
     expect(line).toHaveLength(1);
-    expect(Number(line[0]!.gross_pay)).toBe(0);
+    expect(Number(line[0]!.gross_pay)).toBe(gross);
   });
 });

@@ -2,8 +2,9 @@
 /**
  * Golden path (z4): one flow to ready to pay (master plan wave 3, PR W).
  *
- *  - Keyboard only: a refused tax number stops the form on the field; Enter in the salary box creates the employee and
- *    the profile shows R 25 000. Enter is the awkward path: the amount is committed by that same key press.
+ *  - Keyboard only: a refused tax number stops the form on the field; Tab reports a bad one before any submit; the pay
+ *    component is chosen from the keyboard; Enter in the salary box creates the employee and the profile shows
+ *    R 25 000. Enter is the awkward path: the amount is committed by that same key press.
  *  - The drawer opens from the list by keyboard and by a row click, and shows their pay.
  *  - axe reports 0 critical and 0 serious on the form and on the open drawer, in both themes, and neither scrolls
  *    sideways at 390. EVIDENCE_DIR=<dir> saves screenshots (light and dark, 1568 and 390).
@@ -22,6 +23,7 @@ const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const NEW = '/payroll/employees/new';
 const LIST = '/payroll/employees';
 const RANDS = /R\s?25[\s ,]?000/;
+const KEYBOARD_COMPONENT = 'Z4 Commission';
 
 let sandboxId = '';
 let listed = '';
@@ -58,14 +60,17 @@ test.beforeAll(async ({ baseURL }) => {
   try {
     sandboxId = await findOrCreateSandbox(api, SANDBOX);
     await switchApiCompany(api, sandboxId);
-    const components = await api.get<Array<{ id: string; sarsSourceCode: string }>>('/api/payroll/components');
+    const components = await api.get<Array<{ id: string; name: string; sarsSourceCode: string }>>('/api/payroll/components');
     const basic = components.find((c) => c.sarsSourceCode === '3601')
       ?? await api.post<{ id: string }>('/api/payroll/components', { name: 'Basic Salary', sarsSourceCode: '3601', componentType: 'earning' });
     // One employee with pay for the drawer tests, made through the route the form posts to.
     listed = `Listed${Date.now()}`;
+    if (!components.some((c) => c.name === KEYBOARD_COMPONENT)) {
+      await api.post('/api/payroll/components', { name: KEYBOARD_COMPONENT, sarsSourceCode: '3606', componentType: 'earning' });
+    }
     await api.post('/api/payroll/employees', {
       firstName: 'Golden', lastName: listed, employeeNumber: `Z4L-${Date.now()}`, employmentType: 'permanent', startDate: '2026-11-01',
-      salary: { componentId: basic.id, amount: 2_500_000 },
+      salary: { componentId: basic.id, amountCents: 2_500_000 },
     });
   } finally {
     await api.dispose();
@@ -98,7 +103,25 @@ test('keyboard only: create an employee with a salary, and the profile shows it'
   await expect(tax).toHaveAttribute('aria-invalid', 'true');
   await expect(tax).toBeFocused();
   expect(new URL(page.url()).pathname).toBe(NEW);
+  await tax.fill('');
+  await page.keyboard.type('4123456789');
+  await page.keyboard.press('Tab');
+  await expect(tax).toHaveAttribute('aria-invalid', 'true'); // on leaving the field, with no submit
   await tax.fill('0123456789');
+
+  const picker = page.getByRole('combobox', { name: 'Pay component' });
+  await picker.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Z4');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(picker).toContainText(KEYBOARD_COMPONENT);
+  await expect(picker).toBeFocused();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('3601');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(picker).toContainText('3601');
 
   await salary.focus();
   await page.keyboard.type('25 000');

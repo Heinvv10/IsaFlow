@@ -5,21 +5,19 @@
  * thrown before createPayrollEmployee; a failure after it stays a plain error, so the request answers 500 and rolls
  * the employee back. The caller answers EmployeeOnboardingRefused as a 400 and rethrows the rest.
  *
- * The body is integer cents (what MoneyField hands over); payroll_employee_components.amount is rands.
+ * salary.amountCents is integer cents (what MoneyField hands over); payroll_employee_components.amount is rands.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
-import { isValidSaIdNumber, isValidSarsTaxNumber } from './irp5ValidationEngine';
+import { MAX_SALARY_CENTS, isValidSaIdNumber, isValidSarsTaxNumber } from './employeeFieldRules';
 import { payeTreatment } from './payeAnnualPayment';
 import { assignComponentToEmployee } from './payrollEmployeeComponentService';
 import { createPayrollEmployee } from './payrollEmployeeService';
 import type { PayrollEmployee } from './payrollTypes';
 
 const EMPLOYMENT_TYPES: readonly string[] = ['permanent', 'contract', 'casual', 'director'];
-/** payroll_employee_components.amount is NUMERIC(14,2). */
-const MAX_SALARY_CENTS = 99_999_999_999_999;
 const MAX_DEPENDANTS = 100;
 
 export class EmployeeOnboardingRefused extends Error {
@@ -70,22 +68,32 @@ function dependantsOf(value: unknown): number {
   return value;
 }
 
+/** Boolean('false') is true: anything but a boolean is refused, so a string cannot take someone out of UIF. */
+function uifExcludedOf(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value !== 'boolean') throw new EmployeeOnboardingRefused('uifExcluded must be true or false');
+  return value;
+}
+
 function employeeOf(body: Body): NewEmployee {
   const employmentType = body.employmentType;
   if (typeof employmentType !== 'string' || !EMPLOYMENT_TYPES.includes(employmentType)) {
     throw new EmployeeOnboardingRefused(`employmentType must be one of: ${EMPLOYMENT_TYPES.join(', ')}`);
   }
+  const startDate = dateOf(body.startDate, 'startDate');
+  const endDate = optionalDate(body, 'endDate');
+  if (endDate && endDate < startDate) throw new EmployeeOnboardingRefused('endDate cannot be before startDate');
   return {
     firstName: requiredText(body, 'firstName', 100),
     lastName: requiredText(body, 'lastName', 100),
     employeeNumber: requiredText(body, 'employeeNumber', 20),
     employmentType: employmentType as PayrollEmployee['employmentType'],
-    startDate: dateOf(body.startDate, 'startDate'),
-    endDate: optionalDate(body, 'endDate'),
+    startDate,
+    endDate,
     taxNumber: identifier(body.taxNumber, isValidSarsTaxNumber, TAX_REFUSAL),
     idNumber: identifier(body.idNumber, isValidSaIdNumber, ID_REFUSAL),
     dateOfBirth: optionalDate(body, 'dateOfBirth'),
-    uifExcluded: Boolean(body.uifExcluded),
+    uifExcluded: uifExcludedOf(body.uifExcluded),
     // Only an explicit true makes a main member: the flag buys a monthly medical tax credit,
     // so a default of true under-deducts PAYE for everyone captured without medical aid.
     medicalAidMainMember: body.medicalAidMainMember === true,
@@ -95,25 +103,28 @@ function employeeOf(body: Body): NewEmployee {
 
 function salaryOf(raw: unknown): Salary | null {
   if (raw === undefined || raw === null) return null;
-  if (typeof raw !== 'object' || Array.isArray(raw)) throw new EmployeeOnboardingRefused('salary must be { componentId, amount }');
-  const { componentId, amount } = raw as Body;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new EmployeeOnboardingRefused('salary must be { componentId, amountCents }');
+  const { componentId, amount, amountCents } = raw as Body;
+  // The components route's `amount` is rands: read as cents here, R25 000 would be stored as R250.
+  if (amount !== undefined) throw new EmployeeOnboardingRefused('salary.amount is not accepted: send salary.amountCents, in whole cents');
   if (!isUuidParam(componentId)) throw new EmployeeOnboardingRefused('salary.componentId must be a pay component id');
-  if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount <= 0 || amount > MAX_SALARY_CENTS) {
-    throw new EmployeeOnboardingRefused('salary.amount must be a positive number of whole cents');
+  if (typeof amountCents !== 'number' || !Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > MAX_SALARY_CENTS) {
+    throw new EmployeeOnboardingRefused('salary.amountCents must be a positive number of whole cents');
   }
-  return { componentId, cents: amount };
+  return { componentId, cents: amountCents };
 }
 
 /** The same answer for another company's component as for one that does not exist. */
 async function assertSalaryComponent(companyId: string, componentId: string): Promise<void> {
   const rows = (await sql`
-    SELECT sars_source_code, component_type, is_active FROM payroll_components
+    SELECT sars_source_code, component_type, is_active, is_taxable FROM payroll_components
     WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[];
   const component = rows[0];
   if (!component) throw new EmployeeOnboardingRefused('That pay component was not found in this company');
   if (!component.is_active) throw new EmployeeOnboardingRefused('That pay component is inactive');
   if (component.component_type !== 'earning') throw new EmployeeOnboardingRefused('A salary must be an earning component');
+  if (!component.is_taxable) throw new EmployeeOnboardingRefused('A salary must be a taxable component: this one would deduct no PAYE');
   // A recurring 3605 or 39xx would be taxed as a lump of the year every month. Monthly pay is 'periodic'.
   if (payeTreatment(String(component.sars_source_code)) !== 'periodic') {
     throw new EmployeeOnboardingRefused('A salary must be a monthly earning, not an annual payment or a lump sum');
@@ -126,6 +137,20 @@ async function assertEmployeeNumberFree(companyId: string, employeeNumber: strin
     WHERE company_id = ${companyId}::uuid AND employee_number = ${employeeNumber}
   `) as DbRow[];
   if (rows.length > 0) throw new EmployeeOnboardingRefused(`Employee number ${employeeNumber} is already in use`);
+}
+
+/**
+ * Two requests can both pass assertEmployeeNumberFree; the loser dies on the unique constraint. Its own savepoint keeps
+ * the request transaction usable, so the re-read can run and the 400 can commit. Nothing was written. The re-read
+ * decides: a 23505 with the number still free is some other constraint, and stays a failure.
+ */
+async function insertEmployee(companyId: string, fields: NewEmployee): Promise<PayrollEmployee> {
+  try {
+    return await withSavepoint('employee_insert', () => createPayrollEmployee(companyId, fields));
+  } catch (err) {
+    if ((err as { code?: string }).code === '23505') await assertEmployeeNumberFree(companyId, fields.employeeNumber);
+    throw err;
+  }
 }
 
 function changedIdentifier(value: unknown, stored: string | undefined, isValid: (v: string) => boolean, refusal: string): unknown {
@@ -152,7 +177,7 @@ export async function createEmployeeWithPay(companyId: string, userId: string, b
   await assertEmployeeNumberFree(companyId, fields.employeeNumber);
   if (salary) await assertSalaryComponent(companyId, salary.componentId);
 
-  const employee = await createPayrollEmployee(companyId, fields);
+  const employee = await insertEmployee(companyId, fields);
   if (salary) {
     await assignComponentToEmployee(companyId, employee.id, salary.componentId, salary.cents / 100, fields.startDate, undefined, true);
   }
