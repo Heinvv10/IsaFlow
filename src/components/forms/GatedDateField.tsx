@@ -6,6 +6,7 @@
 import { useEffect } from 'react';
 import { DateField, type DateFieldProps } from '@/components/ui/DateField';
 import { useDateGate, type DateGate } from '@/hooks/useDateGate';
+import { cn } from '@/utils/cn';
 
 export { useDateGate };
 
@@ -19,4 +20,14 @@ export function GatedDateField({ gate, gateKey, onValue, ...props }: GatedDateFi
   const { bind, reset } = gate;
   useEffect(() => () => reset(gateKey), [reset, gateKey]);
   return <DateField resetKey={gate.resetKey(gateKey)} {...props} onChange={bind(gateKey, onValue, props.value)} />;
+}
+
+/** For a report filter: says why the run and export actions are off, and that the screen does not match the filters. */
+export function FixDateNotice({ gate, message = 'Fix the date marked in red: the report shown is for the previous filters.', className }: {
+  gate: DateGate;
+  message?: string;
+  className?: string;
+}) {
+  if (!gate.blocked) return null;
+  return <div role="alert" className={cn('p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm', className)}>{message}</div>;
 }

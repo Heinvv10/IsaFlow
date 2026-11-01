@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Shield, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -59,6 +59,7 @@ export default function AuditTrailPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -106,7 +107,7 @@ export default function AuditTrailPage() {
               <div className="p-2 rounded-lg bg-amber-500/10"><Shield className="h-6 w-6 text-amber-500" /></div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Audit Trail</h1>
             </div>
-            <button onClick={handleExport} disabled={rows.length === 0}
+            <button onClick={handleExport} disabled={rows.length === 0 || dates.blocked}
               className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium disabled:opacity-50">
               <Download className="h-4 w-4" /> Export CSV
             </button>
@@ -116,10 +117,10 @@ export default function AuditTrailPage() {
         <div className="p-6 space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
             <div>
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Source</label>
@@ -142,6 +143,7 @@ export default function AuditTrailPage() {
             </div>
           </div>
 
+          <FixDateNotice gate={dates} />
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
           {loading ? (

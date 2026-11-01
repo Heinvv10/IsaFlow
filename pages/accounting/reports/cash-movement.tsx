@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -51,6 +51,7 @@ export default function CashMovementPage() {
   const [data, setData] = useState<CashMovementData | null>(null);
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(defaultTo);
+  const dates = useDateGate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -100,13 +101,14 @@ export default function CashMovementPage() {
           {/* Date range picker */}
           <div className="flex items-end gap-4">
             <div>
-              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
             </div>
             <div>
-              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
             </div>
           </div>
 
+          <FixDateNotice gate={dates} />
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />

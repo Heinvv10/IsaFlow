@@ -2,7 +2,7 @@
 // VAT Reconciliation — monthly GL vs invoices vs submitted returns
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -99,6 +99,7 @@ export default function VatReconciliationPage() {
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
   });
+  const dates = useDateGate();
   const [reconData, setReconData] = useState<VatReconData | null>(null);
   const [multiData, setMultiData] = useState<MultiYearData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -125,7 +126,7 @@ export default function VatReconciliationPage() {
     }
   }, [mode, from, to]);
 
-  useEffect(() => { void fetchData(); }, [fetchData]);
+  useEffect(() => { if (!dates.blocked) void fetchData(); }, [fetchData, dates.blocked]);
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.
   // While the answer is still unknown, render neither: flashing a VAT form at
@@ -164,10 +165,10 @@ export default function VatReconciliationPage() {
         {mode === 'reconciliation' && (
           <>
             <div>
-              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
             </div>
             <div>
-              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
             </div>
           </>
         )}
@@ -179,6 +180,7 @@ export default function VatReconciliationPage() {
         </div>
       )}
 
+      <FixDateNotice gate={dates} className="mb-4" />
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-800 bg-red-900/30 px-4 py-3 text-sm text-red-300">
           <AlertCircle className="h-4 w-4" /> {error}

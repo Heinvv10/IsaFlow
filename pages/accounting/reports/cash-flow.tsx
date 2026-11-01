@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, Loader2, AlertCircle, Download } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
@@ -36,6 +36,7 @@ export default function CashFlowPage() {
   const [costCentreFilter, setCostCentreFilter] = useState('');
   const [startDate, setStartDate] = useState(() => prevMonthRange().start);
   const [endDate, setEndDate] = useState(localISODate());
+  const dates = useDateGate();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [refError, setRefError] = useState('');
@@ -67,7 +68,7 @@ export default function CashFlowPage() {
     }
   }, [startDate, endDate, costCentreFilter]);
 
-  useEffect(() => { void loadReport(); }, [loadReport]);
+  useEffect(() => { if (!dates.blocked) void loadReport(); }, [loadReport, dates.blocked]);
 
   return (
     <AppLayout>
@@ -90,7 +91,7 @@ export default function CashFlowPage() {
                 if (!startDate || !endDate) return;
                 const params = new URLSearchParams({ period_start: startDate, period_end: endDate });
                 window.open(`/api/accounting/cash-flow-export?${params}`, '_blank');
-              }} disabled={!report}
+              }} disabled={!report || dates.blocked}
                 className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
@@ -102,10 +103,10 @@ export default function CashFlowPage() {
           {/* Date filters */}
           <div className="flex items-center gap-4 mb-6">
             <div>
-              <DateField label="From" value={startDate || null} onChange={(iso, v) => { if (v.valid) setStartDate(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={startDate || null} onValue={setStartDate} />
             </div>
             <div>
-              <DateField label="To" value={endDate || null} onChange={(iso, v) => { if (v.valid) setEndDate(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={endDate || null} onValue={setEndDate} />
             </div>
             {costCentres.length > 0 && (
               <div>
@@ -118,6 +119,7 @@ export default function CashFlowPage() {
             )}
           </div>
 
+          <FixDateNotice gate={dates} className="mb-4" />
           {refError && <p role="alert" className="text-xs text-amber-500">{refError}</p>}
           {isLoading ? (
             <div className="flex items-center justify-center py-12">

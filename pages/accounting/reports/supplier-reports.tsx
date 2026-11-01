@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -35,6 +35,7 @@ export default function SupplierReportsPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -81,7 +82,7 @@ export default function SupplierReportsPage() {
               <div className="p-2 rounded-lg bg-orange-500/10"><ShoppingCart className="h-6 w-6 text-orange-500" /></div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supplier Report</h1>
             </div>
-            <button onClick={handleExport} disabled={rows.length === 0}
+            <button onClick={handleExport} disabled={rows.length === 0 || dates.blocked}
               className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium disabled:opacity-50">
               <Download className="h-4 w-4" /> Export CSV
             </button>
@@ -91,13 +92,14 @@ export default function SupplierReportsPage() {
         <div className="p-6 max-w-5xl space-y-4">
           <div className="flex items-center gap-4">
             <div>
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
             </div>
           </div>
 
+          <FixDateNotice gate={dates} />
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
           {loading ? (
