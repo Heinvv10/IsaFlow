@@ -89,7 +89,7 @@ interface Props {
 }
 
 export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
-  const { selectedIds, rowSelections, onToggleSelect, onRowTypeChange, onUpdateNotes } = table;
+  const { selectedIds, rowSelections, onToggleSelect, onRowTypeChange, onUpdateNotes, onOpenDetails } = table;
   const isNew = tx.status === 'imported';
   const isAllocated = tx.status === 'allocated';
   const sel = rowSelections[tx.id];
@@ -117,7 +117,16 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
         {formatDisplayDate(tx.transactionDate)}
       </td>
       <td className="py-2 px-2 text-[var(--ff-text-primary)]">
-        <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+        {onOpenDetails ? (
+          <button type="button" onClick={() => onOpenDetails(tx.id)} aria-label={`Details, ${label}`}
+            // Enter here opens the drawer. Bubbled to the grid, it would accept the row, which posts a journal.
+            onKeyDown={e => { if (e.key === 'Enter') e.stopPropagation(); }}
+            className="block w-full text-left hover:underline">
+            <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+          </button>
+        ) : (
+          <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+        )}
         {isPendingFeedRow(tx) && <PendingFeedBadge />}
         {tx.status === 'provisional' && (
           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/40 text-amber-300 ml-1"

@@ -12,6 +12,7 @@ import type { AllocType, BankTx, SelectOption, RowSelection } from '@/components
 import type { RulePrompt } from './BankTxBatchPanel';
 import { actionableIds } from './pendingFeedRow';
 import { buildBankTxSelectionActions } from './bankTxSelectionActions';
+import { offerAllocationUndo, offerExcludeUndo } from './bankTxUndo';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
 interface ActionDeps {
@@ -32,6 +33,8 @@ interface ActionDeps {
   setExcludingTxId: (v: string | null) => void;
   loadTransactions: () => void;
   refreshBankAccounts: () => void;
+  /** For a toast's Undo, which runs long after this render: reloads the view on screen by then. */
+  reloadCurrentView: () => void;
   onLlmResidual?: (n: number) => void;
 }
 
@@ -40,7 +43,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     transactions, selectedBank, selectedIds, rowSelections,
     excludingTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds,
-    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, onLlmResidual,
+    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, reloadCurrentView, onLlmResidual,
   } = deps;
 
   const callAction = async (body: Record<string, string>) => {
@@ -87,7 +90,12 @@ export function buildBankTxActions(deps: ActionDeps) {
         if (sel.buId) body.buId = sel.buId;
       }
       const allocated = await callAction(body);
-      notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
+      const journalEntryId: unknown = allocated?.data?.journalEntryId;
+      if (sel.type !== 'transfer' && tx && typeof journalEntryId === 'string') {
+        offerAllocationUndo(tx, selectedBank, journalEntryId, { callAction, reloadCurrentView });
+      } else {
+        notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
+      }
       notifyLateClaims(allocated); // VAT claimed in a later period (s16(3))
       loadTransactions(); refreshBankAccounts();
       if (sel.type === 'account' && sel.entityId) {
@@ -116,10 +124,13 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleExcludeConfirm = async (reason: string) => {
     if (!excludingTxId) return;
     const txId = excludingTxId;
+    const priorStatus = transactions.find(t => t.id === txId)?.status;
     setExcludingTxId(null);
     try {
       await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
-      notify.success('Transaction excluded'); loadTransactions(); refreshBankAccounts();
+      if (priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
+      else notify.success('Transaction excluded');
+      loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
   };
   const handleUnmatch = async (txId: string) => {

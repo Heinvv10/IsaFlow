@@ -19,7 +19,7 @@ Sage-style filters for `pages/accounting/customer-invoices/index.tsx`: status, s
 ## Main signatures
 - `hydrateARFilters(query)`, `arFiltersToQuery(f)`, `arFiltersToApiParams(f)` — `listQuery.ts`.
 - `useCustomerInvoiceListState()` — re-hydrates whenever the URL changes under it (back/forward), writes with a shallow `router.replace` only when the query changes.
-- `ARFilterBar`, `CustomerTypeahead`, `CustomerInvoiceTable`.
+- `ARFilterBar`, `CustomerTypeahead`, `CustomerInvoiceTable`, `InvoiceDrawerBody`.
 
 ## Business rules
 - The customer's NAME is never read from the URL: a URL label could name a different customer than the id it filters. It comes from the typeahead pick or the loaded rows' `client_name`, keyed by id.
@@ -27,5 +27,6 @@ Sage-style filters for `pages/accounting/customer-invoices/index.tsx`: status, s
 - A month is a UI convenience (`../invoicePeriod.ts`): it becomes an inclusive from/to pair; never `toISOString()` a date here.
 
 ## Recent changes
+- 2026-11-01: a plain row click opens `InvoiceDrawerBody`, including a click on the number; Ctrl, Cmd, Shift and the middle button still open the page (master plan wave 3, PR U).
 - 2026-10-27: new/edit forms moved onto the kit (master plan wave 2, PR I).
 - 2026-09-23: created (invoice search & filters, PR 2 of 2).
