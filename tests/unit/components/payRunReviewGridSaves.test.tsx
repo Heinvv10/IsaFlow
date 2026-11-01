@@ -21,7 +21,7 @@ import PayrollRunDetailPage from '@/../pages/payroll/runs/[id]';
 
 const held = (amount: number, employeeId = 'e-1') => ({ employeeId, componentId: OVERTIME.id, amount, conflict: false });
 
-beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
+beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); route.id = '11111111-1111-4111-8111-111111111111'; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('commits', () => {
@@ -154,6 +154,25 @@ describe('what holds the approval preview', () => {
     expect(await screen.findByRole('dialog')).toBeTruthy();
   });
 
+  it('a commit made while it waits is waited for too', async () => {
+    const answers: Array<(r: Response) => void> = [];
+    serve(() => new Promise<Response>((resolve) => { answers.push(resolve); }));
+    render(<PayrollRunDetailPage />);
+    const [a, b] = [await cell('Riaan Smit'), await cell('Thandi Nkosi')];
+    type(a, '1');
+    fireEvent.blur(a);
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    pressApprove();
+    type(b, '2');
+    fireEvent.blur(b);
+    answers[0]!(ok(inputsBody(twoRuns())));
+    await waitFor(() => expect(puts()).toHaveLength(2));
+    await settle();
+    expect(previews()).toHaveLength(0);
+    answers[1]!(ok(inputsBody(twoRuns())));
+    await waitFor(() => expect(previews()).toHaveLength(1));
+  });
+
   it('a save that fails while it waits: the dialog stays closed and says why; a second press goes on', async () => {
     let answer: (r: Response) => void = () => undefined;
     serve(() => new Promise<Response>((resolve) => { answer = resolve; }));
@@ -254,6 +273,26 @@ describe('moving to another run', () => {
     });
     expect(screen.queryByText('Riaan Smit')).toBeNull();
     expect(screen.getByText('Peter Other')).toBeTruthy();
-    route.id = '11111111-1111-4111-8111-111111111111';
+  });
+
+  it('a slow load of the run left behind does not replace the one now open', async () => {
+    let answerFirst: (r: Response) => void = () => undefined;
+    const other = twoRuns({ id: SECOND, lines: [line('8', 'Peter Other', [], { employeeId: 'e-8' })] });
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === RUN_URL) return new Promise<Response>((resolve) => { answerFirst = resolve; });
+      if (url === `/api/payroll/runs/${SECOND}/inputs`) return ok(inputsBody(other));
+      if (url === `/api/payroll/runs/${SECOND}`) return ok(other);
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    const { rerender } = render(<PayrollRunDetailPage />);
+    route.id = SECOND;
+    rerender(<PayrollRunDetailPage />);
+    await cell('Peter Other');
+    await act(async () => {
+      answerFirst(ok(twoRuns()));
+      await settle();
+    });
+    expect(screen.queryByText('Riaan Smit')).toBeNull();
+    expect(screen.getByText('Peter Other')).toBeTruthy();
   });
 });
