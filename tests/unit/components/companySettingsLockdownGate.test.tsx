@@ -8,16 +8,19 @@ import CompanySettingsPage from '../../../pages/accounting/company-settings';
 import { apiFetch } from '@/lib/apiFetch';
 import { typeDate } from '../helpers/dateFields';
 
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'company-a' }, loading: false }) }));
+let activeCompanyId = 'company-a';
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: activeCompanyId }, loading: false }) }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: { tab: 'general' } }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
 
 beforeEach(() => {
+  activeCompanyId = 'company-a';
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     if (String(url).startsWith('/api/accounting/companies?')) {
-      return Response.json({ success: true, data: { id: 'company-a', name: 'Example', lockdown_enabled: true, lockdown_date: '2026-02-28' } });
+      const id = new URL(String(url), 'https://isaflow.test').searchParams.get('id');
+      return Response.json({ success: true, data: { id, name: `Example ${id}`, lockdown_enabled: true, lockdown_date: '2026-02-28' } });
     }
     if (String(url).includes('financial-year-end-change')) return new Response('{}', { status: 503 });
     return Response.json({ success: true, data: [] });
@@ -55,6 +58,19 @@ it('leaving the General tab drops the refused entry (the field shows the saved d
   fireEvent.click(screen.getAllByRole('button', { name: /VAT Settings/ })[0] as HTMLElement);
   await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Lockdown Date' })).toBeNull());
   expect(save().disabled).toBe(false);
+});
+
+it('switching company drops the refused entry and unblocks Save for the new company', async () => {
+  const view = render(<CompanySettingsPage />);
+  const field = await screen.findByRole('textbox', { name: 'Lockdown Date' });
+  typeDate(field, 'garbage');
+  await waitFor(() => expect(save().disabled).toBe(true));
+
+  activeCompanyId = 'company-b';
+  view.rerender(<CompanySettingsPage />);
+
+  await screen.findByDisplayValue('28 Feb 2026');
+  await waitFor(() => expect(save().disabled).toBe(false));
 });
 
 it('the save handler itself refuses while Lockdown Date is refused, not only the disabled button', async () => {

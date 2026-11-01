@@ -28,6 +28,12 @@ export interface PairReport { line: number; id: string; component: string | null
 export interface TransformResult { output: string; insertions: Insertion[]; pairs: PairReport[] }
 export interface TransformOptions { /** JSX uses of a component name in files other than this one. */ usesElsewhere?: (component: string) => number }
 
+/** Count JSX tag occurrences, including multiple uses written on the same source line. */
+export function countJsxTagUses(source: string, name: string): number {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return source.match(new RegExp(`<${escaped}(?=[\\s/>]|$)`, 'g'))?.length ?? 0;
+}
+
 const CONTROLS = new Set(['input', 'select', 'textarea']);
 const LOOP_METHODS = new Set(['map', 'flatMap', 'forEach', 'reduce']);
 

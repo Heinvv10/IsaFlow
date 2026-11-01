@@ -10,7 +10,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { transformLabelFor } from './labelForTransform';
+import { countJsxTagUses, transformLabelFor } from './labelForTransform';
 
 function args(argv: string[]): { dryRun: boolean; globs: string[] } {
   const globs: string[] = [];
@@ -31,11 +31,11 @@ const files = execFileSync('git', ['ls-files', '--', ...globs.map((g) => `:(glob
 function usesElsewhere(name: string, self: string): number {
   let out = '';
   try {
-    out = execFileSync('git', ['grep', '-c', '-E', `<${name}([[:space:]/>]|$)`, '--', '*.tsx', ':(exclude)tests/**', `:(exclude)${self}`], { encoding: 'utf8' });
+    out = execFileSync('git', ['grep', '-l', '-E', `<${name}([[:space:]/>]|$)`, '--', '*.tsx', ':(exclude)tests/**', `:(exclude)${self}`], { encoding: 'utf8' });
   } catch (e) {
     if ((e as { status?: number }).status !== 1) throw e;
   }
-  return out.split('\n').filter(Boolean).reduce((n, line) => n + Number(line.slice(line.lastIndexOf(':') + 1)), 0);
+  return out.split('\n').filter(Boolean).reduce((n, file) => n + countJsxTagUses(readFileSync(file, 'utf8'), name), 0);
 }
 
 let applied = 0;
