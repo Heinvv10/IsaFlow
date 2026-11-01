@@ -37,16 +37,17 @@ export function assertSupplierInvoiceLines(
   items: readonly SupplierInvoiceItemInput[],
   trustSourceTax: boolean,
 ): void {
-  for (const item of items) {
+  // A line is named by its position, never its description: this message reaches error capture, and a description is customer text.
+  for (const [i, item] of items.entries()) {
     if (!(Number(item.quantity) > 0)) {
-      throw new Error(`Line "${item.description}": quantity must be positive`);
+      throw new Error(`Line ${i + 1}: quantity must be positive`);
     }
     if (Number(item.unitPrice) < 0) {
-      throw new Error(`Line "${item.description}": unit price cannot be negative`);
+      throw new Error(`Line ${i + 1}: unit price cannot be negative`);
     }
     if (trustSourceTax && lineTax(item) !== undefined
         && !(Number.isFinite(Number(lineTax(item))) && Number(lineTax(item)) >= 0)) {
-      throw new Error(`Line "${item.description}": tax amount must be a non-negative number`);
+      throw new Error(`Line ${i + 1}: tax amount must be a non-negative number`);
     }
   }
 }
