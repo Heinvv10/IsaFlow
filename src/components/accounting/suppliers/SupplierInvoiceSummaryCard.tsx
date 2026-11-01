@@ -14,10 +14,12 @@ export interface SupplierInvoiceSummaryCardProps {
   total: number;
   taxRate: number;
   isSubmitting: boolean;
+  /** True while a date field shows a refusal: submit stays off rather than silently doing nothing. */
+  disabled?: boolean;
 }
 
 export function SupplierInvoiceSummaryCard({
-  subtotal, totalTax, total, taxRate, isSubmitting,
+  subtotal, totalTax, total, taxRate, isSubmitting, disabled = false,
 }: SupplierInvoiceSummaryCardProps) {
   return (
     <div className="lg:sticky lg:top-6">
@@ -41,7 +43,7 @@ export function SupplierInvoiceSummaryCard({
             <span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrency(total)}</span>
           </div>
         </div>
-        <button type="submit" disabled={isSubmitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+        <button type="submit" disabled={isSubmitting || disabled} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
           {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><Receipt className="h-4 w-4" />Create Invoice</>}
         </button>
       </div>

@@ -2,6 +2,8 @@
  * Pairs with DateField on document forms. DateField hands the parent null for text it refused, and the
  * forms ignore that (`if (v.valid)`), so the state would keep the previous good date. `blocked` is true
  * while any bound field is showing a refusal, so submit can stop instead of posting that stale date.
+ * Stale refusals are dropped when the hook's host re-renders, so a bound `current` value must come from host state
+ * (useState), never from a ref or a variable the host does not re-render for.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FieldValidity } from '@/components/ui';

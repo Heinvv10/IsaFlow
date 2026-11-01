@@ -10,6 +10,7 @@ import {
 } from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { useState } from 'react';
 import { Plus, Tags, Trash2 } from 'lucide-react';
+import { useOverflowX } from '@/hooks/useOverflowX';
 import { formatCurrency } from '@/utils/formatters';
 import { CodingPicker } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import type { InvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
@@ -85,6 +86,7 @@ interface Props {
 }
 
 export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove, codingOptions, supplierDefaults }: Props) {
+  const linesOverflow = useOverflowX();
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default once a line carries a dimension (a supplier default), so the user sees what will post.
   const showDimensions = codingOptions !== undefined
@@ -130,8 +132,8 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
         </p>
       )}
 
-      <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400 md:hidden">Scroll sideways to see every column.</p>
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto mx-5 my-4" role="region" aria-label="Invoice lines" tabIndex={0}>
+      {linesOverflow.overflows && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
+      <div ref={linesOverflow.ref} className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto mx-5 my-4" role="region" aria-label="Invoice lines" tabIndex={0}>
         <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-slate-50 dark:bg-slate-800/60">
             <tr>
@@ -164,7 +166,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {lines.map(line => (
+            {lines.map((line, index) => (
               <tr
                 key={line.key}
                 className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors"
@@ -241,9 +243,9 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                 <td className="px-2 py-2">
                   <button
                     type="button"
-                    aria-label="Remove line"
+                    aria-label={`Remove line ${index + 1}`}
                     onClick={() => onRemove(line.key)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

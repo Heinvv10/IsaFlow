@@ -14,6 +14,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
+import { useOverflowX } from '@/hooks/useOverflowX';
 
 interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string }
 
@@ -36,6 +37,7 @@ export default function NewPurchaseOrderPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const dates = useDateGate();
+  const linesOverflow = useOverflowX();
   const [saveAndNew, setSaveAndNew] = useState(false);
   const [form, setForm] = useState({
     supplierId: '', orderDate: localISODate(),
@@ -141,8 +143,8 @@ export default function NewPurchaseOrderPage() {
                     <Plus className="h-3 w-3" />Add Line
                   </button>
                 </div>
-                <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400 md:hidden">Scroll sideways to see every column.</p>
-                <div className="overflow-x-auto" role="region" aria-label="Purchase order lines" tabIndex={0}>
+                {linesOverflow.overflows && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
+                <div ref={linesOverflow.ref} className="overflow-x-auto" role="region" aria-label="Purchase order lines" tabIndex={0}>
                   <table className="w-full min-w-[720px] text-sm">
                     <thead className="bg-slate-50 dark:bg-slate-800/60">
                       <tr>
@@ -155,7 +157,7 @@ export default function NewPurchaseOrderPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {items.map(item => (
+                      {items.map((item, index) => (
                         <tr key={item.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2"><input type="text" required name="description" value={item.description} onChange={e => updateItem(item.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
                           <td className="px-3 py-2"><input type="number" required name="quantity" min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(item.key, 'quantity', e.target.value)} className={`${inp} text-right`} /></td>
@@ -163,7 +165,7 @@ export default function NewPurchaseOrderPage() {
                           <td className="px-3 py-2"><input type="number" name="taxRate" min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
                           <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{fmt(lineTotal(item))}</td>
                           <td className="px-2 py-2">
-                            <button type="button" aria-label="Remove line" onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                            <button type="button" aria-label={`Remove line ${index + 1}`} onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>
@@ -203,10 +205,10 @@ export default function NewPurchaseOrderPage() {
                     <span className="tabular-nums font-bold text-lg text-amber-500">{fmt(subtotal + tax)}</span>
                   </div>
                 </div>
-                <button type="submit" disabled={saving} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button type="submit" disabled={saving || dates.blocked} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {saving && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Create Purchase Order'}
                 </button>
-                <button type="submit" disabled={saving} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button type="submit" disabled={saving || dates.blocked} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {saving && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Save & New'}
                 </button>
               </div>
