@@ -29,12 +29,14 @@ afterAll(() => cleanupEntityChanges(pool, companies, [o]));
 /** payroll_bank_details as 380 left it (the column drops also take 952's FK and indexes on them). */
 const UNDO_952 = `
   DROP TRIGGER entity_change_capture ON payroll_bank_details;
-  DROP POLICY payroll_detail_tenant ON payroll_bank_details;
+  DROP POLICY payroll_detail_read ON payroll_bank_details;
+  DROP POLICY payroll_detail_insert ON payroll_bank_details;
+  DROP POLICY payroll_detail_update ON payroll_bank_details;
   DROP INDEX uq_payroll_bank_details_one_active;
   ALTER TABLE payroll_bank_details DROP COLUMN company_id, DROP COLUMN account_holder;
   ALTER TABLE payroll_bank_details NO FORCE ROW LEVEL SECURITY;
   ALTER TABLE payroll_bank_details DISABLE ROW LEVEL SECURITY;
-  GRANT DELETE ON payroll_bank_details TO app_user, platform_admin;`;
+  GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON payroll_bank_details TO app_user, platform_admin;`;
 
 const legacy = (db: PoolClient, emp: string, account: string, active: boolean, from: string) => db.query(
   `INSERT INTO payroll_bank_details (employee_id, bank_name, account_number, branch_code, is_active, effective_from)
@@ -102,6 +104,94 @@ describe('952 on legacy rows, as the non-superuser deploy role', () => {
       expect(col.rows).toEqual([{ is_nullable: 'NO' }]);
     });
   });
+});
+
+describe('952\'s grants, from the widest a role could hold before it', () => {
+  it('leaves app_user SELECT, INSERT and UPDATE (is_active) only, and platform_admin nothing', async () => {
+    await replay(async (db) => {
+      await db.query(SQL);
+      const { rows } = await db.query(`SELECT
+        has_table_privilege('app_user', 'payroll_bank_details', 'SELECT') AS can_read,
+        has_table_privilege('app_user', 'payroll_bank_details', 'INSERT') AS can_insert,
+        has_table_privilege('app_user', 'payroll_bank_details', 'UPDATE') AS update_any,
+        has_column_privilege('app_user', 'payroll_bank_details', 'is_active', 'UPDATE') AS update_active,
+        has_table_privilege('app_user', 'payroll_bank_details', 'DELETE, TRUNCATE') AS can_empty,
+        has_any_column_privilege('platform_admin', 'payroll_bank_details', 'SELECT, INSERT, UPDATE, REFERENCES') AS admin_any,
+        has_table_privilege('platform_admin', 'payroll_bank_details', 'DELETE, TRUNCATE, TRIGGER') AS admin_table`);
+      expect(rows).toEqual([{ can_read: true, can_insert: true, update_any: false, update_active: true,
+        can_empty: false, admin_any: false, admin_table: false }]);
+    });
+  });
+});
+
+describe('952 refuses to ship any other way', () => {
+  const MARK = '-- ── Refuse to ship it any other way';
+  const withBefore = (statement: string) => {
+    expect(SQL).toContain(MARK);
+    return SQL.replace(MARK, `${statement};\n${MARK}`);
+  };
+  const refusal = async (statement: string, role?: string): Promise<string> => {
+    let out = '';
+    await replay(async (db) => {
+      if (role) await db.query(`CREATE ROLE ${role} NOLOGIN`);
+      out = await outcome(db.query(withBefore(statement)));
+    });
+    return out;
+  };
+
+  it.each([
+    ['app_user', 'DELETE'], ['app_user', 'TRUNCATE'], ['app_service', 'DELETE'], ['PUBLIC', 'TRUNCATE'],
+  ])('%s granted %s', async (role, priv) => {
+    expect(await refusal(`GRANT ${priv} ON payroll_bank_details TO ${role}`))
+      .toContain(`migration 952: ${role} still holds ${priv} on payroll_bank_details`);
+  });
+
+  it('a role nobody listed', async () => {
+    expect(await refusal('GRANT DELETE ON payroll_bank_details TO k1_someone_else', 'k1_someone_else'))
+      .toContain('migration 952: k1_someone_else still holds DELETE on payroll_bank_details');
+  });
+
+  it('platform_admin holding anything, table or column', async () => {
+    expect(await refusal('GRANT SELECT ON payroll_bank_details TO platform_admin'))
+      .toContain('migration 952: platform_admin still holds a privilege');
+    expect(await refusal('GRANT SELECT (bank_name) ON payroll_bank_details TO platform_admin'))
+      .toContain('migration 952: platform_admin still holds a privilege');
+  });
+
+  it('app_user able to update any column but is_active', async () => {
+    expect(await refusal('GRANT UPDATE (account_number) ON payroll_bank_details TO app_user'))
+      .toContain('migration 952: app_user may update account_number');
+  });
+
+  it('a policy that lets app_service in by name', async () => {
+    expect(await refusal('CREATE POLICY app_service_select ON payroll_bank_details FOR SELECT TO app_service USING (true)'))
+      .toContain('migration 952: app_service has a policy');
+  });
+
+  it('migration_admin and the owner keep what they hold', async () => {
+    await replay(async (db) => {
+      await db.query(withBefore('GRANT DELETE, TRUNCATE ON payroll_bank_details TO migration_admin'));
+    });
+  });
+});
+
+describe('952 gives up rather than queue behind a long transaction', () => {
+  it('a lock it cannot have within 5s aborts the migration with 55P03', async () => {
+    const peer = await pool.connect();
+    try {
+      await peer.query('BEGIN');
+      await peer.query('LOCK TABLE entity_changes IN ACCESS SHARE MODE');
+      let out = '';
+      await replay(async (db) => {
+        await db.query("SET LOCAL statement_timeout = '9s'"); // without 952's own limit this ends as 57014, not a hung suite
+        out = await outcome(db.query(SQL));
+      });
+      expect(out).toMatch(/^55P03/);
+    } finally {
+      await peer.query('ROLLBACK');
+      peer.release();
+    }
+  }, 20_000);
 });
 
 describe('no request role deletes a row; the seed and an employee\'s delete still do', () => {

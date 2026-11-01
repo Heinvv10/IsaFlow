@@ -1,7 +1,7 @@
 /**
- * Wave 3 K1, tenancy of payroll_bank_details: RLS as app_user (a member of both companies, working in one), the route
- * across companies, the service's own predicate where RLS does not stand in for it (app_service's USING (true) mirror,
- * 915), and /api/payroll/duplicates masking.
+ * Wave 3 K1, tenancy of payroll_bank_details: RLS as app_user (a member of both companies, working in one), who may
+ * update what, the route across companies, the service's own predicate where RLS does not stand in for it (a role that
+ * bypasses it), the service pool and the platform admin having no reach, and /api/payroll/duplicates masking.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -10,8 +10,8 @@ import duplicates from '../../pages/api/payroll/duplicates';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { dataOf, impersonationToken } from './r035-pr2.helpers';
-import { asApp, cleanupEntityChanges, members, newCompany, outcome } from './entity-changes.helpers';
-import { asService, employee, get, OTHER, put, ROW, rowsOf } from './k1-employee-bank-details.helpers';
+import { as, asApp, cleanupEntityChanges, members, newCompany, outcome } from './entity-changes.helpers';
+import { employee, get, OTHER, outsideRls, put, ROW, rowsOf } from './k1-employee-bank-details.helpers';
 import {
   getEmployeeBankDetails, parseBankDetailsInput, setEmployeeBankDetails,
 } from '../../src/modules/accounting/services/payroll/payrollBankDetailsService';
@@ -43,7 +43,7 @@ describe('RLS', () => {
     const seen = await asApp(pool, both, B, async (db) => (await db.query('SELECT employee_id FROM payroll_bank_details')).rows);
     expect(seen.map((r) => r.employee_id)).toEqual([empB]);
     const updated = await asApp(pool, both, B, async (db) => (await db.query(
-      'UPDATE payroll_bank_details SET bank_name = $2 WHERE employee_id = $1', [empA, 'Hijack'])).rowCount);
+      'UPDATE payroll_bank_details SET is_active = false WHERE employee_id = $1', [empA])).rowCount);
     expect(updated).toBe(0);
   });
 
@@ -75,6 +75,60 @@ describe('RLS', () => {
   });
 });
 
+describe('who may update a stored row', () => {
+  const entered = async () => {
+    const e = await employee(pool, A);
+    expect((await put(tokens[both]!, A, e, ROW)).state.statusCode).toBe(200);
+    return e;
+  };
+  const rewrite = (e: string) => (db: { query: Pool['query'] }) => db.query(
+    "UPDATE payroll_bank_details SET account_number = '999999999' WHERE employee_id = $1", [e]);
+  const retire = (e: string) => (db: { query: Pool['query'] }) => db.query(
+    'UPDATE payroll_bank_details SET is_active = false WHERE employee_id = $1', [e]);
+
+  it('a manager\'s direct UPDATE of the account number is refused', async () => {
+    const e = await entered();
+    expect(await outcome(asApp(pool, m, A, rewrite(e)))).toMatch(/^42501/);
+    expect((await rowsOf(pool, e))[0]).toMatchObject({ account_number: ROW.accountNumber, is_active: true });
+  });
+
+  it('nor may an owner rewrite one: a change is a new row, so the number on file cannot be replaced unseen', async () => {
+    const e = await entered();
+    expect(await outcome(asApp(pool, both, A, rewrite(e)))).toMatch(/^42501/);
+    expect((await rowsOf(pool, e))[0]).toMatchObject({ account_number: ROW.accountNumber });
+  });
+
+  it('a manager cannot retire a row either: the policy passes over it', async () => {
+    const e = await entered();
+    expect((await asApp(pool, m, A, retire(e))).rowCount).toBe(0);
+    expect((await rowsOf(pool, e))[0]).toMatchObject({ is_active: true });
+  });
+
+  it('an owner can retire one', async () => {
+    const e = await entered();
+    expect((await asApp(pool, both, A, retire(e))).rowCount).toBe(1);
+    expect((await rowsOf(pool, e))[0]).toMatchObject({ is_active: false });
+  });
+});
+
+describe('the service pool and the platform admin', () => {
+  const asRole = <T>(role: string, fn: Parameters<typeof as<T>>[3]) => as(pool, both, { role, claims: null }, fn);
+  const retire = (db: { query: Pool['query'] }) => db.query('UPDATE payroll_bank_details SET is_active = false WHERE employee_id = $1', [empA]);
+
+  it('app_service, with no claims: reads nothing, writes nothing', async () => {
+    expect(await asRole('app_service', async (db) => (await db.query('SELECT 1 FROM payroll_bank_details')).rowCount)).toBe(0);
+    expect((await asRole('app_service', retire)).rowCount).toBe(0);
+    expect(await outcome(asRole('app_service', (db) => db.query(
+      `INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, branch_code, is_active)
+       VALUES ($1, $2, 'Forged', '999999999', '250655', false)`, [A, empA])))).toMatch(/^42501/);
+  });
+
+  it('platform_admin has no privilege on the table at all', async () => {
+    expect(await outcome(asRole('platform_admin', (db) => db.query('SELECT 1 FROM payroll_bank_details')))).toMatch(/^42501/);
+    expect(await outcome(asRole('platform_admin', retire))).toMatch(/^42501/);
+  });
+});
+
 describe('the route across companies', () => {
   it('B\'s owner gets a 404 for A\'s employee, reading and writing, and A\'s rows do not move', async () => {
     const before = await rowsOf(pool, empA);
@@ -84,15 +138,15 @@ describe('the route across companies', () => {
   });
 });
 
-describe('the service\'s own company predicate (no RLS behind it on the service pool)', () => {
+describe('the service\'s own company predicate (with no RLS behind it)', () => {
   it('reads nothing of A\'s employee for company B', async () => {
-    expect(await asService(pool, B, () => getEmployeeBankDetails(B, empA, 'owner'))).toBeNull();
-    expect(await asService(pool, A, () => getEmployeeBankDetails(A, empA, 'owner'))).not.toBeNull();
+    expect(await outsideRls(pool, B, () => getEmployeeBankDetails(B, empA, 'owner'))).toBeNull();
+    expect(await outsideRls(pool, A, () => getEmployeeBankDetails(A, empA, 'owner'))).not.toBeNull();
   });
 
   it('refuses a write for company B to A\'s employee, as not found', async () => {
     const input = parseBankDetailsInput(OTHER);
-    await expect(asService(pool, B, () => setEmployeeBankDetails(B, empA, input, 'owner'))).rejects.toMatchObject({ status: 404 });
+    await expect(outsideRls(pool, B, () => setEmployeeBankDetails(B, empA, input, 'owner'))).rejects.toMatchObject({ status: 404 });
   });
 });
 

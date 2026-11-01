@@ -1,7 +1,7 @@
 /**
  * Fixture for wave 3 K1 (employee bank details, migration 952): one employee per case, the route called as each
- * member, the table read back as its owner, and the service run the way a service-pool path would run it, where
- * app_service's USING (true) mirror (915) leaves the service's own company predicate as the only tenant check.
+ * member, the table read back as its owner, and the service run as a role RLS does not bind, which leaves the
+ * service's own company predicate as the only tenant check.
  */
 import type { Pool, PoolClient } from 'pg';
 import { als } from '../../src/lib/als';
@@ -34,12 +34,11 @@ export async function rowsOf(pool: Pool, employeeId: string): Promise<BankRow[]>
   return rows;
 }
 
-/** `fn` as a service-pool path: app_service, the company in ALS, rolled back. */
-export async function asService<T>(pool: Pool, company: string, fn: () => Promise<T>): Promise<T> {
+/** `fn` as the fixture's login, which bypasses RLS: the company in ALS, rolled back. */
+export async function outsideRls<T>(pool: Pool, company: string, fn: () => Promise<T>): Promise<T> {
   const client: PoolClient = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SET LOCAL ROLE app_service');
     return await als.run({ client, companyId: company, claims: {}, afterCommit: [] } as never, fn);
   } finally {
     await client.query('ROLLBACK');
