@@ -7,7 +7,9 @@
  * read when it is sent, so a queued second edit of a cell expects the first.
  * A 4xx wrote nothing; anything else may have, so every failure re-reads the
  * run and its amounts and that one cell shows what is stored. Other cells keep
- * what is typed in them, and the grid stays up if the re-read fails too.
+ * what is typed in them, and the grid stays up if the re-read fails too. Edits
+ * of that cell already queued are dropped: sent with the re-read amount they
+ * would pass the check that just stopped the one before them.
  *
  * `drained` waits for the queue. `settled` waits too, then says what must stop
  * the approval preview: refused text still in a cell, a failed re-read, or a
@@ -37,6 +39,7 @@ export const HELD_FAILED = 'A save failed: see the row. The grid shows what is s
 export const HELD_STALE = 'This run could not be re-read after a failed save. Reload the page before you approve.';
 
 export const cellKey = (employeeId: string, componentId: string) => `${employeeId}:${componentId}`;
+const amountAt = (inputs: RunInputs | null, key: string) => inputs?.amounts.find((a) => cellKey(a.employeeId, a.componentId) === key);
 
 export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDetail) => void) {
   const [inputs, setInputs] = useState<RunInputs | null>(null);
@@ -50,8 +53,18 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
   const refused = useRef(new Set<string>());
   const failed = useRef(new Set<string>());
   const stale = useRef(false);
+  // Per cell: bumped when a commit fails, so what was queued behind it can tell.
+  const lapsed = useRef(new Map<string, { turn: number; message: string }>());
 
-  const adopt = useCallback((next: RunInputs | null) => { known.current = next; setInputs(next); }, []);
+  const adopt = useCallback((next: RunInputs | null) => {
+    // MoneyField drops refused text for a different amount from the server, and a conflict has no field at all.
+    for (const key of refused.current) {
+      const now = amountAt(next, key);
+      if (now?.conflict || (now?.amount != null && now.amount !== amountAt(known.current, key)?.amount)) refused.current.delete(key);
+    }
+    known.current = next;
+    setInputs(next);
+  }, []);
 
   const reload = useCallback(async (withRun: boolean) => {
     try {
@@ -77,6 +90,7 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
     setResets({});
     refused.current.clear();
     failed.current.clear();
+    lapsed.current.clear();
     stale.current = false;
     if (active && runId) void reload(false);
   }, [active, runId, reload, adopt]);
@@ -85,9 +99,16 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
     const key = cellKey(employeeId, componentId);
     refused.current.delete(key);
     setSaves((s) => ({ ...s, [key]: { state: 'saving' } }));
+    const turn = lapsed.current.get(key)?.turn ?? 0;
     queue.current = queue.current.then(async () => {
+      const lapse = lapsed.current.get(key);
+      if (lapse && lapse.turn !== turn) {
+        failed.current.add(key);
+        setSaves((s) => ({ ...s, [key]: { state: 'error', message: lapse.message } }));
+        return;
+      }
       try {
-        const held = known.current?.amounts.find((a) => a.employeeId === employeeId && a.componentId === componentId);
+        const held = amountAt(known.current, key);
         const state = await apiJson(`/api/payroll/runs/${runId}/inputs`, {
           method: 'PUT',
           body: JSON.stringify({ employeeId, componentId, amount: cents / 100, expectedAmount: held?.amount ?? 0 }),
@@ -101,9 +122,12 @@ export function useRunInputs(runId: string, active: boolean, onRun: (run: RunDet
         setSaves((s) => ({ ...s, [key]: { state: 'saved', savedAt: Date.now() } }));
       } catch (err) {
         if (currentRun.current !== runId) return;
+        const message = apiErrorMessage(err, SAVE_FAILED);
         failed.current.add(key);
-        setSaves((s) => ({ ...s, [key]: { state: 'error', message: apiErrorMessage(err, SAVE_FAILED) } }));
+        setSaves((s) => ({ ...s, [key]: { state: 'error', message } }));
         await reload(true);
+        lapsed.current.set(key, { turn: turn + 1, message });
+        refused.current.delete(key);
         setResets((r) => ({ ...r, [key]: (r[key] ?? 0) + 1 }));
       }
     });

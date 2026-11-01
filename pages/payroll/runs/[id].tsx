@@ -2,7 +2,7 @@
  * Payroll Run Detail — Phase 2.
  * Route: /payroll/runs/[id]
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -32,6 +32,7 @@ export default function PayrollRunDetailPage() {
   const editable = canWrite(companyRole) && !!run && (run.status === 'draft' || run.status === 'calculated') && run.lines.length > 0;
   const grid = useRunInputs(runId, editable, setRun);
   const [approvalHeld, setApprovalHeld] = useState('');
+  const approveOpening = useRef(false);
 
   if (isLoading && !run) {
     return (
@@ -67,10 +68,17 @@ export default function PayrollRunDetailPage() {
     || (run.status === 'approved' && !run.journalEntryId));
 
   // Nothing reads a run the grid is still writing, and the preview must show what is stored.
+  // One press at a time: settled() reports a failure once, so a second press would take it from the first.
   const openApprove = async () => {
-    const held = await grid.settled();
-    setApprovalHeld(held ?? '');
-    if (!held) setApproveOpen(true);
+    if (approveOpening.current) return;
+    approveOpening.current = true;
+    try {
+      const held = await grid.settled();
+      setApprovalHeld(held ?? '');
+      if (!held) setApproveOpen(true);
+    } finally {
+      approveOpening.current = false;
+    }
   };
 
   return (

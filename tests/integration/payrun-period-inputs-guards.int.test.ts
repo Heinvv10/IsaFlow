@@ -3,7 +3,7 @@
  * run pays that a cell cannot show, a deduction larger than pay, an amount someone else
  * changed, a held row. Each must leave nothing behind (rule 9). Disposable fixture DB only.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import components from '../../pages/api/payroll/employees/[id]/components';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -109,6 +109,7 @@ describe('deductions larger than pay', () => {
     const res = await set(state.nov, comp.union!, 30000);
     expect(res.statusCode, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error?.message).toContain("more than this employee's pay");
+    expect(res.body.error?.message).toContain('Enter a lower amount');
     expect(await rows(comp.union!)).toEqual([]);
     expect(await line(state.nov)).toEqual(lineBefore);
     expect(await header(state.nov)).toEqual(headerBefore);
@@ -127,7 +128,9 @@ describe('deductions larger than pay', () => {
     await addRow(comp.overtime!, 20000, '2026-11-01', '2026-11-30');
     await recalculate(state.nov);
     expect(codes(await line(state.nov))).not.toContain('DEDUCTIONS_EXCEED_PAY');
-    expect((await set(state.nov, comp.overtime!, 0)).statusCode).toBe(400);
+    const res = await set(state.nov, comp.overtime!, 0);
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error?.message).toContain('Enter a higher amount');
     expect(await rows(comp.overtime!)).toHaveLength(1);
   });
 

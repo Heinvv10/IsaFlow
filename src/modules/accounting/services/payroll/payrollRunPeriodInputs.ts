@@ -23,9 +23,10 @@
  *
  * ORDER (rule 9; a 4xx commits). setRunPeriodAmount takes the locks in the order
  * of every payroll-run writer (payrollRunLock.ts) and judges everything it can
- * under them. The write and the recalculation then share one savepoint, and the
- * one refusal that needs the new figures (deductions exceeding pay) is thrown
- * inside it, so the savepoint undoes both and the 4xx commits nothing. The stored
+ * under them. A calculation, the write and a second calculation then share one
+ * savepoint, and the one refusal that needs the figures (an edit that takes the
+ * employee further below nil) is thrown inside it, so the savepoint undoes all of
+ * it and the 4xx commits nothing. The stored
  * lines therefore always reflect the inputs, and approve cannot read a stale
  * calculation produced here. Anything else thrown after the write is NOT a
  * PayrollRunInputRefusedError, so the route lets it become a 500 and rolls back.
@@ -240,9 +241,8 @@ export async function setRunPeriodAmount(
   await assertRunEditable(companyId, runId, run, period);
   const employees = await listPayrollRunEmployees(companyId, period);
   if (!employees.some((e) => e.id === employeeId)) throw new PayrollRunInputRefusedError(400, 'This employee is not on this run.');
-  if (!(await listEditableComponents(companyId)).some((c) => c.id === componentId)) {
-    throw new PayrollRunInputRefusedError(400, 'This component cannot be edited on a pay run: use the employee page.');
-  }
+  const component = (await listEditableComponents(companyId)).find((c) => c.id === componentId);
+  if (!component) throw new PayrollRunInputRefusedError(400, 'This component cannot be edited on a pay run: use the employee page.');
 
   // Bounded: a peer editing the employee's components must not pin this request's locks (payrollRunLock.ts).
   const matches = await withBoundedLockWait(runId, (tx) => lockPaidRows(tx, companyId, employeeId, componentId, period));
@@ -252,8 +252,10 @@ export async function setRunPeriodAmount(
 
   const { from, to } = monthBounds(period);
   const rowId = row ? String(row.id) : null;
-  const shortfallBefore = await shortfallOf(companyId, runId, employeeId);
   await withTransaction(async (tx) => {
+    // From a calculation, not the stored line: another writer may have moved the inputs since it was stored.
+    await calculatePayrollRun(runId, companyId);
+    const shortfallBefore = await shortfallOf(companyId, runId, employeeId);
     if (rowId && amount === 0) {
       await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
     } else if (rowId) {
@@ -268,7 +270,8 @@ export async function setRunPeriodAmount(
     // Only what this edit makes worse. Refusing every flagged line would refuse the edits that repair one.
     const shortfall = await shortfallOf(companyId, runId, employeeId);
     if (shortfall > shortfallBefore) {
-      throw new PayrollRunInputRefusedError(400, `That would take ${formatMoney(shortfall)} more than this employee's pay. Enter a lower amount.`);
+      const remedy = component.componentType === 'earning' ? 'Enter a higher amount.' : 'Enter a lower amount.';
+      throw new PayrollRunInputRefusedError(400, `That would take ${formatMoney(shortfall)} more than this employee's pay. ${remedy}`);
     }
   });
   log.info('Payroll run period amount set', { companyId, runId, employeeId, componentId }, 'payrollRunPeriodInputs');

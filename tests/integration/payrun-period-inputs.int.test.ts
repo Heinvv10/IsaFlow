@@ -105,11 +105,7 @@ describe('lock order', () => {
       await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [key]);
       const pending = set(state.nov, comp.overtime!, 0);
       await vi.waitFor(async () => {
-        // This lock's own waiter: classid and objid are the key's high and low 32 bits.
-        const waiting = await pool.query(
-          `SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
-             AND (classid::bigint << 32 | objid::bigint) = hashtextextended($1, 0)`, [key]);
-        expect(waiting.rowCount).toBe(1);
+        expect(await fx.lockWaiters(key)).toBe(1);
       }, { timeout: 4000, interval: 25 });
       // Taken with NOWAIT: a header held out of order would answer 55P03 here.
       await pool.query('SELECT 1 FROM payroll_run_headers WHERE id = $1 FOR UPDATE NOWAIT', [state.nov]);
@@ -207,16 +203,9 @@ describe('approval after an edit', () => {
 
   it('a reopened run whose journal is in force and has loan work is refused before the write', async () => {
     await approved();
-    const { nov, coA, employee } = state;
+    const { nov } = state;
     expect((await call(reopen as Route, 'POST', `/api/payroll/runs/${nov}/reopen`, nov, { body: { reason: 'R loan refusal' } })).statusCode).toBe(200);
-    const loan = crypto.randomUUID();
-    await pool.query(
-      `INSERT INTO payroll_loans (id, company_id, employee_id, loan_number, description, principal, annual_interest_rate, term_months,
-         method, start_date, first_deduction_period_year, first_deduction_period_month, status, outstanding_balance)
-       VALUES ($1, $2, $3, 'R-LOAN', 'Staff loan', 1000, 0.085, 1, 'straight_line', '2026-11-01', 2026, 11, 'active', 1000)`, [loan, coA, employee]);
-    await pool.query(
-      `INSERT INTO payroll_loan_schedule (loan_id, sequence, due_period_year, due_period_month, opening_balance, interest, principal, installment, closing_balance, paid_flag)
-       VALUES ($1, 1, 2026, 11, 1000, 0, 1000, 1000, 0, false)`, [loan]);
+    await fx.addLoan(1000);
     const res = await set(nov, comp.commission!, 100);
     expect(res.statusCode, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error?.message).toContain('Reverse the payroll journal first');

@@ -22,10 +22,40 @@ const dues = (amount: number) => ({
   component: component({ id: 'dues', name: 'Union dues', sarsSourceCode: 'UNION', componentType: 'deduction', isTaxable: false, isUifApplicable: false, isSdlApplicable: false }),
   amount,
 });
+const instalment = (amount: number) => ({
+  component: component({ id: 'loan', name: 'Loan repayment', sarsSourceCode: 'LOAN', componentType: 'deduction', isTaxable: false, isUifApplicable: false, isSdlApplicable: false }),
+  amount,
+});
 const run = (components: PayrollLineInput['components']) => calculatePayrollLine({
   employee, components, period: { month: 11, year: 2026 }, taxYear: 2027, annualPayrollEstimate: 1_000_000,
 });
 const codes = (r: ReturnType<typeof run>) => r.validationResults.map((v) => v.code);
+
+describe('LOAN_INSTALMENT_EXCEEDS_PAY', () => {
+  const { netPay: net } = run([salary]);
+
+  it('a shortfall that would not exist without the instalment is a warning, with every figure as it was', () => {
+    const plain = run([salary]);
+    const over = run([salary, instalment(30000)]);
+    expect(over.validationResults).toMatchObject([{ code: 'LOAN_INSTALMENT_EXCEEDS_PAY', severity: 'warning', rawNet: -11916.12 }]);
+    expect(over.netPay).toBe(0);
+    expect(over.paye).toEqual(plain.paye);
+    expect(over.uif).toEqual(plain.uif);
+    expect(over.sdl).toBe(plain.sdl);
+  });
+
+  it('other deductions that use up exactly the net leave the shortfall the instalment\'s', () => {
+    expect(codes(run([salary, dues(net), instalment(100)]))).toEqual(['LOAN_INSTALMENT_EXCEEDS_PAY']);
+  });
+
+  it('one cent more and the shortfall would exist without it: it stays DEDUCTIONS_EXCEED_PAY', () => {
+    expect(codes(run([salary, dues(net + 0.01), instalment(100)]))).toEqual(['DEDUCTIONS_EXCEED_PAY']);
+  });
+
+  it('an instalment net pay can carry reports nothing', () => {
+    expect(codes(run([salary, instalment(net)]))).toEqual([]);
+  });
+});
 
 describe('DEDUCTIONS_EXCEED_PAY', () => {
   it('a normal line carries no code and the figures of the known fixture', () => {

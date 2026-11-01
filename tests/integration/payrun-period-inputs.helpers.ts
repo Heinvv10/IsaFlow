@@ -52,6 +52,23 @@ export function inputsFixture(pool: Pool) {
     addRow: (component: string, amount: number, from: string, to: string | null, recurring = false, employeeId = state.employee) => pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
        VALUES ($1, $2, $3, $4, $5, $6)`, [employeeId, component, amount, from, to, recurring]),
+    /** A loan with one instalment due in November, as the loan service schedules it. */
+    addLoan: async (instalment: number, loanNumber = 'R-LOAN') => {
+      const loan = crypto.randomUUID();
+      await pool.query(
+        `INSERT INTO payroll_loans (id, company_id, employee_id, loan_number, description, principal, annual_interest_rate, term_months,
+           method, start_date, first_deduction_period_year, first_deduction_period_month, status, outstanding_balance)
+         VALUES ($1, $2, $3, $4, 'Staff loan', $5, 0.085, 1, 'straight_line', '2026-11-01', 2026, 11, 'active', $5)`,
+        [loan, state.coA, state.employee, loanNumber, instalment]);
+      await pool.query(
+        `INSERT INTO payroll_loan_schedule (loan_id, sequence, due_period_year, due_period_month, opening_balance, interest, principal, installment, closing_balance, paid_flag)
+         VALUES ($1, 1, 2026, 11, $2, 0, $2, $2, 0, false)`, [loan, instalment]);
+      return loan;
+    },
+    /** Waiting on this advisory lock itself: classid and objid are the key's high and low 32 bits. */
+    lockWaiters: async (key: string) => (await pool.query(
+      `SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+         AND (classid::bigint << 32 | objid::bigint) = hashtextextended($1, 0)`, [key])).rowCount,
     /** A second employee of company A, on no pay at all until a test gives them some. */
     addEmployee: async (number: string) => (await pool.query(
       `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)

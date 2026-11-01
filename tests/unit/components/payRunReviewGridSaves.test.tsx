@@ -1,11 +1,11 @@
 /**
- * The review grid when a save goes wrong, and what stands between it and the approval
- * preview (master plan wave 3, R). `fetch` is stubbed, so the real apiFetch/apiJson run.
+ * The review grid when a save goes wrong (master plan wave 3, R). `fetch` is stubbed, so
+ * the real apiFetch/apiJson run. What holds the approval preview: payRunReviewGridApproval.test.tsx.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React, { act } from 'react';
 import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
-import { OVERTIME, UNION, INPUTS_URL, RUN_URL, line, inputsBody, ok, fail } from './payroll/payrollRunFixtures';
+import { OVERTIME, INPUTS_URL, RUN_URL, line, inputsBody, ok, fail } from './payroll/payrollRunFixtures';
 import {
   body, cell, fetchMock, pressApprove, previews, puts, rowOf, serve, settle, twoRuns, type,
 } from './payroll/payRunGridHarness';
@@ -117,6 +117,54 @@ describe('a failed save', () => {
     expect(previews()).toHaveLength(0);
   });
 
+  it('an edit of that cell queued behind it is dropped, not sent with the re-read amount', async () => {
+    const answers: Array<(r: Response) => void> = [];
+    serve(() => new Promise<Response>((resolve) => { answers.push(resolve); }), {
+      inputs: { amounts: [held(300)] }, read: () => ok(inputsBody(twoRuns(), { amounts: [held(450)] })),
+    });
+    render(<PayrollRunDetailPage />);
+    const input = await cell('Riaan Smit');
+    await waitFor(() => expect(input.value).toBe('450.00'));
+    type(input, '100');
+    fireEvent.blur(input);
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    type(input, '200');
+    fireEvent.blur(input);
+    answers[0]!(fail(409, 'Someone else changed this amount.'));
+    expect(await within(rowOf('Riaan Smit')).findByText(/Someone else changed/)).toBeTruthy();
+    await waitFor(() => expect(input.value).toBe('450.00'));
+    await settle();
+    expect(puts()).toHaveLength(1);
+    expect(within(rowOf('Riaan Smit')).getByText(/Someone else changed/)).toBeTruthy();
+  });
+
+  it('an edit of another cell behind it still goes', async () => {
+    let n = 0;
+    serve(() => (n++ === 0 ? fail(409, 'refused') : ok(inputsBody(twoRuns()))));
+    render(<PayrollRunDetailPage />);
+    const [a, b] = [await cell('Riaan Smit'), await cell('Thandi Nkosi')];
+    type(a, '1');
+    fireEvent.blur(a);
+    type(b, '2');
+    fireEvent.blur(b);
+    await waitFor(() => expect(puts()).toHaveLength(2));
+  });
+
+  it('after the drop the cell can be edited and saved again', async () => {
+    let n = 0;
+    serve(() => (n++ === 0 ? fail(409, 'refused') : ok(inputsBody(twoRuns()))));
+    render(<PayrollRunDetailPage />);
+    const input = await cell('Riaan Smit');
+    type(input, '1');
+    fireEvent.blur(input);
+    await within(rowOf('Riaan Smit')).findByText('refused');
+    await waitFor(() => expect(input.value).toBe(''));
+    type(input, '2');
+    fireEvent.blur(input);
+    await within(rowOf('Riaan Smit')).findByText(/^Saved/);
+    expect(puts()).toHaveLength(2);
+  });
+
   it('a later save on the same row does not hide it; saving that cell does', async () => {
     let n = 0;
     serve(() => (n++ === 0 ? fail(400, 'refused') : ok(inputsBody(twoRuns()))));
@@ -134,113 +182,6 @@ describe('a failed save', () => {
     fireEvent.blur(earning);
     await within(rowOf('Riaan Smit')).findByText(/^Saved/);
     expect(within(rowOf('Riaan Smit')).queryByText('refused')).toBeNull();
-  });
-});
-
-describe('what holds the approval preview', () => {
-  it('a save in flight: the preview opens when it answers, and includes it', async () => {
-    let answer: (r: Response) => void = () => undefined;
-    serve(() => new Promise<Response>((resolve) => { answer = resolve; }));
-    render(<PayrollRunDetailPage />);
-    const input = await cell('Riaan Smit');
-    type(input, '1');
-    fireEvent.blur(input);
-    await waitFor(() => expect(puts()).toHaveLength(1));
-    pressApprove();
-    await settle();
-    expect(previews()).toHaveLength(0);
-    answer(ok(inputsBody(twoRuns())));
-    await waitFor(() => expect(previews()).toHaveLength(1));
-    expect(await screen.findByRole('dialog')).toBeTruthy();
-  });
-
-  it('a commit made while it waits is waited for too', async () => {
-    const answers: Array<(r: Response) => void> = [];
-    serve(() => new Promise<Response>((resolve) => { answers.push(resolve); }));
-    render(<PayrollRunDetailPage />);
-    const [a, b] = [await cell('Riaan Smit'), await cell('Thandi Nkosi')];
-    type(a, '1');
-    fireEvent.blur(a);
-    await waitFor(() => expect(puts()).toHaveLength(1));
-    pressApprove();
-    type(b, '2');
-    fireEvent.blur(b);
-    answers[0]!(ok(inputsBody(twoRuns())));
-    await waitFor(() => expect(puts()).toHaveLength(2));
-    await settle();
-    expect(previews()).toHaveLength(0);
-    answers[1]!(ok(inputsBody(twoRuns())));
-    await waitFor(() => expect(previews()).toHaveLength(1));
-  });
-
-  it('a save that fails while it waits: the dialog stays closed and says why; a second press goes on', async () => {
-    let answer: (r: Response) => void = () => undefined;
-    serve(() => new Promise<Response>((resolve) => { answer = resolve; }));
-    render(<PayrollRunDetailPage />);
-    const input = await cell('Riaan Smit');
-    type(input, '1');
-    fireEvent.blur(input);
-    await waitFor(() => expect(puts()).toHaveLength(1));
-    pressApprove();
-    answer(fail(400, 'refused'));
-    expect(await screen.findByText(/A save failed/)).toBeTruthy();
-    await settle();
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(previews()).toHaveLength(0);
-    pressApprove();
-    expect(await screen.findByRole('dialog')).toBeTruthy();
-    expect(screen.queryByText(/A save failed/)).toBeNull();
-  });
-
-  it('refused text in a cell: nothing was sent, so the dialog stays closed until it is corrected', async () => {
-    serve(() => ok(inputsBody(twoRuns())));
-    render(<PayrollRunDetailPage />);
-    const input = await cell('Riaan Smit');
-    type(input, '1,234');
-    fireEvent.blur(input);
-    await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'));
-    for (let press = 0; press < 2; press++) {
-      pressApprove();
-      expect(await screen.findByText(/could not be read/)).toBeTruthy();
-    }
-    expect(previews()).toHaveLength(0);
-    type(input, '1234');
-    fireEvent.blur(input);
-    await within(rowOf('Riaan Smit')).findByText(/^Saved/);
-    pressApprove();
-    expect(await screen.findByRole('dialog')).toBeTruthy();
-  });
-
-  it('refused text in a column moved to another component is gone, and holds nothing', async () => {
-    const commission = { ...OVERTIME, id: 'c-co', name: 'Commission', sarsSourceCode: '3606' };
-    serve(() => ok(inputsBody(twoRuns())), { inputs: { components: [OVERTIME, commission, UNION] } });
-    render(<PayrollRunDetailPage />);
-    const input = await cell('Riaan Smit');
-    type(input, '1,234');
-    fireEvent.blur(input);
-    await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'));
-    fireEvent.change(screen.getByLabelText('Once-off earning component'), { target: { value: commission.id } });
-    await waitFor(async () => expect((await cell('Riaan Smit')).value).toBe(''));
-    pressApprove();
-    expect(await screen.findByRole('dialog')).toBeTruthy();
-  });
-
-  it('Recalculate waits for a save in flight', async () => {
-    let answer: (r: Response) => void = () => undefined;
-    serve(() => new Promise<Response>((resolve) => { answer = resolve; }));
-    const calculates = () => fetchMock.mock.calls.filter(([u]) => u === `${RUN_URL}/calculate`);
-    const inner = fetchMock.getMockImplementation()!;
-    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => (url === `${RUN_URL}/calculate` ? ok({}) : inner(url, init)));
-    render(<PayrollRunDetailPage />);
-    const input = await cell('Riaan Smit');
-    type(input, '1');
-    fireEvent.blur(input);
-    await waitFor(() => expect(puts()).toHaveLength(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Recalculate' }));
-    await settle();
-    expect(calculates()).toHaveLength(0);
-    answer(ok(inputsBody(twoRuns())));
-    await waitFor(() => expect(calculates()).toHaveLength(1));
   });
 });
 
