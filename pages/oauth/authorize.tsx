@@ -198,6 +198,8 @@ export default function AuthorizePage(props: Props | ErrorProps) {
 }
 
 export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async (ctx) => {
+  // First, so the error pages below carry it too: next.config.js's policy frames blob:.
+  ctx.res.setHeader('Content-Security-Policy', buildOauthAuthorizeCsp(process.env.NODE_ENV, null));
   // Auth gate — if the user has no valid session cookie, bounce to /login
   // with a returnTo so they come straight back here after signing in.
   const cookies = parseCookies(ctx.req as unknown as Parameters<typeof parseCookies>[0]);

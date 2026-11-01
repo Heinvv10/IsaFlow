@@ -168,7 +168,7 @@ describe('GET /oauth/authorize (getServerSideProps)', () => {
   async function ctx() {
     return {
       req: { headers: { cookie: `${ACCESS_COOKIE}=${await aal1Token()}` } },
-      res: {}, query: {}, resolvedUrl: '/oauth/authorize?client_id=c',
+      res: { setHeader: () => undefined }, query: {}, resolvedUrl: '/oauth/authorize?client_id=c',
     } as unknown as Parameters<typeof authorizeProps>[0];
   }
   it.each(OUTAGES)('%s → the outage propagates; the user is not sent to /login', async (_l, makeFetch) => {
