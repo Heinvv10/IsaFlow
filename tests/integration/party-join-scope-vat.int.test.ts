@@ -146,7 +146,7 @@ describeIfDb('VAT readers keep the row and its VAT, and lose the foreign name', 
   it('runReport on customer_invoices and supplier_invoices leaves the name blank, the row and the total in', async () => {
     const customer = await runReport(S.A, { dataSource: 'customer_invoices', columns: [{ field: 'invoice_number' }, { field: 'customer_name' }] } as never);
     noLeak(customer);
-    expect(customer.rows.length).toBeGreaterThanOrEqual(6);
+    expect(customer.rows).toHaveLength(6);
     expect(customer.rows.filter((r) => r.customer_name === OK_CUSTOMER)).toHaveLength(3);
     const supplier = await runReport(S.A, { dataSource: 'supplier_invoices', columns: [{ field: 'invoice_number' }, { field: 'supplier_name' }] } as never);
     noLeak(supplier);

@@ -126,13 +126,15 @@ describeIfDb('AR readers keep another tenant\'s customer name out', () => {
     poisoned(await getUninvoicedEntries(S.A, S.CUST_B), 'TE');
   });
 
-  it('getTimeSummary keeps the foreign customer\'s hours on their own row, under no name of B\'s', async () => {
+  it('getTimeSummary keeps the foreign customer\'s hours under UNKNOWN_CUSTOMER, apart from entries with no customer', async () => {
+    await admin.query(`INSERT INTO time_entries (company_id, user_id, task_description, hours, status, billable, invoiced, rate, entry_date)
+      VALUES ($1,$2,$3,5,'draft',false,false,100,'2026-05-03')`, [S.A, S.USER, `${S.TAG} no customer`]);
     const summary = await getTimeSummary(S.A);
     expect(JSON.stringify(summary)).not.toContain(S.LEAK_CUSTOMER);
-    const row = summary.byCustomer.find((c) => c.customerId === S.CUST_B);
-    expect(row?.hours).toBe(2);
-    expect(row?.customerName).toBe('No Customer');
-    expect(summary.byCustomer.find((c) => c.customerId === S.CUST_A)?.customerName).toBe(OK_NAME);
+    expect(summary.byCustomer.find((c) => c.customerId === S.CUST_B)).toMatchObject({ customerName: UNKNOWN_CUSTOMER, hours: 2, value: 200 });
+    expect(summary.byCustomer.find((c) => c.customerId === 'none')).toMatchObject({ customerName: 'No Customer', hours: 5, value: 500 });
+    expect(summary.byCustomer.find((c) => c.customerId === S.CUST_A)).toMatchObject({ customerName: OK_NAME, hours: 2 });
+    expect(summary.byCustomer).toHaveLength(3);
   });
 
   it.each([

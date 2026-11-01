@@ -2,7 +2,7 @@
 // two-tenant fixture (agingScopeFixture): each kind of row exists twice in A, an
 // OK one naming A's party and a POISONED one naming B's. A list must carry the
 // POISONED row without B's name, and the OK row under A's name.
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import type { Pool } from 'pg';
 import type { AgingScope } from './agingScopeFixture';
 
@@ -113,4 +113,41 @@ export async function dropPartyDocs(pool: Pool, s: AgingScope): Promise<void> {
     'dunning_templates', 'bank_categorisation_rules', 'bank_transactions', 'gl_accounts']) {
     await pool.query(`DELETE FROM ${table} WHERE company_id = ANY($1)`, [co]);
   }
+}
+
+/** The two party columns of customer_invoices, as seedSplitColumnInvoices sets them. */
+export const SPLIT_ROWS = {
+  customerOnly: 'SPLIT-CUST', differ: 'SPLIT-DIFF', foreignCustomerOnly: 'SPLIT-FCUST', foreignClient: 'SPLIT-FCLIENT',
+} as const;
+export type SplitRow = keyof typeof SPLIT_ROWS;
+export const SPLIT_AMOUNTS: Record<SplitRow, number> = { customerOnly: 300, differ: 200, foreignCustomerOnly: 40, foreignClient: 30 };
+
+/**
+ * Invoices of A whose client_id and customer_id do not agree. customer_id is NOT
+ * NULL and client_id is nullable, so "only customer_id set" means client_id NULL.
+ * CLIENT is the party the first two resolve to, through different columns. STALE
+ * sits in customer_id behind a client_id that wins, so it must never be shown.
+ * The last two reach B's customer through one column each. Kept out of
+ * seedPartyDocs: other suites pin the customer_invoices count.
+ */
+export async function seedSplitColumnInvoices(pool: Pool, s: AgingScope) {
+  const CLIENT = randomUUID();
+  const STALE = randomUUID();
+  const clientName = `Tenant A Client ${s.TAG}`;
+  const staleName = `Tenant A Stale ${s.TAG}`;
+  await pool.query('INSERT INTO customers (id, company_id, name) VALUES ($1,$2,$3),($4,$2,$5)', [CLIENT, s.A, clientName, STALE, staleName]);
+  const columns: Record<SplitRow, [string | null, string]> = {
+    customerOnly: [null, CLIENT], differ: [CLIENT, STALE],
+    foreignCustomerOnly: [null, s.CUST_B], foreignClient: [s.CUST_B, s.CUST_A],
+  };
+  const tokens = {} as Record<SplitRow, string>;
+  for (const key of Object.keys(columns) as SplitRow[]) {
+    const [client, customer] = columns[key];
+    tokens[key] = randomBytes(32).toString('hex');
+    await pool.query(`INSERT INTO customer_invoices
+      (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, total_amount, amount_paid, created_by, portal_token)
+      VALUES ($1,$2,$3,$4,'2026-05-01','2026-05-31','approved',$5,0,$6,$7)`,
+    [s.A, client, customer, `${s.TAG}-${SPLIT_ROWS[key]}`, SPLIT_AMOUNTS[key], s.USER, tokens[key]]);
+  }
+  return { clientName, staleName, tokens };
 }

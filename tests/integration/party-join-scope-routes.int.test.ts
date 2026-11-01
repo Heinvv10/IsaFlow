@@ -14,6 +14,7 @@ import customerAllocations from '../../pages/api/accounting/customer-allocations
 import customerAllocationsExport from '../../pages/api/accounting/customer-allocations-export';
 import customerPaymentsExport from '../../pages/api/accounting/customer-payments-export';
 import dashboardTodos from '../../pages/api/accounting/dashboard-todos';
+import drcVatExport from '../../pages/api/accounting/drc-vat-export';
 import portalInvoice from '../../pages/api/portal/invoice/[token]';
 import projects from '../../pages/api/accounting/projects';
 import purchaseOrder from '../../pages/api/accounting/purchase-orders/[id]';
@@ -23,6 +24,7 @@ import supplierAllocations from '../../pages/api/accounting/supplier-allocations
 import supplierReturns from '../../pages/api/accounting/supplier-returns';
 import { UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
+import { getDRCHistory } from '@/modules/accounting/services/reports/drcVatService';
 import { AMOUNTS, dropAgingScope, newAgingScope, seedAgingScope } from '../helpers/agingScopeFixture';
 import { docNo, dropPartyDocs, seedPartyDocs, type PartyDocs } from '../helpers/partyJoinScopeFixture';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
@@ -86,9 +88,46 @@ describe('API routes keep the row and lose the foreign party', () => {
   it('supplier-allocations: all, by payment, by supplier', async () => {
     await pool.query('UPDATE suppliers SET company_name = name WHERE id = ANY($1)', [[S.SUPP_A, S.SUPP_B]]);
     const url = '/api/accounting/supplier-allocations';
-    cleared(await get(supplierAllocations, url), docNo(S, 'SP', 'POISONED'), OK_SUPPLIER);
-    cleared(await get(supplierAllocations, url, { payment_id: docs.POISONED.supplierPayment }), docNo(S, 'SP', 'POISONED'));
-    cleared(await get(supplierAllocations, url, { supplier_id: S.SUPP_B }), docNo(S, 'SP', 'POISONED'));
+    const names = (json: string) => (JSON.parse(json) as { data: { payment_number: string; supplier_name: string | null }[] }).data
+      .map((r) => [r.payment_number, r.supplier_name]);
+    const poisoned = [docNo(S, 'SP', 'POISONED'), UNKNOWN_SUPPLIER];
+    const all = await get(supplierAllocations, url);
+    cleared(all, docNo(S, 'SP', 'POISONED'), OK_SUPPLIER);
+    expect(names(all)).toContainEqual(poisoned);
+    for (const query of [{ payment_id: docs.POISONED.supplierPayment }, { supplier_id: S.SUPP_B }]) {
+      const json = await get(supplierAllocations, url, query);
+      cleared(json, docNo(S, 'SP', 'POISONED'));
+      expect(names(json)).toEqual([poisoned]);
+    }
+  });
+
+  it('supplier-allocations: a supplier of this company with no company_name shows its name, not the unknown label', async () => {
+    await pool.query('UPDATE suppliers SET company_name = NULL WHERE id = $1', [S.SUPP_A]);
+    const url = '/api/accounting/supplier-allocations';
+    for (const query of [{}, { payment_id: docs.OK.supplierPayment }, { supplier_id: S.SUPP_A }]) {
+      const rows = (JSON.parse(await get(supplierAllocations, url, query)) as { data: { payment_number: string; supplier_name: string | null }[] }).data;
+      expect(rows.find((r) => r.payment_number === docNo(S, 'SP', 'OK'))?.supplier_name).toBe(OK_SUPPLIER);
+    }
+    await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_A]);
+  });
+
+  it('drc-vat-export lists what getDRCHistory lists: the foreign bill under UNKNOWN_SUPPLIER, and never "null"', async () => {
+    await pool.query('UPDATE supplier_invoices SET is_drc = true WHERE company_id = $1', [S.A]);
+    // SUPP_A with no company_name: the column alone printed "null" for a real supplier.
+    await pool.query('UPDATE suppliers SET company_name = NULL WHERE id = $1', [S.SUPP_A]);
+    await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_B]);
+    const csv = JSON.parse(await get(drcVatExport, '/api/accounting/drc-vat-export')) as string;
+    const history = await getDRCHistory(S.A);
+    await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_A]);
+    await pool.query('UPDATE supplier_invoices SET is_drc = false WHERE company_id = $1', [S.A]);
+    expect(csv).not.toContain(S.LEAK_SUPPLIER);
+    expect(csv).not.toMatch(/\bnull\b/i);
+    const rows = csv.split('\n').slice(1).map((line) => line.split(',').map((cell) => cell.replace(/^"|"$/g, '')));
+    expect(rows.map((r) => r[0]).sort()).toEqual(history.map((h) => h.invoiceNumber).sort());
+    expect(rows.map((r) => [r[0], r[1]]).sort()).toEqual([
+      [`${S.TAG}-AP-OK`, OK_SUPPLIER],
+      [`${S.TAG}-AP-POISONED`, UNKNOWN_SUPPLIER],
+    ].sort());
   });
 
   it('customer-payments-export: all and by status', async () => {

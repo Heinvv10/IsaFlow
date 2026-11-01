@@ -70,12 +70,11 @@ describeIfDb('AP readers keep another tenant\'s supplier name out', () => {
   it.each([
     ['no filter', {}],
     ['status', { status: 'processed' }],
-  ])('getSupplierPayments (%s) keeps both rows, B\'s name on neither', async (_l, filters) => {
+  ])('getSupplierPayments (%s) keeps both rows, the poisoned one under UNKNOWN_SUPPLIER', async (_l, filters) => {
     const { payments } = await getSupplierPayments(S.A, filters as never);
     const byNumber = new Map(payments.map((p) => [p.paymentNumber, p.supplierName]));
     expect(byNumber.get(docNo(S, 'SP', 'OK'))).toBe(OK_NAME);
-    expect(byNumber.has(docNo(S, 'SP', 'POISONED'))).toBe(true);
-    expect(byNumber.get(docNo(S, 'SP', 'POISONED'))).toBeUndefined();
+    expect(byNumber.get(docNo(S, 'SP', 'POISONED'))).toBe(UNKNOWN_SUPPLIER);
   });
 
   it.each([
@@ -83,13 +82,14 @@ describeIfDb('AP readers keep another tenant\'s supplier name out', () => {
     ['supplierId + status', { supplierId: S.SUPP_B, status: 'processed' }],
   ])('getSupplierPayments (%s) finds the poisoned row and not B\'s name', async (_l, filters) => {
     const { payments } = await getSupplierPayments(S.A, filters as never);
-    expect(payments.map((p) => p.paymentNumber)).toEqual([docNo(S, 'SP', 'POISONED')]);
+    expect(payments.map((p) => [p.paymentNumber, p.supplierName])).toEqual([[docNo(S, 'SP', 'POISONED'), UNKNOWN_SUPPLIER]]);
     expect(JSON.stringify(payments)).not.toContain(S.LEAK_SUPPLIER);
   });
 
-  it('getSupplierPaymentById does not name B\'s supplier', async () => {
+  it('getSupplierPaymentById keeps the payment under UNKNOWN_SUPPLIER', async () => {
     const p = await getSupplierPaymentById(S.A, docs.POISONED.supplierPayment);
     expect(p?.paymentNumber).toBe(docNo(S, 'SP', 'POISONED'));
+    expect(p?.supplierName).toBe(UNKNOWN_SUPPLIER);
     expect(JSON.stringify(p)).not.toContain(S.LEAK_SUPPLIER);
   });
 
