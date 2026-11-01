@@ -106,6 +106,7 @@ export default function StaffCostRatesPage() {
         }),
       });
       await assertOk(res, 'Could not add the cost rate - try again');
+      dateGate.reset('effective-from'); dateGate.reset('effective-to');
       setForm(EMPTY_FORM);
       await loadData();
     } catch (e) {
