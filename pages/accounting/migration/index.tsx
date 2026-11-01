@@ -130,8 +130,9 @@ export default function MigrationHubPage() {
 }
 
 /**
- * "Moving from Sage?" — a Sage move is the files exported from Sage (CSV /
- * Excel), uploaded through this wizard's steps. Before a migration is started
+ * "Moving from Sage?": a Sage move is the CSV files exported from Sage,
+ * uploaded through this wizard's steps. The steps read CSV only (accept=".csv",
+ * parseMigrationCsv), so an Excel export is saved as CSV UTF-8 first. Before a migration is started
  * it points at the source cards below; during one it links to the first step.
  */
 function SageFilesOpener({ firstStepHref }: { firstStepHref?: string }) {
@@ -142,8 +143,8 @@ function SageFilesOpener({ firstStepHref }: { firstStepHref?: string }) {
         <p className="font-semibold text-[var(--ff-text-primary)]">Moving from Sage Business Cloud or Sage 50 / Pastel?</p>
         <p className="text-sm text-[var(--ff-text-secondary)]">
           {firstStepHref
-            ? 'Upload the CSV or Excel files you exported from Sage in the steps below, starting with your chart of accounts.'
-            : 'Export your chart of accounts, customers, suppliers, trial balance and unpaid invoices from Sage as CSV or Excel files, choose your Sage version below, then upload each file in turn.'}
+            ? 'Upload the CSV files you exported from Sage in the steps below, starting with your chart of accounts. If Sage gives you an Excel file, save it as CSV UTF-8 first.'
+            : 'Export your chart of accounts, customers, suppliers, trial balance and unpaid invoices from Sage as CSV files, choose your Sage version below, then upload each file in turn. If Sage gives you an Excel file, save it as CSV UTF-8 first.'}
         </p>
       </div>
     </>
