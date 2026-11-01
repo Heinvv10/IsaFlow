@@ -8,7 +8,7 @@
  * for this.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -23,6 +23,9 @@ interface Props {
 
 interface Shown { url: string; invoiceId: string; version: number }
 
+const isPdf = (res: Response): boolean =>
+  res.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase() === 'application/pdf';
+
 export function InvoicePdfPreview({ invoiceId, version }: Props) {
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState<Shown | null>(null);
@@ -32,8 +35,16 @@ export function InvoicePdfPreview({ invoiceId, version }: Props) {
   const loaded = useRef<{ invoiceId: string; version: number } | null>(null);
   const asked = useRef<string | null>(null);
   const wasOpen = useRef(false);
+  const panelId = useId();
 
   useEffect(() => { setOpen(window.matchMedia(LG_QUERY).matches); }, []);
+
+  // Before the load below: another invoice's PDF goes now, not when its replacement arrives or fails.
+  useEffect(() => {
+    if (loaded.current?.invoiceId === invoiceId) return;
+    loaded.current = null;
+    setShown(null);
+  }, [invoiceId]);
 
   useEffect(() => {
     const justOpened = open && !wasOpen.current;
@@ -52,7 +63,9 @@ export function InvoicePdfPreview({ invoiceId, version }: Props) {
           const params = new URLSearchParams({ invoiceId, disposition: 'inline' });
           const res = await apiFetch(`/api/accounting/invoice-pdf?${params}`, { signal: controller.signal, cache: 'no-store' });
           await assertOk(res, 'Could not load the preview - try again');
-          const blob = await res.blob();
+          if (!isPdf(res)) throw new Error(`Preview answered ${res.headers.get('Content-Type') ?? 'no content type'}`);
+          // The frame's type is ours, never the response's: a blob: URL renders as what it is labelled.
+          const blob = new Blob([await res.arrayBuffer()], { type: 'application/pdf' });
           if (controller.signal.aborted) return;
           loaded.current = { invoiceId, version };
           setFailedInvoice(null);
@@ -86,14 +99,14 @@ export function InvoicePdfPreview({ invoiceId, version }: Props) {
 
   return (
     <section className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)}
+      <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
         <Chevron className="h-4 w-4" aria-hidden="true" />
         <FileText className="h-4 w-4" aria-hidden="true" />
         Preview PDF
       </button>
       {open && (
-        <div className="space-y-2 px-4 pb-4">
+        <div id={panelId} className="space-y-2 px-4 pb-4">
           {failed && (
             <div role="alert" className="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">
               {doc ? 'Could not update the preview. What is shown may be out of date.' : 'Could not load the preview.'}
