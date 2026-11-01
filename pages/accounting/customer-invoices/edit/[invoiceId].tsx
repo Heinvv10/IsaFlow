@@ -17,7 +17,7 @@ import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/c
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
 import { invoiceDateProblem, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, storedUnitPrice, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 
 // CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
 // otherwise null, so derivation sets it (the project's FNO, else the customer's: dimensionKeepStored).
@@ -121,6 +121,7 @@ export default function EditCustomerInvoicePage() {
   // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
   const taxRate = effectiveTaxRate(taxMode, form.taxRate);
   const lineTotal = (l: LineItem) => lineTotalForMode(taxMode, taxRate, l);
+  const pickTaxMode = (mode: TaxMode) => { setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
   const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), taxRate);
 
   const handleSubmit = async () => {
@@ -201,7 +202,7 @@ export default function EditCustomerInvoicePage() {
               {error && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</div>}
 
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={setTaxMode} />
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
