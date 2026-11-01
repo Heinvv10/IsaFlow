@@ -109,7 +109,9 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     await expect(dialog).toBeHidden();
     expect((await api.get<Run>(`/api/payroll/runs/${runId}`)).status).toBe('calculated');
   } finally {
-    await api.put(`/api/payroll/runs/${runId}/inputs`, { employeeId, componentId: overtimeId, amount: 0 });
+    const { inputs } = await api.get<{ inputs: { amounts: Array<{ employeeId: string; componentId: string; amount: number | null }> } }>(`/api/payroll/runs/${runId}/inputs`);
+    const held = inputs.amounts.find((a) => a.employeeId === employeeId && a.componentId === overtimeId);
+    await api.put(`/api/payroll/runs/${runId}/inputs`, { employeeId, componentId: overtimeId, amount: 0, expectedAmount: held?.amount ?? 0 });
     await api.dispose();
   }
 });

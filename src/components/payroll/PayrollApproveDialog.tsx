@@ -41,7 +41,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 /** The plan's own figures: the net it pays, and its debits, which are all labour (gross + employer UIF + SDL − ETI used). */
 function paymentSummary(plan: Preview['plan']): string {
-  const people = `${plan.employeeCount} employee${plan.employeeCount === 1 ? '' : 's'}`;
+  const people = `${plan.paidEmployeeCount} employee${plan.paidEmployeeCount === 1 ? '' : 's'}`;
   return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${MONTHS[plan.periodMonth - 1]} ${plan.periodYear}. `
     + `Cost to the company ${formatCurrency(plan.totalDebit)} (gross plus employer UIF and SDL, less ETI used).`;
 }
@@ -146,7 +146,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
             {!posted && plan.advisories.map((a) => (
               <p key={a.code} className="flex gap-2 text-amber-600 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" />{a.detail}</p>
             ))}
-            {warningCount > 0 && (
+            {warningCount > 0 && !blocker && (
               <p className="flex gap-2 text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 {warningCount} warning{warningCount === 1 ? '' : 's'} on this run (listed on the page). They do not block approval.

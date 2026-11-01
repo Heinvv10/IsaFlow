@@ -51,7 +51,7 @@ export const UNION = { id: 'c-un', name: 'Union dues', sarsSourceCode: 'UNION', 
 /** GET and PUT …/inputs: the run, what the grid may edit, and what is captured for the month. */
 export function inputsBody(run: Record<string, unknown>, over: Record<string, unknown> = {}) {
   const lines = (run.lines ?? []) as Array<{ employeeId: string }>;
-  return { run, inputs: { components: [OVERTIME, UNION], employeeIds: lines.map((l) => l.employeeId), amounts: [], ...over } };
+  return { run, inputs: { components: [OVERTIME, UNION], employeeIds: lines.map((l) => l.employeeId), amounts: [], recurring: [], ...over } };
 }
 
 export function planBody(
@@ -64,7 +64,7 @@ export function planBody(
     posted: opts.posted ?? null,
     replaces: opts.replaces ?? null,
     plan: {
-      runId: RUN_ID, status: 'calculated', periodMonth: 9, periodYear: 2026, employeeCount: 1,
+      runId: RUN_ID, status: 'calculated', periodMonth: 9, periodYear: 2026, employeeCount: 1, paidEmployeeCount: 1,
       alreadyPostedJournalId: null, entryDate: '2026-09-30', description: 'Payroll run 2026-09', reference: 'PAY-2026-09',
       lines: PLAN_LINES,
       totalDebit: 75927.12, totalCredit: 75927.12,

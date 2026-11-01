@@ -1,6 +1,6 @@
 /**
  * useRunDetail — the pay-run page's state: load, calculate, reopen and the
- * approval hand-over. Moved out of pages/payroll/runs/[id].tsx unchanged.
+ * approval hand-over, split out of pages/payroll/runs/[id].tsx.
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { apiFetch, assertOk, apiErrorMessage, apiJson, ApiRequestError } from '@/lib/apiFetch';
@@ -52,6 +52,7 @@ export function useRunDetail(runId: string) {
   // What the last approval did: posted a new journal, or re-locked onto the one the run carried.
   const [approvedNow, setApprovedNow] = useState<'posted' | 'relocked' | null>(null);
   const hasRun = useRef(false);
+  const currentRun = useRef(runId);
 
   // `keepNotice`: the reload that follows an approval keeps its notice; any
   // other load clears it. The page is never blanked while it reloads a run it
@@ -61,26 +62,30 @@ export function useRunDetail(runId: string) {
     setIsLoading(true);
     setError('');
     try {
-      setRun((await apiJson(`/api/payroll/runs/${runId}`, undefined, 'Could not load the payroll run - try again')) as RunDetail);
+      const loaded = (await apiJson(`/api/payroll/runs/${runId}`, undefined, 'Could not load the payroll run - try again')) as RunDetail;
+      if (currentRun.current !== runId) return; // the page moved to another run while this one was loading
+      setRun(loaded);
       hasRun.current = true;
       if (!keepNotice) setApprovedNow(null);
     } catch (err) {
+      if (currentRun.current !== runId) return;
       const status = err instanceof ApiRequestError ? err.status : 0;
       setError(hasRun.current
         ? 'Could not refresh this run — reload the page to see its latest state.'
         : status === 404 ? 'Pay run not found'
         : payrollLoadMessage(status, status >= 500 ? LOAD_FAILED : apiErrorMessage(err, LOAD_FAILED)));
     } finally {
-      setIsLoading(false);
+      if (currentRun.current === runId) setIsLoading(false);
     }
   }, [runId]);
 
   useEffect(() => {
     // Another run: never show this one's figures under the new run's URL.
+    currentRun.current = runId;
     hasRun.current = false;
     setRun(null);
     void load();
-  }, [load]);
+  }, [load, runId]);
 
   const calculate = async () => {
     if (!runId) return;

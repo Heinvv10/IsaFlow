@@ -32,6 +32,7 @@ const GROUP_LABEL: Record<string, string> = {
   DUPLICATE_TAX_NUMBER: 'Tax number already used by another employee',
   INVALID_ID_NUMBER: 'ID number must be 13 digits',
   MISSING_BANK_DETAILS: 'No bank details — EFT payment will fail',
+  DEDUCTIONS_EXCEED_PAY: 'Deductions and tax exceed pay — this run cannot be approved until they are reduced',
 };
 
 interface Group {

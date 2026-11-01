@@ -2,6 +2,7 @@
  * Payroll Run Detail — Phase 2.
  * Route: /payroll/runs/[id]
  */
+import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -30,6 +31,7 @@ export default function PayrollRunDetailPage() {
   } = useRunDetail(runId);
   const editable = canWrite(companyRole) && !!run && (run.status === 'draft' || run.status === 'calculated') && run.lines.length > 0;
   const grid = useRunInputs(runId, editable, setRun);
+  const [approvalHeld, setApprovalHeld] = useState('');
 
   if (isLoading && !run) {
     return (
@@ -64,16 +66,26 @@ export default function PayrollRunDetailPage() {
   const canApprove = canWrite(companyRole) && (run.status === 'calculated' || run.status === 'processed'
     || (run.status === 'approved' && !run.journalEntryId));
 
+  // Nothing reads a run the grid is still writing, and the preview must show what is stored.
+  const openApprove = async () => {
+    const held = await grid.settled();
+    setApprovalHeld(held ?? '');
+    if (!held) setApproveOpen(true);
+  };
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <RunHeaderActions runId={runId} period={period} run={run} companyRole={companyRole} locked={locked}
           canCalculate={canCalculate} canReopen={canReopen} canApprove={canApprove} calculating={calculating} reopening={reopening}
-          calculate={calculate} reopen={reopen} openApprove={() => void grid.settled().then(() => setApproveOpen(true))} />
+          calculate={() => void grid.drained().then(calculate)} reopen={() => void grid.drained().then(reopen)} openApprove={() => void openApprove()} />
 
         <div className="p-6 space-y-6">
           {error && (
             <div className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
+          )}
+          {approvalHeld && (
+            <div role="alert" className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-400 text-sm">{approvalHeld}</div>
           )}
           {approvedNow && (
             <div className="px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm">
@@ -103,7 +115,15 @@ export default function PayrollRunDetailPage() {
                   : '.'}
               </div>
             ) : editable && grid.inputs ? (
-              <PayRunReviewGrid runId={runId} lines={run.lines} inputs={grid.inputs} saves={grid.saves} resetKey={grid.resetKey} commit={grid.commit} />
+              <>
+                {grid.loadError && (
+                  <p role="alert" className="px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
+                    This run could not be re-read after a failed save. Reload the page to see what is stored.
+                  </p>
+                )}
+                <PayRunReviewGrid runId={runId} lines={run.lines} inputs={grid.inputs} saves={grid.saves} resets={grid.resets}
+                  commit={grid.commit} refuse={grid.refuse} forgetRefused={grid.forgetRefused} />
+              </>
             ) : (
               <>
                 {grid.loadError && (

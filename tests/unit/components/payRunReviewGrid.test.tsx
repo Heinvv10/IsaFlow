@@ -1,14 +1,14 @@
 /**
  * The pay-run review grid (master plan wave 3, R; M5). Cells commit one PUT each and the
  * server's recalculated lines replace what is on screen: the grid never computes PAYE or
- * net. `fetch` is stubbed, so the real apiFetch/apiJson run.
+ * net. `fetch` is stubbed, so the real apiFetch/apiJson run. What happens when a save
+ * fails, and what holds the approval preview, is in payRunReviewGridSaves.test.tsx.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
-import {
-  RUN_URL, PLAN_URL, INPUTS_URL, OVERTIME, UNION, line, runBody, planBody, inputsBody, ok, fail,
-} from './payroll/payrollRunFixtures';
+import { INPUTS_URL, RUN_URL, OVERTIME, UNION, line, inputsBody, planBody, ok, fail } from './payroll/payrollRunFixtures';
+import { body, cell, fetchMock, puts, rowOf, serve, settle, twoRuns, type } from './payroll/payRunGridHarness';
 
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -17,33 +17,6 @@ vi.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query: { id: 
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'admin' }) }));
 
 import PayrollRunDetailPage from '@/../pages/payroll/runs/[id]';
-
-const TWO_LINES = [line('1', 'Riaan Smit'), line('2', 'Thandi Nkosi')];
-const twoRuns = (over: Record<string, unknown> = {}) => runBody({ lines: TWO_LINES, ...over });
-
-const fetchMock = vi.fn();
-type Handler = (init: RequestInit) => Response | Promise<Response>;
-function serve(put: Handler, opts: { run?: Record<string, unknown>; inputs?: Record<string, unknown>; preview?: unknown } = {}) {
-  const run = opts.run ?? twoRuns();
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url === INPUTS_URL && init?.method === 'PUT') return put(init);
-    if (url === INPUTS_URL) return ok(inputsBody(run, opts.inputs));
-    if (url === RUN_URL) return ok(run);
-    if (url === PLAN_URL) return ok(opts.preview ?? planBody());
-    throw new Error(`unexpected fetch ${url}`);
-  });
-}
-const puts = () => fetchMock.mock.calls.filter(([u, i]) => u === INPUTS_URL && i?.method === 'PUT');
-const body = (n: number) => JSON.parse(String(puts()[n]![1].body)) as Record<string, unknown>;
-
-async function cell(name: string, column = 'Once-off earning') {
-  return await screen.findByLabelText(`${column}, ${name}`) as HTMLInputElement;
-}
-function type(input: HTMLInputElement, text: string) {
-  fireEvent.focus(input);
-  fireEvent.change(input, { target: { value: text } });
-}
-const rowOf = (name: string) => screen.getAllByRole('row').find((r) => within(r).queryByText(name))!;
 
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -56,7 +29,7 @@ describe('PayRunReviewGrid', () => {
     type(input, '1 000');
     fireEvent.blur(input);
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(body(0)).toEqual({ employeeId: 'e-1', componentId: OVERTIME.id, amount: 1000 });
+    expect(body(0)).toEqual({ employeeId: 'e-1', componentId: OVERTIME.id, amount: 1000, expectedAmount: 0 });
     fireEvent.blur(input); // nothing changed since
     fireEvent.keyDown(input, { key: 'Enter' });
     await screen.findByText(/^Saved/);
@@ -94,7 +67,26 @@ describe('PayRunReviewGrid', () => {
     type(first, '50');
     fireEvent.keyDown(first, { key: 'Enter' });
     expect(document.activeElement).toBe(second);
-    await waitFor(() => expect(puts()).toHaveLength(1));
+    await within(rowOf('Riaan Smit')).findByText(/^Saved/);
+    await settle();
+    expect(puts()).toHaveLength(1);
+  });
+
+  it('skips a row with no cell going down and coming back up', async () => {
+    const three = twoRuns({ lines: [line('1', 'Riaan Smit'), line('2', 'Thandi Nkosi'), line('3', 'Anna Botha')] });
+    serve(() => ok(inputsBody(three)), {
+      run: three,
+      inputs: { amounts: [{ employeeId: 'e-2', componentId: OVERTIME.id, amount: null, conflict: true }] },
+    });
+    render(<PayrollRunDetailPage />);
+    const [first, third] = [await cell('Riaan Smit'), await cell('Anna Botha')];
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(third);
+    fireEvent.keyDown(third, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'Enter' });
+    expect(document.activeElement).toBe(third);
   });
 
   it('keeps focus and typed text in the next row when the save answers, though the recalculation made new line ids', async () => {
@@ -113,38 +105,6 @@ describe('PayRunReviewGrid', () => {
     expect(await cell('Thandi Nkosi')).toBe(second);
     expect(document.activeElement).toBe(second);
     expect(second.value).toBe('25');
-  });
-
-  it('sends the second commit only after the first has answered', async () => {
-    let answerFirst: (r: Response) => void = () => undefined;
-    const first = new Promise<Response>((resolve) => { answerFirst = resolve; });
-    let n = 0;
-    serve(() => (n++ === 0 ? first : ok(inputsBody(twoRuns()))));
-    render(<PayrollRunDetailPage />);
-    const [a, b] = [await cell('Riaan Smit'), await cell('Thandi Nkosi')];
-    type(a, '1');
-    fireEvent.blur(a);
-    await waitFor(() => expect(puts()).toHaveLength(1));
-    type(b, '2');
-    fireEvent.blur(b);
-    await new Promise((r) => setTimeout(r, 20));
-    expect(puts()).toHaveLength(1);
-    answerFirst(ok(inputsBody(twoRuns())));
-    await waitFor(() => expect(puts()).toHaveLength(2));
-    expect(body(1)).toMatchObject({ employeeId: 'e-2', amount: 2 });
-  });
-
-  it('a refusal shows the server\'s reason on the row and puts the stored amount back', async () => {
-    serve(() => fail(409, 'Edit this on the employee page: more than one amount'), {
-      inputs: { amounts: [{ employeeId: 'e-1', componentId: OVERTIME.id, amount: 300, conflict: false }] },
-    });
-    render(<PayrollRunDetailPage />);
-    const input = await cell('Riaan Smit');
-    expect(input.value).toBe('300.00');
-    type(input, '999');
-    fireEvent.blur(input);
-    expect(await within(rowOf('Riaan Smit')).findByText(/Edit this on the employee page/)).toBeTruthy();
-    await waitFor(() => expect(input.value).toBe('300.00'));
   });
 
   it('refused text never reaches the server', async () => {
@@ -191,23 +151,71 @@ describe('PayRunReviewGrid', () => {
     const commission = { ...OVERTIME, id: 'c-co', name: 'Commission', sarsSourceCode: '3606' };
     serve(() => ok(inputsBody(twoRuns())), {
       inputs: {
-        components: [commission, OVERTIME, UNION],
+        components: [OVERTIME, commission, UNION],
         amounts: [{ employeeId: 'e-1', componentId: OVERTIME.id, amount: 300, conflict: false }],
       },
     });
     render(<PayrollRunDetailPage />);
     const input = await cell('Riaan Smit');
-    expect(input.value).toBe('');
-    fireEvent.change(screen.getByLabelText('Once-off earning component'), { target: { value: OVERTIME.id } });
-    await waitFor(async () => expect((await cell('Riaan Smit')).value).toBe('300.00'));
+    expect(input.value).toBe('300.00');
+    fireEvent.change(screen.getByLabelText('Once-off earning component'), { target: { value: commission.id } });
+    await waitFor(async () => expect((await cell('Riaan Smit')).value).toBe(''));
   });
 
-  it('says so when no deduction can be edited here', async () => {
+  describe('the default earning', () => {
+    const named = (name: string, sarsSourceCode: string) => ({ ...OVERTIME, id: `c-${sarsSourceCode}`, name, sarsSourceCode });
+    const [salary, commission, overtime] = [named('Basic Salary', '3601'), named('Commission', '3606'), named('Overtime', '3607')];
+    const picker = async () => {
+      await screen.findByText('Riaan Smit');
+      return await screen.findByLabelText('Once-off earning component') as HTMLSelectElement;
+    };
+
+    it.each([
+      ['overtime before all', [salary, commission, overtime], overtime.id],
+      ['commission when there is no overtime', [salary, commission], commission.id],
+    ])('%s', async (_what, components, expected) => {
+      serve(() => ok({}), { inputs: { components } });
+      render(<PayrollRunDetailPage />);
+      expect((await picker()).value).toBe(expected);
+    });
+
+    it('never Basic Salary: with nothing else there is no column to type in until one is chosen', async () => {
+      serve(() => ok(inputsBody(twoRuns())), { inputs: { components: [salary] } });
+      render(<PayrollRunDetailPage />);
+      const select = await picker();
+      expect(select.value).toBe('');
+      expect(screen.queryByLabelText('Once-off earning, Riaan Smit')).toBeNull();
+      fireEvent.change(select, { target: { value: salary.id } });
+      expect(await cell('Riaan Smit')).toBeTruthy();
+    });
+  });
+
+  it('shows what the run pays every month on the component, for that employee only', async () => {
+    serve(() => ok({}), { inputs: { recurring: [{ employeeId: 'e-1', componentId: OVERTIME.id, amount: 20000 }] } });
+    render(<PayrollRunDetailPage />);
+    const input = await cell('Riaan Smit');
+    const recurring = within(rowOf('Riaan Smit')).getByText('Plus R 20 000.00 recurring');
+    expect(input.getAttribute('aria-describedby')).toContain(recurring.id);
+    expect(within(rowOf('Thandi Nkosi')).queryByText(/recurring/)).toBeNull();
+  });
+
+  it('with no deduction editable there is no column and no note about it', async () => {
     serve(() => ok(inputsBody(twoRuns())), { inputs: { components: [OVERTIME] } });
     render(<PayrollRunDetailPage />);
     await cell('Riaan Smit');
-    expect(screen.getByText(/No deduction can be edited on a pay run/)).toBeTruthy();
-    expect(screen.queryByLabelText('Once-off deduction, Riaan Smit')).toBeNull();
+    expect(screen.queryByText(/deduction can be edited/i)).toBeNull();
+    expect(screen.queryByText('Once-off deduction')).toBeNull();
+    expect(screen.queryByLabelText('Once-off deduction component')).toBeNull();
+    const [groups, heads] = screen.getAllByRole('row').slice(0, 2);
+    const span = (el: Element) => Number(el.getAttribute('colspan') ?? 1);
+    expect([...groups!.children].reduce((n, c) => n + span(c), 0)).toBe(heads!.children.length);
+  });
+
+  it('with one editable the column and its picker are there', async () => {
+    serve(() => ok(inputsBody(twoRuns())));
+    render(<PayrollRunDetailPage />);
+    expect(await cell('Riaan Smit', 'Once-off deduction')).toBeTruthy();
+    expect(screen.getByLabelText('Once-off deduction component')).toBeTruthy();
   });
 
   it('an approved run stays the read-only table and asks for no inputs', async () => {
@@ -224,21 +232,6 @@ describe('PayRunReviewGrid', () => {
     expect(await screen.findByText(/amounts cannot be edited right now/i)).toBeTruthy();
     expect(screen.getByText('Riaan Smit')).toBeTruthy();
   });
-
-  it('Review & approve waits for a save in flight, so the plan it opens includes it', async () => {
-    let answer: (r: Response) => void = () => undefined;
-    serve(() => new Promise<Response>((resolve) => { answer = resolve; }));
-    render(<PayrollRunDetailPage />);
-    const input = await cell('Riaan Smit');
-    type(input, '1');
-    fireEvent.blur(input);
-    await waitFor(() => expect(puts()).toHaveLength(1));
-    fireEvent.click(screen.getByRole('button', { name: /review & approve/i }));
-    await new Promise((r) => setTimeout(r, 20));
-    expect(fetchMock.mock.calls.filter(([u]) => u === PLAN_URL)).toHaveLength(0);
-    answer(ok(inputsBody(twoRuns())));
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => u === PLAN_URL)).toHaveLength(1));
-  });
 });
 
 describe('the approval summary', () => {
@@ -248,12 +241,12 @@ describe('the approval summary', () => {
     return screen.findByRole('dialog');
   };
 
-  it('reads the plan: its employee count, its net and its labour debit', async () => {
+  it('reads the plan: the employees it pays, its net and its labour debit', async () => {
     // ETI 100 used: gross 75 000 + UIF 177.12 + SDL 750 would say 75 927.12, and the run says another net.
     serve(() => ok({}), {
       run: twoRuns({ totalNet: 1 }),
       preview: planBody(null, { plan: {
-        employeeCount: 12, periodMonth: 11, periodYear: 2026, totalDebit: 498120, totalCredit: 498120,
+        employeeCount: 13, paidEmployeeCount: 12, periodMonth: 11, periodYear: 2026, totalDebit: 498120, totalCredit: 498120,
         totals: { gross: 75000, paye: 1, uif: 354.24, sdl: 750, eti: 100, etiUsed: 100, net: 412300, employerUif: 177.12, otherDeductions: 0 },
       } }),
     });

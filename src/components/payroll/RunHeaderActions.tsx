@@ -1,6 +1,6 @@
 /**
- * RunHeaderActions — the pay-run page's title bar and its actions. Moved out
- * of pages/payroll/runs/[id].tsx unchanged.
+ * RunHeaderActions — the pay-run page's title bar and its actions, split out
+ * of pages/payroll/runs/[id].tsx.
  */
 import Link from 'next/link';
 import { CalendarDays, ArrowLeft, Loader2, Calculator, Lock, Unlock, GitCompare, BookOpen, ShieldCheck } from 'lucide-react';

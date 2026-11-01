@@ -89,11 +89,14 @@ const num = 'py-2 px-4 text-right tabular-nums';
 
 /** The grid's extra columns: a cell per line and its row index; the save status sits under the name, always on screen. */
 export interface RunLinesEdit {
-  earningHead: string;
-  earningCell: (line: RunLineAmounts, row: number) => ReactNode;
-  deductionHead: string;
-  deductionCell: (line: RunLineAmounts, row: number) => ReactNode;
+  earning: RunLinesColumn;
+  deduction?: RunLinesColumn;
   statusCell: (line: RunLineAmounts) => ReactNode;
+}
+
+interface RunLinesColumn {
+  head: string;
+  cell: (line: RunLineAmounts, row: number) => ReactNode;
 }
 
 export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[]; edit?: RunLinesEdit }) {
@@ -103,18 +106,18 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
       <thead>
         <tr className="bg-[var(--ff-bg-secondary)] text-xs">
           <th colSpan={edit ? 4 : 3} />
-          <th colSpan={edit ? 4 : 3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employee deductions</th>
+          <th colSpan={edit?.deduction ? 4 : 3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employee deductions</th>
           <th className="border-l border-[var(--ff-border-primary)]" />
           <th colSpan={3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employer contributions</th>
         </tr>
         <tr className="bg-[var(--ff-bg-secondary)] text-left">
           <th className={th}>Emp #</th>
           <th className={th}>Name</th>
-          {edit && <th className={`${th} text-right`}>{edit.earningHead}</th>}
+          {edit && <th className={`${th} text-right`}>{edit.earning.head}</th>}
           <th className={`${th} text-right`}>Gross</th>
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>PAYE</th>
           <th className={`${th} text-right`}>UIF</th>
-          {edit && <th className={`${th} text-right`}>{edit.deductionHead}</th>}
+          {edit?.deduction && <th className={`${th} text-right`}>{edit.deduction.head}</th>}
           <th className={`${th} text-right`}>Other</th>
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>Net</th>
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>UIF</th>
@@ -128,11 +131,11 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           <tr key={l.employeeId} className="border-t border-[var(--ff-border-primary)]">
             <td className="py-2 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
             <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}{edit?.statusCell(l)}</td>
-            {edit && <td className={num}>{edit.earningCell(l, row)}</td>}
+            {edit && <td className={num}>{edit.earning.cell(l, row)}</td>}
             <td className={`${num} text-[var(--ff-text-primary)]`}>{formatCurrency(l.grossPay)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.paye)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.uifEmployee)}</td>
-            {edit && <td className={num}>{edit.deductionCell(l, row)}</td>}
+            {edit?.deduction && <td className={num}>{edit.deduction.cell(l, row)}</td>}
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(otherDeductions(l))}</td>
             <td className={`${num} text-teal-400 font-medium border-l border-[var(--ff-border-primary)]`}
               title={`${formatCurrency(l.grossPay)} gross − ${formatCurrency(l.paye)} PAYE − ${formatCurrency(l.uifEmployee)} UIF − ${formatCurrency(otherDeductions(l))} other = ${formatCurrency(l.netPay)} net`}>
@@ -150,7 +153,7 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           <td className={num}>{formatCurrency(t.grossPay)}</td>
           <td className={`${num} border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.paye)}</td>
           <td className={num}>{formatCurrency(t.uifEmployee)}</td>
-          {edit && <td />}
+          {edit?.deduction && <td />}
           <td className={num}>{formatCurrency(t.other)}</td>
           <td className={`${num} text-teal-400 border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.netPay)}</td>
           <td className={`${num} border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.uifEmployer)}</td>
