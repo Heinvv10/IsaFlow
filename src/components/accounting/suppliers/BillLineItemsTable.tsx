@@ -10,6 +10,7 @@ import {
 } from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { useState } from 'react';
 import { Plus, Tags, Trash2 } from 'lucide-react';
+import { useOverflowX } from '@/hooks/useOverflowX';
 import { formatCurrency } from '@/utils/formatters';
 import { CodingPicker } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import type { InvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
@@ -85,20 +86,21 @@ interface Props {
 }
 
 export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove, codingOptions, supplierDefaults }: Props) {
+  const { attach: attachLines, overflows: linesOverflow } = useOverflowX();
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default once a line carries a dimension (a supplier default), so the user sees what will post.
   const showDimensions = codingOptions !== undefined
     && (dimensionsToggled ?? lines.some(l => Boolean(l.cc2Id) || Boolean(l.buId)));
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
           <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">
             2
           </span>
           Line Items
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
         {codingOptions && (
           <button
             type="button"
@@ -130,8 +132,9 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
         </p>
       )}
 
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden mx-5 my-4">
-        <table className="w-full text-sm">
+      {linesOverflow && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
+      <div ref={attachLines} className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto mx-5 my-4" role="region" aria-label="Invoice lines" tabIndex={0}>
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-slate-50 dark:bg-slate-800/60">
             <tr>
               <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -163,7 +166,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {lines.map(line => (
+            {lines.map((line, index) => (
               <tr
                 key={line.key}
                 className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors"
@@ -240,8 +243,9 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                 <td className="px-2 py-2">
                   <button
                     type="button"
+                    aria-label={`Remove line ${index + 1}`}
                     onClick={() => onRemove(line.key)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100"
+                    className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

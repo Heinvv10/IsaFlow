@@ -101,6 +101,7 @@ export default function LeaveIndexPage() {
           <div className="flex items-center gap-3 mb-6">
             <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
             <select
+              aria-label="Filter by status"
               value={filterStatus}
               onChange={e => setFilterStatus(e.target.value)}
               className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -112,6 +113,7 @@ export default function LeaveIndexPage() {
               <option value="cancelled">Cancelled</option>
             </select>
             <select
+              aria-label="Filter by month"
               value={filterMonth}
               onChange={e => setFilterMonth(e.target.value)}
               className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
