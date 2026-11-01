@@ -42,9 +42,12 @@ function StatusBadge({ status }: { status: string }) {
   };
   const cfg = configs[status] || { icon: AlertTriangle, className: 'bg-gray-500/10 text-gray-400' };
   const Icon = cfg.icon;
+  const label = status === 'submitted'
+    ? 'Filed on eFiling'
+    : status.charAt(0).toUpperCase() + status.slice(1);
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}>
-      <Icon className="h-3 w-3" /> {status}
+      <Icon className="h-3 w-3" /> {label}
     </span>
   );
 }
@@ -108,7 +111,7 @@ export function SubmissionDetailModal({ detail, onClose }: SubmissionDetailModal
               <p className="text-[var(--ff-text-primary)] font-mono">{detail.submissionReference || '—'}</p>
             </div>
             <div>
-              <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">Submitted</p>
+              <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">Filing recorded</p>
               <p className="text-[var(--ff-text-secondary)]">
                 {detail.submittedAt ? formatDateTime(detail.submittedAt) : '—'}
               </p>

@@ -108,7 +108,7 @@ describe('VAT201 period selector waits for the company VAT settings', () => {
     expect((await screen.findByTestId('vat201-notice-uncoded-revenue-assumed-zero-rated')).textContent).toMatch(/Confirm/);
     expect(screen.getByTestId('vat201-notice-filability').textContent).toMatch(/field 1 is negative/);
     fireEvent.click(await screen.findByRole('button', { name: /save draft/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /mark as submitted/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /record as filed on efiling/i }));
     expect((await screen.findByTestId('vat201-submit-filability-warning')).textContent).toMatch(/field 1 is negative/);
   });
 });

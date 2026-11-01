@@ -9,6 +9,7 @@ import {
 } from '@/components/landing/LandingPricingTestimonialsFooter';
 import {
   PricingHero,
+  PayAsYouGoSection,
   SageComparison,
   CloseAgentAddOn,
   BureauSection,
@@ -52,6 +53,7 @@ export default function PricingPage() {
         />
         <PricingHero />
         <LandingPricing />
+        <PayAsYouGoSection />
         <SageComparison />
         <CloseAgentAddOn />
         <BureauSection />

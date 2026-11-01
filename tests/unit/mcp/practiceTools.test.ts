@@ -86,8 +86,13 @@ const workItem = {
   createdAt: 'now', updatedAt: 'now',
 };
 
+// A date inside the backdating window (this month, the 1st) whatever today
+// is: a fixed date fell behind the floor when the month rolled over.
+const NOW = new Date();
+const IN_WINDOW = `${NOW.getUTCFullYear()}-${String(NOW.getUTCMonth() + 1).padStart(2, '0')}-01`;
+
 const entry = {
-  id: ENTRY, companyId: COMPANY, userId: ME, entryDate: '2026-09-01', hours: 2,
+  id: ENTRY, companyId: COMPANY, userId: ME, entryDate: IN_WINDOW, hours: 2,
   practiceClientId: CLIENT, jobCategoryId: CAT, workItemId: ITEM,
   taskDescription: 'VAT201', notes: null, billable: true, appliedRate: 850,
   lineTotal: 1700, origin: 'assisted' as const, status: 'draft' as const,
@@ -299,7 +304,7 @@ describe('create_work_item', () => {
 
 describe('log_time_entry', () => {
   const base = {
-    entry_date: '2026-09-01', hours: 2, practice_client_id: CLIENT,
+    entry_date: IN_WINDOW, hours: 2, practice_client_id: CLIENT,
     job_category_id: CAT, work_item_id: ITEM, task_description: 'VAT201', ...KEY,
   };
 

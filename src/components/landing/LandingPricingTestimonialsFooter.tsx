@@ -151,6 +151,7 @@ export function LandingFooter() {
             <span className="text-sm text-gray-500">© {new Date().getFullYear()} Brightsphere Technologies (Pty) Ltd, trading as IsaFlow. All rights reserved.</span>
           </div>
           <div className="flex gap-6 text-sm text-gray-500">
+            <a href="/help" className="hover:text-white transition-colors">Help</a>
             <a href="/privacy" className="hover:text-white transition-colors">Privacy</a>
             <a href="/terms" className="hover:text-white transition-colors">Terms</a>
             <a href="/security" className="hover:text-white transition-colors">Security</a>

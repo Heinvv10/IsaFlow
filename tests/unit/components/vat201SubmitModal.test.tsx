@@ -13,7 +13,7 @@ const counts = {
 };
 
 describe('VAT201SubmitModal', () => {
-  it('with no block, confirm is enabled once a reference is entered', () => {
+  it('says the action only records a filing completed outside ISAFlow', () => {
     const onConfirm = vi.fn();
     render(
       <VAT201SubmitModal
@@ -21,7 +21,10 @@ describe('VAT201SubmitModal', () => {
         onRefChange={vi.fn()} onConfirm={onConfirm} onClose={vi.fn()}
       />,
     );
-    const confirm = screen.getByText('Confirm');
+    expect(screen.getByRole('heading', { name: 'Record as filed on eFiling' })).toBeTruthy();
+    expect(screen.getByText(/This records a filing you completed on SARS eFiling/)).toBeTruthy();
+    expect(screen.getByText(/ISAFlow does not send this return to SARS/)).toBeTruthy();
+    const confirm = screen.getByText('Record filing');
     expect(confirm).not.toBeDisabled();
     fireEvent.click(confirm);
     expect(onConfirm).toHaveBeenCalled();
@@ -49,7 +52,7 @@ describe('VAT201SubmitModal', () => {
     );
     expect(screen.getByText(/Only an owner or admin can override/)).toBeTruthy();
     expect(screen.queryByLabelText(/Override reason/)).toBeNull();
-    expect(screen.getByText('Confirm')).toBeDisabled();
+    expect(screen.getByText('Record filing')).toBeDisabled();
   });
 
   it('an owner/admin sees the required-reason box; confirm stays disabled until a reason is entered', () => {
@@ -63,7 +66,7 @@ describe('VAT201SubmitModal', () => {
       />,
     );
     expect(screen.getByLabelText(/Override reason/)).toBeTruthy();
-    expect(screen.getByText('Override and confirm')).toBeDisabled();
+    expect(screen.getByText('Override and record filing')).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Override reason/), { target: { value: 'Filed manually, correcting later' } });
     expect(onOverrideReasonChange).toHaveBeenCalledWith('Filed manually, correcting later');
@@ -76,7 +79,7 @@ describe('VAT201SubmitModal', () => {
         overrideReason="Filed manually, correcting later" onOverrideReasonChange={onOverrideReasonChange}
       />,
     );
-    expect(screen.getByText('Override and confirm')).not.toBeDisabled();
+    expect(screen.getByText('Override and record filing')).not.toBeDisabled();
   });
 
   it('an owner/admin retrying with a reason calls onConfirm', () => {
@@ -89,7 +92,7 @@ describe('VAT201SubmitModal', () => {
         overrideReason="Filed manually" onOverrideReasonChange={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByText('Override and confirm'));
+    fireEvent.click(screen.getByText('Override and record filing'));
     expect(onConfirm).toHaveBeenCalled();
   });
 });

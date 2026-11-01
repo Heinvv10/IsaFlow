@@ -67,7 +67,10 @@ async function unit(companyId: string, raw: string): Promise<TrackingMemberRef> 
 const ref = (c: Centre): TrackingMemberRef => ({ id: c.id, code: c.code, name: c.name });
 
 /** Sequential lookups (one pg client under withAuth). */
-export async function resolveTrackingFilter(companyId: string, p: TrackingParams): Promise<ResolvedTrackingFilter> {
+export async function resolveTrackingFilter(
+  companyId: string,
+  p: Pick<TrackingParams, 'cc1Id' | 'cc2Id' | 'buId' | 'costCentreId'>,
+): Promise<ResolvedTrackingFilter> {
   const members: BudgetTrackingReport['filter'] = {};
   const actual: TrackingFilter = {};
   let cc1: string | undefined;

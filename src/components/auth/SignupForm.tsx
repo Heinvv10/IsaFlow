@@ -120,7 +120,7 @@ export function SignupForm() {
         <div className="mb-5 text-center text-white lg:text-left">
           <h2 className="text-2xl font-bold tracking-normal">Create your account</h2>
           <p className="mt-1 text-sm text-white/70">
-            14 days free. No card required.
+            30-day free trial. No card required.
           </p>
         </div>
 

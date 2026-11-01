@@ -10,6 +10,7 @@ import {
   ANNUAL_BILLING,
   VAT_INCLUSIVE,
   VAT_NOTE,
+  PAYG_PLAN,
 } from '@/components/landing/pricingData';
 
 /**
@@ -72,6 +73,45 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
     it('prices the Close Agent as a R299 per-entity add-on', () => {
       expect(CLOSE_AGENT_ADDON.price).toContain('299');
       expect(CLOSE_AGENT_ADDON.unit).toMatch(/entity/i);
+    });
+
+    it('describes approval without denying permission-based AI posting', () => {
+      const copy = `${CLOSE_AGENT_ADDON.desc} ${CLOSE_AGENT_ADDON.bullets.join(' ')}`;
+      expect(copy).toContain('prepares entries for you to approve');
+      expect(copy).toContain('only post if you give them posting permission');
+      expect(copy).not.toMatch(/nothing posts without|approve every entry|no autonomous posting/i);
+    });
+  });
+
+  describe('Pay-As-You-Go plan (pricingData)', () => {
+    it('publishes the supported plan limits and bundle catalogue', () => {
+      expect(PAYG_PLAN.name).toBe('Pay-As-You-Go');
+      expect(PAYG_PLAN.price).toContain('0');
+      expect(PAYG_PLAN.limits).toEqual(['1 user', '1 company']);
+      expect(PAYG_PLAN.bundles).toEqual([
+        { flows: 100, price: 'R 10' },
+        { flows: 500, price: 'R 50' },
+        { flows: 1_500, price: 'R 150' },
+        { flows: 2_500, price: 'R 250' },
+      ]);
+    });
+
+    it('does not advertise a monthly transaction limit', () => {
+      expect(JSON.stringify(PAYG_PLAN)).not.toMatch(/transactions?\s*(?:per|\/)\s*month/i);
+    });
+
+    it('explains eligibility and does not duplicate the page-wide VAT note', () => {
+      expect(PAYG_PLAN.desc).toBe(
+        'Prepaid Flows with no monthly fee for eligible low-volume businesses.',
+      );
+      expect(PAYG_PLAN.eligibility).toBe(
+        'Eligible if your company has under R1 million annual turnover, averages fewer than 200 posted journal entries per month, or is approved by our team. Start with the free trial, then ask us to switch an eligible company to Pay-As-You-Go.',
+      );
+      expect(PAYG_PLAN.topupNote).toBe(
+        'Top up by buying another bundle whenever you need more Flows.',
+      );
+      expect(PAYG_PLAN).not.toHaveProperty('autoTopupNote');
+      expect(PAYG_PLAN).not.toHaveProperty('checkoutNote');
     });
   });
 

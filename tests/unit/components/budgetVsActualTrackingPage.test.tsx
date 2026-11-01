@@ -7,6 +7,7 @@
  * exports carry the same window. The figures are the engine's (the fixture is
  * built from its pure modules), and an absent budget prints "—".
  */
+import { budgetElsewhereNotice, noBudgetYearNotice } from '@/modules/accounting/services/budgets/tracking/trackingNoticeText';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -135,7 +136,44 @@ describe('budget vs actual tracking page: controls → query string', () => {
   });
 });
 
+describe('budget vs actual tracking page: an empty window says why (PR-C review r4)', () => {
+  it('a window with no line shows the notices: a year with a budget, none of it at this filter, and a year with none', async () => {
+    const noticesOf = (over: Record<string, unknown>) => ({
+      unbudgetedCount: 0, unbudgetedActual: { income: 0, expense: 0 }, unallocatedBudget: { income: 0, expense: 0 },
+      noVersion: false, partialBudget: null, noVersionYears: [], noBudgetAtFilterYears: [], ...over,
+    });
+    serve(() => trackingReport([], { notices: noticesOf({ noBudgetAtFilterYears: [2028], noVersionYears: [2026] }) as never }));
+    render(<BudgetVsActualPage />);
+    expect(await screen.findByText('No budget or actuals in this window')).toBeInTheDocument();
+    expect((await screen.findByTestId('bva-budget-elsewhere-2028')).textContent).toBe(budgetElsewhereNotice(2028));
+    expect(screen.getByTestId('bva-no-budget-2026').textContent).toBe(noBudgetYearNotice(2026));
+  });
+
+  it('a window with no line and no notice shows the generic empty state alone', async () => {
+    serve(() => trackingReport([]));
+    render(<BudgetVsActualPage />);
+    expect(await screen.findByText('No budget or actuals in this window')).toBeInTheDocument();
+    expect(screen.queryByTestId('bva-budget-elsewhere-2028')).toBeNull();
+  });
+});
+
 describe('budget vs actual tracking page: version picker across years', () => {
+  it('names a year with no version too: Feb-Apr 2026 reaches FY2026 (no budget) and FY2027', async () => {
+    const v = { name: 'Original budget', kind: 'original', status: 'approved' };
+    serve((q) => trackingReport(ROWS, q.get('period') === 'custom'
+      ? { versionsByFy: { 2027: { id: 'v-primary', ...v } },
+        notices: { unbudgetedCount: 0, unbudgetedActual: { income: 0, expense: 0 }, unallocatedBudget: null, noVersion: false, partialBudget: null,
+          noVersionYears: [2026], noBudgetAtFilterYears: [] } } : {}));
+    render(<BudgetVsActualPage />);
+    await screen.findByRole('button', { name: /Sales/ });
+    await waitFor(() => expect((screen.getByTestId('bva-version') as HTMLSelectElement).options).toHaveLength(2));
+    change('bva-period', 'custom');
+    change('bva-from', '2026-02');
+    change('bva-to', '2026-04');
+    await waitFor(() => expect((screen.getByTestId('bva-version') as HTMLSelectElement).disabled).toBe(true));
+    expect(screen.getByTestId('bva-version-reason').textContent)
+      .toBe('This window spans FY2026 and FY2027: each year reads its own primary version.');
+  });
   it('is disabled when the engine reports a cross-year window (versionsByFy), says why, and the version is dropped', async () => {
     const v = { name: 'Original budget', kind: 'original', status: 'approved' };
     serve((q) => trackingReport(ROWS, q.get('period') === 'custom'
@@ -165,13 +203,15 @@ describe('budget vs actual tracking page: notices', () => {
     serve(() => trackingReport(ROWS, {
       notices: {
         unbudgetedCount: 1, unbudgetedActual: { income: 300, expense: 0 }, unallocatedBudget: null, noVersion: false,
-        partialBudget: { count: 2, actual: { income: 10, expense: 20 } }, noVersionYears: [2028],
+        partialBudget: { count: 2, actual: { income: 10, expense: 20 } }, noVersionYears: [2028], noBudgetAtFilterYears: [2027],
       },
       version: { id: 'v-reforecast', name: 'Reforecast 1', kind: 'reforecast', status: 'draft', isPrimary: false },
     }));
     render(<BudgetVsActualPage />);
     expect((await screen.findByTestId('bva-no-budget-2028')).textContent)
-      .toBe('No budget for FY2028 in this window: its Budget and variance columns are shown as —, never as zero.');
+      .toBe(noBudgetYearNotice(2028));
+    // Review r2 (R8): a year whose budget is all at other dimensions is not "no budget".
+    expect(screen.getByTestId('bva-budget-elsewhere-2027').textContent).toBe(budgetElsewhereNotice(2027));
     expect(screen.getByTestId('bva-partial-budget').textContent)
       .toBe('2 accounts are budgeted for only part of this window (marked ½): their Budget and variance are shown as —.');
     expect(screen.getByTestId('bva-unbudgeted').textContent).toMatch(/^1 account carry actuals with no budget \(R\s?300\.00 of income actuals\)\.$/);
@@ -182,7 +222,7 @@ describe('budget vs actual tracking page: notices', () => {
     serve((q) => trackingReport(ROWS, {
       filter: q.get('cc1_id') ? { cc1: { id: CC1, code: 'FNO-A', name: 'Fibre North' } } : {},
       notices: {
-        unbudgetedCount: 0, unbudgetedActual: { income: 0, expense: 0 }, noVersion: false, partialBudget: null, noVersionYears: [],
+        unbudgetedCount: 0, unbudgetedActual: { income: 0, expense: 0 }, noVersion: false, partialBudget: null, noVersionYears: [], noBudgetAtFilterYears: [],
         unallocatedBudget: q.get('cc1_id') ? { income: 0, expense: 250 } : { income: 0, expense: 0 },
       },
     }));

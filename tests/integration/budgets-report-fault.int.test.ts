@@ -8,13 +8,15 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 
 const fault = vi.hoisted(() => ({ on: false }));
-vi.mock('@/modules/accounting/services/reports/budgetWindowService', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@/modules/accounting/services/reports/budgetWindowService')>();
+// The fault is injected into the budget read the report reaches through getBudgetVariance's facade
+// (the tracking engine's, budgets P3 PR-C).
+vi.mock('@/modules/accounting/services/budgets/tracking/trackingBudgetRead', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/accounting/services/budgets/tracking/trackingBudgetRead')>();
   return {
     ...real,
-    loadWindowBudgets: (...args: Parameters<typeof real.loadWindowBudgets>) => {
+    readTrackingBudgets: (...args: Parameters<typeof real.readTrackingBudgets>) => {
       if (fault.on) throw Object.assign(new Error('relation "secret_internal_table" does not exist'), { code: '42P01' });
-      return real.loadWindowBudgets(...args);
+      return real.readTrackingBudgets(...args);
     },
   };
 });
