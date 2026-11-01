@@ -84,6 +84,7 @@ export function Select(props: SelectProps) {
   const triggerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const isMulti = props.multiple === true;
   const selectedValues: string[] = isMulti ? (props.value as string[]) : props.value ? [props.value as string] : [];
@@ -147,7 +148,11 @@ export function Select(props: SelectProps) {
 
   useEffect(() => {
     if (!open) return;
-    const onClick = (e: MouseEvent) => { if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) closeDropdown(); };
+    // The panel is portalled out of the trigger: a press inside it is not outside. Closing here would unmount the option before its click.
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current && !triggerRef.current.contains(target) && !panelRef.current?.contains(target)) closeDropdown();
+    };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [open, closeDropdown]);
@@ -231,6 +236,7 @@ export function Select(props: SelectProps) {
               pos={pos}
               searchRef={searchRef}
               listRef={listRef}
+              panelRef={panelRef}
               onSearchChange={(v) => { setSearch(v); setActiveIndex(-1); onSearch?.(v); }}
               searchLabel={label ? `Search ${label}` : undefined}
               emptyText={emptyText}
