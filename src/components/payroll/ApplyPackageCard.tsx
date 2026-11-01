@@ -93,7 +93,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
           </div>
           <div className="mt-3">
             <button onClick={apply} disabled={!selected || applying || fromRefused}
-              className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+              className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
               {applying ? 'Applying...' : 'Apply package'}
             </button>
           </div>

@@ -51,7 +51,7 @@ const REASON_LABELS: Record<Reason, string> = {
   death: 'Death',
 };
 
-const LABEL = 'block text-xs text-[var(--ff-text-secondary)] mb-1';
+const LABEL = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'; // as FieldFrame's, beside the DateFields
 const INPUT = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-teal-500';
 
 export function EmployeeTerminationCard({ employeeId, endDate }: Props) {

@@ -167,7 +167,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
               onClick={() => setMode('single')}
               className={`px-3 py-1.5 rounded-md text-xs font-medium border ${
                 mode === 'single'
-                  ? 'bg-sky-600 text-white border-sky-600'
+                  ? 'bg-brand-600 text-white border-brand-600'
                   : 'bg-transparent text-[var(--ff-text-secondary)] border-[var(--ff-border-primary)]'
               }`}
             >
@@ -183,7 +183,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
               }}
               className={`px-3 py-1.5 rounded-md text-xs font-medium border ${
                 mode === 'split'
-                  ? 'bg-sky-600 text-white border-sky-600'
+                  ? 'bg-brand-600 text-white border-brand-600'
                   : 'bg-transparent text-[var(--ff-text-secondary)] border-[var(--ff-border-primary)]'
               }`}
             >
@@ -206,7 +206,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
               <button
                 onClick={saveSingle}
                 disabled={!singleDirty || saving}
-                className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50"
+                className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>
@@ -263,7 +263,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
                 <button
                   onClick={saveSplit}
                   disabled={!sumOk || !splitDirty || saving}
-                  className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50"
+                  className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
                   title={sumOk ? undefined : 'Percentages must sum to 100%'}
                 >
                   {saving ? 'Saving...' : 'Save split'}
