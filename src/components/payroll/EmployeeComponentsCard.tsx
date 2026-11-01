@@ -20,6 +20,7 @@ export interface Assignment {
   componentId: string;
   componentName: string;
   componentType: string;
+  componentActive: boolean;
   amount: number;
   effectiveFrom: string;
   effectiveTo: string | null;

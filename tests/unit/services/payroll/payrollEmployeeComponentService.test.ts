@@ -182,6 +182,7 @@ describe('listEmployeeComponentAssignments', () => {
       effective_to: null,
       component_name: 'Basic Salary',
       component_type: 'earning',
+      component_active: true,
     };
 
     mockImpl = (strings) => {
@@ -205,6 +206,7 @@ describe('listEmployeeComponentAssignments', () => {
       amount: 8000,
       componentName: 'Basic Salary',
       componentType: 'earning',
+      componentActive: true,
     });
 
     // Verify the list query uses a JOIN
