@@ -1,8 +1,8 @@
 /**
- * Master plan U (M9, decision 4): Undo on the bank transactions page. Offered after a single-row allocate and
- * after excluding an `imported` line, nowhere else. The re-read before `reverse` is what stops a toast from
- * reversing a journal that is no longer the one it offered to undo; `reverse` itself stays the unchanged choke
- * point, so a control's refusal has to reach the user.
+ * Master plan U (M9, decision 4): Undo on the bank transactions page. Offered after a single-row allocate of an account
+ * that is not a bank, or of a supplier, and after excluding a line the SERVER says was `imported`. Nowhere else. The
+ * client checks nothing before `reverse`: the undo names the journal and the server compares under the row lock, so a
+ * refusal has to reach the user, with the view reloaded behind it.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -23,6 +23,7 @@ useApiJsonOverMock();
 const TX = { id: 'tx-1', status: 'imported', transactionDate: '2026-06-01', amount: -1234.5, description: 'WOOLWORTHS' };
 const JOURNAL = 'journal-1';
 const ACTION = '/api/accounting/bank-transactions-action';
+const CHANGED = 'This line has changed since you allocated it.';
 const reloadCurrentView = vi.fn();
 const loadTransactions = vi.fn();
 
@@ -32,10 +33,11 @@ const refuse = (message: string, status: number) => json({ success: false, error
 
 type Sel = { type: string; entityId: string; label: string; vatCode: string };
 const account: Sel = { type: 'account', entityId: 'gl-1', label: '5000 Fuel', vatCode: 'none' };
+const supplier: Sel = { type: 'supplier', entityId: 's-1', label: 'Shell', vatCode: 'none' };
 
 function actions(sel: Sel = account, excludingTxId: string | null = null, tx = TX) {
   return buildBankTxActions({
-    transactions: [tx], glAccounts: [], selectedBank: 'bank-1', selectedIds: new Set(),
+    transactions: [tx], glAccounts: [], bankAccounts: [{ id: 'bank-1' }, { id: 'bank-2' }], selectedBank: 'bank-1', selectedIds: new Set(),
     rowSelections: { [tx.id]: sel }, batchType: 'account', excludingTxId, createEntityTxId: null,
     setSmartRunning: vi.fn(), setRowSelections: vi.fn(), setTransactions: vi.fn(), setSelectedIds: vi.fn(),
     setShowBatchEdit: vi.fn(), setRulePrompt: vi.fn(), setExcludingTxId: vi.fn(),
@@ -50,14 +52,13 @@ function actionBodies(): Array<Record<string, string>> {
 }
 const sent = (action: string) => actionBodies().filter((b) => b.action === action);
 
-/** Answers the page's own calls. `line` is what the re-read of the line finds; `reverse` answers the reversal. */
-function serve(opts: { line?: unknown; reverse?: () => Response; unmatch?: () => Response; allocated?: unknown } = {}) {
+/** Answers the page's own calls. `prior` is the status the server read under the lock when it excluded the line. */
+function serve(opts: { reverse?: () => Response; unmatch?: () => Response; allocated?: unknown; prior?: string } = {}) {
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
-    const u = String(url);
-    if (u.startsWith('/api/accounting/bank-transactions?')) return ok({ transactions: opts.line === undefined ? [] : [opts.line], total: 1 });
-    if (u !== ACTION) return ok({ matchCount: 0 });
+    if (String(url) !== ACTION) return ok({ matchCount: 0 });
     const body = JSON.parse(String(init?.body)) as { action: string };
     if (body.action === 'allocate') return ok(opts.allocated ?? { journalEntryId: JOURNAL });
+    if (body.action === 'exclude') return ok({ id: TX.id, priorStatus: opts.prior ?? 'imported' });
     if (body.action === 'reverse') return (opts.reverse ?? (() => ok({ reversed: true })))();
     if (body.action === 'unmatch') return (opts.unmatch ?? (() => ok({ id: TX.id })))();
     return ok({});
@@ -76,8 +77,8 @@ describe('Undo after a single-row allocate', () => {
     expect(notify.success).not.toHaveBeenCalled();
   });
 
-  it('Undo sends reverse once, for this line, and refreshes the view the user is on now', async () => {
-    serve({ line: { id: TX.id, status: 'allocated', matchedJournalEntryId: JOURNAL } });
+  it('Undo sends reverse once, naming the journal, and refreshes the view the user is on now', async () => {
+    serve();
     await actions().handleAccept(TX.id);
     loadTransactions.mockClear();
     await offered().onUndo();
@@ -87,83 +88,70 @@ describe('Undo after a single-row allocate', () => {
     expect(loadTransactions, 'the render that accepted may hold an older tab').not.toHaveBeenCalled();
   });
 
-  it('re-reads exactly this line: its bank account, its date, its amount, every status the screen lists', async () => {
-    serve({ line: { id: TX.id, matchedJournalEntryId: JOURNAL } });
-    await actions().handleAccept(TX.id);
-    await offered().onUndo();
-    const read = vi.mocked(apiFetch).mock.calls.map(([u]) => String(u)).find((u) => u.startsWith('/api/accounting/bank-transactions?'))!;
-    const q = new URL(read, 'http://x').searchParams;
-    expect(Object.fromEntries(q)).toMatchObject({
-      bank_account_id: 'bank-1', status: 'imported', from_date: '2026-06-01', to_date: '2026-06-01',
-      from_amount: '-1234.5', to_amount: '-1234.5',
-    });
-  });
-
-  it('a line whose journal changed sends no reverse and says so', async () => {
-    serve({ line: { id: TX.id, status: 'allocated', matchedJournalEntryId: 'another-journal' } });
-    await actions().handleAccept(TX.id);
-    await offered().onUndo();
-    expect(sent('reverse')).toEqual([]);
-    expect(notify.error).toHaveBeenCalledWith('This line has changed since you allocated it.');
-    expect(notify.success).not.toHaveBeenCalled();
-  });
-
-  it('a line that is no longer matched to anything sends no reverse', async () => {
-    serve({ line: { id: TX.id, status: 'imported' } });
-    await actions().handleAccept(TX.id);
-    await offered().onUndo();
-    expect(sent('reverse')).toEqual([]);
-    expect(notify.error).toHaveBeenCalledWith('This line has changed since you allocated it.');
-  });
-
-  it('a line the re-read cannot find (it moved on to matched or reconciled) sends no reverse', async () => {
+  it('asks the list nothing first: the server compares under the lock, and a re-read called a reviewed line changed', async () => {
     serve();
     await actions().handleAccept(TX.id);
+    vi.mocked(apiFetch).mockClear();
     await offered().onUndo();
-    expect(sent('reverse')).toEqual([]);
-    expect(notify.error).toHaveBeenCalledWith('This line has changed since you allocated it.');
+    expect(vi.mocked(apiFetch).mock.calls.map(([u]) => String(u))).toEqual([ACTION]);
   });
 
-  it('a neighbour with the same date and amount does not stand in for the line', async () => {
-    serve({ line: { id: 'tx-2', status: 'allocated', matchedJournalEntryId: JOURNAL } });
-    await actions().handleAccept(TX.id);
-    await offered().onUndo();
-    expect(sent('reverse')).toEqual([]);
-  });
-
-  it('a re-read that fails sends no reverse and shows why', async () => {
-    serve();
-    await actions().handleAccept(TX.id);
-    vi.mocked(apiFetch).mockImplementation(async () => refuse('The bank line could not be read', 503));
-    await offered().onUndo();
-    expect(sent('reverse')).toEqual([]);
-    expect(notify.error).toHaveBeenCalledWith('The bank line could not be read');
-  });
-
-  it('a 403 from a control shows the refusal, not a success and not a generic failure', async () => {
-    const message = 'You allocated this line, so someone else must reverse it.';
-    serve({ line: { id: TX.id, matchedJournalEntryId: JOURNAL }, reverse: () => refuse(message, 403) });
+  it.each([
+    ['the server finding the line changed', CHANGED, 409],
+    ['a 403 from a control', 'You allocated this line, so someone else must reverse it.', 403],
+  ])('%s: shows the sentence, no success, and reloads the view that is out of date', async (_n, message, status) => {
+    serve({ reverse: () => refuse(message, status) });
     await actions().handleAccept(TX.id);
     await offered().onUndo();
     expect(sent('reverse')).toHaveLength(1);
     expect(notify.error).toHaveBeenCalledWith(message);
     expect(notify.success).not.toHaveBeenCalled();
+    expect(reloadCurrentView).toHaveBeenCalledTimes(1);
   });
 
-  it('the toast states that what was learned is kept', async () => {
+  it('a contra dated as the journal it reverses is a plain success', async () => {
+    serve({ reverse: () => ok({ reversed: true, originalEntryDate: '2026-06-01', reversalEntryDate: '2026-06-01', vatLockRoll: null }) });
+    await actions().handleAccept(TX.id);
+    await offered().onUndo();
+    expect(notify.warning).not.toHaveBeenCalled();
+    expect(notify.success).toHaveBeenCalledWith('Allocation undone');
+  });
+
+  it.each([
+    ['a locked VAT period', { reason: 'VAT period locked' }, /locked VAT period/],
+    ['a closed period', null, /closed period/],
+  ])('a contra moved by %s warns, with both dates, instead of a success', async (_n, vatLockRoll, why) => {
+    serve({ reverse: () => ok({ reversed: true, originalEntryDate: '2026-06-01', reversalEntryDate: '2026-11-01', vatLockRoll }) });
+    await actions().handleAccept(TX.id);
+    await offered().onUndo();
+    expect(notify.success).not.toHaveBeenCalled();
+    const [title, message] = notify.warning.mock.calls[0]! as [string, string];
+    expect(title).toBe('Allocation undone. The contra is dated 01 Nov 2026');
+    expect(message).toContain('01 Jun 2026');
+    expect(message).toMatch(why);
+    expect(reloadCurrentView).toHaveBeenCalledTimes(1);
+  });
+
+  it('an account allocation says what was learned is kept', async () => {
     serve();
     await actions().handleAccept(TX.id);
     expect(offered().message).toMatch(/learned from this allocation is kept/i);
   });
 
-  it('offers Undo on supplier and customer lines, which the reversal unwinds', async () => {
+  it('a supplier allocation learns nothing, so it says nothing about learning', async () => {
     serve();
-    await actions({ type: 'supplier', entityId: 's-1', label: 'Shell', vatCode: 'none' }).handleAccept(TX.id);
-    await actions({ type: 'customer', entityId: 'c-1', label: 'Acme', vatCode: 'none' }).handleAccept(TX.id);
-    expect(notify.undoable).toHaveBeenCalledTimes(2);
+    await actions(supplier).handleAccept(TX.id);
+    expect(offered().message).toBeUndefined();
+    expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).includes('smart-categorize'))).toBe(false);
   });
 
-  it('no journal in the response: nothing to check against, so no Undo', async () => {
+  it('a supplier line offers Undo: the reversal refuses one whose credit a refund spent', async () => {
+    serve();
+    await actions(supplier).handleAccept(TX.id);
+    expect(notify.undoable).toHaveBeenCalledTimes(1);
+  });
+
+  it('no journal in the response: nothing to name, so no Undo', async () => {
     serve({ allocated: { bankTransaction: {} } });
     await actions().handleAccept(TX.id);
     expect(notify.undoable).not.toHaveBeenCalled();
@@ -177,6 +165,20 @@ describe('no Undo where the spec refuses one', () => {
     await actions({ type: 'transfer', entityId: 'bank-2', label: 'Savings', vatCode: 'none' }).handleAccept(TX.id);
     expect(notify.undoable).not.toHaveBeenCalled();
     expect(notify.success).toHaveBeenCalledWith('Transfer posted');
+  });
+
+  it('a customer line offers none: the customer unwind has no guard for credit a refund already spent', async () => {
+    serve();
+    await actions({ type: 'customer', entityId: 'c-1', label: 'Acme', vatCode: 'none' }).handleAccept(TX.id);
+    expect(notify.undoable).not.toHaveBeenCalled();
+    expect(notify.success).toHaveBeenCalledWith('Transaction allocated');
+  });
+
+  it('an account selection that is a bank is a transfer in all but name, and offers none', async () => {
+    serve();
+    await actions({ type: 'account', entityId: 'bank-2', label: '1010 Savings', vatCode: 'none' }).handleAccept(TX.id);
+    expect(notify.undoable).not.toHaveBeenCalled();
+    expect(notify.success).toHaveBeenCalledWith('Transaction allocated');
   });
 
   it('bulk_accept offers none', async () => {
@@ -211,19 +213,33 @@ describe('Undo after exclude', () => {
     expect(reloadCurrentView).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['matched', 'allocated', 'reconciled', 'provisional'])('excluding a %s line offers no Undo: unmatch would set it imported', async (status) => {
-    serve();
-    await actions(account, TX.id, { ...TX, status }).handleExcludeConfirm('Duplicate');
+  it.each(['matched', 'reconciled', 'provisional'])('a line the server read as %s offers no Undo, whatever the grid showed', async (prior) => {
+    serve({ prior });
+    await actions(account, TX.id).handleExcludeConfirm('Duplicate');
     expect(notify.undoable).not.toHaveBeenCalled();
     expect(notify.success).toHaveBeenCalledWith('Transaction excluded');
   });
 
-  it('the server finding the line has moved on shows the same sentence as the re-read', async () => {
-    serve({ unmatch: () => refuse('This line has changed since you allocated it.', 409) });
+  it('a line the server read as imported offers Undo, whatever a stale grid showed', async () => {
+    serve();
+    await actions(account, TX.id, { ...TX, status: 'matched' }).handleExcludeConfirm('Duplicate');
+    expect(notify.undoable).toHaveBeenCalledTimes(1);
+  });
+
+  it('says a rejected suggestion stays rejected: the decision log never re-opens a decided row', async () => {
+    serve();
+    await actions(account, TX.id).handleExcludeConfirm('Duplicate');
+    expect(offered().message).toMatch(/stays recorded as rejected/i);
+  });
+
+  it('the server finding the line has moved on shows its sentence for an exclude, and reloads the view', async () => {
+    const message = 'This line has changed since you excluded it.';
+    serve({ unmatch: () => refuse(message, 409) });
     await actions(account, TX.id).handleExcludeConfirm('Duplicate');
     await offered().onUndo();
-    expect(notify.error).toHaveBeenCalledWith('This line has changed since you allocated it.');
+    expect(notify.error).toHaveBeenCalledWith(message);
     expect(notify.success).not.toHaveBeenCalled();
+    expect(reloadCurrentView).toHaveBeenCalledTimes(1);
   });
 
   it('a refused restore shows the refusal', async () => {

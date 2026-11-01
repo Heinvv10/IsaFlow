@@ -30,7 +30,7 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { assertReversalDatePostable, entryDateOf, lockPeekedReversalTarget, peekReversalTarget } from './reversalDatePostable';
 import { underFlowLockBudget } from '../core/rowLockBudget';
 import { refuseResettingProvisionalLine } from './provisionalLineGuard';
-import { isoDay, lockChainLines, peekLineChain, refuseChangedJournal, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
+import { isoDay, lockChainLines, peekLineChain, refuseStaleUndo, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
@@ -774,8 +774,10 @@ async function reverseReconciledInner(
 ): Promise<BankAllocationUnwindResult> {
   // D10: the line's journal is read through its chain's ROOT, which a document carries. A document's chain has every
   // statement line of it locked FIRST, in id order with this one (bank/bankChainLineReversal), as the HTTP void does.
+  // An undo locks them on any chain: it refuses if this line is not the only one.
   const chain = await peekLineChain(companyId, bankTxId);
-  const chainLines = chain?.doc ? await lockChainLines(companyId, chain) : [];
+  const undoing = opts?.expectedJournalEntryId;
+  const chainLines = chain && (chain.doc || undoing) ? await lockChainLines(companyId, chain) : [];
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
   // D10 O9 (with R-127's settled case): a provisional's own line is refused while its journal stands; one whose
@@ -787,7 +789,7 @@ async function reverseReconciledInner(
     throw new BankAllocationRefusal('This bank line was changed by another request while it was being reversed — retry in a moment.',
       undefined, { retryable: true });
   }
-  refuseChangedJournal(chain, opts?.expectedJournalEntryId); // the page's Undo: the journal it offered, or nothing
+  await refuseStaleUndo(companyId, bankTxId, chain, undoing); // the page's Undo: the journal it offered, or nothing
   if (!deadProvisional && tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');
   }
@@ -834,6 +836,7 @@ async function reverseReconciledInner(
       // ordinary-looking reversal.
       result = await unwindBankAllocationApplication(companyId, journalEntryId);
       await lockPeekedReversalTarget(companyId, journalEntryId, reverseId); // the journal locked last (D8 round 6)
+      await refuseStaleUndo(companyId, bankTxId, chain, undoing); // this savepoint takes the unwind back with it
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
         const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, opts) : null;

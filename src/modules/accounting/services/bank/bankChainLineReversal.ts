@@ -76,9 +76,19 @@ export async function peekLineChain(companyId: string, bankTxId: string): Promis
   return { lineId: String(row.line_id), journalId: String(row.je), rootId, doc: await chainDocumentOf(companyId, rootId) };
 }
 
-/** An undo names the journal it offered to reverse. Call once the line is locked and still matched as peeked. */
-export function refuseChangedJournal(chain: LineChain | null, expectedJournalEntryId: string | undefined): void {
-  if (expectedJournalEntryId !== undefined && chain?.journalId !== expectedJournalEntryId) throw new BankLineChangedError();
+/**
+ * An undo names the journal it offered to reverse, and that was a journal of this line alone: a second statement line
+ * on its chain is a transfer in all but name, which an undo never offers, and reversing it strands the other line
+ * against cash the GL no longer holds. Call once the line is locked and still matched as peeked, and again once the
+ * journal is locked: a match holds it FOR SHARE, so one in flight at the first call has committed by the second.
+ */
+export async function refuseStaleUndo(
+  companyId: string, bankTxId: string, chain: LineChain | null, expectedJournalEntryId: string | undefined,
+): Promise<void> {
+  if (expectedJournalEntryId === undefined) return;
+  if (chain?.journalId !== expectedJournalEntryId) throw new BankLineChangedError('allocated');
+  const lines = await findChainBankLines(companyId, chain.rootId);
+  if (lines.some((id) => id !== bankTxId)) throw new BankLineChangedError('allocated');
 }
 
 /** FIRST, before the line's own lock: every statement line of the root's chain, this one included, in id order. */
