@@ -20,6 +20,7 @@ import {
   isReceiptRefusal,
   isRetryableReceiptRefusal,
 } from '@/modules/accounting/services/ar/receiptRefusal';
+import { UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
 
 interface AllocationItem {
   invoiceId: string;
@@ -39,11 +40,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT cpa.id, cpa.payment_id, cpa.invoice_id, cpa.amount_allocated AS amount,
             cpa.created_at AS allocated_at, cp.payment_number, ci.invoice_number,
-            c.name AS client_name
+            COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS client_name
           FROM customer_payment_allocations cpa
           JOIN customer_payments cp ON cp.id = cpa.payment_id
           JOIN customer_invoices ci ON ci.id = cpa.invoice_id
-          JOIN customers c ON c.id = cp.client_id
+          LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
           WHERE cpa.payment_id = ${paymentId}
             AND cp.company_id = ${companyId}
           ORDER BY cpa.created_at DESC
@@ -52,11 +53,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT cpa.id, cpa.payment_id, cpa.invoice_id, cpa.amount_allocated AS amount,
             cpa.created_at AS allocated_at, cp.payment_number, ci.invoice_number,
-            c.name AS client_name
+            COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS client_name
           FROM customer_payment_allocations cpa
           JOIN customer_payments cp ON cp.id = cpa.payment_id
           JOIN customer_invoices ci ON ci.id = cpa.invoice_id
-          JOIN customers c ON c.id = cp.client_id
+          LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
           WHERE cp.client_id = ${clientId}
             AND cp.company_id = ${companyId}
           ORDER BY cpa.created_at DESC
@@ -66,11 +67,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT cpa.id, cpa.payment_id, cpa.invoice_id, cpa.amount_allocated AS amount,
             cpa.created_at AS allocated_at, cp.payment_number, ci.invoice_number,
-            c.name AS client_name
+            COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS client_name
           FROM customer_payment_allocations cpa
           JOIN customer_payments cp ON cp.id = cpa.payment_id
           JOIN customer_invoices ci ON ci.id = cpa.invoice_id
-          JOIN customers c ON c.id = cp.client_id
+          LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
           WHERE cp.company_id = ${companyId}
           ORDER BY cpa.created_at DESC
           LIMIT 200

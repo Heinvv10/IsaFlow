@@ -27,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount,
           cp.payment_method, cp.bank_reference, cp.status
         FROM customer_payments cp
-        LEFT JOIN customers c ON c.id = cp.client_id
+        LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         WHERE cp.status = ${status as string}
           AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC
@@ -40,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount,
           cp.payment_method, cp.bank_reference, cp.status
         FROM customer_payments cp
-        LEFT JOIN customers c ON c.id = cp.client_id
+        LEFT JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
         WHERE cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC
         LIMIT ${EXPORT_ROW_CEILING + 1}
