@@ -126,7 +126,7 @@ export default function VatReconciliationPage() {
     }
   }, [mode, from, to]);
 
-  useEffect(() => { if (!dates.blocked) void fetchData(); }, [fetchData, dates.blocked]);
+  useEffect(() => { void fetchData(); }, [fetchData]);
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.
   // While the answer is still unknown, render neither: flashing a VAT form at
