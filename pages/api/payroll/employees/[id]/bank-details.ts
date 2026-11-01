@@ -2,7 +2,8 @@
  * GET /api/payroll/employees/[id]/bank-details — the employee's active details, or null; the account number is in
  *     full for owner / admin, else masked to its last four.
  * PUT — enter or change them: { bankName, branchCode, accountNumber, accountType, accountHolder? }. The first entry:
- *     owner / admin / manager. A change to existing details: owner / admin only (403 CHANGE_REQUIRES_ADMIN).
+ *     owner / admin / manager. A change to existing details: owner / admin only (403 CHANGE_REQUIRES_ADMIN). The same
+ *     details again write nothing.
  * A person in their own session only: Login-as is 403 IMPERSONATION_FORBIDDEN, a token 403 AGENT_FORBIDDEN.
  * Every refusal is raised before any write. History: GET /api/accounting/entity-changes, type payroll_bank_detail.
  */
@@ -16,9 +17,8 @@ import { requireUuidParam } from '@/lib/schemas/common';
 import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import {
-  getEmployeeBankDetails, parseBankDetailsInput, PayrollBankDetailsRefusal, setEmployeeBankDetails,
+  employeeExists, getEmployeeBankDetails, parseBankDetailsInput, PayrollBankDetailsRefusal, setEmployeeBankDetails,
 } from '@/modules/accounting/services/payroll/payrollBankDetailsService';
-import { getPayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 function respondIfRefused(res: NextApiResponse, err: unknown): boolean {
   if (!(err instanceof PayrollBankDetailsRefusal)) return false;
@@ -38,7 +38,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     await assertHumanSession('read or change employee bank details');
     if (req.method === 'GET') {
-      if (!(await getPayrollEmployee(employeeId, companyId))) return apiResponse.notFound(res, 'Employee');
+      if (!(await employeeExists(companyId, employeeId))) return apiResponse.notFound(res, 'Employee');
       return apiResponse.success(res, await getEmployeeBankDetails(companyId, employeeId, companyRole));
     }
     const input = parseBankDetailsInput(req.body);

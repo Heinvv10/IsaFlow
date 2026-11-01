@@ -7,7 +7,9 @@
  * Who: anyone in withPayrollDetailAccess's roles makes the FIRST entry (Hein's
  * decision 14); a change to existing details is owner / admin only, and that is
  * decided here under the employee row lock, so two people cannot both find "no
- * details yet". The account number is masked for everyone but owner / admin.
+ * details yet". The details sent again unchanged write nothing, and that is
+ * decided after the role, so a manager cannot use it to test a guessed number.
+ * The account number is masked for everyone but owner / admin.
  * Sessions: the route refuses Login-as and tokens; MCP has no bank-details tool.
  *
  * Every refusal is raised before the first write (a 4xx commits the request).
@@ -24,14 +26,19 @@ import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockB
 export const ACCOUNT_TYPES = ['cheque', 'savings', 'transmission'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
+/** What these names hold, and no control character or formula lead-in: bank files and exports read them. Blank passes (the holder is optional). */
+const SAFE_NAME = /^(?:[\p{L}\p{N}][\p{L}\p{M}\p{N} .,'’&()/-]*)?$/u;
+const safeNameMessage = (label: string) => `${label} may hold letters, digits, spaces and . , ' ’ & ( ) / - only`;
+
 const InputSchema = z.object({
-  bankName: z.string('Bank name is required').trim().min(1, 'Bank name is required').max(100, 'Bank name is at most 100 characters'),
+  bankName: z.string('Bank name is required').trim().min(1, 'Bank name is required').max(100, 'Bank name is at most 100 characters')
+    .regex(SAFE_NAME, safeNameMessage('Bank name')),
   branchCode: z.string('Branch code is required').trim().regex(/^[0-9]{6}$/, 'Branch code must be 6 digits'),
   accountNumber: z.string('Account number is required').transform((v) => v.replace(/\s+/g, ''))
     .pipe(z.string().regex(/^[0-9]{6,16}$/, 'Account number must be 6 to 16 digits')),
   accountType: z.enum(ACCOUNT_TYPES, 'Account type must be cheque, savings or transmission'),
   accountHolder: z.string('Account holder must be text').trim().max(100, 'Account holder is at most 100 characters')
-    .nullish().transform((v) => v || null),
+    .regex(SAFE_NAME, safeNameMessage('Account holder')).nullish().transform((v) => v || null),
 });
 
 export type BankDetailsInput = z.output<typeof InputSchema>;
@@ -97,6 +104,18 @@ function toView(row: BankRow, role: string | undefined): EmployeeBankDetails {
   };
 }
 
+const sameDetails = (row: BankRow, input: BankDetailsInput) => row.bank_name === input.bankName
+  && row.account_number === input.accountNumber && row.account_type === input.accountType
+  && row.branch_code === input.branchCode && row.account_holder === input.accountHolder;
+
+/** Whether this company has the employee: a route's 404, without loading their personal details. */
+export async function employeeExists(companyId: string, employeeId: string): Promise<boolean> {
+  const rows = await sql`
+    SELECT 1 FROM payroll_employees WHERE company_id = ${companyId}::uuid AND id = ${employeeId}::uuid
+  `;
+  return rows.length > 0;
+}
+
 /** The employee's active details, masked for `role`; null when they have none. */
 export async function getEmployeeBankDetails(
   companyId: string, employeeId: string, role: string | undefined,
@@ -112,6 +131,7 @@ export async function getEmployeeBankDetails(
 
 /**
  * Enter or change the employee's details, from `parseBankDetailsInput`'s output.
+ * Details identical to the active row come back as they are, with no new row.
  * Lock order: the employee row, then this table; nothing after it.
  */
 export async function setEmployeeBankDetails(
@@ -125,15 +145,19 @@ export async function setEmployeeBankDetails(
     `;
     if (!employee[0]) throw new PayrollBankDetailsRefusal('EMPLOYEE_NOT_FOUND', 'Employee not found');
 
-    // Any row at all, active or not: an entry that has been retired is still a change.
-    const existing = await sql`
-      SELECT 1 FROM payroll_bank_details
+    // Any row at all, active or not: an entry that has been retired is still a change. The active one first.
+    const [existing] = (await sql`
+      SELECT id, employee_id, bank_name, account_number, account_type, branch_code, account_holder, is_active,
+             effective_from::text AS effective_from
+      FROM payroll_bank_details
       WHERE company_id = ${companyId}::uuid AND employee_id = ${employeeId}::uuid
+      ORDER BY is_active DESC
       LIMIT 1
-    `;
-    if (existing[0] && !isHistoryAdmin(role)) {
+    `) as (BankRow & { is_active: boolean })[];
+    if (existing && !isHistoryAdmin(role)) {
       throw new PayrollBankDetailsRefusal('CHANGE_REQUIRES_ADMIN', 'Only an owner or admin can change existing bank details.');
     }
+    if (existing?.is_active && sameDetails(existing, input)) return existing;
 
     await sql`
       UPDATE payroll_bank_details SET is_active = false

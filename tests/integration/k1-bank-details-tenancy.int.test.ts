@@ -13,9 +13,9 @@ import { dataOf, impersonationToken } from './r035-pr2.helpers';
 import { as, asApp, cleanupEntityChanges, members, newCompany, outcome } from './entity-changes.helpers';
 import { employee, get, OTHER, outsideRls, put, ROW, rowsOf } from './k1-employee-bank-details.helpers';
 import {
-  getEmployeeBankDetails, parseBankDetailsInput, setEmployeeBankDetails,
+  employeeExists, getEmployeeBankDetails, parseBankDetailsInput, setEmployeeBankDetails,
 } from '../../src/modules/accounting/services/payroll/payrollBankDetailsService';
-import type { DuplicateResult } from '../../src/modules/accounting/services/payroll/payrollDuplicateDetectionService';
+import { findDuplicates, type DuplicateResult } from '../../src/modules/accounting/services/payroll/payrollDuplicateDetectionService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -147,6 +147,24 @@ describe('the service\'s own company predicate (with no RLS behind it)', () => {
   it('refuses a write for company B to A\'s employee, as not found', async () => {
     const input = parseBankDetailsInput(OTHER);
     await expect(outsideRls(pool, B, () => setEmployeeBankDetails(B, empA, input, 'owner'))).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('the existence check answers for its own company only', async () => {
+    expect(await outsideRls(pool, B, () => employeeExists(B, empA))).toBe(false);
+    expect(await outsideRls(pool, A, () => employeeExists(A, empA))).toBe(true);
+  });
+
+  it('duplicates count only a row filed under this company, whatever employee it points at', async () => {
+    const number = '77778889111';
+    const c = await newCompany(pool, [[both, 'owner']], companies);
+    const [one, two] = [await employee(pool, c), await employee(pool, c)];
+    const row = (company: string, emp: string) => pool.query(
+      `INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, branch_code)
+       VALUES ($1, $2, 'Planted', $3, '250655')`, [company, emp, number]);
+    await row(c, one);
+    await row(B, two);
+    expect((await outsideRls(pool, c, () => findDuplicates(c, { fullBankAccounts: true }))).bankAccount).toEqual([]);
+    expect((await outsideRls(pool, B, () => findDuplicates(B, { fullBankAccounts: true }))).bankAccount).toEqual([]);
   });
 });
 

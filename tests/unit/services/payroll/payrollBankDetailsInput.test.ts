@@ -59,6 +59,36 @@ describe('parseBankDetailsInput', () => {
     expect(refusedFields({ ...GOOD, ...change })).toEqual([field]);
   });
 
+  it.each([
+    ['a NUL', 'FNB\u0000Bank'], ['a newline', 'FNB\nBank'], ['a tab', 'FNB\tBank'], ['a carriage return', 'FNB\rBank'],
+    ['DEL', 'FNB\u007f'], ['a C1 control', 'FNB\u0085Bank'], ['a right-to-left override', 'FNB\u202eknaB'], ['a zero-width space', 'F\u200bNB'],
+    ['a leading = (a spreadsheet formula)', '=HYPERLINK("x")'], ['a leading +', '+27821234567'], ['a leading @', '@SUM(A1)'], ['a leading -', '-A1'],
+    ['markup', '<script>alert(1)</script>'], ['a double quote', 'F"NB'], ['a backslash', 'FNB\\'], ['a semicolon', 'FNB;Bank'], ['a pipe', 'FNB|Bank'],
+  ])('refuses %s in the bank name and in the holder', (_name, value) => {
+    expect(refusedFields({ ...GOOD, bankName: value })).toEqual(['bankName']);
+    expect(refusedFields({ ...GOOD, accountHolder: value })).toEqual(['accountHolder']);
+  });
+
+  it('says what it refused without echoing the value', () => {
+    const value = 'FNB<secret>';
+    try {
+      parseBankDetailsInput({ ...GOOD, bankName: value });
+      expect.unreachable();
+    } catch (err) {
+      const { fieldErrors } = err as PayrollBankDetailsRefusal;
+      expect(fieldErrors?.bankName).toEqual(['Bank name may hold letters, digits, spaces and . , \' ’ & ( ) / - only']);
+      expect(JSON.stringify(fieldErrors)).not.toContain('secret');
+    }
+  });
+
+  it.each([
+    ['Standard Bank of South Africa'], ['African Bank Ltd.'], ['Absa (Pty) Ltd'], ['Nedbank/Old Mutual'], ['TymeBank'], ['Bank 2-Go'], ['Investec & Co'],
+    ['J.P. O\'Brien'], ['M. du Plessis-van der Merwe'], ['Sipho Ndlovu, Jnr'], ['André Müller'], ['Zoë Ñandú'], ['O’Neill'], ['Nomathemba Mkhize'],
+  ])('accepts %s as a bank name and as a holder', (value) => {
+    const parsed = parseBankDetailsInput({ ...GOOD, bankName: value, accountHolder: value });
+    expect([parsed.bankName, parsed.accountHolder]).toEqual([value, value]);
+  });
+
   it('accepts the bounds: 100-character names, 6 and 16 digit accounts', () => {
     expect(parseBankDetailsInput({ ...GOOD, bankName: 'x'.repeat(100), accountHolder: 'y'.repeat(100) }).bankName).toHaveLength(100);
     expect(parseBankDetailsInput({ ...GOOD, accountNumber: '123456' }).accountNumber).toBe('123456');

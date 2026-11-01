@@ -119,6 +119,7 @@ async function scanBankAccount(companyId: string, includeTerminated: boolean): P
       FROM payroll_bank_details b
       JOIN payroll_employees e ON e.id = b.employee_id
      WHERE e.company_id = $1::uuid
+       AND b.company_id = $1::uuid
        AND b.account_number IS NOT NULL
        AND b.account_number <> ''
        AND b.is_active = true

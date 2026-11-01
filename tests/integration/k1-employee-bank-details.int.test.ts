@@ -1,8 +1,8 @@
 /**
  * Wave 3 K1, employee bank details through the real route, withAuth and Postgres, as app_user:
  * first entry by owner / admin / manager, a change by owner / admin only, one active row, the history, masking,
- * human sessions only, a refusal that writes nothing. Tenancy and the migration have their own suites
- * (k1-bank-details-tenancy, k1-bank-details-migration).
+ * human sessions only, a refusal that writes nothing. Tenancy, the migration and what a request leaves behind have their
+ * own suites (k1-bank-details-tenancy, k1-bank-details-migration, k1-bank-details-traces).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -147,6 +147,8 @@ describe('a change to existing details', () => {
     const before = await rowsOf(pool, e);
     const res = await put(tokens[m]!, c, e, OTHER);
     expect(res.state.statusCode).toBe(403);
+    expect(reasonOf(res)).toBe('CHANGE_REQUIRES_ADMIN'); // K2's form branches on this
+    expect((res.state.body as { error?: { message?: string } }).error?.message).toBe('Only an owner or admin can change existing bank details.');
     expect(await rowsOf(pool, e)).toEqual(before);
     expect((await changesOf(pool, before[0]!.id)).map((x) => x.op)).toEqual(['create']);
   });
@@ -154,7 +156,9 @@ describe('a change to existing details', () => {
   it('a manager cannot pass off re-entry as a first entry once a row was retired', async () => {
     const { c, e } = await entered();
     await pool.query('UPDATE payroll_bank_details SET is_active = false WHERE employee_id = $1', [e]);
-    expect((await put(tokens[m]!, c, e, OTHER)).state.statusCode).toBe(403);
+    const res = await put(tokens[m]!, c, e, OTHER);
+    expect(res.state.statusCode).toBe(403);
+    expect(reasonOf(res)).toBe('CHANGE_REQUIRES_ADMIN');
     expect(await rowsOf(pool, e)).toHaveLength(1);
   });
 
@@ -168,56 +172,39 @@ describe('a change to existing details', () => {
   });
 });
 
-describe('the request log (journald: what the logger writes to stdout)', () => {
-  it('a PUT is logged with its body, and the account number is not in it, on success or on a refusal', async () => {
-    const c = await company();
-    const e = await employee(pool, c);
-    const written: string[] = [];
-    for (const stream of [process.stdout, process.stderr]) {
-      vi.spyOn(stream, 'write').mockImplementation((chunk: unknown) => { written.push(String(chunk)); return true; });
-    }
-    try {
-      expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
-      expect((await put(tokens[m]!, c, e, OTHER)).state.statusCode).toBe(403);
-      expect((await put(tokens[o]!, c, e, { ...OTHER, bankName: '' })).state.statusCode).toBe(422);
-    } finally { vi.restoreAllMocks(); }
-    const lines = written.join('');
-    expect(lines.match(/API Request: PUT/g)).toHaveLength(3);
-    expect(lines).toContain('"accountNumber":"[REDACTED]"');
-    expect(lines).not.toContain(ROW.accountNumber);
-    expect(lines).not.toContain(OTHER.accountNumber);
+describe('the same details sent again', () => {
+  it('changes nothing: the same row back, no new row, nothing in the history', async () => {
+    const { c, e } = await entered();
+    const [before] = await rowsOf(pool, e);
+    const res = await put(tokens[o]!, c, e, { ...ROW, accountNumber: ' 6200 0123 456 ', bankName: ' FNB ' });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(view(res)).toMatchObject({ id: before!.id, accountNumber: ROW.accountNumber, masked: false });
+    expect(await rowsOf(pool, e)).toEqual([before]);
+    expect((await changesOf(pool, before!.id)).map((x) => x.op)).toEqual(['create']);
   });
 
-  const raw = JSON.stringify(ROW);
-  const FORM = 'application/x-www-form-urlencoded';
-  const JSON_TYPE = 'application/json';
-  // The shapes Next's parser gives these bodies: a string, and the whole text as one key with an empty value.
   it.each([
-    ['text/plain', 'text/plain', raw],
-    ['a form body holding the JSON as a key', FORM, { [raw]: '' }],
-    ['a short form key', FORM, { [`{"accountNumber":"${ROW.accountNumber}"}`]: '' }],
-    ['a form-encoded bare number', FORM, { [ROW.accountNumber]: '' }],
-    ['a form field with an ordinary name', FORM, { note: ROW.accountNumber }],
-    ['a JSON key that is the number', JSON_TYPE, { ...ROW, accountNumber: undefined, [ROW.accountNumber]: 'x' }],
-    ['a JSON key holding the number', JSON_TYPE, { ...ROW, accountNumber: undefined, [`acct${ROW.accountNumber}`]: 'x' }],
-    ['AccountNumber', JSON_TYPE, { ...ROW, accountNumber: undefined, AccountNumber: ROW.accountNumber }],
-    ['Account Number', JSON_TYPE, { ...ROW, accountNumber: undefined, 'Account Number': ROW.accountNumber }],
-    ['account.number', JSON_TYPE, { ...ROW, accountNumber: undefined, 'account.number': ROW.accountNumber }],
-    ['account no', JSON_TYPE, { ...ROW, accountNumber: undefined, 'account no': ROW.accountNumber }],
-    ['account_no', JSON_TYPE, { ...ROW, accountNumber: undefined, account_no: ROW.accountNumber }],
-  ])('a PUT carrying the number as %s is refused 422 and the number is not logged', async (_name, contentType, body) => {
-    const c = await company();
-    const e = await employee(pool, c);
-    const written: string[] = [];
-    for (const stream of [process.stdout, process.stderr]) {
-      vi.spyOn(stream, 'write').mockImplementation((chunk: unknown) => { written.push(String(chunk)); return true; });
-    }
-    let status = 0;
-    try { status = (await put(tokens[o]!, c, e, body, contentType)).state.statusCode; } finally { vi.restoreAllMocks(); }
-    expect(status).toBe(422);
-    const lines = written.join('');
-    expect(lines).toContain('API Request: PUT');
-    expect(lines).not.toContain(ROW.accountNumber);
+    ['bank name', { bankName: 'First National Bank' }], ['branch code', { branchCode: '250656' }],
+    ['account number', { accountNumber: '62000123457' }], ['account type', { accountType: 'savings' }],
+    ['holder', { accountHolder: 'K Two' }], ['holder removed', { accountHolder: null }],
+  ])('a different %s is a change', async (_name, change) => {
+    const { c, e } = await entered();
+    expect((await put(tokens[o]!, c, e, { ...ROW, ...change })).state.statusCode).toBe(200);
+    expect(await rowsOf(pool, e)).toHaveLength(2);
+  });
+
+  it('the same details on a retired row are a new entry: there is nothing active to leave alone', async () => {
+    const { c, e } = await entered();
+    await pool.query('UPDATE payroll_bank_details SET is_active = false WHERE employee_id = $1', [e]);
+    expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
+    expect((await rowsOf(pool, e)).map((r) => r.is_active).sort()).toEqual([false, true]);
+  });
+
+  it('is still refused to a manager: 200 against 403 would confirm a guessed account number', async () => {
+    const { c, e } = await entered();
+    const res = await put(tokens[m]!, c, e, ROW);
+    expect(res.state.statusCode).toBe(403);
+    expect(reasonOf(res)).toBe('CHANGE_REQUIRES_ADMIN');
   });
 });
 
