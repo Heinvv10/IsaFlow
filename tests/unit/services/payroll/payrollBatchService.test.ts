@@ -5,10 +5,20 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
+  withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(
+    (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqlCalls.push({ sql: strings.join('?'), values });
+      return mockImpl(strings, ...values);
+    },
+  ),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
   },
+}));
+
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
 }));
 
 import {
