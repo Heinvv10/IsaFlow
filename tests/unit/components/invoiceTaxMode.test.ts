@@ -18,7 +18,7 @@ describe('exVatUnitPrice', () => {
     [1.15, 15, 1],
     [100, 14, 87.72],
     [-115, 15, -100],
-  ])('%d at %d%% = %d', (gross, rate, ex) => {
+  ])('%s at %s percent = %s', (gross, rate, ex) => {
     expect(exVatUnitPrice(gross, rate)).toBe(ex);
   });
 
@@ -28,7 +28,7 @@ describe('exVatUnitPrice', () => {
     expect(exVatUnitPrice(-0.05, 100)).toBe(-0.03);
   });
 
-  it.each([[Number.NaN, 15], [115, Number.NaN], [Number.POSITIVE_INFINITY, 15], [115, -100]])('a half-typed %d at %d%% prices as 0, not a crash', (gross, rate) => {
+  it.each([[Number.NaN, 15], [115, Number.NaN], [Number.POSITIVE_INFINITY, 15], [115, -100]])('a half-typed %s at %s percent prices as 0, not a crash', (gross, rate) => {
     expect(exVatUnitPrice(gross, rate)).toBe(0);
   });
 });
