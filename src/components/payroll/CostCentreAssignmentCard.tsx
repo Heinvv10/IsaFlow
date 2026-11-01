@@ -194,6 +194,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
           {mode === 'single' ? (
             <div className="flex items-center gap-3">
               <select
+                aria-label="Cost centre"
                 value={selected}
                 onChange={e => setSelected(e.target.value)}
                 className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]"
@@ -216,6 +217,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
               {allocations.map((a, idx) => (
                 <div key={idx} className="flex items-center gap-2">
                   <select
+                    aria-label={`Cost centre ${idx + 1}`}
                     value={a.costCentreId}
                     onChange={e => updateRow(idx, { costCentreId: e.target.value })}
                     className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]"
@@ -225,6 +227,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
                     ))}
                   </select>
                   <input
+                    aria-label={`Percentage for cost centre ${idx + 1}`}
                     type="number"
                     step="0.01"
                     min="0.01"

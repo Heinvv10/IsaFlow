@@ -84,7 +84,7 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
       ) : (
         <>
           <div className="flex items-center gap-3">
-            <select value={selected} onChange={e => setSelected(e.target.value)}
+            <select aria-label="Pay scale" value={selected} onChange={e => setSelected(e.target.value)}
               className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]">
               <option value="">(Unassigned)</option>
               {scales.map(s => (

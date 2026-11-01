@@ -155,6 +155,16 @@ describe('employee drawer', () => {
     expect(panel.queryByText('Retired Allowance')).toBeNull();
   });
 
+  it('an employer contribution says so: the employee is not paid it', async () => {
+    routes['/api/payroll/employees/a1/components'] = () => json([
+      assignment(), assignment({ id: 'e', componentName: 'Pension match', componentType: 'employer_contribution' }),
+    ]);
+    render(<Page />);
+    fireEvent.click(within(await rowOf('Thandi Nkosi')).getByText('permanent'));
+    const panel = within(await drawer());
+    expect((await panel.findByText('Pension match')).textContent).toMatch(/Employer contribution, recurring, from/);
+  });
+
   it('a deduction says so, so it does not read as an amount earned', async () => {
     routes['/api/payroll/employees/a1/components'] = () => json([
       assignment(), assignment({ id: 'd', componentName: 'Union fees', componentType: 'deduction', isRecurring: false }),
@@ -198,6 +208,13 @@ describe('focus stays in the drawer while it is open', () => {
     expect(document.activeElement).toBe(close);
     fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(link);
+  });
+
+  it('the content can be reached by keyboard, so a long one can be scrolled', async () => {
+    await open();
+    const content = screen.getByRole('region', { name: 'Thandi Nkosi content' });
+    expect(content.tabIndex).toBe(0);
+    expect(content.className).toContain('overflow-y-auto');
   });
 
   it('focus that got out is brought back by the next Tab', async () => {

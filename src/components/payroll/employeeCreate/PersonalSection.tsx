@@ -13,7 +13,7 @@ export function PersonalSection({ form, errors, set, fieldRef, setDate, checkFie
         <Input ref={fieldRef('lastName')} label="Last name *" value={form.lastName} error={errors.lastName}
           onChange={e => set('lastName', e.target.value)} autoComplete="off" />
         <Input ref={fieldRef('idNumber')} label="SA ID number" value={form.idNumber} placeholder="13 digits" inputMode="numeric"
-          error={errors.idNumber} onChange={e => set('idNumber', e.target.value)} onBlur={() => checkField('idNumber')} />
+          error={errors.idNumber} onChange={e => set('idNumber', e.target.value.replace(/\s/g, ''))} onBlur={() => checkField('idNumber')} />
         <DateField ref={fieldRef('dateOfBirth')} label="Date of birth" value={form.dateOfBirth || null}
           maxDate={todayInSast()} maxMessage="Date of birth cannot be in the future."
           error={errors.dateOfBirth} onChange={setDate('dateOfBirth')} />
