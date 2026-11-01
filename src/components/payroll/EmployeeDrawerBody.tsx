@@ -44,7 +44,7 @@ function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4 py-1.5 text-sm">
       <dt className="text-[var(--ff-text-secondary)]">{label}</dt>
-      <dd className="capitalize text-[var(--ff-text-primary)]">{value}</dd>
+      <dd className="text-[var(--ff-text-primary)]">{value}</dd>
     </div>
   );
 }
@@ -78,7 +78,7 @@ export function EmployeeDrawerBody({ employeeId }: { employeeId: string }) {
         <>
           <dl>
             <Fact label="Employee number" value={loaded.employee.employeeNumber} />
-            <Fact label="Employment type" value={loaded.employee.employmentType} />
+            <Fact label="Employment type" value={`${loaded.employee.employmentType.charAt(0).toUpperCase()}${loaded.employee.employmentType.slice(1)}`} />
             {loaded.employee.startDate && <Fact label="Start date" value={formatDisplayDate(loaded.employee.startDate)} />}
             {loaded.employee.endDate && <Fact label="End date" value={formatDisplayDate(loaded.employee.endDate)} />}
             {loaded.employee.taxNumber && <Fact label="Tax number" value={loaded.employee.taxNumber} />}

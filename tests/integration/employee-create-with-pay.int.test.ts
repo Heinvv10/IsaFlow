@@ -41,7 +41,9 @@ beforeAll(async () => {
     await seedPayrollCompany(pool, id);
   }
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [owner, `${owner}@test.local`]);
-  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [company, owner]);
+  // A member of both, like an accountant: RLS lets them see the other company's component, so only the service's
+  // company_id predicate keeps it out of this company's payroll.
+  for (const id of [company, other]) await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [id, owner]);
   const token = await new SignJWT({ sub: owner, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   call = routeCaller({ [owner]: token }, { user: owner, company });

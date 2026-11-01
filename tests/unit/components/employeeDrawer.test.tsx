@@ -14,6 +14,7 @@ const company = vi.hoisted(() => ({ companyRole: 'owner' as string }));
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => company }));
 
 import Page from '@/../pages/payroll/employees/index';
+import { EmployeeDrawerBody } from '@/components/payroll/EmployeeDrawerBody';
 
 const A = { id: 'a1', employeeNumber: 'E-1', firstName: 'Thandi', lastName: 'Nkosi', employmentType: 'permanent', startDate: '2026-03-01T00:00:00.000Z', taxNumber: '0123456789' };
 const B = { id: 'b2', employeeNumber: 'E-2', firstName: 'Sipho', lastName: 'Dube', employmentType: 'contract', startDate: '2026-04-01T00:00:00.000Z' };
@@ -136,20 +137,26 @@ describe('employee drawer', () => {
     expect(panel.queryByText('Old Salary')).toBeNull();
   });
 
-  it("a slow answer for the previous employee does not land on the next one's drawer", async () => {
-    let releaseA: (r: Response) => void = () => undefined;
-    routes['/api/payroll/employees/a1'] = () => new Promise<Response>(r => { releaseA = r; });
+  it('an employee number is shown exactly as captured', async () => {
+    routes['/api/payroll/employees/a1'] = () => json({ ...A, employeeNumber: 'abc-1' });
     render(<Page />);
     fireEvent.click(within(await rowOf('Thandi Nkosi')).getByText('permanent'));
-    const first = await drawer();
-    fireEvent.click(within(first).getByRole('button', { name: 'Close drawer' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    fireEvent.click(within(await rowOf('Sipho Dube')).getByText('contract'));
-    const panel = within(await drawer());
-    await panel.findByText('E-2');
+    const value = await within(await drawer()).findByText('abc-1');
+    expect(value.className).not.toContain('capitalize');
+  });
+});
+
+describe('EmployeeDrawerBody', () => {
+  it("a slow answer for the previous employee does not replace the next one's", async () => {
+    let releaseA: (r: Response) => void = () => undefined;
+    routes['/api/payroll/employees/a1'] = () => new Promise<Response>(r => { releaseA = r; });
+    const { rerender } = render(<EmployeeDrawerBody employeeId="a1" />);
+    await waitFor(() => expect(called('/api/payroll/employees/a1')).toBe(1));
+    rerender(<EmployeeDrawerBody employeeId="b2" />);
+    await screen.findByText('E-2');
     releaseA(json(A));
     await new Promise(r => setTimeout(r, 20));
-    expect(panel.queryByText('E-1')).toBeNull();
-    expect(panel.getByText('E-2')).toBeTruthy();
+    expect(screen.queryByText('E-1')).toBeNull();
+    expect(screen.getByText('E-2')).toBeTruthy();
   });
 });
