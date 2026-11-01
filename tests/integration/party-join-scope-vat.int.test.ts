@@ -13,6 +13,7 @@ import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropAgingScope, newAgingScope, seedAgingScope } from '../helpers/agingScopeFixture';
 import { generateVAT201 } from '@/modules/accounting/services/reports/vat201Service';
 import { getDRCEligibleInvoices, getDRCHistory } from '@/modules/accounting/services/reports/drcVatService';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import { findCustomerTaxCodeIssues, findSupplierTaxCodeIssues } from '@/modules/accounting/services/reports/vatTaxCodeIssues';
 import { findUnpostedInvoiceVat } from '@/modules/accounting/services/reports/vatUnpostedInvoices';
@@ -132,7 +133,7 @@ describeIfDb('VAT readers keep the row and its VAT, and lose the foreign name', 
     const rows = await getDRCHistory(S.A);
     noLeak(rows);
     expect(rows).toHaveLength(2);
-    expect(rows.filter((r) => r.supplierName === 'Unknown')).toHaveLength(1);
+    expect(rows.filter((r) => r.supplierName === UNKNOWN_SUPPLIER)).toHaveLength(1);
   });
 
   it('getDRCEligibleInvoices never reads the subject-to-DRC flag off another tenant\'s supplier', async () => {

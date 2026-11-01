@@ -69,6 +69,10 @@ const cleared = (json: string, marker: string, okName?: string) => {
   if (okName) expect(json).toContain(okName);
 };
 
+const allocNames = (json: string) => (JSON.parse(json) as { data: { payment_number: string; supplier_name: string | null }[] }).data
+  .map((r) => [r.payment_number, r.supplier_name]);
+const POISONED_ALLOC = [docNo(S, 'SP', 'POISONED'), UNKNOWN_SUPPLIER];
+
 describe('API routes keep the row and lose the foreign party', () => {
   it('customer-allocations: all, by payment, by client', async () => {
     const url = '/api/accounting/customer-allocations';
@@ -88,46 +92,52 @@ describe('API routes keep the row and lose the foreign party', () => {
   it('supplier-allocations: all, by payment, by supplier', async () => {
     await pool.query('UPDATE suppliers SET company_name = name WHERE id = ANY($1)', [[S.SUPP_A, S.SUPP_B]]);
     const url = '/api/accounting/supplier-allocations';
-    const names = (json: string) => (JSON.parse(json) as { data: { payment_number: string; supplier_name: string | null }[] }).data
-      .map((r) => [r.payment_number, r.supplier_name]);
-    const poisoned = [docNo(S, 'SP', 'POISONED'), UNKNOWN_SUPPLIER];
     const all = await get(supplierAllocations, url);
     cleared(all, docNo(S, 'SP', 'POISONED'), OK_SUPPLIER);
-    expect(names(all)).toContainEqual(poisoned);
+    expect(allocNames(all)).toContainEqual(POISONED_ALLOC);
     for (const query of [{ payment_id: docs.POISONED.supplierPayment }, { supplier_id: S.SUPP_B }]) {
       const json = await get(supplierAllocations, url, query);
       cleared(json, docNo(S, 'SP', 'POISONED'));
-      expect(names(json)).toEqual([poisoned]);
+      expect(allocNames(json)).toEqual([POISONED_ALLOC]);
     }
   });
 
-  it('supplier-allocations: a supplier of this company with no company_name shows its name, not the unknown label', async () => {
-    await pool.query('UPDATE suppliers SET company_name = NULL WHERE id = $1', [S.SUPP_A]);
+  it.each([['NULL', null], ['empty', '']])('supplier-allocations: a supplier of this company with a %s company_name shows its name, not the unknown label', async (_l, value) => {
     const url = '/api/accounting/supplier-allocations';
-    for (const query of [{}, { payment_id: docs.OK.supplierPayment }, { supplier_id: S.SUPP_A }]) {
-      const rows = (JSON.parse(await get(supplierAllocations, url, query)) as { data: { payment_number: string; supplier_name: string | null }[] }).data;
-      expect(rows.find((r) => r.payment_number === docNo(S, 'SP', 'OK'))?.supplier_name).toBe(OK_SUPPLIER);
+    try {
+      await pool.query('UPDATE suppliers SET company_name = $2 WHERE id = $1', [S.SUPP_A, value]);
+      for (const query of [{}, { payment_id: docs.OK.supplierPayment }, { supplier_id: S.SUPP_A }]) {
+        const rows = (JSON.parse(await get(supplierAllocations, url, query)) as { data: { payment_number: string; supplier_name: string | null }[] }).data;
+        expect(rows.find((r) => r.payment_number === docNo(S, 'SP', 'OK'))?.supplier_name).toBe(OK_SUPPLIER);
+      }
+    } finally {
+      await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_A]);
     }
-    await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_A]);
   });
 
-  it('drc-vat-export lists what getDRCHistory lists: the foreign bill under UNKNOWN_SUPPLIER, and never "null"', async () => {
-    await pool.query('UPDATE supplier_invoices SET is_drc = true WHERE company_id = $1', [S.A]);
-    // SUPP_A with no company_name: the column alone printed "null" for a real supplier.
-    await pool.query('UPDATE suppliers SET company_name = NULL WHERE id = $1', [S.SUPP_A]);
-    await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_B]);
-    const csv = JSON.parse(await get(drcVatExport, '/api/accounting/drc-vat-export')) as string;
-    const history = await getDRCHistory(S.A);
-    await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_A]);
-    await pool.query('UPDATE supplier_invoices SET is_drc = false WHERE company_id = $1', [S.A]);
+  it.each([['NULL', null], ['empty', '']])('drc-vat-export lists what getDRCHistory lists, name for name: the foreign bill under UNKNOWN_SUPPLIER, a %s company_name under the supplier name, never "null"', async (_l, value) => {
+    let csv = '';
+    let history: Awaited<ReturnType<typeof getDRCHistory>> = [];
+    try {
+      await pool.query('UPDATE supplier_invoices SET is_drc = true WHERE company_id = $1', [S.A]);
+      // SUPP_A with no usable company_name: the column alone printed "null" or blank for a real supplier.
+      await pool.query('UPDATE suppliers SET company_name = $2 WHERE id = $1', [S.SUPP_A, value]);
+      await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_B]);
+      csv = JSON.parse(await get(drcVatExport, '/api/accounting/drc-vat-export')) as string;
+      history = await getDRCHistory(S.A);
+    } finally {
+      await pool.query('UPDATE suppliers SET company_name = name WHERE id = $1', [S.SUPP_A]);
+      await pool.query('UPDATE supplier_invoices SET is_drc = false WHERE company_id = $1', [S.A]);
+    }
     expect(csv).not.toContain(S.LEAK_SUPPLIER);
     expect(csv).not.toMatch(/\bnull\b/i);
     const rows = csv.split('\n').slice(1).map((line) => line.split(',').map((cell) => cell.replace(/^"|"$/g, '')));
-    expect(rows.map((r) => r[0]).sort()).toEqual(history.map((h) => h.invoiceNumber).sort());
-    expect(rows.map((r) => [r[0], r[1]]).sort()).toEqual([
+    const expected = [
       [`${S.TAG}-AP-OK`, OK_SUPPLIER],
       [`${S.TAG}-AP-POISONED`, UNKNOWN_SUPPLIER],
-    ].sort());
+    ].sort();
+    expect(rows.map((r) => [r[0], r[1]]).sort()).toEqual(expected);
+    expect(history.map((h) => [h.invoiceNumber, h.supplierName]).sort()).toEqual(expected);
   });
 
   it('customer-payments-export: all and by status', async () => {

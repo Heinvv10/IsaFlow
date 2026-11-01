@@ -127,14 +127,18 @@ describeIfDb('AR readers keep another tenant\'s customer name out', () => {
   });
 
   it('getTimeSummary keeps the foreign customer\'s hours under UNKNOWN_CUSTOMER, apart from entries with no customer', async () => {
-    await admin.query(`INSERT INTO time_entries (company_id, user_id, task_description, hours, status, billable, invoiced, rate, entry_date)
-      VALUES ($1,$2,$3,5,'draft',false,false,100,'2026-05-03')`, [S.A, S.USER, `${S.TAG} no customer`]);
-    const summary = await getTimeSummary(S.A);
-    expect(JSON.stringify(summary)).not.toContain(S.LEAK_CUSTOMER);
-    expect(summary.byCustomer.find((c) => c.customerId === S.CUST_B)).toMatchObject({ customerName: UNKNOWN_CUSTOMER, hours: 2, value: 200 });
-    expect(summary.byCustomer.find((c) => c.customerId === 'none')).toMatchObject({ customerName: 'No Customer', hours: 5, value: 500 });
-    expect(summary.byCustomer.find((c) => c.customerId === S.CUST_A)).toMatchObject({ customerName: OK_NAME, hours: 2 });
-    expect(summary.byCustomer).toHaveLength(3);
+    try {
+      await admin.query(`INSERT INTO time_entries (company_id, user_id, task_description, hours, status, billable, invoiced, rate, entry_date)
+        VALUES ($1,$2,$3,5,'draft',false,false,100,'2026-05-03')`, [S.A, S.USER, `${S.TAG} no customer`]);
+      const summary = await getTimeSummary(S.A);
+      expect(JSON.stringify(summary)).not.toContain(S.LEAK_CUSTOMER);
+      expect(summary.byCustomer.find((c) => c.customerId === S.CUST_B)).toMatchObject({ customerName: UNKNOWN_CUSTOMER, hours: 2, value: 200 });
+      expect(summary.byCustomer.find((c) => c.customerId === 'none')).toMatchObject({ customerName: 'No Customer', hours: 5, value: 500 });
+      expect(summary.byCustomer.find((c) => c.customerId === S.CUST_A)).toMatchObject({ customerName: OK_NAME, hours: 2 });
+      expect(summary.byCustomer).toHaveLength(3);
+    } finally {
+      await admin.query('DELETE FROM time_entries WHERE company_id = $1 AND task_description = $2', [S.A, `${S.TAG} no customer`]);
+    }
   });
 
   it.each([

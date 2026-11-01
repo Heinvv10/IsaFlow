@@ -31,7 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const rows = await sql`
-    SELECT si.invoice_number, COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name,
+    SELECT si.invoice_number, COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name,
       si.total_amount, si.invoice_date,
       COALESCE(si.total_amount * ${vatRate}, 0) AS vat_amount
     FROM supplier_invoices si
