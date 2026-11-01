@@ -10,7 +10,6 @@ export const LINE_CHANGED_MESSAGE = 'This line has changed since you allocated i
  * what it expects, and the server refuses under the row lock, before any write, when the line has moved on. 409.
  */
 export class BankLineChangedError extends Error {
-  readonly code = 'BANK_LINE_CHANGED';
   constructor() {
     super(LINE_CHANGED_MESSAGE);
     this.name = 'BankLineChangedError';
