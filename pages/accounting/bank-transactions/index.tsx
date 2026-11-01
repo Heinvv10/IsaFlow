@@ -8,7 +8,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
 import {
   BankTxTable,
   type AllocType, type BankTx, type SelectOption, type RowSelection,
@@ -20,6 +19,7 @@ import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxMo
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
+import { useBankTxColumnPrefs } from '@/components/accounting/bank-transactions/useBankTxColumnPrefs';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
@@ -87,8 +87,7 @@ export default function BankTransactionsPage() {
   const [showBatchEdit, setShowBatchEdit] = useState(false);
   const [batchType, setBatchType] = useState<AllocType>('account');
   const [batchSearch, setBatchSearch] = useState('');
-  const [showCC, setShowCC] = useState(false);
-  const [showBU, setShowBU] = useState(false);
+  const { showCC, showBU, toggleCC, toggleBU } = useBankTxColumnPrefs();
   // Modal triggers
   const [splitTxId, setSplitTxId] = useState<string | null>(null);
   const [excludingTxId, setExcludingTxId] = useState<string | null>(null);
@@ -100,16 +99,6 @@ export default function BankTransactionsPage() {
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
   const [createEntityTxId, setCreateEntityTxId] = useState<string | null>(null);
   const [createEntityType, setCreateEntityType] = useState<AllocType | null>(null);
-  // Column visibility — company settings + localStorage override
-  useEffect(() => {
-    const readSetting = (key: string) => apiFetch(`/api/accounting/accounting-settings?key=${key}`).then(async r => { await assertOk(r, 'Could not load the column settings'); return r.json(); });
-    Promise.all([readSetting('enable_cost_centres'), readSetting('enable_business_units')]).then(([ccJson, buJson]) => {
-      const ccLocal = localStorage.getItem('isaflow_bank_showCC');
-      const buLocal = localStorage.getItem('isaflow_bank_showBU');
-      setShowCC(ccLocal !== null ? ccLocal !== 'false' : ccJson.data?.value === 'true');
-      setShowBU(buLocal !== null ? buLocal !== 'false' : buJson.data?.value === 'true');
-    }).catch(err => log.warn('Column settings unavailable, using defaults', { error: err }, 'bank-transactions'));
-  }, []);
   // Debounce search — 500ms. Only a changed search resets to page 1 (the mount timer used to undo a page-3 click).
   useEffect(() => {
     if (searchTerm === debouncedSearch) return;
@@ -223,8 +212,7 @@ export default function BankTransactionsPage() {
           onSortOrderChange={withReset(setSortOrder)} onAllocationFilterChange={withReset(setAllocationFilter)}
           onTxTypeChange={withReset(setTxType)} onAllocTypeChange={withReset(setAllocType)}
           onHasSuggestionChange={withReset(setHasSuggestion)}
-          onToggleCC={() => { const v = !showCC; setShowCC(v); localStorage.setItem('isaflow_bank_showCC', String(v)); }}
-          onToggleBU={() => { const v = !showBU; setShowBU(v); localStorage.setItem('isaflow_bank_showBU', String(v)); }}
+          onToggleCC={toggleCC} onToggleBU={toggleBU}
         />
 
         <BankTxSuppliersNotice status={suppliersStatus} />
