@@ -28,9 +28,9 @@ export function RunHeaderActions({
 }: Props) {
   return (
     <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-      <div className="px-6 py-4 flex items-center justify-between">
+      <div className="px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link href="/payroll/runs" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
+          <Link href="/payroll/runs" aria-label="Back to payroll runs" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
             <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
           </Link>
           <div className="p-2 rounded-lg bg-teal-500/10">
@@ -41,7 +41,7 @@ export function RunHeaderActions({
             <div className="flex items-center gap-2 mt-1"><StatusBadge status={run.status} /></div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {run.journalEntryId && (
             <Link href={`/accounting/journal-entries/${run.journalEntryId}`}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"

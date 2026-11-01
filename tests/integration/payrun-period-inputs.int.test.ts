@@ -4,7 +4,6 @@
  * detail gate, and Postgres. The stored lines must follow the inputs with no
  * separate calculate, so approve can never read a stale calculation produced
  * through this path, and every refusal must leave nothing behind (rule 9).
- *
  * The admin belongs to A and B with A active, so company B's run is kept out by
  * the service asking with A's company id, not by RLS membership.
  * Disposable fixture DB only.
