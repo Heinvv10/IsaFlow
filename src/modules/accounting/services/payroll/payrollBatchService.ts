@@ -14,6 +14,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { endOfMonthIso } from './leaveAccrualService';
+import { assertComponentInCompany } from './payrollEmployeeComponentService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
@@ -197,6 +198,7 @@ export async function createBatch(input: CreateBatchInput): Promise<PayrollBatch
   if (!input.description.trim()) {
     throw new Error('description is required');
   }
+  if (input.componentId) await assertComponentInCompany(input.componentId, input.companyId);
 
   log.info(
     'Creating payroll batch',
@@ -424,6 +426,8 @@ export async function postBatch(
   if (batch.batchType === 'component_values') {
     const componentId = batch.componentId;
     if (!componentId) throw new Error('component_values batch missing componentId');
+    // A batch stored before createBatch checked can still hold a foreign component.
+    await assertComponentInCompany(componentId, companyId);
     for (const line of lines) {
       const effectiveFrom = toDate(line.effective_from);
       await insertAssignment({
