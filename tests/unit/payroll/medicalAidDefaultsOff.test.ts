@@ -21,6 +21,8 @@ vi.mock('@/lib/api-error-handler', () => ({
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+// The route's employee-number check reads the table: free, here.
+vi.mock('@/lib/neon', async (importOriginal) => ({ ...await importOriginal<object>(), sql: vi.fn().mockResolvedValue([]) }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
   listPayrollEmployees: vi.fn().mockResolvedValue([]),
   createPayrollEmployee: vi.fn().mockResolvedValue({
