@@ -102,7 +102,6 @@
   "pages/payroll/emp501/index.tsx": 1,
   "pages/payroll/irp5/index.tsx": 1,
   "pages/payroll/leave/balances.tsx": 1,
-  "pages/payroll/leave/index.tsx": 2,
   "pages/payroll/loans/index.tsx": 1,
   "pages/payroll/loans/new.tsx": 3,
   "pages/payroll/pay-packages/[id].tsx": 1,
