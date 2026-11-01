@@ -22,7 +22,7 @@ const sel = { type: 'account', entityId: 'acc-1', label: 'Stationery', vatCode: 
 function actions() {
   return buildBankTxActions({
     transactions: [{ id: 't1', status: 'imported', feedState: 'posted' }, { id: 't2', status: 'imported', feedState: 'posted' }],
-    glAccounts: [], selectedBank: null,
+    glAccounts: [], bankAccounts: [], selectedBank: null,
     selectedIds: new Set(['t1', 't2']), rowSelections: { t1: sel, t2: sel }, batchType: 'account',
     excludingTxId: null, createEntityTxId: null,
     setSmartRunning: vi.fn(), setRowSelections: vi.fn(), setTransactions: vi.fn(),
