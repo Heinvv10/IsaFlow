@@ -29,6 +29,30 @@ describe('sanitizeBody — pay', () => {
     const out = sanitizeBody({ firstName: 'Thandi', salary: { componentId: 'c1', amount: 2500000 } }) as Record<string, unknown>;
     expect(out).toEqual({ firstName: 'Thandi', salary: '[omitted]' });
   });
+
+  it('a tax number, a birth date and medical aid details are not logged next to a name, in either spelling', () => {
+    const out = sanitizeBody({
+      firstName: 'Thandi', taxNumber: '0123456789', dateOfBirth: '1980-01-01', medicalAidMainMember: true, medicalAidDependantsCount: 2,
+      row: { tax_number: '0123456789', date_of_birth: '1980-01-01', medical_aid_main_member: false, medical_aid_dependants_count: 0 },
+    }) as Record<string, unknown>;
+    expect(out).toEqual({
+      firstName: 'Thandi', taxNumber: '[omitted: 10 chars]', dateOfBirth: '[omitted: 10 chars]',
+      medicalAidMainMember: '[omitted]', medicalAidDependantsCount: '[omitted]',
+      row: {
+        tax_number: '[omitted: 10 chars]', date_of_birth: '[omitted: 10 chars]',
+        medical_aid_main_member: '[omitted]', medical_aid_dependants_count: '[omitted]',
+      },
+    });
+  });
+
+  it('a route can name its own pay keys, at any depth; other routes keep theirs', () => {
+    const masked = new Set(['amount', 'value']);
+    const body = { componentId: 'c1', amount: 25000, lines: [{ employeeId: 'e1', value: 3100.5, notes: 'x' }] };
+    expect(sanitizeBody(body, 0, masked)).toEqual({
+      componentId: 'c1', amount: '[omitted]', lines: [{ employeeId: 'e1', value: '[omitted]', notes: 'x' }],
+    });
+    expect(sanitizeBody(body)).toEqual(body);
+  });
 });
 
 describe('sanitizeBody — credential redaction', () => {

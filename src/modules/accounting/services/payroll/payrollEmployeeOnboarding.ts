@@ -59,6 +59,9 @@ function identifier(value: unknown, isValid: (v: string) => boolean, refusal: st
   return value.trim();
 }
 
+const TAX_REFUSAL = 'SARS tax number must be 10 digits starting with 0, 1, 2, 3 or 9';
+const ID_REFUSAL = 'SA ID number must be 13 digits';
+
 function dependantsOf(value: unknown): number {
   if (isBlank(value)) return 0;
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > MAX_DEPENDANTS) {
@@ -79,9 +82,8 @@ function employeeOf(body: Body): NewEmployee {
     employmentType: employmentType as PayrollEmployee['employmentType'],
     startDate: dateOf(body.startDate, 'startDate'),
     endDate: optionalDate(body, 'endDate'),
-    taxNumber: identifier(body.taxNumber, isValidSarsTaxNumber,
-      'SARS tax number must be 10 digits starting with 0, 1, 2, 3 or 9'),
-    idNumber: identifier(body.idNumber, isValidSaIdNumber, 'SA ID number must be 13 digits'),
+    taxNumber: identifier(body.taxNumber, isValidSarsTaxNumber, TAX_REFUSAL),
+    idNumber: identifier(body.idNumber, isValidSaIdNumber, ID_REFUSAL),
     dateOfBirth: optionalDate(body, 'dateOfBirth'),
     uifExcluded: Boolean(body.uifExcluded),
     // Only an explicit true makes a main member: the flag buys a monthly medical tax credit,
@@ -124,6 +126,23 @@ async function assertEmployeeNumberFree(companyId: string, employeeNumber: strin
     WHERE company_id = ${companyId}::uuid AND employee_number = ${employeeNumber}
   `) as DbRow[];
   if (rows.length > 0) throw new EmployeeOnboardingRefused(`Employee number ${employeeNumber} is already in use`);
+}
+
+function changedIdentifier(value: unknown, stored: string | undefined, isValid: (v: string) => boolean, refusal: string): unknown {
+  return isBlank(value) || value === stored ? value : identifier(value, isValid, refusal);
+}
+
+/**
+ * The PATCH body with its tax and ID numbers judged as create judges them; raises EmployeeOnboardingRefused before the
+ * update. The profile form resends both on every save, so a number already stored (older rows hold values the rule
+ * refuses) is left alone: refusing it would block every other edit to that employee.
+ */
+export function employeeChangesOf<T extends Body>(body: T, current: Pick<PayrollEmployee, 'taxNumber' | 'idNumber'>): T {
+  return {
+    ...body,
+    taxNumber: changedIdentifier(body.taxNumber, current.taxNumber, isValidSarsTaxNumber, TAX_REFUSAL),
+    idNumber: changedIdentifier(body.idNumber, current.idNumber, isValidSaIdNumber, ID_REFUSAL),
+  };
 }
 
 /** `salary` in the body is optional: without it the employee is created with no pay, as before. */

@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
 
 type Row = DbRow;
@@ -45,6 +46,23 @@ async function assertEmployeeInCompany(employeeId: string, companyId: string): P
   }
 }
 
+/** Raised before the insert, so the caller can answer it as a 400 (a 4xx commits). */
+export class EmployeeComponentRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmployeeComponentRefused';
+  }
+}
+
+/** A user in two companies sees both through RLS and the foreign key is not tenant-aware, so only this predicate holds. */
+async function assertComponentInCompany(componentId: string, companyId: string): Promise<void> {
+  const rows = isUuidParam(componentId) ? (await sql`
+    SELECT id FROM payroll_components
+    WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
+  `) as Row[] : [];
+  if (rows.length === 0) throw new EmployeeComponentRefused('That pay component was not found in this company');
+}
+
 export async function assignComponentToEmployee(
   companyId: string,
   employeeId: string,
@@ -55,6 +73,7 @@ export async function assignComponentToEmployee(
   isRecurring: boolean = true,
 ): Promise<EmployeeComponentAssignment> {
   await assertEmployeeInCompany(employeeId, companyId);
+  await assertComponentInCompany(componentId, companyId);
 
   log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 
