@@ -3,7 +3,7 @@
  * Phase 3: GL account drill-down with running balance
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -16,6 +16,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { AccountPicker } from '@/components/ui';
 import { REPORT_FILTER_LABEL_CLASS } from '@/components/reports/reportFilterLabel';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface Txn {
   date: string;
@@ -66,34 +67,31 @@ export default function AccountTransactionsPage() {
     }).catch(err => setError(apiErrorMessage(err, ccFailure)));
   }, []);
 
-  const requestRef = useRef(0);
+  const params = new URLSearchParams({
+    account_code: accountCode, period_start: periodStart, period_end: periodEnd,
+  });
+  if (costCentreFilter) params.set('cost_centre_id', costCentreFilter);
+  const query = periodStart && periodEnd && accountCode ? params.toString() : '';
 
-  const load = useCallback(async () => {
-    if (!periodStart || !periodEnd || !accountCode) {
+  const load = useCallback<ReportLoad>(async (latest) => {
+    if (!query) {
       // Clearing an input invalidates in-flight requests and clears data and loading.
-      requestRef.current += 1;
       setReport(null); setError(''); setLoading(false);
-      return;
+      return true;
     }
-    // Only the latest request may set state (same pattern as the account detail page).
-    const requestId = ++requestRef.current;
-    const latest = () => requestId === requestRef.current;
     const failure = 'Could not load the account transactions - try again';
     setLoading(true);
     setError('');
     setReport(null);
     try {
-      const params = new URLSearchParams({
-        account_code: accountCode, period_start: periodStart, period_end: periodEnd,
-      });
-      if (costCentreFilter) params.set('cost_centre_id', costCentreFilter);
-      const result = await apiJson(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' }, failure);
+      const result = await apiJson(`/api/accounting/reports-account-transactions?${query}`, { credentials: 'include' }, failure);
       if (latest()) setReport(result);
-    } catch (err) { if (latest()) setError(apiErrorMessage(err, failure)); }
+      return true;
+    } catch (err) { if (latest()) setError(apiErrorMessage(err, failure)); return false; }
     finally { if (latest()) setLoading(false); }
-  }, [periodStart, periodEnd, accountCode, costCentreFilter]);
+  }, [query]);
 
-  useEffect(() => { if (!dates.blocked) void load(); }, [load, dates.blocked]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   function handleExport() {
     const params = new URLSearchParams();
@@ -147,10 +145,10 @@ export default function AccountTransactionsPage() {
             )}
           </div>
 
-          <FixDateNotice gate={dates} />
+          <FixDateNotice gate={dates} hidden={stale} />
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-violet-500" /></div>
           ) : report ? (
             <>

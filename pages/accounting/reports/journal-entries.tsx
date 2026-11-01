@@ -1,6 +1,6 @@
 /** Journal Entries Report — Sage Parity */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -9,6 +9,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface JournalEntryRow {
   id: string;
@@ -117,31 +118,37 @@ export default function JournalEntriesReport() {
   const [dateTo, setDateTo] = useState(todayStr);
   const dates = useDateGate();
 
-  const load = useCallback(async () => {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  if (source) params.set('source', source);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+  params.set('limit', '500');
+  const query = params.toString();
+
+  const load = useCallback<ReportLoad>(async (latest) => {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams();
-      if (status) params.set('status', status);
-      if (source) params.set('source', source);
-      if (dateFrom) params.set('date_from', dateFrom);
-      if (dateTo) params.set('date_to', dateTo);
-      params.set('limit', '500');
-      const res = await apiFetch(`/api/accounting/reports-journal-entries?${params}`, {
+      const res = await apiFetch(`/api/accounting/reports-journal-entries?${query}`, {
         credentials: 'include',
       });
       await assertOk(res, 'Could not load the journal report - try again');
       const json = await res.json() as { data: ReportResponse };
-      setData(json.data ?? null);
+      if (latest()) setData(json.data ?? null);
+      return true;
     } catch (err: unknown) {
-      setData(null);
-      setError(apiErrorMessage(err, 'Could not load the journal report - try again'));
+      if (latest()) {
+        setData(null);
+        setError(apiErrorMessage(err, 'Could not load the journal report - try again'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [status, source, dateFrom, dateTo]);
+  }, [query]);
 
-  useEffect(() => { if (!dates.blocked) void load(); }, [load, dates.blocked]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   const totalDebits = data?.entries.reduce((s, e) => s + e.totalDebits, 0) ?? 0;
   const totalCredits = data?.entries.reduce((s, e) => s + e.totalCredits, 0) ?? 0;
@@ -195,14 +202,14 @@ export default function JournalEntriesReport() {
         </div>
 
         <div className="p-6">
-          <FixDateNotice gate={dates} className="mb-4" />
+          <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
               {error}
             </div>
           )}
 
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-[var(--ff-text-tertiary)]" />
             </div>

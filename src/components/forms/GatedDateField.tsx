@@ -22,12 +22,17 @@ export function GatedDateField({ gate, gateKey, onValue, ...props }: GatedDateFi
   return <DateField resetKey={gate.resetKey(gateKey)} {...props} onChange={bind(gateKey, onValue, props.value)} />;
 }
 
-/** For a report filter: says why the run and export actions are off, and that the screen does not match the filters. */
-export function FixDateNotice({ gate, message = 'Fix the date marked in red: the report shown is for the previous filters.', className }: {
+/**
+ * For a report filter: says why the run and export actions are off, and what the screen shows meanwhile. Pass
+ * `hidden` when the report is off the screen (useGatedReportLoad), so the notice does not point at a report that is not there.
+ */
+export function FixDateNotice({ gate, hidden, message, className }: {
   gate: DateGate;
+  hidden?: boolean;
   message?: string;
   className?: string;
 }) {
   if (!gate.blocked) return null;
-  return <div role="alert" className={cn('p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm', className)}>{message}</div>;
+  const text = message ?? (hidden ? 'Fix the date marked in red to run the report.' : 'Fix the date marked in red: the report shown is for the previous filters.');
+  return <div role="alert" className={cn('p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm', className)}>{text}</div>;
 }

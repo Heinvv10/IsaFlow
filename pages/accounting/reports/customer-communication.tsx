@@ -1,12 +1,13 @@
 /** Customer Communication Report */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate, monthStartISO } from '@/lib/dateUtils';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface CommRecord {
   id: string;
@@ -93,26 +94,32 @@ export default function CustomerCommunicationReport() {
     return p;
   }, [dateFrom, dateTo, statusFilter, page]);
 
-  const load = useCallback(async () => {
+  const query = buildParams().toString();
+
+  const load = useCallback<ReportLoad>(async (latest) => {
     setLoading(true);
     setError('');
     try {
       const res = await apiFetch(
-        `/api/accounting/reports/customer-communication?${buildParams()}`,
+        `/api/accounting/reports/customer-communication?${query}`,
         { credentials: 'include' }
       );
       await assertOk(res, 'Could not load the report - try again');
       const json = await res.json() as { data: ReportResponse };
-      setData(json.data ?? null);
+      if (latest()) setData(json.data ?? null);
+      return true;
     } catch (err: unknown) {
-      setData(null);
-      setError(apiErrorMessage(err, 'Could not load the report - try again'));
+      if (latest()) {
+        setData(null);
+        setError(apiErrorMessage(err, 'Could not load the report - try again'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [buildParams]);
+  }, [query]);
 
-  useEffect(() => { if (!dates.blocked) void load(); }, [load, dates.blocked]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   const handleExportCsv = useCallback(() => {
     const params = buildParams({ format: 'csv' });
@@ -181,14 +188,14 @@ export default function CustomerCommunicationReport() {
         </div>
 
         <div className="p-6">
-          <FixDateNotice gate={dates} className="mb-4" />
+          <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
               {error}
             </div>
           )}
 
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-[var(--ff-text-tertiary)]" />
             </div>

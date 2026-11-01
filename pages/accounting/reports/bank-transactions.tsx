@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -80,23 +81,26 @@ export default function BankTransactionsPage() {
       });
   }, []);
 
-  const load = useCallback(async () => {
-    if (!periodStart || !periodEnd || !accountCode) return;
+  const query = periodStart && periodEnd && accountCode
+    ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd, account_code: accountCode }).toString() : '';
+
+  const load = useCallback<ReportLoad>(async (latest) => {
+    if (!query) { setLoading(false); return true; }
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({
-        period_start: periodStart, period_end: periodEnd, account_code: accountCode,
-      });
-      const res = await apiFetch(`/api/accounting/reports-bank-transactions?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports-bank-transactions?${query}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the bank transactions report - try again');
       const json = await res.json();
-      setReport(json.data || null);
-    } catch (err) { setReport(null); setError(apiErrorMessage(err, 'Could not load the bank transactions report - try again')); }
-    finally { setLoading(false); }
-  }, [periodStart, periodEnd, accountCode]);
+      if (latest()) setReport(json.data || null);
+      return true;
+    } catch (err) {
+      if (latest()) { setReport(null); setError(apiErrorMessage(err, 'Could not load the bank transactions report - try again')); }
+      return false;
+    } finally { if (latest()) setLoading(false); }
+  }, [query]);
 
-  useEffect(() => { if (!dates.blocked) void load(); }, [load, dates.blocked]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   function handleExport() {
     const params = new URLSearchParams();
@@ -161,10 +165,10 @@ export default function BankTransactionsPage() {
             </div>
           </div>
 
-          <FixDateNotice gate={dates} />
+          <FixDateNotice gate={dates} hidden={stale} />
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-cyan-500" /></div>
           ) : report ? (
             <>
