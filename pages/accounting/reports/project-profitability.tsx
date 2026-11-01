@@ -3,8 +3,8 @@
  * PRD-060 Phase 5: Revenue vs costs per project
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { useState, useCallback } from 'react';
+import { EnterDateNotice, FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
@@ -12,6 +12,7 @@ import type { ProjectProfitabilityReport } from '@/modules/accounting/types/gl.t
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 function getDefaultDates() {
   const now = new Date();
@@ -26,31 +27,37 @@ export default function ProjectProfitabilityPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [reports, setReports] = useState<ProjectProfitabilityReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const loadReport = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+  const query = periodStart && periodEnd ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd }).toString() : '';
+
+  const loadReport = useCallback<ReportLoad>(async (latest) => {
+    if (!query) { setReports([]); setError(''); setIsLoading(false); return true; }
     setIsLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await apiFetch(`/api/accounting/reports-project-profitability?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-project-profitability?${query}`);
       await assertOk(res, 'Could not load the project profitability report - try again');
       const json = await res.json();
       const data = json.data || json;
-      setReports(Array.isArray(data) ? data : []);
+      if (latest()) setReports(Array.isArray(data) ? data : []);
+      return true;
     } catch (err) {
-      setReports([]);
-      setError(apiErrorMessage(err, 'Could not load the project profitability report - try again'));
+      if (latest()) {
+        setReports([]);
+        setError(apiErrorMessage(err, 'Could not load the project profitability report - try again'));
+      }
+      return false;
     } finally {
-      setIsLoading(false);
+      if (latest()) setIsLoading(false);
     }
-  }, [periodStart, periodEnd]);
+  }, [query]);
 
-  useEffect(() => { void loadReport(); }, [loadReport]);
+  const stale = useGatedReportLoad(query, dates, loadReport);
 
   const totals = reports.reduce(
     (acc, r) => ({ revenue: acc.revenue + r.revenue, costs: acc.costs + r.costs, profit: acc.profit + r.profit }),
@@ -77,20 +84,21 @@ export default function ProjectProfitabilityPage() {
         <div className="p-6 space-y-6">
           <div className="flex items-center gap-4">
             <div>
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
             </div>
           </div>
 
-          {error && (
+          <FixDateNotice gate={dates} hidden={stale} />
+          {error && !stale && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}
             </div>
           )}
 
-          {isLoading ? (
+          {stale ? null : !query ? <EnterDateNotice /> : isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
             </div>
