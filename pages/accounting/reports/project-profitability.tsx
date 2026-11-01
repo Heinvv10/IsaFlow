@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { EnterDateNotice, FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
@@ -92,13 +92,13 @@ export default function ProjectProfitabilityPage() {
           </div>
 
           <FixDateNotice gate={dates} hidden={stale} />
-          {error && (
+          {error && !stale && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}
             </div>
           )}
 
-          {stale ? null : isLoading ? (
+          {stale ? null : !query ? <EnterDateNotice /> : isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-purple-500" />
             </div>

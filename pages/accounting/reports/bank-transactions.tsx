@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
-import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { EnterDateNotice, FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -166,9 +166,9 @@ export default function BankTransactionsPage() {
           </div>
 
           <FixDateNotice gate={dates} hidden={stale} />
-          {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
+          {error && !stale && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
-          {stale ? null : loading ? (
+          {stale ? null : !(periodStart && periodEnd) ? <EnterDateNotice /> : loading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-cyan-500" /></div>
           ) : report ? (
             <>

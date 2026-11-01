@@ -42,3 +42,8 @@ export function FixDateNotice({ gate, hidden, message, className }: {
   const text = message ?? (hidden ? 'Fix the date marked in red to run the report.' : 'Fix the date marked in red: the report shown is for the previous filters.');
   return <div role="alert" className={cn('p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm', className)}>{text}</div>;
 }
+
+/** For a report whose range has an empty date: nothing runs, so say so instead of showing the empty-data text. */
+export function EnterDateNotice({ className }: { className?: string }) {
+  return <div role="status" data-testid="enter-date-notice" className={cn('py-12 text-center text-sm text-[var(--ff-text-secondary)]', className)}>Enter both dates to run the report.</div>;
+}
