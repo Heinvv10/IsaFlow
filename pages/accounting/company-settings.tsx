@@ -167,7 +167,7 @@ export default function CompanySettingsPage() {
           />
         );
       case 'general':
-        return <GeneralTab company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />;
+        return <GeneralTab key={activeCompany?.id} company={company} onChange={update} onLockdownInvalid={setLockdownInvalid} />;
       case 'vat':
         return <VatTab company={company} onChange={update} />;
       case 'compliance':

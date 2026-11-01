@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileSlug, slug, transformLabelFor, type TransformResult } from '../../../scripts/ci/codemods/labelForTransform';
+import { countJsxTagUses, fileSlug, slug, transformLabelFor, type TransformResult } from '../../../scripts/ci/codemods/labelForTransform';
 
 const dir = path.join(__dirname, 'fixtures', 'labelFor');
 const run = (name: string): { source: string; result: TransformResult } => {
@@ -116,6 +116,11 @@ describe('labelFor codemod: uses in other files', () => {
   it('rendered from one place elsewhere (the usual page -> tab) is named', () => {
     const result = transformLabelFor(source, at, { usesElsewhere: () => 1 });
     expect(result.insertions).toHaveLength(6);
+  });
+
+  it('counts every JSX occurrence when two component uses share one line', () => {
+    expect(countJsxTagUses('return <><Field /><Field /></>;', 'Field')).toBe(2);
+    expect(countJsxTagUses('return <><Fieldset /><Field /></>;', 'Field')).toBe(1);
   });
 });
 
