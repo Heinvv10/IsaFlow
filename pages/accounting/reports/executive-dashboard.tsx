@@ -3,8 +3,8 @@
  * KPI cards + waterfalls + scorecard + alerts in one page
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { useState, useCallback } from 'react';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
@@ -23,6 +23,7 @@ import { log } from '@/lib/logger';
 import { DensityToggle } from '@/components/accounting/reportControls/DensityToggle';
 import { useDensity } from '@/components/accounting/reportControls/useDensity';
 import { localISODate } from '@/lib/dateUtils';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 // The service's own type, so a field it makes nullable is a compile error here.
 import type { ExecutiveKPIs } from '@/modules/accounting/services/reports/executiveSummaryService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
@@ -72,6 +73,7 @@ export default function ExecutiveDashboardPage() {
   const [inventory, setInventory] = useState<InventoryWarning | null>(null);
   const [from, setFrom] = useState(() => localISODate(new Date(new Date().getFullYear(), 0, 1)));
   const [to, setTo] = useState(() => localISODate());
+  const dates = useDateGate();
   // Density changes what is SHOWN and never what a figure IS: the owner view
   // hides the four ratio tiles and the scorecard, and computes nothing
   // differently.
@@ -82,19 +84,20 @@ export default function ExecutiveDashboardPage() {
   // the dates instead.
   const windowError = !from || !to ? 'Choose a start and an end date.'
     : from > to ? 'The start date is after the end date.' : '';
+  const query = windowError ? '' : `from=${from}&to=${to}`;
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback<ReportLoad>(async (latest) => {
     setError('');
-    if (windowError) {
+    if (!query) {
       setSummary(null); setScorecard([]); setUnclassified(null); setInventory(null);
       setLoading(false);
-      return;
+      return true;
     }
     setLoading(true);
     try {
       const [sumRawRes, scRawRes] = await Promise.all([
-        apiFetch(`/api/accounting/reports-executive-summary?from=${from}&to=${to}`),
-        apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`),
+        apiFetch(`/api/accounting/reports-executive-summary?${query}`),
+        apiFetch(`/api/accounting/reports-kpi-scorecard?${query}`),
       ]);
       // apiFetch resolves on a 4xx/5xx status — a rejected promise here would
       // only ever be a network failure. Without this check, a failed request
@@ -106,18 +109,23 @@ export default function ExecutiveDashboardPage() {
       await assertOk(scRawRes, 'Could not load the KPI scorecard - try again');
       const sumRes = await sumRawRes.json();
       const scRes = await scRawRes.json();
+      if (!latest()) return true;
       if (sumRes.data?.summary) setSummary(sumRes.data.summary);
       if (sumRes.data) setUnclassified(sumRes.data.unclassifiedAccounts ?? null);
       if (scRes.data?.scorecard) setScorecard(scRes.data.scorecard);
       if (scRes.data) setInventory(scRes.data.inventory ?? null);
+      return true;
     } catch (err) {
-      setSummary(null); setScorecard([]); setUnclassified(null); setInventory(null);
-      setError(apiErrorMessage(err, 'Could not load the executive dashboard - try again'));
+      if (latest()) {
+        setSummary(null); setScorecard([]); setUnclassified(null); setInventory(null);
+        setError(apiErrorMessage(err, 'Could not load the executive dashboard - try again'));
+      }
       log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) });
-    } finally { setLoading(false); }
-  }, [from, to, windowError]);
+      return false;
+    } finally { if (latest()) setLoading(false); }
+  }, [query]);
 
-  useEffect(() => { void loadData(); }, [loadData]);
+  const stale = useGatedReportLoad(query, dates, loadData);
 
   // The KPI Scorecard already marks a ratio not_meaningful (e.g. negative
   // equity inverting debt-to-equity) — reuse that verdict here so the tile
@@ -154,8 +162,8 @@ export default function ExecutiveDashboardPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2 gap-y-2">
               <DensityToggle density={density} onChange={setDensity} />
-              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
-              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
             </div>
           </div>
           {densityError && (
@@ -167,13 +175,14 @@ export default function ExecutiveDashboardPage() {
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">
-          <DataQualityNotice unclassifiedAccounts={unclassified} inventory={inventory} />
+          {!stale && <DataQualityNotice unclassifiedAccounts={unclassified} inventory={inventory} />}
+          <FixDateNotice gate={dates} hidden={stale} />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}
             </div>
           )}
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : summary ? (
             <>

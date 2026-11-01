@@ -31,9 +31,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (wanted.length === 0 || wanted.length > 200) return apiResponse.badRequest(res, 'ids must be 1–200 comma-separated UUIDs');
       rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id AND c.company_id = p.company_id WHERE p.company_id = ${companyId}::UUID AND p.id = ANY(${wanted}::UUID[])` as Row[];
     } else if (status) {
-      rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id WHERE p.company_id = ${companyId}::UUID AND p.status = ${String(status)} ORDER BY p.created_at DESC` as Row[];
+      rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id AND c.company_id = p.company_id WHERE p.company_id = ${companyId}::UUID AND p.status = ${String(status)} ORDER BY p.created_at DESC` as Row[];
     } else {
-      rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id WHERE p.company_id = ${companyId}::UUID ORDER BY p.created_at DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id AND c.company_id = p.company_id WHERE p.company_id = ${companyId}::UUID ORDER BY p.created_at DESC LIMIT 200` as Row[];
     }
     return apiResponse.success(res, rows);
   }

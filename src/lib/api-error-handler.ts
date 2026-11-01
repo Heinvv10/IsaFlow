@@ -35,6 +35,11 @@ export interface ApiSuccessResponse<T = unknown> {
 
 export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
 
+export interface WithErrorHandlerOptions {
+  /** Body keys this route's request log must not show, at any depth: pay under a key too common to mask everywhere. */
+  maskBodyKeys?: readonly string[];
+}
+
 /**
  * Wraps an API handler with error handling.
  *
@@ -46,8 +51,10 @@ export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
  
 export function withErrorHandler(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handler: (req: any, res: NextApiResponse<any>) => unknown
+  handler: (req: any, res: NextApiResponse<any>) => unknown,
+  options: WithErrorHandlerOptions = {},
 ): NextApiHandler {
+  const maskedKeys = new Set(options.maskBodyKeys);
   return async (req: NextApiRequest, res: NextApiResponse) => {
     const requestId = generateRequestId();
     const startTime = Date.now();
@@ -83,7 +90,7 @@ export function withErrorHandler(
           method: req.method,
           url: safeUrl,
           query: redactTokenParams(req.query),
-          body: req.method !== 'GET' ? sanitizeRequestBody(req.body) : undefined,
+          body: req.method !== 'GET' ? sanitizeRequestBody(req.body, 0, maskedKeys) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 
         // Execute the actual handler

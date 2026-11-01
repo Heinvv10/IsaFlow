@@ -21,6 +21,7 @@ interface SelectDropdownProps {
   pos: { top: number; left: number; width: number };
   searchRef: RefObject<HTMLInputElement>;
   listRef: RefObject<HTMLUListElement>;
+  panelRef: RefObject<HTMLDivElement>;
   onSearchChange: (value: string) => void;
   onSelect: (option: SelectOption) => void;
   onActiveChange: (index: number) => void;
@@ -50,6 +51,7 @@ export function SelectDropdown({
   pos,
   searchRef,
   listRef,
+  panelRef,
   onSearchChange,
   onSelect,
   onActiveChange,
@@ -65,6 +67,7 @@ export function SelectDropdown({
   const activeDescendant = showList && activeOption ? `${inputId}-option-${activeOption.value}` : undefined;
   return (
     <div
+      ref={panelRef}
       style={{ top: pos.top, left: pos.left, width: pos.width }}
       className={cn(
         'fixed z-[9999] flex flex-col overflow-hidden rounded-lg',

@@ -3,13 +3,14 @@
  * Sage Parity: Items > Reports > Item Movement
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { useState, useCallback } from 'react';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface Row { date: string; type: string; reference: string; itemCode: string; itemName: string; qtyIn: number; qtyOut: number; balance: number; }
 
@@ -20,24 +21,31 @@ export default function ItemMovementReport() {
   const today = new Date();
   const [from, setFrom] = useState(localISODate(new Date(today.getFullYear(), today.getMonth(), 1)));
   const [to, setTo] = useState(localISODate(today));
+  const dates = useDateGate();
 
-  const load = useCallback(async () => {
+  const query = `from=${from}&to=${to}`;
+
+  const load = useCallback<ReportLoad>(async (latest) => {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/reports/item-movement?from=${from}&to=${to}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports/item-movement?${query}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the report - try again');
       const json = await res.json();
-      setRows(json.data || []);
+      if (latest()) setRows(json.data || []);
+      return true;
     } catch (err: unknown) {
-      setRows([]);
-      setError(apiErrorMessage(err, 'Could not load the report - try again'));
+      if (latest()) {
+        setRows([]);
+        setError(apiErrorMessage(err, 'Could not load the report - try again'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [from, to]);
+  }, [query]);
 
-  useEffect(() => { void load(); }, [load]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   return (
     <AppLayout>
@@ -52,53 +60,56 @@ export default function ItemMovementReport() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
-              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
-              <button onClick={() => window.open(`/api/accounting/reports/item-movement?from=${from}&to=${to}&format=csv`, '_blank')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg">
+              <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
+              <button onClick={() => window.open(`/api/accounting/reports/item-movement?from=${from}&to=${to}&format=csv`, '_blank')} disabled={dates.blocked}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>
           </div>
         </div>
         <div className="p-6">
+          <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            {loading ? (
-              <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
-            ) : rows.length === 0 ? (
-              <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No stock movements for this period</div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
-                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
-                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">In</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Out</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
-                </tr></thead>
-                <tbody className="divide-y divide-[var(--ff-border-light)]">
-                  {rows.map((r, i) => (
-                    <tr key={i} className="hover:bg-teal-500/[0.04]">
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date)}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${r.type === 'GRN' ? 'bg-teal-500/10 text-teal-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                          {r.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.reference}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.itemName}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{r.qtyIn > 0 ? r.qtyIn : ''}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-red-400">{r.qtyOut > 0 ? r.qtyOut : ''}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.balance}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+          {!stale && (
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+              {loading ? (
+                <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
+              ) : rows.length === 0 ? (
+                <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No stock movements for this period</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Type</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">In</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Out</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
+                  </tr></thead>
+                  <tbody className="divide-y divide-[var(--ff-border-light)]">
+                    {rows.map((r, i) => (
+                      <tr key={i} className="hover:bg-teal-500/[0.04]">
+                        <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date)}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${r.type === 'GRN' ? 'bg-teal-500/10 text-teal-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                            {r.type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.reference}</td>
+                        <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.itemName}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">{r.qtyIn > 0 ? r.qtyIn : ''}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-red-400">{r.qtyOut > 0 ? r.qtyOut : ''}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.balance}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </AppLayout>

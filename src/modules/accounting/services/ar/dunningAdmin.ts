@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { SA_DEFAULT_TEMPLATES } from './dunningDefaults';
+import { UNKNOWN_CUSTOMER } from './arAgingInvoices';
 import type {
   DunningTemplate,
   DunningSendRow,
@@ -178,7 +179,7 @@ export async function listSends(
     SELECT ds.id, ds.company_id, ds.customer_invoice_id, ds.template_id,
            dt.name AS template_name, dt.tone AS template_tone,
            ci.invoice_number,
-           c.name AS customer_name,
+           COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS customer_name,
            ds.sent_at, ds.sent_to_email,
            ds.rendered_subject, ds.rendered_body,
            ds.trigger_source, ds.email_status, ds.email_error,
@@ -187,7 +188,7 @@ export async function listSends(
     FROM dunning_sends ds
     JOIN dunning_templates dt ON dt.id = ds.template_id
     JOIN customer_invoices ci ON ci.id = ds.customer_invoice_id
-    JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     WHERE ds.company_id = ${companyId}::uuid
       AND (${filters.customerInvoiceId ?? null}::uuid IS NULL
            OR ds.customer_invoice_id = ${filters.customerInvoiceId ?? null}::uuid)

@@ -139,10 +139,10 @@ export function getBaseQuery(dataSource: string): string {
         LEFT JOIN business_units bu ON bu.id = jl.bu_id AND bu.company_id = je.company_id`;
     case 'customer_invoices':
       return `FROM customer_invoices ci
-        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)`;
+        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id`;
     case 'supplier_invoices':
       return `FROM supplier_invoices si
-        LEFT JOIN suppliers s ON s.id = si.supplier_id`;
+        LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id`;
     case 'bank_transactions':
       // $1 is always companyId (see customReportRunner). bank_account_id's FK
       // targets gl_accounts(id) alone, not (id, company_id), so nothing at the
