@@ -5,7 +5,9 @@
  *
  * Both companies carry the same shape with different figures and names. B's own
  * PDF is read too, so "B's names are absent from A's" cannot pass on a fixture
- * that never prints them. Disposable schema fixture only; synthetic data.
+ * that never prints them. A third company proves the two filters reach the
+ * figures and the header, each as itself. Disposable schema fixture only;
+ * synthetic data.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -13,7 +15,7 @@ import route from '../../pages/api/accounting/income-statement-pdf';
 import { getIncomeStatement } from '../../src/modules/accounting/services/reports/incomeStatementService';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { incomeStatementScopeLabel } from '../../src/modules/accounting/services/reports/incomeStatementPdf';
-import { fmtZAR } from '../../src/modules/accounting/services/core/pdfShared';
+import { formatStatementFigure } from '../../src/lib/format/money';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { newSetupUser, type SetupUser } from './helpers/onboardingSetupFixture';
 
@@ -25,6 +27,9 @@ const QUERY = { period_start: '2026-04-01', period_end: '2026-04-30' };
 interface Co { user: SetupUser; period: string; entries: string[] }
 let a: Co;
 let b: Co;
+let c: Co;
+const CC = id();
+const BU = id();
 
 type Acct = [code: string, name: string, type: 'asset' | 'revenue' | 'expense', subtype: string, side: 'debit' | 'credit', amount: number];
 
@@ -65,6 +70,8 @@ async function drop(co: Co): Promise<void> {
   await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM gl_account_balances WHERE fiscal_period_id=$1', [co.period]);
   await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
+  await pool.query('DELETE FROM cost_centres WHERE company_id=$1', [company]);
+  await pool.query('DELETE FROM business_units WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
   await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
@@ -88,7 +95,24 @@ async function pdfOf(user: SetupUser, query: Record<string, string> = QUERY): Pr
   return { status: out.state.statusCode, text, raw: null };
 }
 
-const cents = (amount: number): string => fmtZAR(amount).replace(/ /g, ' ');
+/** Text the way `pdfOf` reads it: its separators come back as plain spaces. */
+const cents = (amount: number): string => formatStatementFigure(amount, { cents: true, symbol: true, pack: true }).replace(/\s/g, ' ');
+
+/** One posted journal on an existing account, tagged with the dimensions given. */
+async function posted(co: Co, code: string, amount: number, dims: { cc?: string; bu?: string }): Promise<void> {
+  const company = co.user.homeCompanyId;
+  const account = await pool.query('SELECT id, normal_balance FROM gl_accounts WHERE company_id=$1 AND account_code=$2', [company, code]);
+  const bank = await pool.query(`SELECT id FROM gl_accounts WHERE company_id=$1 AND account_code='1000'`, [company]);
+  const entry = id();
+  await pool.query(
+    `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_by,posted_at)
+     VALUES($1,$2,$3,'2026-04-15',$4,'seed','manual','posted',$5,$5,now())`, [entry, company, `F-${entry.slice(0, 8)}`, co.period, co.user.userId]);
+  const income = account.rows[0].normal_balance === 'credit';
+  await pool.query(
+    `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id,cc1_id,bu_id)
+     VALUES($1,$2,$4,$5,'seed',$6,$7,$8),($1,$3,$5,$4,'seed',$6,NULL,NULL)`,
+    [entry, account.rows[0].id, bank.rows[0].id, income ? 0 : amount, income ? amount : 0, company, dims.cc ?? null, dims.bu ?? null]);
+}
 
 beforeAll(async () => {
   a = await seed('ALPHA', [
@@ -105,12 +129,25 @@ beforeAll(async () => {
     ['5500', 'BRAVO Hidden Unclassified', 'expense', 'default_expense', 'debit', 12345.67],
     ['6000', 'BRAVO Private Rent', 'expense', 'operating_expense', 'debit', 4444.44],
   ]);
+  c = await seed('CHARLIE', [
+    ['4000', 'CHARLIE Sales', 'revenue', 'sales', 'credit', 2000],
+    ['6000', 'CHARLIE Rent', 'expense', 'operating_expense', 'debit', 500],
+  ]);
+  const owner = c.user.homeCompanyId;
+  await pool.query(`INSERT INTO cost_centres(id,company_id,code,name) VALUES($1,$2,'CC-C','CHARLIE Depot')`, [CC, owner]);
+  await pool.query(`INSERT INTO business_units(id,company_id,code,name) VALUES($1,$2,'BU-C','CHARLIE Division')`, [BU, owner]);
+  await posted(c, '4000', 100.25, { cc: CC, bu: BU });
+  await posted(c, '6000', 40.1, { cc: CC, bu: BU });
+  await posted(c, '4000', 30, { cc: CC });
+  await posted(c, '4000', 7, { bu: BU });
+  clearSystemAccountCache(owner);
 }, 120_000);
 
 afterAll(async () => {
   try {
     await drop(a);
     await drop(b);
+    await drop(c);
   } finally {
     await pool.end();
   }
@@ -130,9 +167,9 @@ describe('income-statement-pdf through the route', () => {
     ]) expect(text).toContain(cents(amount));
     // Label beside figure, as the fixture alone decides them, so this does not rest on the service it reads.
     for (const row of [
-      'Total Turnover R 152,500.48', 'Total Cost of Sales R 60,000.21', 'Gross Profit R 92,500.27',
-      'Total Other Income R 410.59', 'Total Operating Expenses R 28,300.50', 'Operating Profit R 64,610.36',
-      'Total Other Expenses R 900.19', 'Net Profit R 63,710.17',
+      'Total Turnover R 152 500.48', 'Total Cost of Sales R 60 000.21', 'Gross Profit R 92 500.27',
+      'Total Other Income R 410.59', 'Total Operating Expenses R 28 300.50', 'Operating Profit R 64 610.36',
+      'Total Other Expenses R 900.19', 'Net Profit / (Loss) R 63 710.17',
     ]) expect(text).toContain(row);
   });
 
@@ -142,7 +179,7 @@ describe('income-statement-pdf through the route', () => {
     expect(text).toContain(`Expense that could be cost of sales (at most) ${cents(report.subtypeDisclosure!.costOfSalesExposureAtMost)}`);
     expect(text).toContain(`Revenue that could be other income (at most) ${cents(report.subtypeDisclosure!.otherIncomeExposureAtMost)}`);
     expect(text).toContain('ALPHA Unclassified Expense');
-    expect(text).toContain('The amounts above are repeated elsewhere in this sheet — do not add them again.');
+    expect(text).toContain('The amounts above are repeated elsewhere in this statement — do not add them again.');
   });
 
   it('never prints company B\'s accounts or figures in A\'s PDF', async () => {
@@ -151,8 +188,30 @@ describe('income-statement-pdf through the route', () => {
 
     const { text } = await pdfOf(a.user);
     expect(text).not.toContain('BRAVO');
-    expect(text).not.toContain('987,654.32');
+    expect(text).not.toContain('987 654.32');
     expect(text).toContain('ALPHA Fibre Sales');
+  });
+
+  it('reads both of the company\'s own filters: the figures under both, and both names', async () => {
+    const { status, text } = await pdfOf(c.user, { ...QUERY, cost_centre_id: CC, business_unit_id: BU });
+    expect(status).toBe(200);
+    expect(text).toContain('Cost centre: CC-C — CHARLIE Depot · Business unit: BU-C — CHARLIE Division');
+    for (const row of ['Total Turnover R 100.25', 'Total Operating Expenses R 40.10', 'Net Profit / (Loss) R 60.15 60.0%']) {
+      expect(text).toContain(row);
+    }
+  });
+
+  it('applies each filter as itself', async () => {
+    const byCc = await pdfOf(c.user, { ...QUERY, cost_centre_id: CC });
+    expect(byCc.text).toContain('Cost centre: CC-C — CHARLIE Depot');
+    expect(byCc.text).not.toContain('Business unit:');
+    expect(byCc.text).toContain('Total Turnover R 130.25');
+    const byBu = await pdfOf(c.user, { ...QUERY, business_unit_id: BU });
+    expect(byBu.text).toContain('Business unit: BU-C — CHARLIE Division');
+    expect(byBu.text).not.toContain('Cost centre:');
+    expect(byBu.text).toContain('Total Turnover R 107.25');
+    const whole = await pdfOf(c.user);
+    expect(whole.text).toContain('Total Turnover R 2 137.25');
   });
 
   it('prints a filter from another company as unknown, with nothing of that company', async () => {
