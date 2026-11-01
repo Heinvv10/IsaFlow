@@ -77,7 +77,7 @@ export function budgetGridReadWorld() {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      return await als.run({ client, companyId: c.id, userId: c.user, claims: {} } as never, () => loadGridReadModel(c.id, opts));
+      return await als.run({ client, companyId: c.id, userId: c.user, claims: {} } as never, () => loadGridReadModel(c.id, opts, 'full'));
     } finally {
       await client.query('ROLLBACK');
       client.release();
