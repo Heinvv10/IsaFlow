@@ -4,15 +4,17 @@
  *
  * The reversal is `reverse`, unchanged, so forensic controls and journal-date refusals may refuse it, and the
  * server's sentence is what the user reads. It unwinds what `autoApply: 'fifo'` settled, and leaves what the
- * categoriser learned. The re-read below is only so a toast cannot reverse a journal other than the one it
- * offered to undo: the server re-checks everything under its own locks.
+ * categoriser learned.
+ *
+ * Both undos state what they expect (the journal, the `excluded` status) and the server refuses under the row lock
+ * if the line has moved on: this client's re-read leaves a gap before the write, and a toast can be 8 s old or older.
  */
 
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import type { BankTx } from '@/components/accounting/BankTxTable';
+import { LINE_CHANGED_MESSAGE } from '@/modules/accounting/services/bank/bankTxStatusErrors';
 
-export const LINE_CHANGED_MESSAGE = 'This line has changed since you allocated it.';
 const LEARNING_KEPT_MESSAGE = 'Undo reverses the journal. What was learned from this allocation is kept.';
 
 interface UndoContext {
@@ -47,7 +49,7 @@ export function offerAllocationUndo(tx: BankTx, bankAccountId: string, journalEn
           ctx.reloadCurrentView();
           return;
         }
-        await ctx.callAction({ action: 'reverse', bankTransactionId: tx.id });
+        await ctx.callAction({ action: 'reverse', bankTransactionId: tx.id, expectedJournalEntryId: journalEntryId });
         notify.success('Allocation undone');
         ctx.reloadCurrentView();
       } catch (e) { notify.error(apiErrorMessage(e, 'Could not undo the allocation - try again')); }
@@ -60,7 +62,7 @@ export function offerExcludeUndo(txId: string, ctx: UndoContext): void {
   notify.undoable('Transaction excluded', {
     onUndo: async () => {
       try {
-        await ctx.callAction({ action: 'unmatch', bankTransactionId: txId });
+        await ctx.callAction({ action: 'unmatch', bankTransactionId: txId, expectedStatus: 'excluded' });
         notify.success('Transaction restored');
         ctx.reloadCurrentView();
       } catch (e) { notify.error(apiErrorMessage(e, 'Could not restore the transaction - try again')); }

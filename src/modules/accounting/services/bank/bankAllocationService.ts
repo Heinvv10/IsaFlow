@@ -30,7 +30,7 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { assertReversalDatePostable, entryDateOf, lockPeekedReversalTarget, peekReversalTarget } from './reversalDatePostable';
 import { underFlowLockBudget } from '../core/rowLockBudget';
 import { refuseResettingProvisionalLine } from './provisionalLineGuard';
-import { isoDay, lockChainLines, peekLineChain, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
+import { isoDay, lockChainLines, peekLineChain, refuseChangedJournal, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
@@ -765,12 +765,12 @@ export async function splitAllocateTransaction(
  * auto-post-undo call site — leaves the contra on the `human:<userId>` default.
  */
 export async function reverseReconciledTransaction(
-  companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string },
+  companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string; expectedJournalEntryId?: string },
 ): Promise<BankAllocationUnwindResult> { // every lock under ONE budget, plain UPDATEs included (D8 round 10)
   return underFlowLockBudget(`Bank transaction ${bankTxId}`, () => reverseReconciledInner(companyId, bankTxId, userId, opts));
 }
 async function reverseReconciledInner(
-  companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string },
+  companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string; expectedJournalEntryId?: string },
 ): Promise<BankAllocationUnwindResult> {
   // D10: the line's journal is read through its chain's ROOT, which a document carries. A document's chain has every
   // statement line of it locked FIRST, in id order with this one (bank/bankChainLineReversal), as the HTTP void does.
@@ -787,6 +787,7 @@ async function reverseReconciledInner(
     throw new BankAllocationRefusal('This bank line was changed by another request while it was being reversed — retry in a moment.',
       undefined, { retryable: true });
   }
+  refuseChangedJournal(chain, opts?.expectedJournalEntryId); // the page's Undo: the journal it offered, or nothing
   if (!deadProvisional && tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');
   }

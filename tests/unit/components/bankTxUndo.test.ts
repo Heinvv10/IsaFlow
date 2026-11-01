@@ -81,7 +81,7 @@ describe('Undo after a single-row allocate', () => {
     await actions().handleAccept(TX.id);
     loadTransactions.mockClear();
     await offered().onUndo();
-    expect(sent('reverse')).toEqual([{ action: 'reverse', bankTransactionId: TX.id }]);
+    expect(sent('reverse')).toEqual([{ action: 'reverse', bankTransactionId: TX.id, expectedJournalEntryId: JOURNAL }]);
     expect(notify.success).toHaveBeenCalledWith('Allocation undone');
     expect(reloadCurrentView).toHaveBeenCalledTimes(1);
     expect(loadTransactions, 'the render that accepted may hold an older tab').not.toHaveBeenCalled();
@@ -206,7 +206,7 @@ describe('Undo after exclude', () => {
     expect(notify.undoable.mock.calls[0]![0]).toBe('Transaction excluded');
     expect(notify.success).not.toHaveBeenCalled();
     await offered().onUndo();
-    expect(sent('unmatch')).toEqual([{ action: 'unmatch', bankTransactionId: TX.id }]);
+    expect(sent('unmatch')).toEqual([{ action: 'unmatch', bankTransactionId: TX.id, expectedStatus: 'excluded' }]);
     expect(notify.success).toHaveBeenCalledWith('Transaction restored');
     expect(reloadCurrentView).toHaveBeenCalledTimes(1);
   });
@@ -216,6 +216,14 @@ describe('Undo after exclude', () => {
     await actions(account, TX.id, { ...TX, status }).handleExcludeConfirm('Duplicate');
     expect(notify.undoable).not.toHaveBeenCalled();
     expect(notify.success).toHaveBeenCalledWith('Transaction excluded');
+  });
+
+  it('the server finding the line has moved on shows the same sentence as the re-read', async () => {
+    serve({ unmatch: () => refuse('This line has changed since you allocated it.', 409) });
+    await actions(account, TX.id).handleExcludeConfirm('Duplicate');
+    await offered().onUndo();
+    expect(notify.error).toHaveBeenCalledWith('This line has changed since you allocated it.');
+    expect(notify.success).not.toHaveBeenCalled();
   });
 
   it('a refused restore shows the refusal', async () => {

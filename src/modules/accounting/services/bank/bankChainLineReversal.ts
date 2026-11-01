@@ -28,6 +28,7 @@ import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { unwindBankAllocationApplication, type BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { findChainBankLines } from './chainBankLines';
 import { lockBankTransactionsInIdOrder } from './bankTxLock';
+import { BankLineChangedError } from './bankTxStatusErrors';
 import { reconciliationLockOf, refuseLockedCash } from './reconciledCash';
 import { assertReversalDatePostable, entryDateOf, peekReversalTarget } from './reversalDatePostable';
 
@@ -36,7 +37,7 @@ type Opts = PostingActorOpts & { reversalDate?: string };
 /** The document a chain root belongs to; a batch only while it is processed (a reversed one has nothing to undo). */
 export type ChainDocument = { label: string; batchId: string | null };
 
-export interface LineChain { lineId: string; rootId: string; doc: ChainDocument | null }
+export interface LineChain { lineId: string; journalId: string; rootId: string; doc: ChainDocument | null }
 
 /** YYYY-MM-DD of a pg date (Date or string). */
 export function isoDay(v: unknown): string | null {
@@ -72,7 +73,12 @@ export async function peekLineChain(companyId: string, bankTxId: string): Promis
   if (!row) return null;
   const rootId = await findJournalChainRoot(companyId, String(row.je));
   if (!rootId) throw new BankAllocationRefusal(brokenChainMessage(String(row.je), { unreversed: 0, cyclic: true }));
-  return { lineId: String(row.line_id), rootId, doc: await chainDocumentOf(companyId, rootId) };
+  return { lineId: String(row.line_id), journalId: String(row.je), rootId, doc: await chainDocumentOf(companyId, rootId) };
+}
+
+/** An undo names the journal it offered to reverse. Call once the line is locked and still matched as peeked. */
+export function refuseChangedJournal(chain: LineChain | null, expectedJournalEntryId: string | undefined): void {
+  if (expectedJournalEntryId !== undefined && chain?.journalId !== expectedJournalEntryId) throw new BankLineChangedError();
 }
 
 /** FIRST, before the line's own lock: every statement line of the root's chain, this one included, in id order. */

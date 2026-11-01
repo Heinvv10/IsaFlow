@@ -18,7 +18,7 @@ import { assertImporterMayMatch } from '@/modules/accounting/services/bank/bankL
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
+import { BankLineChangedError, BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusErrors';
 import { refuseLinesInCompletedSession } from '@/modules/accounting/services/bank/reconciliationSessionLock';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import {
@@ -44,7 +44,7 @@ import {
 
 const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('match'), bankTransactionId: UUID, journalLineId: UUID, reconciliationId: UUID.optional() }),
-  z.object({ action: z.literal('unmatch'), bankTransactionId: UUID }),
+  z.object({ action: z.literal('unmatch'), bankTransactionId: UUID, expectedStatus: z.literal('excluded').optional() }),
   z.object({ action: z.literal('exclude'), bankTransactionId: UUID, excludeReason: z.string().max(200).optional() }),
   z.object({ action: z.literal('auto_match'), bankAccountId: UUID, reconciliationId: UUID.optional() }),
   z.object({
@@ -110,7 +110,7 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
     cc2Id: UUID.optional(),
     buId: UUID.optional(),
   }),
-  z.object({ action: z.literal('reverse'), bankTransactionId: UUID }),
+  z.object({ action: z.literal('reverse'), bankTransactionId: UUID, expectedJournalEntryId: UUID.optional() }),
 ]);
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -136,7 +136,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, tx);
       }
       case 'unmatch': {
-        const tx = await unmatchTransaction(companyId, body.bankTransactionId, userId);
+        const { expectedStatus } = body;
+        const tx = await (expectedStatus
+          ? unmatchTransaction(companyId, body.bankTransactionId, userId, { expectedStatus })
+          : unmatchTransaction(companyId, body.bankTransactionId, userId));
         return apiResponse.success(res, tx);
       }
       case 'exclude': {
@@ -242,7 +245,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { saved: true });
       }
       case 'reverse': {
-        if (await withJournalDateRefusal(res, () => reverseReconciledTransaction(companyId, body.bankTransactionId, userId)) === JOURNAL_DATE_REFUSED) return;
+        const { expectedJournalEntryId } = body;
+        if (await withJournalDateRefusal(res, () => (expectedJournalEntryId
+          ? reverseReconciledTransaction(companyId, body.bankTransactionId, userId, { expectedJournalEntryId })
+          : reverseReconciledTransaction(companyId, body.bankTransactionId, userId))) === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, { reversed: true });
       }
     }
@@ -250,6 +256,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // A held bank line, payment, bill or invoice is a lock timeout on EVERY verb: 503 + Retry-After (D8 round 17 for
     // reverse, D11 for the rest). Only a retryable STATE conflict keeps K-071's 409 below.
     if (respondIfLockTimeout(res, err)) return;
+    if (err instanceof BankLineChangedError) return apiResponse.conflict(res, err.message); // a stale Undo: nothing written
     // D12: a line in (or a run into) a COMPLETED reconciliation — 409, refused before any write, on every verb.
     if (respondIfReconciliationCompleted(res, err)) return;
     // R-035 PR5 (D2): a hand-keyed line paying a supplier past an enforced rule — refused before any write.
