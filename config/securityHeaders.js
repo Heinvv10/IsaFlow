@@ -71,7 +71,8 @@ function buildCsp(nodeEnv) {
     `img-src 'self' data: blob: ${ISAFLOW_APP} ${ISAFLOW_ADMIN} ${GRAVATAR}`,
     "font-src 'self' data:",
     connectSrc,
-    `frame-src 'self' ${SIGNUM}`,
+    // blob: is the invoice PDF preview's iframe. Framing IsaFlow itself stays refused (frame-ancestors, X-Frame-Options).
+    `frame-src 'self' blob: ${SIGNUM}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

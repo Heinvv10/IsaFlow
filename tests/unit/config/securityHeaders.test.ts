@@ -54,6 +54,20 @@ describe('securityHeaders — production CSP', () => {
     expect(directive(csp, 'base-uri')).toBe("base-uri 'self'");
   });
 
+  // The invoice PDF preview frames a blob: URL (decision 13). blob: goes on
+  // frame-src alone: framing IsaFlow itself stays refused.
+  it.each(['production', 'development'])('frame-src allows self, blob: and the Signum host, nothing broader (%s)', (env) => {
+    const tokens = directive(buildCsp(env), 'frame-src').split(' ').slice(1);
+    expect([...tokens].sort()).toEqual(["'self'", 'blob:', 'https://signum.brighttech.co.za']);
+  });
+
+  it('adds blob: to no other directive and keeps framing of IsaFlow refused', () => {
+    const blobDirectives = csp.split('; ').filter((d) => d.split(' ').includes('blob:')).map((d) => d.split(' ')[0]);
+    expect(blobDirectives.sort()).toEqual(['frame-src', 'img-src']);
+    const headers = securityHeaders('production') as { key: string; value: string }[];
+    expect(headers.find((h) => h.key === 'X-Frame-Options')?.value).toBe('DENY');
+  });
+
   // Task 12 fix round 1: `upgrade-insecure-requests` must be prod-only. Applied
   // unconditionally, it made Gotenberg's Chromium upgrade dev's plain-HTTP
   // subresources to HTTPS, which the dev server can't answer — the page never

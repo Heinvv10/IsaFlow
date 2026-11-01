@@ -1,6 +1,7 @@
 /**
  * Invoice PDF API
- * GET ?invoiceId=UUID — returns PDF as downloadable file
+ * GET ?invoiceId=UUID[&disposition=inline|attachment] — returns the PDF, as a
+ * download unless the preview asks for it inline
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -22,6 +23,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'invoiceId query parameter is required');
   }
 
+  const { disposition = 'attachment' } = req.query;
+  if (disposition !== 'attachment' && disposition !== 'inline') {
+    return apiResponse.badRequest(res, 'disposition must be inline or attachment');
+  }
+
   try {
     const [pdfBuffer, filename] = await Promise.all([
       generateInvoicePdf(companyId, invoiceId),
@@ -29,7 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     ]);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', `${disposition}; filename="${filename}"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.status(200).end(pdfBuffer);
   } catch (err) {
