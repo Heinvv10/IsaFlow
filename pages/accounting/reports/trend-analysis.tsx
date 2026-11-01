@@ -150,7 +150,7 @@ export default function TrendAnalysisPage() {
                       <p className="text-xs text-[var(--ff-text-tertiary)]">
                         {analysis.dataPoints[i]?.period} → {analysis.dataPoints[i + 1]?.period}
                       </p>
-                      <p className={`text-lg font-bold ${rate >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                      <p className={`text-lg font-bold ${rate >= 0 ? 'text-teal-400' : 'text-red-400 dark:text-red-300'}`}>
                         {rate >= 0 ? '+' : ''}{rate.toFixed(1)}%
                       </p>
                     </div>
