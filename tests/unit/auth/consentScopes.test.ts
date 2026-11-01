@@ -1,8 +1,4 @@
-/**
- * write:post opt-in gating — MCP Phase 3, Task 3.1 (the Hein decision:
- * write:post is unchecked by default EVEN when the client requests it, and
- * is granted only when the user explicitly opts in).
- */
+/** Every OAuth write scope is explicit opt-in; reads stay automatic. */
 import { describe, it, expect } from 'vitest';
 import {
   OPT_IN_SCOPES,
@@ -21,21 +17,22 @@ describe('scope vocabularies include write:post', () => {
 });
 
 describe('opt-in classification', () => {
-  it('write:post is the (only) opt-in scope', () => {
-    expect(OPT_IN_SCOPES).toContain('write:post');
-    expect(isOptInScope('write:post')).toBe(true);
-    expect(isOptInScope('write:journals')).toBe(false);
+  it('classifies every write scope in the OAuth vocabulary as opt-in', () => {
+    const writeScopes = OAUTH_SCOPES.filter((scope) => scope.startsWith('write:'));
+    expect(OPT_IN_SCOPES).toEqual(writeScopes);
+    for (const scope of writeScopes) expect(isOptInScope(scope)).toBe(true);
     expect(isOptInScope('read:reports')).toBe(false);
+    expect(isOptInScope('offline_access')).toBe(false);
   });
 });
 
 describe('partitionRequestedScopes', () => {
   it('splits requested scopes into auto-granted and opt-in', () => {
     const { autoGranted, optIn } = partitionRequestedScopes([
-      'read:reports', 'write:journals', 'write:post',
+      'read:reports', 'write:journals', 'offline_access', 'write:post',
     ]);
-    expect(autoGranted).toEqual(['read:reports', 'write:journals']);
-    expect(optIn).toEqual(['write:post']);
+    expect(autoGranted).toEqual(['read:reports', 'offline_access']);
+    expect(optIn).toEqual(['write:journals', 'write:post']);
   });
 
   it('no opt-in scopes requested → empty optIn', () => {
@@ -46,22 +43,27 @@ describe('partitionRequestedScopes', () => {
 });
 
 describe('buildGrantedScopes', () => {
-  const autoGranted = ['read:reports', 'write:journals'];
-  const optIn = ['write:post'];
+  const autoGranted = ['read:reports', 'offline_access'];
+  const optIn = ['write:journals', 'write:post'];
 
-  it('excludes write:post when NOT explicitly ticked (default)', () => {
+  it('excludes every unticked write scope by default', () => {
     expect(buildGrantedScopes(autoGranted, optIn, {})).toEqual(autoGranted);
-    expect(buildGrantedScopes(autoGranted, optIn, { 'write:post': false })).toEqual(autoGranted);
+    expect(buildGrantedScopes(autoGranted, optIn, {
+      'write:journals': false,
+      'write:post': false,
+    })).toEqual(autoGranted);
   });
 
-  it('includes write:post only when explicitly ticked', () => {
-    expect(buildGrantedScopes(autoGranted, optIn, { 'write:post': true })).toEqual([
-      'read:reports', 'write:journals', 'write:post',
+  it('includes only the individually ticked write scopes', () => {
+    expect(buildGrantedScopes(autoGranted, optIn, { 'write:journals': true })).toEqual([
+      'read:reports', 'offline_access', 'write:journals',
     ]);
   });
 
   it('never adds an opt-in scope the client did not request, even if ticked', () => {
-    // write:post not in optIn (client never asked) → a stray checked flag is ignored
-    expect(buildGrantedScopes(autoGranted, [], { 'write:post': true })).toEqual(autoGranted);
+    expect(buildGrantedScopes(autoGranted, ['write:journals'], {
+      'write:journals': true,
+      'write:accounts': true,
+    })).toEqual([...autoGranted, 'write:journals']);
   });
 });
