@@ -108,10 +108,10 @@ describe('authorizationErrorRedirect', () => {
   });
 });
 
-function ctx(query: Record<string, string>) {
+function ctx(query: Record<string, string>, setHeader = vi.fn()) {
   return {
     req: { headers: { cookie: `${ACCESS_COOKIE}=tok` } },
-    res: {},
+    res: { setHeader },
     query: {
       client_id: 'client_abc',
       redirect_uri: 'https://client.example/cb',
@@ -153,5 +153,21 @@ describe('/oauth/authorize — resource and iss', () => {
 
     const without = (await getServerSideProps(ctx({}))) as { props: Record<string, unknown> };
     expect(without.props).toMatchObject({ ok: true, resource: null, issuer: 'https://app.isaflow.co.za' });
+  });
+
+  it('allows a trusted remote logo origin in this response CSP only', async () => {
+    vi.mocked(getOauthAppByClientId).mockResolvedValue({
+      id: 'app-1', name: 'Partner', description: null,
+      logoUrl: 'https://cdn.partner.example/assets/logo.png', homepageUrl: null,
+      redirectUris: ['https://client.example/cb'], clientId: 'client_abc',
+      isVerified: true, isFirstParty: false, isConfidential: false,
+    });
+    const setHeader = vi.fn();
+    const out = (await getServerSideProps(ctx({}, setHeader))) as { props: Record<string, unknown> };
+    expect(out.props.app).toMatchObject({ logoUrl: 'https://cdn.partner.example/assets/logo.png' });
+    expect(setHeader).toHaveBeenCalledWith(
+      'Content-Security-Policy',
+      expect.stringContaining('https://cdn.partner.example'),
+    );
   });
 });

@@ -93,6 +93,34 @@ function buildCsp(nodeEnv) {
 }
 
 /**
+ * The OAuth consent page may show a manually trusted app's remote logo. With
+ * Next image optimisation disabled the browser loads that URL directly, so
+ * this response alone permits the exact HTTPS origin that owns the logo.
+ *
+ * @param {string} [nodeEnv] - process.env.NODE_ENV.
+ * @param {string | null} logoUrl - trusted app logo URL.
+ * @returns {string}
+ */
+function buildOauthAuthorizeCsp(nodeEnv, logoUrl) {
+  const csp = buildCsp(nodeEnv);
+  if (!logoUrl) return csp;
+
+  let origin;
+  try {
+    const url = new URL(logoUrl);
+    if (url.protocol !== 'https:') return csp;
+    origin = url.origin;
+  } catch {
+    return csp;
+  }
+
+  return csp
+    .split('; ')
+    .map((directive) => directive.startsWith('img-src ') ? `${directive} ${origin}` : directive)
+    .join('; ');
+}
+
+/**
  * The Content-Security-Policy for the PUBLIC SHARE PAGE (`/share/<token>`).
  *
  * Derived from `buildCsp` by SUBTRACTION rather than written out again, so the
@@ -148,4 +176,4 @@ function securityHeaders(nodeEnv) {
   ];
 }
 
-module.exports = { buildCsp, buildSharePageCsp, securityHeaders };
+module.exports = { buildCsp, buildOauthAuthorizeCsp, buildSharePageCsp, securityHeaders };
