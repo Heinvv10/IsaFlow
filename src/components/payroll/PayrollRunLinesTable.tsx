@@ -14,7 +14,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { splitRunTotals } from '@/modules/accounting/services/payroll/payrollRunTotalsSplit';
 
 export interface RunLineAmounts {
-  id: string;
+  employeeId: string;
   employeeNumber: string;
   employeeName: string;
   grossPay: number;
@@ -88,15 +88,15 @@ const th = 'py-2 px-4 text-[var(--ff-text-secondary)] font-medium';
 const num = 'py-2 px-4 text-right tabular-nums';
 
 /** The grid's extra columns: a cell per line, its row index, and a save status at the row's end. */
-export interface RunLinesEdit<T> {
+export interface RunLinesEdit {
   earningHead: string;
-  earningCell: (line: T, row: number) => ReactNode;
+  earningCell: (line: RunLineAmounts, row: number) => ReactNode;
   deductionHead: string;
-  deductionCell: (line: T, row: number) => ReactNode;
-  statusCell: (line: T) => ReactNode;
+  deductionCell: (line: RunLineAmounts, row: number) => ReactNode;
+  statusCell: (line: RunLineAmounts) => ReactNode;
 }
 
-export function PayrollRunLinesTable<T extends RunLineAmounts>({ lines, edit }: { lines: T[]; edit?: RunLinesEdit<T> }) {
+export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[]; edit?: RunLinesEdit }) {
   const t = sumRunLines(lines);
   return (
     <table className="w-full text-sm">
@@ -126,7 +126,8 @@ export function PayrollRunLinesTable<T extends RunLineAmounts>({ lines, edit }: 
       </thead>
       <tbody>
         {lines.map((l, row) => (
-          <tr key={l.id} className="border-t border-[var(--ff-border-primary)]">
+          // By employee, not line id: a recalculation re-inserts every line, and the grid's cells must survive it.
+          <tr key={l.employeeId} className="border-t border-[var(--ff-border-primary)]">
             <td className="py-2 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
             <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}</td>
             {edit && <td className={num}>{edit.earningCell(l, row)}</td>}

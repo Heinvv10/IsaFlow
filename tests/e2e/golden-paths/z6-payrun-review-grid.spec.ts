@@ -2,7 +2,7 @@
 /**
  * Golden path (z6): the pay-run review grid (master plan wave 3, R).
  *
- *  - Type a once-off amount, Tab: the row says Saved and the server's new net is on screen, with no Calculate.
+ *  - Type a once-off amount, Enter: the cursor moves down, the row says Saved and the server's new net is on screen, with no Calculate.
  *  - Open approve, read the plain sentence, Cancel. Nothing is approved.
  *  - axe reports 0 critical and 0 serious, in both themes.
  *  - At 390 the page does not scroll sideways: the table scrolls inside its own frame.
@@ -89,8 +89,10 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     const cell = page.getByLabel(CELL);
     await cell.click();
     await page.keyboard.type('1 234.50');
-    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter'); // commits and moves down the column
     await expect(row(page).getByText(/^Saved/)).toBeVisible({ timeout: 15_000 });
+    // The recalculation replaces every line row in the database; the cursor must not notice.
+    await expect(page.getByLabel('Once-off earning, Pieter Grid')).toBeFocused();
     const after = await netOf();
     expect(after.grossPay).toBeCloseTo(before.grossPay + 1234.5, 2);
     expect(after.netPay).toBeLessThan(after.grossPay);

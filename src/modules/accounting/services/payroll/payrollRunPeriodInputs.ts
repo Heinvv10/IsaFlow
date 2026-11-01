@@ -149,7 +149,7 @@ function assertAmount(amount: number): void {
   }
 }
 
-async function assertRunEditable(companyId: string, runId: string, run: DbRow, period: Period, employeeIds: string[]): Promise<void> {
+async function assertRunEditable(companyId: string, runId: string, run: DbRow, period: Period): Promise<void> {
   if (!EDITABLE_STATUSES.has(String(run.status))) {
     throw new PayrollRunInputRefusedError(400, `This run is ${String(run.status)}: only a draft or calculated run can be edited.`);
   }
@@ -165,7 +165,6 @@ async function assertRunEditable(companyId: string, runId: string, run: DbRow, p
     && await runHasLoanWork(companyId, runId, period.year, period.month)) {
     throw new PayrollRunInputRefusedError(400, new PayrollRunJournalPostedError(runId).message);
   }
-  if (employeeIds.length === 0) throw new PayrollRunInputRefusedError(400, 'This run has no employees.');
 }
 
 export async function setRunPeriodAmount(
@@ -181,10 +180,9 @@ export async function setRunPeriodAmount(
   if (!run) throw new PayrollRunInputRefusedError(404, 'Payroll run not found');
 
   const period: Period = { year: Number(run.period_year), month: Number(run.period_month) };
+  await assertRunEditable(companyId, runId, run, period);
   const employees = await listPayrollRunEmployees(companyId, period);
-  const employeeIds = employees.map((e) => e.id);
-  await assertRunEditable(companyId, runId, run, period, employeeIds);
-  if (!employeeIds.includes(employeeId)) throw new PayrollRunInputRefusedError(400, 'This employee is not on this run.');
+  if (!employees.some((e) => e.id === employeeId)) throw new PayrollRunInputRefusedError(400, 'This employee is not on this run.');
   if (!(await listEditableComponents(companyId)).some((c) => c.id === componentId)) {
     throw new PayrollRunInputRefusedError(400, 'This component cannot be edited on a pay run: use the employee page.');
   }

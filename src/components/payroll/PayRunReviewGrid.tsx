@@ -14,11 +14,9 @@ import { MoneyField } from '@/components/ui/MoneyField';
 import { PayrollRunLinesTable, type RunLineAmounts } from '@/components/payroll/PayrollRunLinesTable';
 import type { RowSave, RunInputComponent, RunInputs } from '@/components/payroll/useRunInputs';
 
-type GridLine = RunLineAmounts & { employeeId: string };
-
 interface Props {
   runId: string;
-  lines: GridLine[];
+  lines: RunLineAmounts[];
   inputs: RunInputs;
   saves: Record<string, RowSave>;
   resetKey: number;
@@ -69,7 +67,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resetKey, commit
   const earningId = earnings.find((c) => c.id === pickedEarning)?.id ?? earnings[0]?.id ?? '';
   const deductionId = deductions.find((c) => c.id === pickedDeduction)?.id ?? deductions[0]?.id ?? '';
 
-  const cell = (column: Column, componentId: string) => function RunInputCell(l: GridLine, row: number) {
+  const cell = (column: Column, componentId: string) => function RunInputCell(l: RunLineAmounts, row: number) {
     if (!componentId || !inputs.employeeIds.includes(l.employeeId)) {
       return <span className="text-[var(--ff-text-tertiary)]">—</span>;
     }
@@ -86,7 +84,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resetKey, commit
     );
   };
 
-  const save = (l: GridLine) => {
+  const save = (l: RunLineAmounts) => {
     const s = saves[l.employeeId];
     return s ? <AutosaveStatus state={s.state} savedAt={s.savedAt} errorMessage={s.message} className="w-44" /> : null;
   };

@@ -97,6 +97,24 @@ describe('PayRunReviewGrid', () => {
     await waitFor(() => expect(puts()).toHaveLength(1));
   });
 
+  it('keeps focus and typed text in the next row when the save answers, though the recalculation made new line ids', async () => {
+    // replaceRunLines deletes and re-inserts: a row keyed by the line id would remount under the cursor.
+    const fresh = [line('91', 'Riaan Smit', [], { employeeId: 'e-1' }), line('92', 'Thandi Nkosi', [], { employeeId: 'e-2' })];
+    let answer: (r: Response) => void = () => undefined;
+    serve(() => new Promise<Response>((resolve) => { answer = resolve; }));
+    render(<PayrollRunDetailPage />);
+    const [first, second] = [await cell('Riaan Smit'), await cell('Thandi Nkosi')];
+    type(first, '10');
+    fireEvent.keyDown(first, { key: 'Enter' });
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    fireEvent.change(second, { target: { value: '25' } });
+    answer(ok(inputsBody(twoRuns({ lines: fresh }))));
+    await within(rowOf('Riaan Smit')).findByText(/^Saved/);
+    expect(await cell('Thandi Nkosi')).toBe(second);
+    expect(document.activeElement).toBe(second);
+    expect(second.value).toBe('25');
+  });
+
   it('sends the second commit only after the first has answered', async () => {
     let answerFirst: (r: Response) => void = () => undefined;
     const first = new Promise<Response>((resolve) => { answerFirst = resolve; });
