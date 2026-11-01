@@ -290,6 +290,7 @@ export default function NewSupplierInvoicePage() {
               total={total}
               taxRate={form.taxRate}
               isSubmitting={isSubmitting}
+              disabled={dates.blocked}
             />
           </div>
         </form>

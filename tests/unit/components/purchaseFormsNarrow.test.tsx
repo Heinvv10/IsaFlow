@@ -58,7 +58,7 @@ describe.each(FORMS)('$name form at a narrow width', ({ page, summary, lines, da
     expect(region.getAttribute('tabindex')).toBe('0');
     expect(region.className).toContain('overflow-x-auto');
     expect(within(region).getByRole('table').className).toContain('min-w-[720px]');
-    expect(within(region).getByRole('button', { name: 'Remove line' }).className).not.toContain('opacity-0');
+    expect(within(region).getByRole('button', { name: 'Remove line 1' }).className).not.toContain('opacity-0');
     expect(screen.getByText('Scroll sideways to see every column.').className).toContain('md:hidden');
   });
 });
