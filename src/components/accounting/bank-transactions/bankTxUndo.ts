@@ -18,7 +18,8 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import type { RowSelection } from '@/components/accounting/BankTxTable';
 
 const LEARNING_KEPT_MESSAGE = 'Undo reverses the journal. What was learned from this allocation is kept.';
-// categorization_decisions: a decided row is never re-opened (migration 903).
+// categorization_decisions: a decided row is never re-opened (migration 903), and a person's allocation closed it.
+const DECISION_KEPT_MESSAGE = 'Undo reverses the journal. If ISAFlow suggested a coding, your decision on it stays recorded.';
 const SUGGESTION_KEPT_MESSAGE = 'Undo restores the line. If ISAFlow suggested a coding, it stays recorded as rejected.';
 
 interface UndoContext {
@@ -48,7 +49,7 @@ function notifyUndone(contra: ContraDates | undefined): void {
 
 export function offerAllocationUndo(txId: string, journalEntryId: string, learned: boolean, ctx: UndoContext): void {
   notify.undoable('Transaction allocated', {
-    ...(learned ? { message: LEARNING_KEPT_MESSAGE } : {}),
+    message: learned ? LEARNING_KEPT_MESSAGE : DECISION_KEPT_MESSAGE,
     onUndo: async () => {
       try {
         const reversed = await ctx.callAction({ action: 'reverse', bankTransactionId: txId, expectedJournalEntryId: journalEntryId }) as { data?: ContraDates };

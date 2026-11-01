@@ -3,6 +3,7 @@
  * Cmd+Z reaches it from anywhere, a live region that was there first announces it, the undo runs once however often
  * it is asked for, the toast stays up while it is hovered or focused, and it goes on its own after durationMs.
  */
+import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import toast, { Toaster } from 'react-hot-toast';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -49,6 +50,27 @@ describe('notify.undoable', () => {
     act(() => { notify.undoable('Transaction excluded', { onUndo: vi.fn() }); });
     expect(screen.getByRole('status').firstElementChild).not.toBe(first);
     expect(screen.getByRole('status').firstElementChild?.textContent).toBe(first?.textContent);
+  });
+
+  it('clears the region when the offer ends: a screen reader that walks there later finds no stale offer', () => {
+    open(vi.fn(), { durationMs: 2000 });
+    expect(screen.getByRole('status').textContent).not.toBe('');
+    advance(2000);
+    expect(screen.getByRole('status').textContent).toBe('');
+  });
+
+  it('an older offer ending leaves a newer one\'s words alone', () => {
+    open(vi.fn(), { durationMs: 2000 });
+    advance(1000);
+    act(() => { notify.undoable('Transaction allocated', { onUndo: vi.fn() }); });
+    advance(1000);
+    expect(screen.getByRole('status').textContent).toContain('Transaction allocated.');
+  });
+
+  it('StrictMode\'s second effect run leaves the words in place', () => {
+    render(<StrictMode><UndoAnnouncer /><Toaster /></StrictMode>);
+    act(() => { notify.undoable('Transaction excluded', { onUndo: vi.fn() }); });
+    expect(screen.getByRole('status').textContent).toContain('Transaction excluded.');
   });
 
   it('does not cut the message off: it may say what undo does not do', () => {
@@ -175,6 +197,50 @@ describe('notify.undoable', () => {
       expect(onUndo).not.toHaveBeenCalled();
     });
 
+    it.each(['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'color', 'range'])('an input of type %s has no text to undo: the key is ours', (type) => {
+      const onUndo = open();
+      const box = document.body.appendChild(document.createElement('input'));
+      box.type = type;
+      press(box);
+      box.remove();
+      expect(onUndo).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['text', 'search', 'number', 'date', 'email'])('an input of type %s keeps its own Ctrl+Z', (type) => {
+      const onUndo = open();
+      const field = document.body.appendChild(document.createElement('input'));
+      field.type = type;
+      press(field);
+      field.remove();
+      expect(onUndo).not.toHaveBeenCalled();
+    });
+
+    it('a key something else already took stays taken: the budget grid has an undo of its own', () => {
+      const onUndo = vi.fn();
+      render(<><Toaster /><div data-testid="grid" tabIndex={0} onKeyDown={(e) => e.preventDefault()} /></>);
+      act(() => { notify.undoable('Transaction allocated', { onUndo }); });
+      press(screen.getByTestId('grid'));
+      expect(onUndo).not.toHaveBeenCalled();
+    });
+
+    it('stands down while any modal is open, with focus outside it', () => {
+      const onUndo = open();
+      const modal = document.body.appendChild(document.createElement('div'));
+      modal.setAttribute('aria-modal', 'true');
+      press(document.body);
+      modal.remove();
+      expect(onUndo).not.toHaveBeenCalled();
+    });
+
+    it('a shell that says aria-modal="false", as the closed sidebar does, does not stand it down', () => {
+      const onUndo = open();
+      const shell = document.body.appendChild(document.createElement('nav'));
+      shell.setAttribute('aria-modal', 'false');
+      press(document.body);
+      shell.remove();
+      expect(onUndo).toHaveBeenCalledTimes(1);
+    });
+
     it('a key pressed in a dialog stays there: the undo behind it posts', () => {
       const onUndo = open();
       const dialog = document.body.appendChild(document.createElement('div'));
@@ -192,6 +258,19 @@ describe('notify.undoable', () => {
       press(document.body);
       expect(newer).toHaveBeenCalledTimes(1);
       expect(older).not.toHaveBeenCalled();
+      advance(500);
+      press(document.body);
+      expect(older).toHaveBeenCalledTimes(1);
+    });
+
+    it('a double-tap undoes one: the second press inside 500 ms is ignored, and the browser still gets nothing', () => {
+      const older = open();
+      act(() => { notify.undoable('Transaction allocated', { onUndo: vi.fn() }); });
+      press(document.body);
+      advance(499);
+      expect(press(document.body), 'still ours, so no browser undo').toBe(false);
+      expect(older).not.toHaveBeenCalled();
+      advance(1);
       press(document.body);
       expect(older).toHaveBeenCalledTimes(1);
     });

@@ -15,7 +15,6 @@
 import toast from 'react-hot-toast';
 import { CheckCircle2, XCircle, AlertTriangle, Info, Loader2 } from 'lucide-react';
 import { UndoToast, type UndoOptions } from './UndoToast';
-import { announceUndo } from './UndoAnnouncer';
 
 function ToastBody({ icon, title, message, accent }: {
   icon: React.ReactNode;
@@ -157,7 +156,6 @@ export const notify = {
       ran = true;
       void opts.onUndo();
     };
-    announceUndo([`${title}.`, opts.message, 'Press Control Z to undo.'].filter(Boolean).join(' '));
     return toast.custom((t) => <UndoToast t={t} title={title} opts={opts} undoOnce={undoOnce} />, { duration: Infinity });
   },
 
