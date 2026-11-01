@@ -166,6 +166,36 @@ describe('PATCH /api/payroll/employees/:id', () => {
     await setEndDate(null);
   });
 
+  const birthDate = async () => (await pool.query<{ date_of_birth: string | null }>(
+    'SELECT date_of_birth::text AS date_of_birth FROM payroll_employees WHERE id = $1', [staff])).rows[0]!.date_of_birth;
+
+  it.each([
+    ['with an era after the day', '2030-01-01 BC'], ['with junk after the day', '1980-05-01junk'],
+    ['with another time on it', '1980-05-01T12:00:00.000Z'], ['not a date', 'soon'], ['not text', 19800501],
+  ])('a date of birth %s: 400 and it stands', async (_n, value) => {
+    const before = await birthDate();
+    const out = await patch({ dateOfBirth: value });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(/dateOfBirth must be a real date/);
+    expect(await birthDate()).toBe(before);
+  });
+
+  it.each([
+    ['a plain day', '1981-02-03'], ['the timestamp the API answers with', '1982-03-04T00:00:00.000Z'],
+  ])('a date of birth as %s is stored as the day', async (_n, value) => {
+    const out = await patch({ dateOfBirth: value });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    expect(await birthDate()).toBe(value.slice(0, 10));
+  });
+
+  it('a start date in the body changes nothing: PATCH does not write it', async () => {
+    const start = async () => (await pool.query<{ s: string }>('SELECT start_date::text AS s FROM payroll_employees WHERE id = $1', [staff])).rows[0]!.s;
+    const before = await start();
+    const out = await patch({ startDate: '2030-01-01 BC' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    expect(await start()).toBe(before);
+  });
+
   it('a suffix on the stored day is not the stored day: refused, and the date stands', async () => {
     await setEndDate('2030-06-30');
     const out = await patch({ endDate: '2030-06-30 BC' });
