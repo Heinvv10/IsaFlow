@@ -6,7 +6,7 @@
  * closure CALLS, so a new suite needs no list entry.
  */
 import { describe, expect, it } from 'vitest';
-import { assignShards, importClosure, joinRelative, routeSuite } from '../../../scripts/ci/integration/suiteRoute';
+import { assignShards, importClosure, joinRelative, routeSuite, shardCount } from '../../../scripts/ci/integration/suiteRoute';
 
 const FILES: Record<string, string> = {
   'tests/helpers/assertNotProductionDb.ts': 'export function assertNotProductionDb(reason: string): void {}\n',
@@ -79,5 +79,21 @@ describe('assignShards', () => {
 
   it('deals equal suites round-robin in path order', () => {
     expect(assignShards(suites, 3, {}, 1).map((s) => s.shard)).toEqual([1, 2, 3, 1, 2, 3]);
+  });
+});
+
+describe('shardCount', () => {
+  it('runs one shard per CPU less one, at most six', () => {
+    expect([1, 2, 4, 7, 32].map((c) => shardCount(c))).toEqual([1, 1, 3, 6, 6]);
+  });
+
+  it('takes CI_INT_SHARDS over the CPU count, beyond six too', () => {
+    expect(shardCount(4, '2')).toBe(2);
+    expect(shardCount(4, '8')).toBe(8);
+    expect(shardCount(32, '')).toBe(6);
+  });
+
+  it('refuses a CI_INT_SHARDS that is not a positive integer', () => {
+    for (const bad of ['0', '-1', '2.5', 'six']) expect(() => shardCount(4, bad)).toThrow(/CI_INT_SHARDS/);
   });
 });

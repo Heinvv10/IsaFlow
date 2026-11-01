@@ -18,11 +18,11 @@ export const taxTab: Tab = {
       ],
     },
     {
-      section: 'SARS Submissions',
+      section: 'SARS Filings',
       items: [
         { label: 'VAT201', href: '/accounting/sars/vat201' },
         { label: 'VAT Period Locks', href: '/accounting/sars/vat-locks' },
-        { label: 'EMP201 Submission', href: '/accounting/sars/emp201' },
+        { label: 'EMP201 Filing', href: '/accounting/sars/emp201' },
         { label: 'EMP201 / SDL (Payroll)', href: '/accounting/sars/emp201' },
         { label: 'Year-End Workflow', href: '/payroll/year-end' },
         { label: 'EMP501 Reconciliation', href: '/payroll/emp501' },
@@ -35,7 +35,7 @@ export const taxTab: Tab = {
       section: 'Compliance',
       items: [
         { label: 'Compliance Calendar', href: '/accounting/sars' },
-        { label: 'Submission History', href: '/accounting/sars/submissions' },
+        { label: 'Filing History', href: '/accounting/sars/submissions' },
       ],
     },
     {
