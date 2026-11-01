@@ -118,7 +118,8 @@
     "postcss": "^8.5.32",
     "tailwindcss": "^3.4.19",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "xml-js": "^1.6.11"
   },
   "overrides": {
     "axios": "1.21.0",
