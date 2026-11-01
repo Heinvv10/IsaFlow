@@ -129,7 +129,8 @@ export default function BankReconciliationListPage() {
               <Trash2 className="h-4 w-4" />
             </button>
           )}
-          <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-teal-500 hover:text-teal-400">
+          <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-teal-500 hover:text-teal-400"
+            aria-label={`${r.status === 'completed' ? 'View' : 'Continue'} reconciliation for ${r.bankAccountName || 'bank account'}`}>
             {r.status === 'completed' ? <CheckCircle2 className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </Link>
         </div>
