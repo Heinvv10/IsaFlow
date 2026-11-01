@@ -7,9 +7,11 @@
  * its item count, an object of more than MAX_LOGGED_KEYS as its key count, and a
  * string over LONG_STRING as its length, so a bulk body (a 20 000-cell budget
  * save, ~3.4 MB, or a 14 MB base64 upload) is never written to the request log
- * whole. A body that is not JSON cannot be read for what it holds, so it is not
- * logged at all: a top-level string (text/plain) is a size marker, and a key
- * that is not a name (a form-encoded JSON body parses to one key) is counted.
+ * whole. Only a JSON object can be read for what it holds, so loggableRequestBody
+ * logs nothing else: text, form-encoded bodies (whose keys may be the data) and
+ * anything without a JSON content type are omitted outright. In a JSON object, a
+ * key that may itself be data (over 64 characters, or holding six or more digits
+ * in a row, the shortest account number) is left out and counted.
  */
 
 const SENSITIVE_KEYS = new Set([
@@ -29,8 +31,8 @@ const SENSITIVE_KEYS = new Set([
 // — too broad; 'accountno' would also match account_notes).
 const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'apikey', 'verifier', 'accountnumber'];
 
-/** A client's spelling of a field does not matter: AccountNumber, account-number and account_number are one key. */
-const normaliseKey = (key: string) => key.toLowerCase().replace(/[_-]/g, '');
+/** A client's spelling of a field does not matter: AccountNumber, account.number and `account number` are one key. */
+const normaliseKey = (key: string) => key.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 const NORMALISED_SENSITIVE_KEYS = new Set([...SENSITIVE_KEYS].map(normaliseKey));
 
 function isSensitiveKey(key: string): boolean {
@@ -38,8 +40,9 @@ function isSensitiveKey(key: string): boolean {
   return NORMALISED_SENSITIVE_KEYS.has(k) || SENSITIVE_FRAGMENTS.some((f) => k.includes(f));
 }
 
-/** A key is logged only if it reads as a field name, up to 64 characters: anything else may be the data itself. */
-const LOGGABLE_KEY = /^[\p{L}\p{N}_$. -]{1,64}$/u;
+/** A key too long to be a field name, or with an account number's run of digits in it, even split up, may be the data itself. */
+const MAX_LOGGED_KEY_LENGTH = 64;
+const keyMayBeData = (key: string) => key.length > MAX_LOGGED_KEY_LENGTH || /\p{Nd}{6}/u.test(normaliseKey(key));
 
 /** Always a file or an ID number, whatever the value looks like. */
 const PAYLOAD_KEYS = new Set(['file_data', 'fileData', 'idDocument', 'logoData', 'idNumber', 'id_number']);
@@ -72,7 +75,7 @@ export function sanitizeRequestBody(body: unknown, depth = 0): unknown {
   const sanitized: Record<string, unknown> = {};
   let omittedKeys = 0;
   for (const [key, value] of entries) {
-    if (!LOGGABLE_KEY.test(key)) omittedKeys += 1;
+    if (keyMayBeData(key)) omittedKeys += 1;
     else if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';
     else if (PAYLOAD_KEYS.has(key) && present(value)) sanitized[key] = omitted(value);
     else if (key === 'data' && holdsFiles(value)) sanitized[key] = omitted(value);
@@ -80,4 +83,13 @@ export function sanitizeRequestBody(body: unknown, depth = 0): unknown {
   }
   if (omittedKeys > 0) sanitized['[omitted keys]'] = omittedKeys;
   return sanitized;
+}
+
+/** What the request log may hold of a body: a JSON object, scrubbed, or that something else was sent. */
+export function loggableRequestBody(req: { headers: Record<string, string | string[] | undefined>; body?: unknown }): unknown {
+  const { body } = req;
+  if (!present(body)) return undefined;
+  const contentType = String(req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+  const isObject = typeof body === 'object' && !Array.isArray(body);
+  return contentType === 'application/json' && isObject ? sanitizeRequestBody(body) : '[omitted: not a JSON object]';
 }

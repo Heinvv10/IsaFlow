@@ -11,7 +11,7 @@ import { redactShareToken, redactTokenParams } from '@/lib/observability/redactS
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { sanitizeRequestBody } from '@/lib/sanitizeRequestBody';
+import { loggableRequestBody } from '@/lib/sanitizeRequestBody';
 
 /**
  * Standard API error response
@@ -83,7 +83,7 @@ export function withErrorHandler(
           method: req.method,
           url: safeUrl,
           query: redactTokenParams(req.query),
-          body: req.method !== 'GET' ? sanitizeRequestBody(req.body) : undefined,
+          body: req.method !== 'GET' ? loggableRequestBody(req) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 
         // Execute the actual handler

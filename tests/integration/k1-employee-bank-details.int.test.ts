@@ -189,14 +189,23 @@ describe('the request log (journald: what the logger writes to stdout)', () => {
   });
 
   const raw = JSON.stringify(ROW);
+  const FORM = 'application/x-www-form-urlencoded';
+  const JSON_TYPE = 'application/json';
   // The shapes Next's parser gives these bodies: a string, and the whole text as one key with an empty value.
   it.each([
-    ['text/plain', raw],
-    ['x-www-form-urlencoded', { [raw]: '' }],
-    ['a short form key', { [`{"accountNumber":"${ROW.accountNumber}"}`]: '' }],
-    ['AccountNumber', { ...ROW, accountNumber: undefined, AccountNumber: ROW.accountNumber }],
-    ['account_no', { ...ROW, accountNumber: undefined, account_no: ROW.accountNumber }],
-  ])('a PUT carrying the number as %s is refused 422 and the number is not logged', async (_name, body) => {
+    ['text/plain', 'text/plain', raw],
+    ['a form body holding the JSON as a key', FORM, { [raw]: '' }],
+    ['a short form key', FORM, { [`{"accountNumber":"${ROW.accountNumber}"}`]: '' }],
+    ['a form-encoded bare number', FORM, { [ROW.accountNumber]: '' }],
+    ['a form field with an ordinary name', FORM, { note: ROW.accountNumber }],
+    ['a JSON key that is the number', JSON_TYPE, { ...ROW, accountNumber: undefined, [ROW.accountNumber]: 'x' }],
+    ['a JSON key holding the number', JSON_TYPE, { ...ROW, accountNumber: undefined, [`acct${ROW.accountNumber}`]: 'x' }],
+    ['AccountNumber', JSON_TYPE, { ...ROW, accountNumber: undefined, AccountNumber: ROW.accountNumber }],
+    ['Account Number', JSON_TYPE, { ...ROW, accountNumber: undefined, 'Account Number': ROW.accountNumber }],
+    ['account.number', JSON_TYPE, { ...ROW, accountNumber: undefined, 'account.number': ROW.accountNumber }],
+    ['account no', JSON_TYPE, { ...ROW, accountNumber: undefined, 'account no': ROW.accountNumber }],
+    ['account_no', JSON_TYPE, { ...ROW, accountNumber: undefined, account_no: ROW.accountNumber }],
+  ])('a PUT carrying the number as %s is refused 422 and the number is not logged', async (_name, contentType, body) => {
     const c = await company();
     const e = await employee(pool, c);
     const written: string[] = [];
@@ -204,7 +213,7 @@ describe('the request log (journald: what the logger writes to stdout)', () => {
       vi.spyOn(stream, 'write').mockImplementation((chunk: unknown) => { written.push(String(chunk)); return true; });
     }
     let status = 0;
-    try { status = (await put(tokens[o]!, c, e, body)).state.statusCode; } finally { vi.restoreAllMocks(); }
+    try { status = (await put(tokens[o]!, c, e, body, contentType)).state.statusCode; } finally { vi.restoreAllMocks(); }
     expect(status).toBe(422);
     const lines = written.join('');
     expect(lines).toContain('API Request: PUT');

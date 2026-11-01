@@ -19,8 +19,8 @@ export async function employee(pool: Pool, company: string): Promise<string> {
 }
 
 export const url = (id: string) => `/api/payroll/employees/${id}/bank-details`;
-export const put = (token: string, company: string, id: string, body: unknown) =>
-  callRoute(bankDetails, token, company, 'PUT', body, url(id), { id });
+export const put = (token: string, company: string, id: string, body: unknown, contentType?: string) =>
+  callRoute(bankDetails, token, company, 'PUT', body, url(id), { id }, contentType === undefined ? {} : { 'content-type': contentType });
 export const get = (token: string, company: string, id: string) =>
   callRoute(bankDetails, token, company, 'GET', undefined, url(id), { id });
 
