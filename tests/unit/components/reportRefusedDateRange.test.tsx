@@ -31,6 +31,10 @@ const TO_B = `${year + 1}-01-16`;
 const textbox = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement;
 const urls = (path: string) => vi.mocked(apiFetch).mock.calls.map(([url]) => String(url)).filter((url) => url.includes(path));
 const body = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
+const held = () => {
+  let release: () => void = () => undefined;
+  return { held: new Promise<void>((resolve) => { release = resolve; }), release: () => release() };
+};
 
 async function open(page: RangePage) {
   const gate = gatePage(page.file);
@@ -96,24 +100,33 @@ describe.each(RANGE_PAGES)('$file', (page) => {
     expect(screen.getByText(NOW)).toBeTruthy();
   });
 
-  it('an older response does not replace the range that followed it', async () => {
+  it.each([
+    { outcome: 'answer', late: () => body({ data: page.data(LATE) }) },
+    { outcome: 'failure', late: () => body({ success: false, error: { message: 'Refused' } }, 500) },
+  ])('an older $outcome neither replaces the range that followed it nor ends its loading', async ({ late }) => {
     await open(page);
     const base = vi.mocked(apiFetch).getMockImplementation()!;
-    let release: () => void = () => undefined;
-    const held = new Promise<void>((resolve) => { release = resolve; });
+    const older = held();
+    const newer = held();
     vi.mocked(apiFetch).mockImplementation(async (url, ...rest) => {
-      if (!String(url).includes(`${toParam}=${TO_A}`)) return base(url, ...rest);
-      await held;
-      return body({ data: page.data(LATE) });
+      if (String(url).includes(`${toParam}=${TO_A}`)) { await older.held; return late(); }
+      if (String(url).includes(`${toParam}=${TO_B}`)) await newer.held;
+      return base(url, ...rest);
     });
     typeDate(textbox('To'), TO_A);
     await waitFor(() => expect(urls(paths[0]!).some((url) => url.includes(TO_A))).toBe(true));
     typeDate(textbox('To'), TO_B);
-    await screen.findByText(NOW);
-    release();
+    await waitFor(() => expect(urls(paths[0]!).some((url) => url.includes(TO_B))).toBe(true));
+    older.release();
     await settle();
+    expect(document.querySelector('.animate-spin')).toBeTruthy();
     expect(screen.queryByText(LATE)).toBeNull();
-    expect(screen.getByText(NOW)).toBeTruthy();
+    expect(screen.queryByText(/Refused/)).toBeNull();
+    newer.release();
+    await screen.findByText(NOW);
+    await settle();
+    expect(document.querySelector('.animate-spin')).toBeNull();
+    expect(screen.queryByText(LATE)).toBeNull();
   });
 
   it('a load that failed is retried when a refusal ends on the same range', async () => {
@@ -142,4 +155,32 @@ it('management-accounts: Run runs the same range again, once', async () => {
   await settle();
   expect(urls('reports-management-accounts').length).toBe(before.length + 1);
   expect(urls('reports-management-accounts').at(-1)).toBe(before.at(-1));
+});
+
+it('management-accounts: a hidden report is not print-ready', async () => {
+  await open(RANGE_PAGES.find((p) => p.file === 'management-accounts')!);
+  const ready = () => document.querySelector('[data-print-ready]')!.getAttribute('data-print-ready');
+  expect(ready()).toBe('true');
+  typeDate(textbox('From'), 'zz');
+  await screen.findByText(SHOWN);
+  typeDate(textbox('To'), TO_A);
+  await screen.findByText(NOT_RUN);
+  expect(ready()).toBe('false');
+});
+
+it('report-packs: a pack refused by the rate limit is asked for again when a refusal ends', async () => {
+  await open(RANGE_PAGES.find((p) => p.file === 'report-packs')!);
+  const base = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (url, ...rest) => (String(url).includes(`to=${TO_A}`) ? new Response('{}', { status: 429 }) : base(url, ...rest)));
+  typeDate(textbox('To'), TO_A);
+  await waitFor(() => expect(urls('reports-pack').some((url) => url.includes(TO_A))).toBe(true));
+  await waitFor(() => expect(screen.queryByText(NOW)).toBeNull());
+  await settle();
+  const field = textbox('From');
+  const shown = field.value;
+  const before = urls('reports-pack').length;
+  typeDate(field, 'zz');
+  await waitFor(() => expect(field.getAttribute('aria-invalid')).toBe('true'));
+  typeDate(field, shown);
+  await waitFor(() => expect(urls('reports-pack').length).toBe(before + 1));
 });
