@@ -1,5 +1,9 @@
 /**
- * check-raw-input-allowlist — the raw-input allowlist may only shrink.
+ * check-raw-input-allowlist — the raw-input and unnamed-control allowlists may only shrink.
+ *
+ * Both lists are checked in one ESLint run, each by the same rules below: eslint/raw-input-allowlist.json for
+ * isaflow/no-raw-form-input and eslint/unnamed-control-allowlist.json for isaflow/no-unnamed-control (<select>,
+ * <textarea>). The text below speaks of the first; the second behaves the same.
  *
  * eslint/raw-input-allowlist.json maps each file that still uses a raw <input type="date"> or an unlabelled
  * <input> (rule isaflow/no-raw-form-input) to how many reports it has. `bun run lint` fails a file that goes
@@ -35,12 +39,14 @@ import { ESLint } from 'eslint';
 import tsParser from '@typescript-eslint/parser';
 import isaflow from '../../eslint/isaflow-plugin.mjs';
 import { ALLOWLIST_FILE } from '../../eslint/rules/no-raw-form-input.mjs';
-import { runGate, type Counts } from './rawInputAllowlist';
+import { UNNAMED_CONTROL_ALLOWLIST_FILE } from '../../eslint/rules/no-unnamed-control.mjs';
+import { runGate, RAW_INPUT_LIST, UNNAMED_CONTROL_LIST, type Counts, type ListSpec } from './rawInputAllowlist';
 
-const RULE = 'isaflow/no-raw-form-input';
+const RULES = ['isaflow/no-raw-form-input', 'isaflow/no-unnamed-control'] as const;
+type Rule = (typeof RULES)[number];
 
-/** Reports per file with the allowlist emptied (files with none are absent). */
-async function actualCounts(): Promise<Counts> {
+/** Reports per rule and file with the allowlists emptied (files with none are absent). */
+async function lintCounts(): Promise<Record<Rule, Counts>> {
   const eslint = new ESLint({
     overrideConfigFile: true,
     overrideConfig: [
@@ -49,7 +55,7 @@ async function actualCounts(): Promise<Counts> {
         linterOptions: { noInlineConfig: true },
         languageOptions: { parser: tsParser, parserOptions: { ecmaFeatures: { jsx: true } } },
         plugins: { isaflow },
-        rules: { [RULE]: ['error', { allowlist: {} }] },
+        rules: Object.fromEntries(RULES.map((r) => [r, ['error', { allowlist: {} }]])),
       },
     ],
   });
@@ -58,26 +64,41 @@ async function actualCounts(): Promise<Counts> {
     r.messages.filter((m) => m.fatal).map((m) => `${path.relative(process.cwd(), r.filePath)}: ${m.message}`),
   );
   if (parseErrors.length > 0) throw new Error(`could not parse:\n${parseErrors.join('\n')}`);
-  const counts: Counts = {};
-  for (const r of results) {
-    const n = r.messages.filter((m) => m.ruleId === RULE).length;
-    if (n > 0) counts[path.relative(process.cwd(), r.filePath).split(path.sep).join('/')] = n;
-  }
-  return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : 1)));
+  const perRule = (rule: Rule): Counts => {
+    const counts: Counts = {};
+    for (const r of results) {
+      const n = r.messages.filter((m) => m.ruleId === rule).length;
+      if (n > 0) counts[path.relative(process.cwd(), r.filePath).split(path.sep).join('/')] = n;
+    }
+    return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : 1)));
+  };
+  return { [RULES[0]]: perRule(RULES[0]), [RULES[1]]: perRule(RULES[1]) } as Record<Rule, Counts>;
 }
 
 const git = (args: string[]): string => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 
-runGate({
-  env: process.env,
-  writing: process.argv.includes('--write'),
-  git,
-  actualCounts,
-  readList: () => (existsSync(ALLOWLIST_FILE) ? readFileSync(ALLOWLIST_FILE, 'utf8') : null),
-  writeList: (counts) => writeFileSync(ALLOWLIST_FILE, `${JSON.stringify(counts, null, 2)}\n`),
-  log: (line) => console.log(line),
-  error: (line) => console.error(line),
-}).then(
+// One ESLint run, started on first use: a refused base ref still fails before it.
+let linted: Promise<Record<Rule, Counts>> | undefined;
+const countsFor = (rule: Rule) => async (): Promise<Counts> => (await (linted ??= lintCounts()))[rule];
+
+const gate = (rule: Rule, list: ListSpec, file: string): Promise<number> =>
+  runGate({
+    env: process.env,
+    writing: process.argv.includes('--write'),
+    git,
+    actualCounts: countsFor(rule),
+    readList: () => (existsSync(file) ? readFileSync(file, 'utf8') : null),
+    writeList: (counts) => writeFileSync(file, `${JSON.stringify(counts, null, 2)}\n`),
+    log: (line) => console.log(line),
+    error: (line) => console.error(line),
+    list,
+  });
+
+(async () => {
+  const a = await gate(RULES[0], RAW_INPUT_LIST, ALLOWLIST_FILE);
+  const b = await gate(RULES[1], UNNAMED_CONTROL_LIST, UNNAMED_CONTROL_ALLOWLIST_FILE);
+  return Math.max(a, b);
+})().then(
   (code) => process.exit(code),
   (err: unknown) => {
     console.error(err);

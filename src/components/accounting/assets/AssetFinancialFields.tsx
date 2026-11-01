@@ -1,4 +1,4 @@
-import { DateField } from '@/components/ui';
+import { DateField, type DateFieldCode, type FieldValidity } from '@/components/ui';
 /** Section 3 of the new-asset form: purchase date, cost, salvage value and useful life. */
 export const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 export const lbl = 'block text-xs font-semibold text-ink-muted uppercase tracking-wider mb-1.5';
@@ -14,7 +14,7 @@ export interface AssetFinancialForm {
 export function AssetFinancialFields({ form, update, onDateChange, dateError }: {
   form: AssetFinancialForm;
   update: (field: string, value: string) => void;
-  onDateChange: (iso: string | null, reason: string | null) => void;
+  onDateChange: (iso: string | null, validity: FieldValidity<DateFieldCode>) => void;
   dateError?: string;
 }) {
   return (
@@ -31,7 +31,7 @@ export function AssetFinancialFields({ form, update, onDateChange, dateError }: 
             required
             error={dateError || undefined}
             value={form.purchaseDate || null}
-            onChange={(iso, v) => onDateChange(iso, v.valid ? null : v.reason)}
+            onChange={onDateChange}
           />
         </div>
         <div>

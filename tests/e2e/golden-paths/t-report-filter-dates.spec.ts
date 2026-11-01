@@ -2,7 +2,8 @@
 /**
  * Golden path (t): report filter dates are typed DateFields (master plan wave 1, F1).
  *
- * On the Profit & Loss: type "1 Sep 2026" into From and "eom" into To, and the header names the range;
+ * On the Profit & Loss: type "1 Sep 2026" into From and "eom" into To, and the header names 1 to 30 Sep 2026
+ * (To's "eom" counts from From, wave 2 L);
  * refused text ("zz") leaves the report on its last good range; the filter dates carry no serious axe
  * violation; light and dark screenshots. Read-only: it only filters a report.
  */
@@ -13,16 +14,8 @@ import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { seedTheme, settle, SETTLE_MS, THEMES } from '../helpers/themeSpec';
 
 const SHOTS = 'docs/evidence/master-plan/wave1/report-filter-dates';
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DATE_INPUTS = 'input[placeholder="dd MMM yyyy"]';
 const heading = (page: Page) => page.getByRole('heading', { name: /Profit & Loss —/ });
-
-/** "eom" is the end of THIS month; the page reads the browser clock, so does the expectation. */
-function endOfThisMonth(): string {
-  const now = new Date();
-  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return `${String(last.getDate()).padStart(2, '0')} ${MONTHS[last.getMonth()]} ${last.getFullYear()}`;
-}
 
 async function typeInto(page: Page, label: string, text: string): Promise<void> {
   const field = page.getByLabel(label, { exact: true });
@@ -38,9 +31,9 @@ test('P&L: typed From and "eom" To set the range the header names', async ({ pag
   await settle(page);
   await typeInto(page, 'From', '1 Sep 2026');
   await typeInto(page, 'To', 'eom');
-  await expect(heading(page)).toContainText(`01 Sep 2026 to ${endOfThisMonth()}`, { timeout: SETTLE_MS });
-  await typeInto(page, 'To', '30 Sep 2026');
   await expect(heading(page)).toContainText('01 Sep 2026 to 30 Sep 2026', { timeout: SETTLE_MS });
+  await typeInto(page, 'To', '15 Sep 2026');
+  await expect(heading(page)).toContainText('01 Sep 2026 to 15 Sep 2026', { timeout: SETTLE_MS });
 });
 
 test('P&L: refused text does not change the range or fetch', async ({ page }) => {
