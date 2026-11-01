@@ -37,7 +37,7 @@ export default function NewPurchaseOrderPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const dates = useDateGate();
-  const linesOverflow = useOverflowX();
+  const { attach: attachLines, overflows: linesOverflow } = useOverflowX();
   const [saveAndNew, setSaveAndNew] = useState(false);
   const [form, setForm] = useState({
     supplierId: '', orderDate: localISODate(),
@@ -143,8 +143,8 @@ export default function NewPurchaseOrderPage() {
                     <Plus className="h-3 w-3" />Add Line
                   </button>
                 </div>
-                {linesOverflow.overflows && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
-                <div ref={linesOverflow.ref} className="overflow-x-auto" role="region" aria-label="Purchase order lines" tabIndex={0}>
+                {linesOverflow && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
+                <div ref={attachLines} className="overflow-x-auto" role="region" aria-label="Purchase order lines" tabIndex={0}>
                   <table className="w-full min-w-[720px] text-sm">
                     <thead className="bg-slate-50 dark:bg-slate-800/60">
                       <tr>
