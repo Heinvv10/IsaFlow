@@ -8,6 +8,8 @@ import { sql } from '@/lib/neon';
 import { billForeignCurrencySql, invoiceForeignCurrencySql } from '@/modules/accounting/services/shared/documentCurrency';
 import type { MatchCandidate } from '@/modules/accounting/types/bank-match.types';
 import type { DbRow } from '@/types/db';
+import { UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 import {
   scoreAmount,
   scoreDate,
@@ -53,10 +55,10 @@ export async function fetchSupplierInvoiceCandidates(
   invoiceRefs: string[],
 ): Promise<MatchCandidate[]> {
   const allRows = (await sql`
-    SELECT si.id, si.invoice_number, COALESCE(s.company_name, s.name) AS supplier_name,
+    SELECT si.id, si.invoice_number, COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name,
            si.total_amount, si.invoice_date, si.amount_paid
     FROM supplier_invoices si
-    JOIN suppliers s ON s.id = si.supplier_id
+    LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     WHERE si.status IN ('approved', 'partially_paid')
       AND si.deleted_at IS NULL
       AND si.company_id = ${companyId}
@@ -113,10 +115,10 @@ export async function fetchCustomerInvoiceCandidates(
   invoiceRefs: string[],
 ): Promise<MatchCandidate[]> {
   const allRows = (await sql`
-    SELECT ci.id, ci.invoice_number, c.name AS customer_name,
+    SELECT ci.id, ci.invoice_number, COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS customer_name,
            ci.total_amount, ci.invoice_date, ci.amount_paid
     FROM customer_invoices ci
-    JOIN customers c ON c.id = ci.customer_id
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
       AND ci.deleted_at IS NULL
       AND ci.company_id = ${companyId}
@@ -172,10 +174,10 @@ export async function fetchPurchaseOrderCandidates(
   // no row can carry, and 'partially_received' — the status a part-delivered PO
   // actually holds — was never offered as a candidate.
   const allRows = (await sql`
-    SELECT po.id, po.po_number, COALESCE(s.company_name, s.name) AS supplier_name,
+    SELECT po.id, po.po_number, COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name,
            po.total, po.created_at
     FROM purchase_orders po
-    JOIN suppliers s ON s.id = po.supplier_id
+    LEFT JOIN suppliers s ON s.id = po.supplier_id AND s.company_id = po.company_id
     WHERE po.status IN ('approved', 'partially_received')
       AND po.company_id = ${companyId}
     ORDER BY ABS(po.total - ${absAmount}::NUMERIC) ASC

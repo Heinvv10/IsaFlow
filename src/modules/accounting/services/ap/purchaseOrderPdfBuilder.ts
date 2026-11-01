@@ -30,7 +30,7 @@ export async function generatePurchaseOrderPdf(
            s.address        AS supplier_address,
            s.contact_person AS supplier_contact
     FROM supplier_purchase_orders po
-    LEFT JOIN suppliers s ON s.id = po.supplier_id
+    LEFT JOIN suppliers s ON s.id = po.supplier_id AND s.company_id = po.company_id
     WHERE po.id = ${poId}::UUID
       AND po.company_id = ${companyId}::UUID
   `) as DbRow[];
