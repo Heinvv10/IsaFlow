@@ -87,7 +87,7 @@ export function PayrollRunTotals({ run }: { run: RunHeaderTotals }) {
 const th = 'py-2 px-4 text-[var(--ff-text-secondary)] font-medium';
 const num = 'py-2 px-4 text-right tabular-nums';
 
-/** The grid's extra columns: a cell per line, its row index, and a save status at the row's end. */
+/** The grid's extra columns: a cell per line and its row index; the save status sits under the name, always on screen. */
 export interface RunLinesEdit {
   earningHead: string;
   earningCell: (line: RunLineAmounts, row: number) => ReactNode;
@@ -106,7 +106,6 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           <th colSpan={edit ? 4 : 3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employee deductions</th>
           <th className="border-l border-[var(--ff-border-primary)]" />
           <th colSpan={3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employer contributions</th>
-          {edit && <th />}
         </tr>
         <tr className="bg-[var(--ff-bg-secondary)] text-left">
           <th className={th}>Emp #</th>
@@ -121,7 +120,6 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>UIF</th>
           <th className={`${th} text-right`}>SDL</th>
           <th className={`${th} text-right`}>ETI</th>
-          {edit && <th className={th}><span className="sr-only">Save status</span></th>}
         </tr>
       </thead>
       <tbody>
@@ -129,7 +127,7 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           // By employee, not line id: a recalculation re-inserts every line, and the grid's cells must survive it.
           <tr key={l.employeeId} className="border-t border-[var(--ff-border-primary)]">
             <td className="py-2 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
-            <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}</td>
+            <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}{edit?.statusCell(l)}</td>
             {edit && <td className={num}>{edit.earningCell(l, row)}</td>}
             <td className={`${num} text-[var(--ff-text-primary)]`}>{formatCurrency(l.grossPay)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.paye)}</td>
@@ -143,7 +141,6 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
             <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.uifEmployer)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.sdl)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.eti)}</td>
-            {edit && <td className="py-2 px-4">{edit.statusCell(l)}</td>}
           </tr>
         ))}
       </tbody>
@@ -159,7 +156,6 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
           <td className={`${num} border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.uifEmployer)}</td>
           <td className={num}>{formatCurrency(t.sdl)}</td>
           <td className={num}>{formatCurrency(t.eti)}</td>
-          {edit && <td />}
         </tr>
       </tfoot>
     </table>

@@ -90,7 +90,7 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     await cell.click();
     await page.keyboard.type('1 234.50');
     await page.keyboard.press('Enter'); // commits and moves down the column
-    await expect(row(page).getByText(/^Saved/)).toBeVisible({ timeout: 15_000 });
+    await expect(row(page).getByText(/^Saved/)).toBeInViewport({ timeout: 15_000 });
     // The recalculation replaces every line row in the database; the cursor must not notice.
     await expect(page.getByLabel('Once-off earning, Pieter Grid')).toBeFocused();
     const after = await netOf();

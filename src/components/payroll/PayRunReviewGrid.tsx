@@ -86,7 +86,7 @@ export function PayRunReviewGrid({ runId, lines, inputs, saves, resetKey, commit
 
   const save = (l: RunLineAmounts) => {
     const s = saves[l.employeeId];
-    return s ? <AutosaveStatus state={s.state} savedAt={s.savedAt} errorMessage={s.message} className="w-44" /> : null;
+    return s ? <AutosaveStatus state={s.state} savedAt={s.savedAt} errorMessage={s.message} className="flex w-44" /> : null;
   };
 
   return (
