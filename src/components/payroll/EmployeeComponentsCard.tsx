@@ -44,7 +44,7 @@ interface Props {
 }
 
 const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
-const label = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
+const label = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'; // as FieldFrame's, beside the DateFields
 
 export function EmployeeComponentsCard({
   components,
@@ -68,8 +68,8 @@ export function EmployeeComponentsCard({
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Pay Components</h2>
 
       <div className="mb-4 pb-4 border-b border-[var(--ff-border-primary)] space-y-3">
-        <div className="flex items-end gap-3">
-          <div className="flex-1">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:items-end">
+          <div className="min-w-0 lg:flex-1">
             <label className={label}>Component</label>
             <select className={field} value={newComponentId} onChange={e => onNewComponentId(e.target.value)}>
               <option value="">Select a component…</option>
@@ -78,27 +78,27 @@ export function EmployeeComponentsCard({
               ))}
             </select>
           </div>
-          <div className="w-40">
+          <div className="lg:w-40">
             <label className={label}>Amount (R)</label>
             <input type="number" step="0.01" className={field}
               value={newAmount} onChange={e => onNewAmount(e.target.value)} />
           </div>
-          <div className="w-48">
+          <div className="lg:w-48">
             <DateField label="Effective from" required value={newFrom || null}
               onChange={(iso, v) => { setFromRefused(!v.valid); if (v.valid) onNewFrom(iso ?? ''); }} />
           </div>
           <button
             onClick={onAssign}
             disabled={!newComponentId || !newAmount || adding || fromRefused}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium"
+            className="flex shrink-0 items-center justify-center gap-2 self-end px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium"
           >
             {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Assign
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className={label} style={{ marginBottom: 0 }}>Frequency:</span>
-          <div className="inline-flex rounded-lg border border-[var(--ff-border-primary)] overflow-hidden">
+          <div className="flex w-full flex-col rounded-lg border border-[var(--ff-border-primary)] overflow-hidden sm:inline-flex sm:w-auto sm:flex-row">
             <button
               type="button"
               onClick={() => onNewIsRecurring(true)}
@@ -109,7 +109,7 @@ export function EmployeeComponentsCard({
             <button
               type="button"
               onClick={() => onNewIsRecurring(false)}
-              className={`flex items-center gap-1 px-3 py-1.5 text-xs border-l border-[var(--ff-border-primary)] ${!newIsRecurring ? 'bg-amber-500/10 text-amber-400' : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]'}`}
+              className={`flex items-center gap-1 px-3 py-1.5 text-xs border-t border-[var(--ff-border-primary)] sm:border-l sm:border-t-0 ${!newIsRecurring ? 'bg-amber-500/10 text-amber-400' : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]'}`}
             >
               <Calendar className="h-3 w-3" /> Once-off (this period only)
             </button>
@@ -125,24 +125,25 @@ export function EmployeeComponentsCard({
       {assignments.length === 0 ? (
         <p className="text-sm text-[var(--ff-text-tertiary)]">No components assigned yet. Assign at least a basic-salary component to produce non-zero payroll.</p>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full whitespace-nowrap text-sm">
           <thead>
             <tr className="border-b border-[var(--ff-border-primary)] text-left">
-              <th className="py-2 text-[var(--ff-text-secondary)] font-medium">Component</th>
-              <th className="py-2 text-[var(--ff-text-secondary)] font-medium">Type</th>
-              <th className="py-2 text-[var(--ff-text-secondary)] font-medium">Frequency</th>
+              <th className="py-2 pr-4 text-[var(--ff-text-secondary)] font-medium">Component</th>
+              <th className="py-2 pr-4 text-[var(--ff-text-secondary)] font-medium">Type</th>
+              <th className="py-2 pr-4 text-[var(--ff-text-secondary)] font-medium">Frequency</th>
               <th className="py-2 text-[var(--ff-text-secondary)] font-medium text-right">Amount</th>
-              <th className="py-2 text-[var(--ff-text-secondary)] font-medium">From</th>
-              <th className="py-2 text-[var(--ff-text-secondary)] font-medium">To</th>
+              <th className="py-2 pl-6 text-[var(--ff-text-secondary)] font-medium">From</th>
+              <th className="py-2 pl-4 text-[var(--ff-text-secondary)] font-medium">To</th>
               <th className="py-2"></th>
             </tr>
           </thead>
           <tbody>
             {assignments.map(a => (
               <tr key={a.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                <td className="py-2 text-[var(--ff-text-primary)]">{a.componentName}</td>
-                <td className="py-2 text-[var(--ff-text-secondary)] capitalize">{a.componentType}</td>
-                <td className="py-2">
+                <td className="py-2 pr-4 text-[var(--ff-text-primary)]">{a.componentName}</td>
+                <td className="py-2 pr-4 text-[var(--ff-text-secondary)] capitalize">{a.componentType}</td>
+                <td className="py-2 pr-4">
                   {a.isRecurring ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-500/10 text-teal-400">
                       <Repeat className="h-3 w-3" /> Recurring
@@ -154,8 +155,8 @@ export function EmployeeComponentsCard({
                   )}
                 </td>
                 <td className="py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(a.amount)}</td>
-                <td className="py-2 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveFrom)}</td>
-                <td className="py-2 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveTo)}</td>
+                <td className="py-2 pl-6 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveFrom)}</td>
+                <td className="py-2 pl-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveTo)}</td>
                 <td className="py-2 text-right">
                   {!a.effectiveTo && (
                     <button onClick={() => onEnd(a.id)}
@@ -168,6 +169,7 @@ export function EmployeeComponentsCard({
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   );

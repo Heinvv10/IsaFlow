@@ -92,7 +92,7 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
               ))}
             </select>
             <button onClick={save} disabled={!dirty || saving}
-              className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+              className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>

@@ -34,7 +34,7 @@ interface Props {
 }
 
 const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
-const label = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
+const label = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'; // as FieldFrame's, beside the DateFields
 
 export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Props) {
   // A refused date reaches onChange as null, which would save as "cleared": Save waits until it is fixed.

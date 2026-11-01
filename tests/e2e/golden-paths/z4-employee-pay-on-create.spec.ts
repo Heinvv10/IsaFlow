@@ -6,8 +6,11 @@
  *    component is chosen from the keyboard; Enter in the salary box creates the employee and the profile shows
  *    R 25 000. Enter is the awkward path: the amount is committed by that same key press.
  *  - The drawer opens from the list by keyboard and by a row click, and shows their pay.
+ *  - The drawer holds Tab inside it.
  *  - axe reports 0 critical and 0 serious on the form and on the open drawer, in both themes, and neither scrolls
  *    sideways at 390. EVIDENCE_DIR=<dir> saves screenshots (light and dark, 1568 and 390).
+ *  - The profile's Pay Components card fits 390 and its columns do not touch at 1280; its Save buttons reach 4.5:1 under
+ *    white text, and a help button is a 24 px target.
  *
  * Dev/CI gate: it writes employees (no delete endpoint exists; the numbers are unique per run), in one dedicated
  * sandbox company created on first use, never in Demo.
@@ -156,6 +159,90 @@ test('the drawer opens from the list, by keyboard and by a row click', async ({ 
   await expect(drawer.getByText(RANDS)).toBeVisible();
   await drawer.getByRole('link', { name: 'Open full profile' }).click();
   await page.waitForURL(/\/payroll\/employees\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+});
+
+test('Tab stays inside the open drawer, in both directions', async ({ page }) => {
+  await page.goto(LIST);
+  const row = page.getByRole('row', { name: new RegExp(listed) });
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.getByRole('button', { name: `Quick view of Golden ${listed}` }).focus();
+  await page.keyboard.press('Enter');
+  const drawer = page.getByRole('dialog');
+  const close = drawer.getByRole('button', { name: 'Close drawer' });
+  const link = drawer.getByRole('link', { name: 'Open full profile' });
+  await expect(link).toBeVisible();
+  await link.focus();
+  await page.keyboard.press('Tab');
+  await expect(close).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(link).toBeFocused();
+});
+
+/** WCAG contrast of white text on an `rgb(r, g, b)` background. */
+function contrastUnderWhite(background: string): number {
+  const channels = background.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 1.05 / (0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]! + 0.05);
+}
+
+test('the profile: the Pay Components card at 390 and 1280, button contrast, help target', async ({ page }) => {
+  await page.goto(LIST);
+  const row = page.getByRole('row', { name: new RegExp(listed) });
+  await row.getByRole('link', { name: 'View' }).click();
+  await page.waitForURL(/\/payroll\/employees\/[0-9a-f-]{36}$/, { timeout: 30_000 });
+  const heading = page.getByRole('heading', { name: 'Pay Components' });
+  await expect(heading).toBeVisible({ timeout: 30_000 });
+  const card = page.locator('section', { has: heading }).first();
+  const box = async (locator: ReturnType<Page['locator']>) => (await locator.boundingBox())!;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(card.getByRole('button', { name: 'Assign' })).toBeVisible();
+  const frame = await box(card);
+  const inside = [
+    card.locator('select').first(), card.getByLabel('Effective from'), card.getByRole('button', { name: 'Assign' }),
+    card.getByRole('button', { name: /Recurring \(every/ }), card.getByRole('button', { name: /Once-off \(this/ }),
+  ];
+  for (const control of inside) {
+    const b = await box(control);
+    expect(b.x + b.width, await control.innerText()).toBeLessThanOrEqual(frame.x + frame.width);
+    expect(b.width, await control.innerText()).toBeGreaterThanOrEqual(200);
+  }
+  const recurring = await box(inside[3]!);
+  const onceOff = await box(inside[4]!);
+  expect(recurring.y + recurring.height).toBeLessThanOrEqual(onceOff.y); // stacked, so neither label wraps over the other
+  await expectNoSideScroll(page);
+  const table = card.locator('table');
+  expect(await table.evaluate((el) => getComputedStyle(el.parentElement!).overflowX)).toBe('auto');
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const first = table.locator('tbody tr').first();
+  const textEdges = (cell: ReturnType<Page['locator']>) => cell.evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const r = range.getBoundingClientRect();
+    return { left: r.left, right: r.right };
+  });
+  const amount = await textEdges(first.getByRole('cell').nth(3));
+  const from = await textEdges(first.getByRole('cell').nth(4));
+  expect(from.left - amount.right).toBeGreaterThanOrEqual(16);
+
+  const profile = page.locator('section', { has: page.getByRole('heading', { name: 'Profile', exact: true }) }).first();
+  const labelSizes = await profile.locator('label').evaluateAll((els) => els.map((el) => getComputedStyle(el).fontSize));
+  expect(new Set(labelSizes).size).toBe(1); // DateField's label beside the card's own
+
+  // The cards under the profile load their own data: the second Save is not there on first paint.
+  const saveButtons = page.getByRole('button', { name: 'Save', exact: true });
+  await expect(saveButtons.nth(1)).toBeAttached({ timeout: 30_000 });
+  const saves = await saveButtons.evaluateAll((els) => els.map((el) => getComputedStyle(el).backgroundColor));
+  for (const background of saves) expect(contrastUnderWhite(background), background).toBeGreaterThanOrEqual(4.5);
+
+  await page.goto(NEW);
+  const help = page.getByRole('button', { name: 'Help: Pay' });
+  await expect(help).toBeVisible({ timeout: 30_000 });
+  const target = await box(help);
+  expect(Math.min(target.width, target.height)).toBeGreaterThanOrEqual(24);
 });
 
 for (const theme of THEMES) {
