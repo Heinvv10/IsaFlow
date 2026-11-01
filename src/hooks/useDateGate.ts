@@ -3,8 +3,11 @@
  * forms ignore that (`if (v.valid)`), so the state would keep the previous good date. `blocked` is true
  * while any bound field is showing a refusal, so submit can stop instead of posting that stale date.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FieldValidity } from '@/components/ui';
+
+// useLayoutEffect warns when these forms render on the server, and nothing can be refused there.
+const useBeforePaint = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 export interface DateGate {
   /**
@@ -30,6 +33,8 @@ export function useDateGate(): DateGate {
   const [refused, setRefused] = useState<Record<string, string | null | undefined>>({});
   const [resets, setResets] = useState<Record<string, number>>({});
   const latest = useRef<Record<string, string | null | undefined>>({});
+  const newest = useRef(refused);
+  newest.current = refused;
   const bind = useCallback<DateGate['bind']>((key, set, current) => {
     latest.current[key] = current;
     return (iso, validity) => {
@@ -53,6 +58,13 @@ export function useDateGate(): DateGate {
     });
   }, []);
   const resetKey = useCallback((key: string) => resets[key] ?? 0, [resets]);
-  // A getter, so a submit handler reads the values the last render bound, not those of the render that made `dates`.
-  return { bind, reset, resetKey, get blocked() { return Object.entries(refused).some(([k, v]) => latest.current[k] === v); } };
+  // `bind` runs after a parent's render has read `blocked` (later in its JSX, or in a child like GatedDateField), so a new
+  // date from the parent is only known once the render is done. Drop the refusal it replaced here, before anything paints.
+  useBeforePaint(() => {
+    const stillCurrent = ([k, v]: [string, string | null | undefined]): boolean => latest.current[k] === v;
+    if (Object.entries(refused).every(stillCurrent)) return;
+    setRefused((prev) => Object.fromEntries(Object.entries(prev).filter(stillCurrent)));
+  });
+  // A getter, so a submit handler holding an older `dates` reads the newest render's refusals, not those of the render that made it.
+  return { bind, reset, resetKey, get blocked() { return Object.keys(newest.current).length > 0; } };
 }
