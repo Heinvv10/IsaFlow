@@ -97,6 +97,21 @@ it('refused text in To keeps the last good report and its heading, fires no requ
   expect(lastParams().get('period_end')).toBe('2026-04-15');
 });
 
+it('valid dates from a client-side route change clear a refused date and load the new report', async () => {
+  const view = render(<IncomeStatementPage />);
+  const csv = () => screen.getByRole('button', { name: /Export CSV/ }) as HTMLButtonElement;
+  await waitFor(() => expect(csv().disabled).toBe(false));
+  typeDate(screen.getByRole('textbox', { name: 'To' }), 'zz');
+  await waitFor(() => expect(csv().disabled).toBe(true));
+
+  route.query = { period_start: '2026-05-01', period_end: '2026-05-31' };
+  view.rerender(<IncomeStatementPage />);
+
+  await waitFor(() => expect(lastParams().get('period_end')).toBe('2026-05-31'));
+  expect(lastParams().get('period_start')).toBe('2026-05-01');
+  expect(csv().disabled).toBe(false);
+});
+
 it.each([
   ['an impossible date', '2026-02-30', '2026-03-31'],
   ['text', 'foo', '2026-03-31'],

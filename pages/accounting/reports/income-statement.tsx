@@ -68,6 +68,12 @@ export default function IncomeStatementPage() {
     if (router.isReady === false) return;
     if (qStart) setPeriodStart(qStart);
     if (qEnd) setPeriodEnd(qEnd);
+    if (qStart || qEnd) {
+      setBadDate(current => ({
+        from: qStart ? false : current.from,
+        to: qEnd ? false : current.to,
+      }));
+    }
     setBusinessUnitId(qBusinessUnit);
   }, [router.isReady, qStart, qEnd, qBusinessUnit]);
 
