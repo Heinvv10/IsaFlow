@@ -55,7 +55,7 @@ export default function DocumentCaptureDetailPage() {
 
   // Editable fields
   const [vendorName, setVendorName] = useState('');
-  const [documentDate, setDocumentDate] = useState(''); const dates = useDateGate();
+  const [documentDate, setDocumentDate] = useState(''); const dates = useDateGate(); const { reset: resetDate } = dates;
   const [referenceNumber, setReferenceNumber] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [vatAmount, setVatAmount] = useState('');
@@ -70,13 +70,13 @@ export default function DocumentCaptureDetailPage() {
     const ext = found.extractedData as ExtractedDocument | null;
     setExtracted(ext);
     setVendorName(found.vendorName || ext?.vendorName || '');
-    setDocumentDate(found.documentDate || ext?.date || '');
+    setDocumentDate(found.documentDate || ext?.date || ''); resetDate('documentDate');
     setReferenceNumber(found.referenceNumber || ext?.referenceNumber || '');
     setTotalAmount(found.totalAmount !== null ? String(found.totalAmount) : (ext?.totalAmount != null ? String(ext.totalAmount) : ''));
     setVatAmount(found.vatAmount !== null ? String(found.vatAmount) : (ext?.vatAmount != null ? String(ext.vatAmount) : ''));
     setDocumentType(found.documentType || ext?.documentType || 'unknown');
     setNotes(found.notes || '');
-  }, []);
+  }, [resetDate]);
   const { doc, isLoading, error, reload: loadDocument, isReading, readStatus } = useCapturedDocument(docId, applyLoaded);
 
   async function handleConfirm() {
@@ -271,7 +271,7 @@ export default function DocumentCaptureDetailPage() {
                 />
               </div>
               <div>
-                <DateField label="Date" name="documentDate" value={documentDate || null}
+                <DateField label="Date" name="documentDate" value={documentDate || null} resetKey={dates.resetKey('documentDate')}
                   onChange={dates.bind('documentDate', setDocumentDate, documentDate)}
                   disabled={doc.status === 'rejected' || isReading} />
               </div>

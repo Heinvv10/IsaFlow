@@ -11,8 +11,7 @@ import { postingWarningsIn } from '@/components/accounting/postingWarningsNotice
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { DateField } from '@/components/ui';
-import { useDateGate } from '@/hooks/useDateGate';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
@@ -106,12 +105,14 @@ export default function RecurringJournalsPage() {
   };
 
   const startEdit = (item: RecurringJournal) => {
+    dates.reset('nextRunDate');
     setEditId(item.id);
     setForm({ templateName: item.templateName, description: item.description || '', frequency: item.frequency, nextRunDate: item.nextRunDate?.split('T')[0] || '' });
     setShowForm(true);
   };
 
   const resetForm = () => {
+    dates.reset('nextRunDate');
     setEditId('');
     setShowForm(false);
     setForm({ templateName: '', description: '', frequency: 'monthly', nextRunDate: '' });
@@ -205,8 +206,8 @@ export default function RecurringJournalsPage() {
                   <option value="weekly">Weekly</option><option value="monthly">Monthly</option>
                   <option value="quarterly">Quarterly</option><option value="annually">Annually</option>
                 </select>
-                <DateField label="First Run Date" name="nextRunDate" required value={form.nextRunDate || null}
-                  onChange={dates.bind('nextRunDate', iso => setForm(f => ({ ...f, nextRunDate: iso })), form.nextRunDate)} />
+                <GatedDateField gate={dates} gateKey="nextRunDate" label="First Run Date" name="nextRunDate" required value={form.nextRunDate || null}
+                  onValue={iso => setForm(f => ({ ...f, nextRunDate: iso }))} />
               </div>
               {!editId && (
                 <div className="space-y-2">
