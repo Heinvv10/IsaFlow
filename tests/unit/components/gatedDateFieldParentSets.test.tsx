@@ -152,11 +152,14 @@ describe('a form that clears its dates after a save, with refused text typed dur
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '100' } });
     const from = field(/Effective from/);
     const shown = from.value;
+    typeDate(field(/Effective to/), '30 Mar 2099');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([, i]) => (i as RequestInit | undefined)?.method === 'POST')).toBe(true));
     typeDate(from, 'zz');
+    typeDate(field(/Effective to/), 'yy');
     release();
     await waitFor(() => expect(from.value).toBe(shown));
     expect(from.getAttribute('aria-invalid')).toBe('false');
+    expect(field(/Effective to/).value).toBe('');
   });
 });

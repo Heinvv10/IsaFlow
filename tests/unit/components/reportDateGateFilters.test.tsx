@@ -106,6 +106,21 @@ describe.each([
     expect(reports(path)).toBe(before);
   });
 
+  it('a load that failed is retried when a refusal ends on the same filters', async () => {
+    const { field, shown, refuse } = await openWithFilter();
+    const base = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, ...rest) => String(url).includes(param)
+      ? new Response(JSON.stringify({ success: false, error: { message: 'Refused' } }), { status: 500 }) : base(url, ...rest));
+    fireEvent.change(control(), { target: { value } });
+    await waitFor(() => expect(requested(param)).toBe(true));
+    await waitFor(() => expect(screen.queryByText(body)).toBeNull());
+    await settle();
+    const before = reports(path);
+    await refuse();
+    typeDate(field, shown);
+    await waitFor(() => expect(reports(path)).toBe(before + 1));
+  });
+
   it('a different valid date typed over a refusal fetches the new range and shows it', async () => {
     const { field, refuse } = await openWithFilter();
     await refuse();
