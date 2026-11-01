@@ -95,10 +95,11 @@ describe('a once-off the run pays but a cell cannot show', () => {
     expect((await line(state.nov)).gross).toBeCloseTo(SALARY + 500, 2);
   });
 
-  it('a recurring amount that ended before this month is not reported', async () => {
+  it('a recurring amount that ended before this month is not reported, nor is a once-off', async () => {
     await addRow(comp.commission!, 900, '2026-01-01', '2026-10-31', true);
+    await addRow(comp.overtime!, 300, '2026-11-01', '2026-11-30');
     const { recurring } = (await get(state.nov)).body.data!.inputs as { recurring: Array<{ componentId: string }> };
-    expect(recurring.filter((r) => r.componentId === comp.commission)).toEqual([]);
+    expect(recurring.filter((r) => r.componentId === comp.commission || r.componentId === comp.overtime)).toEqual([]);
   });
 });
 
@@ -137,12 +138,14 @@ describe('deductions larger than pay', () => {
     expect(codes(await line(state.nov))).toContain('DEDUCTIONS_EXCEED_PAY');
   });
 
-  it("another employee's shortfall does not refuse this employee's edit", async () => {
-    const second = await fx.addEmployee('W301-2');
-    await addRow(comp.union!, 500, '2026-01-01', null, true, second);
+  it("each employee is judged on their own line: another's shortfall neither refuses this edit nor excuses it", async () => {
+    const other = await fx.addEmployee('W300-0'); // listed first
+    await addRow(comp.union!, 90000, '2026-01-01', null, true, other);
     await recalculate(state.nov);
-    expect(codes(await line(state.nov, second))).toContain('DEDUCTIONS_EXCEED_PAY');
+    expect(codes(await line(state.nov, other))).toContain('DEDUCTIONS_EXCEED_PAY');
     expect((await set(state.nov, comp.overtime!, 1000)).statusCode).toBe(200);
+    expect((await set(state.nov, comp.union!, 30000)).statusCode).toBe(400);
+    expect(await rows(comp.union!)).toEqual([]);
   });
 
   it('a run carrying one is refused by the approval gate, whatever wrote the deduction, and nothing posts', async () => {

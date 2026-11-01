@@ -231,7 +231,6 @@ export async function setRunPeriodAmount(
 ): Promise<RunInputsState> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   assertAmount(amount);
-  if (!Number.isFinite(expectedAmount)) throw new PayrollRunInputRefusedError(400, 'expectedAmount must be a number');
   await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) throw new PayrollRunInputRefusedError(404, 'Payroll run not found');

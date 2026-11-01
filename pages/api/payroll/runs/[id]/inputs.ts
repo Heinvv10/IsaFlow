@@ -14,7 +14,6 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import {
   PayrollRunInputRefusedError,
@@ -47,7 +46,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   try {
     return apiResponse.success(res, await setRunPeriodAmount(companyId, id, employeeId, componentId, amount, expectedAmount));
   } catch (err) {
-    if (respondIfImpersonationForbidden(res, err)) return;
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof PayrollRunInputRefusedError) {
       if (err.status === 404) return apiResponse.notFound(res, 'PayrollRun', id);
