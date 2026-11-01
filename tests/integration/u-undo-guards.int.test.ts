@@ -99,6 +99,21 @@ describeIfDb('U: what an Undo may not overwrite', () => {
       expect(await contraCount(fx, je)).toBe(0);
     }, 60000);
 
+    it('a second leg being unmatched: the undo waits for that line\'s lock, then finds itself alone and goes through', async () => {
+      const { tx, je, leg, other } = await allocatedToBank('2026-04-10', -78);
+      await inTx(fx, () => matchTransaction(fx.companyId, other, leg, undefined, fx.userId));
+      const peer = await fx.pool.connect();
+      await peer.query('BEGIN');
+      await peer.query(`UPDATE bank_transactions SET status = 'imported', matched_journal_line_id = NULL WHERE id = $1`, [other]);
+      const undone = undo(tx, je).then(() => 'reversed', (e: Error) => e.message);
+      await new Promise((r) => setTimeout(r, 1000));
+      await peer.query('COMMIT');
+      peer.release();
+
+      expect(await undone).toBe('reversed');
+      expect(await contraCount(fx, je)).toBe(1);
+    }, 60000);
+
     it('with no second leg the undo goes through', async () => {
       const { tx, je } = await allocatedToBank('2026-04-08', -76);
       await undo(tx, je);
