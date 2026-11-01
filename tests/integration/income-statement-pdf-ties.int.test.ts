@@ -12,6 +12,7 @@ import { Pool } from 'pg';
 import route from '../../pages/api/accounting/income-statement-pdf';
 import { getIncomeStatement } from '../../src/modules/accounting/services/reports/incomeStatementService';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
+import { incomeStatementScopeLabel } from '../../src/modules/accounting/services/reports/incomeStatementPdf';
 import { fmtZAR } from '../../src/modules/accounting/services/core/pdfShared';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { newSetupUser, type SetupUser } from './helpers/onboardingSetupFixture';
@@ -127,11 +128,12 @@ describe('income-statement-pdf through the route', () => {
       report.totalRevenue, report.totalCostOfSales, report.grossProfit, report.totalOtherIncome,
       report.totalOperatingExpenses, report.operatingProfit, report.totalOtherExpenses, report.netProfit,
     ]) expect(text).toContain(cents(amount));
-    // Literal too: a figure the fixture alone decides, so the test does not rest on the service it reads.
-    expect(text).toContain('R 152,500.48');
-    expect(text).toContain('R 92,500.27');
-    expect(text).toContain('R 64,610.36');
-    expect(text).toContain('R 63,710.17');
+    // Label beside figure, as the fixture alone decides them, so this does not rest on the service it reads.
+    for (const row of [
+      'Total Turnover R 152,500.48', 'Total Cost of Sales R 60,000.21', 'Gross Profit R 92,500.27',
+      'Total Other Income R 410.59', 'Total Operating Expenses R 28,300.50', 'Operating Profit R 64,610.36',
+      'Total Other Expenses R 900.19', 'Net Profit R 63,710.17',
+    ]) expect(text).toContain(row);
   });
 
   it('states the disclosure amounts, with the accounts named', async () => {
@@ -154,16 +156,22 @@ describe('income-statement-pdf through the route', () => {
   });
 
   it('prints a filter from another company as unknown, with nothing of that company', async () => {
-    const foreign = id();
-    await pool.query(
-      `INSERT INTO cost_centres(id,company_id,code,name) VALUES($1,$2,'BRAVO-CC','BRAVO Depot')`, [foreign, b.user.homeCompanyId]);
+    const cc = id();
+    const bu = id();
+    const owner = b.user.homeCompanyId;
+    await pool.query(`INSERT INTO cost_centres(id,company_id,code,name) VALUES($1,$2,'BRAVO-CC','BRAVO Depot')`, [cc, owner]);
+    await pool.query(`INSERT INTO business_units(id,company_id,code,name) VALUES($1,$2,'BRAVO-BU','BRAVO Division')`, [bu, owner]);
     try {
-      const { status, text } = await pdfOf(a.user, { ...QUERY, cost_centre_id: foreign });
+      const { status, text } = await pdfOf(a.user, { ...QUERY, cost_centre_id: cc, business_unit_id: bu });
       expect(status).toBe(200);
       expect(text).toContain('Cost centre: unknown');
       expect(text).not.toContain('BRAVO');
+      // Outside a request there is no RLS, so these two answers are the predicate's own.
+      expect(await incomeStatementScopeLabel(owner, cc, bu)).toBe('Cost centre: BRAVO-CC — BRAVO Depot · Business unit: BRAVO-BU — BRAVO Division');
+      expect(await incomeStatementScopeLabel(a.user.homeCompanyId, cc, bu)).toBe('Cost centre: unknown · Business unit: unknown');
     } finally {
-      await pool.query('DELETE FROM cost_centres WHERE id=$1', [foreign]);
+      await pool.query('DELETE FROM cost_centres WHERE id=$1', [cc]);
+      await pool.query('DELETE FROM business_units WHERE id=$1', [bu]);
     }
   });
 });
