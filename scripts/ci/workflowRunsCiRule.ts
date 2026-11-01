@@ -55,7 +55,7 @@
  */
 
 import {
-  CHECKOUT, JOB_PERMISSIONS, QUALITY_JOB, QUALITY_NAME, checkGateJobs, extraKeys, isObj, sameList, sameMap, type Obj,
+  CHECKOUT, JOB_PERMISSIONS, LIGHT_RUNS_ON, QUALITY_JOB, QUALITY_NAME, checkGateJobs, extraKeys, isObj, sameList, sameMap, type Obj,
 } from './workflowGateJobs';
 
 export { QUALITY_JOB };
@@ -81,13 +81,18 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * strings is another arms race, so the SET is fixed instead: ci.yml is the
  * only workflow file, its jobs are exactly these, golden-paths keeps its own
  * group (a -queue one for runs the merge queue waits on, chosen by
- * golden-lane), and no other job takes one. A new workflow or job means
+ * golden-lane; a per-run one when hosted), and no other job takes one. A new workflow or job means
  * changing this rule in review.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
 const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
+/**
+ * On velo (CI_HOSTED=off) the shared Demo company needs the shared groups; on a
+ * hosted runner the run has a database of its own and takes a group of its own
+ * (the run id), so hosted runs neither wait for each other nor cancel each other.
+ */
 const GOLDEN_PATHS_CONCURRENCY = {
-  group: "golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}",
+  group: "${{ vars.CI_HOSTED == 'off' && format('golden-paths-dev-demo{0}', needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}",
   'cancel-in-progress': false,
 };
 /**
@@ -186,6 +191,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
       || gpc.group !== GOLDEN_PATHS_CONCURRENCY.group || gpc['cancel-in-progress'] !== GOLDEN_PATHS_CONCURRENCY['cancel-in-progress']) {
       errors.push(`jobs.golden-paths.concurrency must be exactly ${JSON.stringify(GOLDEN_PATHS_CONCURRENCY)}; taking the workflow's own group deadlocks and cancels the run`);
+    }
+    // Hosted unless CI_HOSTED=off, like golden-lane: a label set no runner has queues forever and never goes red.
+    if (!isObj(gp) || gp['runs-on'] !== LIGHT_RUNS_ON) {
+      errors.push(`jobs.golden-paths.runs-on must be exactly ${LIGHT_RUNS_ON}; any other label set can queue forever and never go red`);
     }
     const gpt = isObj(gp) ? gp['timeout-minutes'] : undefined;
     if (!Number.isInteger(gpt) || (gpt as number) < MIN_GOLDEN_TIMEOUT_MINUTES) {
