@@ -34,24 +34,22 @@ import { rejectionForUnknownScope } from '@/lib/auth/consentRejection';
 import { log } from '@/lib/logger';
 import type { AuthorizePageProps as Props, AuthorizePageErrorProps as ErrorProps } from '@/lib/auth/authorizePageProps';
 
-
 export default function AuthorizePage(props: Props | ErrorProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Opt-in checkbox state (write:post). Declared before the early return so
-  // hook order stays stable regardless of the error/ok branch.
-  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>({});
-  // Which company this grant gets pinned to. Same rule as above: declared
-  // before the early return so hook order is stable across both branches.
   const [companyId, setCompanyId] = useState(props.ok ? props.selectedCompanyId : '');
+  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>({});
 
   if (!props.ok) return <ConsentRejected error={props.error} />;
 
   const { app, clientId, redirectUri, scopes, state, codeChallenge, codeChallengeMethod, companies, resource, issuer } = props;
 
-  // Posting scopes (write:post) are opt-in: shown UNCHECKED even when the
-  // client requested them, and granted only if the user actively ticks them.
   const { autoGranted, optIn } = partitionRequestedScopes(scopes);
+
+  const selectCompany = (nextCompanyId: string) => {
+    setCompanyId(nextCompanyId);
+    setOptInChecked({});
+  };
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -60,8 +58,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
     setError(null);
     try {
       // Submit the full requested set + the explicitly-ticked opt-in scopes.
-      // The server (consent.ts) re-derives the grant — it will NOT grant an
-      // opt-in scope (write:post) unless it is confirmed here.
+      // The server re-derives the grant and refuses every unticked write scope.
       const optInConfirmed = optIn.filter((s) => optInChecked[s]);
       const res = await apiFetch('/api/oauth/consent', {
         method: 'POST',
@@ -142,7 +139,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
           <ConsentCompanyPicker
             companies={companies}
             value={companyId}
-            onChange={setCompanyId}
+            onChange={selectCompany}
             disabled={submitting}
           />
 
@@ -188,7 +185,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
           </div>
         </form>
 
-        <div className="px-6 py-3 bg-slate-950/50 border-t border-slate-800 text-xs text-slate-500">
+        <div className="px-6 py-3 bg-slate-950/50 border-t border-slate-800 text-xs text-slate-400">
           You can revoke this access at any time from{' '}
           <a href="/accounting/settings/connected-apps" className="text-teal-400 hover:text-teal-300">
             Settings → Connected Apps
