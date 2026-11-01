@@ -148,7 +148,7 @@ export async function getSalesOrders(companyId: string, filters?: SalesOrderFilt
     rows = (await sql`
       SELECT so.*, c.name AS customer_name
       FROM customer_sales_orders so
-      LEFT JOIN customers c ON c.id = so.customer_id
+      LEFT JOIN customers c ON c.id = so.customer_id AND c.company_id = so.company_id
       WHERE so.company_id = ${companyId}::UUID
         AND so.status = ${filters.status}
         AND (so.order_number ILIKE ${pattern} OR c.name ILIKE ${pattern} OR so.reference ILIKE ${pattern})
@@ -157,7 +157,7 @@ export async function getSalesOrders(companyId: string, filters?: SalesOrderFilt
     countRows = (await sql`
       SELECT COUNT(*) AS cnt
       FROM customer_sales_orders so
-      LEFT JOIN customers c ON c.id = so.customer_id
+      LEFT JOIN customers c ON c.id = so.customer_id AND c.company_id = so.company_id
       WHERE so.company_id = ${companyId}::UUID
         AND so.status = ${filters.status}
         AND (so.order_number ILIKE ${pattern} OR c.name ILIKE ${pattern} OR so.reference ILIKE ${pattern})
@@ -167,7 +167,7 @@ export async function getSalesOrders(companyId: string, filters?: SalesOrderFilt
     rows = (await sql`
       SELECT so.*, c.name AS customer_name
       FROM customer_sales_orders so
-      LEFT JOIN customers c ON c.id = so.customer_id
+      LEFT JOIN customers c ON c.id = so.customer_id AND c.company_id = so.company_id
       WHERE so.company_id = ${companyId}::UUID
         AND (so.order_number ILIKE ${pattern} OR c.name ILIKE ${pattern} OR so.reference ILIKE ${pattern})
       ORDER BY so.created_at DESC LIMIT ${limit} OFFSET ${offset}
@@ -175,7 +175,7 @@ export async function getSalesOrders(companyId: string, filters?: SalesOrderFilt
     countRows = (await sql`
       SELECT COUNT(*) AS cnt
       FROM customer_sales_orders so
-      LEFT JOIN customers c ON c.id = so.customer_id
+      LEFT JOIN customers c ON c.id = so.customer_id AND c.company_id = so.company_id
       WHERE so.company_id = ${companyId}::UUID
         AND (so.order_number ILIKE ${pattern} OR c.name ILIKE ${pattern} OR so.reference ILIKE ${pattern})
     `) as Row[];
@@ -183,7 +183,7 @@ export async function getSalesOrders(companyId: string, filters?: SalesOrderFilt
     rows = (await sql`
       SELECT so.*, c.name AS customer_name
       FROM customer_sales_orders so
-      LEFT JOIN customers c ON c.id = so.customer_id
+      LEFT JOIN customers c ON c.id = so.customer_id AND c.company_id = so.company_id
       WHERE so.company_id = ${companyId}::UUID AND so.status = ${filters.status}
       ORDER BY so.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
@@ -195,7 +195,7 @@ export async function getSalesOrders(companyId: string, filters?: SalesOrderFilt
     rows = (await sql`
       SELECT so.*, c.name AS customer_name
       FROM customer_sales_orders so
-      LEFT JOIN customers c ON c.id = so.customer_id
+      LEFT JOIN customers c ON c.id = so.customer_id AND c.company_id = so.company_id
       WHERE so.company_id = ${companyId}::UUID
       ORDER BY so.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
@@ -212,7 +212,7 @@ export async function getSalesOrder(companyId: string, id: string): Promise<Sale
   const rows = (await sql`
     SELECT so.*, c.name AS customer_name
     FROM customer_sales_orders so
-    LEFT JOIN customers c ON c.id = so.customer_id
+    LEFT JOIN customers c ON c.id = so.customer_id AND c.company_id = so.company_id
     WHERE so.id = ${id}::UUID AND so.company_id = ${companyId}::UUID
   `) as Row[];
   if (rows.length === 0) return null;
