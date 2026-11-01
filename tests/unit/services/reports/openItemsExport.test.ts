@@ -29,6 +29,7 @@ vi.mock('@/modules/accounting/services/ap/apAgingInvoices', () => ({
 }));
 vi.mock('@/modules/accounting/services/ar/arAgingInvoices', () => ({
   fetchARAgingInvoices: vi.fn(async () => fx.ar),
+  UNKNOWN_CUSTOMER: 'Unknown customer',
 }));
 vi.mock('@/modules/accounting/services/shared/unappliedDocuments', () => ({
   getUnappliedDocuments: vi.fn(async (_c: string, side: string) => (side === 'ap' ? fx.apDocs : fx.arDocs)),
