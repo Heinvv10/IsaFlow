@@ -1,6 +1,6 @@
 /**
- * The request-body scrubber for error logs (api-error-handler). Credentials are
- * redacted; uploaded files and ID numbers are replaced by a size marker at any
+ * The request-body scrubber for error logs (api-error-handler). Credentials and
+ * bank account numbers are redacted; uploaded files and ID numbers are replaced by a size marker at any
  * depth, so a logged body never carries a certificate, an ID scan or an ID
  * number (onboarding complete-setup, company-directors, company-documents). Size
  * is bounded at every level: an array of more than MAX_LOGGED_ITEMS is logged as
@@ -16,6 +16,8 @@ const SENSITIVE_KEYS = new Set([
   // /api/oauth/token was logging raw refresh tokens + client secrets to stdout.
   'client_secret', 'clientSecret', 'refresh_token', 'refreshToken',
   'access_token', 'accessToken', 'code_verifier', 'codeVerifier',
+  // Every non-GET body reaches journald: employee and supplier bank account numbers stay out of it.
+  'accountNumber', 'account_number', 'bankAccountNumber', 'bank_account_number',
 ]);
 
 // Substring fragments — redact any key containing these (case-insensitive), so

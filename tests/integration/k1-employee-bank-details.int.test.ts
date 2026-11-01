@@ -4,7 +4,7 @@
  * human sessions only, a refusal that writes nothing. Tenancy and the migration have their own suites
  * (k1-bank-details-tenancy, k1-bank-details-migration).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import entityChanges from '../../pages/api/accounting/entity-changes';
@@ -138,6 +138,27 @@ describe('a change to existing details', () => {
     expect(res.state.statusCode).toBe(422);
     expect(await rowsOf(pool, e)).toEqual(before);
     expect((await changesOf(pool, before[0]!.id)).map((x) => x.op)).toEqual(['create']);
+  });
+});
+
+describe('the request log (journald: what the logger writes to stdout)', () => {
+  it('a PUT is logged with its body, and the account number is not in it, on success or on a refusal', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const written: string[] = [];
+    for (const stream of [process.stdout, process.stderr]) {
+      vi.spyOn(stream, 'write').mockImplementation((chunk: unknown) => { written.push(String(chunk)); return true; });
+    }
+    try {
+      expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
+      expect((await put(tokens[m]!, c, e, OTHER)).state.statusCode).toBe(403);
+      expect((await put(tokens[o]!, c, e, { ...OTHER, bankName: '' })).state.statusCode).toBe(422);
+    } finally { vi.restoreAllMocks(); }
+    const lines = written.join('');
+    expect(lines.match(/API Request: PUT/g)).toHaveLength(3);
+    expect(lines).toContain('"accountNumber":"[REDACTED]"');
+    expect(lines).not.toContain(ROW.accountNumber);
+    expect(lines).not.toContain(OTHER.accountNumber);
   });
 });
 

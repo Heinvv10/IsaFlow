@@ -5,10 +5,11 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { SignJWT } from 'jose';
 import duplicates from '../../pages/api/payroll/duplicates';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
-import { dataOf } from './r035-pr2.helpers';
+import { dataOf, impersonationToken } from './r035-pr2.helpers';
 import { asApp, cleanupEntityChanges, members, newCompany, outcome } from './entity-changes.helpers';
 import { asService, employee, get, OTHER, put, ROW, rowsOf } from './k1-employee-bank-details.helpers';
 import {
@@ -32,7 +33,10 @@ beforeAll(async () => {
   expect((await put(tokens[both]!, A, empA, ROW)).state.statusCode).toBe(200);
   expect((await put(tokens[both]!, B, empB, OTHER)).state.statusCode).toBe(200);
 });
-afterAll(() => cleanupEntityChanges(pool, companies, [both, onlyB, m, viewer]));
+afterAll(async () => {
+  await pool.query('DELETE FROM impersonation_sessions WHERE target_user_id = $1', [both]);
+  await cleanupEntityChanges(pool, companies, [both, onlyB, m, viewer]);
+});
 
 describe('RLS', () => {
   it('a member of both companies, working in B, cannot read or update A\'s row', async () => {
@@ -104,7 +108,8 @@ describe('/api/payroll/duplicates', () => {
       expect(res.state.statusCode).toBe(200);
     }
   });
-  const read = (user: string) => callRoute(duplicates, tokens[user]!, c, 'GET', undefined, '/api/payroll/duplicates');
+  const readAs = (token: string) => callRoute(duplicates, token, c, 'GET', undefined, '/api/payroll/duplicates');
+  const read = (user: string) => readAs(tokens[user]!);
 
   it('a manager sees the last four only; grouping still used the whole number', async () => {
     const res = await read(m);
@@ -117,5 +122,17 @@ describe('/api/payroll/duplicates', () => {
   it('an owner sees the whole number', async () => {
     const { bankAccount } = dataOf<DuplicateResult>(await read(both));
     expect(bankAccount.map((g) => g.value)).toEqual([same, twin]);
+  });
+
+  // Security review of K1: the owner's role is not enough, the session must be the owner's own.
+  it.each([
+    ['Login-as of the owner', () => impersonationToken(pool, both, m)],
+    ['a token channel (claims without a session id)', () => new SignJWT({ sub: both, aal: 'aal2' })
+      .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET))],
+  ])('%s still gets a masked list', async (_name, token) => {
+    const res = await readAs(await token());
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(dataOf<DuplicateResult>(res).bankAccount.map((g) => g.value)).toEqual(['…9333', '…9333']);
+    expect(JSON.stringify(res.state.body)).not.toContain(same);
   });
 });

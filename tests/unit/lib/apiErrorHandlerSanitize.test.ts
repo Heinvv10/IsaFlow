@@ -52,6 +52,15 @@ describe('sanitizeBody — credential redaction', () => {
     }
   });
 
+  // Security review of K1: every non-GET body reaches journald through withErrorHandler's request log.
+  it.each(['accountNumber', 'account_number', 'bankAccountNumber', 'bank_account_number'])('redacts %s, at any depth', (key) => {
+    const account = '62000123456';
+    const out = sanitizeBody({ bankName: 'FNB', [key]: account, nested: { rows: [{ [key]: account }] } });
+    expect((out as Record<string, unknown>)[key]).toBe('[REDACTED]');
+    expect((out as Record<string, unknown>).bankName).toBe('FNB');
+    expect(JSON.stringify(out)).not.toContain(account);
+  });
+
   it('does NOT over-redact benign fields (incl. a bare single-use "code")', () => {
     const out = sanitizeBody({
       code: 'oac_singleuse', country_code: 'ZA', currency_code: 'ZAR', invoice_number: 'INV-1',
