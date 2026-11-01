@@ -234,6 +234,22 @@ describe('createEmployeeWithPay: a lost race on the employee number', () => {
   });
 });
 
+describe('employeeChangesOf: the date of birth that goes on is the day that was judged', () => {
+  const current = { startDate: new Date('2020-01-01') };
+
+  it.each([['a plain day', '1980-05-01'], ['the API timestamp', '1980-05-01T00:00:00.000Z']])('%s comes back as the day', (_n, dateOfBirth) => {
+    expect(employeeChangesOf({ dateOfBirth }, current).dateOfBirth).toBe('1980-05-01');
+  });
+
+  it.each([[''], [null], [undefined]])('%j is left as it came: blank means no change', (dateOfBirth) => {
+    expect(employeeChangesOf({ dateOfBirth }, current).dateOfBirth).toBe(dateOfBirth);
+  });
+
+  it.each([['1980-05-01 BC'], ['1980-05-01junk'], ['1980-02-31'], ['T00:00:00.000Z1980-05-01'], [19800501]])('%j is refused', (dateOfBirth) => {
+    expect(() => employeeChangesOf({ dateOfBirth }, current)).toThrow(/dateOfBirth must be a real date/);
+  });
+});
+
 describe('employeeChangesOf: the end date that goes on is the day that was judged', () => {
   const current = { startDate: new Date('2020-01-01'), endDate: new Date('2030-06-30') };
 

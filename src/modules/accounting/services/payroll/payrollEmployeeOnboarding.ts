@@ -159,32 +159,38 @@ function changedIdentifier(value: unknown, stored: string | undefined, isValid: 
 }
 
 /**
- * The API answers an end date as `YYYY-MM-DDT00:00:00.000Z` and the profile sends that back; that and a plain day are
- * the only shapes taken. The day is returned, not the value, so what is stored is what was judged: anything else on
- * the end of a good day would be judged as that day and reach Postgres as something else ('2030-01-01 BC').
+ * The API answers a date as `YYYY-MM-DDT00:00:00.000Z` and the profile sends that back; that and a plain day are the
+ * only shapes taken. The day is returned, not the value, so what is stored is what was judged: fmtDate passes anything
+ * without a T straight to SQL, where '2030-01-01 BC' is a date. Blank stays blank: it means no change.
  */
-function changedEndDate(value: unknown, current: Pick<PayrollEmployee, 'startDate' | 'endDate'>): unknown {
+function patchedDay(value: unknown, key: string): unknown {
   if (isBlank(value)) return value;
   const day = typeof value === 'string' ? value.replace(/T00:00:00\.000Z$/, '') : value;
-  const end = dateOf(day, 'endDate');
-  if (day === fmtDate(current.endDate)) return day;
-  if (end < dateOf(fmtDate(current.startDate), 'startDate')) {
+  dateOf(day, key);
+  return day;
+}
+
+function changedEndDate(value: unknown, current: Pick<PayrollEmployee, 'startDate' | 'endDate'>): unknown {
+  const day = patchedDay(value, 'endDate');
+  if (isBlank(day) || day === fmtDate(current.endDate)) return day;
+  if (dateOf(day, 'endDate') < dateOf(fmtDate(current.startDate), 'startDate')) {
     throw new EmployeeOnboardingRefused('endDate cannot be before startDate');
   }
   return day;
 }
 
 /**
- * The PATCH body with its tax and ID numbers and end date judged as create judges them; raises
- * EmployeeOnboardingRefused before the update. The profile form resends all three on every save, so a value already
- * stored (older rows hold values the rules refuse) is left alone: refusing it would block every other edit to that
- * employee.
+ * The PATCH body with its tax and ID numbers and dates judged as create judges them; raises EmployeeOnboardingRefused
+ * before the update. The profile form resends them all on every save, so a number or end date already stored (older
+ * rows hold values the rules refuse) is left alone: refusing it would block every other edit to that employee.
+ * updatePayrollEmployee does not write startDate, so a start date in the body is not judged.
  */
 export function employeeChangesOf<T extends Body>(
   body: T, current: Pick<PayrollEmployee, 'taxNumber' | 'idNumber' | 'startDate' | 'endDate'>,
 ): T {
   return {
     ...body,
+    dateOfBirth: patchedDay(body.dateOfBirth, 'dateOfBirth'),
     endDate: changedEndDate(body.endDate, current),
     taxNumber: changedIdentifier(body.taxNumber, current.taxNumber, isValidSarsTaxNumber, TAX_REFUSAL),
     idNumber: changedIdentifier(body.idNumber, current.idNumber, isValidSaIdNumber, ID_REFUSAL),
