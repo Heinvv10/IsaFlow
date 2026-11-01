@@ -130,6 +130,7 @@ export default function PracticeTasksPage() {
       const body: PracticeTaskInput = { title: qaTitle.trim(), assignedTo: qaAssigned.trim() || null, dueDate: qaDue || null, priority: qaPriority, jobId: qaJob || null };
       const r = await apiFetch('/api/accounting/practice/tasks', { method: 'POST', body: JSON.stringify(body) });
       await assertOk(r, 'Could not add the task - try again');
+      dateGate.reset('due-date');
       setQaTitle(''); setQaAssigned(''); setQaDue(''); setQaPriority('normal'); setQaJob('');
       flash('Task added'); await loadTasks();
     } catch (e) { setActionError(apiErrorMessage(e, 'Could not add the task - try again')); }
