@@ -217,6 +217,15 @@ describe('line discount from the customer', () => {
     expect(discounts()).toEqual(['7']);
   });
 
+  it('clearing a discount to retype it keeps the field', async () => {
+    serve();
+    await open();
+    await pickClient('c-acme');
+    await waitFor(() => expect(discounts()).toEqual(['10']));
+    fireEvent.change(screen.getByLabelText('Discount %'), { target: { value: '' } });
+    expect(discounts()).toEqual(['']);
+  });
+
   it('moving to a customer with no discount takes the default back off an untouched line', async () => {
     serve();
     await open();
