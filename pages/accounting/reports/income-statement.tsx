@@ -73,6 +73,8 @@ export default function IncomeStatementPage() {
         from: qStart ? false : current.from,
         to: qEnd ? false : current.to,
       }));
+    } else {
+      setBadDate({ from: false, to: false });
     }
     setBusinessUnitId(qBusinessUnit);
   }, [router.isReady, qStart, qEnd, qBusinessUnit]);

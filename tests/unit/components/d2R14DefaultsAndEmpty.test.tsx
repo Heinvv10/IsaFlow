@@ -1,6 +1,6 @@
 // D2 round 14: (1) income statement never defaults to From after To when the open period is in the future;
 // (2) group eliminations show no "none found" empty state beside a failed-load banner.
-import { dateFieldInputs, shownDate } from '../helpers/dateFields';
+import { dateFieldInputs, shownDate, typeDate } from '../helpers/dateFields';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -49,6 +49,24 @@ describe('income statement default dates', () => {
     serve(on('GET', 'reports-income-statement', () => refuse()), on('GET', 'fiscal-periods', () => ok({ id: 'fp', startDate: '2020-03-01', endDate: addDays(30) })));
     render(<IncomeStatementPage />);
     await waitFor(() => expect(dates()).toEqual([shownDate('2020-03-01'), shownDate(today())]));
+  });
+  it('clears refused dates when client navigation removes the period query', async () => {
+    route.query = { period_start: '2026-09-01', period_end: '2026-09-30' };
+    serve(on('GET', 'reports-income-statement', () => refuse()), on('GET', 'fiscal-periods', () => ok({ id: 'fp', startDate: '2026-10-01', endDate: '2026-10-31' })));
+    const view = render(<IncomeStatementPage />);
+
+    await waitFor(() => expect(dates()).toEqual([shownDate('2026-09-01'), shownDate('2026-09-30')]));
+    const [from, to] = dateFieldInputs();
+    if (!from || !to) throw new Error('missing period inputs');
+    typeDate(from, 'not a date');
+    typeDate(to, 'not a date');
+    expect(screen.getByRole('status').textContent).toBe('Fix the date to run the report.');
+
+    route.query = {};
+    view.rerender(<IncomeStatementPage />);
+
+    await waitFor(() => expect(dates()).toEqual([shownDate('2026-10-01'), shownDate(today())]));
+    expect(screen.getByRole('status').textContent).toBe('');
   });
 });
 
