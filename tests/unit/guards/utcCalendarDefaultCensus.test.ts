@@ -50,7 +50,6 @@ function countHits(src: string): number {
 /** file -> [expected hit count, reason]. */
 const ALLOWED: Record<string, [number, string]> = {
   'pages/accounting/gl-import.tsx': [1, 'Excel cell Date from the xlsx parser (UTC-based), not a local-midnight default'],
-  'pages/accounting/reports/income-statement.tsx': [2, 'prior-period maths on new Date("YYYY-MM-DD") UTC midnights; UTC in, UTC out'],
   'src/components/accounting/invoicePeriod.ts': [1, 'days-in-month arithmetic on a Date.UTC-built Date, never "today"'],
 };
 
