@@ -63,20 +63,23 @@ describe.each(FORMS)('$name form at a narrow width', ({ page, summary, lines, da
     expect(screen.queryByText('Scroll sideways to see every column.')).toBeNull();
   });
 
-  it('says "Fix the date above" by the submit button, tied with aria-describedby, only while a date is refused', () => {
+  it('says "Fix the date in the form" by the submit button, tied with aria-describedby, only while a date is refused', () => {
     render(page);
-    expect(screen.queryByText('Fix the date above')).toBeNull();
+    expect(screen.queryByText('Fix the date in the form')).toBeNull();
     const input = screen.getByRole('textbox', { name: dateA });
     fireEvent.change(input, { target: { value: 'zz' } });
     fireEvent.blur(input);
-    const note = screen.getByText('Fix the date above');
-    const submit = screen.getAllByRole('button').filter((b) => (b as HTMLButtonElement).type === 'submit' && /^Create/.test(b.textContent ?? ''))[0] as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-    expect(submit.getAttribute('aria-describedby')).toBe(note.id);
+    const note = screen.getByText('Fix the date in the form');
+    const submits = screen.getAllByRole('button').filter((b) => (b as HTMLButtonElement).type === 'submit') as HTMLButtonElement[];
+    expect(submits.length).toBeGreaterThan(0);
+    for (const submit of submits) {
+      expect(submit.disabled).toBe(true);
+      expect(submit.getAttribute('aria-describedby')).toBe(note.id);
+    }
     expect(note.id).not.toBe('');
     fireEvent.change(input, { target: { value: '5 Oct 2026' } });
     fireEvent.blur(input);
-    expect(screen.queryByText('Fix the date above')).toBeNull();
-    expect(submit.getAttribute('aria-describedby')).toBeNull();
+    expect(screen.queryByText('Fix the date in the form')).toBeNull();
+    for (const submit of submits) expect(submit.getAttribute('aria-describedby')).toBeNull();
   });
 });

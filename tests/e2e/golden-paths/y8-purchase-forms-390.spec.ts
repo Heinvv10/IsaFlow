@@ -80,6 +80,7 @@ for (const form of FORMS) {
   });
 
   test(`${form.title} 1280 px: the table fits the default top-nav layout and shows no hint`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('accounting-nav-mode', 'top'));
     await page.setViewportSize({ width: 1280, height: 900 });
     await open(page, form);
     const region = page.getByRole('region', { name: form.lines });
