@@ -47,7 +47,7 @@ describe('edit page: 1000 + 500 at 15%', () => {
     await pickMode(/Including VAT/);
     expect(prices()).toEqual(['1150', '575']);
     expectTotal(/1[ , ]?725\.00/);
-    expect(screen.queryByText(/you typed/i)).toBeNull();
+    expect(screen.queryByText(/these prices come to/i)).toBeNull();
   });
 
   it('saved while inclusive, the stored prices and rate are unchanged', async () => {
@@ -84,6 +84,18 @@ describe('edit page: 1000 + 500 at 15%', () => {
     expect(prices()).toEqual(['1150']);
     await save();
     expect(sentBody('PUT').items[0]).toMatchObject({ unitPrice: 1000, discount: 10 });
+  });
+
+  it('a rate below 0 converts nothing: the prices stay as they are', async () => {
+    await load();
+    fireEvent.change(screen.getByLabelText('VAT rate %'), { target: { value: '-5' } });
+    await pickMode(/Including VAT/);
+    expect(prices()).toEqual(['1000', '500']);
+  });
+
+  it('the rate field says what it accepts', async () => {
+    await load();
+    expect(screen.getByLabelText('VAT rate %').getAttribute('min')).toBe('0');
   });
 
   it('a price retyped while inclusive is taken as gross', async () => {
@@ -132,7 +144,7 @@ describe('new page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add Line' }));
     fillLine(1, '0.004');
     fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
-    await screen.findByText('"Work" is under a cent once VAT is taken out - enter a higher price');
+    await screen.findByText('"Work" comes to under a cent - enter a higher price');
     expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
   });
 
@@ -196,11 +208,33 @@ describe('edit page: a stored invoice at rate 0', () => {
     expect(sentPrices('PUT')).toEqual([1000, 500]);
   });
 
+  it('leaving No VAT seeds the standard rate, as the new page does, and the prices stay', async () => {
+    await load();
+    await pickMode(/Excluding VAT/);
+    expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('15');
+    expect(prices()).toEqual(['1000', '500']);
+    await save();
+    expect(sentBody('PUT').taxRate).toBe(15);
+    expect(sentPrices('PUT')).toEqual([1000, 500]);
+  });
+
   it('a non-zero rate still loads as Excluding VAT', async () => {
     serve(undefined, TWO_LINES);
     render(<EditPage />);
     await screen.findByDisplayValue('One');
     expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Excluding VAT/);
+  });
+});
+
+describe('a price under a cent, in any mode', () => {
+  it('exclusive: refused, not sent to be stored as nothing', async () => {
+    serve(undefined, TWO_LINES);
+    render(<EditPage />);
+    await screen.findByDisplayValue('One');
+    fireEvent.change(price(1), { target: { value: '0.004' } });
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await screen.findByText('"Two" comes to under a cent - enter a higher price');
+    expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(false);
   });
 });
 
@@ -212,7 +246,7 @@ describe('edit page: a gross price too small to survive taking the VAT out', () 
     await pickMode(/Including VAT/);
     fireEvent.change(price(1), { target: { value: '0.004' } });
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-    await screen.findByText('"Two" is under a cent once VAT is taken out - enter a higher price');
+    await screen.findByText('"Two" comes to under a cent - enter a higher price');
     expect(vi.mocked(apiFetch).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(false);
   });
 });

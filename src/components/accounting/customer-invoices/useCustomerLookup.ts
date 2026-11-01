@@ -1,8 +1,8 @@
 /**
  * useCustomerLookup — the picked customer's terms, discount and VAT type, for the invoice form. `defaults` is null until
  * a customer is picked; `pending` is true from the pick until the answer, so Save can wait for it. Only the answer for
- * the last customer picked counts. `useContactDefaults` fills the new page from it; the edit page asks only once the
- * customer is changed, for the VAT warning.
+ * the last customer picked counts. `useContactDefaults` fills the new page from it; the edit page reads it only for the
+ * VAT warning, and Save there waits only for a customer changed on the page.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
@@ -17,6 +17,7 @@ export interface ContactDefaults {
   vatType: string | null;
 }
 const NO_DEFAULTS: ContactDefaults = { terms: null, termsType: null, discount: 0, vatType: null };
+const LOOKUP_TIMEOUT_MS = 15_000; // Save waits on this: a server that never answers must not leave it grey for good
 
 /** The single-customer GET's row. Anything else (a non-UUID id gets the list) carries no defaults. */
 function readDefaults(row: unknown): ContactDefaults {
@@ -43,7 +44,7 @@ export function useCustomerLookup(clientId: string, failedMessage: string) {
     if (!clientId) { setDefaults((d) => (d ? NO_DEFAULTS : d)); return; }
     void (async () => {
       try {
-        const res = await apiFetch(`/api/accounting/customers?id=${encodeURIComponent(clientId)}`, { credentials: 'include' });
+        const res = await apiFetch(`/api/accounting/customers?id=${encodeURIComponent(clientId)}`, { credentials: 'include', signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
         await assertOk(res, failedMessage);
         const json = await res.json() as { data?: unknown };
         if (seq === lookup.current) { setDefaults(readDefaults(json.data ?? json)); setPending(false); }

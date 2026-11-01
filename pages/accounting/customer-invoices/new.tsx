@@ -53,7 +53,7 @@ export default function NewCustomerInvoicePage() {
   }, []);
 
   const updateLine = (key: string, field: string, value: string | number) =>
-    setLines(prev => prev.map(l => l.key === key ? editedLine(l, field, value) : l));
+    setLines(prev => prev.map(l => l.key === key ? editedLine(l, field, value, contact.pending) : l));
   // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
   const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), ...BLANK_LINE, discount: contact.lineDiscount, projectId: form.projectId }]);
   const codingOptions = useInvoiceLineCodingOptions();

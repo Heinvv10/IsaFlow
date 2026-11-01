@@ -85,7 +85,7 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
               {vatWarning && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{vatWarning}</p>}
             </div>
           </div>
-          <Input label="VAT rate %" type="number" name="taxRate" value={effectiveTaxRate(taxMode, form.taxRate)} disabled={taxMode === 'none'}
+          <Input label="VAT rate %" type="number" name="taxRate" min={0} value={effectiveTaxRate(taxMode, form.taxRate)} disabled={taxMode === 'none'}
             onChange={(e) => onChange({ taxRate: Number(e.target.value) })} />
           <Select label="Currency" options={currencyOptions} value={form.currencyCode} valueOption={{ value: form.currencyCode, label: form.currencyCode }}
             onChange={(v) => onChange({ currencyCode: v ?? 'ZAR', exchangeRate: (v ?? 'ZAR') === 'ZAR' ? 1 : form.exchangeRate })} />

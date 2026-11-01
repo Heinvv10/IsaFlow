@@ -14,7 +14,7 @@ interface Props {
   currencyCode: string;
   /** Foreign-currency invoices only: the ZAR preview and the rate it used. */
   fx?: { zarTotal: number; rate: number };
-  /** Inclusive mode only: the gross the user typed. Shown beside `total` whenever the two differ; the stored total is the invoice (taxMode.ts). */
+  /** Inclusive mode only: the gross the shown prices add up to. Shown beside `total` whenever the two differ; the stored total is the invoice (taxMode.ts). */
   typedTotal?: number;
   children: ReactNode;
 }
@@ -44,7 +44,7 @@ export function InvoiceSummaryCard({ subtotal, tax, total, taxRate, currencyCode
         <div role="status">
           {typedTotal !== undefined && typedTotal !== total && (
             <p className="text-xs text-amber-700 dark:text-amber-300">
-              You typed {formatCurrencyAmount(typedTotal, currencyCode)} incl. VAT; the invoice total is {formatCurrencyAmount(total, currencyCode)}.
+              These prices come to {formatCurrencyAmount(typedTotal, currencyCode)} incl. VAT; the invoice total is {formatCurrencyAmount(total, currencyCode)}.
             </p>
           )}
         </div>
