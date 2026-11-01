@@ -16,6 +16,9 @@ import {
 } from '@/modules/accounting/services/payroll/sarsCodesService';
 
 import { PAYE_4115_CODES } from './payrollLumpSumFiling';
+import { isValidSaIdNumber, isValidSarsTaxNumber } from './employeeFieldRules';
+
+export { isValidSaIdNumber, isValidSarsTaxNumber };
 
 export type ValidationSeverity = 'error' | 'warning' | 'info';
 
@@ -50,16 +53,6 @@ const COMPONENT_TYPE_TO_CATEGORY: Record<ComponentConfig['componentType'], 'inco
   deduction: 'deduction',
   employer_contribution: 'employer',
 };
-
-export function isValidSarsTaxNumber(value: string | null | undefined): boolean {
-  if (!value) return false;
-  return /^[01239]\d{9}$/.test(value.trim());
-}
-
-export function isValidSaIdNumber(value: string | null | undefined): boolean {
-  if (!value) return false;
-  return /^\d{13}$/.test(value.trim());
-}
 
 export async function validateComponent(
   component: ComponentConfig,

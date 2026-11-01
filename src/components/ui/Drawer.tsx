@@ -1,12 +1,13 @@
 /**
  * Drawer — slide-in panel from the right side of the screen.
- * // WORKING: Portal-based, ESC key, backdrop click-to-close, smooth animation
+ * // WORKING: Portal-based, focus trap (it is aria-modal), ESC key, backdrop click-to-close, smooth animation
  */
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { useFocusTrap } from './useFocusTrap';
 
 type DrawerWidth = 'sm' | 'md' | 'lg' | 'xl';
 
@@ -35,38 +36,23 @@ export function Drawer({
   width = 'md',
   className,
 }: DrawerProps) {
-  const previouslyFocused = useRef<Element | null>(null);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    },
-    [onClose]
-  );
+  const dialog = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialog, open, onClose);
 
   useEffect(() => {
-    if (open) {
-      previouslyFocused.current = document.activeElement;
-      document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-      if (previouslyFocused.current instanceof HTMLElement) {
-        previouslyFocused.current.focus();
-      }
-    }
+    if (!open) return undefined;
+    document.body.style.overflow = 'hidden';
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
     };
-  }, [open, handleKeyDown]);
+  }, [open]);
 
   if (typeof window === 'undefined') return null;
   if (!open) return null;
 
   return createPortal(
     <div
+      ref={dialog}
       aria-modal="true"
       aria-label={title}
       role="dialog"
@@ -109,8 +95,10 @@ export function Drawer({
           </button>
         </div>
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">{children}</div>
+        {/* Scrollable content. Focusable: with nothing focusable inside it, the keyboard could not scroll it at all. */}
+        <div role="region" aria-label={`${title} content`} tabIndex={0} className="ff-focus-ring flex-1 overflow-y-auto px-6 py-4">
+          {children}
+        </div>
       </div>
     </div>,
     document.body
