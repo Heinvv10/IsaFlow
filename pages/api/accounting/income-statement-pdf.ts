@@ -23,7 +23,7 @@ const isDateParam = (value: unknown): value is string => typeof value === 'strin
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
 
-  const { companyId } = req as unknown as CompanyAuthedRequest;
+  const { companyId, user } = req as unknown as CompanyAuthedRequest;
   const { period_start: start, period_end: end, cost_centre_id: ccId, business_unit_id: businessUnitId, group_by: groupBy } = req.query;
 
   if (!isDateParam(start) || !isDateParam(end)) {
@@ -42,8 +42,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       : 'group_by must be one of cc1, cc2, bu');
   }
 
-  if (!(await checkReportRateLimit(companyId, 'income-statement-pdf'))) {
-    log.warn('Income statement PDF rate limit exceeded', { companyId }, 'rateLimit');
+  // Each member's own bucket: one member's exports cannot lock the company out.
+  if (!(await checkReportRateLimit(companyId, `income-statement-pdf:u:${user.id}`))) {
+    log.warn('Income statement PDF rate limit exceeded', { companyId, userId: user.id }, 'rateLimit');
     return apiResponse.tooManyRequests(res, 'Too many report exports. Please try again shortly.');
   }
 
