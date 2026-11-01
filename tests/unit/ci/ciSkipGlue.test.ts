@@ -136,3 +136,51 @@ describe('ci.yml golden-paths: the merge-check step', () => {
     expect(step('pull_request', '10')).toBe('skip=false');
   });
 });
+
+describe('run-ci.sh: gate groups (ci.yml runs static on GitHub-hosted, velo on velo)', () => {
+  const ranBrowser = (calls: string[]) => calls.some((c) => c.startsWith('bun run test:print'));
+  const ranBuild = (calls: string[]) => calls.some((c) => c.startsWith('bun run build'));
+  const PR = { ...GH, GITHUB_EVENT_NAME: 'pull_request', MQ_RC: '0', SCOPE_RC: '0' };
+
+  it('no argument runs every gate, both groups (the pre-push hook)', () => {
+    const r = run(['scripts/ci/run-ci.sh'], PR);
+    expect(r.status).toBe(0);
+    expect([ranGates(r.calls), ranBrowser(r.calls), ranIntegration(r.calls), ranBuild(r.calls)]).toEqual([true, true, true, true]);
+  });
+
+  it('static runs the type check, tests and build, and neither browser-tests nor integration', () => {
+    const r = run(['scripts/ci/run-ci.sh', 'static'], PR);
+    expect(r.status).toBe(0);
+    expect([ranGates(r.calls), ranBuild(r.calls), ranBrowser(r.calls), ranIntegration(r.calls)]).toEqual([true, true, false, false]);
+    expect(r.calls.some((c) => c.startsWith('bun run test:unit'))).toBe(true);
+  });
+
+  it('velo runs browser-tests and integration, and none of the static gates', () => {
+    const r = run(['scripts/ci/run-ci.sh', 'velo'], PR);
+    expect(r.status).toBe(0);
+    expect([ranBrowser(r.calls), ranIntegration(r.calls), ranGates(r.calls), ranBuild(r.calls)]).toEqual([true, true, false, false]);
+    expect(r.calls.some((c) => c.startsWith('bun run test:unit') || c.startsWith('bun run lint'))).toBe(false);
+  });
+
+  it('every gate is in exactly one group', () => {
+    const gates = (args: string[]) => run(['scripts/ci/run-ci.sh', ...args], PR).calls.filter((c) => !c.includes('integration/scope.ts'));
+    const all = gates([]);
+    const [stat, velo] = [gates(['static']), gates(['velo'])];
+    // all = static + velo, no gate runs twice, and none is in both groups.
+    expect([...stat, ...velo].sort()).toEqual([...all].sort());
+    expect(new Set(all).size).toBe(all.length);
+    expect(stat.filter((c) => velo.includes(c))).toEqual([]);
+  });
+
+  it.each(['static', 'velo'])('%s still skips on an already-tested queue merge (exit 10)', (group) => {
+    const r = run(['scripts/ci/run-ci.sh', group], { ...GH, GITHUB_EVENT_NAME: 'push', MQ_RC: '10', SCOPE_RC: '0' });
+    expect(r.status).toBe(0);
+    expect(r.calls).toEqual([expect.stringContaining('mq-merge-already-tested.ts')]);
+  });
+
+  it('an unknown group exits 2 and runs nothing', () => {
+    const r = run(['scripts/ci/run-ci.sh', 'integration'], PR);
+    expect(r.status).toBe(2);
+    expect(r.calls).toEqual([]);
+  });
+});

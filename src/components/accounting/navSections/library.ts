@@ -56,7 +56,7 @@ export const LIBRARY_MODULES: LibraryModule[] = [
   { id: 'inventory',  label: 'Inventory',  description: 'Items, stock levels & valuation',               href: '/accounting/items',                     icon: React.createElement(Package, { className: ICON }) },
   { id: 'accounting', label: 'Accounting', description: 'Chart of accounts, journals & periods',         href: '/accounting/chart-of-accounts',         icon: React.createElement(BookOpen, { className: ICON }) },
   { id: 'reports',    label: 'Reports',    description: 'Financial statements, AFS & management packs',  href: '/accounting/reports/income-statement',  icon: React.createElement(BarChart3, { className: ICON }) },
-  { id: 'tax',        label: 'Tax',        description: 'VAT returns, SARS & tax submissions',           href: '/accounting/sars/vat201',        icon: React.createElement(Receipt, { className: ICON }) },
+  { id: 'tax',        label: 'Tax',        description: 'VAT returns, SARS & tax filings',               href: '/accounting/sars/vat201',        icon: React.createElement(Receipt, { className: ICON }) },
   { id: 'payroll',    label: 'Payroll',    description: 'Employees, pay runs & leave',                   href: '/payroll',                              icon: React.createElement(Users, { className: ICON }) },
   { id: 'practice',   label: 'Practice',   description: 'Clients, jobs, time & WIP for your firm',       href: '/accounting/practice/clients',          icon: React.createElement(Briefcase, { className: ICON }) },
 ];
@@ -70,7 +70,7 @@ export function libraryModulesFor(isVatRegistered: boolean): LibraryModule[] {
   if (isVatRegistered) return LIBRARY_MODULES;
   return LIBRARY_MODULES.map((m) =>
     m.id === 'tax'
-      ? { ...m, description: 'SARS submissions & compliance calendar', href: '/accounting/sars' }
+      ? { ...m, description: 'SARS filings & compliance calendar', href: '/accounting/sars' }
       : m,
   );
 }
