@@ -202,10 +202,10 @@ export default function NewSupplierInvoicePage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 xl:p-8">
-          <div className="max-w-6xl mx-auto flex gap-6 items-start">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 xl:p-8">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
             {/* Left column */}
-            <div className="flex-1 min-w-0 space-y-5">
+            <div className="min-w-0 space-y-5">
               {scanBanner && <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 text-sm flex items-center gap-2"><Info className="h-4 w-4 flex-shrink-0" />{scanBanner}<button type="button" onClick={() => setScanBanner(null)} className="ml-auto text-xs font-medium opacity-70 hover:opacity-100">Dismiss</button></div>}
               {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>}
 
@@ -215,7 +215,7 @@ export default function NewSupplierInvoicePage() {
                   <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">1</span>
                   Invoice Details
                 </h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <InvoiceNumberField
                     useSequence={form.useSequence}
                     invoiceNumber={form.invoiceNumber}
