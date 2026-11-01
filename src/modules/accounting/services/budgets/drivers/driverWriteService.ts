@@ -20,13 +20,14 @@
 import { versionYear } from '../budgetVersionScope';
 import { inputError } from '../gridErrors';
 import { assertDriverMonths, monthIndex } from './driverEngine';
-import { normaliseLine, rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLineInput, type StoredDriverLine } from './driverLine';
+import { normaliseLine, rowKeyOfGrain, toDriverDef, type DriverGrain, type DriverLineInput } from './driverLine';
 import { deleteDriverLine, driverLineOfRow, listDriverLines, upsertDriverLine } from './driverRepository';
 import { releaseOverrideCells, resetOverrideCells } from './driverCellSources';
 import { cycleThrough, fullDriverGraph, loadVersionModel, rowLabel } from './driverModel';
 import { checkDriverLine } from './driverValidate';
 import { BudgetDriverError } from './driverErrors';
 import { runDriverWrite, type DriverWriteTarget } from './driverWriteScope';
+import { visibleDriverLines, type PerHeadAccess, type VisibleDriverLine } from './perHeadAccess';
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -35,10 +36,10 @@ const lowerGrain = (g: DriverGrain): DriverGrain => ({
   cc2Id: g.cc2Id?.toLowerCase() ?? null, buId: g.buId?.toLowerCase() ?? null,
 });
 
-/** The version's drivers; another company's version is BUDGET_VERSION_NOT_FOUND. */
-export async function listDrivers(companyId: string, versionId: string): Promise<{ drivers: StoredDriverLine[] }> {
+/** The version's drivers, per_head rates for `full` access only; another company's version is BUDGET_VERSION_NOT_FOUND. */
+export async function listDrivers(companyId: string, versionId: string, access: PerHeadAccess): Promise<{ drivers: VisibleDriverLine[] }> {
   await versionYear(companyId, versionId);
-  return { drivers: await listDriverLines(companyId, versionId.toLowerCase()) };
+  return { drivers: visibleDriverLines(await listDriverLines(companyId, versionId.toLowerCase()), access) };
 }
 
 export async function saveDriver(companyId: string, userId: string, target: DriverWriteTarget, input: DriverLineInput) {

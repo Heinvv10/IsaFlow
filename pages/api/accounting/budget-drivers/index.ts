@@ -11,7 +11,9 @@
  * its drivers and write one audit row. 400 DRIVER_CYCLE (with `path`), DRIVER_REF, DRIVER_RANGE or
  * BUDGET_VERSION_INPUT / BUDGET_GRAIN_CONFLICT; 404 for another company's version or driver. Every
  * refusal writes nothing. Writes are charged to the user's `budget-driver:<userId>` bucket
- * (120 a minute; 429 with Retry-After past it). Any member may read.
+ * (120 a minute; 429 with Retry-After past it). Any member may read; a per_head line's `amount` (the per-head
+ * rate) goes to budget writers only, a reader's line has no `amount` key and `perHeadRestricted: true` (POPIA,
+ * decision 15: perHeadAccess).
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -25,6 +27,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { respondBudgetDriverError } from '@/lib/budgetDriverResponse';
 import { deleteDriver, listDrivers, saveDriver } from '@/modules/accounting/services/budgets/drivers/driverWriteService';
 import { isVersionToken } from '@/modules/accounting/services/budgets/gridErrors';
+import { perHeadAccessOf } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 
 const Token = z.string().max(40).refine(isVersionToken, 'expectedUpdatedAt must be the updatedAt the version was read with');
 const Month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Months are YYYY-MM');
@@ -74,7 +77,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     const { versionId, id, expectedUpdatedAt } = req.query;
     if (!isUuidParam(versionId)) return apiResponse.badRequest(res, 'versionId must be a version id');
-    if (method === 'GET') return apiResponse.success(res, await listDrivers(companyId, versionId));
+    if (method === 'GET') return apiResponse.success(res, await listDrivers(companyId, versionId, perHeadAccessOf((req as CompanyAuthedRequest).companyRole)));
     if (!isUuidParam(id)) return apiResponse.badRequest(res, 'id must be a driver id');
     const token = Token.safeParse(expectedUpdatedAt);
     if (!token.success) return apiResponse.badRequest(res, 'expectedUpdatedAt must be the updatedAt the version was read with');
