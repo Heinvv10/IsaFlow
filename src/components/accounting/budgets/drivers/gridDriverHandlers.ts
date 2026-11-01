@@ -4,7 +4,7 @@
  * props keep their identity across edits); every function reads the current view and version
  * through refs (`useDriverActions`).
  */
-import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import type { VisibleDriverLine } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 
 export interface GridDriverHandlers {
   /** A writer on an unlocked version: chips open the editor, overrides offer Reset. */
@@ -18,5 +18,5 @@ export interface GridDriverHandlers {
   /** An account's name without its code (the chip's pct_of_line reference). */
   accountName(id: string): string;
   /** The chip's long description of a driver. */
-  describe(line: StoredDriverLine): string;
+  describe(line: VisibleDriverLine): string;
 }
