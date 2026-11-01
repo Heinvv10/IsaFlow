@@ -138,10 +138,11 @@ describe('Undo after a single-row allocate', () => {
     expect(offered().message).toMatch(/learned from this allocation is kept/i);
   });
 
-  it('a supplier allocation learns nothing, so it says nothing about learning', async () => {
+  it('a supplier allocation learns nothing, so it speaks of the closed decision instead', async () => {
     serve();
     await actions(supplier).handleAccept(TX.id);
-    expect(offered().message).toBeUndefined();
+    expect(offered().message).toMatch(/decision on it stays recorded/i);
+    expect(offered().message).not.toMatch(/learned/i);
     expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).includes('smart-categorize'))).toBe(false);
   });
 

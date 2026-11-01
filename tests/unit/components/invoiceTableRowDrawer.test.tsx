@@ -25,14 +25,23 @@ const link = () => screen.getByRole('link', { name: 'INV-001' });
 const cell = () => screen.getByText('Acme');
 
 describe('CustomerInvoiceTable Outstanding', () => {
-  const outstanding = (status: string) => {
+  const outstanding = (status: string, paid = 15) => {
     cleanup();
-    render(<CustomerInvoiceTable invoices={[{ ...INV, status, amount_paid: 15 }]} page={1} limit={25} total={1} onPage={vi.fn()} onOpen={onOpen} />);
+    render(<CustomerInvoiceTable invoices={[{ ...INV, status, amount_paid: paid }]} page={1} limit={25} total={1} onPage={vi.fn()} onOpen={onOpen} />);
     return screen.getAllByRole('cell')[5]!.textContent;
   };
 
-  it.each(['draft', 'cancelled', 'paid', 'pending_approval'])('a %s invoice shows a dash', (status) => {
+  it.each(['draft', 'cancelled', 'pending_approval'])('a %s invoice shows a dash', (status) => {
     expect(outstanding(status)).toBe('—');
+  });
+
+  it('a paid invoice with nothing left shows a dash', () => {
+    expect(outstanding('paid', 115)).toBe('—');
+  });
+
+  it('a paid invoice still carrying a balance shows it, overpaid or short', () => {
+    expect(outstanding('paid', 15)).toMatch(/100[.,]00/);
+    expect(outstanding('paid', 120)).toMatch(/5[.,]00/);
   });
 
   it.each(['approved', 'sent', 'partially_paid', 'overdue'])('a %s invoice shows the balance', (status) => {

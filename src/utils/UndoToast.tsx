@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import toast, { type Toast } from 'react-hot-toast';
 import { CheckCircle2 } from 'lucide-react';
+import { announceUndo } from './UndoAnnouncer';
 import { offerUndoHotkey } from './undoHotkey';
 
 export const UNDO_TOAST_DEFAULT_MS = 8000;
@@ -44,8 +45,10 @@ export function UndoToast({ t, title, opts, undoOnce }: Props) {
   // While it is on screen: the library keeps a dismissed toast mounted for its exit, and that one is no longer on offer.
   useEffect(() => {
     if (!t.visible) return undefined;
-    return offerUndoHotkey(() => { toast.dismiss(t.id); undoOnce(); });
-  }, [t.visible, t.id, undoOnce]);
+    const endHotkey = offerUndoHotkey(() => { toast.dismiss(t.id); undoOnce(); });
+    const endAnnouncement = announceUndo([`${title}.`, opts.message, 'Press Control Z to undo.'].filter(Boolean).join(' '));
+    return () => { endHotkey(); endAnnouncement(); };
+  }, [t.visible, t.id, undoOnce, title, opts.message]);
 
   return (
     <div

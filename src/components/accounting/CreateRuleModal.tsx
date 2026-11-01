@@ -123,7 +123,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-modal="true" aria-label="Create a bank rule">
       <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-lg mx-4">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ff-border-light)]">
