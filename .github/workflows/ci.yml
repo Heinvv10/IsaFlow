@@ -398,6 +398,9 @@ jobs:
       - name: Boot dev server and run golden paths
         if: steps.mq.outputs.skip != 'true'
         env:
+          # Next 15's dev server restarts itself near its heap threshold, which
+          # dropped requests mid-suite on hosted (#1005). 8 GB fits the runner's 16 GB.
+          NODE_OPTIONS: --max-old-space-size=8192
           # Velo only: the real secrets never reach a hosted runner, whose
           # E2E admin is generated (ADMIN_ENV_FILE, below).
           E2E_ADMIN_EMAIL: ${{ vars.CI_HOSTED == 'off' && secrets.E2E_ADMIN_EMAIL || '' }}
