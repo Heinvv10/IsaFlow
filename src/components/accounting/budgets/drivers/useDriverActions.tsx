@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { rowKeyFor } from '@/modules/accounting/services/budgets/drivers/driverTypes';
 import type { DriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import { PER_HEAD_RESTRICTED_NOTE } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 import type { BudgetGridApi } from '@/components/accounting/budgets/workspace/useBudgetGrid';
 import { failureText } from '@/components/accounting/budgets/workspace/failureText';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
@@ -76,8 +77,10 @@ export function useDriverActions(grid: BudgetGridApi, editable: boolean): Driver
     const r = await fetchHeadcount(id, scope);
     loading.current.delete(k);
     if (live.current.version?.id !== id) return;
-    if (r.ok) { counts.current.set(k, new Map(r.data.months.map((m) => [m.month, m.total]))); countErrors.current.delete(k); }
-    else countErrors.current.set(k, failureText(r));
+    // A reader gets no counts (perHeadAccess); it never previews a per_head line, but says why if asked.
+    if (!r.ok) countErrors.current.set(k, failureText(r));
+    else if ('perHeadRestricted' in r.data) countErrors.current.set(k, PER_HEAD_RESTRICTED_NOTE);
+    else { counts.current.set(k, new Map(r.data.months.map((m) => [m.month, m.total]))); countErrors.current.delete(k); }
     setTick((t) => t + 1);
   }, []);
   // A failed read is retried when the editor asks again (a scope change, or reopening it).

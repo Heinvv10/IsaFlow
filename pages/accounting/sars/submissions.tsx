@@ -35,10 +35,13 @@ const statusBadge = (status: string) => {
   };
   const cfg = configs[status] || { icon: AlertTriangle, className: 'bg-gray-500/10 text-gray-400' };
   const Icon = cfg.icon;
+  const label = status === 'submitted'
+    ? 'Filed on eFiling'
+    : status.charAt(0).toUpperCase() + status.slice(1);
 
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.className}`}>
-      <Icon className="h-3 w-3" /> {status}
+      <Icon className="h-3 w-3" /> {label}
     </span>
   );
 };
@@ -66,7 +69,7 @@ export default function SubmissionsPage() {
         `/api/accounting/sars/sars-submissions${typeParam}`,
         { credentials: 'include', signal: controller.signal },
       );
-      await assertOk(res, 'Could not load submissions - try again');
+      await assertOk(res, 'Could not load filing records - try again');
       const json = await res.json();
       setSubmissions(json.data?.items || []);
     } catch (err) {
@@ -79,7 +82,7 @@ export default function SubmissionsPage() {
         }
       } else {
         setSubmissions([]);
-        setError(apiErrorMessage(err, 'Could not load submissions - try again'));
+        setError(apiErrorMessage(err, 'Could not load filing records - try again'));
       }
     } finally {
       window.clearTimeout(timer);
@@ -106,13 +109,13 @@ export default function SubmissionsPage() {
         credentials: 'include',
         body: JSON.stringify({ id, action: 'get' }),
       });
-      await assertOk(res, 'Could not load the submission details - try again');
+      await assertOk(res, 'Could not load the filing record details - try again');
       const json = await res.json();
       if (json.data) {
         setDetail(json.data);
       }
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load the submission details - try again'));
+      setError(apiErrorMessage(err, 'Could not load the filing record details - try again'));
       // Fallback to local data
       const sub = submissions.find((s) => s.id === id);
       if (sub) setDetail(sub);
@@ -135,9 +138,9 @@ export default function SubmissionsPage() {
               <FileText className="h-6 w-6 text-purple-500" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Submission History</h1>
+              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Filing History</h1>
               <p className="text-sm text-[var(--ff-text-secondary)]">
-                All SARS eFiling submissions and their statuses
+                SARS eFiling records and their statuses
               </p>
             </div>
           </div>
@@ -183,7 +186,7 @@ export default function SubmissionsPage() {
                   <th className="px-4 py-3">Period</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">SARS Reference</th>
-                  <th className="px-4 py-3">Submitted</th>
+                  <th className="px-4 py-3">Filed on eFiling</th>
                   <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
@@ -193,14 +196,14 @@ export default function SubmissionsPage() {
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
                       <Loader2 className="h-5 w-5 animate-spin inline mr-2" />
-                      Loading submissions...
+                      Loading filing records...
                     </td>
                   </tr>
                 )}
                 {!loading && submissions.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
-                      No submissions found. Generate a VAT201 or EMP201 to create your first submission.
+                      No filing records found. Generate a VAT201 or EMP201 to create your first record.
                     </td>
                   </tr>
                 )}

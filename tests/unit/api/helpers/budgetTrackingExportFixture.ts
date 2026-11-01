@@ -38,7 +38,7 @@ export function fixture(): BudgetTrackingReport {
     projection: { fiscalYear: 2027, cutoff: plan.cutoff, actualMonths: plan.actualMonths, budgetMonths: plan.budgetMonths, judgedThrough: plan.judgedThrough },
     lines,
     bands: buildBands(lines),
-    notices: { unbudgetedCount: 2, unbudgetedActual: { income: 12.3, expense: 300 }, unallocatedBudget: { income: 0, expense: 250 }, noVersion: false, noVersionYears: [] },
+    notices: { unbudgetedCount: 2, unbudgetedActual: { income: 12.3, expense: 300 }, unallocatedBudget: { income: 0, expense: 250 }, noVersion: false, noVersionYears: [], noBudgetAtFilterYears: [] },
     years: [],
   };
 }

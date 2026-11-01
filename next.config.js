@@ -35,6 +35,8 @@ const nextConfig = {
       // Blog pages, the RSS feed and the sitemap read content/blog/** with fs at
       // ISR/request time; the static tracer cannot see those reads.
       './content/blog/**/*',
+      // The server-rendered sitemap reads help content on each request.
+      './content/help/**/*',
     ],
   },
 

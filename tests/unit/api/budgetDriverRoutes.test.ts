@@ -105,12 +105,12 @@ describe('budget-drivers routes: methods, CSRF, roles and the bucket', () => {
     expect(svc.resetOverride).not.toHaveBeenCalled();
   });
 
-  it('a viewer reads headcount at company and cost-centre scope (budget readers see budget figures)', async () => {
+  it('a viewer reads headcount at company and cost-centre scope, at totals access (decision 15: no counts)', async () => {
     svc.readHeadcount.mockResolvedValue({ costCentreId: null, months: [], asOf: 't' });
     const CC = '66666666-6666-4666-8666-666666666666';
     expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V }, companyRole: 'viewer' })).statusCode).toBe(200);
     expect((await call(headcountRoute as Route, { method: 'GET', query: { versionId: V, costCentreId: CC }, companyRole: 'viewer' })).statusCode).toBe(200);
-    expect(svc.readHeadcount).toHaveBeenLastCalledWith(COMPANY, V, CC);
+    expect(svc.readHeadcount).toHaveBeenLastCalledWith(COMPANY, V, CC, 'totals');
   });
 
   it('charges writes to the budget-driver bucket (429 past it) and never reads', async () => {

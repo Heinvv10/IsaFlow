@@ -40,7 +40,7 @@ beforeAll(async () => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    model = await als.run({ client, companyId: A.id, userId: A.user, claims: {} } as never, () => loadGridReadModel(A.id, { versionId: v }));
+    model = await als.run({ client, companyId: A.id, userId: A.user, claims: {} } as never, () => loadGridReadModel(A.id, { versionId: v }, 'full'));
   } finally {
     await client.query('ROLLBACK');
     client.release();
