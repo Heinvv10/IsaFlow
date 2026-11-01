@@ -17,12 +17,14 @@ import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/c
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
 import { invoiceDateProblem, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 
 // CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
 // otherwise null, so derivation sets it (the project's FNO, else the customer's: dimensionKeepStored).
 type LineItem = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string };
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
+const CUSTOMER_FAILED = "Could not load the customer's VAT type - check the VAT on this invoice by hand";
 type InvoiceItemRow = {
   description?: string; unit_price?: number | string; quantity?: number | string;
   amount?: number | string; tax_rate?: number | string;
@@ -51,6 +53,8 @@ export default function EditCustomerInvoicePage() {
   const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([]);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive'); // a stored price is ex-VAT, so it loads as one
+  const [changedClient, setChangedClient] = useState(''); // only a customer changed here is read: a stored invoice is not refilled
+  const customer = useCustomerLookup(changedClient, CUSTOMER_FAILED);
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -199,10 +203,10 @@ export default function EditCustomerInvoicePage() {
         <div className="p-4 sm:p-6 xl:p-8">
           <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
             <div className="min-w-0 space-y-5">
-              {error && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</div>}
+              {(error || customer.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error || customer.error}</div>}
 
-              <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} />
+              <InvoiceHeaderFields form={form} onChange={patch => { if ('clientId' in patch) setChangedClient(patch.clientId ?? ''); setForm(p => ({ ...p, ...patch })); }} currencies={currencies} options={codingOptions}
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
@@ -214,7 +218,7 @@ export default function EditCustomerInvoicePage() {
 
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                <button onClick={handleSubmit} disabled={submitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button onClick={handleSubmit} disabled={submitting || customer.pending} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
                 </button>
                 <Link href={`/accounting/customer-invoices/${String(invoiceId)}`} className="block w-full mt-2 py-2.5 text-center border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold rounded-xl transition-colors text-sm">Cancel</Link>

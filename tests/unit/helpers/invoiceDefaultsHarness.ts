@@ -46,9 +46,11 @@ const qty = (i = 0) => screen.getAllByLabelText('Quantity')[i]!;
 export const discounts = () => (screen.getAllByLabelText('Discount %') as HTMLInputElement[]).map((d) => d.value);
 export const pickClient = (name: string) => pickOption('Client', name);
 export const pickMode = (name: RegExp) => pickOption('Amounts are', name);
-export const hintFromCustomer = () => screen.queryAllByText(/from customer/i);
+export const hintFromCustomer = () => screen.queryAllByText(/from customer|customer terms/i);
 export const submitAndWait = async (push: ReturnType<typeof vi.fn>) => {
-  fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
+  const create = screen.getByRole('button', { name: /^create invoice$/i }) as HTMLButtonElement;
+  await waitFor(() => expect(create.disabled).toBe(false)); // it waits for the customer's defaults
+  fireEvent.click(create);
   await waitFor(() => expect(push).toHaveBeenCalled());
 };
 export const fillLine = (i = 0, gross = '115', quantity?: string) => {

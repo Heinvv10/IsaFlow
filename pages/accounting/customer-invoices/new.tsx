@@ -20,12 +20,13 @@ import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/c
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
 import { invoiceDateProblem, isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
-import { useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 
 interface Client { id: string; name: string }
 type LineItem = InvoiceLine;
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
+const BLANK_LINE = { description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, discountFromDefault: true, ...UNCODED };
 
 export default function NewCustomerInvoicePage() {
   const router = useRouter();
@@ -40,7 +41,7 @@ export default function NewCustomerInvoicePage() {
   const dates = useInvoiceDateValidity();
   const [resetKey, setResetKey] = useState(0);
   const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
-  const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
+  const [lines, setLines] = useState<LineItem[]>([{ key: '1', ...BLANK_LINE }]);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive');
   const contact = useContactDefaults({ clientId: form.clientId, invoiceDate: form.invoiceDate, setForm, setLines, setTaxMode });
   const pickTaxMode = (mode: TaxMode) => { contact.touch('taxMode'); setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
@@ -52,9 +53,9 @@ export default function NewCustomerInvoicePage() {
   }, []);
 
   const updateLine = (key: string, field: string, value: string | number) =>
-    setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
+    setLines(prev => prev.map(l => l.key === key ? editedLine(l, field, value) : l));
   // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
-  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: contact.lineDiscount, ...UNCODED, projectId: form.projectId }]);
+  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), ...BLANK_LINE, discount: contact.lineDiscount, projectId: form.projectId }]);
   const codingOptions = useInvoiceLineCodingOptions();
   // A line nobody has typed into yet (the initial one) follows the header project; a worked line keeps its own.
   const pickProject = (v: string) => {
@@ -108,7 +109,7 @@ export default function NewCustomerInvoicePage() {
 
   const handleSubmit = async (andNew = false) => {
     if (!form.clientId) return setError('Select a client');
-    const validLines = lines.map(l => ({ ...l, unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate) })).filter(l => l.description && l.unitPrice > 0);
+    const validLines = lines.map(({ discountFromDefault: _fromDefault, ...l }) => ({ ...l, unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate) })).filter(l => l.description && l.unitPrice > 0);
     if (validLines.length === 0) return setError('Add at least one line item');
     const dateProblem = invoiceDateProblem(form, dates.refused);
     if (dateProblem) return setError(dateProblem);
@@ -123,7 +124,7 @@ export default function NewCustomerInvoicePage() {
       if (andNew) {
         const today = localISODate();
         setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
-        setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
+        setLines([{ key: '1', ...BLANK_LINE }]);
         setTaxMode('exclusive'); contact.reset();
         dates.clear(); setResetKey(k => k + 1); lookupSeq.current++;
         try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
@@ -161,12 +162,12 @@ export default function NewCustomerInvoicePage() {
               <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
                 onChange={patch => { if ('clientId' in patch) lookupSeq.current++; if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}
-                taxMode={taxMode} onTaxModeChange={pickTaxMode} hints={contact.hints} onDueDateEdited={() => contact.touch('dueDate')} />
+                taxMode={taxMode} onTaxModeChange={pickTaxMode} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
                   onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} showIncomeType pricesIncludeVat={taxMode === 'inclusive'}
-                  discountHint={lines.some(l => l.discount === contact.lineDiscount) ? contact.hints.discount : undefined} />
+                  discountHint={lines.some(l => l.discountFromDefault && l.discount > 0) ? contact.hints.discount : undefined} />
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Add any notes or payment instructions…" />
@@ -175,10 +176,10 @@ export default function NewCustomerInvoicePage() {
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode}
                 fx={isFx ? { zarTotal, rate: form.exchangeRate } : undefined} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                <button onClick={() => handleSubmit(false)} disabled={submitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button onClick={() => handleSubmit(false)} disabled={submitting || contact.pending} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Create Invoice</>}
                 </button>
-                <button onClick={() => handleSubmit(true)} disabled={submitting} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button onClick={() => handleSubmit(true)} disabled={submitting || contact.pending} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Save &amp; New</>}
                 </button>
               </InvoiceSummaryCard>

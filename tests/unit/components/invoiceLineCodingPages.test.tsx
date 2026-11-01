@@ -22,7 +22,7 @@ vi.mock('@/components/accounting/ScanAndFillButton', () => ({
   ),
 }));
 
-import { pickOption } from '../helpers/kitPick';
+import { clickWhenEnabled, pickOption } from '../helpers/kitPick';
 import NewCustomerInvoicePage from '../../../pages/accounting/customer-invoices/new';
 import EditCustomerInvoicePage from '../../../pages/accounting/customer-invoices/edit/[invoiceId]';
 import { lineCoding } from '@/components/invoices/CustomerInvoiceSummary';
@@ -116,7 +116,7 @@ describe('customer invoice line coding — new invoice', () => {
     expect((screen.getAllByLabelText('Job (Project Profitability)')[0] as HTMLSelectElement).value).toBe(''); // existing lines untouched
     fireEvent.change(screen.getAllByLabelText('Description')[1]!, { target: { value: 'Edit' } });
     fireEvent.change(screen.getAllByLabelText('Unit price')[1]!, { target: { value: '200' } });
-    fireEvent.click(screen.getByRole('button', { name: /Create Invoice/ }));
+    await clickWhenEnabled(/Create Invoice/);
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]!.body.projectId).toBe(P1);
     expect(sent[0]!.body.items).toMatchObject([
