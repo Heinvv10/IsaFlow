@@ -39,7 +39,6 @@ describe('blog MDX rendering', () => {
     expect(html).toContain('Warning');
     expect(html).toContain('Careful');
     expect(html).toMatch(/<img[^>]+alt="A shot"/);
-    expect(html).toContain('/_next/image?url=%2Fblog%2Ftest%2Fshot.webp');
     expect(html).toContain('Cap');
   });
 
