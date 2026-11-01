@@ -48,7 +48,7 @@ export function SupplierInvoiceSummaryCard({
         <button type="submit" disabled={isSubmitting || disabled} aria-describedby={disabled ? noteId : undefined} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
           {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><Receipt className="h-4 w-4" />Create Invoice</>}
         </button>
-        {disabled && <p id={noteId} className="mt-2 text-xs text-red-600 dark:text-red-400 text-center">Fix the date above</p>}
+        {disabled && <p id={noteId} className="mt-2 text-xs text-red-600 dark:text-red-400 text-center">Fix the date in the form</p>}
       </div>
       <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2 mt-3">Invoice will be saved as a draft. Approve it from the invoice detail page.</p>
     </div>

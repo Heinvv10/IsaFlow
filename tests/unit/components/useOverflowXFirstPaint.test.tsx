@@ -1,7 +1,7 @@
 /**
  * useOverflowX measures before paint: the commit that attaches the element already shows the right answer, so the
- * "scroll sideways" hint never flashes in (or out) for a frame. flushSync commits without waiting for passive effects,
- * so a measure done in useEffect would still read false here.
+ * "scroll sideways" hint never flashes in (or out) for a frame. A state update from a useEffect measure lands on a lower
+ * lane that flushSync does not drain, so that measure would still read false here (mutated and seen red).
  */
 import { afterEach, expect, it } from 'vitest';
 import { flushSync } from 'react-dom';

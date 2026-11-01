@@ -212,7 +212,7 @@ export default function NewPurchaseOrderPage() {
                 <button type="submit" disabled={saving || dates.blocked} aria-describedby={dates.blocked ? dateNoteId : undefined} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {saving && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Save & New'}
                 </button>
-                {dates.blocked && <p id={dateNoteId} className="mt-2 text-xs text-red-600 dark:text-red-400 text-center">Fix the date above</p>}
+                {dates.blocked && <p id={dateNoteId} className="mt-2 text-xs text-red-600 dark:text-red-400 text-center">Fix the date in the form</p>}
               </div>
             </div>
           </form>
