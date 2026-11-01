@@ -35,7 +35,7 @@ export async function generateSupplierInvoicePdf(
            s.bank_branch_code    AS supplier_branch_code,
            po.order_number AS po_number
     FROM supplier_invoices si
-    LEFT JOIN suppliers s ON s.id = si.supplier_id
+    LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     LEFT JOIN supplier_purchase_orders po ON po.id = si.purchase_order_id
     WHERE si.id = ${invoiceId}::UUID
       AND si.company_id = ${companyId}::UUID

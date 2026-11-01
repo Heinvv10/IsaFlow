@@ -41,8 +41,9 @@ export async function findCustomerTaxCodeIssues(
       COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
       COUNT(*) OVER() AS total_count
     FROM customer_invoices ci
-    LEFT JOIN customers c ON c.id = ci.customer_id
-    LEFT JOIN clients cl ON cl.id = ci.client_id
+    -- cl reads customers: the clients view has no company_id to scope by.
+    LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ci.company_id
+    LEFT JOIN customers cl ON cl.id = ci.client_id AND cl.company_id = ci.company_id
     WHERE ci.company_id = ${companyId}::UUID
       AND ci.invoice_date >= ${periodStart}::DATE
       AND ci.invoice_date <= ${periodEnd}::DATE
@@ -70,7 +71,7 @@ export async function findSupplierTaxCodeIssues(
       COALESCE(SUM(ROUND(CASE WHEN si.tax_rate IS NOT NULL THEN si.subtotal * si.tax_rate / 100 ELSE 0 END, 2))
         OVER(), 0) AS potential_vat_total
     FROM supplier_invoices si
-    LEFT JOIN suppliers s ON s.id = si.supplier_id
+    LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     WHERE si.company_id = ${companyId}::UUID
       AND si.invoice_date >= ${periodStart}::DATE
       AND si.invoice_date <= ${periodEnd}::DATE

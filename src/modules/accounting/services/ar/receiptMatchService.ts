@@ -21,6 +21,7 @@ import { invoiceForeignCurrencySql } from '../shared/documentCurrency';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { MatchCandidate, ReceiptMatchSignals } from '@/modules/accounting/types/bank-match.types';
+import { UNKNOWN_CUSTOMER } from './arAgingInvoices';
 import {
   scoreAmount,
   scoreDate,
@@ -112,7 +113,7 @@ async function fetchCandidatePool(
   const rows = (await sql`
     SELECT ci.id,
            ci.invoice_number,
-           c.name AS customer_name,
+           COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS customer_name,
            ci.total_amount,
            ci.amount_paid,
            ci.invoice_date,
@@ -126,7 +127,7 @@ async function fetchCandidatePool(
                AND v.viewed_at >= NOW() - ${lookbackInterval}::INTERVAL
            ) AS viewed_within_30d
     FROM customer_invoices ci
-    JOIN customers c ON c.id = ci.customer_id
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     WHERE ci.company_id = ${companyId}::UUID
       AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
       AND NOT ${invoiceForeignCurrencySql()}
