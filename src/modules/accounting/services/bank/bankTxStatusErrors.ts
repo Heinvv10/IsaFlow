@@ -2,16 +2,18 @@
  * The errors bank status mutations raise. Split out of bankTxStatusMutations (300-line rule), which re-exports them.
  */
 
-/** The page's Undo reads this sentence: the client's own re-read says the same thing for a change it can see. */
-export const LINE_CHANGED_MESSAGE = 'This line has changed since you allocated it.';
+/** What the toast offered to take back, and so the sentence the page's Undo reads when it no longer can. */
+export type UndoneAction = 'allocated' | 'excluded';
+
+export const lineChangedMessage = (action: UndoneAction): string => `This line has changed since you ${action} it.`;
 
 /**
  * A toast outlives the state it was offered for, and a client's read leaves a gap before its write. So an undo says
  * what it expects, and the server refuses under the row lock, before any write, when the line has moved on. 409.
  */
 export class BankLineChangedError extends Error {
-  constructor() {
-    super(LINE_CHANGED_MESSAGE);
+  constructor(action: UndoneAction) {
+    super(lineChangedMessage(action));
     this.name = 'BankLineChangedError';
   }
 }

@@ -157,7 +157,7 @@ export default function BankTransactionsPage() {
 
   // ---- Build action handlers ----
   const actions = buildBankTxActions({
-    transactions, glAccounts, selectedBank, selectedIds, rowSelections, batchType,
+    transactions, glAccounts, bankAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
     setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,

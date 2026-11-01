@@ -57,8 +57,11 @@ async function lockForStatusWrite(
 ): Promise<Row> {
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
-  // First: to a caller holding an expectation, every other refusal below is this one.
-  if (expectedStatus !== undefined && row.status !== expectedStatus) throw new BankLineChangedError();
+  // First: to a caller holding an expectation, every other refusal below is this one. Exclude keeps a line's match,
+  // and this caller goes on to wipe it: the status alone cannot tell a line that was imported from one someone matched.
+  if (expectedStatus !== undefined && (row.status !== expectedStatus || row.matched_journal_line_id)) {
+    throw new BankLineChangedError('excluded');
+  }
   assertFeedPosted(row, verb);
   // D12: a line IN a completed reconciliation (the shared rule; its session was locked with the row) — 409.
   await refuseLineOfCompletedReconciliation(companyId, row);
@@ -252,18 +255,19 @@ export async function unmatchTransaction(
   }
 }
 
+/** `priorStatus` is read under the lock: the page offers Undo from it, not from a grid that may be stale. */
 export async function excludeTransaction(
   companyId: string, bankTxId: string, reason: string | undefined, userId: string,
-): Promise<BankTransaction> {
+): Promise<BankTransaction & { priorStatus: string }> {
   try {
-    await lockForStatusWrite(companyId, bankTxId, 'exclude');
+    const priorStatus = String((await lockForStatusWrite(companyId, bankTxId, 'exclude')).status);
     const rows = (await sql`
       UPDATE bank_transactions SET status = 'excluded', excluded_reason = ${reason || null}
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     await recordExcluded(companyId, bankTxId, userId); // learning loop (non-fatal)
     log.info('Excluded bank transaction', { bankTxId, reason }, 'accounting');
-    return mapTxRow(rows[0]!);
+    return { ...mapTxRow(rows[0]!), priorStatus };
   } catch (err) {
     log.error('Failed to exclude bank transaction', { bankTxId, error: err }, 'accounting');
     throw err;

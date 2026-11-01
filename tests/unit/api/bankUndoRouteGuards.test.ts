@@ -32,8 +32,8 @@ vi.mock('@/lib/apiResponse', () => ({
 }));
 
 import handler from '../../../pages/api/accounting/bank-transactions-action';
-import { reverseReconciledTransaction, unmatchTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
-import { BankLineChangedError, LINE_CHANGED_MESSAGE } from '@/modules/accounting/services/bank/bankTxStatusErrors';
+import { excludeTransaction, reverseReconciledTransaction, unmatchTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { BankLineChangedError, lineChangedMessage } from '@/modules/accounting/services/bank/bankTxStatusErrors';
 
 const CO = '00000000-0000-4000-8000-000000000001';
 const TX = '00000000-0000-4000-8000-000000000003';
@@ -63,11 +63,31 @@ describe('bank-transactions-action, an undo that states what it expects', () => 
   });
 
   it.each([
-    ['reverse', { action: 'reverse', bankTransactionId: TX, expectedJournalEntryId: JE }, reverseReconciledTransaction],
-    ['unmatch', { action: 'unmatch', bankTransactionId: TX, expectedStatus: 'excluded' }, unmatchTransaction],
-  ])('%s: a changed line answers 409 with the toast\'s sentence', async (_n, body, service) => {
-    vi.mocked(service).mockRejectedValueOnce(new BankLineChangedError());
-    expect(await call(body)).toEqual({ kind: 'conflict', message: LINE_CHANGED_MESSAGE });
+    ['reverse', { action: 'reverse', bankTransactionId: TX, expectedJournalEntryId: JE }, reverseReconciledTransaction, 'allocated'],
+    ['unmatch', { action: 'unmatch', bankTransactionId: TX, expectedStatus: 'excluded' }, unmatchTransaction, 'excluded'],
+  ] as const)('%s: a changed line answers 409 with the toast\'s sentence', async (_n, body, service, action) => {
+    vi.mocked(service).mockRejectedValueOnce(new BankLineChangedError(action));
+    expect(await call(body)).toEqual({ kind: 'conflict', message: lineChangedMessage(action) });
+  });
+
+  it('the two sentences say what the toast offered to take back', () => {
+    expect(new BankLineChangedError('allocated').message).toBe('This line has changed since you allocated it.');
+    expect(new BankLineChangedError('excluded').message).toBe('This line has changed since you excluded it.');
+  });
+
+  it('reverse reports the dates and the VAT roll of the contra, which the toast warns on', async () => {
+    const roll = { rolledFrom: '2026-06-01', date: '2026-11-01', lockedPeriodStart: '2026-05-01', lockedPeriodEnd: '2026-06-30', reason: 'locked' };
+    vi.mocked(reverseReconciledTransaction).mockResolvedValueOnce({
+      invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
+      vatLockRoll: roll, originalEntryDate: '2026-06-01', reversalEntryDate: '2026-11-01',
+    });
+    const res = await call({ action: 'reverse', bankTransactionId: TX, expectedJournalEntryId: JE });
+    expect(res).toEqual({ kind: 'success', data: { reversed: true, vatLockRoll: roll, originalEntryDate: '2026-06-01', reversalEntryDate: '2026-11-01' } });
+  });
+
+  it('exclude passes on the status it read under the lock', async () => {
+    vi.mocked(excludeTransaction).mockResolvedValueOnce({ priorStatus: 'matched' } as never);
+    expect(await call({ action: 'exclude', bankTransactionId: TX })).toEqual({ kind: 'success', data: { priorStatus: 'matched' } });
   });
 
   it('refuses any other expected status: this is not a general compare-and-set', async () => {

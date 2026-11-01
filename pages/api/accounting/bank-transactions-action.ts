@@ -246,10 +246,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
       case 'reverse': {
         const { expectedJournalEntryId } = body;
-        if (await withJournalDateRefusal(res, () => (expectedJournalEntryId
+        const reversed = await withJournalDateRefusal(res, () => (expectedJournalEntryId
           ? reverseReconciledTransaction(companyId, body.bankTransactionId, userId, { expectedJournalEntryId })
-          : reverseReconciledTransaction(companyId, body.bankTransactionId, userId))) === JOURNAL_DATE_REFUSED) return;
-        return apiResponse.success(res, { reversed: true });
+          : reverseReconciledTransaction(companyId, body.bankTransactionId, userId)));
+        if (reversed === JOURNAL_DATE_REFUSED) return;
+        return apiResponse.success(res, { reversed: true, vatLockRoll: reversed?.vatLockRoll, originalEntryDate: reversed?.originalEntryDate, reversalEntryDate: reversed?.reversalEntryDate });
       }
     }
   } catch (err) {

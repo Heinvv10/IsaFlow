@@ -12,12 +12,13 @@ import type { AllocType, BankTx, SelectOption, RowSelection } from '@/components
 import type { RulePrompt } from './BankTxBatchPanel';
 import { actionableIds } from './pendingFeedRow';
 import { buildBankTxSelectionActions } from './bankTxSelectionActions';
-import { offerAllocationUndo, offerExcludeUndo } from './bankTxUndo';
+import { isUndoableAllocation, offerAllocationUndo, offerExcludeUndo } from './bankTxUndo';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
 interface ActionDeps {
   transactions: BankTx[];
   glAccounts: SelectOption[];
+  bankAccounts: { id: string }[];
   selectedBank: string;
   selectedIds: Set<string>;
   rowSelections: Record<string, RowSelection>;
@@ -40,7 +41,7 @@ interface ActionDeps {
 
 export function buildBankTxActions(deps: ActionDeps) {
   const {
-    transactions, selectedBank, selectedIds, rowSelections,
+    transactions, bankAccounts, selectedBank, selectedIds, rowSelections,
     excludingTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds,
     setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, reloadCurrentView, onLlmResidual,
@@ -91,8 +92,8 @@ export function buildBankTxActions(deps: ActionDeps) {
       }
       const allocated = await callAction(body);
       const journalEntryId: unknown = allocated?.data?.journalEntryId;
-      if (sel.type !== 'transfer' && tx && typeof journalEntryId === 'string') {
-        offerAllocationUndo(tx, selectedBank, journalEntryId, { callAction, reloadCurrentView });
+      if (typeof journalEntryId === 'string' && isUndoableAllocation(sel, bankAccounts)) {
+        offerAllocationUndo(txId, journalEntryId, sel.type === 'account', { callAction, reloadCurrentView });
       } else {
         notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
       }
@@ -124,11 +125,10 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleExcludeConfirm = async (reason: string) => {
     if (!excludingTxId) return;
     const txId = excludingTxId;
-    const priorStatus = transactions.find(t => t.id === txId)?.status;
     setExcludingTxId(null);
     try {
-      await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
-      if (priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
+      const excluded = await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
+      if (excluded?.data?.priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
       else notify.success('Transaction excluded');
       loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
