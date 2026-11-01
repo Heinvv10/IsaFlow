@@ -282,11 +282,16 @@ jobs:
 
   # Golden-paths money-flow E2E (A–Z programme). BLOCKING since Phase 3
   # (P3.1): a red money path fails the whole run — no continue-on-error, no
-  # silent skip. Boots a dev server against isaflow_dev using the runner-local
-  # env file and runs tests/e2e/golden-paths/ over HTTP.
+  # silent skip. Boots a dev server and runs tests/e2e/golden-paths/ over HTTP.
+  # On velo (CI_HOSTED=off) it runs against the shared isaflow_dev Demo company
+  # with the runner-local env file. Otherwise it runs on a GitHub-hosted runner
+  # (like golden-lane, it follows the variable itself), against a database of
+  # its own: scripts/ci/golden-hosted/up.sh builds a throwaway PostgreSQL, a
+  # GoTrue and a Demo company, and seed-demo-app.ts fills it. No real secret and
+  # no velo database is involved.
   golden-paths:
     name: Golden Paths E2E (blocking)
-    runs-on: [self-hosted, linux, velo]
+    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
     # Green runs took 19-30 min of test time on 2026-10-29, and #952's green run
     # took 49 min wall-clock at load ~60 (00:23-01:12Z); 30 cancelled every
     # queue run (#938, #940, #917) and 45 would still have cut that one.
@@ -311,10 +316,14 @@ jobs:
     # a push that falls back to the full suite must stay serialised against
     # PR runs on the Demo company. !cancelled(): a failed golden-lane still
     # runs the suite, in the ordinary group.
+    # Hosted, every run has its own database and nothing is shared, so the
+    # group is the run's own id and runs never wait for each other (a
+    # per-ref group would cancel nothing and queue nothing either). Only velo
+    # (CI_HOSTED=off) takes the shared groups above.
     needs: golden-lane
     if: ${{ !cancelled() }}
     concurrency:
-      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
+      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-dev-demo{0}', needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}
       cancel-in-progress: false
     # Read-only; for the merge check below (as in quality).
     permissions:
@@ -330,6 +339,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Hosted golden-paths setup (velo has bun and Node 20), as in static;
+      # before the merge check below, which runs a bun script.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.9
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
       # A push to master that is an already-tested merge-queue merge skips the
       # suite (see quality's gate step); the job still reports success. Exit
       # 10 skips; any other exit, a crash included, runs the suite.
@@ -344,24 +370,57 @@ jobs:
           fi
           if [ "$rc" -eq 10 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
 
+      # Hosted only: PostgreSQL 16 + pgvector for the throwaway cluster (as in
+      # velo; docker, jq and psql tooling are on the image).
+      - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector
+          sudo locale-gen en_US.UTF-8
+
       - name: Install dependencies
         if: steps.mq.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
+      # Hosted only: Chromium and the system libraries it needs (velo has them).
+      - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        run: bunx playwright install --with-deps chromium
+
+      # Hosted only: the database, GoTrue and Demo company this run owns, and
+      # the generated .env.local. Fails the job if any of it cannot be built.
+      - name: Stand up Postgres, GoTrue and the Demo company
+        if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        env:
+          ADMIN_ENV_FILE: ${{ runner.temp }}/golden-admin.env
+          TZ: Africa/Johannesburg
+        run: bash scripts/ci/golden-hosted/up.sh
+
       - name: Boot dev server and run golden paths
         if: steps.mq.outputs.skip != 'true'
         env:
-          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
-          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          # Velo only: the real secrets never reach a hosted runner, whose
+          # E2E admin is generated (ADMIN_ENV_FILE, below).
+          E2E_ADMIN_EMAIL: ${{ vars.CI_HOSTED == 'off' && secrets.E2E_ADMIN_EMAIL || '' }}
+          E2E_ADMIN_PASSWORD: ${{ vars.CI_HOSTED == 'off' && secrets.E2E_ADMIN_PASSWORD || '' }}
+          ADMIN_ENV_FILE: ${{ runner.temp }}/golden-admin.env
         run: |
           set -e
-          # A missing env file must FAIL, not skip: a blocking gate that
-          # silently no-ops is exactly the "quiet 45/100" this job prevents.
-          if [ ! -f /home/hein/isaflow-ci.env ]; then
-            echo "::error::/home/hein/isaflow-ci.env missing on runner — golden paths cannot run (blocking gate, refusing to pass silently)"
-            exit 1
+          HOSTED=false
+          [ "$RUNNER_ENVIRONMENT" = "github-hosted" ] && HOSTED=true
+          if [ "$HOSTED" = true ]; then
+            # .env.local and the admin login were generated by the step above.
+            set -a; . "$ADMIN_ENV_FILE"; set +a
+            # Velo and production run in SAST (as in static); a hosted runner is UTC.
+            export TZ=Africa/Johannesburg
+          else
+            # A missing env file must FAIL, not skip: a blocking gate that
+            # silently no-ops is exactly the "quiet 45/100" this job prevents.
+            if [ ! -f /home/hein/isaflow-ci.env ]; then
+              echo "::error::/home/hein/isaflow-ci.env missing on runner — golden paths cannot run (blocking gate, refusing to pass silently)"
+              exit 1
+            fi
+            cp /home/hein/isaflow-ci.env .env.local
           fi
-          cp /home/hein/isaflow-ci.env .env.local
           bunx playwright install chromium
           # Ephemeral port that nothing listens on: a stale next dev from an
           # earlier cancelled run, or one of velo's docker apps in 3300-3799,
@@ -369,6 +428,8 @@ jobs:
           # job's server. Skips Next.js's bad ports too.
           GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts 3300 3799)
           [ -n "$GOLDEN_PORT" ] || { echo "::error::golden-free-port printed no port"; exit 1; }
+          # Hosted: the app's own URL is this server (velo's file names one).
+          if [ "$HOSTED" = true ]; then export NEXT_PUBLIC_APP_URL="http://localhost:$GOLDEN_PORT"; fi
           # setsid: its own process group, so the trap stops next's children
           # too, not only the bunx wrapper.
           setsid bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
@@ -389,4 +450,16 @@ jobs:
           { grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null; } || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
           # The answer must come from OUR server, not whatever took the port.
           kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
-          BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden
+          # Hosted: nothing in this job's environment is a real secret (random
+          # per-run values on a localhost-only database in a VM that is gone
+          # afterwards), so, unlike velo, the dev log tail is printed when
+          # something fails: it is the only place a server error shows.
+          if [ "$HOSTED" = true ]; then
+            BASE_URL="http://localhost:$GOLDEN_PORT" bun scripts/ci/golden-hosted/seed-demo-app.ts || { echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"; exit 1; }
+          fi
+          rc=0
+          BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden || rc=$?
+          if [ "$rc" -ne 0 ] && [ "$HOSTED" = true ]; then
+            echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"
+          fi
+          exit "$rc"
