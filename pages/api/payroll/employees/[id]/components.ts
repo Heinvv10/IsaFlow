@@ -16,6 +16,7 @@ import {
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   assignComponentToEmployee,
+  EmployeeComponentRefused,
   endEmployeeComponent,
   listEmployeeComponentAssignments,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
@@ -52,18 +53,22 @@ async function handler(
     if (amount === undefined || amount === null) return apiResponse.badRequest(res, 'amount is required');
     if (!effectiveFrom) return apiResponse.badRequest(res, 'effectiveFrom is required');
 
-    const assignment = await assignComponentToEmployee(
-      companyId,
-      id,
-      componentId,
-      Number(amount),
-      new Date(effectiveFrom),
-      effectiveTo ? new Date(effectiveTo) : undefined,
-      isRecurring !== false, // default true
-    );
-
-    res.status(201).json({ success: true, data: assignment });
-    return;
+    try {
+      const assignment = await assignComponentToEmployee(
+        companyId,
+        id,
+        componentId,
+        Number(amount),
+        new Date(effectiveFrom),
+        effectiveTo ? new Date(effectiveTo) : undefined,
+        isRecurring !== false, // default true
+      );
+      res.status(201).json({ success: true, data: assignment });
+      return;
+    } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   // DELETE — end an assignment (set effective_to)
@@ -81,4 +86,5 @@ async function handler(
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+// The URL names the employee, so a logged amount is what that person earns.
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['amount'] }));
