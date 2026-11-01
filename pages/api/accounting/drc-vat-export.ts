@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -30,11 +31,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const rows = await sql`
-    SELECT si.invoice_number, s.company_name AS supplier_name,
+    SELECT si.invoice_number, COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name,
       si.total_amount, si.invoice_date,
       COALESCE(si.total_amount * ${vatRate}, 0) AS vat_amount
     FROM supplier_invoices si
-    JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
+    -- LEFT: a bill naming another company's supplier is still a DRC bill, in getDRCHistory and the VAT201.
+    LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     WHERE si.is_drc = true AND si.company_id = ${companyId}
     ORDER BY si.invoice_date DESC
     LIMIT ${EXPORT_ROW_CEILING + 1}

@@ -127,7 +127,7 @@ async function fetchCandidatePool(
                AND v.viewed_at >= NOW() - ${lookbackInterval}::INTERVAL
            ) AS viewed_within_30d
     FROM customer_invoices ci
-    LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ci.company_id
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     WHERE ci.company_id = ${companyId}::UUID
       AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
       AND NOT ${invoiceForeignCurrencySql()}
