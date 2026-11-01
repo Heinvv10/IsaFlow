@@ -39,8 +39,8 @@ export async function getAdjustments(companyId: string, filters?: {
     rows = (await sql`
       SELECT a.*, c.name AS customer_name, s.name AS supplier_name
       FROM accounting_adjustments a
-      LEFT JOIN customers c ON a.entity_type = 'customer' AND c.id = a.entity_id
-      LEFT JOIN suppliers s ON a.entity_type = 'supplier' AND s.id = a.entity_id
+      LEFT JOIN customers c ON a.entity_type = 'customer' AND c.id = a.entity_id AND c.company_id = a.company_id
+      LEFT JOIN suppliers s ON a.entity_type = 'supplier' AND s.id = a.entity_id AND s.company_id = a.company_id
       WHERE a.company_id = ${companyId} AND a.entity_type = ${filters.entityType}
       ORDER BY a.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
@@ -52,8 +52,8 @@ export async function getAdjustments(companyId: string, filters?: {
     rows = (await sql`
       SELECT a.*, c.name AS customer_name, s.name AS supplier_name
       FROM accounting_adjustments a
-      LEFT JOIN customers c ON a.entity_type = 'customer' AND c.id = a.entity_id
-      LEFT JOIN suppliers s ON a.entity_type = 'supplier' AND s.id = a.entity_id
+      LEFT JOIN customers c ON a.entity_type = 'customer' AND c.id = a.entity_id AND c.company_id = a.company_id
+      LEFT JOIN suppliers s ON a.entity_type = 'supplier' AND s.id = a.entity_id AND s.company_id = a.company_id
       WHERE a.company_id = ${companyId}
       ORDER BY a.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];

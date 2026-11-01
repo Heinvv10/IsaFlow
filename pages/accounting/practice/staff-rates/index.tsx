@@ -112,6 +112,7 @@ export default function StaffRatesPage() {
         }),
       });
       await assertOk(res, 'Could not add the rate - try again');
+      dateGate.reset('effective-from'); dateGate.reset('effective-to-optional');
       setForm((f) => ({ ...EMPTY_FORM, userId: f.userId, currency: f.currency }));
       await loadRates(selectedUser);
     } catch (err) {

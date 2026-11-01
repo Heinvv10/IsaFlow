@@ -3,8 +3,8 @@
  * One-click combined P&L, Balance Sheet, and Cash Flow for a selected period.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { useState, useCallback } from 'react';
+import { EnterDateNotice, FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import Link from 'next/link';
@@ -19,6 +19,7 @@ import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
 import { ManagementSection } from '@/components/accounting/ManagementSection';
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -126,30 +127,38 @@ export default function ManagementAccountsPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [report, setReport] = useState<ManagementReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showEmail, setShowEmail] = useState(false);
+  const [runs, setRuns] = useState(0);
 
-  const loadReport = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+  const query = periodStart && periodEnd ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd }).toString() : '';
+
+  const loadReport = useCallback<ReportLoad>(async (latest) => {
+    if (!query) { setReport(null); setError(''); setLoading(false); return true; }
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await apiFetch(`/api/accounting/reports-management-accounts?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-management-accounts?${query}`);
       await assertOk(res, 'Could not load report - try again');
       const json = await res.json();
-      setReport(json.data ?? json);
+      if (latest()) setReport(json.data ?? json);
+      return true;
     } catch (err) {
-      setReport(null);
-      setError(apiErrorMessage(err, 'Could not load report - try again'));
+      if (latest()) {
+        setReport(null);
+        setError(apiErrorMessage(err, 'Could not load report - try again'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [periodStart, periodEnd]);
+  }, [query]);
 
-  useEffect(() => { void loadReport(); }, [loadReport]);
+  // Run asks for the params already on screen, so `runs` is what tells this run from the last one.
+  const stale = useGatedReportLoad(query && `${query}#${runs}`, dates, loadReport);
 
   function handleDownload() {
     window.print();
@@ -162,7 +171,7 @@ export default function ManagementAccountsPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]" data-print-ready={report ? 'true' : 'false'}>
+      <div className="min-h-screen bg-[var(--ff-bg-primary)]" data-print-ready={report && !stale ? 'true' : 'false'}>
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
@@ -182,13 +191,15 @@ export default function ManagementAccountsPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleDownload}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]"
+                  disabled={dates.blocked}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-50"
                 >
                   <Download className="h-4 w-4" /> Download PDF
                 </button>
                 <button
                   onClick={() => setShowEmail(true)}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700"
+                  disabled={dates.blocked}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
                 >
                   <Mail className="h-4 w-4" /> Email to Director
                 </button>
@@ -197,14 +208,14 @@ export default function ManagementAccountsPage() {
             {/* Period selector */}
             <div className="flex items-center gap-3 mt-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+                <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
               </div>
               <div className="flex items-center gap-2">
-                <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+                <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
               </div>
               <button
-                onClick={loadReport}
-                disabled={loading}
+                onClick={() => setRuns(n => n + 1)}
+                disabled={loading || dates.blocked}
                 className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
               >
                 {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -216,19 +227,22 @@ export default function ManagementAccountsPage() {
 
         {/* Body */}
         <div className="px-6 py-6 max-w-5xl mx-auto space-y-6">
-          {error && (
+          <FixDateNotice gate={dates} hidden={stale} />
+          {error && !stale && (
             <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
 
-          {loading && !report && (
+          {!stale && !query && <EnterDateNotice />}
+
+          {!stale && loading && !report && (
             <div className="flex items-center justify-center py-20 text-[var(--ff-text-tertiary)]">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           )}
 
-          {report && (
+          {!stale && report && (
             <>
               {/* KPI Summary Cards */}
               <ManagementKpiRow k={k} />

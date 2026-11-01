@@ -44,7 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           cn.credit_date as return_date,
           cn.reason
         FROM credit_notes cn
-        LEFT JOIN suppliers s ON s.id = cn.supplier_id
+        LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
         WHERE cn.type = 'supplier' AND cn.company_id = ${companyId}
         ORDER BY cn.credit_date DESC
       `) as Row[];
