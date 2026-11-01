@@ -31,8 +31,8 @@ export type OAuthScope = (typeof OAUTH_SCOPES)[number];
  * the 401 challenge on /api/mcp hints at (`scope="..."`, MCP 2025-11-25).
  * READ scopes only, plus offline_access so the connection survives the 1-hour
  * access token. Never put a write scope here: a client that sends nothing must
- * not be offered anything that changes the books, and write:post stays opt-in
- * (consentScopes.ts) whatever this list says.
+ * not be offered anything that changes the books. Every write scope stays
+ * opt-in (consentScopes.ts) whatever this list says.
  */
 export const DEFAULT_MCP_SCOPES: readonly OAuthScope[] = [
   'read:reports',

@@ -23,7 +23,7 @@ import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fisc
 export const TURNOVER_THRESHOLD_CENTS = 100_000_000;
 
 /** Length of the free trial granted to every new tenant. */
-export const TRIAL_DAYS = 14;
+export const TRIAL_DAYS = 30;
 
 export type SignupType = 'direct' | 'accountant';
 

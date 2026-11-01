@@ -51,8 +51,8 @@ export function CustomerZoneTab({ company, onChange }: Props) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div>
-            <label className={LABEL_CLS}>Portal Display Name</label>
-            <input
+            <label htmlFor="customer-zone-tab-portal-display-name" className={LABEL_CLS}>Portal Display Name</label>
+            <input id="customer-zone-tab-portal-display-name"
               className={INPUT_CLS}
               maxLength={100}
               placeholder={company.name}
@@ -65,8 +65,8 @@ export function CustomerZoneTab({ company, onChange }: Props) {
           </div>
 
           <div>
-            <label className={LABEL_CLS}>Tagline</label>
-            <input
+            <label htmlFor="customer-zone-tab-tagline" className={LABEL_CLS}>Tagline</label>
+            <input id="customer-zone-tab-tagline"
               className={INPUT_CLS}
               maxLength={200}
               placeholder="Your trusted supplier"
@@ -80,8 +80,8 @@ export function CustomerZoneTab({ company, onChange }: Props) {
         </div>
 
         <div className="mb-4">
-          <label className={LABEL_CLS}>Welcome Message</label>
-          <textarea
+          <label htmlFor="customer-zone-tab-welcome-message" className={LABEL_CLS}>Welcome Message</label>
+          <textarea id="customer-zone-tab-welcome-message"
             className={`${INPUT_CLS} resize-none`}
             rows={3}
             maxLength={1000}
@@ -92,15 +92,15 @@ export function CustomerZoneTab({ company, onChange }: Props) {
         </div>
 
         <div className="max-w-xs">
-          <label className={LABEL_CLS}>Primary Colour</label>
+          <label htmlFor="customer-zone-tab-primary-colour" className={LABEL_CLS}>Primary Colour</label>
           <div className="flex items-center gap-3">
-            <input
+            <input aria-label="Primary colour picker"
               type="color"
               className="h-9 w-14 rounded-lg border border-[var(--ff-border-primary)] cursor-pointer bg-transparent p-0.5"
               value={company.portalPrimaryColor ?? '#0f766e'}
               onChange={e => onChange('portalPrimaryColor', e.target.value)}
             />
-            <input
+            <input id="customer-zone-tab-primary-colour"
               className={INPUT_CLS}
               maxLength={7}
               placeholder="#0f766e"
@@ -181,7 +181,7 @@ export function CustomerZoneTab({ company, onChange }: Props) {
           Text shown to customers on the payment page. Include banking details or EFT instructions.
         </p>
 
-        <textarea
+        <textarea aria-label="Payment instructions"
           className={`${INPUT_CLS} resize-none`}
           rows={5}
           maxLength={2000}

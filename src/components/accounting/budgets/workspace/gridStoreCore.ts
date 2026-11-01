@@ -8,7 +8,7 @@ import type { GridAccount } from '@/modules/accounting/services/budgets/gridRead
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
 import { type CellKey, rowKeyOf } from '@/modules/accounting/services/budgets/grid/cellKey';
 import type { CellSource, RowKey } from '@/modules/accounting/services/budgets/drivers/driverTypes';
-import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import type { VisibleDriverLine } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 import { type GridState, initialGridState } from '@/modules/accounting/services/budgets/grid/keyboard';
 import { type View, resolveView, viewCellKey } from '@/modules/accounting/services/budgets/grid/pivot';
 import type { GridShape } from '@/modules/accounting/services/budgets/grid/selection';
@@ -50,7 +50,7 @@ export class GridStoreCore {
   /** P4: each loaded cell's source, the version's closed months (they hold 'actual' cells) and its drivers by row. */
   protected sources = new Map<CellKey, CellSource>();
   protected closedMonths: ReadonlySet<string> = new Set();
-  protected drivers = new Map<RowKey, StoredDriverLine>();
+  protected drivers = new Map<RowKey, VisibleDriverLine>();
   /** The last driver recompute's warnings (skipped driver, input read as 0) by row, labelled. */
   protected driverWarnings = new Map<RowKey, string>();
   protected own = new Map<string, OwnPart>();

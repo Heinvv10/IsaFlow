@@ -81,7 +81,7 @@ const CASES: Case[] = [
   { name: 'SARS submissions list', page: () => <SubmissionsPage />, fails: () => true,
     good: { items: [{ id: 's1', formType: 'D2-VAT201', periodStart: '2026-01-01', periodEnd: '2026-01-31', status: 'draft', formData: {},
       submissionReference: null, submittedAt: null, notes: null, createdAt: '2026-02-01', updatedAt: '2026-02-01', submittedBy: null }] },
-    shows: /D2-VAT201/, plain: /Could not load submissions - try again/ },
+    shows: /D2-VAT201/, plain: /Could not load filing records - try again/ },
   { name: 'asset location select', page: () => <AssetLocationSelect value="" onChange={vi.fn()} />, fails: () => true,
     good: [{ id: 'l1', name: 'D2 Warehouse' }], shows: /D2 Warehouse/, plain: /Could not load locations - try again/ },
   { name: 'auto-post runs panel', page: () => <AutoPostRunsPanel />, fails: () => true,

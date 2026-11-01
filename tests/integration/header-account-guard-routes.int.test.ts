@@ -46,7 +46,7 @@ describeIfDb('header refusals answer the right status and leave nothing behind',
     const before = await countRows(h.fx);
     const refused = await callRoute(h.fx, h.token, glImport, file(h.assetHdr.code));
     expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
-    expect(JSON.stringify(refused.body)).toContain(`Import row \\"group two header\\" (${DATE}): ${h.assetHdr.code} `);
+    expect(JSON.stringify(refused.body)).toContain(`Import row 5 (${DATE}): ${h.assetHdr.code} `);
     expect(JSON.stringify(refused.body)).toContain(HEADER_TEXT);
     expect(await countRows(h.fx)).toEqual(before);
 

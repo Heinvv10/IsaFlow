@@ -6,6 +6,7 @@
  * grid skips them (`NON_FIGURE_KINDS`); an absent figure is an empty cell,
  * never 0; text in the CSV goes through `csvVal` (formula injection).
  */
+import { budgetElsewhereNotice, noBudgetYearNotice } from './trackingNoticeText';
 import ExcelJS from 'exceljs';
 import { csvVal } from '@/lib/csv';
 import { neutralizeCsvCell } from '@/lib/csvSafe';
@@ -96,9 +97,9 @@ export function trackingExportHeader(report: BudgetTrackingReport, companyName: 
   // A window reaching a year with no version prints no budget at all (F1): say why, or the blank
   // Budget column beside a named version reads as an export fault.
   const missing = report.notices.noVersionYears;
-  if (missing.length > 0) {
-    head.push(['Notice', `No budget for ${missing.map((y) => `FY${y}`).join(', ')} in this window`]);
-  }
+  for (const y of missing) head.push(['Notice', noBudgetYearNotice(y)]);
+  // A year with a budget, none of it at the filter: the Budget column is blank for a reason that is not a missing year (review r3).
+  for (const y of report.notices.noBudgetAtFilterYears) head.push(['Notice', budgetElsewhereNotice(y)]);
   // Lines budgeted for only part of the window print a blank Budget: say why (review r6 F3).
   const partial = report.notices.partialBudget ?? null;
   if (partial) {

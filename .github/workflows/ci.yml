@@ -17,30 +17,48 @@ permissions:
   contents: read
 
 jobs:
-  quality:
-    name: Type Check, Lint & Test
-    runs-on: [self-hosted, linux, velo]
-    # run-ci.sh ends with a production build, which the old five steps did not.
-    # Measured 8m13s at load ~45 (R-052/green.log). OBSERVED on this box
-    # 2026-10-12 (not bounds): every step but integration 15 min at load ~65,
-    # 58 min at load 150-250; integration 8-16 min, 24 min at its worst.
-    # 2026-10-21: the job took 20-24 min, integration 12-15 of it (one shard
-    # holding the audit-snapshots suites); plan.ts now deals shards by measured
-    # suite times (suite-seconds.json), ~8 min estimated. A Markdown-only change
-    # skips integration, and a push that is an already-tested merge-queue merge
-    # skips every gate (see the gate step below).
-    # Since 2026-10-21 three runners share this box's 32 cores, so up to three
-    # quality jobs (6 integration shards each) can overlap. Total CPU work is
-    # the same as running them in turn, and the 58-min figure was measured at
-    # load 150-250, so the bound stands. Fewer shards would lower the peak but
-    # lengthen every run's critical path; queue merges no longer re-run on
-    # master, which removes roughly one full job per merge.
-    # Integration's own bounds: 4 schema-build commands at 300 s + 30 s kill
-    # grace (CI_INT_MIGRATE_TIMEOUT), shards cut at 30 min (CI_INT_SHARD_TIMEOUT).
-    # Not bounded by those: postgres start retries (up to 5 x 120 s per
-    # cluster), the 10 s TERM-to-KILL graces at shard exit and in cleanup,
-    # initdb and plan. 58 + 22 + 30 + ~2 install = ~112 min, so 120.
-    timeout-minutes: 120
+  # Where the static gate group runs: "true" = GitHub-hosted, else velo.
+  # The repo is public, so hosted minutes are free: every event runs on
+  # GitHub-hosted runners (ubuntu-24.04) unless repo variable CI_HOSTED=off,
+  # the switch for when GitHub's runners are down. route itself, quality and
+  # golden-lane follow the same variable. The output only picks between two
+  # label sets written out in static's runs-on, so a wrong value cannot strand
+  # the job on a label no runner has.
+  route:
+    name: CI route
+    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
+    timeout-minutes: 5
+    outputs:
+      hosted: ${{ steps.route.outputs.hosted }}
+    steps:
+      - name: Hosted or velo?
+        id: route
+        env:
+          CI_HOSTED: ${{ vars.CI_HOSTED }}
+        run: |
+          if [ "$CI_HOSTED" = "off" ]; then
+            echo "[route] velo: repo variable CI_HOSTED=off"
+            echo "hosted=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "[route] GitHub-hosted"
+            echo "hosted=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # `bun run ci static`: every gate that needs nothing from velo (type checks,
+  # lint, the text guards, unit and component tests, migration naming, the
+  # production build). See the group list at the top of scripts/ci/run-ci.sh.
+  # Measured on velo 2026-10-30 (load ~40): 13.5 min of gates + 7 min build.
+  static:
+    name: Static gates
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
+    # Hosted: 40. Measured on ubuntu-24.04 (4 vCPU), PR #977 runs 41117290258
+    # and 41124556128: 26 min including setup (re-measure and tighten). On velo,
+    # the old bound for these steps: 58 min at load 150-250, plus install.
+    # ubuntu-24.04, not ubuntu-latest: -latest moves to Ubuntu 26 from
+    # 2026-10-19 (actions/runner-images#14748), and a moving image is a
+    # moving gate.
+    timeout-minutes: ${{ needs.route.outputs.hosted == 'true' && 40 || 75 }}
     # Read-only. actions + pull-requests: mq-merge-already-tested.ts reads the
     # merged PR and its CI run's jobs (CI_READ_TOKEN below).
     permissions:
@@ -49,15 +67,39 @@ jobs:
       pull-requests: read
 
     steps:
-      # Full history: the integration scope diffs the tested tree against the
-      # event's base, and the merge check needs both parents' ancestry. Shallow,
-      # either would fail safe and run everything. persist-credentials: false
+      # Full history: the merge check needs both parents' ancestry, and
+      # raw-input-allowlist diffs against the base. persist-credentials: false
       # keeps this job's wider read token out of .git/config, where any test
-      # could read it; nothing here fetches or pushes after checkout.
+      # could read it.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      # GitHub-hosted only: velo's runners already have bun and Node 20.
+      # Same bun as velo (1.3.9); setup-bun is pinned to a commit because it
+      # is the one third-party action in this workflow.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.9
+      # bun's download cache only, never node_modules: install below still
+      # checks every package against bun.lock.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      # What velo has and the static unit tests spawn: gs (the VLM PDF render).
+      - if: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ghostscript
 
       # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
       # root, workspace members and trusted dependencies, any of which could
@@ -65,33 +107,130 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      # The gate list lives in ONE place: scripts/ci/run-ci.sh. This job used
-      # to hand-list five of its steps, so every gate added to run-ci.sh after
-      # that (security-guards, is-active-filters, vat-guard-coverage,
-      # migration-rls, migration-naming, build, ...) ran only locally and a PR
-      # could merge green while failing them (R-052). run-ci.sh reports every
-      # failing gate and exits non-zero if any failed.
-      #
-      # The integration suites run here too: run-ci.sh's `integration` step
-      # starts its own throwaway PostgreSQL 16 clusters as the runner user
-      # (scripts/ci/integration/run.sh) and ignores DATABASE_URL, which stays
-      # empty. It prints every suite that skipped and why
-      # (scripts/ci/report-skipped-integration.ts). On a change that touches
-      # only Markdown it skips them (scripts/ci/integration/scope.ts), and it
-      # prints why it ran or skipped.
-      #
-      # On a push to master, run-ci.sh first asks
-      # scripts/ci/mq-merge-already-tested.ts whether the pushed commit is a
-      # merge-queue merge whose exact tree already passed both required checks
-      # as a pull_request run; if so it exits 0 without running the gates. Any
-      # doubt or error runs every gate.
-      - name: CI gate (scripts/ci/run-ci.sh)
-        run: bun run ci
+      # Chromium for the unit tests that launch it, at the revision the locked
+      # playwright expects. Velo's runners already have it.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        run: bunx playwright install --with-deps chromium
+
+      # The gate list lives in ONE place: scripts/ci/run-ci.sh (R-052); this
+      # job runs its static group, `velo` below runs the rest, and
+      # "Type Check, Lint & Test" passes only when both did. On a push to
+      # master, run-ci.sh first asks scripts/ci/mq-merge-already-tested.ts
+      # whether the pushed commit is a merge-queue merge whose exact tree
+      # already passed both required checks as a pull_request run; if so it
+      # exits 0 without running the gates. Any doubt or error runs them all.
+      - name: CI gate (scripts/ci/run-ci.sh static)
+        run: bun run ci static
         env:
           CI_READ_TOKEN: ${{ github.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: test-secret-for-ci-only
           NODE_ENV: test
+          # Velo and production run in SAST; the date tests assert the local
+          # day, and a hosted runner is UTC.
+          TZ: Africa/Johannesburg
+
+  # `bun run ci velo`: browser-tests (real Chromium and pinned text metrics)
+  # and the integration suites, which start their own throwaway PostgreSQL 16
+  # clusters as the runner user (scripts/ci/integration/run.sh) and ignore
+  # DATABASE_URL. Hosted like static (route decides); the apt step installs
+  # what velo has: PostgreSQL 16 + pgvector and LibreOffice (nginx is on the
+  # image). The step prints every suite that skipped and why
+  # (scripts/ci/report-skipped-integration.ts), and skips the suites on a
+  # Markdown-only change (scripts/ci/integration/scope.ts).
+  velo:
+    name: Browser & integration
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}
+    # Hosted (PR #977, 3 runs): setup ~4 min, browser-tests 2-3 min,
+    # integration 18-24 min, ~35 min in all. On velo 2026-10-30: browser-tests
+    # 2m15s, integration 18 min at load ~40.
+    # Integration's own bounds: 4 schema-build commands at 300 s + 30 s kill
+    # grace (CI_INT_MIGRATE_TIMEOUT), shards cut at 30 min
+    # (CI_INT_SHARD_TIMEOUT). Not bounded by those: postgres start retries
+    # (up to 5 x 120 s per cluster), the 10 s TERM-to-KILL graces, initdb and
+    # plan. 22 + 30 + ~10 + browser-tests ~10 under load + install = ~75, so 90.
+    timeout-minutes: 90
+    # As in static (the merge check).
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+
+    steps:
+      # Full history: the integration scope diffs the tested tree against the
+      # event's base, and the merge check needs both parents' ancestry.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # As in static.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.9
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      # What velo has and this group spawns: PostgreSQL 16 + pgvector for the
+      # integration clusters (en_US.UTF-8), LibreOffice (soffice), poppler
+      # (pdftotext/pdffonts/pdfinfo, the print tests).
+      - if: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector libreoffice-calc-nogui poppler-utils
+          sudo locale-gen en_US.UTF-8
+
+      # As in static.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      # As in static: Chromium for browser-tests.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        run: bunx playwright install --with-deps chromium
+
+      - name: CI gate (scripts/ci/run-ci.sh velo)
+        run: bun run ci velo
+        env:
+          CI_READ_TOKEN: ${{ github.token }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: test-secret-for-ci-only
+          NODE_ENV: test
+          # As in static.
+          TZ: Africa/Johannesburg
+
+  # The required check. Branch protection and the merge queue
+  # (requiredChecks in ~/.config/merge-queue/isaflow.json) wait for this name,
+  # and mq-merge-already-tested.ts looks it up in the PR run. It passes only
+  # when route, static and velo all succeeded. There is no velo fallback for a
+  # hosted job GitHub refuses to start: a job pinned to velo would queue
+  # forever once velo's runners are paused, and this check would never report;
+  # CI_HOSTED=off is the switch. always() makes it run (and fail) when one
+  # failed, was cancelled or timed out, or was skipped, because a required
+  # check that is itself skipped counts as passing.
+  quality:
+    name: Type Check, Lint & Test
+    needs: [route, static, velo]
+    if: ${{ always() }}
+    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
+    timeout-minutes: 5
+    steps:
+      - name: Both gate groups passed?
+        env:
+          ROUTE: ${{ needs.route.result }}
+          STATIC: ${{ needs.static.result }}
+          VELO: ${{ needs.velo.result }}
+        run: |
+          echo "route=$ROUTE static=$STATIC velo=$VELO"
+          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]
 
   # Which golden-paths concurrency group this run takes (see golden-paths).
   # "queue" for a run the merge queue is waiting on: a batch PR
@@ -103,7 +242,7 @@ jobs:
   # behaviour. Not a required check.
   golden-lane:
     name: Golden Paths lane
-    runs-on: [self-hosted, linux, velo]
+    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -143,11 +282,16 @@ jobs:
 
   # Golden-paths money-flow E2E (A–Z programme). BLOCKING since Phase 3
   # (P3.1): a red money path fails the whole run — no continue-on-error, no
-  # silent skip. Boots a dev server against isaflow_dev using the runner-local
-  # env file and runs tests/e2e/golden-paths/ over HTTP.
+  # silent skip. Boots a dev server and runs tests/e2e/golden-paths/ over HTTP.
+  # On velo (CI_HOSTED=off) it runs against the shared isaflow_dev Demo company
+  # with the runner-local env file. Otherwise it runs on a GitHub-hosted runner
+  # (like golden-lane, it follows the variable itself), against a database of
+  # its own: scripts/ci/golden-hosted/up.sh builds a throwaway PostgreSQL, a
+  # GoTrue and a Demo company, and seed-demo-app.ts fills it. No real secret and
+  # no velo database is involved.
   golden-paths:
     name: Golden Paths E2E (blocking)
-    runs-on: [self-hosted, linux, velo]
+    runs-on: ${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}
     # Green runs took 19-30 min of test time on 2026-10-29, and #952's green run
     # took 49 min wall-clock at load ~60 (00:23-01:12Z); 30 cancelled every
     # queue run (#938, #940, #917) and 45 would still have cut that one.
@@ -155,31 +299,30 @@ jobs:
     # per-test times in a green run's log; keep this at >= 2x. Cost: a hung
     # run holds its golden-paths group up to 60 min.
     timeout-minutes: 60
-    # Each runner owns one Golden Paths slot: a company of its own on isaflow_dev
-    # with its own golden user (the step below maps $RUNNER_NAME to GOLDEN_SLOT_n
-    # in /home/hein/isaflow-ci.env; scripts/ci/golden/provision-slots.ts creates
-    # them). A runner runs one job at a time, so a slot is exclusive without any
-    # lock, and runs of different refs overlap on different runners. Before the
-    # slots every run wrote to the ONE Demo company (payroll sandbox month,
-    # find-or-create fixtures, per-month depreciation, a FIFO over the oldest
-    # documents), which is why this was a single group for all refs.
-    # The group is per ref and never cancels. It is NOT what keeps slots apart
-    # (runner exclusivity does that): it only stops two golden runs of one ref
-    # from running at once. GitHub keeps one running and one PENDING job per
-    # group and cancels an older pending one, which the merge queue re-runs up
-    # to twice per head; a PR push used to cancel the queue's pending run that
-    # way, and the queue ejected the PR (#938, 2026-10-29). Runs the queue
-    # waits on (golden-lane) therefore take their own -queue group, which an
-    # ordinary run cannot cancel. A master push that skips (the step below)
-    # still enters its ref's group, but holds it for seconds. It cannot take a
-    # per-sha group instead: the group is fixed before the step decides, and a
-    # push that falls back to the full suite must not overlap the PR runs of
-    # that ref. !cancelled(): a failed golden-lane still runs the suite, in the
+    # Velo (CI_HOSTED=off): each runner owns one Golden Paths slot, a company of
+    # its own on isaflow_dev with its own golden user (the step below maps
+    # $RUNNER_NAME to GOLDEN_SLOT_n in /home/hein/isaflow-ci.env;
+    # scripts/ci/golden/provision-slots.ts creates them). A runner runs one job
+    # at a time, so a slot is exclusive without any lock, and runs of different
+    # refs overlap on different runners. Before the slots every run wrote to the
+    # ONE Demo company, which is why this was a single group for all refs.
+    # The velo group is per ref and never cancels. It is NOT what keeps slots
+    # apart (runner exclusivity does that): it only stops two golden runs of
+    # one ref from running at once. GitHub keeps one running and one PENDING
+    # job per group and cancels an older pending one, so a PR push used to
+    # cancel the merge queue's pending run, and the queue ejected the PR (#938,
+    # 2026-10-29). Runs the queue waits on (golden-lane) therefore take their
+    # own -queue group, which an ordinary run cannot cancel. A master push that
+    # skips (the step below) still enters its ref's group, but holds it for
+    # seconds. !cancelled(): a failed golden-lane still runs the suite, in the
     # ordinary group.
+    # Hosted, every run has its own database and nothing is shared, so the
+    # group is the run's own id and runs never wait for each other, and no
+    # slot is used (the suite logs in as the generated E2E admin).
     needs: golden-lane
     if: ${{ !cancelled() }}
     concurrency:
-      group: golden-paths-${{ github.ref }}${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}
+      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}
       cancel-in-progress: false
     # Read-only; for the merge check below (as in quality).
     permissions:
@@ -195,6 +338,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Hosted golden-paths setup (velo has bun and Node 20), as in static;
+      # before the merge check below, which runs a bun script.
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.9
+      - if: ${{ runner.environment == 'github-hosted' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
       # A push to master that is an already-tested merge-queue merge skips the
       # suite (see quality's gate step); the job still reports success. Exit
       # 10 skips; any other exit, a crash included, runs the suite.
@@ -209,62 +369,102 @@ jobs:
           fi
           if [ "$rc" -eq 10 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
 
+      # Hosted only: PostgreSQL 16 + pgvector for the throwaway cluster (as in
+      # velo; docker, jq and psql tooling are on the image).
+      - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-16 postgresql-16-pgvector
+          sudo locale-gen en_US.UTF-8
+
       - name: Install dependencies
         if: steps.mq.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
+      # Hosted only: Chromium and the system libraries it needs (velo has them).
+      - if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        run: bunx playwright install --with-deps chromium
+
+      # Hosted only: the database, GoTrue and Demo company this run owns, and
+      # the generated .env.local. Fails the job if any of it cannot be built.
+      - name: Stand up Postgres, GoTrue and the Demo company
+        if: ${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}
+        env:
+          ADMIN_ENV_FILE: ${{ runner.temp }}/golden-admin.env
+          TZ: Africa/Johannesburg
+        run: bash scripts/ci/golden-hosted/up.sh
+
       - name: Boot dev server and run golden paths
         if: steps.mq.outputs.skip != 'true'
         env:
-          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
-          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          # Velo only: the real secrets never reach a hosted runner, whose
+          # E2E admin is generated (ADMIN_ENV_FILE, below).
+          E2E_ADMIN_EMAIL: ${{ vars.CI_HOSTED == 'off' && secrets.E2E_ADMIN_EMAIL || '' }}
+          E2E_ADMIN_PASSWORD: ${{ vars.CI_HOSTED == 'off' && secrets.E2E_ADMIN_PASSWORD || '' }}
+          ADMIN_ENV_FILE: ${{ runner.temp }}/golden-admin.env
         run: |
           set -e
-          # A missing env file must FAIL, not skip: a blocking gate that
-          # silently no-ops is exactly the "quiet 45/100" this job prevents.
-          if [ ! -f /home/hein/isaflow-ci.env ]; then
-            echo "::error::/home/hein/isaflow-ci.env missing on runner — golden paths cannot run (blocking gate, refusing to pass silently)"
-            exit 1
-          fi
-          # One golden slot per runner. An unknown runner must FAIL: falling
-          # back to the shared Demo company would let two runs interleave
-          # money flows there again.
-          case "$RUNNER_NAME" in
-            velo-server-u) slot=1 ;;
-            velo-isaflow-u2) slot=2 ;;
-            velo-isaflow-u3) slot=3 ;;
-            *)
-              echo "::error::runner '$RUNNER_NAME' has no golden slot; add it to the case in the golden-paths job and provision a slot (scripts/ci/golden/provision-slots.ts)"
+          HOSTED=false
+          [ "$RUNNER_ENVIRONMENT" = "github-hosted" ] && HOSTED=true
+          if [ "$HOSTED" = true ]; then
+            # .env.local and the admin login were generated by the step above.
+            set -a; . "$ADMIN_ENV_FILE"; set +a
+            # Velo and production run in SAST (as in static); a hosted runner is UTC.
+            export TZ=Africa/Johannesburg
+          else
+            # A missing env file must FAIL, not skip: a blocking gate that
+            # silently no-ops is exactly the "quiet 45/100" this job prevents.
+            if [ ! -f /home/hein/isaflow-ci.env ]; then
+              echo "::error::/home/hein/isaflow-ci.env missing on runner — golden paths cannot run (blocking gate, refusing to pass silently)"
               exit 1
-              ;;
-          esac
-          # Read the slot's keys with grep, not `source`: the file has values
-          # that are not valid shell (SMTP_FROM).
-          slot_value() { grep -m1 "^GOLDEN_SLOT_${slot}_$1=" /home/hein/isaflow-ci.env | cut -d= -f2-; }
-          GOLDEN_COMPANY_ID=$(slot_value COMPANY_ID)
-          GOLDEN_USER_EMAIL=$(slot_value EMAIL)
-          GOLDEN_USER_PASSWORD=$(slot_value PASSWORD)
-          if [ -z "$GOLDEN_COMPANY_ID" ] || [ -z "$GOLDEN_USER_EMAIL" ] || [ -z "$GOLDEN_USER_PASSWORD" ]; then
-            echo "::error::GOLDEN_SLOT_${slot}_{COMPANY_ID,EMAIL,PASSWORD} missing from /home/hein/isaflow-ci.env; run scripts/ci/golden/provision-slots.ts"
-            exit 1
+            fi
+            # One golden slot per runner. An unknown runner must FAIL: falling
+            # back to the shared Demo company would let two runs interleave
+            # money flows there again.
+            case "$RUNNER_NAME" in
+              velo-server-u) slot=1 ;;
+              velo-isaflow-u2) slot=2 ;;
+              velo-isaflow-u3) slot=3 ;;
+              *)
+                echo "::error::runner '$RUNNER_NAME' has no golden slot; add it to the case in the golden-paths job and provision a slot (scripts/ci/golden/provision-slots.ts)"
+                exit 1
+                ;;
+            esac
+            # Read the slot's keys with grep, not `source`: the file has values
+            # that are not valid shell (SMTP_FROM).
+            slot_value() { grep -m1 "^GOLDEN_SLOT_${slot}_$1=" /home/hein/isaflow-ci.env | cut -d= -f2-; }
+            GOLDEN_COMPANY_ID=$(slot_value COMPANY_ID)
+            GOLDEN_USER_EMAIL=$(slot_value EMAIL)
+            GOLDEN_USER_PASSWORD=$(slot_value PASSWORD)
+            if [ -z "$GOLDEN_COMPANY_ID" ] || [ -z "$GOLDEN_USER_EMAIL" ] || [ -z "$GOLDEN_USER_PASSWORD" ]; then
+              echo "::error::GOLDEN_SLOT_${slot}_{COMPANY_ID,EMAIL,PASSWORD} missing from /home/hein/isaflow-ci.env; run scripts/ci/golden/provision-slots.ts"
+              exit 1
+            fi
+            GOLDEN_SLOT_NUMBER=$slot
+            # GitHub redacts only registered secrets; this one is runner-local.
+            echo "::add-mask::$GOLDEN_USER_PASSWORD"
+            echo "GOLDEN SLOT $slot (company $GOLDEN_COMPANY_ID, user $GOLDEN_USER_EMAIL) on runner $RUNNER_NAME"
+            # The app and the dev server get the shared env file WITHOUT the slots'
+            # keys: only the Playwright command below sees one slot's password.
+            grep -v '^GOLDEN_SLOT_' /home/hein/isaflow-ci.env > .env.local
           fi
-          GOLDEN_SLOT_NUMBER=$slot
-          # GitHub redacts only registered secrets; this one is runner-local.
-          echo "::add-mask::$GOLDEN_USER_PASSWORD"
-          echo "GOLDEN SLOT $slot (company $GOLDEN_COMPANY_ID, user $GOLDEN_USER_EMAIL) on runner $RUNNER_NAME"
-          # The app and the dev server get the shared env file WITHOUT the slots'
-          # keys: only the Playwright command below sees one slot's password.
-          grep -v '^GOLDEN_SLOT_' /home/hein/isaflow-ci.env > .env.local
           bunx playwright install chromium
-          # Each slot has a disjoint port window, so runners cannot race for
-          # the same port after the free-port probe releases it. Stop only a
-          # server this runner's workspace left in its own window, then choose
-          # an actually bindable port there (also skipping Next.js bad ports).
-          slot_lo=$((3300 + (slot - 1) * 166))
-          slot_hi=$((slot_lo + 165))
-          bun scripts/ci/golden/killSlotOrphans.ts "$slot_lo" "$slot_hi" || true
-          GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts "$slot_lo" "$slot_hi")
+          if [ "$HOSTED" = true ]; then
+            # A hosted VM runs only this job: any free port in the window.
+            GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts 3300 3799)
+          else
+            # Each slot has a disjoint port window, so runners cannot race for
+            # the same port after the free-port probe releases it. Stop only a
+            # server this runner's workspace left in its own window, then choose
+            # an actually bindable port there (also skipping Next.js bad ports).
+            slot_lo=$((3300 + (slot - 1) * 166))
+            slot_hi=$((slot_lo + 165))
+            bun scripts/ci/golden/killSlotOrphans.ts "$slot_lo" "$slot_hi" || true
+            GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts "$slot_lo" "$slot_hi")
+          fi
           [ -n "$GOLDEN_PORT" ] || { echo "::error::golden-free-port printed no port"; exit 1; }
+          # Hosted: the app's own URL is this server (velo's file names one).
+          if [ "$HOSTED" = true ]; then export NEXT_PUBLIC_APP_URL="http://localhost:$GOLDEN_PORT"; fi
           # setsid: its own process group, so the trap stops next's children
           # too, not only the bunx wrapper.
           setsid bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
@@ -285,5 +485,14 @@ jobs:
           { grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null; } || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
           # The answer must come from OUR server, not whatever took the port.
           kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
-          # Only this command sees the slot's login, in its own subshell.
-          ( export GOLDEN_SLOT_NUMBER GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden )
+          rc=0
+          if [ "$HOSTED" = true ]; then
+            BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden || rc=$?
+          else
+            # Only this command sees the slot's login, in its own subshell.
+            ( export GOLDEN_SLOT_NUMBER GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden ) || rc=$?
+          fi
+          if [ "$rc" -ne 0 ] && [ "$HOSTED" = true ]; then
+            echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"
+          fi
+          exit "$rc"

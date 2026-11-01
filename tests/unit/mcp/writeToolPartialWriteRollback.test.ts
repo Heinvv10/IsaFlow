@@ -243,7 +243,7 @@ describe('create_draft_quote', () => {
   });
 
   it('still reports the pre-write line validation precisely', async () => {
-    createQuoteMock.mockRejectedValue(new LineValidationError('Line "Consulting": quantity must be positive'));
+    createQuoteMock.mockRejectedValue(new LineValidationError('Line 1: quantity must be positive'));
 
     const r = await createDraftQuoteTool.handler(quoteArgs, ctx());
     expect(r.isError).toBe(true);

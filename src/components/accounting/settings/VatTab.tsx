@@ -57,20 +57,20 @@ export function VatTab({ company, onChange }: Props) {
           <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">VAT Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className={LABEL_CLS}>VAT Number</label>
-              <input className={INPUT_CLS} value={company.vatNumber || ''} onChange={e => onChange('vatNumber', e.target.value)} placeholder="e.g. 4123456789" />
+              <label htmlFor="vat-tab-vat-number" className={LABEL_CLS}>VAT Number</label>
+              <input id="vat-tab-vat-number" className={INPUT_CLS} value={company.vatNumber || ''} onChange={e => onChange('vatNumber', e.target.value)} placeholder="e.g. 4123456789" />
             </div>
             <div>
-              <label className={LABEL_CLS}>VAT Reporting Frequency</label>
-              <select className={INPUT_CLS} value={normalizeVatSetting(company.vatPeriod)} onChange={e => onChange('vatPeriod', e.target.value)}>
+              <label htmlFor="vat-tab-vat-reporting-frequency" className={LABEL_CLS}>VAT Reporting Frequency</label>
+              <select id="vat-tab-vat-reporting-frequency" className={INPUT_CLS} value={normalizeVatSetting(company.vatPeriod)} onChange={e => onChange('vatPeriod', e.target.value)}>
                 <option value="monthly">Monthly</option>
                 <option value="bi-monthly">Bi-Monthly</option>
               </select>
             </div>
             {normalizeVatSetting(company.vatPeriod) === 'bi-monthly' && (
               <div>
-                <label className={LABEL_CLS}>Bi-Monthly Period Alignment</label>
-                <select className={INPUT_CLS} value={company.vatPeriodAlignment || 'odd'} onChange={e => onChange('vatPeriodAlignment', e.target.value)}>
+                <label htmlFor="vat-tab-bi-monthly-period-alignment" className={LABEL_CLS}>Bi-Monthly Period Alignment</label>
+                <select id="vat-tab-bi-monthly-period-alignment" className={INPUT_CLS} value={company.vatPeriodAlignment || 'odd'} onChange={e => onChange('vatPeriodAlignment', e.target.value)}>
                   <option value="odd">Category A (Dec-Jan, Feb-Mar, Apr-May...)</option>
                   <option value="even">Category B (Jan-Feb, Mar-Apr, May-Jun...)</option>
                 </select>

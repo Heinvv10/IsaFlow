@@ -10,6 +10,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { numberLines } from '@/lib/lineNumbers';
 import { useDateGate } from '@/hooks/useDateGate';
 
 interface SalesOrder {
@@ -50,7 +51,7 @@ function CreateOrderModal({ customers, customersError, onClose, onCreated }: Mod
     try {
       const res = await apiFetch('/api/accounting/customer-sales-orders', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, items: lines.filter(l => l.description) }),
+        body: JSON.stringify({ ...form, items: numberLines(lines, l => !!l.description) }),
       });
       await assertOk(res, 'Could not create the sales order - try again');
       onCreated(); onClose();

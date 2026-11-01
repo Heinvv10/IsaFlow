@@ -2,8 +2,8 @@
  * Next.js Edge Middleware
  * - admin.isaflow.co.za: serve /admin/* pages with super_admin auth verification
  * - app.isaflow.co.za: redirect / to /accounting (app domain — no landing page)
- * - isaflow.co.za: show landing page at /, plus the public /blog and /sitemap.xml
- * - app.isaflow.co.za: /blog/* and /sitemap.xml 308 to https://isaflow.co.za (marketing only)
+ * - isaflow.co.za: show landing page at /, plus public help, blog and sitemap pages
+ * - app.isaflow.co.za: help, blog and sitemap paths redirect to the marketing origin
  * - Redirects /admin/* on non-admin hosts to admin.isaflow.co.za
  * - Redirects unauthenticated /accounting/* and /payroll/* requests to /login
  */
@@ -51,11 +51,15 @@ const PUBLIC_PATHS = [
 /** Hostnames that should skip the landing page and go straight to the app */
 const APP_HOSTS = ['app.isaflow.co.za'];
 
-/** The marketing site; /blog and /sitemap.xml live only here. */
+/** Paths that live only on the marketing site. */
 const MARKETING_ORIGIN = 'https://isaflow.co.za';
 
 export function isMarketingOnlyPath(pathname: string): boolean {
-  return pathname === '/blog' || pathname.startsWith('/blog/') || pathname === '/sitemap.xml';
+  return pathname === '/blog'
+    || pathname.startsWith('/blog/')
+    || pathname === '/help'
+    || pathname.startsWith('/help/')
+    || pathname === '/sitemap.xml';
 }
 
 /** Hostnames that serve the /admin platform */
@@ -163,7 +167,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Marketing-only paths on the app host: 308 to isaflow.co.za ───────────────
-  // The blog and the sitemap belong to the marketing host. One canonical host keeps
+  // Help, blog and the sitemap belong to the marketing host. One canonical host keeps
   // SEO in one place, and a stray app-host link still lands on the right page.
   if (APP_HOSTS.includes(host) && isMarketingOnlyPath(pathname)) {
     return NextResponse.redirect(`${MARKETING_ORIGIN}${pathname}${request.nextUrl.search}`, 308);

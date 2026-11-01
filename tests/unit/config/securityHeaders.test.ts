@@ -3,7 +3,7 @@
 // can be unit-tested directly without loading the Sentry-wrapped next.config.js.
 import { describe, it, expect } from 'vitest';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { buildCsp, buildSharePageCsp, securityHeaders } = require('../../../config/securityHeaders');
+const { buildCsp, buildOauthAuthorizeCsp, buildSharePageCsp, securityHeaders } = require('../../../config/securityHeaders');
 
 function directive(csp: string, name: string): string {
   const parts = csp.split(';').map((s) => s.trim());
@@ -80,6 +80,22 @@ describe('securityHeaders — dev CSP', () => {
   // absent in dev.
   it('does NOT set upgrade-insecure-requests', () => {
     expect(csp).not.toContain('upgrade-insecure-requests');
+  });
+});
+
+describe('buildOauthAuthorizeCsp — verified app logo', () => {
+  it('adds only the exact remote HTTPS origin to img-src', () => {
+    const csp = buildOauthAuthorizeCsp('production', 'https://cdn.partner.example/assets/logo.png?size=64');
+    const img = directive(csp, 'img-src');
+    expect(img).toContain('https://cdn.partner.example');
+    expect(img).not.toContain('/assets/logo.png');
+    expect(img).not.toContain('https: ');
+    expect(directive(csp, 'script-src')).toBe(directive(buildCsp('production'), 'script-src'));
+  });
+
+  it('does not widen img-src for an invalid or non-HTTPS URL', () => {
+    expect(buildOauthAuthorizeCsp('production', 'http://cdn.partner.example/logo.png')).toBe(buildCsp('production'));
+    expect(buildOauthAuthorizeCsp('production', 'not a URL')).toBe(buildCsp('production'));
   });
 });
 

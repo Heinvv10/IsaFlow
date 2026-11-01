@@ -18,7 +18,7 @@ import { undoYearEndChange } from '@/modules/accounting/services/gl/financialYea
 import { seedVersion, type SeedInput } from '@/modules/accounting/services/budgets/seedVersion';
 import { updateCompany } from '@/modules/accounting/services/core/companyService';
 import { holdYearRegistry } from '@/modules/accounting/services/budgets/budgetVersionScope';
-import { loadWindowBudgets } from '@/modules/accounting/services/reports/budgetWindowService';
+import { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { backendPid, outcome, waitUntilBlocked } from './helpers/lockWait';
 import { undoRefusals, latestLiveChange } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
@@ -96,7 +96,7 @@ const firstVersion = (source: SeedInput['source']): SeedInput =>
 const OWNER = { userId: user, role: 'owner' };
 
 const windowBudget = (c: { id: string; rent: string }, from: string, to: string) =>
-  inTx(c.id, async () => (await loadWindowBudgets(c.id, from, to))[c.rent] ?? 0);
+  inTx(c.id, async () => (await getBudgetVariance(c.id, from, to)).rows.find((l) => l.account_id === c.rent)?.budget_amount ?? 0);
 const stored = async (id: string) => Number((await pool.query(
   'SELECT COALESCE(SUM(amount), 0) s FROM budget_month_amounts WHERE company_id = $1', [id])).rows[0].s);
 
