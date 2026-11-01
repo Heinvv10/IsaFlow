@@ -1,6 +1,8 @@
 /** Loads the VAT reconciliation: the monthly view for a range, or the multi-year summary. */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
+import type { DateGate } from '@/hooks/useDateGate';
 
 interface VatReconMonth {
   month: string;
@@ -60,34 +62,37 @@ export interface MultiYearData {
 
 export type ViewMode = 'reconciliation' | 'multi_year';
 
-export function useVatReconciliationData(mode: ViewMode, from: string, to: string) {
+export function useVatReconciliationData(mode: ViewMode, from: string, to: string, dates: DateGate) {
   const [reconData, setReconData] = useState<VatReconData | null>(null);
   const [multiData, setMultiData] = useState<MultiYearData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchData = useCallback(async () => {
+  const query = mode === 'multi_year' ? 'multi_year=3' : `from=${from}&to=${to}`;
+
+  const fetchData = useCallback<ReportLoad>(async (latest) => {
     setLoading(true);
     setError('');
     try {
-      const url = mode === 'multi_year'
-        ? '/api/accounting/vat-reconciliation?multi_year=3'
-        : `/api/accounting/vat-reconciliation?from=${from}&to=${to}`;
-      const res = await apiFetch(url); await assertOk(res, 'Could not load the VAT reconciliation - try again');
+      const res = await apiFetch(`/api/accounting/vat-reconciliation?${query}`); await assertOk(res, 'Could not load the VAT reconciliation - try again');
       const json = await res.json();
-      if (mode === 'multi_year') {
-        setMultiData(json.data);
-      } else {
-        setReconData(json.data);
+      if (latest()) {
+        if (mode === 'multi_year') {
+          setMultiData(json.data);
+        } else {
+          setReconData(json.data);
+        }
       }
+      return true;
     } catch (err: unknown) {
-      setReconData(null); setMultiData(null); setError(apiErrorMessage(err, 'Could not load the VAT reconciliation - try again'));
+      if (latest()) { setReconData(null); setMultiData(null); setError(apiErrorMessage(err, 'Could not load the VAT reconciliation - try again')); }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [mode, from, to]);
+  }, [mode, query]);
 
-  useEffect(() => { void fetchData(); }, [fetchData]);
+  const stale = useGatedReportLoad(query, dates, fetchData);
 
-  return { reconData, multiData, loading, error };
+  return { reconData, multiData, loading, error, stale };
 }
