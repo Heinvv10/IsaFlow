@@ -61,32 +61,59 @@ export async function getVatPeriodLines(
   periodEnd: string,
 ): Promise<VatPeriodLines> {
   // Plan shape matters more than usual here. Every scan runs as app_user under
-  // RLS, and a table with no planner statistics (prod after the Supabase
-  // cutover had none) is estimated at one row per scan, so the planner happily
-  // nests loops. With vat_entries inlined, the final join re-ran the whole
-  // membership subquery once per (journal x company line) pair: 11,180
-  // rescans and 1.9M account probes for a 65-journal company on a never-
-  // analyzed copy, and over 120 s on prod's golden sandbox (VAT201 timeout,
-  // 31 Oct). So: vat_entries is MATERIALIZED (built once), the final query is
-  // driven FROM it by key, bounded to the period, and the cancelled flag is a
-  // join against the (already materialized, UNION-deduped) recursive CTE
-  // instead of a per-row subplan. The result set is unchanged.
+  // RLS, and on a table with no planner statistics (prod after the Supabase
+  // cutover had none) every scan is estimated at one row, so the planner
+  // picks nested loops and is free to put a company-wide scan on the inside.
+  // It did: with vat_entries inlined, the final join re-ran the membership
+  // subquery once per (journal x company line) pair, over 120 s on prod's
+  // golden sandbox (VAT201 timeout, 31 Oct). So vat_entries and the final
+  // select do not leave the join order to the estimates:
+  //   - vat_entries is MATERIALIZED: built once, never re-run per row;
+  //   - it is driven from the period's journals, and each journal's lines are
+  //     probed by (company_id, journal_entry_id);
+  //   - the final select reaches its journal, lines and accounts through
+  //     LATERAL subqueries keyed on the row before.
+  // OFFSET 0 keeps each subquery from being flattened (or the EXISTS from
+  // becoming a join the planner may reorder), so every probe stays keyed on
+  // the row before; the index used is still the planner's choice (the dev
+  // no-stats plans use the (company_id, journal_entry_id) or
+  // (journal_entry_id) index on lines, and the (id, company_id) index on
+  // gl_accounts).
+  // The cancelled_entries CTEs below are NOT pinned: they stay
+  // estimate-driven, and without stats cost roughly journals x cancelled
+  // documents (24 ms on a 506-cancelled dev sandbox). ANALYZE fixes that;
+  // if they ever need keying, ux_gl_je_reversal_of (company_id,
+  // reversal_of_id) supports it.
+  // The EXISTS's ga subquery projects only the ga columns
+  // vatEntryMemberLineSql() reads today (account_type, account_subtype); a
+  // new column read there must be added to it, or this fails at runtime.
+  // The result set is unchanged.
   const rows = (await sql`
     WITH RECURSIVE vat_entries AS MATERIALIZED (
-      SELECT DISTINCT jl.journal_entry_id AS id
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE jl.company_id = ${companyId}::UUID
-        AND je.company_id = ${companyId}::UUID
+      SELECT je.id
+      FROM gl_journal_entries je
+      WHERE je.company_id = ${companyId}::UUID
         AND je.status = 'posted'
         AND je.entry_date >= ${periodStart}::DATE
         AND je.entry_date <= ${periodEnd}::DATE
-        -- The membership rule, shared with the VAT-lock reclassification check.
-        AND ${vatEntryMemberLineSql()}
         -- Not the VAT submission clearing journal: it settles the previous
         -- return and is no supply (vatEntrySourceAdmitsSql says why).
         AND ${vatEntrySourceAdmitsSql(sql`je.source`)}
+        AND EXISTS (
+          SELECT 1
+          FROM gl_journal_lines jl
+          CROSS JOIN LATERAL (
+            SELECT ga.account_type, ga.account_subtype
+            FROM gl_accounts ga
+            WHERE ga.id = jl.gl_account_id
+            OFFSET 0
+          ) ga
+          WHERE jl.company_id = ${companyId}::UUID
+            AND jl.journal_entry_id = je.id
+            -- The membership rule, shared with the VAT-lock reclassification check.
+            AND ${vatEntryMemberLineSql()}
+          OFFSET 0
+        )
     )
     , cancelled_entries_base AS (
       SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
@@ -150,18 +177,26 @@ export async function getVatPeriodLines(
       jl.debit,
       jl.credit,
       GREATEST(je.created_at, jl.created_at) AS row_created_at,
-      (ce.id IS NOT NULL) AS cancelled_source
+      (je.id IN (SELECT id FROM cancelled_entries)) AS cancelled_source
     FROM vat_entries ve
-    JOIN gl_journal_entries je ON je.id = ve.id
-    JOIN gl_journal_lines jl ON jl.journal_entry_id = ve.id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    -- UNION in cancelled_entries dedupes, so this join never multiplies rows.
-    LEFT JOIN cancelled_entries ce ON ce.id = je.id
-    WHERE jl.company_id = ${companyId}::UUID
-      AND je.company_id = ${companyId}::UUID
-      -- Implied by vat_entries; repeated so the planner can bound the scan.
-      AND je.entry_date >= ${periodStart}::DATE
-      AND je.entry_date <= ${periodEnd}::DATE
+    CROSS JOIN LATERAL (
+      SELECT e.id, e.entry_number, e.entry_date, e.source, e.reversal_of_id, e.created_at
+      FROM gl_journal_entries e
+      WHERE e.id = ve.id AND e.company_id = ${companyId}::UUID
+      OFFSET 0
+    ) je
+    CROSS JOIN LATERAL (
+      SELECT l.id, l.gl_account_id, l.vat_type, l.late_claim_base, l.debit, l.credit, l.created_at
+      FROM gl_journal_lines l
+      WHERE l.company_id = ${companyId}::UUID AND l.journal_entry_id = ve.id
+      OFFSET 0
+    ) jl
+    CROSS JOIN LATERAL (
+      SELECT a.account_code, a.account_name, a.account_type, a.account_subtype
+      FROM gl_accounts a
+      WHERE a.id = jl.gl_account_id
+      OFFSET 0
+    ) ga
     ORDER BY je.entry_date, je.entry_number, ga.account_code, jl.id
   `) as DbRow[];
 
