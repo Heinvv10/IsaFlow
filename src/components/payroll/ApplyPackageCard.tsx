@@ -83,7 +83,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-            <select value={selected} onChange={e => setSelected(e.target.value)}
+            <select aria-label="Pay package" value={selected} onChange={e => setSelected(e.target.value)}
               className="col-span-2 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-3 py-2 text-[var(--ff-text-primary)]">
               <option value="">Select package...</option>
               {packages.map(p => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}

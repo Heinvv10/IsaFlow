@@ -3,17 +3,20 @@
  * companies. RLS shows that user the other company's rows, so only the company_id predicates keep them apart.
  *
  *  - POST .../employees/:id/components refuses another company's component before the insert.
- *  - PATCH .../employees/:id judges a changed tax or ID number as create does, and leaves a stored one alone.
+ *  - PATCH .../employees/:id judges a changed tax or ID number and end date as create does, and leaves stored ones alone.
  *  - GET .../employees/:id/components says when an assignment's component is switched off (a run does not pay it).
- *  - The request log shows no amount on the two routes that name an employee next to one.
+ *  - The request log shows no amount on the four routes that name an employee next to one: component assignments,
+ *    batch lines, tax directives and loans.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
+import taxDirectives from '../../pages/api/accounting/tax-directives';
 import batches from '../../pages/api/payroll/batches';
 import batchLines from '../../pages/api/payroll/batches/[id]/lines';
 import employee from '../../pages/api/payroll/employees/[id]';
 import components from '../../pages/api/payroll/employees/[id]/components';
+import loans from '../../pages/api/payroll/loans';
 import { apiLogger } from '@/lib/logger';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
@@ -130,6 +133,42 @@ describe('PATCH /api/payroll/employees/:id', () => {
     expect(changed.statusCode, JSON.stringify(changed.body)).toBe(400);
   });
 
+  const endDate = async () => (await pool.query<{ end_date: string | null }>(
+    'SELECT end_date::text AS end_date FROM payroll_employees WHERE id = $1', [staff])).rows[0]!.end_date;
+  const setEndDate = (day: string | null) => pool.query('UPDATE payroll_employees SET end_date = $2 WHERE id = $1', [staff, day]);
+
+  it.each([
+    ['before the start date', '2019-12-31', /endDate cannot be before startDate/],
+    ['before it, as a timestamp', '2019-12-31T00:00:00.000Z', /endDate cannot be before startDate/],
+    ['not a date', 'soon', /endDate must be a real date/],
+    ['not text', 20301231, /endDate must be a real date/],
+  ])('an end date %s: 400 and nothing changes', async (_n, value, reason) => {
+    await setEndDate(null);
+    const out = await patch({ firstName: 'Changed', endDate: value });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toMatch(reason);
+    expect(await endDate()).toBeNull();
+    expect((await stored()).first_name).not.toBe('Changed');
+  });
+
+  it.each([
+    ['on the start date', '2020-01-01'], ['after it', '2030-12-31'], ['as the timestamp the API answers with', '2030-12-31T00:00:00.000Z'],
+  ])('an end date %s is stored', async (_n, value) => {
+    await setEndDate(null);
+    const out = await patch({ endDate: value });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    expect(await endDate()).toBe(value.slice(0, 10));
+    await setEndDate(null);
+  });
+
+  it('a stored end date the rule would refuse does not block saving the rest, resent as the API answers it', async () => {
+    await setEndDate('2019-06-30');
+    const out = await patch({ firstName: 'Kept', endDate: '2019-06-30T00:00:00.000Z' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    expect((await stored()).first_name).toBe('Kept');
+    await setEndDate(null);
+  });
+
   it("another company's employee: 404", async () => {
     const theirs = (await ids('payroll_employees', other))[0]!.id;
     const out = await call(employee as Route, 'PATCH', `/api/payroll/employees/${theirs}`, theirs, { body: { taxNumber: '4123456789' } });
@@ -145,6 +184,27 @@ describe('the request log', () => {
     expect((await assign(mine)).statusCode).toBe(201);
     expect(logged(spy)).toContain(staff);
     expect(logged(spy)).toContain('"amount":"[omitted]"');
+    expect(logged(spy)).not.toContain('31415.92');
+  });
+
+  // A refused body is logged like any other: the log line is written before the handler runs.
+  it('a tax directive logs no amount beside its employee', async () => {
+    const spy = vi.spyOn(apiLogger, 'info');
+    const out = await call(taxDirectives as Route, 'POST', '/api/accounting/tax-directives', undefined, {
+      body: { employee_id: staff, directive_type: 'severance', amount: AMOUNT },
+    });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(logged(spy)).toContain(staff);
+    expect(logged(spy)).toContain('"amount":"[omitted]"');
+    expect(logged(spy)).not.toContain('31415.92');
+  });
+
+  it('a loan logs no principal beside its employee', async () => {
+    const spy = vi.spyOn(apiLogger, 'info');
+    const out = await call(loans as Route, 'POST', '/api/payroll/loans', undefined, { body: { employeeId: staff, principal: AMOUNT } });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(logged(spy)).toContain(staff);
+    expect(logged(spy)).toContain('"principal":"[omitted]"');
     expect(logged(spy)).not.toContain('31415.92');
   });
 

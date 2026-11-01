@@ -42,9 +42,13 @@ async function loadEmployee(employeeId: string, mayWrite: boolean): Promise<Load
 const stillRuns = (a: Assignment, today: string) =>
   a.componentActive && (!a.effectiveTo || String(a.effectiveTo).slice(0, 10) >= today);
 
+/** What is not an amount the employee earns. An employer contribution is the company's cost, not their pay. */
+const KIND_LABELS: Record<string, string> = { deduction: 'Deduction', employer_contribution: 'Employer contribution' };
+
 function kindOf(a: Assignment): string {
   const frequency = a.isRecurring ? 'Recurring' : 'Once-off';
-  return a.componentType === 'deduction' ? `Deduction, ${frequency.toLowerCase()}` : frequency;
+  const kind = KIND_LABELS[a.componentType];
+  return kind ? `${kind}, ${frequency.toLowerCase()}` : frequency;
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

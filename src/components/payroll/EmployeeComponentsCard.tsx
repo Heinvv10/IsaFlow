@@ -70,8 +70,8 @@ export function EmployeeComponentsCard({
       <div className="mb-4 pb-4 border-b border-[var(--ff-border-primary)] space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:items-end">
           <div className="min-w-0 lg:flex-1">
-            <label className={label}>Component</label>
-            <select className={field} value={newComponentId} onChange={e => onNewComponentId(e.target.value)}>
+            <label htmlFor="assign-component" className={label}>Component</label>
+            <select id="assign-component" className={field} value={newComponentId} onChange={e => onNewComponentId(e.target.value)}>
               <option value="">Select a component…</option>
               {components.map(c => (
                 <option key={c.id} value={c.id}>{c.name} ({c.componentType})</option>
@@ -79,8 +79,8 @@ export function EmployeeComponentsCard({
             </select>
           </div>
           <div className="lg:w-40">
-            <label className={label}>Amount (R)</label>
-            <input type="number" step="0.01" className={field}
+            <label htmlFor="assign-amount" className={label}>Amount (R)</label>
+            <input id="assign-amount" type="number" step="0.01" className={field}
               value={newAmount} onChange={e => onNewAmount(e.target.value)} />
           </div>
           <div className="lg:w-48">
@@ -125,7 +125,7 @@ export function EmployeeComponentsCard({
       {assignments.length === 0 ? (
         <p className="text-sm text-[var(--ff-text-tertiary)]">No components assigned yet. Assign at least a basic-salary component to produce non-zero payroll.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div role="region" aria-label="Assigned pay components" tabIndex={0} className="ff-focus-ring overflow-x-auto">
         <table className="w-full whitespace-nowrap text-sm">
           <thead>
             <tr className="border-b border-[var(--ff-border-primary)] text-left">
@@ -141,7 +141,12 @@ export function EmployeeComponentsCard({
           <tbody>
             {assignments.map(a => (
               <tr key={a.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                <td className="py-2 pr-4 text-[var(--ff-text-primary)]">{a.componentName}</td>
+                <td className="py-2 pr-4 text-[var(--ff-text-primary)]">
+                  {a.componentName}
+                  {!a.componentActive && (
+                    <span className="ml-2 text-xs text-amber-800 dark:text-amber-300">Inactive, not paid</span>
+                  )}
+                </td>
                 <td className="py-2 pr-4 text-[var(--ff-text-secondary)] capitalize">{a.componentType}</td>
                 <td className="py-2 pr-4">
                   {a.isRecurring ? (
@@ -159,7 +164,7 @@ export function EmployeeComponentsCard({
                 <td className="py-2 pl-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.effectiveTo)}</td>
                 <td className="py-2 text-right">
                   {!a.effectiveTo && (
-                    <button onClick={() => onEnd(a.id)}
+                    <button onClick={() => onEnd(a.id)} aria-label={`End ${a.componentName}`}
                       className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)] hover:text-red-400">
                       <X className="h-4 w-4" />
                     </button>

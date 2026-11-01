@@ -119,6 +119,16 @@ describe('tax and ID numbers', () => {
     expect(posted().taxNumber).toBe('0123456789');
   });
 
+  it('spaces in a pasted ID number are dropped, and it posts clean', async () => {
+    render(<Page />);
+    required();
+    typeInto('SA ID number', '800101 5009 087');
+    expect((screen.getByLabelText('SA ID number') as HTMLInputElement).value).toBe('8001015009087');
+    submit();
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posted().idNumber).toBe('8001015009087');
+  });
+
   it.each([
     ['a blank name before a bad tax number', 'First name *', () => typeInto('First name *', '')],
     ['a bad ID before a bad tax number', 'SA ID number', () => typeInto('SA ID number', '12345')],

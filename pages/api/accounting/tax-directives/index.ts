@@ -113,4 +113,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.badRequest(res, 'Method not allowed');
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+// The body names the employee, so a logged amount is what that person is paid.
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['amount'] }));

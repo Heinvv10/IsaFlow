@@ -6,11 +6,12 @@
  *    component is chosen from the keyboard; Enter in the salary box creates the employee and the profile shows
  *    R 25 000. Enter is the awkward path: the amount is committed by that same key press.
  *  - The drawer opens from the list by keyboard and by a row click, and shows their pay.
- *  - The drawer holds Tab inside it.
+ *  - The drawer holds Tab inside it, its content can be reached and scrolled by keyboard, and the command palette over
+ *    it keeps its own Tab and Escape.
  *  - axe reports 0 critical and 0 serious on the form and on the open drawer, in both themes, and neither scrolls
  *    sideways at 390. EVIDENCE_DIR=<dir> saves screenshots (light and dark, 1568 and 390).
- *  - The profile's Pay Components card fits 390 and its columns do not touch at 1280; its Save buttons reach 4.5:1 under
- *    white text, and a help button is a 24 px target.
+ *  - The profile's Pay Components card fits 390 and its columns do not touch at 1280; axe is clean on it at 390; its Save
+ *    buttons reach 4.5:1 under white text, and a help button is a 24 px target.
  *
  * Dev/CI gate: it writes employees (no delete endpoint exists; the numbers are unique per run), in one dedicated
  * sandbox company created on first use, never in Demo.
@@ -176,6 +177,24 @@ test('Tab stays inside the open drawer, in both directions', async ({ page }) =>
   await expect(close).toBeFocused();
   await page.keyboard.press('Shift+Tab');
   await expect(link).toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 240 });
+  const content = drawer.getByRole('region', { name: /content$/ });
+  await close.focus();
+  await page.keyboard.press('Tab');
+  await expect(content).toBeFocused();
+  await page.keyboard.press('End');
+  await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await page.keyboard.press('Control+k');
+  const palette = page.getByRole('dialog', { name: /command/i });
+  await expect(palette).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(palette).toBeHidden();
+  await expect(drawer).toBeVisible(); // Escape closed the palette only
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
 });
 
 /** WCAG contrast of white text on an `rgb(r, g, b)` background. */
@@ -213,6 +232,10 @@ test('the profile: the Pay Components card at 390 and 1280, button contrast, hel
   const onceOff = await box(inside[4]!);
   expect(recurring.y + recurring.height).toBeLessThanOrEqual(onceOff.y); // stacked, so neither label wraps over the other
   await expectNoSideScroll(page);
+  // Each card under the profile loads on its own: axe has to see the last of them, not whichever got there first.
+  await expect(page.getByLabel('Occupational level')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByLabel('Severance weeks per year')).toBeVisible({ timeout: 30_000 });
+  await expectAxeClean(page);
   const table = card.locator('table');
   expect(await table.evaluate((el) => getComputedStyle(el.parentElement!).overflowX)).toBe('auto');
 

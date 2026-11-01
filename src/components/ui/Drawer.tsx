@@ -95,8 +95,10 @@ export function Drawer({
           </button>
         </div>
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">{children}</div>
+        {/* Scrollable content. Focusable: with nothing focusable inside it, the keyboard could not scroll it at all. */}
+        <div role="region" aria-label={`${title} content`} tabIndex={0} className="ff-focus-ring flex-1 overflow-y-auto px-6 py-4">
+          {children}
+        </div>
       </div>
     </div>,
     document.body

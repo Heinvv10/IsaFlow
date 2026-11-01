@@ -10,6 +10,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { MAX_SALARY_CENTS, isValidSaIdNumber, isValidSarsTaxNumber } from './employeeFieldRules';
 import { payeTreatment } from './payeAnnualPayment';
@@ -157,14 +158,29 @@ function changedIdentifier(value: unknown, stored: string | undefined, isValid: 
   return isBlank(value) || value === stored ? value : identifier(value, isValid, refusal);
 }
 
+/** The API answers an end date as a timestamp and the profile sends that back, so the day is what is compared. */
+function changedEndDate(value: unknown, current: Pick<PayrollEmployee, 'startDate' | 'endDate'>): unknown {
+  if (isBlank(value)) return value;
+  const day = typeof value === 'string' ? value.slice(0, 10) : value;
+  if (day === fmtDate(current.endDate)) return value;
+  if (dateOf(day, 'endDate') < dateOf(fmtDate(current.startDate), 'startDate')) {
+    throw new EmployeeOnboardingRefused('endDate cannot be before startDate');
+  }
+  return value;
+}
+
 /**
- * The PATCH body with its tax and ID numbers judged as create judges them; raises EmployeeOnboardingRefused before the
- * update. The profile form resends both on every save, so a number already stored (older rows hold values the rule
- * refuses) is left alone: refusing it would block every other edit to that employee.
+ * The PATCH body with its tax and ID numbers and end date judged as create judges them; raises
+ * EmployeeOnboardingRefused before the update. The profile form resends all three on every save, so a value already
+ * stored (older rows hold values the rules refuse) is left alone: refusing it would block every other edit to that
+ * employee.
  */
-export function employeeChangesOf<T extends Body>(body: T, current: Pick<PayrollEmployee, 'taxNumber' | 'idNumber'>): T {
+export function employeeChangesOf<T extends Body>(
+  body: T, current: Pick<PayrollEmployee, 'taxNumber' | 'idNumber' | 'startDate' | 'endDate'>,
+): T {
   return {
     ...body,
+    endDate: changedEndDate(body.endDate, current),
     taxNumber: changedIdentifier(body.taxNumber, current.taxNumber, isValidSarsTaxNumber, TAX_REFUSAL),
     idNumber: changedIdentifier(body.idNumber, current.idNumber, isValidSaIdNumber, ID_REFUSAL),
   };
