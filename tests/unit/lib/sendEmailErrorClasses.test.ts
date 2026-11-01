@@ -3,7 +3,7 @@
  * just as an AI call that timed out does. Only a failure that proves the
  * message was not accepted gives the daily send unit back.
  *
- * The real sendEmail and the real nodemailer 9 talk to a small SMTP server in
+ * The real sendEmail and the real nodemailer 10 talk to a small SMTP server in
  * this process, which can refuse at each step or drop the connection. The
  * classes nodemailer cannot be made to produce here quickly (a timeout, DNS)
  * are given as the error shapes its source produces (lib/smtp-connection).
@@ -98,8 +98,8 @@ describe('sendEmail — which SMTP failures use the daily send unit (R-175)', ()
     expect(await used(async () => expect((await send()).success).toBe(true))).toBe(1);
   });
 
-  it('uses nodemailer 9 to send HTML with a CID attachment to the in-process server', async () => {
-    expect(nodemailerPackage.version).toMatch(/^9\./);
+  it('uses nodemailer 10 to send HTML with a CID attachment to the in-process server', async () => {
+    expect(nodemailerPackage.version).toMatch(/^10\./);
     await expect(sendDirect()).resolves.toMatchObject({ accepted: ['a@b.co'], rejected: [] });
   });
 
@@ -107,7 +107,7 @@ describe('sendEmail — which SMTP failures use the daily send unit (R-175)', ()
     ['EAUTH with the SMTP reply', { auth: '535 bad credentials' }, { code: 'EAUTH', responseCode: 535 }],
     ['EENVELOPE with the SMTP reply', { mail: '550 sender refused' }, { code: 'EENVELOPE', responseCode: 550 }],
     ['EMESSAGE with the SMTP reply', { end: '554 message refused' }, { code: 'EMESSAGE', responseCode: 554 }],
-  ] as const)('nodemailer 9 preserves %s', async (_label, r, expected) => {
+  ] as const)('nodemailer 10 preserves %s', async (_label, r, expected) => {
     replies = r;
     await expect(sendDirect()).rejects.toMatchObject(expected);
   });

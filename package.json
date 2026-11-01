@@ -60,7 +60,7 @@
     "lucide-react": "^1.8.0",
     "mailparser": "^3.14.1",
     "next": "14.2.35",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "10.3.1",
     "papaparse": "^5.5.3",
     "pdf-parse": "^2.4.5",
     "pg": "^8.13.0",
