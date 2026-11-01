@@ -58,6 +58,6 @@ describe('DEDUCTIONS_EXCEED_PAY', () => {
     expect(over.sdl).toBe(plain.sdl);
     const warning = over.validationResults[0]!;
     expect(warning).toMatchObject({ code: 'DEDUCTIONS_EXCEED_PAY', rawNet: -11916.12 });
-    expect(warning.message).toContain('R 11916.12');
+    expect(warning.message.replace(/\s/g, ' ')).toContain('R 11 916.12');
   });
 });

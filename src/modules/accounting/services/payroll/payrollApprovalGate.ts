@@ -35,6 +35,7 @@
  */
 import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
@@ -264,7 +265,7 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     if (overdrawn.length > 0) {
       return {
         code: 'deductions_exceed_pay',
-        detail: 'Deductions and tax exceed pay for ' + overdrawn.map((l) => `${l.employeeNumber} (R ${l.shortfall.toFixed(2)} over)`).join(', ')
+        detail: 'Deductions and tax exceed pay for ' + overdrawn.map((l) => `${l.employeeNumber} (${formatMoney(l.shortfall)} over)`).join(', ')
           + ': net pay would be nil and the deductions payable understated. Reduce the deductions, then recalculate.',
       };
     }

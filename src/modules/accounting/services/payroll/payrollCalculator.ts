@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money/formatMoney';
 import { getAge } from './payeEngine';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
 import { calculateCumulativePaye } from './payeCumulative';
@@ -171,7 +172,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       code: 'DEDUCTIONS_EXCEED_PAY',
       severity: 'error',
       rawNet: netPay,
-      message: `Deductions and tax come to R ${(-netPay).toFixed(2)} more than this employee's pay, so net pay shows as nil and `
+      message: `Deductions and tax come to ${formatMoney(-netPay)} more than this employee's pay, so net pay shows as nil and `
         + 'the deductions payable are understated by that amount. Reduce the deductions, then recalculate.',
     });
   }

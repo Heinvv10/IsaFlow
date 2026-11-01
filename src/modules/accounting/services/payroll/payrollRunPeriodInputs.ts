@@ -34,6 +34,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { TransactionRefusal } from '@/lib/transactionRefusal';
 import { endOfMonthIso } from './leaveAccrualService';
 import { normaliseSarsCode } from './payeAnnualPayment';
@@ -267,7 +268,7 @@ export async function setRunPeriodAmount(
     // Only what this edit makes worse. Refusing every flagged line would refuse the edits that repair one.
     const shortfall = await shortfallOf(companyId, runId, employeeId);
     if (shortfall > shortfallBefore) {
-      throw new PayrollRunInputRefusedError(400, `That would take R ${shortfall.toFixed(2)} more than this employee's pay. Enter a lower amount.`);
+      throw new PayrollRunInputRefusedError(400, `That would take ${formatMoney(shortfall)} more than this employee's pay. Enter a lower amount.`);
     }
   });
   log.info('Payroll run period amount set', { companyId, runId, employeeId, componentId }, 'payrollRunPeriodInputs');
