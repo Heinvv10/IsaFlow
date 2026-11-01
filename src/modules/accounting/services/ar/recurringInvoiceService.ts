@@ -32,7 +32,7 @@ export async function getRecurringInvoices(companyId: string, filters?: {
   if (filters?.clientId) {
     rows = (await sql`
       SELECT ri.*, c.name AS client_name
-      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
+      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id AND c.company_id = ri.company_id
       WHERE ri.company_id = ${companyId} AND ri.client_id = ${filters.clientId}::UUID
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
@@ -43,7 +43,7 @@ export async function getRecurringInvoices(companyId: string, filters?: {
   } else if (filters?.status) {
     rows = (await sql`
       SELECT ri.*, c.name AS client_name
-      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
+      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id AND c.company_id = ri.company_id
       WHERE ri.company_id = ${companyId} AND ri.status = ${filters.status}
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
@@ -53,7 +53,7 @@ export async function getRecurringInvoices(companyId: string, filters?: {
   } else {
     rows = (await sql`
       SELECT ri.*, c.name AS client_name
-      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
+      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id AND c.company_id = ri.company_id
       WHERE ri.company_id = ${companyId}
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];

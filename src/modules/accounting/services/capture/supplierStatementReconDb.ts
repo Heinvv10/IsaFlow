@@ -17,6 +17,7 @@ import {
   type MismatchReason,
 } from './supplierStatementMatchHelper';
 import { effectiveExtractionState } from '@/modules/accounting/services/bank/statementExtractionState';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 import type {
   ReconciliationLine,
   MissingInvoice,
@@ -184,9 +185,9 @@ export async function fetchFullReconciliation(
   reconId: string,
 ): Promise<SupplierStatementReconciliation | null> {
   const [header] = (await sql`
-    SELECT ssr.*, s.name AS supplier_name
+    SELECT ssr.*, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
     FROM supplier_statement_reconciliations ssr
-    JOIN suppliers s ON s.id = ssr.supplier_id
+    LEFT JOIN suppliers s ON s.id = ssr.supplier_id AND s.company_id = ssr.company_id
     WHERE ssr.id = ${reconId}::uuid AND ssr.company_id = ${companyId}
   `) as DbRow[];
   if (!header) return null;

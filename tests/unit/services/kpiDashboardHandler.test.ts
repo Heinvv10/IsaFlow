@@ -49,6 +49,7 @@ vi.mock('@/lib/apiResponse', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/hasBankAccountService', () => ({ hasBankAccount: async () => true }));
 vi.mock('@/modules/accounting/services/ar/arAgingInvoices', () => ({
+  UNKNOWN_CUSTOMER: 'Unknown customer',
   fetchARAgingInvoices: async () => { h.arCalls += 1; return h.slow(h.ar); },
 }));
 vi.mock('@/modules/accounting/services/ap/apAgingInvoices', () => ({

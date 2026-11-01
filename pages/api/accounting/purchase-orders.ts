@@ -22,11 +22,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { status, supplierId } = req.query;
     let rows: Row[];
     if (status) {
-      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.company_id = ${companyId}::UUID AND po.status = ${String(status)} ORDER BY po.created_at DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id AND s.company_id = po.company_id WHERE po.company_id = ${companyId}::UUID AND po.status = ${String(status)} ORDER BY po.created_at DESC LIMIT 200` as Row[];
     } else if (supplierId) {
-      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.company_id = ${companyId}::UUID AND po.supplier_id = ${String(supplierId)} ORDER BY po.created_at DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id AND s.company_id = po.company_id WHERE po.company_id = ${companyId}::UUID AND po.supplier_id = ${String(supplierId)} ORDER BY po.created_at DESC LIMIT 200` as Row[];
     } else {
-      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.company_id = ${companyId}::UUID ORDER BY po.created_at DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id AND s.company_id = po.company_id WHERE po.company_id = ${companyId}::UUID ORDER BY po.created_at DESC LIMIT 200` as Row[];
     }
     return apiResponse.success(res, rows);
   }
