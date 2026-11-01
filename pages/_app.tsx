@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import type { AppProps } from 'next/app';
 import { Toaster } from 'react-hot-toast';
+import { UndoAnnouncer } from '@/utils/UndoAnnouncer';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { isLightOnlyPath } from '@/lib/theme/themePreference';
@@ -113,6 +114,7 @@ export default function App({ Component, pageProps }: AppProps) {
             not a person visiting a page, and recording it puts a synthetic
             pageview in the analytics for every export. */}
         {!sharePage && !printRender && <TrackerScript />}
+        <UndoAnnouncer />
         <Toaster
           position="top-right"
           containerStyle={{ top: 16, right: 16 }}

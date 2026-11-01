@@ -48,6 +48,9 @@ export const AR_OPEN_STATUSES = [
 
 export type AROpenStatus = (typeof AR_OPEN_STATUSES)[number];
 
+/** Whether a customer invoice carries a live outstanding balance: on any other status total less paid means nothing. */
+export const isAROpen = (status: string): boolean => (AR_OPEN_STATUSES as readonly string[]).includes(status);
+
 /** Supplier invoice statuses counted as open/outstanding for AP reporting and dashboards. */
 export const AP_OPEN_STATUSES = ['approved', 'partially_paid'] as const;
 

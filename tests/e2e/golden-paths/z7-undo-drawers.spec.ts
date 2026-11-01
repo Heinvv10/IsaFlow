@@ -74,19 +74,25 @@ for (const theme of THEMES) test(`exclude an imported line, Undo, and it is back
     await expect(row).toHaveCount(0);
     expect(await lineId('excluded')).toBe(id);
 
-    // Past the 8 s while focused: the toast has to be waiting for the keyboard, and it is on the theme's tokens.
-    await undo.focus();
+    // Past the 8 s under the pointer: the toast waits, and it is on the theme's tokens.
+    await undo.hover();
     await page.waitForTimeout(9_000);
-    await expect(undo).toBeFocused();
+    await expect(undo).toBeVisible();
     await expectNoSeriousA11yViolations(page, { baseline: NOTHING_EXCUSED });
     if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `undo-toast-${theme}.png`) });
-    await page.keyboard.press('Enter');
+
+    // Then by real keys: focus is wherever the page left it, and nothing has moved it to the toast.
+    await page.mouse.move(0, 0);
+    await expect(undo).not.toBeFocused();
+    await page.keyboard.press('Control+z');
 
     await expect(row).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Transaction restored')).toBeVisible();
     expect(await lineId('imported')).toBe(id);
     expect(await lineId('excluded')).toBeUndefined();
   } finally {
+    // Restored first: delete only takes an `imported` line, and a run that failed part-way may have left it excluded.
+    await api.post('/api/accounting/bank-transactions-action', { action: 'unmatch', bankTransactionId: id });
     await api.post('/api/accounting/bank-transactions-action', { action: 'delete', bankTransactionIds: [id] });
   }
 });

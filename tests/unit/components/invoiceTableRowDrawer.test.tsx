@@ -24,6 +24,22 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const link = () => screen.getByRole('link', { name: 'INV-001' });
 const cell = () => screen.getByText('Acme');
 
+describe('CustomerInvoiceTable Outstanding', () => {
+  const outstanding = (status: string) => {
+    cleanup();
+    render(<CustomerInvoiceTable invoices={[{ ...INV, status, amount_paid: 15 }]} page={1} limit={25} total={1} onPage={vi.fn()} onOpen={onOpen} />);
+    return screen.getAllByRole('cell')[5]!.textContent;
+  };
+
+  it.each(['draft', 'cancelled', 'paid', 'pending_approval'])('a %s invoice shows a dash', (status) => {
+    expect(outstanding(status)).toBe('—');
+  });
+
+  it.each(['approved', 'sent', 'partially_paid', 'overdue'])('a %s invoice shows the balance', (status) => {
+    expect(outstanding(status)).toMatch(/100[.,]00/);
+  });
+});
+
 describe('CustomerInvoiceTable row', () => {
   it('a plain click on a cell opens the drawer', () => {
     fireEvent.click(cell());
