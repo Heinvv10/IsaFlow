@@ -12,6 +12,34 @@ const nextConfig = {
   output: 'standalone',
   productionBrowserSourceMaps: process.env.SENTRY_ENABLED === 'true',
 
+  // Pin the file-tracing root to THIS project dir so the standalone build emits
+  // a flat layout (server.js at .next/standalone/) that scripts/deploy.sh expects.
+  // Without this, Next auto-detects the parent workspace dir (which contains a
+  // package.json) as the root and nests output under .next/standalone/IsaFlow/,
+  // breaking the deploy rsync. This option is top-level in Next 15.
+  outputFileTracingRoot: __dirname,
+  // Sharp and runtime-loaded assets are not all found by static tracing.
+  outputFileTracingIncludes: {
+    '/**/*': [
+      './node_modules/sharp/**/*',
+      './node_modules/@img/**/*',
+      // pdf-parse is loaded via runtime require() inside a try/catch
+      // (src/modules/accounting/utils/bankPdfParser.ts), so the
+      // standalone-build static tracer doesn't pick it up. Force-include
+      // the package and its native pdfjs-dist + canvas dependencies so
+      // bank statement PDF imports work in production.
+      './node_modules/pdf-parse/**/*',
+      './node_modules/pdfjs-dist/**/*',
+      './node_modules/@napi-rs/canvas/**/*',
+      './node_modules/@napi-rs/canvas-*/**/*',
+      // Blog pages, the RSS feed and the sitemap read content/blog/** with fs at
+      // ISR/request time; the static tracer cannot see those reads.
+      './content/blog/**/*',
+      // The server-rendered sitemap reads help content on each request.
+      './content/help/**/*',
+    ],
+  },
+
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -25,36 +53,6 @@ const nextConfig = {
 
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
-    // Pin the file-tracing root to THIS project dir so the standalone build emits
-    // a flat layout (server.js at .next/standalone/) that scripts/deploy.sh expects.
-    // Without this, Next auto-detects the parent workspace dir (which contains a
-    // package.json) as the root and nests output under .next/standalone/IsaFlow/,
-    // breaking the deploy rsync. (In Next 14 this option lives under experimental.)
-    outputFileTracingRoot: __dirname,
-    // Sharp is loaded at runtime by Next.js for image optimization but is
-    // not detected by the standalone build's static trace. Force-include
-    // its native binaries so /home/velo/isaflow/node_modules/sharp exists
-    // after rsync and image routes stop logging "sharp-missing" errors.
-    outputFileTracingIncludes: {
-      '/**/*': [
-        './node_modules/sharp/**/*',
-        './node_modules/@img/**/*',
-        // pdf-parse is loaded via runtime require() inside a try/catch
-        // (src/modules/accounting/utils/bankPdfParser.ts), so the
-        // standalone-build static tracer doesn't pick it up. Force-include
-        // the package and its native pdfjs-dist + canvas dependencies so
-        // bank statement PDF imports work in production.
-        './node_modules/pdf-parse/**/*',
-        './node_modules/pdfjs-dist/**/*',
-        './node_modules/@napi-rs/canvas/**/*',
-        './node_modules/@napi-rs/canvas-*/**/*',
-        // Blog pages, the RSS feed and the sitemap read content/blog/** with fs at
-        // ISR/request time; the static tracer cannot see those reads.
-        './content/blog/**/*',
-        // The server-rendered sitemap reads help content on each request.
-        './content/help/**/*',
-      ],
-    },
   },
 
   // Proxy GoTrue's /auth/v1/* through the app. GoTrue recovery emails link

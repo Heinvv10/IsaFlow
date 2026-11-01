@@ -430,35 +430,87 @@ jobs:
           [ -n "$GOLDEN_PORT" ] || { echo "::error::golden-free-port printed no port"; exit 1; }
           # Hosted: the app's own URL is this server (velo's file names one).
           if [ "$HOSTED" = true ]; then export NEXT_PUBLIC_APP_URL="http://localhost:$GOLDEN_PORT"; fi
-          # setsid: its own process group, so the trap stops next's children
-          # too, not only the bunx wrapper.
-          setsid bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
-          DEVPID=$!
-          trap 'kill -- -$DEVPID 2>/dev/null || true' EXIT
-          # Ready only when OUR server says so: next dev logs "Ready in" once
-          # it has bound the port (it exits on EADDRINUSE with -p, never
-          # logging it), so another server answering the port is not enough.
-          # grep -q only: the log is never printed (see below).
-          for i in $(seq 1 90); do
-            kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited during boot (port $GOLDEN_PORT) — see golden-dev.log in the runner workdir"; exit 1; }
-            grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null && break
-            sleep 2
-          done
-          # Do NOT cat/tail golden-dev.log here: the boot log can echo values
-          # from .env.local, and GitHub only redacts registered secrets —
-          # runner-local env values would land in the public job log.
-          { grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null; } || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
-          # The answer must come from OUR server, not whatever took the port.
-          kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
+          # Hosted: the suite runs in CHUNKS sequential pieces (playwright --shard,
+          # contiguous, same database, same order as one run), each on a freshly
+          # started dev server. Proven on run 41342946225: next dev's own memory
+          # watcher ("Server is approaching the used memory threshold,
+          # restarting...", next/dist/server/lib/start-server.js) restarts the
+          # server once its heap passes 80% of the limit (half the runner's RAM),
+          # and the dev server's size grows about 6 GB in the first 10 minutes
+          # and reaches the threshold at about 21 min. The restart refuses or
+          # drops whatever request is in flight, so 1-3 specs of ~200 failed in
+          # about 40% of the runs (page.goto ERR_EMPTY_RESPONSE or
+          # ERR_CONNECTION_REFUSED, or a page stuck aria-busy). The suite takes
+          # 25-30 min, so one server cannot last it. The size follows the pages
+          # visited, not the clock, and --shard splits by test count, so the
+          # chunks are uneven (measured on that run: 4, 11, 6, 1, 3, 2 min, the
+          # long one holding the contrast sweep); six keep every chunk well under
+          # the threshold. Velo (CI_HOSTED=off) keeps one server and one run.
+          CHUNKS=1
+          if [ "$HOSTED" = true ]; then CHUNKS=6; fi
+          # boot_dev: start next dev on $GOLDEN_PORT and wait until it, and
+          # nothing else, answers.
+          boot_dev() {
+            # setsid: its own process group, so the trap stops next's children
+            # too, not only the bunx wrapper.
+            setsid bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
+            DEVPID=$!
+            # Ready only when OUR server says so: next dev logs "Ready in" once
+            # it has bound the port (it exits on EADDRINUSE with -p, never
+            # logging it), so another server answering the port is not enough.
+            # grep -q only: the log is never printed (see below).
+            for i in $(seq 1 90); do
+              kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited during boot (port $GOLDEN_PORT) — see golden-dev.log in the runner workdir"; exit 1; }
+              grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null && break
+              sleep 2
+            done
+            # Do NOT cat/tail golden-dev.log here: the boot log can echo values
+            # from .env.local, and GitHub only redacts registered secrets —
+            # runner-local env values would land in the public job log.
+            { grep -q 'Ready in' golden-dev.log && curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null; } || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
+            # The answer must come from OUR server, not whatever took the port.
+            kill -0 "$DEVPID" 2>/dev/null || { echo "dev server exited after boot; refusing to test whatever answers on port $GOLDEN_PORT"; exit 1; }
+          }
+          # stop_dev: stop the server by its process group and wait for the port
+          # to be free again; its log is kept (golden-dev.all.log) for the report.
+          stop_dev() {
+            kill -- -"$DEVPID" 2>/dev/null || true
+            for i in $(seq 1 30); do
+              curl -s -o /dev/null "http://localhost:$GOLDEN_PORT/" || break
+              sleep 1
+            done
+            cat golden-dev.log >> golden-dev.all.log
+          }
+          boot_dev
+          trap 'kill -- -$DEVPID 2>/dev/null || true; if [ -n "${WATCHPID:-}" ]; then kill $WATCHPID 2>/dev/null || true; fi' EXIT
           # Hosted: nothing in this job's environment is a real secret (random
           # per-run values on a localhost-only database in a VM that is gone
           # afterwards), so, unlike velo, the dev log tail is printed when
           # something fails: it is the only place a server error shows.
           if [ "$HOSTED" = true ]; then
+            # Evidence for dev-server restarts (see dev-watch.sh): a sample of its
+            # processes every 10 s, summarised at the end, pass or fail.
+            bash scripts/ci/golden-hosted/dev-watch.sh sample golden-samples.log 10 &
+            WATCHPID=$!
             BASE_URL="http://localhost:$GOLDEN_PORT" bun scripts/ci/golden-hosted/seed-demo-app.ts || { echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"; exit 1; }
           fi
+          # A chunk that fails stays failed (rc keeps the first failure) and the
+          # others still run, so one red run lists every red spec. Nothing is retried.
           rc=0
-          BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden || rc=$?
+          for k in $(seq 1 "$CHUNKS"); do
+            SHARD=""
+            if [ "$CHUNKS" -gt 1 ]; then
+              echo "::group::chunk $k of $CHUNKS"; echo "chunk $k of $CHUNKS"; echo "::endgroup::"
+              SHARD="--shard=$k/$CHUNKS"
+              if [ "$k" -gt 1 ]; then stop_dev; boot_dev; fi
+            fi
+            # shellcheck disable=SC2086
+            BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden $SHARD || rc=$?
+          done
+          if [ "$HOSTED" = true ]; then
+            cat golden-dev.log >> golden-dev.all.log
+            bash scripts/ci/golden-hosted/dev-watch.sh report golden-samples.log golden-dev.all.log "$CHUNKS"
+          fi
           if [ "$rc" -ne 0 ] && [ "$HOSTED" = true ]; then
             echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"
           fi

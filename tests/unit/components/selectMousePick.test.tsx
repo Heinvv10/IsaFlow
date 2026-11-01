@@ -15,7 +15,7 @@ function Harness({ searchable }: { searchable?: boolean }) {
   return (
     <>
       <Select label="Letter" options={OPTIONS} value={value} onChange={setValue} searchable={searchable ?? false} />
-      <output>{value ?? 'none'}</output>
+      <output data-testid="picked">{value ?? 'none'}</output>
       <button>elsewhere</button>
     </>
   );
@@ -30,7 +30,7 @@ describe('picking with a mouse', () => {
     render(<Harness />);
     open();
     mouseClick(screen.getByRole('option', { name: 'Beta' }));
-    expect(screen.getByRole('status', { hidden: true }).textContent).toBe('b');
+    expect(screen.getByTestId('picked').textContent).toBe('b');
     expect(screen.queryByRole('listbox')).toBeNull();
   });
 
