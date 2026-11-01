@@ -8,7 +8,7 @@
 # sizes, and the few non-request lines of the dev log that match the filter.
 #
 #   dev-watch.sh sample <samples-file> [seconds]   run in the background
-#   dev-watch.sh report <samples-file> <dev-log>    print the summary
+#   dev-watch.sh report <samples-file> <dev-log> [boots]  print the summary
 set -u
 
 sample() {
@@ -21,15 +21,18 @@ sample() {
 }
 
 report() {
-  local samples=$1 devlog=$2
+  local samples=$1 devlog=$2 boots=${3:-1}
   echo "::group::dev server lifecycle (filtered)"
   echo "-- restart evidence in the dev log (non-request lines only):"
   grep -nE "approaching the used memory|restarting|Restarting|Found a change|JavaScript heap|FATAL|Killed|SIGKILL|SIGTERM|uncaughtException|Unhandled|ELIFECYCLE|exited with" "$devlog" | cut -c1-200 | head -40
-  echo "-- 'Ready in' lines (1 = never restarted): $(grep -c 'Ready in' "$devlog")"
+  echo "-- memory-watcher restarts (next dev's own, at 80% of its heap limit): $(grep -c 'approaching the used memory' "$devlog")"
+  echo "-- 'Ready in' lines: $(grep -c 'Ready in' "$devlog") (boots planned: $boots; more means the server restarted itself)"
   echo "-- distinct next-server pids: $(grep 'next-server' "$samples" | sed -E 's/.* pid=([0-9]+) .*/\1/' | sort -u | tr '\n' ' ')"
   echo "-- next-server rss over time (MB), one sample in 12, and the max:"
   grep 'next-server' "$samples" | awk 'NR % 12 == 1 { printf "%s pid=%s rss=%s avail=%s | ", $1, $3, $5, $2 } END { print "" }' | sed 's/pid=//g;s/rssMB=//g;s/availMB=//g' | fold -w 200
   grep 'next-server' "$samples" | sed -E 's/.*rssMB=([0-9]+).*/\1/' | sort -n | tail -1 | sed 's/^/max rssMB: /'
+  echo "-- per server process (one per boot): pid, samples, max rssMB:"
+  grep 'next-server' "$samples" | awk '{ split($3, p, "="); split($5, r, "="); n[p[2]]++; if (r[2] + 0 > m[p[2]]) m[p[2]] = r[2] + 0 } END { for (k in n) printf "pid %s: %d samples, max %d MB\n", k, n[k], m[k] }'
   echo "-- kernel OOM kills:"
   (sudo -n dmesg 2>/dev/null || true) | grep -iE "out of memory|oom-kill|killed process" | tail -5
   echo "::endgroup::"
@@ -38,5 +41,5 @@ report() {
 case "${1:-}" in
   sample) shift; sample "$@" ;;
   report) shift; report "$@" ;;
-  *) echo "usage: dev-watch.sh sample <file> [seconds] | report <samples> <devlog>" >&2; exit 2 ;;
+  *) echo "usage: dev-watch.sh sample <file> [seconds] | report <samples> <devlog> [boots]" >&2; exit 2 ;;
 esac
