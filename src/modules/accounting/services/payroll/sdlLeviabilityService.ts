@@ -20,6 +20,17 @@ import type { PayrollPeriod } from './payrollTypes';
  * So the basis is the company's own trailing twelve periods of gross pay: the
  * eleven periods before this run plus this run.
  *
+ * The 1% itself is charged on each line's leviable amount AFTER the para 2(4)
+ * retirement deductions (payrollCalculator), but the threshold stays on gross.
+ * The SDL guide's registration test speaks of the "total leviable amount", so
+ * an after-deduction basis is arguably the stricter reading; it is not used
+ * because the run header stores only total_gross, so the trailing eleven
+ * periods could not be measured on that basis without a migration, and mixing
+ * an after-deduction current month with gross history would skew the estimate.
+ * Gross is never below the leviable amount, so the error, when there is one,
+ * is towards levying: an employer whose gross is just over R500 000 but whose
+ * leviable amount is not is still charged. Same proxy caveat as below.
+ *
  * The denominator is elapsed CALENDAR months, not the number of runs found. A
  * company that has been running payroll for a year is measured over twelve
  * months whether or not it paid in every one of them, so a seasonal employer
