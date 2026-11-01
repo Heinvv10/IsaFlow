@@ -262,13 +262,15 @@ describe('the approval summary', () => {
     expect(await within(dialog).findByText(/^Paying 1 employee R /)).toBeTruthy();
   });
 
-  it('does not say warnings never block when one is blocking', async () => {
+  it('neither the dialog nor the page says warnings never block when one is blocking', async () => {
     const flagged = line('1', 'Riaan Smit', [{ code: 'DEDUCTIONS_EXCEED_PAY', severity: 'warning', message: 'Over' }]);
     const blocked = planBody({ code: 'deductions_exceed_pay', detail: 'Deductions and tax exceed pay.' });
     serve(() => ok({}), { run: twoRuns({ lines: [flagged] }), preview: blocked });
     const dialog = await open();
     await within(dialog).findByText('Deductions and tax exceed pay.');
     expect(within(dialog).queryByText(/do not block approval/)).toBeNull();
+    expect(screen.queryByText(/do not block the run/)).toBeNull();
+    expect(screen.getByText(/Deductions above pay block approval/)).toBeTruthy();
   });
 
   it('does not offer a payment approval will not make', async () => {

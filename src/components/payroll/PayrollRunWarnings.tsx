@@ -88,7 +88,9 @@ export function PayrollRunWarnings({ lines }: { lines: WarningLine[] }) {
         ))}
       </ul>
       <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
-        These do not block the run — payroll can still be approved and paid.
+        {groups.some((g) => g.code === 'DEDUCTIONS_EXCEED_PAY')
+          ? 'Deductions above pay block approval. Any others here do not.'
+          : 'These do not block the run — payroll can still be approved and paid.'}
       </p>
     </section>
   );
