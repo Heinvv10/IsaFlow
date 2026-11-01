@@ -8,6 +8,7 @@ import { StatusPill } from '@/components/ui';
 import { useDrawerRead } from '@/components/ui/useDrawerRead';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { isAROpen } from '@/lib/constants/invoiceStatuses';
 
 interface InvoiceDetail {
   invoice_number: string;
@@ -75,7 +76,7 @@ export function InvoiceDrawerBody({ invoiceId }: { invoiceId: string }) {
         <Row label="VAT" value={money(inv.tax_amount)} />
         <Row label="Total" value={money(inv.total_amount)} strong />
         <Row label="Paid" value={money(inv.amount_paid)} />
-        <Row label="Outstanding" value={money(outstanding)} testId="invoice-drawer-outstanding" strong />
+        <Row label="Outstanding" value={isAROpen(inv.status) ? money(outstanding) : '-'} testId="invoice-drawer-outstanding" strong />
       </dl>
       <Link href={`/accounting/customer-invoices/${invoiceId}`} className="inline-block text-sm font-medium text-teal-700 hover:underline dark:text-teal-300">
         Open invoice

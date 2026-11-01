@@ -11,6 +11,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { toBucketKey, relativeTimeSince } from '@/components/invoices/ARFilters';
 import { BUCKET_COLORS, BUCKET_LABELS } from '@/lib/format/aging';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { isAROpen } from '@/lib/constants/invoiceStatuses';
 
 export interface CustomerInvoiceRow {
   id: string;
@@ -87,9 +88,13 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
                 </td>
                 <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
                 <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
-                <td className={`py-3 px-4 text-right tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
-                  {formatCurrency(outstanding)}
-                </td>
+                {isAROpen(inv.status) ? (
+                  <td className={`py-3 px-4 text-right tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
+                    {formatCurrency(outstanding)}
+                  </td>
+                ) : (
+                  <td className="py-3 px-4 text-right text-[var(--ff-text-tertiary)]">—</td>
+                )}
                 <td className="py-3 px-4 whitespace-nowrap">
                   {inv.status === 'paid' ? (
                     <span className="text-xs text-[var(--ff-text-tertiary)]">Paid</span>

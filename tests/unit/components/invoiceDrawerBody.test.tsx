@@ -31,6 +31,18 @@ describe('InvoiceDrawerBody', () => {
     expect(screen.getByRole('link', { name: 'Open invoice' }).getAttribute('href')).toBe('/accounting/customer-invoices/inv-1');
   });
 
+  it.each(['draft', 'cancelled', 'paid', 'pending_approval'])('a %s invoice has no outstanding balance to show, only a dash', async (status) => {
+    vi.mocked(apiFetch).mockResolvedValue(json({ success: true, data: { ...DETAIL, status } }));
+    render(<InvoiceDrawerBody invoiceId="inv-1" />);
+    expect((await screen.findByTestId('invoice-drawer-outstanding')).textContent).toBe('-');
+  });
+
+  it.each(['approved', 'sent', 'partially_paid', 'overdue'])('a %s invoice shows what is outstanding', async (status) => {
+    vi.mocked(apiFetch).mockResolvedValue(json({ success: true, data: { ...DETAIL, status } }));
+    render(<InvoiceDrawerBody invoiceId="inv-1" />);
+    expect((await screen.findByTestId('invoice-drawer-outstanding')).textContent).toMatch(/100[.,]00/);
+  });
+
   it('shows a foreign invoice in its own currency', async () => {
     vi.mocked(apiFetch).mockResolvedValue(json({ success: true, data: { ...DETAIL, currency_code: 'USD' } }));
     render(<InvoiceDrawerBody invoiceId="inv-1" />);

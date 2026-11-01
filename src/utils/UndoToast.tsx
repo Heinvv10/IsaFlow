@@ -1,11 +1,13 @@
 /**
  * The undoable toast's surface (notify.undoable). The library's own duration cannot pause on keyboard focus, so
- * this toast is opened with an infinite duration and dismisses itself on a timer of its own.
+ * this toast is opened with an infinite duration and dismisses itself on a timer of its own. Ctrl or Cmd+Z reaches it
+ * from anywhere (undoHotkey.ts); UndoAnnouncer says it to a screen reader.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import toast, { type Toast } from 'react-hot-toast';
 import { CheckCircle2 } from 'lucide-react';
+import { offerUndoHotkey } from './undoHotkey';
 
 export const UNDO_TOAST_DEFAULT_MS = 8000;
 
@@ -39,10 +41,15 @@ export function UndoToast({ t, title, opts, undoOnce }: Props) {
     };
   }, [paused, t.id]);
 
+  // While it is on screen: the library keeps a dismissed toast mounted for its exit, and that one is no longer on offer.
+  useEffect(() => {
+    if (!t.visible) return undefined;
+    return offerUndoHotkey(() => { toast.dismiss(t.id); undoOnce(); });
+  }, [t.visible, t.id, undoOnce]);
+
   return (
     <div
-      role="status"
-      aria-live="polite"
+      data-testid="undo-toast"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
@@ -58,13 +65,17 @@ export function UndoToast({ t, title, opts, undoOnce }: Props) {
         <p className="text-sm font-medium text-[var(--ff-text-primary)] leading-tight">{title}</p>
         {opts.message && <p className="text-xs text-[var(--ff-text-secondary)] mt-0.5 leading-snug">{opts.message}</p>}
       </div>
-      <button
-        type="button"
-        onClick={() => { toast.dismiss(t.id); undoOnce(); }}
-        className="shrink-0 rounded-md px-2 py-0.5 text-sm font-semibold text-teal-700 hover:bg-teal-500/10 dark:text-teal-300 ff-focus-ring"
-      >
-        Undo
-      </button>
+      <div className="flex shrink-0 flex-col items-end">
+        <button
+          type="button"
+          aria-keyshortcuts="Control+Z Meta+Z"
+          onClick={() => { toast.dismiss(t.id); undoOnce(); }}
+          className="rounded-md px-2 py-0.5 text-sm font-semibold text-teal-700 hover:bg-teal-500/10 dark:text-teal-300 ff-focus-ring"
+        >
+          Undo
+        </button>
+        <span aria-hidden="true" className="px-2 text-xs text-[var(--ff-text-secondary)]">Ctrl+Z</span>
+      </div>
     </div>
   );
 }
