@@ -218,11 +218,12 @@ describe('edit page: a stored invoice at rate 0', () => {
     expect(sentPrices('PUT')).toEqual([1000, 500]);
   });
 
-  it('a non-zero rate still loads as Excluding VAT', async () => {
-    serve(undefined, TWO_LINES);
+  it('a non-zero rate still loads as Excluding VAT, at its own rate', async () => {
+    serve(undefined, { ...TWO_LINES, tax_rate: '14.00' });
     render(<EditPage />);
     await screen.findByDisplayValue('One');
     expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Excluding VAT/);
+    expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('14');
   });
 });
 
