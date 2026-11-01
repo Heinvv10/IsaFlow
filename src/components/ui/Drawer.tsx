@@ -1,6 +1,6 @@
 /**
  * Drawer — slide-in panel from the right side of the screen.
- * // WORKING: Portal-based, focus trap (ESC, focus returns on close), backdrop click-to-close, smooth animation
+ * // WORKING: Portal-based, focus trap (it is aria-modal), ESC key, backdrop click-to-close, smooth animation
  */
 
 import { useEffect, useRef } from 'react';
@@ -36,13 +36,15 @@ export function Drawer({
   width = 'md',
   className,
 }: DrawerProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(panelRef, open, onClose);
+  const dialog = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialog, open, onClose);
 
   useEffect(() => {
     if (!open) return undefined;
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      document.body.style.overflow = '';
+    };
   }, [open]);
 
   if (typeof window === 'undefined') return null;
@@ -50,6 +52,7 @@ export function Drawer({
 
   return createPortal(
     <div
+      ref={dialog}
       aria-modal="true"
       aria-label={title}
       role="dialog"
@@ -64,7 +67,6 @@ export function Drawer({
 
       {/* Panel */}
       <div
-        ref={panelRef}
         className={cn(
           'relative flex h-full flex-col bg-white shadow-xl',
           'dark:bg-gray-900',
@@ -93,8 +95,10 @@ export function Drawer({
           </button>
         </div>
 
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">{children}</div>
+        {/* Scrollable content. Focusable: with nothing focusable inside it, the keyboard could not scroll it at all. */}
+        <div role="region" aria-label={`${title} content`} tabIndex={0} className="ff-focus-ring flex-1 overflow-y-auto px-6 py-4">
+          {children}
+        </div>
       </div>
     </div>,
     document.body

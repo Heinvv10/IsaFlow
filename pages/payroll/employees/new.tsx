@@ -14,34 +14,43 @@ import type { FieldValidity } from '@/components/ui/useParsedField';
 import { PersonalSection } from '@/components/payroll/employeeCreate/PersonalSection';
 import { EmploymentSection } from '@/components/payroll/employeeCreate/EmploymentSection';
 import { TaxAndMedicalSection } from '@/components/payroll/employeeCreate/TaxAndMedicalSection';
+import { PaySection } from '@/components/payroll/employeeCreate/PaySection';
 import {
   FIELD_ORDER, buildBody, initialForm, validateForm,
-  type DateKey, type FieldKey, type FormErrors, type FormState,
+  type DateKey, type FieldKey, type FormErrors, type FormState, type RefusedKey,
 } from '@/components/payroll/employeeCreate/types';
 
 export default function NewEmployeePage() {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(() => initialForm(todayInSast()));
   const [errors, setErrors] = useState<FormErrors>({});
-  const [refused, setRefused] = useState<Partial<Record<DateKey, string>>>({});
+  const [refused, setRefused] = useState<Partial<Record<RefusedKey, string>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const fields = useRef<Partial<Record<FieldKey, HTMLInputElement | null>>>({});
+  const fields = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
+  // State only reaches the disabled button on the next render; a second submit can arrive before that.
+  const inFlight = useRef(false);
 
   const clearError = (k: string) => setErrors(prev => (k in prev ? { ...prev, [k]: undefined } : prev));
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => {
     setForm(prev => ({ ...prev, [k]: v }));
     clearError(k);
   };
-  const fieldRef = (k: FieldKey) => (el: HTMLInputElement | null) => { fields.current[k] = el; };
+  const fieldRef = (k: FieldKey) => (el: HTMLElement | null) => { fields.current[k] = el; };
+  const checkField = (k: FieldKey) => setErrors(prev => ({ ...prev, [k]: validateForm(form, refused)[k] }));
   // A refused date arrives as null with valid=false; it must block submit, not read as "left empty".
   const setDate = (k: DateKey) => (iso: string | null, validity: FieldValidity) => {
     setRefused(prev => ({ ...prev, [k]: validity.valid ? undefined : (validity.reason ?? 'Enter a valid date.') }));
     set(k, iso ?? '');
   };
+  const setSalary = (cents: number | null, validity: FieldValidity) => {
+    setRefused(prev => ({ ...prev, salaryCents: validity.valid ? undefined : (validity.reason ?? 'Enter a valid amount.') }));
+    set('salaryCents', cents);
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (inFlight.current) return;
     setError('');
     const found = validateForm(form, refused);
     setErrors(found);
@@ -50,6 +59,7 @@ export default function NewEmployeePage() {
       fields.current[first]?.focus();
       return;
     }
+    inFlight.current = true;
     setSubmitting(true);
     let target = '';
     try {
@@ -64,15 +74,16 @@ export default function NewEmployeePage() {
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the employee - try again'));
     } finally {
-      if (!target) setSubmitting(false);
+      if (!target) { inFlight.current = false; setSubmitting(false); }
     }
     if (!target) return;
     // The employee exists; a failed navigation is not a failed save.
     try { await router.push(target); } catch (e) { log.warn('navigation failed', { error: e }, 'NewEmployeePage'); }
+    inFlight.current = false;
     setSubmitting(false);
   };
 
-  const section = { form, errors, set, fieldRef, setDate };
+  const section = { form, errors, set, fieldRef, setDate, checkField };
 
   return (
     <AppLayout>
@@ -99,6 +110,7 @@ export default function NewEmployeePage() {
           <PersonalSection {...section} />
           <EmploymentSection {...section} />
           <TaxAndMedicalSection {...section} />
+          <PaySection {...section} setSalary={setSalary} />
           <div className="flex items-center gap-3 pt-2">
             <button
               type="submit"

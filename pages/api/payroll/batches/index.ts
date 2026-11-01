@@ -20,6 +20,7 @@ import {
   type BatchStatus,
   type BatchType,
 } from '@/modules/accounting/services/payroll/payrollBatchService';
+import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 
 const CreateBody = z
@@ -71,6 +72,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       const batch = await createBatch({ companyId, userId: user.id, ...parsed.data });
       return apiResponse.created(res, batch);
     } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
