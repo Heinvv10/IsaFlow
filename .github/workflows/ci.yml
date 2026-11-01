@@ -455,10 +455,18 @@ jobs:
           # afterwards), so, unlike velo, the dev log tail is printed when
           # something fails: it is the only place a server error shows.
           if [ "$HOSTED" = true ]; then
+            # Evidence for dev-server restarts (see dev-watch.sh): a sample of its
+            # processes every 10 s, summarised at the end, pass or fail.
+            bash scripts/ci/golden-hosted/dev-watch.sh sample golden-samples.log 10 &
+            WATCHPID=$!
+            trap 'kill -- -$DEVPID 2>/dev/null || true; kill $WATCHPID 2>/dev/null || true' EXIT
             BASE_URL="http://localhost:$GOLDEN_PORT" bun scripts/ci/golden-hosted/seed-demo-app.ts || { echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"; exit 1; }
           fi
           rc=0
           BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden || rc=$?
+          if [ "$HOSTED" = true ]; then
+            bash scripts/ci/golden-hosted/dev-watch.sh report golden-samples.log golden-dev.log
+          fi
           if [ "$rc" -ne 0 ] && [ "$HOSTED" = true ]; then
             echo "::group::golden-dev.log (tail)"; tail -n 80 golden-dev.log; echo "::endgroup::"
           fi
