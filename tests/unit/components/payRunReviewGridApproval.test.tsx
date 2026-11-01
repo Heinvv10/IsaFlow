@@ -91,6 +91,22 @@ describe('what holds the approval preview', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('refused text still on screen stays a hold when another cell saves', async () => {
+    serve(() => ok(inputsBody(twoRuns())));
+    render(<PayrollRunDetailPage />);
+    const [refused, other] = [await cell('Riaan Smit'), await cell('Thandi Nkosi')];
+    type(refused, '1,234');
+    fireEvent.blur(refused);
+    await waitFor(() => expect(refused.getAttribute('aria-invalid')).toBe('true'));
+    type(other, '2');
+    fireEvent.blur(other);
+    await within(rowOf('Thandi Nkosi')).findByText(/^Saved/);
+    expect(refused.value).toBe('1,234');
+    pressApprove();
+    expect(await screen.findByText(/could not be read/)).toBeTruthy();
+    expect(previews()).toHaveLength(0);
+  });
+
   it('refused text an amount from the server has replaced holds nothing', async () => {
     const amount = { employeeId: 'e-1', componentId: OVERTIME.id, amount: 500, conflict: false };
     serve(() => ok(inputsBody(twoRuns(), { amounts: [amount] })));
