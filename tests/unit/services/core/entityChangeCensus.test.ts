@@ -102,6 +102,8 @@ const WRITERS: Record<string, string[]> = {
   // Written only through 881/885's SECURITY DEFINER functions (approvalRuleWriteCensus pins their one caller).
   approval_rules: [],
   approval_enforcement: [],
+  // Tracked from 952. scripts/seed-payroll-data.ts sweeps it with the name in a variable, so it is not matched here.
+  payroll_bank_details: [`${S}payroll/payrollBankDetailsService.ts`],
 };
 export const TRACKED = Object.keys(WRITERS);
 
@@ -127,7 +129,10 @@ const nonMigrations = () => sourceFiles().filter(({ file }) => !file.startsWith(
 const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql',
   // 930 (S-07c): names entity_change_capture() only in its list of reviewed definers (with its body's
   // hash, so a change to the capture is refused on every deploy); it does not touch the history.
-  '930_credential_membership_writes_off_app_pools.sql'];
+  '930_credential_membership_writes_off_app_pools.sql',
+  // 952 (wave 3 K1): widens the entity_type CHECK and entity_changes_read for payroll_bank_detail and attaches the
+  // capture, ENABLE ALWAYS, to payroll_bank_details. The capture itself is unchanged, so 930's registry is too.
+  '952_payroll_bank_details_tenant_history.sql'];
 /**
  * Matching only in their comments: 693 explains why ENABLE TRIGGER downgrades, 855 why it uses E'' under
  * standard_conforming_strings, 876 why TRUNCATE ... cascade.
@@ -269,11 +274,23 @@ describe('entity change history (census)', () => {
     expect(found).toEqual(['scripts/ci/oauthTrustFlagRule.ts']);
   });
 
-  it('888 attaches the capture to exactly the tracked tables, ENABLE ALWAYS', () => {
+  it('888 and 952 attach the capture to exactly the tracked tables, ENABLE ALWAYS', () => {
     const sql = readFileSync(path.join(ROOT, MIGRATIONS, HISTORY_FILE), 'utf8');
     const values = /FROM \(VALUES([\s\S]*?)\) v\(tbl, typ\)/.exec(sql)![1]!;
     const tables = [...values.matchAll(/\('(\w+)', '(\w+)'\)/g)].map((m) => m[1]);
-    expect(tables.sort()).toEqual([...TRACKED].sort());
+    expect([...tables, 'payroll_bank_details'].sort()).toEqual([...TRACKED].sort());
     expect(sql).toMatch(/ENABLE ALWAYS TRIGGER entity_change_capture/);
+    const bank = readFileSync(path.join(ROOT, MIGRATIONS, '952_payroll_bank_details_tenant_history.sql'), 'utf8');
+    expect(bank).toMatch(/ALTER TABLE payroll_bank_details ENABLE ALWAYS TRIGGER entity_change_capture;/);
+  });
+
+  // Wave 3 K1, decision 6: bank details are for a person in their own session. entity_history reads the masked
+  // history (read:payroll); nothing under src/lib/mcp may reach the table, its service or its route.
+  it('MCP has no bank-details tool', () => {
+    const reaching = nonMigrations()
+      .filter(({ file }) => file.startsWith('src/lib/mcp/'))
+      .filter(({ file, text }) => /payroll_bank_details|payrollBankDetailsService|bank-details/.test(code(file, text)))
+      .map(({ file }) => file);
+    expect(reaching).toEqual([]);
   });
 });

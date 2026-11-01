@@ -125,7 +125,7 @@ export default function DuplicatesPage() {
               ) : (
                 <div className="space-y-3">
                   {groups.map(g => (
-                    <div key={g.value} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
+                    <div key={`${g.value}:${g.employees[0]?.id}`} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
                       <div className="text-sm text-[var(--ff-text-secondary)] mb-3">
                         Shared value: <span className="font-mono text-[var(--ff-text-primary)]">{g.value}</span>
                       </div>

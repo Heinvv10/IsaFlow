@@ -1,13 +1,13 @@
 /**
- * Entity change history (forensic-controls step 3, migration 888): the types,
- * and who may read what — the same rules entity_changes' RLS policy enforces
+ * Entity change history (forensic-controls step 3, migration 888; 952 added
+ * employee bank details): the types, and who may read what — the same rules entity_changes' RLS policy enforces
  * (entity_changes_read), stated once here for the routes, the MCP tool and the
- * UI. Pinned to the migration by entityChangeTypes.test.ts.
+ * UI. Pinned to the migrations by entityChangeTypes.test.ts.
  */
 
 export const ENTITY_TYPES = [
   'supplier', 'customer', 'gl_account', 'payroll_employee', 'company_user', 'company_invitation',
-  'company_user_permission', 'company', 'approval_rule', 'approval_enforcement',
+  'company_user_permission', 'company', 'approval_rule', 'approval_enforcement', 'payroll_bank_detail',
 ] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
 
@@ -25,6 +25,7 @@ export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
   company: 'Company settings',
   approval_rule: 'Approval rule',
   approval_enforcement: 'Approval switch',
+  payroll_bank_detail: 'Employee bank details',
 };
 
 export const CHANNEL_LABELS: Record<Channel, string> = {
@@ -48,7 +49,7 @@ export function isEntityType(value: unknown): value is EntityType {
 
 export function mayReadType(role: string | undefined, type: EntityType): boolean {
   if (MEMBER_TYPES.includes(type)) return true;
-  if (type === 'payroll_employee') return PAYROLL_ROLES.includes(role ?? '');
+  if (type === 'payroll_employee' || type === 'payroll_bank_detail') return PAYROLL_ROLES.includes(role ?? '');
   return ADMIN_ROLES.includes(role ?? '');
 }
 

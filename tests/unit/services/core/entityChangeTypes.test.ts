@@ -1,6 +1,6 @@
 /**
- * The TypeScript statement of migration 888 (entityChangeTypes.ts,
- * entityChangeMasking.ts) pinned to the migration, and the masking itself.
+ * The TypeScript statement of migrations 888 and 952 (entityChangeTypes.ts,
+ * entityChangeMasking.ts) pinned to the migrations, and the masking itself.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -13,14 +13,18 @@ import { changeFields, maskValue, SENSITIVE_FIELDS } from '@/modules/accounting/
 import { entityLabel } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 
 const SQL = readFileSync(path.join(ROOT, 'scripts/migrations/sql/888_entity_change_history.sql'), 'utf8');
+/** 952 restates the CHECK and the read policy with payroll_bank_detail: it is what the database holds now. */
+const SQL_952 = readFileSync(path.join(ROOT, 'scripts/migrations/sql/952_payroll_bank_details_tenant_history.sql'), 'utf8');
 const quoted = (block: string) => [...block.matchAll(/'(\w+)'/g)].map((m) => m[1]!);
 
-describe('888 and its TypeScript agree', () => {
+describe('888, 952 and their TypeScript agree', () => {
   it('entity types: the CHECK, the trigger list and ENTITY_TYPES', () => {
-    const check = /entity_type\s+TEXT NOT NULL CHECK \(entity_type IN \(([\s\S]*?)\)\)/.exec(SQL)![1]!;
+    const check = /ADD CONSTRAINT entity_changes_entity_type_check CHECK \(entity_type IN \(([\s\S]*?)\)\)/.exec(SQL_952)![1]!;
     expect(quoted(check).sort()).toEqual([...ENTITY_TYPES].sort());
     const values = /FROM \(VALUES([\s\S]*?)\) v\(tbl, typ\)/.exec(SQL)![1]!;
-    expect([...values.matchAll(/\('\w+', '(\w+)'\)/g)].map((m) => m[1]).sort()).toEqual([...ENTITY_TYPES].sort());
+    const tracked = [...values.matchAll(/\('\w+', '(\w+)'\)/g)].map((m) => m[1]!);
+    expect([...tracked, 'payroll_bank_detail'].sort()).toEqual([...ENTITY_TYPES].sort());
+    expect(SQL_952).toMatch(/AFTER INSERT OR UPDATE OR DELETE ON payroll_bank_details\s+FOR EACH ROW EXECUTE FUNCTION public\.entity_change_capture\('payroll_bank_detail'\)/);
   });
 
   it('channels: the CHECK and CHANNELS', () => {
@@ -29,15 +33,16 @@ describe('888 and its TypeScript agree', () => {
   });
 
   it('who reads what: the RLS policy and mayReadType', () => {
-    const policy = /CREATE POLICY entity_changes_read[\s\S]*?END\);/.exec(SQL)![0];
+    const policy = /CREATE POLICY entity_changes_read[\s\S]*?END\);/.exec(SQL_952)![0];
     const memberTypes = quoted(/WHEN entity_type IN \(([^)]*)\) THEN true/.exec(policy)![1]!);
     const payrollRoles = quoted(/'payroll_employee'\s+THEN COALESCE\(public\.company_member_actor_role\(company_id\) IN \(([^)]*)\)/.exec(policy)![1]!);
+    const bankRoles = quoted(/'payroll_bank_detail'\s+THEN COALESCE\(public\.company_member_actor_role\(company_id\) IN \(([^)]*)\)/.exec(policy)![1]!);
     const otherRoles = quoted(/ELSE COALESCE\(public\.company_member_actor_role\(company_id\) IN \(([^)]*)\)/.exec(policy)![1]!);
     expect(otherRoles).toEqual(ADMIN_ROLES);
     for (const role of ['owner', 'admin', 'manager', 'viewer', 'accountant', undefined]) {
       for (const type of ENTITY_TYPES) {
-        const expected = memberTypes.includes(type) || (type === 'payroll_employee'
-          ? payrollRoles.includes(role ?? '') : otherRoles.includes(role ?? ''));
+        const roles = { payroll_employee: payrollRoles, payroll_bank_detail: bankRoles }[type as string] ?? otherRoles;
+        const expected = memberTypes.includes(type) || roles.includes(role ?? '');
         expect(mayReadType(role, type), `${role} ${type}`).toBe(expected);
       }
       expect(isHistoryAdmin(role)).toBe(otherRoles.includes(role ?? ''));
@@ -90,6 +95,7 @@ describe('888 and its TypeScript agree', () => {
       company: ['bank_account_number', 'tax_number', 'paye_reference_number', 'sdl_reference_number', 'uif_reference_number'],
       approval_rule: [],
       approval_enforcement: [],
+      payroll_bank_detail: ['account_number'],
     });
   });
 
@@ -117,6 +123,10 @@ describe('masking', () => {
       { key: 'bank_account_number', before: '1111222233', after: '9999888877', masked: false });
     expect(changeFields('payroll_employee', ['id_number'], null, { id_number: '8001015009087' })[0]).toEqual(
       { key: 'id_number', before: null, after: '…9087', masked: true });
+    expect(changeFields('payroll_bank_detail', ['account_number', 'bank_name'], null, { account_number: '62000123456', bank_name: 'FNB' })).toEqual([
+      { key: 'account_number', before: null, after: '…3456', masked: true },
+      { key: 'bank_name', before: null, after: 'FNB', masked: false },
+    ]);
   });
 });
 
@@ -129,5 +139,6 @@ describe('labels', () => {
     expect(entityLabel('company_user', { before: null, after: { user_id: 'u1' }, subject_name: null })).toBe('u1');
     expect(entityLabel('company_invitation', { before: null, after: { email: 'i@x' }, subject_name: null })).toBe('i@x');
     expect(entityLabel('supplier', { before: null, after: { name: '' }, subject_name: null })).toBeNull();
+    expect(entityLabel('payroll_bank_detail', { before: null, after: { bank_name: 'FNB' }, subject_name: null })).toBe('FNB');
   });
 });

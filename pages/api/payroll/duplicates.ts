@@ -2,7 +2,8 @@
  * GET /api/payroll/duplicates
  * Returns employees flagged as sharing ID number, tax number, passport,
  * bank account, or employee number. Excludes terminated employees unless
- * ?includeTerminated=1.
+ * ?includeTerminated=1. Bank account numbers are masked to their last four
+ * except for owner / admin.
  */
 
 import type { NextApiResponse } from 'next';
@@ -13,6 +14,7 @@ import {
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
+import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { findDuplicates } from '@/modules/accounting/services/payroll/payrollDuplicateDetectionService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
@@ -21,11 +23,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
   const includeTerminated =
     req.query.includeTerminated === '1' || req.query.includeTerminated === 'true';
 
-  const result = await findDuplicates(companyId, { includeTerminated });
+  const result = await findDuplicates(companyId, { includeTerminated, fullBankAccounts: isHistoryAdmin(companyRole) });
   return apiResponse.success(res, result);
 }
 

@@ -18,6 +18,7 @@ const TYPE_SCOPE: Partial<Record<EntityType, string>> = {
   supplier: 'read:contacts',
   customer: 'read:contacts',
   payroll_employee: 'read:payroll',
+  payroll_bank_detail: 'read:payroll',
 };
 
 export const entityHistoryTool: McpTool = {

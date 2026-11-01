@@ -2,7 +2,7 @@
  * What a later migration may not do to 888's change history: the text rule entityChangeCensus.test.ts judges every
  * migration by, and the views of its text the rule is judged on (as written, folded, with escapes spelled out).
  */
-const TRACKED_TABLE_SQL = String.raw`(?:(?:only|if\s+exists)\s+)*(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?(?![\w"])`;
+const TRACKED_TABLE_SQL = String.raw`(?:(?:only|if\s+exists)\s+)*(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement|payroll_bank_details)"?(?![\w"])`;
 
 /**
  * Escaped text spelled back out (breaker r3–r4): E'…' strings (\xHH, \uXXXX, \UXXXXXXXX, octal, '') and U&"…" /
