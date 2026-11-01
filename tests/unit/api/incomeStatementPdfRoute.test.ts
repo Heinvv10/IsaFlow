@@ -48,7 +48,7 @@ async function call(query: Record<string, unknown>, method = 'GET') {
     send: (b: unknown) => { out.body = b; return res; },
     end: (b: unknown) => { out.body = b; return res; },
   } as unknown as NextApiResponse;
-  const req = { method, companyId, query } as unknown as NextApiRequest;
+  const req = { method, companyId, user: { id: 'u-1' }, query } as unknown as NextApiRequest;
   await (handler as unknown as (a: NextApiRequest, b: NextApiResponse) => Promise<void>)(req, res);
   return out;
 }
@@ -77,9 +77,10 @@ describe('income-statement-pdf', () => {
     expect((out.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
   });
 
-  it('reads the signed-in company, with the filters, and charges its rate limit', async () => {
+  it('reads the signed-in company, with the filters, and charges the member\'s own rate limit', async () => {
     await call({ ...PERIOD, cost_centre_id: cc, business_unit_id: bu });
-    expect(checkReportRateLimit).toHaveBeenCalledWith(companyId, 'income-statement-pdf');
+    expect(checkReportRateLimit).toHaveBeenCalledTimes(1);
+    expect(checkReportRateLimit).toHaveBeenCalledWith(companyId, 'income-statement-pdf:u:u-1');
     expect(getIncomeStatement).toHaveBeenCalledWith(companyId, '2026-04-01', '2026-04-30', { costCentreId: cc, businessUnitId: bu });
   });
 
