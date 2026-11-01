@@ -14,7 +14,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
-import { useDateGate } from '@/hooks/useDateGate';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
@@ -157,8 +157,8 @@ export default function VATAdjustmentsPage() {
             <form onSubmit={handleSubmit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
               <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">New VAT Adjustment</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <DateField label="Adjustment Date" name="adjustmentDate" required value={form.adjustmentDate || null}
-                  onChange={dates.bind('adjustmentDate', iso => setForm(f => ({ ...f, adjustmentDate: iso })), form.adjustmentDate)} />
+                <GatedDateField gate={dates} gateKey="adjustmentDate" label="Adjustment Date" name="adjustmentDate" required value={form.adjustmentDate || null}
+                  onValue={iso => setForm(f => ({ ...f, adjustmentDate: iso }))} />
                 <input value={form.vatPeriod} onChange={e => setForm(f => ({ ...f, vatPeriod: e.target.value }))} className="ff-input" placeholder="VAT Period (e.g. 2026-01)" />
                 <select value={form.adjustmentType} onChange={e => setForm(f => ({ ...f, adjustmentType: e.target.value }))} className="ff-select">
                   <option value="input">Input VAT (Claimable)</option>
