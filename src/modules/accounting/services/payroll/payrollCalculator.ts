@@ -164,6 +164,18 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
   ) / 100;
 
+  // Reported, never corrected: the line below still floors net at nil, and every other figure stands.
+  // The approval gate refuses a run carrying this (findOverdrawnLines).
+  if (netPay < 0) {
+    warnings.push({
+      code: 'DEDUCTIONS_EXCEED_PAY',
+      severity: 'error',
+      rawNet: netPay,
+      message: `Deductions and tax come to R ${(-netPay).toFixed(2)} more than this employee's pay, so net pay shows as nil and `
+        + 'the deductions payable are understated by that amount. Reduce the deductions, then recalculate.',
+    });
+  }
+
   return {
     employeeId: employee.id,
     grossPay: Math.round(grossPay * 100) / 100,

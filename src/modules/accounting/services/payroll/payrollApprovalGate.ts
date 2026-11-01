@@ -23,6 +23,7 @@
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then
+ *      a line whose deductions and tax exceed its pay (`deductions_exceed_pay`), then
  *      every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
  *      'already_posted', which names the journal being replaced.
@@ -41,6 +42,7 @@ import { readJournalChain, runRecalculatedSince, type JournalChain } from './pay
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
+import { findOverdrawnLines } from './payrollRunLines';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -256,6 +258,14 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
         detail: 'Termination pay-outs on this run were already paid in another run (approved, or reopened with its journal posted): '
           + paidTwice.map(p => `${p.employeeNumber} (${p.year}-${String(p.month).padStart(2, '0')})`).join(', ')
           + '. Recalculate this run first; it then leaves them out.',
+      };
+    }
+    const overdrawn = await findOverdrawnLines(companyId, runId);
+    if (overdrawn.length > 0) {
+      return {
+        code: 'deductions_exceed_pay',
+        detail: 'Deductions and tax exceed pay for ' + overdrawn.map((l) => `${l.employeeNumber} (R ${l.shortfall.toFixed(2)} over)`).join(', ')
+          + ': net pay would be nil and the deductions payable understated. Reduce the deductions, then recalculate.',
       };
     }
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;

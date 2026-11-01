@@ -1,10 +1,11 @@
 /**
  * The pay-run review grid's period inputs (master plan wave 3, R).
  * GET /api/payroll/runs/[id]/inputs  - the run, what it may edit, what is captured
- * PUT /api/payroll/runs/[id]/inputs  - { employeeId, componentId, amount } in rand; 0 clears
+ * PUT /api/payroll/runs/[id]/inputs  - { employeeId, componentId, amount, expectedAmount } in rand; 0 clears
  *
  * Both answer the same shape, so a PUT hands the grid the recalculated lines.
- * Only a refusal raised before the write is a 4xx: withAuth COMMITs one, so
+ * expectedAmount is what the cell last showed: a mismatch answers 409.
+ * A refusal leaves nothing written, so it is a 4xx: withAuth COMMITs one, so
  * everything else is rethrown and the 500 rolls the write back.
  */
 import type { NextApiResponse } from 'next';
@@ -13,6 +14,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import {
   PayrollRunInputRefusedError,
@@ -37,13 +39,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT']);
   }
 
-  const { employeeId, componentId, amount } = (req.body ?? {}) as Record<string, unknown>;
+  const { employeeId, componentId, amount, expectedAmount } = (req.body ?? {}) as Record<string, unknown>;
   if (!isUuid(employeeId) || !isUuid(componentId)) return apiResponse.badRequest(res, 'employeeId and componentId are required');
   if (typeof amount !== 'number') return apiResponse.badRequest(res, 'amount must be a number');
+  if (typeof expectedAmount !== 'number') return apiResponse.badRequest(res, 'expectedAmount must be a number');
 
   try {
-    return apiResponse.success(res, await setRunPeriodAmount(companyId, id, employeeId, componentId, amount));
+    return apiResponse.success(res, await setRunPeriodAmount(companyId, id, employeeId, componentId, amount, expectedAmount));
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return;
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof PayrollRunInputRefusedError) {
       if (err.status === 404) return apiResponse.notFound(res, 'PayrollRun', id);

@@ -7,7 +7,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
 
-import { isEditableRunComponent } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
+import { EDITABLE_LOCAL_DEDUCTION_CODES, isEditableRunComponent } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
 
 const earning = (sarsSourceCode: string, isTaxable = true) => ({ sarsSourceCode, componentType: 'earning', isTaxable });
 const deduction = (sarsSourceCode: string, isTaxable = false) => ({ sarsSourceCode, componentType: 'deduction', isTaxable });
@@ -38,8 +38,17 @@ describe('isEditableRunComponent', () => {
     expect(isEditableRunComponent(deduction(code))).toBe(false);
   });
 
-  it('a company-local deduction with no tax effect is editable', () => {
+  it('a listed company-local deduction with no tax effect is editable', () => {
     expect(isEditableRunComponent(deduction('UNION'))).toBe(true);
+    expect(isEditableRunComponent(deduction(' union '))).toBe(true);
+  });
+
+  it.each(['SACCO', 'GARNISHEE', 'OTHER', 'A123'])('a local deduction not on the list is refused: %s', (code) => {
+    expect(isEditableRunComponent(deduction(code))).toBe(false);
+  });
+
+  it('the list holds no four-digit SARS code and not LOAN', () => {
+    expect([...EDITABLE_LOCAL_DEDUCTION_CODES].filter((c) => /^\d{4}$/.test(c) || c === 'LOAN')).toEqual([]);
   });
 
   it('a taxable deduction moves PAYE, so it is refused', () => {
