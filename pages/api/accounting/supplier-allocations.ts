@@ -64,7 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
-            COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
+            COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
@@ -77,7 +77,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
-            COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
+            COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
@@ -91,7 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
-            COALESCE(s.company_name, s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
+            COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id

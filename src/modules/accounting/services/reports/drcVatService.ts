@@ -19,6 +19,7 @@ import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { JournalLineInput } from '../../types/gl.types';
 import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
 import { lockSupplierInvoiceForUpdate } from '../ap/supplierInvoiceLock';
+import { UNKNOWN_SUPPLIER } from '../ap/apAgingInvoices';
 
 type Row = DbRow;
 
@@ -163,7 +164,7 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
 }>> {
   const rows = (await sql`
     SELECT si.id, si.invoice_number, si.subtotal, si.total_amount, si.invoice_date,
-           s.company_name as supplier_name
+           COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id
     WHERE si.company_id = ${companyId}
@@ -184,7 +185,7 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
   return rows.map((r: Row) => ({
     id: String(r.id),
     invoiceNumber: String(r.invoice_number),
-    supplierName: String(r.supplier_name || 'Unknown'),
+    supplierName: String(r.supplier_name),
     totalAmount: Number(r.total_amount),
     vatAmount: Math.round(Number(r.subtotal) * vatRate * 100) / 100,
     invoiceDate: String(r.invoice_date).split('T')[0] ?? '',
@@ -200,7 +201,7 @@ export async function getDRCHistory(companyId: string): Promise<Array<{
 }>> {
   const rows = (await sql`
     SELECT si.id, si.invoice_number, si.total_amount, si.invoice_date,
-           s.company_name as supplier_name
+           COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     WHERE si.company_id = ${companyId} AND si.is_drc = true
@@ -210,7 +211,7 @@ export async function getDRCHistory(companyId: string): Promise<Array<{
   return rows.map((r: Row) => ({
     id: String(r.id),
     invoiceNumber: String(r.invoice_number),
-    supplierName: String(r.supplier_name || 'Unknown'),
+    supplierName: String(r.supplier_name),
     totalAmount: Number(r.total_amount),
     invoiceDate: String(r.invoice_date).split('T')[0] ?? '',
   }));

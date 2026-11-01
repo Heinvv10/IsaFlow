@@ -17,7 +17,8 @@ export function payeesNotInCompany(members: readonly BatchMember[]): string[] {
   const errors: string[] = [];
   members.forEach((member, i) => {
     if (member.payee_id != null) return;
-    errors.push(`Payment ${i + 1} (${String(member.payment_number)}): names a supplier that is not in this company, `
+    const number = member.payment_number == null || member.payment_number === '' ? '' : ` (${String(member.payment_number)})`;
+    errors.push(`Payment ${i + 1}${number}: names a supplier that is not in this company, `
       + 'so the batch was not sent. Correct the payment; editing bank details will not fix this.');
   });
   return errors;
