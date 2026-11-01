@@ -160,7 +160,7 @@ export default function IncomeStatementPage() {
             <>
               <PresentLink from={report && datesOk ? vw.start : ''} to={report && datesOk ? vw.end : ''} />
               <IncomeStatementExportButtons periodStart={periodStart} periodEnd={periodEnd}
-                costCentreId={costCentreId} businessUnitId={businessUnitId} disabled={!report || !datesOk} />
+                costCentreId={costCentreId} businessUnitId={businessUnitId} columns={columns} disabled={!report || !datesOk} />
             </>
           }
         />
