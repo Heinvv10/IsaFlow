@@ -86,30 +86,30 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Company Details</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><label className={LABEL_CLS}>Company Name *</label><input className={INPUT_CLS} value={company.name} onChange={e => onChange('name', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Trading Name</label><input className={INPUT_CLS} value={company.tradingName || ''} onChange={e => onChange('tradingName', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Registered Name</label><input className={INPUT_CLS} value={company.registeredName || ''} onChange={e => onChange('registeredName', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Registration Number</label><input className={INPUT_CLS} value={company.registrationNumber || ''} onChange={e => onChange('registrationNumber', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-company-name" className={LABEL_CLS}>Company Name *</label><input id="details-tab-company-name" className={INPUT_CLS} value={company.name} onChange={e => onChange('name', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-trading-name" className={LABEL_CLS}>Trading Name</label><input id="details-tab-trading-name" className={INPUT_CLS} value={company.tradingName || ''} onChange={e => onChange('tradingName', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-registered-name" className={LABEL_CLS}>Registered Name</label><input id="details-tab-registered-name" className={INPUT_CLS} value={company.registeredName || ''} onChange={e => onChange('registeredName', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-registration-number" className={LABEL_CLS}>Registration Number</label><input id="details-tab-registration-number" className={INPUT_CLS} value={company.registrationNumber || ''} onChange={e => onChange('registrationNumber', e.target.value)} /></div>
           <div>
-            <label className={LABEL_CLS}>Entity Type</label>
-            <select className={INPUT_CLS} value={company.entityType} onChange={e => onChange('entityType', e.target.value)}>
+            <label htmlFor="details-tab-entity-type" className={LABEL_CLS}>Entity Type</label>
+            <select id="details-tab-entity-type" className={INPUT_CLS} value={company.entityType} onChange={e => onChange('entityType', e.target.value)}>
               {ENTITY_TYPES.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}
             </select>
           </div>
           <div>
-            <label className={LABEL_CLS}>Industry</label>
-            <select className={INPUT_CLS} value={company.industry || ''} onChange={e => onChange('industry', e.target.value || null)}>
+            <label htmlFor="details-tab-industry" className={LABEL_CLS}>Industry</label>
+            <select id="details-tab-industry" className={INPUT_CLS} value={company.industry || ''} onChange={e => onChange('industry', e.target.value || null)}>
               <option value="">Select industry...</option>
               {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
             </select>
           </div>
-          <div><label className={LABEL_CLS}>Contact Name</label><input className={INPUT_CLS} value={company.contactName || ''} onChange={e => onChange('contactName', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Email</label><input type="email" className={INPUT_CLS} value={company.email || ''} onChange={e => onChange('email', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Phone</label><input className={INPUT_CLS} value={company.phone || ''} onChange={e => onChange('phone', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Mobile</label><input className={INPUT_CLS} value={company.mobile || ''} onChange={e => onChange('mobile', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Fax</label><input className={INPUT_CLS} value={company.fax || ''} onChange={e => onChange('fax', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Website</label><input className={INPUT_CLS} value={company.website || ''} onChange={e => onChange('website', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Country</label><input className={INPUT_CLS} value={company.country || 'South Africa'} onChange={e => onChange('country', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-contact-name" className={LABEL_CLS}>Contact Name</label><input id="details-tab-contact-name" className={INPUT_CLS} value={company.contactName || ''} onChange={e => onChange('contactName', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-email" className={LABEL_CLS}>Email</label><input id="details-tab-email" type="email" className={INPUT_CLS} value={company.email || ''} onChange={e => onChange('email', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-phone" className={LABEL_CLS}>Phone</label><input id="details-tab-phone" className={INPUT_CLS} value={company.phone || ''} onChange={e => onChange('phone', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-mobile" className={LABEL_CLS}>Mobile</label><input id="details-tab-mobile" className={INPUT_CLS} value={company.mobile || ''} onChange={e => onChange('mobile', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-fax" className={LABEL_CLS}>Fax</label><input id="details-tab-fax" className={INPUT_CLS} value={company.fax || ''} onChange={e => onChange('fax', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-website" className={LABEL_CLS}>Website</label><input id="details-tab-website" className={INPUT_CLS} value={company.website || ''} onChange={e => onChange('website', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-country" className={LABEL_CLS}>Country</label><input id="details-tab-country" className={INPUT_CLS} value={company.country || 'South Africa'} onChange={e => onChange('country', e.target.value)} /></div>
         </div>
         <div className="mt-4 space-y-1">
           <Toggle checked={company.emailUseForCommunication} onChange={v => onChange('emailUseForCommunication', v)} label="Use this Email for Communication" />
@@ -122,11 +122,11 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Postal Address</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="md:col-span-2"><label className={LABEL_CLS}>Address Line 1</label><input className={INPUT_CLS} value={company.addressLine1 || ''} onChange={e => onChange('addressLine1', e.target.value)} /></div>
-          <div className="md:col-span-2"><label className={LABEL_CLS}>Address Line 2</label><input className={INPUT_CLS} value={company.addressLine2 || ''} onChange={e => onChange('addressLine2', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>City</label><input className={INPUT_CLS} value={company.city || ''} onChange={e => onChange('city', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Province</label><input className={INPUT_CLS} value={company.province || ''} onChange={e => onChange('province', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Postal Code</label><input className={INPUT_CLS} value={company.postalCode || ''} onChange={e => onChange('postalCode', e.target.value)} /></div>
+          <div className="md:col-span-2"><label htmlFor="details-tab-postal-address-line-1" className={LABEL_CLS}>Address Line 1</label><input id="details-tab-postal-address-line-1" className={INPUT_CLS} value={company.addressLine1 || ''} onChange={e => onChange('addressLine1', e.target.value)} /></div>
+          <div className="md:col-span-2"><label htmlFor="details-tab-postal-address-line-2" className={LABEL_CLS}>Address Line 2</label><input id="details-tab-postal-address-line-2" className={INPUT_CLS} value={company.addressLine2 || ''} onChange={e => onChange('addressLine2', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-postal-city" className={LABEL_CLS}>City</label><input id="details-tab-postal-city" className={INPUT_CLS} value={company.city || ''} onChange={e => onChange('city', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-postal-province" className={LABEL_CLS}>Province</label><input id="details-tab-postal-province" className={INPUT_CLS} value={company.province || ''} onChange={e => onChange('province', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-postal-code" className={LABEL_CLS}>Postal Code</label><input id="details-tab-postal-code" className={INPUT_CLS} value={company.postalCode || ''} onChange={e => onChange('postalCode', e.target.value)} /></div>
         </div>
       </section>
 
@@ -145,11 +145,11 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
         </label>
         {!physicalSameAsPostal ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2"><label className={LABEL_CLS}>Address Line 1</label><input className={INPUT_CLS} value={company.physicalAddressLine1 || ''} onChange={e => onChange('physicalAddressLine1', e.target.value)} /></div>
-            <div className="md:col-span-2"><label className={LABEL_CLS}>Address Line 2</label><input className={INPUT_CLS} value={company.physicalAddressLine2 || ''} onChange={e => onChange('physicalAddressLine2', e.target.value)} /></div>
-            <div><label className={LABEL_CLS}>City</label><input className={INPUT_CLS} value={company.physicalCity || ''} onChange={e => onChange('physicalCity', e.target.value)} /></div>
-            <div><label className={LABEL_CLS}>Province</label><input className={INPUT_CLS} value={company.physicalProvince || ''} onChange={e => onChange('physicalProvince', e.target.value)} /></div>
-            <div><label className={LABEL_CLS}>Postal Code</label><input className={INPUT_CLS} value={company.physicalPostalCode || ''} onChange={e => onChange('physicalPostalCode', e.target.value)} /></div>
+            <div className="md:col-span-2"><label htmlFor="details-tab-physical-address-line-1" className={LABEL_CLS}>Address Line 1</label><input id="details-tab-physical-address-line-1" className={INPUT_CLS} value={company.physicalAddressLine1 || ''} onChange={e => onChange('physicalAddressLine1', e.target.value)} /></div>
+            <div className="md:col-span-2"><label htmlFor="details-tab-physical-address-line-2" className={LABEL_CLS}>Address Line 2</label><input id="details-tab-physical-address-line-2" className={INPUT_CLS} value={company.physicalAddressLine2 || ''} onChange={e => onChange('physicalAddressLine2', e.target.value)} /></div>
+            <div><label htmlFor="details-tab-physical-city" className={LABEL_CLS}>City</label><input id="details-tab-physical-city" className={INPUT_CLS} value={company.physicalCity || ''} onChange={e => onChange('physicalCity', e.target.value)} /></div>
+            <div><label htmlFor="details-tab-physical-province" className={LABEL_CLS}>Province</label><input id="details-tab-physical-province" className={INPUT_CLS} value={company.physicalProvince || ''} onChange={e => onChange('physicalProvince', e.target.value)} /></div>
+            <div><label htmlFor="details-tab-physical-postal-code" className={LABEL_CLS}>Postal Code</label><input id="details-tab-physical-postal-code" className={INPUT_CLS} value={company.physicalPostalCode || ''} onChange={e => onChange('physicalPostalCode', e.target.value)} /></div>
           </div>
         ) : (
           <p className="text-sm text-[var(--ff-text-tertiary)]">Physical address will mirror the postal address above.</p>
@@ -160,9 +160,9 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Social Media Links</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><label className={LABEL_CLS}>Facebook URL</label><input className={INPUT_CLS} value={company.socialFacebook || ''} onChange={e => onChange('socialFacebook', e.target.value || null)} placeholder="https://facebook.com/yourpage" /></div>
-          <div><label className={LABEL_CLS}>LinkedIn URL</label><input className={INPUT_CLS} value={company.socialLinkedin || ''} onChange={e => onChange('socialLinkedin', e.target.value || null)} placeholder="https://linkedin.com/company/yourcompany" /></div>
-          <div><label className={LABEL_CLS}>X (Twitter) URL</label><input className={INPUT_CLS} value={company.socialX || ''} onChange={e => onChange('socialX', e.target.value || null)} placeholder="https://x.com/yourhandle" /></div>
+          <div><label htmlFor="details-tab-facebook-url" className={LABEL_CLS}>Facebook URL</label><input id="details-tab-facebook-url" className={INPUT_CLS} value={company.socialFacebook || ''} onChange={e => onChange('socialFacebook', e.target.value || null)} placeholder="https://facebook.com/yourpage" /></div>
+          <div><label htmlFor="details-tab-linked-in-url" className={LABEL_CLS}>LinkedIn URL</label><input id="details-tab-linked-in-url" className={INPUT_CLS} value={company.socialLinkedin || ''} onChange={e => onChange('socialLinkedin', e.target.value || null)} placeholder="https://linkedin.com/company/yourcompany" /></div>
+          <div><label htmlFor="details-tab-x-twitter-url" className={LABEL_CLS}>X (Twitter) URL</label><input id="details-tab-x-twitter-url" className={INPUT_CLS} value={company.socialX || ''} onChange={e => onChange('socialX', e.target.value || null)} placeholder="https://x.com/yourhandle" /></div>
         </div>
       </section>
 
@@ -170,8 +170,8 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Statutory Information</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><label className={LABEL_CLS}>Income Tax Number</label><input className={INPUT_CLS} value={company.taxNumber || ''} onChange={e => onChange('taxNumber', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Tax Office</label><input className={INPUT_CLS} value={company.taxOffice || ''} onChange={e => onChange('taxOffice', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-income-tax-number" className={LABEL_CLS}>Income Tax Number</label><input id="details-tab-income-tax-number" className={INPUT_CLS} value={company.taxNumber || ''} onChange={e => onChange('taxNumber', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-tax-office" className={LABEL_CLS}>Tax Office</label><input id="details-tab-tax-office" className={INPUT_CLS} value={company.taxOffice || ''} onChange={e => onChange('taxOffice', e.target.value)} /></div>
         </div>
       </section>
 
@@ -179,8 +179,8 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Tax Practitioner Details</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><label className={LABEL_CLS}>Practitioner Reg Number</label><input className={INPUT_CLS} value={company.taxPractitionerRegNumber || ''} onChange={e => onChange('taxPractitionerRegNumber', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Practitioner Name</label><input className={INPUT_CLS} value={company.taxPractitionerName || ''} onChange={e => onChange('taxPractitionerName', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-practitioner-reg-number" className={LABEL_CLS}>Practitioner Reg Number</label><input id="details-tab-practitioner-reg-number" className={INPUT_CLS} value={company.taxPractitionerRegNumber || ''} onChange={e => onChange('taxPractitionerRegNumber', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-practitioner-name" className={LABEL_CLS}>Practitioner Name</label><input id="details-tab-practitioner-name" className={INPUT_CLS} value={company.taxPractitionerName || ''} onChange={e => onChange('taxPractitionerName', e.target.value)} /></div>
         </div>
       </section>
 
@@ -188,11 +188,11 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">SARS Company Contact Information</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div><label className={LABEL_CLS}>First Name</label><input className={INPUT_CLS} value={company.sarsContactFirstName || ''} onChange={e => onChange('sarsContactFirstName', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Last Name</label><input className={INPUT_CLS} value={company.sarsContactLastName || ''} onChange={e => onChange('sarsContactLastName', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Capacity</label><input className={INPUT_CLS} value={company.sarsContactCapacity || ''} onChange={e => onChange('sarsContactCapacity', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Contact Number</label><input className={INPUT_CLS} value={company.sarsContactNumber || ''} onChange={e => onChange('sarsContactNumber', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Telephone</label><input className={INPUT_CLS} value={company.sarsContactTelephone || ''} onChange={e => onChange('sarsContactTelephone', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-first-name" className={LABEL_CLS}>First Name</label><input id="details-tab-first-name" className={INPUT_CLS} value={company.sarsContactFirstName || ''} onChange={e => onChange('sarsContactFirstName', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-last-name" className={LABEL_CLS}>Last Name</label><input id="details-tab-last-name" className={INPUT_CLS} value={company.sarsContactLastName || ''} onChange={e => onChange('sarsContactLastName', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-capacity" className={LABEL_CLS}>Capacity</label><input id="details-tab-capacity" className={INPUT_CLS} value={company.sarsContactCapacity || ''} onChange={e => onChange('sarsContactCapacity', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-contact-number" className={LABEL_CLS}>Contact Number</label><input id="details-tab-contact-number" className={INPUT_CLS} value={company.sarsContactNumber || ''} onChange={e => onChange('sarsContactNumber', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-telephone" className={LABEL_CLS}>Telephone</label><input id="details-tab-telephone" className={INPUT_CLS} value={company.sarsContactTelephone || ''} onChange={e => onChange('sarsContactTelephone', e.target.value)} /></div>
         </div>
       </section>
 
@@ -202,23 +202,23 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
         <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">Required for IRP5/EMP501 submissions via SARS e@syFile.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className={LABEL_CLS}>PAYE Reference Number</label>
-            <input className={INPUT_CLS} maxLength={10} placeholder="7XXXXXXXXX" value={company.payeReferenceNumber || ''} onChange={e => onChange('payeReferenceNumber', e.target.value)} />
+            <label htmlFor="details-tab-paye-reference-number" className={LABEL_CLS}>PAYE Reference Number</label>
+            <input id="details-tab-paye-reference-number" className={INPUT_CLS} maxLength={10} placeholder="7XXXXXXXXX" value={company.payeReferenceNumber || ''} onChange={e => onChange('payeReferenceNumber', e.target.value)} />
             <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">10 digits. Starts with 7 if registered for PAYE.</p>
           </div>
           <div>
-            <label className={LABEL_CLS}>SDL Reference Number</label>
-            <input className={INPUT_CLS} maxLength={10} placeholder="LXXXXXXXXX" value={company.sdlReferenceNumber || ''} onChange={e => onChange('sdlReferenceNumber', e.target.value)} />
+            <label htmlFor="details-tab-sdl-reference-number" className={LABEL_CLS}>SDL Reference Number</label>
+            <input id="details-tab-sdl-reference-number" className={INPUT_CLS} maxLength={10} placeholder="LXXXXXXXXX" value={company.sdlReferenceNumber || ''} onChange={e => onChange('sdlReferenceNumber', e.target.value)} />
             <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">L followed by 9 digits. Leave blank if not registered for SDL.</p>
           </div>
           <div>
-            <label className={LABEL_CLS}>UIF Reference Number</label>
-            <input className={INPUT_CLS} maxLength={10} placeholder="UXXXXXXXXX" value={company.uifReferenceNumber || ''} onChange={e => onChange('uifReferenceNumber', e.target.value)} />
+            <label htmlFor="details-tab-uif-reference-number" className={LABEL_CLS}>UIF Reference Number</label>
+            <input id="details-tab-uif-reference-number" className={INPUT_CLS} maxLength={10} placeholder="UXXXXXXXXX" value={company.uifReferenceNumber || ''} onChange={e => onChange('uifReferenceNumber', e.target.value)} />
             <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">SARS-issued UIF ref (starts with U). Not the UIF fund number.</p>
           </div>
           <div>
-            <label className={LABEL_CLS}>SIC7 Code</label>
-            <input className={INPUT_CLS} maxLength={5} placeholder="XXXXX" value={company.sic7Code || ''} onChange={e => onChange('sic7Code', e.target.value)} />
+            <label htmlFor="details-tab-sic7-code" className={LABEL_CLS}>SIC7 Code</label>
+            <input id="details-tab-sic7-code" className={INPUT_CLS} maxLength={5} placeholder="XXXXX" value={company.sic7Code || ''} onChange={e => onChange('sic7Code', e.target.value)} />
             <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">5-digit SIC7 industry classification code (SARS BRS Appendix C).</p>
           </div>
         </div>
@@ -229,12 +229,12 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Banking Details</h2>
         <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">Used on invoices and statements for payment instructions</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div><label className={LABEL_CLS}>Bank Name</label><input className={INPUT_CLS} value={company.bankName || ''} onChange={e => onChange('bankName', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Account Number</label><input className={INPUT_CLS} value={company.bankAccountNumber || ''} onChange={e => onChange('bankAccountNumber', e.target.value)} /></div>
-          <div><label className={LABEL_CLS}>Branch Code</label><input className={INPUT_CLS} value={company.bankBranchCode || ''} onChange={e => onChange('bankBranchCode', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-bank-name" className={LABEL_CLS}>Bank Name</label><input id="details-tab-bank-name" className={INPUT_CLS} value={company.bankName || ''} onChange={e => onChange('bankName', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-account-number" className={LABEL_CLS}>Account Number</label><input id="details-tab-account-number" className={INPUT_CLS} value={company.bankAccountNumber || ''} onChange={e => onChange('bankAccountNumber', e.target.value)} /></div>
+          <div><label htmlFor="details-tab-branch-code" className={LABEL_CLS}>Branch Code</label><input id="details-tab-branch-code" className={INPUT_CLS} value={company.bankBranchCode || ''} onChange={e => onChange('bankBranchCode', e.target.value)} /></div>
           <div>
-            <label className={LABEL_CLS}>Account Type</label>
-            <select className={INPUT_CLS} value={company.bankAccountType || ''} onChange={e => onChange('bankAccountType', e.target.value)}>
+            <label htmlFor="details-tab-account-type" className={LABEL_CLS}>Account Type</label>
+            <select id="details-tab-account-type" className={INPUT_CLS} value={company.bankAccountType || ''} onChange={e => onChange('bankAccountType', e.target.value)}>
               <option value="">Select...</option>
               <option value="Current">Current</option>
               <option value="Savings">Savings</option>
@@ -251,8 +251,8 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
         <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">Upload company registration certificates, tax clearance, and other statutory documents.</p>
         <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 mb-6">
           <div>
-            <label className={LABEL_CLS}>Document Type</label>
-            <select className={INPUT_CLS} value={docType} onChange={e => setDocType(e.target.value)}>
+            <label htmlFor="details-tab-document-type" className={LABEL_CLS}>Document Type</label>
+            <select id="details-tab-document-type" className={INPUT_CLS} value={docType} onChange={e => setDocType(e.target.value)}>
               {Object.entries(DOC_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>

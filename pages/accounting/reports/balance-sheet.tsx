@@ -51,8 +51,7 @@ export default function BalanceSheetPage() {
   // about a different number.
   const { columns, setColumns, companyWideUnavailable, apply, budgetState, trendFailed } =
     useStatementComparatorState({
-      dimensionSelected: costCentreId !== '' || businessUnitId !== '',
-      asOf: asAtDate, basis: 'balance', offersBudget: false,
+      asOf: asAtDate, basis: 'balance', offersBudget: false, costCentreId, businessUnitId,
     });
   useEffect(() => {
     if (!periodResolved || restoredColumns.current === queryKey) return;

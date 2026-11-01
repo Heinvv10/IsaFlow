@@ -185,11 +185,13 @@ export const INDUSTRIES = [
 
 // ── Toggle ────────────────────────────────────────────────────────────────────
 
-export function Toggle({ checked, onChange, label, disabled = false }: {
+export function Toggle({ checked, onChange, label, disabled = false, ariaLabel }: {
   checked: boolean;
   disabled?: boolean;
   onChange: (v: boolean) => void;
   label: string;
+  /** The switch's name when `label` is empty (the visible text sits elsewhere, e.g. a heading or a column). */
+  ariaLabel?: string;
 }) {
   return (
     <label className="flex items-center gap-3 cursor-pointer py-1">
@@ -197,6 +199,7 @@ export function Toggle({ checked, onChange, label, disabled = false }: {
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={ariaLabel || undefined}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${checked ? 'bg-brand-600' : 'bg-gray-600'}`}

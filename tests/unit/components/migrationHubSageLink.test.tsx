@@ -1,6 +1,7 @@
 /**
- * The migration hub's "Moving from Sage?" opener. A Sage move is the CSV /
- * Excel files exported from Sage, uploaded through this wizard — there is no
+ * The migration hub's "Moving from Sage?" opener. A Sage move is the CSV
+ * files exported from Sage, uploaded through this wizard (the upload steps
+ * read CSV only, so an Excel export is saved as CSV UTF-8 first). There is no
  * sign-in to Sage. Before a migration is started the opener points at the
  * source cards on the same page (no self-link); during one it links to the
  * wizard's first upload step, and only when that migration is from Sage.
@@ -26,13 +27,15 @@ const opener = async () => (await screen.findByText(/Moving from Sage Business C
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('migration hub: Moving from Sage?', () => {
-  it('before a migration: describes the CSV / Excel export and links nowhere', async () => {
+  it('before a migration: describes the CSV export and links nowhere', async () => {
     answer(null);
     render(<MigrationHubPage />);
     const box = await opener();
     expect(box.tagName).not.toBe('A');
     expect(box.closest('a')).toBeNull();
-    expect(box.textContent).toMatch(/CSV or Excel/);
+    expect(box.textContent).toMatch(/as CSV files/);
+    expect(box.textContent).toMatch(/save it as CSV UTF-8 first/);
+    expect(box.textContent).not.toMatch(/CSV or Excel/);
     expect(box.textContent).not.toMatch(/sign in|password|connect/i);
     // The cards it points at are on the same page.
     expect(screen.getByText('Sage Business Cloud')).toBeTruthy();
@@ -44,7 +47,9 @@ describe('migration hub: Moving from Sage?', () => {
     render(<MigrationHubPage />);
     const link = (await opener()).closest('a');
     expect(link?.getAttribute('href')).toBe('/accounting/migration/chart-of-accounts');
-    expect(link?.textContent).toMatch(/CSV or Excel/);
+    expect(link?.textContent).toMatch(/Upload the CSV files/);
+    expect(link?.textContent).toMatch(/save it as CSV UTF-8 first/);
+    expect(link?.textContent).not.toMatch(/CSV or Excel/);
     expect(link?.textContent).not.toMatch(/sign in|password|connect/i);
   });
 

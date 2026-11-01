@@ -2,15 +2,15 @@
  * The driver chip in a grid row's header (P4 spec §7): what the row's driver computes, in a few
  * words ("38% × Sales", "+2% m/m from Mar", "R 32 000 × heads", "R 15 000 fixed", "5% of
  * Turnover"). A writer clicks it (keyboard: the row's actions, "Edit driver…") to open the driver editor; a reader sees the same words with the
- * full description in its title. A driver the last recompute skipped (DRIVER_SKIPPED) or warned
+ * full description in its title (a reader's per_head chip has no rate: "Per head × heads"). A driver the last recompute skipped (DRIVER_SKIPPED) or warned
  * about shows the warning state, its message in the title and the accessible name.
  */
 import { AlertTriangle, Sigma } from 'lucide-react';
-import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import type { VisibleDriverLine } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 import { driverChipText } from './driverText';
 
 export interface DriverChipProps {
-  line: StoredDriverLine;
+  line: VisibleDriverLine;
   /** The account's name (no code) for a pct_of_line reference. */
   accountName(id: string): string;
   /** The long description (range, scope, rounding). */

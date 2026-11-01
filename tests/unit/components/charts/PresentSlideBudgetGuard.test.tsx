@@ -12,6 +12,7 @@ import { PresentSlide } from '@/components/accounting/present/PresentSlide';
 import type { Slide } from '@/components/accounting/present/presentSlides';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { buildBudgetVsActualLines, type BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import type { TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
 
 afterEach(cleanup);
 
@@ -40,6 +41,37 @@ describe('PresentSlide income statement budget guard', () => {
     // but no row may carry the R1,000,000 budget figure — that would be the
     // "full-size unfavourable variance on a tenant with no budget" bug.
     expect(container.textContent).not.toContain('1 000 000');
+  });
+
+  it('applies tracked absent verdicts and engine bands even when budgetedCount is 0', () => {
+    const tracked = [{
+      ...BUDGET[0]!, budgeted: false, budget_amount: 0, budget_verdict: 'absent', band: 'turnover',
+    }] as TrackedLine[];
+    const { container } = render(
+      <PresentSlide
+        slide={SLIDE} income={INCOME} trends={null} trendsFailed={false}
+        budget={tracked} budgetBands={[{ key: 'turnover', budget: null }, { key: 'net_profit', budget: null }]}
+        budgetedCount={0} budgetFailed={false}
+      />,
+    );
+    expect(container.querySelector('[title="No budget"]')).not.toBeNull();
+    expect(container.textContent).not.toContain('1 000 000');
+  });
+
+  it('adds unspent tracked lines and copies the engine band budgets', () => {
+    const unspent = [{
+      ...BUDGET[0]!, account_id: 'g-5250', account_code: '5250', account_name: 'Training', account_type: 'expense',
+      actual_amount: 0, budget_amount: 300, variance: 300, movement: -300, budget_verdict: 'budgeted', band: 'operating_expense',
+    }] as TrackedLine[];
+    const { container } = render(
+      <PresentSlide
+        slide={SLIDE} income={INCOME} trends={null} trendsFailed={false}
+        budget={unspent} budgetBands={[{ key: 'operating_expense', budget: 300 }, { key: 'net_profit', budget: -300 }]}
+        budgetedCount={1} budgetFailed={false}
+      />,
+    );
+    expect(container.textContent).toContain('Training');
+    expect(container.textContent).toContain('300');
   });
 
   it('prints the budget figure when budgetedCount is greater than 0', () => {

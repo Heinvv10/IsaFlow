@@ -11,7 +11,7 @@ const run = (host: string, path: string) =>
   middleware(new NextRequest(`https://${host}${path}`, { headers: { host } }));
 
 describe('middleware — /blog is marketing-host only', () => {
-  it.each(['/blog', '/blog/my-post', '/blog/rss.xml', '/blog/my-post/hero.webp', '/sitemap.xml', '/blog?category=vat'])(
+  it.each(['/blog', '/blog/my-post', '/blog/rss.xml', '/blog/my-post/hero.webp', '/help', '/help/faq', '/sitemap.xml', '/blog?category=vat'])(
     'app host: %s redirects 308 to isaflow.co.za',
     async (path) => {
       const res = await run('app.isaflow.co.za', path);
@@ -20,7 +20,7 @@ describe('middleware — /blog is marketing-host only', () => {
     },
   );
 
-  it.each(['/blog', '/blog/my-post', '/blog/rss.xml', '/sitemap.xml', '/blog/my-post/hero.webp'])(
+  it.each(['/blog', '/blog/my-post', '/blog/rss.xml', '/help', '/help/faq', '/sitemap.xml', '/blog/my-post/hero.webp'])(
     'marketing host: %s passes through with no cookie',
     async (path) => {
       const res = await run('isaflow.co.za', path);
@@ -31,6 +31,7 @@ describe('middleware — /blog is marketing-host only', () => {
 
   it('does not catch look-alike paths', () => {
     expect(isMarketingOnlyPath('/blogger')).toBe(false);
+    expect(isMarketingOnlyPath('/helper')).toBe(false);
     expect(isMarketingOnlyPath('/accounting/blog')).toBe(false);
     expect(isMarketingOnlyPath('/sitemap.xml.bak')).toBe(false);
   });

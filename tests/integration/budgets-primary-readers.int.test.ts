@@ -10,7 +10,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { getBudgetsForYear } from '@/modules/accounting/services/core/budgetService';
-import { loadWindowBudgets } from '@/modules/accounting/services/reports/budgetWindowService';
 import { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
 import { requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -51,13 +50,19 @@ async function read(c: PoolClient, versionId?: string): Promise<Figures> {
   return als.run({ client: c, companyId: co, userId: user, claims: {} } as never, async () => {
     const fy2027 = await requireFiscalYear(co, 2027);
     const page = await getBudgetsForYear(co, fy2027, versionId);
-    const window2027 = await loadWindowBudgets(co, '2026-03-01', '2027-02-28', versionId);
-    const across = await loadWindowBudgets(co, '2026-09-01', '2027-08-31');
+    // The window readers are getBudgetVariance's (budgets P3 PR-C): a named version through the
+    // engine's mode, the cross-year window through P0's sum.
+    const budgetOf = (r: { rows: Array<{ account_id: string; budget_amount: number }> }, id: string) =>
+      r.rows.find((l) => l.account_id === id)?.budget_amount ?? 0;
+    const w = versionId
+      ? await getBudgetVariance(co, '2026-03-01', '2027-02-28', { partialWindow: 'absent', versionId })
+      : await getBudgetVariance(co, '2026-03-01', '2027-02-28');
+    const a = await getBudgetVariance(co, '2026-09-01', '2027-08-31');
     const v = await getBudgetVariance(co, '2026-03-01', '2027-02-28');
     return {
       page2027: page.map((e) => [e.accountCode, e.annualAmount] as [string, number]),
-      window2027: { rent: window2027[rent] ?? 0, sales: window2027[sales] ?? 0 },
-      across: { rent: across[rent] ?? 0, sales: across[sales] ?? 0 },
+      window2027: { rent: budgetOf(w, rent), sales: budgetOf(w, sales) },
+      across: { rent: budgetOf(a, rent), sales: budgetOf(a, sales) },
       variance: [v.totals.budget, v.rows.length],
     };
   });

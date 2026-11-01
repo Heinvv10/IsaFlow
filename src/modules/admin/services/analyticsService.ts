@@ -232,7 +232,6 @@ async function getChurnSignals(): Promise<UsageAnalytics['churn_signals']> {
 const SETTINGS_DEFAULTS: PlatformSettings = {
   maintenance_mode: false,
   registration_enabled: true,
-  default_trial_days: 14,
   max_companies_per_user: 5,
   smtp_configured: false,
 };
@@ -248,7 +247,6 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
   return {
     maintenance_mode:       (persisted['maintenance_mode']       as boolean)  ?? SETTINGS_DEFAULTS.maintenance_mode,
     registration_enabled:   (persisted['registration_enabled']   as boolean)  ?? SETTINGS_DEFAULTS.registration_enabled,
-    default_trial_days:     (persisted['default_trial_days']     as number)   ?? SETTINGS_DEFAULTS.default_trial_days,
     max_companies_per_user: (persisted['max_companies_per_user'] as number)   ?? SETTINGS_DEFAULTS.max_companies_per_user,
     // smtp_configured is runtime-only — not persisted, always derived from env
     smtp_configured: !!(process.env.SMTP_HOST ?? process.env.RESEND_API_KEY),
@@ -260,7 +258,6 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
 const ALLOWED_SETTINGS_KEYS: ReadonlyArray<keyof Omit<PlatformSettings, 'smtp_configured'>> = [
   'maintenance_mode',
   'registration_enabled',
-  'default_trial_days',
   'max_companies_per_user',
 ] as const;
 
