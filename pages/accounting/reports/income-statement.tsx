@@ -9,8 +9,9 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { BarChart3, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
+import { BarChart3, AlertCircle } from 'lucide-react';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
+import { IncomeStatementExportButtons } from '@/components/accounting/reports/IncomeStatementExportButtons';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -142,20 +143,6 @@ export default function IncomeStatementPage() {
       .catch(err => { setBusinessUnits([]); log.warn('Failed to load business units', { err }, 'income-statement'); setRefError(p => ({ ...p, bu: apiErrorMessage(err, 'Could not load the business units - try again') })); });
   }, []);
 
-  function handleExport() {
-    const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-    if (costCentreId) params.set('cost_centre_id', costCentreId);
-    if (businessUnitId) params.set('business_unit_id', businessUnitId);
-    window.open(`/api/accounting/income-statement-export?${params}`, '_blank');
-  }
-
-  function handleXlsxExport() {
-    const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-    if (costCentreId) params.set('cost_centre_id', costCentreId);
-    if (businessUnitId) params.set('business_unit_id', businessUnitId);
-    window.open(`/api/accounting/income-statement-xlsx?${params}`, '_blank');
-  }
-
   function toggleAccount(code: string) {
     setExpandedAccount(prev => (prev === code ? null : code));
   }
@@ -172,14 +159,8 @@ export default function IncomeStatementPage() {
           actions={
             <>
               <PresentLink from={report && datesOk ? vw.start : ''} to={report && datesOk ? vw.end : ''} />
-              <button onClick={handleXlsxExport} disabled={!report || !datesOk}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
-                <FileSpreadsheet className="h-4 w-4" /> Export Excel
-              </button>
-              <button onClick={handleExport} disabled={!report || !datesOk}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
-                <Download className="h-4 w-4" /> Export CSV
-              </button>
+              <IncomeStatementExportButtons periodStart={periodStart} periodEnd={periodEnd}
+                costCentreId={costCentreId} businessUnitId={businessUnitId} disabled={!report || !datesOk} />
             </>
           }
         />
