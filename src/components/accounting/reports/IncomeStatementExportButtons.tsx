@@ -3,7 +3,7 @@
  * opens a route in a new tab, over the same period and filters the page shows.
  */
 
-import { Download, FileSpreadsheet } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText } from 'lucide-react';
 
 interface Props {
   periodStart: string;
@@ -28,8 +28,19 @@ export function IncomeStatementExportButtons({ periodStart, periodEnd, costCentr
     window.open(`/api/accounting/income-statement-xlsx?${params}`, '_blank');
   }
 
+  function handlePdfExport() {
+    const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
+    if (costCentreId) params.set('cost_centre_id', costCentreId);
+    if (businessUnitId) params.set('business_unit_id', businessUnitId);
+    window.open(`/api/accounting/income-statement-pdf?${params}`, '_blank');
+  }
+
   return (
     <>
+      <button onClick={handlePdfExport} disabled={disabled}
+        className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
+        <FileText className="h-4 w-4" /> Export PDF
+      </button>
       <button onClick={handleXlsxExport} disabled={disabled}
         className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
         <FileSpreadsheet className="h-4 w-4" /> Export Excel
