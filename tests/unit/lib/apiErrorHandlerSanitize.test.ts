@@ -33,11 +33,12 @@ describe('sanitizeBody — pay', () => {
   it('a tax number, a birth date and medical aid details are not logged next to a name, in either spelling', () => {
     const out = sanitizeBody({
       firstName: 'Thandi', taxNumber: '0123456789', dateOfBirth: '1980-01-01', medicalAidMainMember: true, medicalAidDependantsCount: 2,
+      employee_tax_number: '0123456789',
       row: { tax_number: '0123456789', date_of_birth: '1980-01-01', medical_aid_main_member: false, medical_aid_dependants_count: 0 },
     }) as Record<string, unknown>;
     expect(out).toEqual({
       firstName: 'Thandi', taxNumber: '[omitted: 10 chars]', dateOfBirth: '[omitted: 10 chars]',
-      medicalAidMainMember: '[omitted]', medicalAidDependantsCount: '[omitted]',
+      medicalAidMainMember: '[omitted]', medicalAidDependantsCount: '[omitted]', employee_tax_number: '[omitted: 10 chars]',
       row: {
         tax_number: '[omitted: 10 chars]', date_of_birth: '[omitted: 10 chars]',
         medical_aid_main_member: '[omitted]', medical_aid_dependants_count: '[omitted]',

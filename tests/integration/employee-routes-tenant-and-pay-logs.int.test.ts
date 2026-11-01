@@ -142,6 +142,11 @@ describe('PATCH /api/payroll/employees/:id', () => {
     ['before it, as a timestamp', '2019-12-31T00:00:00.000Z', /endDate cannot be before startDate/],
     ['not a date', 'soon', /endDate must be a real date/],
     ['not text', 20301231, /endDate must be a real date/],
+    // Each of these starts with a good day. Postgres would take the second as 2030 BC.
+    ['with junk after the day', '2030-01-01junk', /endDate must be a real date/],
+    ['with an era after the day', '2030-01-01 BC', /endDate must be a real date/],
+    ['with another time on it', '2030-01-01T12:00:00.000Z', /endDate must be a real date/],
+    ['with junk after the timestamp', '2030-01-01T00:00:00.000Zjunk', /endDate must be a real date/],
   ])('an end date %s: 400 and nothing changes', async (_n, value, reason) => {
     await setEndDate(null);
     const out = await patch({ firstName: 'Changed', endDate: value });
@@ -158,6 +163,14 @@ describe('PATCH /api/payroll/employees/:id', () => {
     const out = await patch({ endDate: value });
     expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
     expect(await endDate()).toBe(value.slice(0, 10));
+    await setEndDate(null);
+  });
+
+  it('a suffix on the stored day is not the stored day: refused, and the date stands', async () => {
+    await setEndDate('2030-06-30');
+    const out = await patch({ endDate: '2030-06-30 BC' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(await endDate()).toBe('2030-06-30');
     await setEndDate(null);
   });
 
@@ -191,12 +204,18 @@ describe('the request log', () => {
   it('a tax directive logs no amount beside its employee', async () => {
     const spy = vi.spyOn(apiLogger, 'info');
     const out = await call(taxDirectives as Route, 'POST', '/api/accounting/tax-directives', undefined, {
-      body: { employee_id: staff, directive_type: 'severance', amount: AMOUNT },
+      body: {
+        employee_id: staff, directive_type: 'severance', amount: AMOUNT, tax_rate: 0.1837,
+        employee_tax_number: '0123456789', notes: 'Retrenched after the Durban closure',
+      },
     });
     expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
     expect(logged(spy)).toContain(staff);
     expect(logged(spy)).toContain('"amount":"[omitted]"');
     expect(logged(spy)).not.toContain('31415.92');
+    expect(logged(spy)).not.toContain('0.1837');
+    expect(logged(spy)).not.toContain('0123456789');
+    expect(logged(spy)).not.toContain('Durban');
   });
 
   it('a loan logs no principal beside its employee', async () => {
