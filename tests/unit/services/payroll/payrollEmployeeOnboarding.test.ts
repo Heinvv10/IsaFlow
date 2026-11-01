@@ -1,6 +1,7 @@
 /**
  * createEmployeeWithPay: every field is judged before the first write (a 4xx commits, rule 9), the salary goes in as
  * rands from whole cents, and it starts on the start date. Malformed shapes are in the first test, not a review round.
+ * A lost race on the employee number is a refusal too, with nothing written.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -13,6 +14,7 @@ vi.mock('@/lib/neon', () => ({
     if (text.includes('FROM payroll_employees')) return db.duplicate ? [{ id: 'dup' }] : [];
     throw new Error(`unexpected query: ${text}`);
   }),
+  withSavepoint: vi.fn((_name: string, fn: () => Promise<unknown>) => fn()),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
   createPayrollEmployee: vi.fn(async () => ({ id: 'e1' })),
@@ -21,7 +23,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeComponentService',
   assignComponentToEmployee: vi.fn(async () => ({ id: 'a1' })),
 }));
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { createPayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { assignComponentToEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import {
@@ -31,7 +33,7 @@ import {
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const COMPONENT = '22222222-2222-4222-8222-222222222222';
 const BASE = { firstName: 'Thandi', lastName: 'Nkosi', employeeNumber: 'E-1', employmentType: 'permanent', startDate: '2026-11-01' };
-const EARNING = { sars_source_code: '3601', component_type: 'earning', is_active: true };
+const EARNING = { sars_source_code: '3601', component_type: 'earning', is_active: true, is_taxable: true };
 const go = (over: Record<string, unknown> = {}) => createEmployeeWithPay(COMPANY, 'u1', { ...BASE, ...over });
 const withSalary = (salary: unknown) => go({ salary });
 
@@ -71,6 +73,9 @@ describe('createEmployeeWithPay: refused before the first write', () => {
     ['id number number', { idNumber: 8001015009087 }, /ID number/i],
     ['dependants negative', { medicalAidDependantsCount: -1 }, /dependants/i],
     ['dependants fraction', { medicalAidDependantsCount: 1.5 }, /dependants/i],
+    ['uifExcluded the string false', { uifExcluded: 'false' }, /uifExcluded/],
+    ['uifExcluded a number', { uifExcluded: 1 }, /uifExcluded/],
+    ['endDate before startDate', { endDate: '2026-10-31' }, /endDate/],
   ])('%s', async (_n, over, reason) => {
     await expectRefused(go(over), reason);
   });
@@ -78,9 +83,9 @@ describe('createEmployeeWithPay: refused before the first write', () => {
   it.each([
     ['not an object', 'Basic'],
     ['an array', [COMPONENT, 2500000]],
-    ['componentId missing', { amount: 2500000 }],
-    ['componentId array', { componentId: [COMPONENT], amount: 2500000 }],
-    ['componentId not a uuid', { componentId: 'basic', amount: 2500000 }],
+    ['componentId missing', { amountCents: 2500000 }],
+    ['componentId array', { componentId: [COMPONENT], amountCents: 2500000 }],
+    ['componentId not a uuid', { componentId: 'basic', amountCents: 2500000 }],
   ])('salary: %s', async (_n, salary) => {
     await expectRefused(withSalary(salary), /salary|component/i);
   });
@@ -88,8 +93,15 @@ describe('createEmployeeWithPay: refused before the first write', () => {
   it.each([
     ['zero', 0], ['negative', -100], ['sub-cent', 100.5], ['a string', '2500000'], ['true', true], ['an array', [2500000]],
     ['null', null], ['NaN', Number.NaN], ['too big for the column', 100_000_000_000_000],
-  ])('salary amount: %s', async (_n, amount) => {
-    await expectRefused(withSalary({ componentId: COMPONENT, amount }), /whole cents/i);
+  ])('salary amountCents: %s', async (_n, amountCents) => {
+    await expectRefused(withSalary({ componentId: COMPONENT, amountCents }), /whole cents/i);
+  });
+
+  it.each([
+    ['alone', { componentId: COMPONENT, amount: 25000 }],
+    ['beside amountCents', { componentId: COMPONENT, amount: 25000, amountCents: 2500000 }],
+  ])('salary.amount %s is refused: a caller thinking in rands cannot store R250', async (_n, salary) => {
+    await expectRefused(withSalary(salary), /amountCents/);
   });
 
   it.each([
@@ -100,9 +112,10 @@ describe('createEmployeeWithPay: refused before the first write', () => {
     ['an annual payment', { ...EARNING, sars_source_code: '3605' }, /monthly/i],
     ['an annual payment, spaced', { ...EARNING, sars_source_code: ' 3605\n' }, /monthly/i],
     ['a lump sum', { ...EARNING, sars_source_code: '3901' }, /monthly/i],
+    ['not taxable', { ...EARNING, is_taxable: false }, /taxable/i],
   ])('component: %s', async (_n, row, reason) => {
     db.component = row;
-    await expectRefused(withSalary({ componentId: COMPONENT, amount: 2500000 }), reason);
+    await expectRefused(withSalary({ componentId: COMPONENT, amountCents: 2500000 }), reason);
   });
 
   it('an employee number already in use', async () => {
@@ -111,7 +124,7 @@ describe('createEmployeeWithPay: refused before the first write', () => {
   });
 
   it('reads the component by this company, and the employee number by this company', async () => {
-    await withSalary({ componentId: COMPONENT, amount: 2500000 });
+    await withSalary({ componentId: COMPONENT, amountCents: 2500000 });
     const calls = vi.mocked(sql).mock.calls as unknown as Array<[TemplateStringsArray, ...unknown[]]>;
     expect(calls).toHaveLength(2);
     for (const [parts, ...values] of calls) {
@@ -134,7 +147,7 @@ describe('createEmployeeWithPay: what it writes', () => {
   });
 
   it('the salary is stored in rands, recurring, from the start date', async () => {
-    await withSalary({ componentId: COMPONENT, amount: 2500050 });
+    await withSalary({ componentId: COMPONENT, amountCents: 2500050 });
     expect(assignComponentToEmployee).toHaveBeenCalledTimes(1);
     const [company, employee, component, rands, from, to, recurring] = vi.mocked(assignComponentToEmployee).mock.calls[0]!;
     expect([company, employee, component, rands, to, recurring]).toEqual([COMPANY, 'e1', COMPONENT, 25000.5, undefined, true]);
@@ -143,14 +156,14 @@ describe('createEmployeeWithPay: what it writes', () => {
   });
 
   it('the employee is written first: the assignment needs its id', async () => {
-    await withSalary({ componentId: COMPONENT, amount: 100 });
+    await withSalary({ componentId: COMPONENT, amountCents: 100 });
     expect(vi.mocked(createPayrollEmployee).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(assignComponentToEmployee).mock.invocationCallOrder[0]!);
   });
 
   it('a failed assignment is not a refusal: it rethrows, so the request rolls back', async () => {
     vi.mocked(assignComponentToEmployee).mockRejectedValueOnce(new Error('boom'));
-    const err = await withSalary({ componentId: COMPONENT, amount: 100 }).then(() => null, e => e as Error);
+    const err = await withSalary({ componentId: COMPONENT, amountCents: 100 }).then(() => null, e => e as Error);
     expect(err?.message).toBe('boom');
     expect(err).not.toBeInstanceOf(EmployeeOnboardingRefused);
   });
@@ -161,9 +174,59 @@ describe('createEmployeeWithPay: what it writes', () => {
     expect(data).toMatchObject({ firstName: 'Thandi', taxNumber: '0123456789', idNumber: '8001015009087' });
   });
 
+  it.each([[true, true], [false, false], [undefined, false], [null, false]])('uifExcluded %j is stored as %j', async (uifExcluded, stored) => {
+    await go({ uifExcluded });
+    expect(vi.mocked(createPayrollEmployee).mock.calls[0]![1].uifExcluded).toBe(stored);
+  });
+
+  it('an end date on the start date is allowed', async () => {
+    await go({ endDate: BASE.startDate });
+    expect(createPayrollEmployee).toHaveBeenCalledTimes(1);
+  });
+
   it('empty optional fields are absent, not refused', async () => {
     await go({ taxNumber: '', idNumber: '', dateOfBirth: '', endDate: null });
     const data = vi.mocked(createPayrollEmployee).mock.calls[0]![1];
     expect(data).toMatchObject({ taxNumber: undefined, idNumber: undefined, dateOfBirth: undefined, endDate: undefined });
+  });
+});
+
+describe('createEmployeeWithPay: a lost race on the employee number', () => {
+  /** As pg raises it: the pre-check passed, then the insert died on the unique constraint. */
+  const duplicate = () => Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
+  const lose = () => {
+    vi.mocked(createPayrollEmployee).mockImplementationOnce(async () => {
+      db.duplicate = true; // the row the other request committed is there on the re-read
+      throw duplicate();
+    });
+  };
+
+  it('23505 and the number is taken: a refusal, and no salary is assigned', async () => {
+    lose();
+    const err = await withSalary({ componentId: COMPONENT, amountCents: 100 }).then(() => null, e => e as Error);
+    expect(err).toBeInstanceOf(EmployeeOnboardingRefused);
+    expect(err?.message).toMatch(/already in use/i);
+    expect(assignComponentToEmployee).not.toHaveBeenCalled();
+  });
+
+  it('runs the insert in its own savepoint: a failed insert would abort the request transaction', async () => {
+    lose();
+    await go().catch(() => undefined);
+    expect(withSavepoint).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(withSavepoint).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(createPayrollEmployee).mock.invocationCallOrder[0]!);
+  });
+
+  it('23505 on anything else, with the number still free: the original error, not a false refusal', async () => {
+    const original = duplicate();
+    vi.mocked(createPayrollEmployee).mockRejectedValueOnce(original);
+    await expect(go()).rejects.toBe(original);
+  });
+
+  it('any other failure of the insert stays a failure', async () => {
+    vi.mocked(createPayrollEmployee).mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '23514' }));
+    const err = await go().then(() => null, e => e as Error);
+    expect(err?.message).toBe('boom');
+    expect(err).not.toBeInstanceOf(EmployeeOnboardingRefused);
   });
 });

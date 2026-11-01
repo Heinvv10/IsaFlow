@@ -28,6 +28,8 @@ export default function NewEmployeePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const fields = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
+  // State only reaches the disabled button on the next render; a second submit can arrive before that.
+  const inFlight = useRef(false);
 
   const clearError = (k: string) => setErrors(prev => (k in prev ? { ...prev, [k]: undefined } : prev));
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => {
@@ -35,6 +37,7 @@ export default function NewEmployeePage() {
     clearError(k);
   };
   const fieldRef = (k: FieldKey) => (el: HTMLElement | null) => { fields.current[k] = el; };
+  const checkField = (k: FieldKey) => setErrors(prev => ({ ...prev, [k]: validateForm(form, refused)[k] }));
   // A refused date arrives as null with valid=false; it must block submit, not read as "left empty".
   const setDate = (k: DateKey) => (iso: string | null, validity: FieldValidity) => {
     setRefused(prev => ({ ...prev, [k]: validity.valid ? undefined : (validity.reason ?? 'Enter a valid date.') }));
@@ -47,6 +50,7 @@ export default function NewEmployeePage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (inFlight.current) return;
     setError('');
     const found = validateForm(form, refused);
     setErrors(found);
@@ -55,6 +59,7 @@ export default function NewEmployeePage() {
       fields.current[first]?.focus();
       return;
     }
+    inFlight.current = true;
     setSubmitting(true);
     let target = '';
     try {
@@ -69,15 +74,16 @@ export default function NewEmployeePage() {
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not create the employee - try again'));
     } finally {
-      if (!target) setSubmitting(false);
+      if (!target) { inFlight.current = false; setSubmitting(false); }
     }
     if (!target) return;
     // The employee exists; a failed navigation is not a failed save.
     try { await router.push(target); } catch (e) { log.warn('navigation failed', { error: e }, 'NewEmployeePage'); }
+    inFlight.current = false;
     setSubmitting(false);
   };
 
-  const section = { form, errors, set, fieldRef, setDate };
+  const section = { form, errors, set, fieldRef, setDate, checkField };
 
   return (
     <AppLayout>

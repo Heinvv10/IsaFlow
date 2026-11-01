@@ -1,12 +1,12 @@
 /**
- * Pay on the employee create form: the tax and ID rules block submit and focus the field (and are the engine's own
- * rules), the salary posts as { componentId, amount } in cents, and the default component is taken only when unique.
+ * Pay on the employee create form: the tax and ID rules block submit and focus the field, the salary posts as
+ * { componentId, amountCents }, and the default component is taken only when unique. How the form behaves around that
+ * (blur, double submit, keyboard, the first-month notes) is in employeeCreateFormBehaviour.test.tsx.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
@@ -14,16 +14,15 @@ const push = vi.hoisted(() => vi.fn(async () => true));
 vi.mock('next/router', () => ({ useRouter: () => ({ push, query: {} }) }));
 
 import Page from '@/../pages/payroll/employees/new';
-import { isValidEmployeeIdNumber, isValidEmployeeTaxNumber } from '@/components/payroll/employeeCreate/identifiers';
 import { defaultSalaryComponent, salaryComponents } from '@/components/payroll/employeeCreate/salaryComponents';
-import { isValidSaIdNumber, isValidSarsTaxNumber } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 
-const BASIC = { id: 'c-basic', name: 'Basic Salary', sarsSourceCode: '3601', componentType: 'earning' };
-const SECOND_BASIC = { id: 'c-basic2', name: 'Basic Wage', sarsSourceCode: '3601', componentType: 'earning' };
-const COMMISSION = { id: 'c-comm', name: 'Commission', sarsSourceCode: '3606', componentType: 'earning' };
-const BONUS = { id: 'c-bonus', name: 'Annual bonus', sarsSourceCode: '3605', componentType: 'earning' };
-const LUMP = { id: 'c-lump', name: 'Severance', sarsSourceCode: '3901', componentType: 'earning' };
-const UNION = { id: 'c-union', name: 'Union fees', sarsSourceCode: '4472', componentType: 'deduction' };
+const BASIC = { id: 'c-basic', name: 'Basic Salary', sarsSourceCode: '3601', componentType: 'earning', isTaxable: true };
+const SECOND_BASIC = { ...BASIC, id: 'c-basic2', name: 'Basic Wage' };
+const UNTAXED_BASIC = { ...BASIC, id: 'c-untaxed', name: 'Untaxed wage', isTaxable: false };
+const COMMISSION = { id: 'c-comm', name: 'Commission', sarsSourceCode: '3606', componentType: 'earning', isTaxable: true };
+const BONUS = { id: 'c-bonus', name: 'Annual bonus', sarsSourceCode: '3605', componentType: 'earning', isTaxable: true };
+const LUMP = { id: 'c-lump', name: 'Severance', sarsSourceCode: '3901', componentType: 'earning', isTaxable: true };
+const UNION = { id: 'c-union', name: 'Union fees', sarsSourceCode: '4472', componentType: 'deduction', isTaxable: false };
 
 let catalogue: unknown[] | 'broken' = [BASIC, UNION];
 const fetchMock = vi.fn();
@@ -88,21 +87,10 @@ describe('tax and ID numbers', () => {
     await waitFor(() => expect(posts()).toHaveLength(1));
   });
 
-  it.each([
-    ['0123456789'], ['1234567890'], ['2234567890'], ['3234567890'], ['9234567890'], [' 0123456789 '],
-    ['4123456789'], ['5123456789'], ['8123456789'], ['123456789'], ['12345678901'], ['ABC1234567'], [''], ['0123 456789'],
-  ])('the form rule is the engine rule: tax %j', (value) => {
-    expect(isValidEmployeeTaxNumber(value)).toBe(isValidSarsTaxNumber(value));
-  });
-
-  it.each([['8001015009087'], [' 8001015009087 '], ['800101500908'], ['80010150090871'], ['8001O15009087'], ['']])(
-    'the form rule is the engine rule: ID %j', (value) => {
-      expect(isValidEmployeeIdNumber(value)).toBe(isValidSaIdNumber(value));
-    });
 });
 
 describe('salary', () => {
-  it('posts { componentId, amount } with the amount in cents', async () => {
+  it('posts { componentId, amountCents }', async () => {
     render(<Page />);
     await payReady();
     required();
@@ -110,7 +98,7 @@ describe('salary', () => {
     await screen.findByRole('combobox', { name: 'Pay component' });
     submit();
     await waitFor(() => expect(posts()).toHaveLength(1));
-    expect(posted().salary).toEqual({ componentId: 'c-basic', amount: 2500000 });
+    expect(posted().salary).toEqual({ componentId: 'c-basic', amountCents: 2500000 });
   });
 
   it('no amount: no salary key, whatever component is selected', async () => {
@@ -130,6 +118,16 @@ describe('salary', () => {
     submit();
     const field = screen.getByLabelText('Monthly salary');
     await waitFor(() => expect(document.activeElement).toBe(field));
+    expect(posts()).toHaveLength(0);
+  });
+
+  it('an amount too big for the column gets a clear message, not a failed save', async () => {
+    render(<Page />);
+    await payReady();
+    required();
+    typeInto('Monthly salary', '1000000000000');
+    submit();
+    expect(await screen.findByText(/must be at most R/)).toBeTruthy();
     expect(posts()).toHaveLength(0);
   });
 
@@ -166,11 +164,11 @@ describe('salary', () => {
     fireEvent.click(await screen.findByRole('option', { name: 'Basic Wage (3601)' }));
     submit();
     await waitFor(() => expect(posts()).toHaveLength(1));
-    expect(posted().salary).toEqual({ componentId: 'c-basic2', amount: 2500000 });
+    expect(posted().salary).toEqual({ componentId: 'c-basic2', amountCents: 2500000 });
   });
 
   it('only monthly earnings are offered', async () => {
-    catalogue = [BASIC, COMMISSION, BONUS, LUMP, UNION];
+    catalogue = [BASIC, COMMISSION, BONUS, LUMP, UNION, UNTAXED_BASIC];
     render(<Page />);
     await payReady();
     fireEvent.click(screen.getByRole('combobox', { name: 'Pay component' }));
@@ -178,10 +176,28 @@ describe('salary', () => {
     expect(options).toEqual(['Basic Salary (3601)', 'Commission (3606)']);
   });
 
+  it('a lone non-taxable 3601 is not offered: no salary field, and the link says why', async () => {
+    catalogue = [UNTAXED_BASIC];
+    render(<Page />);
+    await screen.findByText(/no active, taxable Basic Salary component/i);
+    expect(screen.queryByLabelText('Monthly salary')).toBeNull();
+  });
+
+  it('a non-taxable 3601 beside the taxable one does not make the default a guess', async () => {
+    catalogue = [BASIC, UNTAXED_BASIC];
+    render(<Page />);
+    await payReady();
+    required();
+    typeInto('Monthly salary', '25 000');
+    submit();
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posted().salary.componentId).toBe('c-basic');
+  });
+
   it('no monthly earning at all: says so, links to create one, offers no salary field', async () => {
     catalogue = [UNION];
     render(<Page />);
-    const link = await screen.findByRole('link', { name: /create a basic salary component first/i });
+    const link = await screen.findByRole('link', { name: /add one/i });
     expect(link.getAttribute('href')).toBe('/payroll/components');
     expect(screen.queryByLabelText('Monthly salary')).toBeNull();
   });
@@ -189,7 +205,7 @@ describe('salary', () => {
   it('earnings but no Basic Salary: the link, the picker, and no default', async () => {
     catalogue = [COMMISSION];
     render(<Page />);
-    await screen.findByRole('link', { name: /create a basic salary component first/i });
+    await screen.findByRole('link', { name: /add one/i });
     const picker = await screen.findByRole('combobox', { name: 'Pay component' });
     expect(picker.textContent).not.toContain('Commission');
   });
@@ -211,6 +227,8 @@ describe('component rules', () => {
     expect(defaultSalaryComponent(salaryComponents([BASIC, SECOND_BASIC]))).toBeNull();
     expect(defaultSalaryComponent(salaryComponents([COMMISSION]))).toBeNull();
     expect(defaultSalaryComponent([])).toBeNull();
+    expect(defaultSalaryComponent(salaryComponents([UNTAXED_BASIC]))).toBeNull();
+    expect(defaultSalaryComponent(salaryComponents([BASIC, UNTAXED_BASIC]))).toBe('c-basic');
   });
 
   it('a padded code is still classified as PAYE classifies it', () => {

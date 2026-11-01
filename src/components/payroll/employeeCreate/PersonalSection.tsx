@@ -4,7 +4,7 @@ import { DateField } from '@/components/ui/DateField';
 import { todayInSast } from '@/lib/saDateParser';
 import type { SectionProps } from './types';
 
-export function PersonalSection({ form, errors, set, fieldRef, setDate }: SectionProps) {
+export function PersonalSection({ form, errors, set, fieldRef, setDate, checkField }: SectionProps) {
   return (
     <FormSection number={1} title="Personal details" description="Who the employee is.">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -13,7 +13,7 @@ export function PersonalSection({ form, errors, set, fieldRef, setDate }: Sectio
         <Input ref={fieldRef('lastName')} label="Last name *" value={form.lastName} error={errors.lastName}
           onChange={e => set('lastName', e.target.value)} autoComplete="off" />
         <Input ref={fieldRef('idNumber')} label="SA ID number" value={form.idNumber} placeholder="13 digits" inputMode="numeric"
-          error={errors.idNumber} onChange={e => set('idNumber', e.target.value)} />
+          error={errors.idNumber} onChange={e => set('idNumber', e.target.value)} onBlur={() => checkField('idNumber')} />
         <DateField ref={fieldRef('dateOfBirth')} label="Date of birth" value={form.dateOfBirth || null}
           maxDate={todayInSast()} maxMessage="Date of birth cannot be in the future."
           error={errors.dateOfBirth} onChange={setDate('dateOfBirth')} />

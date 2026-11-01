@@ -1,8 +1,8 @@
 /**
  * Payroll Employees API (new payroll_employees table)
  * GET  /api/payroll/employees  - List active payroll employees (?include=terminated: leavers too)
- * POST /api/payroll/employees  - Create a payroll employee, with an optional salary: { componentId, amount },
- *                                amount in integer cents (unlike .../[id]/components, whose amount is rands)
+ * POST /api/payroll/employees  - Create a payroll employee, with an optional salary: { componentId, amountCents },
+ *                                in integer cents (.../[id]/components takes `amount`, in rands; `amount` is refused here)
  */
 
 import type { NextApiResponse } from 'next';

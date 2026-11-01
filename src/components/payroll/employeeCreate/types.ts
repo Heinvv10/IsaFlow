@@ -1,6 +1,6 @@
 /** Shared state and prop shapes for the employee create form sections. */
 import type { FieldValidity } from '@/components/ui/useParsedField';
-import { isValidEmployeeIdNumber, isValidEmployeeTaxNumber } from './identifiers';
+import { isValidSaIdNumber, isValidSarsTaxNumber } from '@/modules/accounting/services/payroll/employeeFieldRules';
 
 export type EmploymentType = 'permanent' | 'contract' | 'casual' | 'director';
 
@@ -50,6 +50,8 @@ export interface SectionProps {
   set: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   fieldRef: (k: FieldKey) => (el: HTMLElement | null) => void;
   setDate: (k: DateKey) => (iso: string | null, validity: FieldValidity) => void;
+  /** Judge one field now, on blur, rather than at submit. */
+  checkField: (k: FieldKey) => void;
 }
 
 /** What the form refuses before it posts. A refused date (`refused`) is not an empty one. */
@@ -57,12 +59,12 @@ export function validateForm(form: FormState, refused: Partial<Record<RefusedKey
   const errors: FormErrors = {};
   if (!form.firstName.trim()) errors.firstName = 'Enter a first name.';
   if (!form.lastName.trim()) errors.lastName = 'Enter a last name.';
-  if (form.idNumber && !isValidEmployeeIdNumber(form.idNumber)) errors.idNumber = 'Enter the 13 digits of the SA ID number.';
+  if (form.idNumber && !isValidSaIdNumber(form.idNumber)) errors.idNumber = 'Enter the 13 digits of the SA ID number.';
   if (refused.dateOfBirth) errors.dateOfBirth = refused.dateOfBirth;
   if (!form.employeeNumber.trim()) errors.employeeNumber = 'Enter an employee number.';
   if (refused.startDate) errors.startDate = refused.startDate;
   else if (!form.startDate) errors.startDate = 'Enter a start date.';
-  if (form.taxNumber && !isValidEmployeeTaxNumber(form.taxNumber)) {
+  if (form.taxNumber && !isValidSarsTaxNumber(form.taxNumber)) {
     errors.taxNumber = 'A SARS tax number is 10 digits starting with 0, 1, 2, 3 or 9.';
   }
   if (refused.salaryCents) errors.salaryCents = refused.salaryCents;
@@ -70,7 +72,7 @@ export function validateForm(form: FormState, refused: Partial<Record<RefusedKey
   return errors;
 }
 
-/** The POST /api/payroll/employees body. Same keys, same order, same coercions as before the kit, plus `salary` (amount in cents). */
+/** The POST /api/payroll/employees body. Same keys, same order, same coercions as before the kit, plus `salary` (amountCents). */
 export const buildBody = (form: FormState) => ({
   firstName: form.firstName,
   lastName: form.lastName,
@@ -84,6 +86,6 @@ export const buildBody = (form: FormState) => ({
   medicalAidMainMember: form.medicalAidMainMember,
   medicalAidDependantsCount: Number(form.medicalAidDependantsCount) || 0,
   salary: form.salaryCents !== null && form.salaryComponentId
-    ? { componentId: form.salaryComponentId, amount: form.salaryCents }
+    ? { componentId: form.salaryComponentId, amountCents: form.salaryCents }
     : undefined,
 });

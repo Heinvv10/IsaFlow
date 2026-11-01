@@ -2,7 +2,7 @@ import { FormSection } from '@/components/ui/FormSection';
 import { Input } from '@/components/ui/Input';
 import type { SectionProps } from './types';
 
-export function TaxAndMedicalSection({ form, errors, set, fieldRef }: SectionProps) {
+export function TaxAndMedicalSection({ form, errors, set, fieldRef, checkField }: SectionProps) {
   return (
     <FormSection
       number={3}
@@ -12,7 +12,7 @@ export function TaxAndMedicalSection({ form, errors, set, fieldRef }: SectionPro
     >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input ref={fieldRef('taxNumber')} label="SARS tax number" value={form.taxNumber} placeholder="10 digits" inputMode="numeric"
-          error={errors.taxNumber} onChange={e => set('taxNumber', e.target.value)} />
+          error={errors.taxNumber} onChange={e => set('taxNumber', e.target.value.replace(/\s/g, ''))} onBlur={() => checkField('taxNumber')} />
         <Input label="Medical aid dependants" type="number" min="0" value={form.medicalAidDependantsCount}
           onChange={e => set('medicalAidDependantsCount', e.target.value)} />
         <label className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
