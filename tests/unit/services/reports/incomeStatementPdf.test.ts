@@ -147,10 +147,11 @@ describe('incomeStatementPdfRows', () => {
 
 describe('parseComparators', () => {
   it.each([
-    [undefined, []], ['prior', ['prior']], ['budget', ['budget']], ['prior,budget', ['prior', 'budget']], ['prior,prior', ['prior']],
+    [undefined, []], ['prior', ['prior']], ['budget', ['budget']], ['trend', ['trend']], ['variance', ['variance']],
+    ['prior,budget', ['prior', 'budget']], ['prior,variance,trend', ['prior', 'variance', 'trend']], ['prior,prior', ['prior']],
   ])('reads %j', (value, expected) => expect(parseComparators(value)).toEqual(expected));
 
-  it.each([[''], ['trend'], ['prior,trend'], ['prior,'], [['prior', 'budget']], ['toString']])('refuses %j', (value) => {
+  it.each([[''], ['density'], ['prior,density'], ['prior,'], [['prior', 'budget']], ['toString']])('refuses %j', (value) => {
     expect(parseComparators(value)).toBeNull();
   });
 });
@@ -224,6 +225,8 @@ describe('buildIncomeStatementPdf', () => {
     [['prior', 'budget'], 'Comparators on screen, not included in this PDF: Prior period, Budget.'],
     [['prior'], 'Comparators on screen, not included in this PDF: Prior period.'],
     [['budget'], 'Comparators on screen, not included in this PDF: Budget.'],
+    [['trend'], 'Comparators on screen, not included in this PDF: 12-month trend.'],
+    [['prior', 'variance'], 'Comparators on screen, not included in this PDF: Prior period, Variance.'],
   ] as const)('says %j are left out', async (comparators, sentence) => {
     const pdf = await buildIncomeStatementPdf(REPORT, COMPANY, { scope: null, generatedOn: '2026-11-01', omittedComparators: comparators });
     expect(await pdfText(pdf)).toContain(sentence);

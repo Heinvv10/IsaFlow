@@ -49,7 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       : 'group_by must be one of cc1, cc2, bu');
   }
   if (req.query.project_id !== undefined) return apiResponse.badRequest(res, 'The PDF has no project filter');
-  if (!omittedComparators) return apiResponse.badRequest(res, 'comparators must be prior, budget or both');
+  if (!omittedComparators) return apiResponse.badRequest(res, 'comparators must be any of prior, budget, variance, trend');
 
   // Each member's own bucket: one member's exports cannot lock the company out.
   if (!(await checkReportRateLimit(companyId, `income-statement-pdf:u:${user.id}`))) {

@@ -5,7 +5,7 @@ import { IncomeStatementExportButtons } from '@/components/accounting/reports/In
 
 const base = {
   periodStart: '2026-04-01', periodEnd: '2026-04-30', costCentreId: '', businessUnitId: '', disabled: false,
-  columns: { prior: false, budget: false },
+  columns: { prior: false, budget: false, variance: false, trend: false },
 };
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -31,9 +31,11 @@ describe('Export PDF', () => {
   });
 
   it.each([
-    [{ prior: true, budget: false }, 'prior'],
-    [{ prior: false, budget: true }, 'budget'],
-    [{ prior: true, budget: true }, 'prior%2Cbudget'],
+    [{ ...base.columns, prior: true }, 'prior'],
+    [{ ...base.columns, budget: true }, 'budget'],
+    [{ ...base.columns, trend: true }, 'trend'],
+    [{ ...base.columns, prior: true, budget: true }, 'prior%2Cbudget'],
+    [{ prior: true, budget: true, variance: true, trend: true }, 'prior%2Cbudget%2Cvariance%2Ctrend'],
   ])('tells the PDF route the screen has %j on', (columns, value) => {
     const open = vi.fn();
     vi.stubGlobal('open', open);
@@ -62,7 +64,7 @@ describe('the other exports', () => {
   ])('%s opens its route with the period and filters, and no comparators', (name, route) => {
     const open = vi.fn();
     vi.stubGlobal('open', open);
-    render(<IncomeStatementExportButtons {...base} costCentreId="cc-1" businessUnitId="bu-1" columns={{ prior: true, budget: true }} />);
+    render(<IncomeStatementExportButtons {...base} costCentreId="cc-1" businessUnitId="bu-1" columns={{ prior: true, budget: true, variance: true, trend: true }} />);
     fireEvent.click(screen.getByRole('button', { name }));
     expect(open).toHaveBeenCalledWith(
       `/api/accounting/${route}?period_start=2026-04-01&period_end=2026-04-30&cost_centre_id=cc-1&business_unit_id=bu-1`, '_blank',

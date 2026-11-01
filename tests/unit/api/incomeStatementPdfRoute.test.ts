@@ -102,7 +102,7 @@ describe('income-statement-pdf', () => {
     ['a bad group_by', { ...PERIOD, group_by: 'project' }],
     ['a project filter the PDF does not apply', { ...PERIOD, project_id: cc }],
     ['a project filter that is empty', { ...PERIOD, project_id: '' }],
-    ['an unknown comparator', { ...PERIOD, comparators: 'prior,trend' }],
+    ['an unknown comparator', { ...PERIOD, comparators: 'prior,density' }],
     ['a repeated comparators param', { ...PERIOD, comparators: ['prior', 'budget'] }],
   ])('refuses %s without charging the limit or reading a figure', async (_name, query) => {
     expect((await call(query)).status).toBe(400);
@@ -118,6 +118,7 @@ describe('income-statement-pdf', () => {
       return (await new PDFParse({ data: (await call(query)).body as Buffer }).getText()).text.replace(/\s+/g, ' ');
     };
     expect(await pdfOf({ ...PERIOD, comparators: 'prior,budget' })).toContain('not included in this PDF: Prior period, Budget.');
+    expect(await pdfOf({ ...PERIOD, comparators: 'trend' })).toContain('not included in this PDF: 12-month trend.');
     expect(await pdfOf(PERIOD)).not.toContain('not included in this PDF');
   });
 

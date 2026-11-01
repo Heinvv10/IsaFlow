@@ -35,8 +35,9 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 it.each([
-  [{ prior: true, budget: true }, 'comparators=prior%2Cbudget'],
-  [{ prior: false, budget: false }, ''],
+  [{ prior: true, budget: true, variance: true, trend: false }, 'comparators=prior%2Cbudget%2Cvariance'],
+  [{ prior: false, budget: false, variance: false, trend: true }, 'comparators=trend'],
+  [{ prior: false, budget: false, variance: false, trend: false }, ''],
 ])('with %j on, the PDF opens with %j', async (on, param) => {
   Object.assign(columns, on);
   const open = vi.fn();
