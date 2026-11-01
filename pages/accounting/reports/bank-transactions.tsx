@@ -85,7 +85,7 @@ export default function BankTransactionsPage() {
     ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd, account_code: accountCode }).toString() : '';
 
   const load = useCallback<ReportLoad>(async (latest) => {
-    if (!query) { setLoading(false); return true; }
+    if (!query) { setReport(null); setError(''); setLoading(false); return true; }
     setLoading(true);
     setError('');
     try {

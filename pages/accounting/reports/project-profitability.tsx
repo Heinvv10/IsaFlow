@@ -36,7 +36,7 @@ export default function ProjectProfitabilityPage() {
   const query = periodStart && periodEnd ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd }).toString() : '';
 
   const loadReport = useCallback<ReportLoad>(async (latest) => {
-    if (!query) { setIsLoading(false); return true; }
+    if (!query) { setReports([]); setError(''); setIsLoading(false); return true; }
     setIsLoading(true);
     setError('');
     try {
