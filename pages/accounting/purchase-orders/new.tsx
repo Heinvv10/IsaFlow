@@ -2,7 +2,7 @@
  * New Purchase Order Page
  * Route: /accounting/purchase-orders/new
  */
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import Link from 'next/link';
@@ -14,6 +14,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
+import { useOverflowX } from '@/hooks/useOverflowX';
 
 interface LineItem { key: string; description: string; quantity: string; unitPrice: string; taxRate: string }
 
@@ -36,6 +37,8 @@ export default function NewPurchaseOrderPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const dates = useDateGate();
+  const dateNoteId = useId();
+  const { attach: attachLines, overflows: linesOverflow } = useOverflowX();
   const [saveAndNew, setSaveAndNew] = useState(false);
   const [form, setForm] = useState({
     supplierId: '', orderDate: localISODate(),
@@ -101,16 +104,16 @@ export default function NewPurchaseOrderPage() {
           </div>
         </div>
 
-        <div className="p-6 xl:p-8">
-          <form onSubmit={(e) => handleSubmit(e, saveAndNew)} className="max-w-6xl mx-auto flex gap-6 items-start">
+        <div className="p-4 sm:p-6 xl:p-8">
+          <form onSubmit={(e) => handleSubmit(e, saveAndNew)} className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
             {/* Left column */}
-            <div className="flex-1 min-w-0 space-y-5">
+            <div className="min-w-0 space-y-5">
               {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>}
 
               {/* Order Details */}
               <div className={`${card} p-5`}>
                 <SectionHeader num="1" title="Order Details" />
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className={lbl}>Supplier *</label>
                     <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(p => ({ ...p, supplierId: id }))} />
@@ -132,7 +135,7 @@ export default function NewPurchaseOrderPage() {
 
               {/* Line Items */}
               <div className={`${card} overflow-hidden`}>
-                <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Line Items
@@ -141,8 +144,9 @@ export default function NewPurchaseOrderPage() {
                     <Plus className="h-3 w-3" />Add Line
                   </button>
                 </div>
-                <div className="rounded-xl overflow-hidden">
-                  <table className="w-full text-sm">
+                {linesOverflow && <p className="px-5 pt-2 text-xs text-slate-600 dark:text-slate-400">Scroll sideways to see every column.</p>}
+                <div ref={attachLines} className="overflow-x-auto" role="region" aria-label="Purchase order lines" tabIndex={0}>
+                  <table className="w-full min-w-[720px] text-sm">
                     <thead className="bg-slate-50 dark:bg-slate-800/60">
                       <tr>
                         <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Description</th>
@@ -154,7 +158,7 @@ export default function NewPurchaseOrderPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {items.map(item => (
+                      {items.map((item, index) => (
                         <tr key={item.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2"><input type="text" required name="description" value={item.description} onChange={e => updateItem(item.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
                           <td className="px-3 py-2"><input type="number" required name="quantity" min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(item.key, 'quantity', e.target.value)} className={`${inp} text-right`} /></td>
@@ -162,7 +166,7 @@ export default function NewPurchaseOrderPage() {
                           <td className="px-3 py-2"><input type="number" name="taxRate" min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
                           <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{fmt(lineTotal(item))}</td>
                           <td className="px-2 py-2">
-                            <button type="button" onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100">
+                            <button type="button" aria-label={`Remove line ${index + 1}`} onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>
@@ -181,35 +185,34 @@ export default function NewPurchaseOrderPage() {
             </div>
 
             {/* Right column — sticky summary */}
-            <div className="w-72 shrink-0">
-              <div className="sticky top-6">
-                <div className={`${card} p-5`}>
-                  <div className="flex items-center gap-2 mb-5">
-                    <Receipt className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Order Summary</h3>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500 dark:text-slate-400">Subtotal</span>
-                      <span className="tabular-nums text-slate-900 dark:text-slate-100">{fmt(subtotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500 dark:text-slate-400">VAT</span>
-                      <span className="tabular-nums text-slate-900 dark:text-slate-100">{fmt(tax)}</span>
-                    </div>
-                    <div className="h-px bg-slate-100 dark:bg-slate-800" />
-                    <div className="flex justify-between">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span>
-                      <span className="tabular-nums font-bold text-lg text-amber-500">{fmt(subtotal + tax)}</span>
-                    </div>
-                  </div>
-                  <button type="submit" disabled={saving} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                    {saving && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Create Purchase Order'}
-                  </button>
-                  <button type="submit" disabled={saving} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                    {saving && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Save & New'}
-                  </button>
+            <div className="lg:sticky lg:top-6">
+              <div className={`${card} p-5`}>
+                <div className="flex items-center gap-2 mb-5">
+                  <Receipt className="w-4 h-4 text-amber-500" />
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Order Summary</h3>
                 </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500 dark:text-slate-400">Subtotal</span>
+                    <span className="tabular-nums text-slate-900 dark:text-slate-100">{fmt(subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500 dark:text-slate-400">VAT</span>
+                    <span className="tabular-nums text-slate-900 dark:text-slate-100">{fmt(tax)}</span>
+                  </div>
+                  <div className="h-px bg-slate-100 dark:bg-slate-800" />
+                  <div className="flex justify-between">
+                    <span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span>
+                    <span className="tabular-nums font-bold text-lg text-amber-500">{fmt(subtotal + tax)}</span>
+                  </div>
+                </div>
+                <button type="submit" disabled={saving || dates.blocked} aria-describedby={dates.blocked ? dateNoteId : undefined} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  {saving && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Create Purchase Order'}
+                </button>
+                <button type="submit" disabled={saving || dates.blocked} aria-describedby={dates.blocked ? dateNoteId : undefined} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  {saving && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Save & New'}
+                </button>
+                {dates.blocked && <p id={dateNoteId} className="mt-2 text-xs text-red-600 dark:text-red-400 text-center">Fix the date in the form</p>}
               </div>
             </div>
           </form>
