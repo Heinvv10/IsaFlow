@@ -76,21 +76,27 @@ for (const form of FORMS) {
     const b = await box(remove);
     expect(b.x + b.width, 'Remove line can be brought on screen').toBeLessThanOrEqual(390);
     expect(await remove.evaluate((e) => getComputedStyle(e).opacity), 'a phone has no hover to reveal it').toBe('1');
+    await expect(page.getByText('Scroll sideways to see every column.'), 'clipped columns say so').toHaveCount(1);
   });
 
-  test(`${form.title} 1280 px: the table scrolls under the summary and says so, or fits and says nothing`, async ({ page }) => {
+  test(`${form.title} 1280 px: the table fits the default top-nav layout and shows no hint`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await open(page, form);
     const region = page.getByRole('region', { name: form.lines });
-    const overflows = await region.evaluate((e) => e.scrollWidth > e.clientWidth + 1);
-    const hint = page.getByText('Scroll sideways to see every column.');
-    await expect(hint, 'the hint shows exactly when columns are clipped').toHaveCount(overflows ? 1 : 0);
-    if (overflows) {
-      const remove = region.getByRole('button', { name: 'Remove line 1' });
-      await remove.scrollIntoViewIfNeeded();
-      const [r, g] = [await box(region), await box(remove)];
-      expect(g.x + g.width, 'Remove line can be scrolled into its region').toBeLessThanOrEqual(r.x + r.width + 1);
-    }
+    expect(await region.evaluate((e) => e.scrollWidth > e.clientWidth + 1), 'columns are not clipped').toBe(false);
+    await expect(page.getByText('Scroll sideways to see every column.')).toHaveCount(0);
+  });
+
+  test(`${form.title} 1100 px: the table scrolls under the summary and says so`, async ({ page }) => {
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await open(page, form);
+    const region = page.getByRole('region', { name: form.lines });
+    expect(await region.evaluate((e) => e.scrollWidth > e.clientWidth + 1), 'columns are clipped at 1100').toBe(true);
+    await expect(page.getByText('Scroll sideways to see every column.'), 'the hint shows exactly when columns are clipped').toHaveCount(1);
+    const remove = region.getByRole('button', { name: 'Remove line 1' });
+    await remove.scrollIntoViewIfNeeded();
+    const [r, g] = [await box(region), await box(remove)];
+    expect(g.x + g.width, 'Remove line can be scrolled into its region').toBeLessThanOrEqual(r.x + r.width + 1);
   });
 
   test(`${form.title} 1568 px: the summary sits beside the form`, async ({ page }) => {

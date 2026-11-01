@@ -4,7 +4,7 @@
  * layout, so these pin the classes that do the stacking; the golden at 390 (y8) measures the real thing.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2CensusG4';
 
@@ -61,5 +61,22 @@ describe.each(FORMS)('$name form at a narrow width', ({ page, summary, lines, da
     expect(within(region).getByRole('button', { name: 'Remove line 1' }).className).not.toContain('opacity-0');
     // the hint follows real overflow (jsdom has no layout, so none here); see purchaseFormsA11yFollowup
     expect(screen.queryByText('Scroll sideways to see every column.')).toBeNull();
+  });
+
+  it('says "Fix the date above" by the submit button, tied with aria-describedby, only while a date is refused', () => {
+    render(page);
+    expect(screen.queryByText('Fix the date above')).toBeNull();
+    const input = screen.getByRole('textbox', { name: dateA });
+    fireEvent.change(input, { target: { value: 'zz' } });
+    fireEvent.blur(input);
+    const note = screen.getByText('Fix the date above');
+    const submit = screen.getAllByRole('button').filter((b) => (b as HTMLButtonElement).type === 'submit' && /^Create/.test(b.textContent ?? ''))[0] as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(submit.getAttribute('aria-describedby')).toBe(note.id);
+    expect(note.id).not.toBe('');
+    fireEvent.change(input, { target: { value: '5 Oct 2026' } });
+    fireEvent.blur(input);
+    expect(screen.queryByText('Fix the date above')).toBeNull();
+    expect(submit.getAttribute('aria-describedby')).toBeNull();
   });
 });
