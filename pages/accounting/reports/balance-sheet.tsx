@@ -96,7 +96,7 @@ export default function BalanceSheetPage() {
   const query = asAtDate && filtersReady ? params.toString() : '';
 
   const loadReport = useCallback<ReportLoad>(async (latest) => {
-    if (!query) { setIsLoading(false); return true; }
+    if (!query) { setReport(null); setError(''); setIsLoading(false); return true; }
     setReport(null);
     setIsLoading(true); setError('');
     try {

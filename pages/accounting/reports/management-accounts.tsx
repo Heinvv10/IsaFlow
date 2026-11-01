@@ -137,7 +137,7 @@ export default function ManagementAccountsPage() {
   const query = periodStart && periodEnd ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd }).toString() : '';
 
   const loadReport = useCallback<ReportLoad>(async (latest) => {
-    if (!query) { setLoading(false); return true; }
+    if (!query) { setReport(null); setError(''); setLoading(false); return true; }
     setLoading(true);
     setError('');
     try {
