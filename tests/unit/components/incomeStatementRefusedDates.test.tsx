@@ -6,7 +6,6 @@ import { apiFetch } from '@/lib/apiFetch';
 import IncomeStatementPage from '@/../pages/accounting/reports/income-statement';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { typeDate } from '../helpers/dateFields';
-import { localDateFromISO } from '@/lib/dateUtils';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
@@ -161,7 +160,6 @@ it('the notice is one always-mounted status region: empty until refused text lea
   expect(await screen.findByText('Enter a To date.')).toBeTruthy();
   expect(status.textContent).toBe('');
 });
-
 
 const to = () => screen.getByRole('textbox', { name: 'To' }) as HTMLInputElement;
 const csv = () => screen.getByRole('button', { name: /Export CSV/ }) as HTMLButtonElement;
