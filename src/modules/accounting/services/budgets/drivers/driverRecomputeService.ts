@@ -136,7 +136,9 @@ export async function recomputeVersion(
   `) as DbRow[];
   if (!found[0]) throw new BudgetVersionError('BUDGET_VERSION_NOT_FOUND', 'Budget version not found');
   const months = await versionMonths(companyId, Number(found[0].fiscal_year));
-  const model = await loadVersionModel(companyId, versionId, months, lines);
+  // A stored driver whose reference grain has since emptied still computes 0 with REF_MISSING.
+  // Strict grain validation belongs to driver saves and reforecast planning, not recomputation.
+  const model = await loadVersionModel(companyId, versionId, months, lines, 'recompute');
   const live = opts.live ?? NONE;
   // Only rows of the model may be frozen (the engine refuses an unknown key): a skipped driver on an
   // account retyped out of the income statement has no row at all, so nothing of it is computed anyway.

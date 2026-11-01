@@ -10,7 +10,6 @@ import { AlertCircle, CheckCircle2, Loader2, Save, Bell } from 'lucide-react';
 interface PlatformSettings {
   maintenance_mode: boolean;
   registration_enabled: boolean;
-  default_trial_days: number;
   max_companies_per_user: number;
   smtp_configured: boolean;
 }
@@ -208,13 +207,6 @@ export default function AdminSettings() {
                 label="Registration Enabled"
                 checked={settings.registration_enabled}
                 onChange={(v) => update('registration_enabled', v)}
-              />
-              <NumberInput
-                label="Default Trial Days"
-                value={settings.default_trial_days}
-                onChange={(v) => update('default_trial_days', v)}
-                min={1}
-                max={365}
               />
               <NumberInput
                 label="Max Companies Per User"
