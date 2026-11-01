@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, taxModeFromVatType, vatTypeWarning, type TaxMode,
+  effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, storedUnitPrice, taxModeFromVatType, vatTypeWarning, type TaxMode,
 } from '@/components/accounting/customer-invoices/taxMode';
 import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 
@@ -93,6 +93,12 @@ describe('the stored invoice for what was typed', () => {
     expect(inclusiveTypedTotal(lines)).toBe(30);
   });
 
+  it('1 x R10 incl comes to R10.01: VAT is rounded after the price is, so even one unit can land a cent off', () => {
+    const lines = [line(1, 10)];
+    expect(invoice('inclusive', lines)).toEqual({ subtotal: 8.7, tax: 1.31, total: 10.01 });
+    expect(inclusiveTypedTotal(lines)).toBe(10);
+  });
+
   it('1 000 x R10 incl comes to R10 005.00 against the R10 000.00 typed', () => {
     const lines = [line(1000, 10)];
     expect(invoice('inclusive', lines).total).toBe(10005);
@@ -126,6 +132,16 @@ describe('the stored invoice for what was typed', () => {
     expect(effectiveTaxRate('inclusive', 14)).toBe(14);
     expect(storedUnitPrice('none', 115, 0)).toBe(115);
     expect(invoice('none', [line(1, 115)])).toEqual({ subtotal: 115, tax: 0, total: 115 });
+  });
+});
+
+describe('pricesToNothing', () => {
+  it('is a price typed above zero that stores as zero', () => {
+    expect(pricesToNothing('inclusive', 0.004, 15)).toBe(true);
+    expect(pricesToNothing('inclusive', 0.01, 150)).toBe(true); // 0.004: under half a cent
+    expect(pricesToNothing('inclusive', 0.01, 15)).toBe(false); // 0.0087 rounds to a cent
+    expect(pricesToNothing('inclusive', 0, 15)).toBe(false); // nothing was typed
+    expect(pricesToNothing('exclusive', 0.004, 15)).toBe(false); // sent as typed
   });
 });
 

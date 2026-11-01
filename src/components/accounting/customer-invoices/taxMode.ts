@@ -10,9 +10,10 @@
  * (linesForModeChange), so an untouched line saves as it was. A 2-dp price always comes back exact at a rate of 0 or more:
  * grossing up moves it at most R0.005, and dividing by 1 + rate shrinks that below the half cent the way back rounds on.
  *
- * A converted price is rounded to the cent and the line is then priced from it, so an inclusive total can land off what
- * was typed by up to about qty x R0.00575 (3 @ R10 incl stores R30.02). The stored total is the invoice; the form shows
- * both figures whenever they differ (spec decision 2).
+ * A converted price is rounded to the cent, the line is priced from it, and the VAT is rounded on the subtotal, so an
+ * inclusive total can land off what was typed by up to about qty x R0.00575 at 15%, plus a cent of VAT rounding
+ * (1 @ R10 incl stores R10.01; 3 @ R10 incl stores R30.02). The stored total is the invoice; the form shows both figures
+ * whenever they differ (spec decision 2).
  *
  * Pure: safe in a client bundle.
  */
@@ -74,6 +75,14 @@ export function linesForModeChange<L extends { unitPrice: number }>(lines: reado
 /** The unit price the API receives for what was typed, at the invoice's effective rate. */
 export const storedUnitPrice = (mode: TaxMode, typed: number, rate: number): number =>
   (mode === 'inclusive' ? exVatUnitPrice(typed, rate) : typed);
+
+/** A price typed above zero that is under half a cent once the VAT is out: it would store as nothing. */
+export const pricesToNothing = (mode: TaxMode, typed: number, rate: number): boolean =>
+  typed > 0 && storedUnitPrice(mode, typed, rate) === 0;
+
+/** The refusal for such a line. */
+export const pricesToNothingMessage = (description: string): string =>
+  `"${description}" is under a cent once VAT is taken out - enter a higher price`;
 
 /** The line's stored ex-VAT amount for what was typed; a half-typed field previews as 0. */
 export const lineTotalForMode = (mode: TaxMode, rate: number, l: PricedLine): number =>

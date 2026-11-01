@@ -18,7 +18,7 @@ import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/In
 import { invoiceDateProblem, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, pricesToNothingMessage, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 
 // CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
 // otherwise null, so derivation sets it (the project's FNO, else the customer's: dimensionKeepStored).
@@ -72,6 +72,8 @@ export default function EditCustomerInvoicePage() {
         return;
       }
       setInvoiceNumber(invoice.invoice_number);
+      // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is.
+      if (Number(invoice.tax_rate ?? 15) === 0) setTaxMode('none');
       setForm({
         clientId: String(invoice.client_id || invoice.customer_id || ''),
         invoiceDate: String(invoice.invoice_date || '').slice(0, 10),
@@ -130,6 +132,8 @@ export default function EditCustomerInvoicePage() {
 
   const handleSubmit = async () => {
     if (!form.clientId) return setError('Select a client');
+    const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
+    if (tooSmall) return setError(pricesToNothingMessage(tooSmall.description));
     const validLines = lines.filter(l => l.description && l.unitPrice >= 0 && l.quantity > 0);
     if (validLines.length === 0) return setError('Add at least one line item');
     const dateProblem = invoiceDateProblem(form, dates.refused);
