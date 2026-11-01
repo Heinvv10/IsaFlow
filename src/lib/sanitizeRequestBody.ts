@@ -7,7 +7,9 @@
  * its item count, an object of more than MAX_LOGGED_KEYS as its key count, and a
  * string over LONG_STRING as its length, so a bulk body (a 20 000-cell budget
  * save, ~3.4 MB, or a 14 MB base64 upload) is never written to the request log
- * whole.
+ * whole. A body that is not JSON cannot be read for what it holds, so it is not
+ * logged at all: a top-level string (text/plain) is a size marker, and a key
+ * that is not a name (a form-encoded JSON body parses to one key) is counted.
  */
 
 const SENSITIVE_KEYS = new Set([
@@ -17,20 +19,27 @@ const SENSITIVE_KEYS = new Set([
   'client_secret', 'clientSecret', 'refresh_token', 'refreshToken',
   'access_token', 'accessToken', 'code_verifier', 'codeVerifier',
   // Every non-GET body reaches journald: employee and supplier bank account numbers stay out of it.
-  'accountNumber', 'account_number', 'bankAccountNumber', 'bank_account_number',
+  'accountNumber', 'account_number', 'bankAccountNumber', 'bank_account_number', 'account_no', 'bank_account_no',
 ]);
 
-// Substring fragments — redact any key containing these (case-insensitive), so
-// new/renamed credential fields (…_secret, …_token, …verifier) can't silently
-// leak. Kept narrow to avoid over-redacting benign fields ('code' alone, a
-// single-use auth code, is intentionally NOT a fragment — too broad).
-const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'apikey', 'verifier'];
+// Substring fragments — redact any key containing these, so new/renamed
+// credential fields (…_secret, …_token, …verifier) can't silently leak. Written
+// normalised (see normaliseKey). Kept narrow to avoid over-redacting benign
+// fields ('code' alone, a single-use auth code, is intentionally NOT a fragment
+// — too broad; 'accountno' would also match account_notes).
+const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'apikey', 'verifier', 'accountnumber'];
+
+/** A client's spelling of a field does not matter: AccountNumber, account-number and account_number are one key. */
+const normaliseKey = (key: string) => key.toLowerCase().replace(/[_-]/g, '');
+const NORMALISED_SENSITIVE_KEYS = new Set([...SENSITIVE_KEYS].map(normaliseKey));
 
 function isSensitiveKey(key: string): boolean {
-  if (SENSITIVE_KEYS.has(key)) return true;
-  const k = key.toLowerCase();
-  return SENSITIVE_FRAGMENTS.some((f) => k.includes(f));
+  const k = normaliseKey(key);
+  return NORMALISED_SENSITIVE_KEYS.has(k) || SENSITIVE_FRAGMENTS.some((f) => k.includes(f));
 }
+
+/** A key is logged only if it reads as a field name, up to 64 characters: anything else may be the data itself. */
+const LOGGABLE_KEY = /^[\p{L}\p{N}_$. -]{1,64}$/u;
 
 /** Always a file or an ID number, whatever the value looks like. */
 const PAYLOAD_KEYS = new Set(['file_data', 'fileData', 'idDocument', 'logoData', 'idNumber', 'id_number']);
@@ -54,18 +63,21 @@ const MAX_LOGGED_ITEMS = 50;
 
 export function sanitizeRequestBody(body: unknown, depth = 0): unknown {
   // Any long string, under any key: a 14 MB value would otherwise be logged and kept in the logger's buffer.
-  if (typeof body === 'string') return body.length > LONG_STRING ? omitted(body) : body;
+  if (typeof body === 'string') return depth === 0 || body.length > LONG_STRING ? omitted(body) : body;
   if (!body || typeof body !== 'object') return body;
   if (depth > 8) return '[omitted: nested too deep]';
   if (Array.isArray(body)) return body.length > MAX_LOGGED_ITEMS ? omitted(body) : body.map((v) => sanitizeRequestBody(v, depth + 1));
   const entries = Object.entries(body as Record<string, unknown>);
   if (entries.length > MAX_LOGGED_KEYS) return `[omitted: ${entries.length} keys]`;
   const sanitized: Record<string, unknown> = {};
+  let omittedKeys = 0;
   for (const [key, value] of entries) {
-    if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';
+    if (!LOGGABLE_KEY.test(key)) omittedKeys += 1;
+    else if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';
     else if (PAYLOAD_KEYS.has(key) && present(value)) sanitized[key] = omitted(value);
     else if (key === 'data' && holdsFiles(value)) sanitized[key] = omitted(value);
     else sanitized[key] = sanitizeRequestBody(value, depth + 1);
   }
+  if (omittedKeys > 0) sanitized['[omitted keys]'] = omittedKeys;
   return sanitized;
 }

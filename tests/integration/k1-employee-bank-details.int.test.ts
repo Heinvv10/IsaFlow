@@ -187,6 +187,29 @@ describe('the request log (journald: what the logger writes to stdout)', () => {
     expect(lines).not.toContain(ROW.accountNumber);
     expect(lines).not.toContain(OTHER.accountNumber);
   });
+
+  const raw = JSON.stringify(ROW);
+  // The shapes Next's parser gives these bodies: a string, and the whole text as one key with an empty value.
+  it.each([
+    ['text/plain', raw],
+    ['x-www-form-urlencoded', { [raw]: '' }],
+    ['a short form key', { [`{"accountNumber":"${ROW.accountNumber}"}`]: '' }],
+    ['AccountNumber', { ...ROW, accountNumber: undefined, AccountNumber: ROW.accountNumber }],
+    ['account_no', { ...ROW, accountNumber: undefined, account_no: ROW.accountNumber }],
+  ])('a PUT carrying the number as %s is refused 422 and the number is not logged', async (_name, body) => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const written: string[] = [];
+    for (const stream of [process.stdout, process.stderr]) {
+      vi.spyOn(stream, 'write').mockImplementation((chunk: unknown) => { written.push(String(chunk)); return true; });
+    }
+    let status = 0;
+    try { status = (await put(tokens[o]!, c, e, body)).state.statusCode; } finally { vi.restoreAllMocks(); }
+    expect(status).toBe(422);
+    const lines = written.join('');
+    expect(lines).toContain('API Request: PUT');
+    expect(lines).not.toContain(ROW.accountNumber);
+  });
 });
 
 describe('who may reach the route', () => {
