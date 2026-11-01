@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { DateField } from '@/components/ui/DateField';
+import { useDateGate } from '@/hooks/useDateGate';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
@@ -51,12 +52,18 @@ export default function IncomeStatementPage() {
   const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
   // A refused From/To keeps the last good date in state; no report is run or exported over it. Nor is one for
   // an empty date, or a From that is after To (typed into From, where DateField has no bound to refuse it).
-  const [badDate, setBadDate] = useState({ from: false, to: false });
+  // One gate per field, because each field's error depends on its own refusal.
+  const fromGate = useDateGate();
+  const toGate = useDateGate();
+  const { reset: resetFrom } = fromGate;
+  const { reset: resetTo } = toGate;
+  const onFromChange = fromGate.bind('from', setPeriodStart, periodStart);
+  const onToChange = toGate.bind('to', setPeriodEnd, periodEnd);
   const rangeInverted = Boolean(periodStart && periodEnd && periodStart > periodEnd);
-  const datesOk = !badDate.from && !badDate.to && Boolean(periodStart && periodEnd) && !rangeInverted;
+  const datesOk = !fromGate.blocked && !toGate.blocked && Boolean(periodStart && periodEnd) && !rangeInverted;
   // A refused text keeps DateField's own reason (an external error would hide it).
-  const fromError = badDate.from ? undefined : !periodStart ? 'Enter a From date.' : rangeInverted ? 'From must be on or before To.' : undefined;
-  const toError = badDate.to || periodEnd ? undefined : 'Enter a To date.';
+  const fromError = fromGate.blocked ? undefined : !periodStart ? 'Enter a From date.' : rangeInverted ? 'From must be on or before To.' : undefined;
+  const toError = toGate.blocked || periodEnd ? undefined : 'Enter a To date.';
 
   const [businessUnitId, setBusinessUnitId] = useState(qBusinessUnit);
 
@@ -68,16 +75,12 @@ export default function IncomeStatementPage() {
     if (router.isReady === false) return;
     if (qStart) setPeriodStart(qStart);
     if (qEnd) setPeriodEnd(qEnd);
-    if (qStart || qEnd) {
-      setBadDate(current => ({
-        from: qStart ? false : current.from,
-        to: qEnd ? false : current.to,
-      }));
-    } else {
-      setBadDate({ from: false, to: false });
-    }
+    // A date the URL names, or a URL naming neither, ends that field's refusal. reset() drops the gate and the text
+    // together: the date in state may not change, and a value prop that did not change cannot clear refused text.
+    if (qStart || !qEnd) resetFrom('from');
+    if (qEnd || !qStart) resetTo('to');
     setBusinessUnitId(qBusinessUnit);
-  }, [router.isReady, qStart, qEnd, qBusinessUnit]);
+  }, [router.isReady, qStart, qEnd, qBusinessUnit, resetFrom, resetTo]);
 
   // Fetch the current open period on mount to set smart default dates.
   // The open-period values are only written when no deep-link params are present
@@ -190,10 +193,10 @@ export default function IncomeStatementPage() {
           {/* Date Range + Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <DateField label="From" value={periodStart || null} name="periodStart" error={fromError} onChange={(iso, v) => { setBadDate(b => ({ ...b, from: !v.valid })); if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <DateField label="From" value={periodStart || null} name="periodStart" error={fromError} resetKey={fromGate.resetKey('from')} onChange={onFromChange} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} error={toError} minDate={periodStart || undefined} onChange={(iso, v) => { setBadDate(b => ({ ...b, to: !v.valid })); if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <DateField label="To" value={periodEnd || null} name="periodEnd" anchorDate={periodStart || null} error={toError} minDate={periodStart || undefined} resetKey={toGate.resetKey('to')} onChange={onToChange} />
             </div>
             <div>
               <label htmlFor="income-statement-cost-centre-id" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
@@ -233,7 +236,7 @@ export default function IncomeStatementPage() {
           <div>
             {/* Always mounted so a screen reader hears the change. Empty and inverted ranges already say so on the field. */}
             <p role="status" className="text-sm text-[var(--ff-text-secondary)]">
-              {!report && !datesOk && (badDate.from || badDate.to) ? 'Fix the date to run the report.' : ''}
+              {!report && !datesOk && (fromGate.blocked || toGate.blocked) ? 'Fix the date to run the report.' : ''}
             </p>
             {isLoading ? (
               <ListSkeleton rows={14} label="Loading profit and loss" />
