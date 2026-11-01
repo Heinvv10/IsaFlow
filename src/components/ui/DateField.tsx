@@ -4,8 +4,11 @@
  *
  * Typed shortcuts: `t` today, `+30` / `-7` days from today, `eom` end of month; also "1 Oct 2026",
  * "2026-10-01" and "01/10/2026" (day first). ArrowUp / ArrowDown move the date by one day.
+ * With `anchorDate`, `eom` and `+N` / `-N` count from that date instead of today (`t` is still today).
  * `minDate` / `maxDate` (inclusive ISO, e.g. the financial year or a lock date) refuse a date
  * outside them with a message, and the parent receives null rather than a date it must not post.
+ * A refusal reports `validity.code` ('empty' | 'unreadable' | 'before-min' | 'after-max'): map on the code,
+ * never on the message text.
  */
 import * as React from 'react';
 import { cn } from '@/utils/cn';
@@ -17,6 +20,9 @@ import { addDaysISO, localDateFromISO } from '@/lib/dateUtils';
 import { assertISODate, parseSaDate, todayInSast } from '@/lib/saDateParser';
 import { formatDisplayDate, formatDisplayDateWeekday } from '@/utils/dateFormat';
 
+/** Why DateField refused the text (FieldValidity.code). */
+export type DateFieldCode = 'empty' | 'unreadable' | 'before-min' | 'after-max';
+
 export interface DateFieldProps {
   label: string;
   /** ISO 'YYYY-MM-DD', or null when empty / not understood. */
@@ -26,7 +32,7 @@ export interface DateFieldProps {
    * was refused (unreadable, or outside minDate / maxDate): the value is then null but the field is NOT
    * empty, so block submit on it.
    */
-  onChange: (iso: string | null, validity: FieldValidity) => void;
+  onChange: (iso: string | null, validity: FieldValidity<DateFieldCode>) => void;
   id?: string;
   /** Names a hidden input that posts the canonical ISO date in a native form submit. */
   name?: string;
@@ -34,6 +40,11 @@ export interface DateFieldProps {
   minDate?: string;
   /** Inclusive upper bound, ISO. Must be a real 'YYYY-MM-DD' or the field throws a RangeError. */
   maxDate?: string;
+  /**
+   * ISO date that `eom` and `+N` / `-N` count from, e.g. a report's "From" for its "To", or an invoice date for
+   * its due date. Empty, null or not a real date: they count from today.
+   */
+  anchorDate?: string | null;
   /** Shown when the date is before `minDate` (default names the date). */
   minMessage?: string;
   /** Shown when the date is after `maxDate` (default names the date). */
@@ -62,7 +73,7 @@ export interface DateFieldProps {
 
 export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(function DateField(
   {
-    label, value, onChange, id, name, minDate, maxDate, minMessage, maxMessage, error: externalError, helperText, help, resetKey,
+    label, value, onChange, id, name, minDate, maxDate, anchorDate, minMessage, maxMessage, error: externalError, helperText, help, resetKey,
     placeholder = 'dd MMM yyyy', required, disabled, getToday, className, onBlur,
   },
   ref,
@@ -74,23 +85,18 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   if (maxDate !== undefined) assertISODate(maxDate, 'maxDate');
   const show = (iso: string): string => formatDisplayDate(localDateFromISO(iso), '');
 
-  const check = (iso: string): string | null => {
-    if (minDate && iso < minDate) return minMessage ?? `The date must be on or after ${show(minDate)}.`;
-    if (maxDate && iso > maxDate) return maxMessage ?? `The date must be on or before ${show(maxDate)}.`;
-    return null;
+  const parse = (text: string): ParseOutcome<string, DateFieldCode> => {
+    if (text.trim() === '') return required ? { ok: false, code: 'empty', reason: 'Enter a date.' } : { ok: true, value: null };
+    const r = parseSaDate(text, now(), anchorDate);
+    if (!r.ok) return { ok: false, code: 'unreadable', reason: r.reason };
+    if (minDate && r.iso < minDate) return { ok: false, code: 'before-min', reason: minMessage ?? `The date must be on or after ${show(minDate)}.` };
+    if (maxDate && r.iso > maxDate) return { ok: false, code: 'after-max', reason: maxMessage ?? `The date must be on or before ${show(maxDate)}.` };
+    return { ok: true, value: r.iso };
   };
 
-  const parse = (text: string): ParseOutcome<string> => {
-    if (text.trim() === '') return required ? { ok: false, reason: 'Enter a date.' } : { ok: true, value: null };
-    const r = parseSaDate(text, now());
-    if (!r.ok) return { ok: false, reason: r.reason };
-    const refusal = check(r.iso);
-    return refusal ? { ok: false, reason: refusal } : { ok: true, value: r.iso };
-  };
-
-  const field = useParsedField<string>({ value, format: show, parse, onChange, resetKey });
+  const field = useParsedField<string, DateFieldCode>({ value, format: show, parse, onChange, resetKey });
   const error = externalError ?? field.error;
-  const understood = field.text.trim() === '' ? null : parseSaDate(field.text, now());
+  const understood = field.text.trim() === '' ? null : parseSaDate(field.text, now(), anchorDate);
   const echo = understood?.ok ? formatDisplayDateWeekday(localDateFromISO(understood.iso), '') || null : null;
   const frame = { error, helperText, echo, help };
 
