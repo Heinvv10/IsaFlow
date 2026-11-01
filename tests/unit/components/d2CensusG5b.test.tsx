@@ -92,19 +92,22 @@ describe('admin job queue', () => {
 });
 
 describe('SARS submissions view detail', () => {
-  const sub = { id: 's1', formType: 'VAT201', periodStart: '2026-01-01', periodEnd: '2026-01-31', status: 'draft', formData: {}, submissionReference: null,
-    submittedAt: null, notes: 'local copy', createdAt: '2026-02-01T00:00:00Z', updatedAt: '2026-02-01T00:00:00Z', submittedBy: null };
+  const sub = { id: 's1', formType: 'VAT201', periodStart: '2026-01-01', periodEnd: '2026-01-31', status: 'submitted', formData: {}, submissionReference: null,
+    submittedAt: '2026-02-02T00:00:00Z', notes: 'local copy', createdAt: '2026-02-01T00:00:00Z', updatedAt: '2026-02-01T00:00:00Z', submittedBy: null };
   function open(detail: () => Response) {
     vi.mocked(apiFetch).mockImplementation(async (_u: unknown, init?: RequestInit) => (init?.method === 'POST' ? detail() : ok({ items: [sub] })));
     render(<SubmissionsPage />);
   }
   it('shows the server message on a 400 and still opens the local copy', async () => {
-    open(refused); fireEvent.click(await screen.findByText('View'));
+    open(refused);
+    expect(await screen.findByText('Filed on eFiling')).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Filed on eFiling' })).toBeTruthy();
+    fireEvent.click(await screen.findByText('View'));
     await waitFor(() => expect(bodyText()).toContain(MSG)); expect(bodyText()).toContain('MODAL local copy');
   });
   it('shows a plain sentence on an empty 500', async () => {
     open(empty500); fireEvent.click(await screen.findByText('View'));
-    await waitFor(() => expect(bodyText()).toContain('Could not load the submission details')); noParserText();
+    await waitFor(() => expect(bodyText()).toContain('Could not load the filing record details')); noParserText();
   });
   it('opens the server detail on a 200', async () => {
     open(() => ok({ ...sub, notes: 'D2 server detail' })); fireEvent.click(await screen.findByText('View'));
