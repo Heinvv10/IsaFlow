@@ -36,7 +36,7 @@ function isSensitiveKey(key: string): boolean {
 /** Always a file or a person's identity, health or pay details, whatever the value looks like. */
 const PAYLOAD_KEYS = new Set([
   'file_data', 'fileData', 'idDocument', 'logoData', 'idNumber', 'id_number', 'salary',
-  'taxNumber', 'tax_number', 'dateOfBirth', 'date_of_birth',
+  'taxNumber', 'tax_number', 'employee_tax_number', 'dateOfBirth', 'date_of_birth',
   // Who is on medical aid and how many dependants they cover: POPIA treats health information as special.
   'medicalAidMainMember', 'medical_aid_main_member', 'medicalAidDependantsCount', 'medical_aid_dependants_count',
 ]);

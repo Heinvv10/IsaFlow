@@ -158,15 +158,20 @@ function changedIdentifier(value: unknown, stored: string | undefined, isValid: 
   return isBlank(value) || value === stored ? value : identifier(value, isValid, refusal);
 }
 
-/** The API answers an end date as a timestamp and the profile sends that back, so the day is what is compared. */
+/**
+ * The API answers an end date as `YYYY-MM-DDT00:00:00.000Z` and the profile sends that back; that and a plain day are
+ * the only shapes taken. The day is returned, not the value, so what is stored is what was judged: anything else on
+ * the end of a good day would be judged as that day and reach Postgres as something else ('2030-01-01 BC').
+ */
 function changedEndDate(value: unknown, current: Pick<PayrollEmployee, 'startDate' | 'endDate'>): unknown {
   if (isBlank(value)) return value;
-  const day = typeof value === 'string' ? value.slice(0, 10) : value;
-  if (day === fmtDate(current.endDate)) return value;
-  if (dateOf(day, 'endDate') < dateOf(fmtDate(current.startDate), 'startDate')) {
+  const day = typeof value === 'string' ? value.replace(/T00:00:00\.000Z$/, '') : value;
+  const end = dateOf(day, 'endDate');
+  if (day === fmtDate(current.endDate)) return day;
+  if (end < dateOf(fmtDate(current.startDate), 'startDate')) {
     throw new EmployeeOnboardingRefused('endDate cannot be before startDate');
   }
-  return value;
+  return day;
 }
 
 /**

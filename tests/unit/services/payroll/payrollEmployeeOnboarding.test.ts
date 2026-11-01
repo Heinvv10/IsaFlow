@@ -27,7 +27,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { createPayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { assignComponentToEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import {
-  createEmployeeWithPay, EmployeeOnboardingRefused,
+  createEmployeeWithPay, employeeChangesOf, EmployeeOnboardingRefused,
 } from '@/modules/accounting/services/payroll/payrollEmployeeOnboarding';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -231,5 +231,27 @@ describe('createEmployeeWithPay: a lost race on the employee number', () => {
     const err = await go().then(() => null, e => e as Error);
     expect(err?.message).toBe('boom');
     expect(err).not.toBeInstanceOf(EmployeeOnboardingRefused);
+  });
+});
+
+describe('employeeChangesOf: the end date that goes on is the day that was judged', () => {
+  const current = { startDate: new Date('2020-01-01'), endDate: new Date('2030-06-30') };
+
+  it.each([
+    ['a plain day', '2030-12-31', '2030-12-31'],
+    ['the timestamp the API answers with', '2030-12-31T00:00:00.000Z', '2030-12-31'],
+    ['the stored day, as that timestamp', '2030-06-30T00:00:00.000Z', '2030-06-30'],
+  ])('%s comes back as the day', (_n, endDate, day) => {
+    expect(employeeChangesOf({ endDate }, current).endDate).toBe(day);
+  });
+
+  it.each([[''], [null], [undefined]])('%j is left as it came: blank means no change', (endDate) => {
+    expect(employeeChangesOf({ endDate }, current).endDate).toBe(endDate);
+  });
+
+  it.each([
+    ['2030-12-31 BC'], ['2030-12-31junk'], ['2030-12-31T00:00:00Z'], ['2030-12-31T23:59:59.999Z'], ['2030-06-30x'], ['2030-02-31'], [['2030-12-31']],
+  ])('%j is refused', (endDate) => {
+    expect(() => employeeChangesOf({ endDate }, current)).toThrow(EmployeeOnboardingRefused);
   });
 });
