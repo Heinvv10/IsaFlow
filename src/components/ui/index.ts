@@ -78,10 +78,10 @@ export type { SplitButtonProps, SplitButtonOption } from './SplitButton';
 export { TableDensityToggle } from './TableDensityToggle';
 
 export { MoneyField } from './MoneyField';
-export type { MoneyFieldProps } from './MoneyField';
+export type { MoneyFieldProps, MoneyFieldCode } from './MoneyField';
 
 export { DateField } from './DateField';
-export type { DateFieldProps } from './DateField';
+export type { DateFieldProps, DateFieldCode } from './DateField';
 
 export { FormSection } from './FormSection';
 export type { FormSectionProps } from './FormSection';

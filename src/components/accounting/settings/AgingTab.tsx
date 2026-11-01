@@ -112,8 +112,8 @@ export function AgingTab({ company, onChange }: Props) {
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-lg">
             <div>
-              <label className={LABEL_CLS}>Bucket 1 (days)</label>
-              <input
+              <label htmlFor="aging-tab-bucket-1-days" className={LABEL_CLS}>Bucket 1 (days)</label>
+              <input id="aging-tab-bucket-1-days"
                 type="number"
                 min={1}
                 max={999}
@@ -124,8 +124,8 @@ export function AgingTab({ company, onChange }: Props) {
               <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">e.g. 30 = &quot;0–30 days&quot;</p>
             </div>
             <div>
-              <label className={LABEL_CLS}>Bucket 2 (days)</label>
-              <input
+              <label htmlFor="aging-tab-bucket-2-days" className={LABEL_CLS}>Bucket 2 (days)</label>
+              <input id="aging-tab-bucket-2-days"
                 type="number"
                 min={1}
                 max={999}
@@ -136,8 +136,8 @@ export function AgingTab({ company, onChange }: Props) {
               <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">e.g. 60 = &quot;31–60 days&quot;</p>
             </div>
             <div>
-              <label className={LABEL_CLS}>Bucket 3 (days)</label>
-              <input
+              <label htmlFor="aging-tab-bucket-3-days" className={LABEL_CLS}>Bucket 3 (days)</label>
+              <input id="aging-tab-bucket-3-days"
                 type="number"
                 min={1}
                 max={999}
