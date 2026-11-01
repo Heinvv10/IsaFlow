@@ -98,11 +98,13 @@ test('type an amount: Saved, the new net, the approval sentence, cancel', async 
     expect(after.netPay).toBeLessThan(after.grossPay);
     expect(after.netPay).toBeGreaterThan(before.netPay);
     await expect(row(page)).toContainText(formatCurrency(after.netPay));
+    await snap(page, 'payrun-grid-saved', 'light');
 
     await page.getByRole('button', { name: /review & approve/i }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText(/^Paying 2 employees R\s[\d\s]+\.\d\d net for November 2026\. Cost to the company R\s[\d\s]+\.\d\d \(gross plus employer UIF and SDL, less ETI used\)\.$/))
       .toBeVisible({ timeout: 15_000 });
+    await snap(page, 'payrun-approve-sentence', 'light');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toBeHidden();
     expect((await api.get<Run>(`/api/payroll/runs/${runId}`)).status).toBe('calculated');
