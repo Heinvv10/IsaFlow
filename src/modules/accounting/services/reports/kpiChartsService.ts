@@ -182,10 +182,10 @@ export async function getTopCustomers(companyId: string, limit: number): Promise
       FROM customer_invoices ci
       -- LEFT and per id: an invoice naming another tenant's customer keeps its
       -- revenue on the chart, unnamed, and two such ids stay two rows.
-      LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ci.company_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.status NOT IN ('cancelled', 'draft')
         AND ci.company_id = ${companyId}::UUID
-      GROUP BY ci.customer_id, c.name
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY revenue DESC
       LIMIT ${limit}
     `) as DbRow[];

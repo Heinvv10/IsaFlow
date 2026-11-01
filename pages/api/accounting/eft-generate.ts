@@ -18,6 +18,7 @@ import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes'
 import { recordBankFileGenerated } from '@/modules/accounting/services/ap/batchBankFileRecord';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
+import { payeesNotInCompany } from '@/modules/accounting/services/ap/payeeNotInCompany';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { BatchChangedSinceApprovalError } from '@/modules/accounting/services/ap/batchApprovedDigest';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
@@ -97,12 +98,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // bank_fingerprint: of the five bank columns as read here, normalised as the file uses them (account and branch
   // digits, account type case-insensitive). The beneficiary NAME is the supplier name, which it does not cover.
   const payments = await sql`
-    SELECT sp.*, s.name as supplier_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_name,
+    SELECT sp.*, s.id AS payee_id, s.name as supplier_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_name,
            supplier_bank_fingerprint(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type,
                                      s.bank_account_holder) AS bank_fingerprint
     FROM supplier_payments sp
     -- LEFT and scoped: a member naming another company's supplier stays, with no bank
-    -- details, so the file is refused below. An inner join would shorten it silently.
+    -- details, and the file is refused below. An inner join would shorten it silently.
     LEFT JOIN suppliers s ON sp.supplier_id = s.id AND s.company_id = sp.company_id
     WHERE sp.batch_id = ${batchId} AND sp.company_id = ${companyId}::UUID
       AND sp.status IS DISTINCT FROM 'cancelled'   -- a cancelled member (cancelBatch) is no payee
@@ -110,6 +111,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   ` as Row[];
 
   if (payments.length === 0) return apiResponse.badRequest(res, 'No payments in batch');
+
+  const notInCompany = payeesNotInCompany(payments);
+  if (notInCompany.length > 0) {
+    return apiResponse.badRequest(res, notInCompany.join('; '), { reason: 'PAYEE_NOT_IN_COMPANY', errors: notInCompany });
+  }
 
   // Supplier bank verification (forensic-controls step 1): under the control,
   // every payee's details as read above must be verified now — payees

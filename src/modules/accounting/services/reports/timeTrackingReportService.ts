@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { TimeEntry, TimeSummary } from '../core/timeTrackingService';
+import { UNKNOWN_CUSTOMER } from '../ar/arAgingInvoices';
 import type { DbRow } from '@/types/db';
 
 
@@ -62,13 +63,14 @@ export async function getTimeSummary(
     const byCustomer = (await sql`
       SELECT
         COALESCE(te.customer_id::TEXT, 'none') AS customer_id,
-        COALESCE(c.name, 'No Customer') AS customer_name,
+        -- No customer_id is an entry with no customer; an id with no row here names another company's.
+        CASE WHEN te.customer_id IS NULL THEN 'No Customer' ELSE COALESCE(c.name, ${UNKNOWN_CUSTOMER}) END AS customer_name,
         SUM(te.hours) AS hours,
         COALESCE(SUM(CASE WHEN te.rate IS NOT NULL THEN te.hours * te.rate ELSE 0 END), 0) AS value
       FROM time_entries te
       LEFT JOIN customers c ON c.id = te.customer_id AND c.company_id = te.company_id
       WHERE te.company_id = ${companyId}::UUID
-      GROUP BY COALESCE(te.customer_id::TEXT, 'none'), COALESCE(c.name, 'No Customer')
+      GROUP BY te.customer_id, c.name
       ORDER BY hours DESC
     `) as DbRow[];
 

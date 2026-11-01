@@ -118,7 +118,7 @@ export async function fetchCustomerInvoiceCandidates(
     SELECT ci.id, ci.invoice_number, COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS customer_name,
            ci.total_amount, ci.invoice_date, ci.amount_paid
     FROM customer_invoices ci
-    LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ci.company_id
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
       AND ci.deleted_at IS NULL
       AND ci.company_id = ${companyId}
