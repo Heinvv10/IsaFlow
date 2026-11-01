@@ -11,10 +11,10 @@
  * space separators, a nil (anything under half a cent) as an en dash. Margins
  * take the same bracket through `formatPctLevel`.
  *
- * No `group_by`: the route refuses it. An A4 landscape page takes 10 amount
- * columns at 7 pt (277 mm less a 50 mm account column, at 22.5 mm for a bold
+ * No `group_by`: the route refuses it. This A4 portrait page at 9 pt takes 4
+ * amount columns (182 mm less a 50 mm account column, at 28.9 mm for a bold
  * `(R 212 345 678.90)` before cell padding), and a dimension has as many
- * members as it has.
+ * members as it has. Turning it landscape at 7 pt would reach only 10.
  */
 
 import { formatPctLevel, formatStatementFigure } from '@/lib/format/money';
@@ -158,15 +158,15 @@ function tableRow(row: IncomeStatementPdfRow, accent: [number, number, number]):
   }
 }
 
-const COMPARATOR_LABELS = { prior: 'Prior period', budget: 'Budget' } as const;
+const COMPARATOR_LABELS = { prior: 'Prior period', budget: 'Budget', variance: 'Variance', trend: '12-month trend' } as const;
 type Comparator = keyof typeof COMPARATOR_LABELS;
 
-/** `comparators=prior,budget`: the columns the screen had on. Null when it names anything else. */
+/** `comparators=prior,budget,variance,trend`, any of them: the columns the screen had on. Null when it names anything else. */
 export function parseComparators(value: unknown): Comparator[] | null {
   if (value === undefined) return [];
   if (typeof value !== 'string') return null;
   const names = value.split(',');
-  return names.every((n): n is Comparator => n === 'prior' || n === 'budget') ? [...new Set(names)] : null;
+  return names.every((n): n is Comparator => Object.keys(COMPARATOR_LABELS).includes(n)) ? [...new Set(names)] : null;
 }
 
 interface IncomeStatementPdfOptions {

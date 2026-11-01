@@ -6,12 +6,14 @@
 
 import { Download, FileSpreadsheet, FileText } from 'lucide-react';
 
+const COMPARATORS = ['prior', 'budget', 'variance', 'trend'] as const;
+
 interface Props {
   periodStart: string;
   periodEnd: string;
   costCentreId: string;
   businessUnitId: string;
-  columns: { prior: boolean; budget: boolean };
+  columns: Record<(typeof COMPARATORS)[number], boolean>;
   disabled: boolean;
 }
 
@@ -24,7 +26,7 @@ export function IncomeStatementExportButtons({ periodStart, periodEnd, costCentr
     window.open(`/api/accounting/${path}?${params}`, '_blank');
   }
 
-  const onScreen = [...(columns.prior ? ['prior'] : []), ...(columns.budget ? ['budget'] : [])].join(',');
+  const onScreen = COMPARATORS.filter((name) => columns[name]).join(',');
 
   return (
     <>
