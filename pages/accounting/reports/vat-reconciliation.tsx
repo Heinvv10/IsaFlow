@@ -35,7 +35,7 @@ export default function VatReconciliationPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
   });
   const dates = useDateGate();
-  const { reconData, multiData, loading, error } = useVatReconciliationData(mode, from, to);
+  const { reconData, multiData, loading, error, stale } = useVatReconciliationData(mode, from, to, dates);
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.
   // While the answer is still unknown, render neither: flashing a VAT form at
@@ -89,7 +89,7 @@ export default function VatReconciliationPage() {
         </div>
       )}
 
-      <FixDateNotice gate={dates} className="mb-4" />
+      <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-800 bg-red-900/30 px-4 py-3 text-sm text-red-300">
           <AlertCircle className="h-4 w-4" /> {error}
@@ -97,7 +97,7 @@ export default function VatReconciliationPage() {
       )}
 
       {/* Monthly Reconciliation */}
-      {mode === 'reconciliation' && reconData && !loading && (
+      {mode === 'reconciliation' && reconData && !loading && !stale && (
         <div className="space-y-6">
           <VatReconIssueList issues={reconData.issues} />
 
