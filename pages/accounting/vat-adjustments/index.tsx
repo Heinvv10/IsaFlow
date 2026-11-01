@@ -36,15 +36,17 @@ export default function VATAdjustmentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  // Two gates: a refused list filter must not block the form, and a refused form date is not about the list.
   const dates = useDateGate();
+  const filterDates = useDateGate();
   const [form, setForm] = useState({
     adjustmentDate: localISODate(),
     vatPeriod: '', adjustmentType: 'input', amount: '', reason: '',
   });
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const onFromChange = dates.bind('dateFrom', setDateFrom, dateFrom);
-  const onToChange = dates.bind('dateTo', setDateTo, dateTo);
+  const onFromChange = filterDates.bind('dateFrom', setDateFrom, dateFrom);
+  const onToChange = filterDates.bind('dateTo', setDateTo, dateTo);
 
   const load = useCallback(async () => {
     try {
@@ -139,15 +141,15 @@ export default function VATAdjustmentsPage() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
 
           <div className="flex items-center gap-4">
-            <DateField label="From" value={dateFrom || null} resetKey={dates.resetKey('dateFrom')} onChange={onFromChange} />
-            <DateField label="To" value={dateTo || null} resetKey={dates.resetKey('dateTo')} onChange={onToChange} />
+            <DateField label="From" value={dateFrom || null} resetKey={filterDates.resetKey('dateFrom')} onChange={onFromChange} />
+            <DateField label="To" value={dateTo || null} resetKey={filterDates.resetKey('dateTo')} onChange={onToChange} />
             {(dateFrom || dateTo) && (
-              <button onClick={() => { dates.reset('dateFrom'); dates.reset('dateTo'); setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
+              <button onClick={() => { filterDates.reset('dateFrom'); filterDates.reset('dateTo'); setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
             )}
             <span className="mt-4 text-sm text-[var(--ff-text-secondary)] ml-auto">{filteredItems.length} adjustments</span>
           </div>
 
-          {dates.blocked && (
+          {filterDates.blocked && (
             <div role="alert" className="p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
               Fix the date marked in red: the list below still uses the previous dates.
             </div>
