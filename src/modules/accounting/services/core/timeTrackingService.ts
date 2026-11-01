@@ -109,7 +109,7 @@ export async function getTimeEntries(
     const rows = (await sql`
       SELECT te.*, c.name AS customer_name
       FROM time_entries te
-      LEFT JOIN customers c ON c.id = te.customer_id
+      LEFT JOIN customers c ON c.id = te.customer_id AND c.company_id = te.company_id
       WHERE te.company_id = ${companyId}::UUID
       ORDER BY te.entry_date DESC, te.created_at DESC
       LIMIT ${lim} OFFSET ${off}
@@ -132,7 +132,7 @@ export async function getTimeEntry(
   const rows = (await sql`
     SELECT te.*, c.name AS customer_name
     FROM time_entries te
-    LEFT JOIN customers c ON c.id = te.customer_id
+    LEFT JOIN customers c ON c.id = te.customer_id AND c.company_id = te.company_id
     WHERE te.id = ${id}::UUID AND te.company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!rows.length) return null;

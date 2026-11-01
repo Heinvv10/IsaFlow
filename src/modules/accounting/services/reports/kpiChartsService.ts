@@ -9,6 +9,7 @@ import type { DbRow } from '@/types/db';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { AGING_BREAKDOWN_LABELS, getOpenBook, type OpenBook } from './dashboardOpenBook';
 import { todayInSast } from '@/lib/saDateParser';
+import { UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { revenueBand } from '../gl/accountClassification';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
@@ -175,14 +176,16 @@ export async function getAgingBreakdown(
 export async function getTopCustomers(companyId: string, limit: number): Promise<TopCustomer[]> {
   try {
     const rows = (await sql`
-      SELECT c.name AS name,
+      SELECT COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS name,
         COALESCE(SUM(ci.total_amount), 0) AS revenue,
         COUNT(ci.id) AS invoice_count
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.customer_id
+      -- LEFT and per id: an invoice naming another tenant's customer keeps its
+      -- revenue on the chart, unnamed, and two such ids stay two rows.
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.status NOT IN ('cancelled', 'draft')
         AND ci.company_id = ${companyId}::UUID
-      GROUP BY c.id, c.name
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name
       ORDER BY revenue DESC
       LIMIT ${limit}
     `) as DbRow[];

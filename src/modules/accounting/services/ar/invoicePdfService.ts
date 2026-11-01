@@ -30,7 +30,7 @@ export async function getInvoicePdfFilename(
   const rows = (await sql`
     SELECT ci.invoice_number, c.name AS client_name
       FROM customer_invoices ci
-      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
      WHERE ci.id = ${invoiceId}::UUID
        AND ci.company_id = ${companyId}::UUID
      LIMIT 1

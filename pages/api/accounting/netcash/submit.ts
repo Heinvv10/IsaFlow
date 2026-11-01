@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { validateNetcashPayees } from '@/modules/accounting/services/ap/netcashPayeeValidation';
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
+import { payeesNotInCompany } from '@/modules/accounting/services/ap/payeeNotInCompany';
 import { unreleasedBankFile } from '@/modules/accounting/services/ap/batchBankFileRecord';
 import { AnswerNotRecordedError, claimBatch, type SettleResult } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
 import {
@@ -115,18 +116,24 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // bank_fingerprint: of the five bank columns as read here (account and branch sent as digits, as it normalises them).
   // The account holder sent is the supplier name, which it does not cover.
   const rows = await sql`
-    SELECT sp.total_amount AS amount, sp.reference, sp.supplier_id,
-           s.name as account_holder, s.bank_branch_code as bank_code,
+    SELECT sp.total_amount AS amount, sp.reference, sp.supplier_id, sp.payment_number,
+           s.id AS payee_id, s.name as account_holder, s.bank_branch_code as bank_code,
            s.bank_account_number as account_number,
            supplier_bank_fingerprint(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type,
                                      s.bank_account_holder) AS bank_fingerprint
     FROM supplier_payments sp
-    JOIN suppliers s ON sp.supplier_id = s.id
+    -- LEFT and scoped: a member naming another company's supplier stays, with no bank
+    -- details, and the file is refused below. An inner join would shorten it silently.
+    LEFT JOIN suppliers s ON sp.supplier_id = s.id AND s.company_id = sp.company_id
     WHERE sp.batch_id = ${batchPaymentId} AND sp.company_id = ${companyId}::UUID AND sp.status IS DISTINCT FROM 'cancelled'
     ORDER BY sp.created_at
   ` as Row[];
 
   if (rows.length === 0) return apiResponse.badRequest(res, 'No payments found in batch');
+  const notInCompany = payeesNotInCompany(rows);
+  if (notInCompany.length > 0) {
+    return apiResponse.badRequest(res, notInCompany.join('; '), { reason: 'PAYEE_NOT_IN_COMPANY', errors: notInCompany });
+  }
   // Supplier bank verification: every payee's details as read above must be
   // verified now, payees share-locked (ap/supplierBankVerificationGate). 409
   // naming the suppliers, before anything is sent or recorded. Off: unchanged.

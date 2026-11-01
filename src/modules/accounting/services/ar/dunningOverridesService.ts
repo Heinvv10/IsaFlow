@@ -13,6 +13,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
+import { UNKNOWN_CUSTOMER } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 
 export interface CustomerDunningOverride {
@@ -51,9 +52,9 @@ export async function listOverrides(
   const rows = (await sql`
     SELECT cdo.company_id, cdo.customer_id, cdo.suppress_dunning,
            cdo.template_id_override, cdo.note, cdo.created_at, cdo.updated_at,
-           c.name AS customer_name
+           COALESCE(c.name, ${UNKNOWN_CUSTOMER}) AS customer_name
     FROM customer_dunning_overrides cdo
-    JOIN customers c ON c.id = cdo.customer_id
+    LEFT JOIN customers c ON c.id = cdo.customer_id AND c.company_id = cdo.company_id
     WHERE cdo.company_id = ${companyId}::uuid
     ORDER BY c.name ASC
   `) as DbRow[];
