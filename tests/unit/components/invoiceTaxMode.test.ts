@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  effectiveTaxRate, exVatUnitPrice, inclusiveTypedTotal, lineTotalForMode, storedUnitPrice, taxModeFromVatType, type TaxMode,
+  effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, taxModeFromVatType, type TaxMode,
 } from '@/components/accounting/customer-invoices/taxMode';
 import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 
@@ -30,6 +30,53 @@ describe('exVatUnitPrice', () => {
 
   it.each([[Number.NaN, 15], [115, Number.NaN], [Number.POSITIVE_INFINITY, 15], [115, -100]])('a half-typed %s at %s percent prices as 0, not a crash', (gross, rate) => {
     expect(exVatUnitPrice(gross, rate)).toBe(0);
+  });
+});
+
+describe('grossUnitPrice', () => {
+  it.each([
+    [1000, 15, 1150],
+    [500, 15, 575],
+    [8.7, 15, 10.01], // 10.005 exactly, half away from zero: a float calculation lands on 10
+    [100, 14, 114],
+    [115, 0, 115],
+    [-100, 15, -115],
+    [10.005, 15, 11.51], // priced as the column stores it: 10.01, not 10.005
+  ])('%s at %s percent = %s', (ex, rate, gross) => {
+    expect(grossUnitPrice(ex, rate)).toBe(gross);
+  });
+
+  it.each([[Number.NaN, 15], [115, Number.NaN], [Number.POSITIVE_INFINITY, 15]])('a half-typed %s at %s percent is left as it is', (ex, rate) => {
+    expect(grossUnitPrice(ex, rate)).toBe(ex);
+  });
+
+  it.each([0, 5, 14, 15, 15.5, 27, 100, 150])('every stored price comes back exact at %s percent', (rate) => {
+    for (let cents = 1; cents <= 30_000; cents++) {
+      const ex = cents / 100;
+      if (exVatUnitPrice(grossUnitPrice(ex, rate), rate) !== ex) throw new Error(`${ex} at ${rate}% does not come back`);
+    }
+  });
+});
+
+describe('linesForModeChange', () => {
+  const lines = [{ unitPrice: 1000, discount: 10 }, { unitPrice: 500, discount: 0 }];
+  const prices = (from: TaxMode, to: TaxMode) => linesForModeChange(lines, from, to, 15).map((l) => l.unitPrice);
+
+  it('grosses up on the way into inclusive, from either other mode', () => {
+    expect(prices('exclusive', 'inclusive')).toEqual([1150, 575]);
+    expect(prices('none', 'inclusive')).toEqual([1150, 575]);
+  });
+
+  it('takes the VAT back out on the way out of inclusive, to either other mode', () => {
+    const shown = [{ unitPrice: 1150 }, { unitPrice: 575 }];
+    expect(linesForModeChange(shown, 'inclusive', 'exclusive', 15).map((l) => l.unitPrice)).toEqual([1000, 500]);
+    expect(linesForModeChange(shown, 'inclusive', 'none', 15).map((l) => l.unitPrice)).toEqual([1000, 500]);
+  });
+
+  it('leaves the price alone between exclusive and No VAT, and keeps the rest of the line', () => {
+    expect(prices('exclusive', 'none')).toEqual([1000, 500]);
+    expect(prices('none', 'exclusive')).toEqual([1000, 500]);
+    expect(linesForModeChange(lines, 'exclusive', 'inclusive', 15)[0]!.discount).toBe(10);
   });
 });
 

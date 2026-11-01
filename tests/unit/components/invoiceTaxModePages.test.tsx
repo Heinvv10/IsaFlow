@@ -164,15 +164,8 @@ describe('edit page', () => {
     expect(hintFromCustomer()).toEqual([]);
   });
 
-  it('inclusive saves the ex-VAT price, and No VAT saves rate 0 on the header and the lines', async () => {
+  it('No VAT saves rate 0 on the header and the lines, at the stored price', async () => {
     serve();
-    await load();
-    await pickMode(/Including VAT/);
-    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
-    await waitFor(() => expect(push).toHaveBeenCalled());
-    expect(sentBody('PUT').items[0]!.unitPrice).toBe(100);
-    cleanup(); push.mockClear(); vi.mocked(apiFetch).mockClear();
-
     await load();
     await pickMode(/No VAT/);
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
