@@ -1,4 +1,5 @@
 // src/lib/sentry/scrubText.ts: text-level redaction for Sentry payloads: DOM selectors and URLs.
+import { keyMayBeData } from '@/lib/sanitizeRequestBody';
 import { redactShareToken } from '@/lib/observability/redactShareToken';
 
 export const REDACTED = '[REDACTED]';
@@ -22,7 +23,7 @@ export function redactQueryValues(query: string): string {
   return query.split('&').map((pair) => {
     if (pair === '') return pair;
     const eq = pair.indexOf('=');
-    if (eq === -1) return REDACTED;
+    if (eq === -1 || keyMayBeData(pair.slice(0, eq))) return REDACTED;
     return pair.slice(eq + 1) === '[token]' ? pair : `${pair.slice(0, eq)}=${REDACTED}`;
   }).join('&');
 }

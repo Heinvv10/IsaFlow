@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import duplicates from '../../pages/api/payroll/duplicates';
+import bankDetails from '../../pages/api/payroll/employees/[id]/bank-details';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { dataOf, impersonationToken } from './r035-pr2.helpers';
@@ -77,6 +78,30 @@ describe('the request log (journald: what the logger writes to stdout)', () => {
     const lines = written.join('');
     expect(lines).toContain('API Request: PUT');
     expect(lines).not.toContain(ROW.accountNumber);
+  });
+});
+
+describe('the request log: the query string', () => {
+  it('a number in the URL gets the body\'s checks, in the logged url and the logged query', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const n = ROW.accountNumber;
+    const written: string[] = [];
+    for (const stream of [process.stdout, process.stderr]) {
+      vi.spyOn(stream, 'write').mockImplementation((chunk: unknown) => { written.push(String(chunk)); return true; });
+    }
+    const query = { id: e, accountNumber: n, account_no: n, [n]: '', page: '2' };
+    let status = 0;
+    try {
+      status = (await callRoute(bankDetails, tokens[o]!, c, 'GET', undefined,
+        `/api/payroll/employees/${e}/bank-details?accountNumber=${n}&account_no=${n}&${n}&page=2`, query)).state.statusCode;
+    } finally { vi.restoreAllMocks(); }
+    expect(status).toBe(200);
+    const lines = written.join('');
+    expect(lines).toContain('page=2');
+    expect(lines).toContain('"page":"2"');
+    expect(lines).toContain('"accountNumber":"[REDACTED]"');
+    expect(lines).not.toContain(n);
   });
 });
 

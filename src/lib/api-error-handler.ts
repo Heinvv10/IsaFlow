@@ -11,7 +11,7 @@ import { redactShareToken, redactTokenParams } from '@/lib/observability/redactS
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { loggableRequestBody } from '@/lib/sanitizeRequestBody';
+import { loggableRequestBody, loggableUrl, sanitizeRequestBody } from '@/lib/sanitizeRequestBody';
 
 /**
  * Standard API error response
@@ -35,6 +35,11 @@ export interface ApiSuccessResponse<T = unknown> {
 
 export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
 
+export interface ErrorHandlerOptions {
+  /** The body fields the request log may hold, for a route whose body is credentials: nothing else is logged. */
+  logBodyFields?: readonly string[];
+}
+
 /**
  * Wraps an API handler with error handling.
  *
@@ -46,7 +51,8 @@ export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
  
 export function withErrorHandler(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handler: (req: any, res: NextApiResponse<any>) => unknown
+  handler: (req: any, res: NextApiResponse<any>) => unknown,
+  options: ErrorHandlerOptions = {},
 ): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse) => {
     const requestId = generateRequestId();
@@ -61,7 +67,7 @@ export function withErrorHandler(
       }
 
       await runWithRequestContext(requestId, async () => {
-      const safeUrl = redactShareToken(req.url ?? '');
+      const safeUrl = loggableUrl(redactShareToken(req.url ?? ''));
       try {
         // CORS — single source of truth in src/lib/cors.ts (pentest M11).
         const origin = safeCorsOrigin(req.headers.origin);
@@ -82,8 +88,8 @@ export function withErrorHandler(
           type: 'request',
           method: req.method,
           url: safeUrl,
-          query: redactTokenParams(req.query),
-          body: req.method !== 'GET' ? loggableRequestBody(req) : undefined,
+          query: redactTokenParams(sanitizeRequestBody(req.query) as typeof req.query),
+          body: req.method !== 'GET' ? loggableRequestBody(req, options.logBodyFields) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 
         // Execute the actual handler
