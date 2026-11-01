@@ -40,11 +40,14 @@ export function InvoiceSummaryCard({ subtotal, tax, total, taxRate, currencyCode
           <span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span>
           <span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrencyAmount(total, currencyCode)}</span>
         </div>
-        {typedTotal !== undefined && typedTotal !== total && (
-          <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
-            You typed {formatCurrencyAmount(typedTotal, currencyCode)} incl. VAT; the invoice total is {formatCurrencyAmount(total, currencyCode)}.
-          </p>
-        )}
+        {/* Always mounted: a status region announces a change only if it was in the page before the change. */}
+        <div role="status">
+          {typedTotal !== undefined && typedTotal !== total && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              You typed {formatCurrencyAmount(typedTotal, currencyCode)} incl. VAT; the invoice total is {formatCurrencyAmount(total, currencyCode)}.
+            </p>
+          )}
+        </div>
         {fx && (
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
             <p className="text-xs text-ink-muted flex justify-between">

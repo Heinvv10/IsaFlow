@@ -11,7 +11,7 @@
  * The edit page does not use this: a stored invoice's figures are the invoice. It reads a changed customer only to warn
  * (useCustomerLookup, vatTypeWarning).
  */
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { dueDateFromTerms } from '@/modules/accounting/services/ar/paymentTerms';
 import type { InvoiceHeaderForm } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
@@ -47,10 +47,13 @@ export function useContactDefaults<L extends InvoiceLine>({ clientId, invoiceDat
   // null until a customer is picked: nothing is filled, or taken out, before there is a customer to take it from.
   const { defaults, pending, error, forget } = useCustomerLookup(clientId, LOAD_FAILED);
   const [touched, setTouched] = useState({ dueDate: false, taxMode: false });
+  // Set in the event itself: the customer's answer can commit just before a click and its effects run just after, with
+  // the old `touched`. Mode and prices change together, so a default landing then would leave gross prices read as ex-VAT.
+  const touchedNow = useRef(touched);
 
   const due = defaults ? dueDateFromTerms(invoiceDate, defaults.terms, defaults.termsType) : null;
   useEffect(() => {
-    if (!defaults || touched.dueDate) return;
+    if (!defaults || touchedNow.current.dueDate) return;
     setForm((f) => (f.dueDate === (due ?? '') ? f : { ...f, dueDate: due ?? '' }));
   }, [defaults, due, touched.dueDate, setForm]);
 
@@ -62,14 +65,19 @@ export function useContactDefaults<L extends InvoiceLine>({ clientId, invoiceDat
 
   const defaultMode = defaults ? taxModeFromVatType(defaults.vatType) : null;
   useEffect(() => {
-    if (!defaults || touched.taxMode) return;
+    if (!defaults || touchedNow.current.taxMode) return;
     setTaxMode(defaultMode ?? 'exclusive');
   }, [defaults, defaultMode, touched.taxMode, setTaxMode]);
 
-  const touch = useCallback((field: TouchableField) => setTouched((t) => (t[field] ? t : { ...t, [field]: true })), []);
+  const touch = useCallback((field: TouchableField) => {
+    if (touchedNow.current[field]) return;
+    touchedNow.current = { ...touchedNow.current, [field]: true };
+    setTouched(touchedNow.current);
+  }, []);
   const reset = useCallback(() => {
     forget();
-    setTouched({ dueDate: false, taxMode: false });
+    touchedNow.current = { dueDate: false, taxMode: false };
+    setTouched(touchedNow.current);
   }, [forget]);
 
   return {

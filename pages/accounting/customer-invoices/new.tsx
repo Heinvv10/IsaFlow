@@ -21,7 +21,7 @@ import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/In
 import { invoiceDateProblem, isoOrEmpty, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, pricesToNothingMessage, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 
 interface Client { id: string; name: string }
 type LineItem = InvoiceLine;
@@ -95,8 +95,11 @@ export default function NewCustomerInvoicePage() {
     if (data.date) updates.invoiceDate = isoOrEmpty(data.date);
     if (data.dueDate) { updates.dueDate = isoOrEmpty(data.dueDate); contact.touch('dueDate'); }
     if (data.vatRate !== null) updates.taxRate = data.vatRate;
-    // A scan reads the rate and ex-VAT prices off the document, so the form goes back to taking them as they are.
-    if (data.vatRate !== null || (taxMode === 'inclusive' && data.lineItems.length > 0)) pickTaxMode('exclusive');
+    // A scan reads the rate and ex-VAT prices off the document, so the form goes back to taking them as they are; with
+    // no lines on the scan, the gross prices already typed stay gross.
+    const keepsTypedGross = taxMode === 'inclusive' && data.lineItems.length === 0;
+    if (data.vatRate !== null) contact.touch('taxMode');
+    if (!keepsTypedGross && (data.vatRate !== null || taxMode === 'inclusive')) pickTaxMode('exclusive');
     setForm(f => ({ ...f, ...updates }));
     dates.clear(); setResetKey(k => k + 1);
     const seq = ++lookupSeq.current;
@@ -109,6 +112,8 @@ export default function NewCustomerInvoicePage() {
 
   const handleSubmit = async (andNew = false) => {
     if (!form.clientId) return setError('Select a client');
+    const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
+    if (tooSmall) return setError(pricesToNothingMessage(tooSmall.description));
     const validLines = lines.map(({ discountFromDefault: _fromDefault, ...l }) => ({ ...l, unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate) })).filter(l => l.description && l.unitPrice > 0);
     if (validLines.length === 0) return setError('Add at least one line item');
     const dateProblem = invoiceDateProblem(form, dates.refused);

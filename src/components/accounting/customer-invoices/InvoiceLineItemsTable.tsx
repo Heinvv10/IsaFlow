@@ -85,9 +85,10 @@ export function InvoiceLineItemsTable({
   lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint,
 }: Props) {
   const [discountToggled, setDiscountToggled] = useState<boolean | null>(null);
-  // Open by default when a line carries a discount: a default the user cannot see is a discount they did not give.
+  // Open whenever a line carries a discount, and not hideable: a discount the user cannot see is one they did not give.
   // Typing in the column pins it open, so clearing a discount to retype it does not take the field away.
-  const showDiscount = discountToggled ?? lines.some((l) => l.discount > 0);
+  const carriesDiscount = lines.some((l) => l.discount > 0);
+  const showDiscount = carriesDiscount || discountToggled === true;
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default when a line already carries a dimension, so an edit shows what it will save.
   const showDimensions = dimensionsToggled ?? lines.some((l) => l.projectId !== '' || l.cc2Id !== '' || l.buId !== '');
@@ -100,7 +101,7 @@ export function InvoiceLineItemsTable({
           <button type="button" aria-expanded={showDimensions} onClick={() => setDimensionsToggled(!showDimensions)} className={toggle(showDimensions)}>
             <Tags className="h-3 w-3" />{showDimensions ? 'Hide Dimensions' : 'Dimensions'}
           </button>
-          <button type="button" aria-expanded={showDiscount} onClick={() => setDiscountToggled(!showDiscount)} className={toggle(showDiscount)}>
+          <button type="button" aria-expanded={showDiscount} disabled={carriesDiscount} title={carriesDiscount ? 'Clear the discounts to hide this column' : undefined} onClick={() => setDiscountToggled(!showDiscount)} className={`${toggle(showDiscount)} disabled:opacity-60 disabled:cursor-not-allowed`}>
             <SlidersHorizontal className="h-3 w-3" />{showDiscount ? 'Hide Disc.' : 'Disc. %'}
           </button>
           <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
@@ -143,7 +144,7 @@ export function InvoiceLineItemsTable({
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}
               <td className="px-3 py-2"><input type="number" name="quantity" aria-label="Quantity" value={l.quantity} onChange={(e) => onUpdate(l.key, 'quantity', Number(e.target.value))} className={`${inp} text-right`} /></td>
-              <td className="px-3 py-2"><input type="number" name="unitPrice" aria-label="Unit price" value={l.unitPrice} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
+              <td className="px-3 py-2"><input type="number" name="unitPrice" aria-label={pricesIncludeVat ? 'Unit price incl. VAT' : 'Unit price'} value={l.unitPrice} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
               {showDiscount && <td className="px-3 py-2"><input type="number" aria-label="Discount %" min={0} max={100} step={0.01} value={l.discount || ''} onChange={(e) => { setDiscountToggled(true); onUpdate(l.key, 'discount', e.target.value === '' ? 0 : discountInput(Number(e.target.value))); }} placeholder="0" className={`${inp} text-right`} /></td>}
               <td className="px-4 py-2 text-right">
                 <span className="tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), currencyCode)}</span>
