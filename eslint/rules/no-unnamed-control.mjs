@@ -45,8 +45,8 @@ function isHidden(node) {
     if (a.value === null) return true; // bare attribute is `true`
     const e = a.value.type === 'JSXExpressionContainer' ? a.value.expression : undefined;
     if (e?.type === 'Literal' && e.value === true) return true;
+    if (n === 'aria-hidden') return literal(a) === 'true';
     const text = literal(a)?.trim().toLowerCase();
-    if (n === 'aria-hidden') return text === 'true';
     return text !== undefined && text !== '' && text !== 'false';
   });
 }

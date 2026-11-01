@@ -5,6 +5,9 @@
  * Why this exists beside Modal's inline trap: that one is a React onKeyDown on the dialog, so it never sees
  * focus that has already left it, and it is welded to Modal's markup. Rewriting Modal in this foundation PR
  * would change the behaviour of every modal in the app, so Modal keeps its own and new overlays use this.
+ *
+ * Keys are ignored while focus is in another dialog (the command palette over a drawer): every trap listens on document,
+ * so stopPropagation cannot separate them, and both would close on Escape and fight over Tab.
  */
 import { useEffect, useRef, type RefObject } from 'react';
 
@@ -29,6 +32,8 @@ export function useFocusTrap(
     (items()[0] ?? container).focus();
 
     const onKeyDown = (e: KeyboardEvent): void => {
+      const holder = document.activeElement?.closest('[role="dialog"]');
+      if (holder && !holder.contains(container)) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         escape.current();

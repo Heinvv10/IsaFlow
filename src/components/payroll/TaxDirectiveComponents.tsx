@@ -35,8 +35,6 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
   const { employees, loading: employeesLoading, error: employeesError, reload: reloadEmployees } = useDirectiveEmployees();
   const [form, setForm] = useState({
     employee_id: '',
-    employee_name: '',
-    employee_tax_number: '',
     directive_number: '',
     directive_type: 'retirement' as DirectiveType,
     amount: '',
@@ -59,16 +57,11 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(f => ({ ...f, [k]: e.target.value }));
 
-  // The directive is paid to this employee (a run, or /apply): its name and tax number are the employee's,
-  // shown read-only (the server stores the record's whatever is sent).
+  // The directive is paid to this employee (a run, or /apply): its name and tax number are the employee's, shown
+  // read-only and never posted (the server stores the record's, and a posted tax number would only reach the log).
+  const picked = employees.find(emp => emp.id === form.employee_id);
   const pickEmployee = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const picked = employees.find(emp => emp.id === e.target.value);
-    setForm(f => ({
-      ...f,
-      employee_id: e.target.value,
-      employee_name: picked ? `${picked.firstName} ${picked.lastName}` : f.employee_name,
-      employee_tax_number: picked ? picked.taxNumber ?? '' : f.employee_tax_number,
-    }));
+    setForm(f => ({ ...f, employee_id: e.target.value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -129,11 +122,11 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
               loading={employeesLoading} error={employeesError} inputCls={inputCls} labelCls={labelCls} onRetry={reloadEmployees} />
             <div className="col-span-2">
               <label htmlFor="td-employee-name" className={labelCls}>Employee Name *</label>
-              <input id="td-employee-name" className={inputCls} value={form.employee_name} readOnly required placeholder="From the employee picked" />
+              <input id="td-employee-name" className={inputCls} value={picked ? `${picked.firstName} ${picked.lastName}` : ''} readOnly required placeholder="From the employee picked" />
             </div>
             <div>
               <label htmlFor="td-tax-number" className={labelCls}>Tax Number</label>
-              <input id="td-tax-number" className={inputCls} value={form.employee_tax_number} readOnly placeholder="From the employee picked" />
+              <input id="td-tax-number" className={inputCls} value={picked?.taxNumber ?? ''} readOnly placeholder="From the employee picked" />
             </div>
             <div>
               <label className={labelCls}>Directive Type *</label>

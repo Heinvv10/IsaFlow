@@ -85,6 +85,9 @@ tester.run('no-unnamed-control', noUnnamedControl, {
     { code: '<select hidden={open ? false : true} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<select aria-hidden={!!x} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<select aria-hidden="yes" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    // ARIA takes the exact string "true": any other spelling leaves the control in the tree
+    { code: '<select aria-hidden="TRUE" />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
+    { code: '<textarea aria-hidden=" true " />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     { code: '<textarea aria-hidden={`1`} />', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
     // a wrapping label with no text, no expression, no component and no aria names nothing; option text is not label text
     { code: '<label><select /></label>', filename: file, options: NONE, errors: [{ messageId: 'unnamed' }] },
