@@ -89,6 +89,8 @@ export default function SupplierLedgerPage() {
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
   const [ledger, setLedger] = useState<LedgerData | null>(null);
+  // The dates `ledger` ran on: the inputs can move on without a new run.
+  const [ranOn, setRanOn] = useState({ dateFrom: '', dateTo: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const dates = useDateGate();
@@ -113,6 +115,7 @@ export default function SupplierLedgerPage() {
       await assertOk(res, 'Could not load the ledger - try again');
       const json = await res.json();
       setLedger((json as { data: LedgerData }).data);
+      setRanOn({ dateFrom, dateTo });
     } catch (err) {
       setLedger(null); setError(apiErrorMessage(err, 'Could not load the ledger - try again'));
     } finally {
@@ -148,7 +151,7 @@ export default function SupplierLedgerPage() {
               </h1>
             </div>
             <button
-              onClick={() => ledger && exportCsv(ledger, dateFrom, dateTo)}
+              onClick={() => ledger && exportCsv(ledger, ranOn.dateFrom, ranOn.dateTo)}
               disabled={!ledger || ledger.transactions.length === 0 || dates.blocked}
               className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50"
             >
