@@ -30,14 +30,12 @@ import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
 import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
-import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
+import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
+import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
-
-const PAGE_SIZE = 25;
 
 export default function BankTransactionsPage() {
   const router = useRouter();
-  // Reference / lookup data
   const [glAccounts, setGlAccounts] = useState<SelectOption[]>([]);
   const [suppliers, setSuppliers] = useState<SelectOption[]>([]);
   const [customers, setCustomers] = useState<SelectOption[]>([]);
@@ -69,7 +67,7 @@ export default function BankTransactionsPage() {
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [loaded, setLoaded] = useState({ page: 1, total: 0 }), total = loaded.total; // total + the page it was counted for (past-the-end skeleton)
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -112,28 +110,32 @@ export default function BankTransactionsPage() {
       setShowBU(buLocal !== null ? buLocal !== 'false' : buJson.data?.value === 'true');
     }).catch(err => log.warn('Column settings unavailable, using defaults', { error: err }, 'bank-transactions'));
   }, []);
-  // Debounce search — 500ms
+  // Debounce search — 500ms. Only a changed search resets to page 1 (the mount timer used to undo a page-3 click).
   useEffect(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (searchTerm === debouncedSearch) return;
     debounceTimer.current = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 500);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
-  }, [searchTerm]);
-  // Load transactions
+  }, [searchTerm, debouncedSearch]);
+  // Load transactions. Only the latest request writes state: a slow older response must not overwrite a newer one.
+  const loadSeq = useRef(0);
   const loadTransactions = useCallback(async () => {
-    if (!selectedBank) { setIsLoading(false); setTransactions([]); setTotal(0); return; }
+    const seq = ++loadSeq.current, latest = () => seq === loadSeq.current;
+    if (!selectedBank) { setIsLoading(false); setTransactions([]); setLoaded({ page, total: 0 }); return; }
     setIsLoading(true); setError('');
     try {
       const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
         search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion });
       const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
       const json = await res.json();
+      if (!latest()) return;
       const data = json.data || json;
-      setTransactions(data.transactions || []); setTotal(data.total || 0);
-    } catch (err) { setTransactions([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
-    finally { setIsLoading(false); }
+      setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0 });
+    } catch (err) { if (latest()) { setTransactions([]); setLoaded({ page, total: 0 }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); } }
+    finally { if (latest()) setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
+  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, failed: error !== '', setPage });
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, loadTransactions);
@@ -212,8 +214,7 @@ export default function BankTransactionsPage() {
           onRefresh={loadTransactions} onBulkAccept={actions.handleBulkAccept}
           onBatchAccept={actions.handleBatchAccept} onBatchDelete={actions.handleBatchDelete}
           onToggleBatchEdit={() => { setShowBatchEdit(s => !s); setBatchSearch(''); }}
-          onExport={() => exportLoadedBankTx(transactions, bank?.accountCode, bank?.accountName)}
-          onExportAll={() => exportAllBankTx(fromDate, toDate)}
+          onExport={() => exportLoadedBankTx(transactions, bank?.accountCode, bank?.accountName)} onExportAll={() => exportAllBankTx(fromDate, toDate)}
           onApplyRules={actions.handleApplyRules}
           onDownloadReport={() => actions.handleDownloadReport(bank?.accountCode)}
           onSearchChange={setSearchTerm}
@@ -245,7 +246,7 @@ export default function BankTransactionsPage() {
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
-            empty={transactions.length === 0} tab={tab}>
+            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}
