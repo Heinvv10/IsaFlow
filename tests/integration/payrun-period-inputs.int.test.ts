@@ -216,8 +216,8 @@ describe('what the grid may not touch', () => {
     });
 
   it('offers only the editable components', async () => {
-    const offered = (await get(nov)).body.data!.inputs.components.map((c: { id: string }) => c.id).sort();
-    expect(offered).toEqual([comp.overtime, comp.commission, comp.union, await salaryComponent()].sort());
+    const offered = (await get(nov)).body.data!.inputs.components.map((c: { name: string }) => c.name);
+    expect(offered).toEqual(['Basic Salary', 'Commission', 'Overtime', 'Union dues']);
   });
 
   it.each([['a string', '1000'], ['negative', -1], ['three decimals', 1.005], ['too large', 1e13], ['missing', undefined], ['NaN', Number.NaN]])(
@@ -299,7 +299,3 @@ describe('approval after an edit', () => {
     expect(await rows(comp.commission!)).toEqual([]);
   });
 });
-
-async function salaryComponent(): Promise<string> {
-  return (await pool.query(`SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Basic Salary'`, [coA])).rows[0]!.id;
-}

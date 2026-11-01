@@ -131,5 +131,5 @@ export function useRunDetail(runId: string) {
     }
   };
 
-  return { run, isLoading, error, calculating, reopening, approveOpen, setApproveOpen, approvedNow, load, calculate, onApproved, reopen };
+  return { run, setRun, isLoading, error, calculating, reopening, approveOpen, setApproveOpen, approvedNow, load, calculate, onApproved, reopen };
 }

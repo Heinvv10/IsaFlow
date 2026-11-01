@@ -12,8 +12,10 @@ import { isLocked } from '@/components/payroll/PayrollRunStatusBadge';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { PayrollRunWarnings } from '@/components/payroll/PayrollRunWarnings';
 import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
+import { PayRunReviewGrid } from '@/components/payroll/PayRunReviewGrid';
 import { RunHeaderActions } from '@/components/payroll/RunHeaderActions';
 import { useRunDetail } from '@/components/payroll/useRunDetail';
+import { useRunInputs } from '@/components/payroll/useRunInputs';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -24,8 +26,10 @@ export default function PayrollRunDetailPage() {
 
   const { companyRole } = useCompany(); // the active company's role — who may approve
   const {
-    run, isLoading, error, calculating, reopening, approveOpen, setApproveOpen, approvedNow, load, calculate, onApproved, reopen,
+    run, setRun, isLoading, error, calculating, reopening, approveOpen, setApproveOpen, approvedNow, load, calculate, onApproved, reopen,
   } = useRunDetail(runId);
+  const editable = canWrite(companyRole) && !!run && (run.status === 'draft' || run.status === 'calculated') && run.lines.length > 0;
+  const grid = useRunInputs(runId, editable, setRun);
 
   if (isLoading && !run) {
     return (
@@ -65,7 +69,7 @@ export default function PayrollRunDetailPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <RunHeaderActions runId={runId} period={period} run={run} companyRole={companyRole} locked={locked}
           canCalculate={canCalculate} canReopen={canReopen} canApprove={canApprove} calculating={calculating} reopening={reopening}
-          calculate={calculate} reopen={reopen} openApprove={() => setApproveOpen(true)} />
+          calculate={calculate} reopen={reopen} openApprove={() => void grid.settled().then(() => setApproveOpen(true))} />
 
         <div className="p-6 space-y-6">
           {error && (
@@ -98,8 +102,17 @@ export default function PayrollRunDetailPage() {
                   ? <> — press <span className="text-teal-400 font-medium">Calculate</span> to generate payroll for this period.</>
                   : '.'}
               </div>
+            ) : editable && grid.inputs ? (
+              <PayRunReviewGrid runId={runId} lines={run.lines} inputs={grid.inputs} saves={grid.saves} resetKey={grid.resetKey} commit={grid.commit} />
             ) : (
-              <div className="overflow-x-auto"><PayrollRunLinesTable lines={run.lines} /></div>
+              <>
+                {grid.loadError && (
+                  <p role="alert" className="px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
+                    The once-off amounts cannot be edited right now. Reload the page to try again.
+                  </p>
+                )}
+                <div className="overflow-x-auto"><PayrollRunLinesTable lines={run.lines} /></div>
+              </>
             )}
           </section>
         </div>

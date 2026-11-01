@@ -7,6 +7,7 @@ export const RUN_ID = '11111111-1111-4111-8111-111111111111';
 export const RUN_URL = `/api/payroll/runs/${RUN_ID}`;
 export const PLAN_URL = `/api/payroll/runs/${RUN_ID}/journal-plan`;
 export const APPROVE_URL = `/api/payroll/runs/${RUN_ID}/approve`;
+export const INPUTS_URL = `/api/payroll/runs/${RUN_ID}/inputs`;
 export const PLAN_HASH = 'plan-hash-1';
 
 export type Warning = { code: string; severity: 'warning'; message: string; deepLink?: string };
@@ -43,6 +44,15 @@ export const PLAN_LINES = [
   planLine('1110', 'Bank', 0, 41681.55),
   planLine('2175', 'Other Employee Deductions Payable', 0, 13175),
 ];
+
+export const OVERTIME = { id: 'c-ot', name: 'Overtime', sarsSourceCode: '3607', componentType: 'earning' };
+export const UNION = { id: 'c-un', name: 'Union dues', sarsSourceCode: 'UNION', componentType: 'deduction' };
+
+/** GET and PUT …/inputs: the run, what the grid may edit, and what is captured for the month. */
+export function inputsBody(run: Record<string, unknown>, over: Record<string, unknown> = {}) {
+  const lines = (run.lines ?? []) as Array<{ employeeId: string }>;
+  return { run, inputs: { components: [OVERTIME, UNION], employeeIds: lines.map((l) => l.employeeId), amounts: [], ...over } };
+}
 
 export function planBody(
   blocker: Note | null = null,

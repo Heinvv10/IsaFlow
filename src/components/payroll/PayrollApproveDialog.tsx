@@ -37,6 +37,15 @@ interface Props {
 }
 
 const money = (n: number) => (n === 0 ? '' : formatCurrency(n));
+const monthName = (month: number) => new Date(Date.UTC(2000, month - 1, 1)).toLocaleString('en-ZA', { month: 'long', timeZone: 'UTC' });
+
+/** The plan's own figures: the net it pays, and its debits, which are all labour (gross + employer UIF + SDL − ETI used). */
+function paymentSummary(plan: Preview['plan']): string {
+  const people = `${plan.employeeCount} employee${plan.employeeCount === 1 ? '' : 's'}`;
+  return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${monthName(plan.periodMonth)} ${plan.periodYear}. `
+    + `Cost to the company ${formatCurrency(plan.totalDebit)} (gross plus employer UIF and SDL, less ETI used).`;
+}
+
 const UNCERTAIN = 'The approval could not be confirmed. The run has been reloaded — check its status before approving again.';
 
 export function PayrollApproveDialog({ runId, period, warningCount, open, onClose, onApproved, onUncertain }: Props) {
@@ -99,6 +108,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
         {loadError && <p className="text-red-500">{loadError}</p>}
         {plan && shown && (
           <>
+            {!blocker && !posted && <p className="font-medium text-gray-900 dark:text-white">{paymentSummary(plan)}</p>}
             {!blocker && (
               <p className="text-gray-600 dark:text-gray-300">
                 {posted
