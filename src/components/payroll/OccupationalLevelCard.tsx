@@ -68,13 +68,13 @@ export function OccupationalLevelCard({ employeeId, currentLevelId, onChange }: 
         </div>
       ) : (
         <div className="flex items-center gap-3">
-          <select value={selected} onChange={e => setSelected(e.target.value)}
+          <select aria-label="Occupational level" value={selected} onChange={e => setSelected(e.target.value)}
             className="flex-1 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-3 py-2 text-[var(--ff-text-primary)]">
             <option value="">(Not set)</option>
             {levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
           <button onClick={save} disabled={!dirty || saving}
-            className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium disabled:opacity-50">
+            className="px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
             {saving ? 'Saving...' : 'Save'}
           </button>
         </div>

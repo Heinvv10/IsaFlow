@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
 import { lockCompanyPayrollApprovals } from './payrollRunLock';
 
@@ -20,6 +21,8 @@ export interface EmployeeComponentAssignment {
 export type EmployeeComponentAssignmentWithMeta = EmployeeComponentAssignment & {
   componentName: string;
   componentType: string;
+  /** False: the component was switched off, and a run does not pay it (getEmployeeComponents) though the row is open. */
+  componentActive: boolean;
 };
 
 function mapAssignment(r: Row): EmployeeComponentAssignment {
@@ -46,6 +49,23 @@ async function assertEmployeeInCompany(employeeId: string, companyId: string): P
   }
 }
 
+/** Raised before the insert, so the caller can answer it as a 400 (a 4xx commits). */
+export class EmployeeComponentRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmployeeComponentRefused';
+  }
+}
+
+/** A user in two companies sees both through RLS and the foreign key is not tenant-aware, so only this predicate holds. */
+export async function assertComponentInCompany(componentId: string, companyId: string): Promise<void> {
+  const rows = isUuidParam(componentId) ? (await sql`
+    SELECT id FROM payroll_components
+    WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
+  `) as Row[] : [];
+  if (rows.length === 0) throw new EmployeeComponentRefused('That pay component was not found in this company');
+}
+
 export async function assignComponentToEmployee(
   companyId: string,
   employeeId: string,
@@ -58,6 +78,7 @@ export async function assignComponentToEmployee(
   await assertEmployeeInCompany(employeeId, companyId);
   // The pay-run grid reads the month's rows and writes under this lock; a row landing in between would pay twice.
   await lockCompanyPayrollApprovals(null, companyId);
+  await assertComponentInCompany(componentId, companyId);
 
   log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 
@@ -131,7 +152,8 @@ export async function listEmployeeComponentAssignments(
       pec.id, pec.employee_id, pec.component_id, pec.amount,
       pec.effective_from, pec.effective_to, pec.is_recurring,
       pc.name AS component_name,
-      pc.component_type
+      pc.component_type,
+      pc.is_active AS component_active
     FROM payroll_employee_components pec
     JOIN payroll_components pc ON pc.id = pec.component_id
     WHERE pec.employee_id = ${employeeId}::uuid
@@ -142,5 +164,6 @@ export async function listEmployeeComponentAssignments(
     ...mapAssignment(r),
     componentName: String(r.component_name),
     componentType: String(r.component_type),
+    componentActive: Boolean(r.component_active),
   }));
 }

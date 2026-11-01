@@ -26,7 +26,7 @@ import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
-import { DateField } from '@/components/ui'; import { useDateGate } from '@/hooks/useDateGate';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -428,12 +428,12 @@ export default function PurchaseOrderDetailPage() {
                       className="ff-input w-full" placeholder="Supplier quote ref" />
                   </div>
                   <div>
-                    <DateField label="Order Date" required name="orderDate" value={form.order_date || null}
-                      onChange={dates.bind('orderDate', iso => setForm(f => f ? { ...f, order_date: iso } : f), form.order_date)} />
+                    <GatedDateField gate={dates} gateKey="orderDate" label="Order Date" required name="orderDate" value={form.order_date || null}
+                      onValue={iso => setForm(f => f ? { ...f, order_date: iso } : f)} />
                   </div>
                   <div>
-                    <DateField label="Expected Delivery" name="expectedDeliveryDate" value={form.expected_delivery_date || null}
-                      onChange={dates.bind('expectedDeliveryDate', iso => setForm(f => f ? { ...f, expected_delivery_date: iso } : f), form.expected_delivery_date)} />
+                    <GatedDateField gate={dates} gateKey="expectedDeliveryDate" label="Expected Delivery" name="expectedDeliveryDate" value={form.expected_delivery_date || null}
+                      onValue={iso => setForm(f => f ? { ...f, expected_delivery_date: iso } : f)} />
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Status</label>

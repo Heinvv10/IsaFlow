@@ -16,6 +16,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockCom
 
 import {
   assignComponentToEmployee,
+  EmployeeComponentRefused,
   endEmployeeComponent,
   listEmployeeComponentAssignments,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
@@ -46,6 +47,9 @@ describe('assignComponentToEmployee', () => {
       const query = strings.join('?');
       if (query.includes('FROM payroll_employees')) {
         return Promise.resolve([employeeRow]);
+      }
+      if (query.includes('FROM payroll_components')) {
+        return Promise.resolve([{ id: COMPONENT_ID }]);
       }
       if (query.includes('INSERT INTO payroll_employee_components')) {
         return Promise.resolve([insertedRow]);
@@ -122,6 +126,17 @@ describe('assignComponentToEmployee', () => {
     expect(insertCall!.values).toContain(null);
   });
 
+  it("refuses another company's component before the insert, reading it by this company", async () => {
+    mockImpl = (strings) => Promise.resolve(strings.join('?').includes('FROM payroll_employees') ? [{ id: EMPLOYEE_ID }] : []);
+    await expect(
+      assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, new Date('2025-01-01')),
+    ).rejects.toBeInstanceOf(EmployeeComponentRefused);
+    expect(sqlCalls.find(c => c.sql.includes('INSERT'))).toBeUndefined();
+    const lookup = sqlCalls.find(c => c.sql.includes('FROM payroll_components'));
+    expect(lookup!.sql).toContain('company_id = ?::uuid');
+    expect(lookup!.values).toEqual([COMPONENT_ID, COMPANY_ID]);
+  });
+
   it('throws when the employee lookup returns empty', async () => {
     mockImpl = (strings) => {
       const query = strings.join('?');
@@ -170,6 +185,7 @@ describe('listEmployeeComponentAssignments', () => {
       effective_to: null,
       component_name: 'Basic Salary',
       component_type: 'earning',
+      component_active: true,
     };
 
     mockImpl = (strings) => {
@@ -193,6 +209,7 @@ describe('listEmployeeComponentAssignments', () => {
       amount: 8000,
       componentName: 'Basic Salary',
       componentType: 'earning',
+      componentActive: true,
     });
 
     // Verify the list query uses a JOIN
