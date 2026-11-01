@@ -59,7 +59,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         s.phone   AS supplier_phone,
         s.address AS supplier_address
       FROM purchase_orders po
-      LEFT JOIN suppliers s ON s.id = po.supplier_id
+      LEFT JOIN suppliers s ON s.id = po.supplier_id AND s.company_id = po.company_id
       WHERE po.id = ${id}::UUID AND po.company_id = ${companyId}::UUID
     ` as Row[];
 

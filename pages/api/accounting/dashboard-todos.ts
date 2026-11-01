@@ -54,7 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           si.total_amount::numeric AS amount,
           EXTRACT(DAY FROM NOW() - si.due_date)::int AS "daysOverdue"
         FROM supplier_invoices si
-        LEFT JOIN suppliers s ON s.id = si.supplier_id
+        LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
         WHERE si.company_id = ${companyId}
           AND si.deleted_at IS NULL
           AND si.status IN ('approved', 'partially_paid')

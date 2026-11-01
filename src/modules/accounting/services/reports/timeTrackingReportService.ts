@@ -66,7 +66,7 @@ export async function getTimeSummary(
         SUM(te.hours) AS hours,
         COALESCE(SUM(CASE WHEN te.rate IS NOT NULL THEN te.hours * te.rate ELSE 0 END), 0) AS value
       FROM time_entries te
-      LEFT JOIN customers c ON c.id = te.customer_id
+      LEFT JOIN customers c ON c.id = te.customer_id AND c.company_id = te.company_id
       WHERE te.company_id = ${companyId}::UUID
       GROUP BY COALESCE(te.customer_id::TEXT, 'none'), COALESCE(c.name, 'No Customer')
       ORDER BY hours DESC
@@ -105,7 +105,7 @@ export async function getUninvoicedEntries(
     rows = (await sql`
       SELECT te.*, c.name AS customer_name
       FROM time_entries te
-      LEFT JOIN customers c ON c.id = te.customer_id
+      LEFT JOIN customers c ON c.id = te.customer_id AND c.company_id = te.company_id
       WHERE te.company_id = ${companyId}::UUID
         AND te.status = 'approved'
         AND te.billable = true
@@ -117,7 +117,7 @@ export async function getUninvoicedEntries(
     rows = (await sql`
       SELECT te.*, c.name AS customer_name
       FROM time_entries te
-      LEFT JOIN customers c ON c.id = te.customer_id
+      LEFT JOIN customers c ON c.id = te.customer_id AND c.company_id = te.company_id
       WHERE te.company_id = ${companyId}::UUID
         AND te.status = 'approved'
         AND te.billable = true
