@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { excludeTransaction, matchTransaction, unmatchTransaction } from '@/modules/accounting/services/bank/bankTxStatusMutations';
 import {
   billState, dropFixture, inTx, seedBankTx, seedBill, seedFixture, seedInvoice, seedSupplier, type Fixture,
 } from './helpers/l1FifoFixture';
@@ -63,6 +64,27 @@ async function receiptStatus(journalEntryId: string): Promise<string> {
   return rows[0]!.status;
 }
 
+async function expenseAccount(): Promise<string> {
+  const found = (await sql`
+    SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID AND account_code = ${'U-EXP'}`) as { id: string }[];
+  if (found[0]) return found[0].id;
+  return ((await sql`
+    INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
+    VALUES (${fx.companyId}::UUID, ${'U-EXP'}, ${'Undo expense'}, 'expense', 'debit') RETURNING id`) as { id: string }[])[0]!.id;
+}
+
+/** A posted journal line no bank line claims: the contra of an allocation on a line of its own. */
+async function unclaimedLine(): Promise<string> {
+  const contra = await expenseAccount();
+  const tx = await seedBankTx(fx, { date: '2026-03-06', amount: -10, description: 'SOURCE LINE' });
+  const { journalEntryId } = await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId));
+  const rows = (await sql`
+    SELECT id FROM gl_journal_lines
+    WHERE journal_entry_id = ${journalEntryId}::UUID AND company_id = ${fx.companyId}::UUID
+      AND gl_account_id = ${contra}::UUID`) as { id: string }[];
+  return rows[0]!.id;
+}
+
 describeIfDb('U: Undo after a single-row allocate', () => {
   beforeAll(async () => {
     fx = await seedFixture('UU', DATABASE_URL!);
@@ -76,12 +98,7 @@ describeIfDb('U: Undo after a single-row allocate', () => {
 
   it('the re-read names the journal allocate returned, then none once it is reversed', async () => {
     const tx = await seedBankTx(fx, { date: '2026-03-02', amount: -123.45, description: 'ACCOUNT LINE' });
-    const accounts = (await sql`
-      SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID AND id <> ${fx.bankAccountId}::UUID
-        AND account_type = 'expense' LIMIT 1`) as { id: string }[];
-    const contra = accounts[0]?.id ?? ((await sql`
-      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance)
-      VALUES (${fx.companyId}::UUID, ${'U-EXP'}, ${'Undo expense'}, 'expense', 'debit') RETURNING id`) as { id: string }[])[0]!.id;
+    const contra = await expenseAccount();
     const posted = await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId));
 
     expect(await reread(fx, fx.companyId, tx, '2026-03-02', -123.45)).toBe(posted.journalEntryId);
@@ -135,4 +152,86 @@ describeIfDb('U: Undo after a single-row allocate', () => {
     expect(await contraCount(posted.journalEntryId)).toBe(1);
     expect(await lineState(tx)).toEqual({ status: 'imported', matched: null });
   }, 60000);
+
+  // The security review's finding: a toast outlives the state it was offered for, and the client's check is a read
+  // with a gap before the write. The server has to refuse under the row lock.
+  describe('a stale toast', () => {
+    const CHANGED = 'This line has changed since you allocated it.';
+
+    it('reverse names the journal it offered to undo: re-allocated since, it is refused and the new journal stands', async () => {
+      const contra = await expenseAccount();
+      const tx = await seedBankTx(fx, { date: '2026-03-07', amount: -55, description: 'REALLOCATED LINE' });
+      const first = await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId));
+      await inTx(fx, () => reverseReconciledTransaction(fx.companyId, tx, fx.userId));
+      const second = await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId));
+
+      await expect(inTx(fx, () => reverseReconciledTransaction(fx.companyId, tx, fx.userId, {
+        expectedJournalEntryId: first.journalEntryId,
+      }))).rejects.toThrow(CHANGED);
+
+      expect(await contraCount(second.journalEntryId)).toBe(0);
+      expect((await lineState(tx)).status).toBe('allocated');
+    }, 60000);
+
+    it('reverse naming a line that has since been unallocated is refused and posts nothing', async () => {
+      const contra = await expenseAccount();
+      const tx = await seedBankTx(fx, { date: '2026-03-08', amount: -56, description: 'UNALLOCATED LINE' });
+      const posted = await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId));
+      await inTx(fx, () => reverseReconciledTransaction(fx.companyId, tx, fx.userId));
+
+      await expect(inTx(fx, () => reverseReconciledTransaction(fx.companyId, tx, fx.userId, {
+        expectedJournalEntryId: posted.journalEntryId,
+      }))).rejects.toThrow(CHANGED);
+      expect(await contraCount(posted.journalEntryId)).toBe(1);
+    }, 60000);
+
+    it('reverse naming the journal the line is on goes through', async () => {
+      const contra = await expenseAccount();
+      const tx = await seedBankTx(fx, { date: '2026-03-09', amount: -57, description: 'CURRENT LINE' });
+      const posted = await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId));
+      await inTx(fx, () => reverseReconciledTransaction(fx.companyId, tx, fx.userId, {
+        expectedJournalEntryId: posted.journalEntryId,
+      }));
+      expect(await contraCount(posted.journalEntryId)).toBe(1);
+      expect(await lineState(tx)).toEqual({ status: 'imported', matched: null });
+    }, 60000);
+
+    it('a restore of a line someone has since matched is refused, and the match stands', async () => {
+      const line = await unclaimedLine();
+      const tx = await seedBankTx(fx, { date: '2026-03-10', amount: -58, description: 'MATCHED SINCE' });
+      await inTx(fx, () => excludeTransaction(fx.companyId, tx, 'dup', fx.userId));
+      await inTx(fx, () => unmatchTransaction(fx.companyId, tx, fx.userId)); // another person restores it...
+      await inTx(fx, () => matchTransaction(fx.companyId, tx, line, undefined, fx.userId)); // ...and matches it
+
+      await expect(inTx(fx, () => unmatchTransaction(fx.companyId, tx, fx.userId, { expectedStatus: 'excluded' })))
+        .rejects.toThrow(CHANGED);
+
+      expect(await lineState(tx)).toEqual({ status: 'matched', matched: line });
+    }, 60000);
+
+    it('a restore of a line someone has since allocated gets the same refusal, not the allocated-row one', async () => {
+      const contra = await expenseAccount();
+      const tx = await seedBankTx(fx, { date: '2026-03-11', amount: -59, description: 'ALLOCATED SINCE' });
+      await inTx(fx, () => excludeTransaction(fx.companyId, tx, 'dup', fx.userId));
+      await inTx(fx, () => unmatchTransaction(fx.companyId, tx, fx.userId));
+      await inTx(fx, () => allocateTransaction(fx.companyId, tx, contra, fx.userId));
+
+      await expect(inTx(fx, () => unmatchTransaction(fx.companyId, tx, fx.userId, { expectedStatus: 'excluded' })))
+        .rejects.toThrow(CHANGED);
+      expect((await lineState(tx)).status).toBe('allocated');
+    }, 60000);
+
+    it('a restore of a line that is still excluded goes through', async () => {
+      const tx = await seedBankTx(fx, { date: '2026-03-12', amount: -60, description: 'STILL EXCLUDED' });
+      await inTx(fx, () => excludeTransaction(fx.companyId, tx, 'dup', fx.userId));
+      await inTx(fx, () => unmatchTransaction(fx.companyId, tx, fx.userId, { expectedStatus: 'excluded' }));
+      expect(await lineState(tx)).toEqual({ status: 'imported', matched: null });
+    }, 60000);
+
+    it('unmatch with no expectation is unchanged: every other caller keeps its behaviour', async () => {
+      const tx = await seedBankTx(fx, { date: '2026-03-13', amount: -61, description: 'PLAIN UNMATCH' });
+      await inTx(fx, () => unmatchTransaction(fx.companyId, tx, fx.userId));
+      expect(await lineState(tx)).toEqual({ status: 'imported', matched: null });
+    }, 60000);
+  });
 });

@@ -30,9 +30,9 @@ import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
 import { findJournalChainRoot, shareLockChainHeadOf } from '../shared/journalChainHead';
 import { postingRefOf, recordAutoPostUndone, recordExcluded, recordMatchDecision } from './codingDecisionLog';
-import { BankMatchTargetError, BankTransactionAllocatedError } from './bankTxStatusErrors';
+import { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedError } from './bankTxStatusErrors';
 export { BankMatchUnavailableError } from './bankTxLock';
-export { BankMatchTargetError, BankTransactionAllocatedError, type BankMatchTargetCode } from './bankTxStatusErrors';
+export { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedError, type BankMatchTargetCode } from './bankTxStatusErrors';
 
 type Row = DbRow;
 
@@ -52,9 +52,13 @@ const POSTED_STATUS = 'allocated';
  * Lock the row, then refuse if it has already been allocated. `verb` is the
  * caller's own word for what it was about to do, so the message reads naturally.
  */
-async function lockForStatusWrite(companyId: string, bankTxId: string, verb: ProvisionalLineVerb): Promise<Row> {
+async function lockForStatusWrite(
+  companyId: string, bankTxId: string, verb: ProvisionalLineVerb, expectedStatus?: string,
+): Promise<Row> {
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
+  // First: to a caller holding an expectation, every other refusal below is this one.
+  if (expectedStatus !== undefined && row.status !== expectedStatus) throw new BankLineChangedError();
   assertFeedPosted(row, verb);
   // D12: a line IN a completed reconciliation (the shared rule; its session was locked with the row) — 409.
   await refuseLineOfCompletedReconciliation(companyId, row);
@@ -227,9 +231,11 @@ export async function matchTransaction(
   }
 }
 
-export async function unmatchTransaction(companyId: string, bankTxId: string, userId?: string): Promise<BankTransaction> {
+export async function unmatchTransaction(
+  companyId: string, bankTxId: string, userId?: string, opts?: { expectedStatus?: 'excluded' },
+): Promise<BankTransaction> {
   try {
-    const before = postingRefOf(await lockForStatusWrite(companyId, bankTxId, 'unmatch'));
+    const before = postingRefOf(await lockForStatusWrite(companyId, bankTxId, 'unmatch', opts?.expectedStatus));
     const rows = (await sql`
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL,
