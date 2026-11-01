@@ -330,7 +330,7 @@ export const assignEmployeeComponentTool: McpTool = {
     }
 
     // Ownership before the write. `assignComponentToEmployee` checks the
-    // employee itself and throws, but a throw after the registry's savepoint
+    // employee and the component itself and throws, but a throw after the registry's savepoint
     // opened is a worse answer than a refusal before it.
     if (!(await getPayrollEmployee(employeeId, ctx.companyId))) return toolError(NOT_FOUND);
     const components = await listComponents(ctx.companyId);

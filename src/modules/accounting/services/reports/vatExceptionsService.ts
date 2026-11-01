@@ -108,8 +108,9 @@ export async function getVatExceptions(
           je_any.status AS je_status,
           COUNT(*) OVER() AS total_count
         FROM customer_invoices ci
-        LEFT JOIN customers c ON c.id = ci.customer_id
-        LEFT JOIN clients cl ON cl.id = ci.client_id
+        -- cl reads customers: the clients view has no company_id to scope by.
+        LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ci.company_id
+        LEFT JOIN customers cl ON cl.id = ci.client_id AND cl.company_id = ci.company_id
         LEFT JOIN gl_journal_entries je_any
           ON je_any.id = ci.gl_journal_entry_id AND je_any.company_id = ${companyId}::UUID
         LEFT JOIN gl_journal_entries je
@@ -140,7 +141,7 @@ export async function getVatExceptions(
           je_any.status AS je_status,
           COUNT(*) OVER() AS total_count
         FROM supplier_invoices si
-        LEFT JOIN suppliers s ON s.id = si.supplier_id
+        LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
         LEFT JOIN gl_journal_entries je_any
           ON je_any.id = si.gl_journal_entry_id AND je_any.company_id = ${companyId}::UUID
         -- The bill's journal AND its late-claim companion (gl/vatLateClaimSplit),

@@ -4,7 +4,7 @@
 `withErrorHandler` — the outermost wrapper for every API handler. Installs the request-id, CORS headers, request-context ALS, Sentry isolation scope, structured request/response logging, and the top-level try/catch.
 
 ## Key exports
-- `withErrorHandler(handler): NextApiHandler` — wraps a handler function `(req, res) => unknown`. Generic `req` accepts `AuthenticatedNextApiRequest`, `CompanyAuthedRequest`, or plain `NextApiRequest` without `as any`
+- `withErrorHandler(handler, { maskBodyKeys? }): NextApiHandler` — wraps a handler function `(req, res) => unknown`. `maskBodyKeys`: this route's own body keys the request log must omit, at any depth, for pay under a key too common to mask everywhere (`amount`, `value`). Generic `req` accepts `AuthenticatedNextApiRequest`, `CompanyAuthedRequest`, or plain `NextApiRequest` without `as any`
 - `successResponse<T>(data, message?): ApiSuccessResponse<T>` — legacy envelope builder
 - `errorResponse(message, code?, details?): ApiErrorResponse` — legacy envelope builder; `details` only included in dev
 - `const HttpErrors` — convenience builders: `BadRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `MethodNotAllowed(method)`, `InternalServerError`, `DatabaseError`, `ValidationError(message, details)`

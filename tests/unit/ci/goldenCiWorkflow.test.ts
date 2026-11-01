@@ -31,7 +31,18 @@ describe('ci.yml dev-server port and process clean-up', () => {
 
   it('starts a process group and stops that exact group on exit', () => {
     expect(step).toContain('setsid bunx next dev');
-    expect(step).toContain("trap 'kill -- -$DEVPID 2>/dev/null || true' EXIT");
+    expect(step).toContain("trap 'kill -- -$DEVPID 2>/dev/null || true;");
+  });
+
+  it('seeds the hosted Demo company before the suite runs (a hosted run without it tests empty books)', () => {
+    const at = (needle: string): number => step.indexOf(needle);
+    expect(at('bun scripts/ci/golden-hosted/seed-demo-app.ts')).toBeGreaterThan(at('boot_dev\n'));
+    expect(at('bun scripts/ci/golden-hosted/seed-demo-app.ts')).toBeLessThan(at('bun run test:e2e:golden'));
+  });
+
+  it('gives the slot login only to the velo test command, never to the hosted one', () => {
+    expect(step).toMatch(/\( export GOLDEN_SLOT_NUMBER GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http:\/\/localhost:\$GOLDEN_PORT" bun run test:e2e:golden \$SHARD \)/);
+    expect(step).toMatch(/if \[ "\$HOSTED" = true \]; then\n\s+# shellcheck disable=SC2086\n\s+BASE_URL="http:\/\/localhost:\$GOLDEN_PORT" bun run test:e2e:golden \$SHARD/);
   });
 
   it('never kills by pattern', () => {

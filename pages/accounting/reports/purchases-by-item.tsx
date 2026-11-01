@@ -3,13 +3,14 @@
  * Sage Parity: Items > Reports > Purchases by Item
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { useState, useCallback } from 'react';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -22,24 +23,31 @@ export default function PurchasesByItemReport() {
   const today = new Date();
   const [from, setFrom] = useState(localISODate(new Date(today.getFullYear(), today.getMonth(), 1)));
   const [to, setTo] = useState(localISODate(today));
+  const dates = useDateGate();
 
-  const load = useCallback(async () => {
+  const query = `from=${from}&to=${to}`;
+
+  const load = useCallback<ReportLoad>(async (latest) => {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/reports/purchases-by-item?from=${from}&to=${to}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports/purchases-by-item?${query}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the purchases report - try again');
       const json = await res.json();
-      setRows(json.data || []);
+      if (latest()) setRows(json.data || []);
+      return true;
     } catch (err: unknown) {
-      setRows([]);
-      setError(apiErrorMessage(err, 'Could not load the purchases report - try again'));
+      if (latest()) {
+        setRows([]);
+        setError(apiErrorMessage(err, 'Could not load the purchases report - try again'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [from, to]);
+  }, [query]);
 
-  useEffect(() => { void load(); }, [load]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   const totals = rows.reduce((a, r) => ({
     qtyOrdered: a.qtyOrdered + r.qtyOrdered, totalCost: a.totalCost + r.totalCost,
@@ -58,55 +66,58 @@ export default function PurchasesByItemReport() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
-              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
-              <button onClick={() => window.open(`/api/accounting/reports/purchases-by-item?from=${from}&to=${to}&format=csv`, '_blank')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg">
+              <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
+              <button onClick={() => window.open(`/api/accounting/reports/purchases-by-item?from=${from}&to=${to}&format=csv`, '_blank')} disabled={dates.blocked}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>
           </div>
         </div>
         <div className="p-6">
+          <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            {loading ? (
-              <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
-            ) : rows.length === 0 ? (
-              <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No purchase data for this period</div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">POs</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty Ordered</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Cost</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Avg Cost</th>
-                </tr></thead>
-                <tbody className="divide-y divide-[var(--ff-border-light)]">
-                  {rows.map(r => (
-                    <tr key={r.id} className="hover:bg-teal-500/[0.04]">
-                      <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{r.itemCode}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.name}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.poCount}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtyOrdered}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-orange-400">{fmt(r.totalCost)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.avgCost)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
-                  <td className="px-4 py-3" colSpan={4}>TOTAL</td>
-                  <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{totals.qtyOrdered}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-orange-400">{fmt(totals.totalCost)}</td>
-                  <td className="px-4 py-3"></td>
-                </tr></tfoot>
-              </table>
-            )}
-          </div>
+          {!stale && (
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+              {loading ? (
+                <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
+              ) : rows.length === 0 ? (
+                <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No purchase data for this period</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">POs</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty Ordered</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Cost</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Avg Cost</th>
+                  </tr></thead>
+                  <tbody className="divide-y divide-[var(--ff-border-light)]">
+                    {rows.map(r => (
+                      <tr key={r.id} className="hover:bg-teal-500/[0.04]">
+                        <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{r.itemCode}</td>
+                        <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.name}</td>
+                        <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.poCount}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtyOrdered}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-orange-400">{fmt(r.totalCost)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.avgCost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
+                    <td className="px-4 py-3" colSpan={4}>TOTAL</td>
+                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{totals.qtyOrdered}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-orange-400">{fmt(totals.totalCost)}</td>
+                    <td className="px-4 py-3"></td>
+                  </tr></tfoot>
+                </table>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </AppLayout>
