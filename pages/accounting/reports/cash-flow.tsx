@@ -51,6 +51,7 @@ export default function CashFlowPage() {
   }, []);
 
   const params = new URLSearchParams({ start_date: startDate || '', end_date: endDate || '' });
+  if (costCentreFilter) params.set('cost_centre', costCentreFilter);
   const query = params.toString();
 
   const loadReport = useCallback<ReportLoad>(async (latest) => {
