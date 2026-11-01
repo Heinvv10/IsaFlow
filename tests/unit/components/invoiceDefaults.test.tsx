@@ -330,19 +330,23 @@ describe('VAT mode', () => {
     expect(sentBody('POST').items[0]!.unitPrice).toBe(200);
   });
 
-  it('Save & New starts clean: the defaults and the choices do not carry over', async () => {
+  it('Save & New starts clean: what the user chose on the last invoice does not stop the next one defaulting', async () => {
     serve();
     await open();
-    await pickClient('c-zero');
-    await waitFor(() => expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).disabled).toBe(true));
+    await pickClient('c-acme');
+    await pickMode(/Including VAT/);
+    typeDate(due(), '20 Oct 2026');
     fillLine();
     fireEvent.click(screen.getByRole('button', { name: /save & new/i }));
     await waitFor(() => expect(push).toHaveBeenCalled());
-    await waitFor(() => expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).disabled).toBe(false));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Excluding VAT/));
     expect(hintFromCustomer()).toEqual([]);
     typeDate(invoiceDate(), '1 Oct 2026');
+    await pickClient('c-zero');
+    await waitFor(() => expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).disabled).toBe(true));
     await pickClient('c-acme');
     await waitFor(() => expect(due().value).toBe('31 Oct 2026'));
+    await waitFor(() => expect(discounts()).toEqual(['10']));
   });
 });
 
