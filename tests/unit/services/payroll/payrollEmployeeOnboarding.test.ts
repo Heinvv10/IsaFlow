@@ -251,6 +251,7 @@ describe('employeeChangesOf: the end date that goes on is the day that was judge
 
   it.each([
     ['2030-12-31 BC'], ['2030-12-31junk'], ['2030-12-31T00:00:00Z'], ['2030-12-31T23:59:59.999Z'], ['2030-06-30x'], ['2030-02-31'], [['2030-12-31']],
+    ['T00:00:00.000Z2030-12-31'],
   ])('%j is refused', (endDate) => {
     expect(() => employeeChangesOf({ endDate }, current)).toThrow(EmployeeOnboardingRefused);
   });
