@@ -17,6 +17,8 @@ function open(onUndo = vi.fn(), opts: { durationMs?: number; message?: string } 
 }
 const undo = () => screen.getByRole('button', { name: 'Undo' });
 const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
+/** Two steps: the library schedules a dismissed toast's removal only after the render that follows the dismiss. */
+const waitOut = (ms: number) => { advance(ms); advance(REMOVE_DELAY); };
 
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => {
@@ -66,15 +68,13 @@ describe('notify.undoable', () => {
     open();
     advance(7900);
     expect(screen.getByRole('status')).toBeTruthy();
-    advance(100);
-    advance(REMOVE_DELAY);
+    waitOut(100);
     expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('honours durationMs', () => {
     open(vi.fn(), { durationMs: 2000 });
-    advance(2000);
-    advance(REMOVE_DELAY);
+    waitOut(2000);
     expect(screen.queryByRole('status')).toBeNull();
   });
 
@@ -82,24 +82,22 @@ describe('notify.undoable', () => {
     open();
     advance(5000);
     fireEvent.mouseEnter(screen.getByRole('status'));
-    advance(60_000);
+    waitOut(60_000);
     expect(screen.getByRole('status')).toBeTruthy();
     fireEvent.mouseLeave(screen.getByRole('status'));
     advance(2900);
     expect(screen.getByRole('status')).toBeTruthy();
-    advance(100);
-    advance(REMOVE_DELAY);
+    waitOut(100);
     expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('pauses while focus is inside it', () => {
     open();
     fireEvent.focus(undo());
-    advance(60_000);
+    waitOut(60_000);
     expect(screen.getByRole('status')).toBeTruthy();
     fireEvent.blur(undo());
-    advance(8000);
-    advance(REMOVE_DELAY);
+    waitOut(8000);
     expect(screen.queryByRole('status')).toBeNull();
   });
 
@@ -108,7 +106,7 @@ describe('notify.undoable', () => {
     fireEvent.mouseEnter(screen.getByRole('status'));
     fireEvent.focus(undo());
     fireEvent.mouseLeave(screen.getByRole('status'));
-    advance(60_000);
+    waitOut(60_000);
     expect(screen.getByRole('status')).toBeTruthy();
   });
 });
