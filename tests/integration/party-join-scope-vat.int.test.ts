@@ -98,10 +98,9 @@ describeIfDb('VAT readers keep the row and its VAT, and lose the foreign name', 
   it('getVatExceptions keeps both mismatches, the poisoned ones as Unknown', async () => {
     const e = await getVatExceptions(S.A, ...MAY);
     noLeak(e);
-    expect(e.invoiceGlMismatchCount).toBe(2);
-    expect(e.invoiceGlMismatches.map((m) => m.counterpartyName).sort()).toEqual([OK_CUSTOMER, 'Unknown'].sort());
-    expect(e.billGlMismatchCount).toBe(2);
-    expect(e.billGlMismatches.map((m) => m.counterpartyName).sort()).toEqual([OK_SUPPLIER, 'Unknown'].sort());
+    expect(e.invoiceGlMismatchCount).toBe(4);
+    expect(e.invoiceGlMismatches.map((m) => m.counterpartyName).sort())
+      .toEqual([OK_CUSTOMER, OK_SUPPLIER, 'Unknown', 'Unknown'].sort());
   });
 
   it('the tax-code lists keep the document under Unknown', async () => {

@@ -38,7 +38,7 @@ export async function getWriteOffs(companyId: string, filters?: {
     rows = (await sql`
       SELECT wo.*, c.name AS client_name, ci.invoice_number
       FROM customer_write_offs wo
-      LEFT JOIN customers c ON c.id = wo.client_id
+      LEFT JOIN customers c ON c.id = wo.client_id AND c.company_id = wo.company_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
       WHERE wo.company_id = ${companyId} AND wo.client_id = ${filters.clientId}::UUID
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}
@@ -51,7 +51,7 @@ export async function getWriteOffs(companyId: string, filters?: {
     rows = (await sql`
       SELECT wo.*, c.name AS client_name, ci.invoice_number
       FROM customer_write_offs wo
-      LEFT JOIN customers c ON c.id = wo.client_id
+      LEFT JOIN customers c ON c.id = wo.client_id AND c.company_id = wo.company_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
       WHERE wo.company_id = ${companyId} AND wo.status = ${filters.status}
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}
@@ -64,7 +64,7 @@ export async function getWriteOffs(companyId: string, filters?: {
     rows = (await sql`
       SELECT wo.*, c.name AS client_name, ci.invoice_number
       FROM customer_write_offs wo
-      LEFT JOIN customers c ON c.id = wo.client_id
+      LEFT JOIN customers c ON c.id = wo.client_id AND c.company_id = wo.company_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
       WHERE wo.company_id = ${companyId}
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}

@@ -72,13 +72,17 @@ describeIfDb('bank matching and Top Customers do not read another tenant\'s part
     expect(c.map((x) => x.label)).toContain(`${OK_SUPPLIER} — PO ${docNo(S, 'PO', 'OK')}`);
   });
 
-  it('getReceiptMatchCandidates keeps the invoice under UNKNOWN_CUSTOMER', async () => {
-    const { rows: [tx] } = await admin.query('SELECT id FROM bank_transactions WHERE company_id = $1 AND description = $2',
-      [S.A, docNo(S, 'BT', 'OK')]);
+  it.each([
+    ['POISONED', 777, () => `${UNKNOWN_CUSTOMER} — Inv ${S.TAG}-AR-POISONED`],
+    ['OK', 1000, () => `${OK_CUSTOMER} — Inv ${S.TAG}-AR-OK`],
+  ] as const)('getReceiptMatchCandidates offers the %s invoice under its own label', async (variant, amount, label) => {
+    const { rows: [tx] } = await admin.query('SELECT id FROM bank_transactions WHERE company_id = $1 AND bank_reference = $2',
+      [S.A, docNo(S, 'BT', variant)]);
+    // A neutral description: this one would narrow the pool to the name sharing its tag.
+    await admin.query(`UPDATE bank_transactions SET amount = $2, description = 'RECEIPT' WHERE id = $1`, [tx.id, amount]);
     const { candidates } = await getReceiptMatchCandidates(tx.id, S.A);
     noLeak(candidates);
-    expect(candidates.map((x) => x.label)).toContain(`${UNKNOWN_CUSTOMER} — Inv ${S.TAG}-AR-POISONED`);
-    expect(candidates.map((x) => x.label)).toContain(`${OK_CUSTOMER} — Inv ${S.TAG}-AR-OK`);
+    expect(candidates.map((x) => x.label)).toContain(label());
   });
 
   it('getRules does not name B\'s customer on the rule', async () => {

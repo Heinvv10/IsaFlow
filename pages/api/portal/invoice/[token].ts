@@ -84,7 +84,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       co.portal_allow_payments,
       co.portal_payment_instructions
     FROM customer_invoices ci
-    LEFT JOIN customers cu ON cu.id = ci.client_id
+    LEFT JOIN customers cu ON cu.id = ci.client_id AND cu.company_id = ci.company_id
     LEFT JOIN companies co ON co.id = ci.company_id
     WHERE ci.portal_token = ${token}
       AND ci.status != 'cancelled'

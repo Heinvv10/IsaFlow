@@ -121,7 +121,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
            supplier_bank_fingerprint(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type,
                                      s.bank_account_holder) AS bank_fingerprint
     FROM supplier_payments sp
-    JOIN suppliers s ON sp.supplier_id = s.id
+    -- LEFT and scoped: a member naming another company's supplier stays, with no bank
+    -- details, so the file is refused below. An inner join would shorten it silently.
+    LEFT JOIN suppliers s ON sp.supplier_id = s.id AND s.company_id = sp.company_id
     WHERE sp.batch_id = ${batchPaymentId} AND sp.company_id = ${companyId}::UUID AND sp.status IS DISTINCT FROM 'cancelled'
     ORDER BY sp.created_at
   ` as Row[];

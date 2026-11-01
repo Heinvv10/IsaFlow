@@ -19,6 +19,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 import { createHash } from 'crypto';
 
 type Row = Record<string, unknown>;
@@ -259,9 +260,9 @@ export async function listAlerts(
   opts: { status?: string; limit?: number } = {},
 ): Promise<FraudAlert[]> {
   const rows = (await sql`
-    SELECT fa.*, s.name AS supplier_name
+    SELECT fa.*, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
     FROM fraud_alerts fa
-    JOIN suppliers s ON s.id = fa.supplier_id
+    LEFT JOIN suppliers s ON s.id = fa.supplier_id AND s.company_id = fa.company_id
     WHERE fa.company_id = ${companyId}::uuid
       AND (${opts.status ?? null}::text IS NULL OR fa.status = ${opts.status ?? null})
     ORDER BY fa.first_seen_at DESC

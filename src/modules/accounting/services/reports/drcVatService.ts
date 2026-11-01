@@ -202,7 +202,7 @@ export async function getDRCHistory(companyId: string): Promise<Array<{
     SELECT si.id, si.invoice_number, si.total_amount, si.invoice_date,
            s.company_name as supplier_name
     FROM supplier_invoices si
-    LEFT JOIN suppliers s ON s.id = si.supplier_id
+    LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     WHERE si.company_id = ${companyId} AND si.is_drc = true
     ORDER BY si.invoice_date DESC
   `) as Row[];

@@ -67,7 +67,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
-          JOIN suppliers s ON s.id = sp.supplier_id
+          LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
           WHERE spa.payment_id = ${paymentId}
             AND sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
@@ -80,7 +80,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
-          JOIN suppliers s ON s.id = sp.supplier_id
+          LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
           WHERE sp.supplier_id = ${supplierId}
             AND sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
@@ -94,7 +94,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
-          JOIN suppliers s ON s.id = sp.supplier_id
+          LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
           WHERE sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
           LIMIT 200

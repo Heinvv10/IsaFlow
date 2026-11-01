@@ -19,6 +19,7 @@ import {
   type MismatchReason,
 } from './supplierStatementMatchHelper';
 import { measureOurSide } from './supplierStatementMeasure';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 import {
   extractionView,
   fetchFullReconciliation,
@@ -106,9 +107,9 @@ export async function listReconciliations(
   supplierId?: string,
 ): Promise<SupplierStatementReconciliation[]> {
   const rows = (await sql`
-    SELECT ssr.*, s.name AS supplier_name
+    SELECT ssr.*, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
     FROM supplier_statement_reconciliations ssr
-    JOIN suppliers s ON s.id = ssr.supplier_id
+    LEFT JOIN suppliers s ON s.id = ssr.supplier_id AND s.company_id = ssr.company_id
     WHERE ssr.company_id = ${companyId}
       AND (${supplierId ?? null}::uuid IS NULL OR ssr.supplier_id = ${supplierId ?? null}::uuid)
     ORDER BY ssr.statement_date DESC, ssr.created_at DESC
