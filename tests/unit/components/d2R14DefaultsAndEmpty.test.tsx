@@ -38,7 +38,7 @@ describe('income statement default dates', () => {
     serve(on('GET', 'reports-income-statement', () => refuse()), on('GET', 'fiscal-periods', () => ok({ id: 'fp', startDate: addDays(200), endDate: addDays(230) })));
     render(<IncomeStatementPage />);
     await waitFor(() => expect(dates().length).toBeGreaterThanOrEqual(2));
-    await waitFor(() => { const [from, to] = dates(); expect(from).not.toBe(to); expect(to).toBe(shownDate(today)); });
+    await waitFor(() => expect(dates()).toEqual([shownDate(`${today.slice(0, 7)}-01`), shownDate(today)]));
   });
   it('an open period that has begun is still used (From = its start, To capped to today)', async () => {
     serve(on('GET', 'reports-income-statement', () => refuse()), on('GET', 'fiscal-periods', () => ok({ id: 'fp', startDate: '2020-03-01', endDate: addDays(30) })));
