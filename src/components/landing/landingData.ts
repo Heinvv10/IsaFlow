@@ -75,7 +75,7 @@ export const FEATURE_PILLARS: FeaturePillar[] = [
   {
     icon: RefreshCw,
     title: 'Always reconciled',
-    desc: 'Connect your bank, match transactions automatically, close your books with confidence.',
+    desc: 'Import your bank statements (CSV, OFX, QFX, QIF, MT940, PDF), match transactions automatically, close your books with confidence.',
   },
   {
     icon: Shield,
@@ -146,7 +146,7 @@ export const PRICING_TIERS: PricingTier[] = [
     features: [
       'Full General Ledger',
       'Invoicing, Quotes & Statements',
-      'Bank Reconciliation & Feeds (1 bank)',
+      'Bank Reconciliation & Statement Import (1 bank)',
       'VAT201 & Tax Compliance',
       'Financial Reports',
       'Full Audit Trail',
@@ -168,7 +168,7 @@ export const PRICING_TIERS: PricingTier[] = [
       'Purchases & Supplier Invoices (AP)',
       'Inventory — products & stock levels',
       'Multi-Currency & Exchange Rates',
-      'Unlimited bank accounts & feeds',
+      'Unlimited bank accounts & statement imports',
       'AI Document Capture & Smart Categorisation',
       'All 30+ Reports & Executive Dashboard',
       'Up to 5 users',
