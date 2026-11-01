@@ -18,7 +18,6 @@ import type { PlatformSettings } from '@/modules/admin/types/admin.types';
 const PatchBody = z.object({
   maintenance_mode:       z.boolean().optional(),
   registration_enabled:   z.boolean().optional(),
-  default_trial_days:     z.number().int().min(1).max(365).optional(),
   max_companies_per_user: z.number().int().min(1).max(100).optional(),
   smtp_configured:        z.boolean().optional(),
 }).strict();

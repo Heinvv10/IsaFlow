@@ -14,6 +14,7 @@ const FILES = [
   'pages/register.tsx',
   'pages/api/auth/register.ts',
   'pages/verify-email.tsx',
+  'src/components/auth/SignupForm.tsx',
   'src/components/auth/SignupPendingCard.tsx',
   'src/components/landing/LandingHero.tsx',
   'src/components/landing/LandingPricingTestimonialsFooter.tsx',
