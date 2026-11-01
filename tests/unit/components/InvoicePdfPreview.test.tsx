@@ -14,7 +14,8 @@ import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/Inv
 
 const A = '10000000-0000-4000-8000-00000000000a';
 const B = '10000000-0000-4000-8000-00000000000b';
-const pdf = () => new Response(new Blob(['%PDF'], { type: 'application/pdf' }), { status: 200 });
+const typed = (contentType: string) => new Response('%PDF', { status: 200, headers: { 'Content-Type': contentType } });
+const pdf = () => typed('application/pdf');
 
 let urls: number;
 const createObjectURL = vi.fn(() => `blob:preview-${++urls}`);
@@ -170,6 +171,98 @@ describe('InvoicePdfPreview', () => {
     apiFetch.mockImplementationOnce(() => new Promise<Response>(() => undefined));
     view.rerender(<InvoicePdfPreview invoiceId={B} version={1} />);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows Retry on a 429 and recovers, with nothing framed from the refusal', async () => {
+    apiFetch.mockImplementationOnce(async () => new Response(JSON.stringify({ error: { message: 'Too many PDF requests.' } }), { status: 429 }));
+    render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    expect(screen.getByRole('alert').textContent).toMatch(/could not load/i);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(frame()).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    await flush();
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(frame()?.getAttribute('src')).toBe('blob:preview-1');
+  });
+
+  it('keeps the shown PDF through a 429 on a refresh', async () => {
+    const view = render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    apiFetch.mockImplementationOnce(async () => new Response('{}', { status: 429 }));
+    view.rerender(<InvoicePdfPreview invoiceId={A} version={2} />);
+    await advance(3000);
+    expect(screen.getByRole('alert').textContent).toMatch(/out of date/i);
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy();
+    expect(frame()?.getAttribute('src')).toBe('blob:preview-1');
+  });
+
+  it.each(['text/html', 'text/plain', 'application/pdfx', ''])('refuses a 200 of type %j rather than frame it', async (type) => {
+    apiFetch.mockImplementationOnce(async () => {
+      const res = typed('text/plain');
+      if (type) res.headers.set('Content-Type', type); else res.headers.delete('Content-Type');
+      return res;
+    });
+    render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(frame()).toBeNull();
+    expect(screen.getByRole('alert').textContent).toMatch(/could not load/i);
+  });
+
+  it('frames a PDF as exactly application/pdf, however the response spelled it', async () => {
+    apiFetch.mockImplementationOnce(async () => typed('Application/PDF; name=x'));
+    render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    const blob = (createObjectURL.mock.calls as unknown as Array<[Blob]>)[0]![0];
+    expect(blob.type).toBe('application/pdf');
+    expect(await blob.text()).toBe('%PDF');
+    expect(frame()?.getAttribute('src')).toBe('blob:preview-1');
+  });
+
+  it('revokes A at once on switching to B, without waiting for B', async () => {
+    const view = render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    apiFetch.mockImplementationOnce(() => new Promise<Response>(() => undefined));
+    view.rerender(<InvoicePdfPreview invoiceId={B} version={1} />);
+    await flush();
+    expect(revokeObjectURL.mock.calls.map((c) => c[0])).toEqual(['blob:preview-1']);
+  });
+
+  it('revokes A when B is switched to under a closed preview', async () => {
+    const view = render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    view.rerender(<InvoicePdfPreview invoiceId={B} version={1} />);
+    await flush();
+    expect(revokeObjectURL.mock.calls.map((c) => c[0])).toEqual(['blob:preview-1']);
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders A again on coming back from B, rather than waiting on a revoked URL', async () => {
+    const view = render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    apiFetch.mockImplementationOnce(() => new Promise<Response>(() => undefined));
+    view.rerender(<InvoicePdfPreview invoiceId={B} version={1} />);
+    await flush();
+    view.rerender(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    expect(apiFetch).toHaveBeenCalledTimes(3);
+    expect(frame()?.getAttribute('src')).toBe('blob:preview-2');
+    expect(screen.queryByText(/loading preview/i)).toBeNull();
+  });
+
+  it('points the toggle at the panel it opens', async () => {
+    render(<InvoicePdfPreview invoiceId={A} version={1} />);
+    await flush();
+    const toggle = screen.getByRole('button', { name: /preview/i });
+    const panel = document.getElementById(toggle.getAttribute('aria-controls') ?? '');
+    expect(panel?.contains(frame())).toBe(true);
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-controls')).toBeTruthy();
+    expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toBeNull();
   });
 
   it('marks a kept preview as out of date when its refresh fails', async () => {
