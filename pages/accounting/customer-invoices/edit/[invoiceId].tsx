@@ -8,14 +8,16 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { discountFromAmount, previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { discountFromAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
 import { invoiceDateProblem, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, storedUnitPrice, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 
 // CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
 // otherwise null, so derivation sets it (the project's FNO, else the customer's: dimensionKeepStored).
@@ -48,6 +50,7 @@ export default function EditCustomerInvoicePage() {
   const dates = useInvoiceDateValidity();
   const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([]);
+  const [taxMode, setTaxMode] = useState<TaxMode>('exclusive'); // a stored price is ex-VAT, so it loads as one
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -116,8 +119,9 @@ export default function EditCustomerInvoicePage() {
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
   // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
-  const lineTotal = (l: LineItem) => previewLineAmount(l.quantity, l.unitPrice, l.discount || 0);
-  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), form.taxRate);
+  const taxRate = effectiveTaxRate(taxMode, form.taxRate);
+  const lineTotal = (l: LineItem) => lineTotalForMode(taxMode, taxRate, l);
+  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), taxRate);
 
   const handleSubmit = async () => {
     if (!form.clientId) return setError('Select a client');
@@ -137,14 +141,14 @@ export default function EditCustomerInvoicePage() {
           dueDate: form.dueDate || undefined,
           billingPeriodStart: form.billingPeriodStart || undefined,
           billingPeriodEnd: form.billingPeriodEnd || undefined,
-          taxRate: form.taxRate,
+          taxRate,
           notes: form.notes || undefined,
           currencyCode: form.currencyCode,
           exchangeRate: form.exchangeRate,
           projectId: form.projectId || null,
           items: validLines.map(l => ({
             description: l.description, quantity: l.quantity,
-            unitPrice: l.unitPrice, taxRate: form.taxRate,
+            unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate), taxRate,
             discount: l.discount || 0,
             glAccountId: l.glAccountId || null,
             projectId: l.projectId || null,
@@ -184,20 +188,12 @@ export default function EditCustomerInvoicePage() {
     <AppLayout>
       <Head><title>{`Edit ${invoiceNumber} · Sales · IsaFlow`}</title></Head>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="relative z-10">
-            <Link href={`/accounting/customer-invoices/${String(invoiceId)}`} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Invoice
-            </Link>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center"><FileText className="w-5 h-5 text-amber-400" /></div>
-              <div>
-                <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">Edit Draft</p>
-                <h1 className="text-xl font-bold text-white">{invoiceNumber}</h1>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={FileText}
+          title={invoiceNumber}
+          breadcrumb={[{ label: 'Invoices', href: '/accounting/customer-invoices' }, { label: 'Invoice', href: `/accounting/customer-invoices/${String(invoiceId)}` }, { label: 'Edit draft' }]}
+          className="mb-0"
+        />
 
         <div className="p-4 sm:p-6 xl:p-8">
           <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
@@ -205,18 +201,18 @@ export default function EditCustomerInvoicePage() {
               {error && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</div>}
 
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} />
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={setTaxMode} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
-                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} />
+                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} pricesIncludeVat={taxMode === 'inclusive'} />
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Notes or payment instructions…" />
             </div>
 
             <div className="lg:sticky lg:top-6 space-y-4">
-              <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={form.taxRate} currencyCode={form.currencyCode}>
+              <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
                 <button onClick={handleSubmit} disabled={submitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
                 </button>

@@ -81,12 +81,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, activity);
       }
 
-      // Single customer: names a preselected id that is not in the first page (ContactPicker). A bare `?id=` that is
+      // Single customer: names a preselected id that is not in the first page (ContactPicker), and gives the new-invoice
+      // page its defaults (useContactDefaults). A bare `?id=` that is
       // not a UUID keeps its old answer (the list), which the detail page still filters itself.
       if (typeof id === 'string' && UUID_RE.test(id)) {
         const found = (await sql`
-          SELECT id, name, email, phone, contact_person, payment_terms, credit_limit, is_active,
-                 vat_number, registration_number, created_at
+          SELECT id, name, email, phone, contact_person, payment_terms, payment_terms_type, default_discount, default_vat_type,
+                 credit_limit, is_active, vat_number, registration_number, created_at
           FROM customers
           WHERE id = ${id}::uuid AND company_id = ${companyId} AND deleted_at IS NULL
         `) as Row[];
