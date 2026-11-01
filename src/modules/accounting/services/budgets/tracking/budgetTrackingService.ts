@@ -7,10 +7,10 @@
  *   1. window (`trackingWindow`, the registry);
  *   2. the dimension filter, looked up under the company (404 on a miss);
  *   3. versions (primary per year unless one is named; 404 / 400 per §2.5);
- *   4. budget rows at their grain, the CC2 chains (loaded once), classified;
- *   5. actuals per account x month (the window and the whole of FY*: a projected month with no
- *      budget keeps its actual);
- *   6. lines, bands, notices, members; the in-progress month's posted-through date.
+ *   4-5. the shared core (`trackingCore`): budget rows at their grain, the CC2 chains (loaded once),
+ *      classified; actuals per account x month (the window and the whole of FY*: a projected month
+ *      with no budget keeps its actual); budget-absent years; lines with their verdicts;
+ *   6. bands, notices, members; the in-progress month's posted-through date.
  *
  * Every figure is computed here or in the pure modules it calls, never by a
  * caller: the `statementRows/` adapter and the export copy.
@@ -18,14 +18,12 @@
 import { localISODate } from '@/lib/dateUtils';
 import { reportYearOptions } from '@/modules/accounting/services/reports/budgetReportYear';
 import { resolveDimensionMembers } from '@/modules/accounting/services/reports/dimensionPnlService';
-import { loadCostCentreChains } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
-import { buildBands, buildNotices } from './trackingBands';
-import { budgetAbsentYears, readTrackingBudgets, resolveTrackingVersions } from './trackingBudgetRead';
-import { readAccountOrder, readPostedThrough, readTrackingActuals } from './trackingActualRead';
+import { buildBands, buildNotices, membersBudgetAbsent } from './trackingBands';
+import { resolveTrackingVersions } from './trackingBudgetRead';
+import { readPostedThrough } from './trackingActualRead';
 import { buildTrackingMembers } from './trackingByMember';
-import { classifyBudgetRow, effectiveDims } from './trackingDimRollup';
+import { trackingCore } from './trackingCore';
 import { readMemberOrder, resolveTrackingFilter } from './trackingFilter';
-import { buildTrackingLines, type AccountMeta } from './trackingLines';
 import { projectionPlan, readEndOf } from './trackingProjection';
 import { TrackingError, type BudgetTrackingReport, type TrackingParams } from './trackingTypes';
 import { mapRegistryMiss, readStartOf, resolveTrackingWindow } from './trackingWindow';
@@ -45,38 +43,12 @@ export async function buildBudgetTrackingReport(
   const versions = await resolveTrackingVersions(companyId, window, params.versionId);
   const plan = projectionPlan(window.fy, window.endDate, today);
 
-  const budgetRows = await readTrackingBudgets(companyId, versions.scope);
-  // Every chain the request needs (the budget rows' CC2s and the filter's), in ONE query.
-  const chainIds = [...new Set([...filter.chainIds, ...budgetRows.map((r) => r.cc2Id).filter((v): v is string => v !== null)])];
-  const nodes = await loadCostCentreChains(companyId, chainIds);
-  const budgetFilter = filter.budgetFilter(nodes);
-  const actualRows = await readTrackingActuals(companyId, readStartOf(window), readEndOf(window, plan), filter.actual, groupBy);
-
-  const accounts = new Map<string, AccountMeta>();
-  for (const r of [...actualRows, ...budgetRows]) {
-    if (!accounts.has(r.accountId)) {
-      accounts.set(r.accountId, {
-        accountId: r.accountId, accountCode: r.accountCode, accountName: r.accountName, accountType: r.accountType, accountSubtype: r.accountSubtype,
-      });
-    }
-  }
-  const effs = budgetRows.map((r) => effectiveDims(r, nodes));
-  const classified = budgetRows.map((r, i) => ({ accountId: r.accountId, month: r.month, amount: r.amount, cls: classifyBudgetRow(effs[i]!, budgetFilter) }));
-  // Budget-absent years are decided from what this read returned, as the filter classes it (review
-  // r4, r5): no version, or no included or coarser income-statement row in the year's window months.
-  const absentYears = budgetAbsentYears(window, versions.scope, classified);
-  const noVersionMonths = window.years.filter((y) => absentYears.includes(y.fiscalYear)).flatMap((y) => y.months);
-  const lines = buildTrackingLines({
-    noVersionMonths,
-    accounts,
-    windowMonths: window.months,
-    plan,
-    actuals: actualRows,
-    budgets: classified,
-    windowYears: window.years,
-    order: await readAccountOrder(companyId, [...accounts.keys()]),
+  const { budgetRows, effs, actualRows, lines, absentYears, outsideFilterYears, noVersionMonths } = await trackingCore(companyId, {
+    window, scope: versions.scope, filter, plan, groupBy,
+    actuals: { from: readStartOf(window), to: readEndOf(window, plan) },
   });
 
+  const bands = buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 });
   let members: BudgetTrackingReport['members'];
   if (groupBy) {
     const ids = [...new Set([
@@ -93,8 +65,8 @@ export async function buildBudgetTrackingReport(
       names: new Map([...named].map(([id, m]) => [id.toLowerCase(), { code: m.code, name: m.name }])),
       noVersionMonths,
       order: memberOrder,
-      // Members partition NP: when a partial line leaves NP's budget absent, theirs is too.
-      budgetAbsent: lines.some((l) => l.partialBudget),
+      // Members partition NP: whenever NP has no budget (the final R9 rule), theirs is absent too.
+      budgetAbsent: membersBudgetAbsent(bands),
       windowYears: window.years,
     });
   }
@@ -123,9 +95,9 @@ export async function buildBudgetTrackingReport(
       judgedThrough: plan.judgedThrough,
     },
     lines,
-    bands: buildBands(lines, { budgetAbsent: noVersionMonths.length > 0 }),
+    bands,
     notices: buildNotices(lines, {
-      noVersion: absentYears.includes(window.fy.fiscalYear), noVersionYears: absentYears, budgetAbsent: noVersionMonths.length > 0,
+      noVersion: absentYears.includes(window.fy.fiscalYear), noVersionYears: absentYears, budgetAbsent: noVersionMonths.length > 0, outsideFilterYears,
     }),
     years: await mapRegistryMiss(() => reportYearOptions(companyId, today)),
   };

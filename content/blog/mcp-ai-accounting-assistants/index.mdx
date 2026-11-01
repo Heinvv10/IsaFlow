@@ -17,7 +17,7 @@ draft: false
 - The **Model Context Protocol (MCP)** is an open standard, introduced by Anthropic in November 2024, for connecting AI assistants to the systems where data lives.
 - In accounting, the useful jobs are **reading and explaining**: what's in the trial balance, what the VAT position looks like, which lines look odd.
 - The rule we recommend: **let the assistant prepare, and keep posting with a person.** In ISAFlow, draft journals stay unposted for you to review, and the agent can only post if you grant a separate posting permission.
-- ISAFlow's MCP connector is a **pilot**, **off by default** for each company. Contact ISAFlow support to enable it. Once it's on, it's **read-only by default**, and every AI request is logged. Drafting a journal needs a permission you grant, and creates an unposted draft for you to review. Posting needs a permission you choose to grant.
+- ISAFlow's MCP connector is a **pilot**, **off by default** for each company. Contact ISAFlow support to enable it. Access is limited per company, every AI request is logged, and posting needs a separate permission the business chooses to grant. We recommend keeping posting with a person.
 
 ## Why this question is coming up now
 
@@ -107,7 +107,7 @@ Your books hold personal information about employees and customers. The Protecti
 
 ## How ISAFlow's MCP connector works
 
-ISAFlow's MCP connector is a **pilot**, and it's **off by default** for each company. To switch it on, contact ISAFlow support to enable it. Once it's on, access is **read-only by default**.
+ISAFlow's MCP connector is a **pilot**, and it's **off by default** for each company. To switch it on, contact ISAFlow support to enable it. Access is limited to that company, and posting needs a separate permission the business chooses to grant.
 
 With it, an assistant such as Claude, Cursor or Grok Bot can:
 
@@ -116,11 +116,11 @@ With it, an assistant such as Claude, Cursor or Grok Bot can:
 - **prepare a draft journal**, if you grant the `write:journals` permission when you connect,
 - **post a journal**, only if you grant a separate posting permission.
 
-Read-only by default. Draft journals stay unposted for you to review, and the agent can only post if you grant a separate posting permission. We recommend keeping posting with a person.
+Access is limited per company. Draft journals stay unposted for you to review, and the agent can only post if the business grants a separate posting permission. We recommend keeping posting with a person.
 
 Every AI request is logged in an append-only audit log. You can list the drafts an assistant has created, and revoke its access when you no longer need it.
 
-![Illustrative diagram: an AI assistant such as Claude, Cursor or Grok Bot connects through the ISAFlow MCP connector, a pilot that is off by default per company and read-only by default. It reads the trial balance and VAT position. With the write:journals permission, it can create an unposted draft journal for you to review. Posting needs a separate permission you choose to grant. Every AI request is logged.](/blog/mcp-ai-accounting-assistants/chart-2.svg)
+![Illustrative diagram: an AI assistant such as Claude, Cursor or Grok Bot connects through the ISAFlow MCP connector, a pilot that is off by default and limited per company. It reads the trial balance and VAT position. With write permissions, it can create an unposted draft journal for you to review. Posting needs a separate permission the business chooses to grant. Every AI request is logged.](/blog/mcp-ai-accounting-assistants/chart-2.svg)
 
 *Illustrative diagram, not a screenshot.*
 
@@ -144,7 +144,7 @@ The Model Context Protocol is an open standard for connecting AI assistants to s
 
 ### Can an AI assistant create journals in ISAFlow?
 
-Read-only by default. Draft journals stay unposted for you to review, and the agent can only post if you grant a separate posting permission. Drafting needs the `write:journals` permission. We recommend keeping posting with a person.
+Access is limited per company. Draft journals stay unposted for you to review, and the agent can only post if the business grants a separate posting permission. We recommend keeping posting with a person.
 
 ### Which AI assistants work with ISAFlow?
 
@@ -152,7 +152,7 @@ Claude, Cursor and Grok Bot can connect through ISAFlow's MCP connector once ISA
 
 ### Is it safe to connect AI to my accounting software?
 
-It can be, if access is off until you ask for it, read-only by default, limited per company, and a person reviews every draft before it's posted. Posting needs a permission you choose to grant, and we recommend keeping it with a person. Check the AI provider's data handling against your POPIA obligations.
+It can be, if access is off until you ask for it, limited per company, and posting needs a permission the business chooses to grant. We recommend keeping posting with a person. Check the AI provider's data handling against your POPIA obligations.
 
 ### Can AI file my VAT return?
 

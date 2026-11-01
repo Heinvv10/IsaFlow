@@ -50,7 +50,8 @@ export async function saveDriver(companyId: string, userId: string, target: Driv
     const others = (await listDriverLines(companyId, ctx.versionId)).filter((d) => rowKeyOfGrain(d) !== key);
     await checkDriverLine(companyId, ctx.versionId, line, others);
     const model = await loadVersionModel(companyId, ctx.versionId, ctx.months, [...others, line]);
-    // checkDriverLine and assertDriverMonths refused anything the model would skip; kept as the backstop.
+    // checkDriverLine and assertDriverMonths refuse most of what the model would skip; the model alone
+    // refuses a read at a grain its account is not budgeted at (it would put the account at two grains).
     const unplaced = model.skipped.find((x) => x.rowKey === key);
     if (unplaced) throw new BudgetDriverError('DRIVER_REF', unplaced.message);
     // Over EVERY stored driver, skipped ones too: a loop through one comes back with its account.
