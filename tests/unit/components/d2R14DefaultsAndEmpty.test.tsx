@@ -1,7 +1,7 @@
 // D2 round 14: (1) income statement never defaults to From after To when the open period is in the future;
 // (2) group eliminations show no "none found" empty state beside a failed-load banner.
 import { dateFieldInputs, shownDate } from '../helpers/dateFields';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -32,19 +32,23 @@ afterEach(() => { cleanup(); });
 const dates = () => dateFieldInputs().map((i) => i.value);
 
 describe('income statement default dates', () => {
-  const today = localISODate();
-  const monthStart = localISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  // Mid-month clock: on the 1st the page's month-start From equals today, so
+  // "From is not To" failed for a reason unrelated to the future period.
+  beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 9, 15, 12)); });
+  afterAll(() => { vi.useRealTimers(); });
+  const today = () => localISODate();
+  const monthStart = () => localISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const addDays = (d: number) => localISODate(new Date(Date.now() + d * 86400000));
   it('a future-only open period never gives From after To', async () => {
     serve(on('GET', 'reports-income-statement', () => refuse()), on('GET', 'fiscal-periods', () => ok({ id: 'fp', startDate: addDays(200), endDate: addDays(230) })));
     render(<IncomeStatementPage />);
     await waitFor(() => expect(dates().length).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(dates()).toEqual([shownDate(monthStart), shownDate(today)]));
+    await waitFor(() => expect(dates()).toEqual([shownDate(monthStart()), shownDate(today())]));
   });
   it('an open period that has begun is still used (From = its start, To capped to today)', async () => {
     serve(on('GET', 'reports-income-statement', () => refuse()), on('GET', 'fiscal-periods', () => ok({ id: 'fp', startDate: '2020-03-01', endDate: addDays(30) })));
     render(<IncomeStatementPage />);
-    await waitFor(() => expect(dates()).toEqual([shownDate('2020-03-01'), shownDate(today)]));
+    await waitFor(() => expect(dates()).toEqual([shownDate('2020-03-01'), shownDate(today())]));
   });
 });
 
