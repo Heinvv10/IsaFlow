@@ -3,14 +3,10 @@
  * refused text, and the refusal is dropped when the field leaves the screen (a closed panel, another tab).
  * `onValue` receives the ISO date, or '' when the field is empty; it is never called for refused text.
  *
- * A date the PARENT sets (a scan-fill, a form cleared after a save, a query param) needs `gate.reset(gateKey)` in the
- * same handler as the set:
- * - The field binds its value in its own render, after the parent's render has read `gate.blocked` (useDateGate keeps
- *   the bound value in a ref, and `blocked` compares against it). Over refused text, that render still reads blocked,
- *   and nothing renders the parent again once the field has bound, so `disabled={gate.blocked}` stays on until
- *   something else does. An event handler reading `gate.blocked` later is not affected.
- * - A prop that did not change is not news to DateField: setting the date the parent already holds leaves the refused
- *   text on screen, and clearing to '' looks like the echo of the refusal, so the text stays with the gate open.
+ * A date the PARENT sets (a scan-fill, a form cleared after a save, a query param) drops the refusal once it differs
+ * from the refused value, but needs `gate.reset(gateKey)` in the same handler when it may not differ: a prop that did
+ * not change is not news to DateField, so setting the date the parent already holds leaves the refused text on screen,
+ * and clearing to '' looks like the echo of the refusal.
  * To bind ahead of a read in the parent's render, use useDateGate.bind with a plain DateField (see balance-sheet.tsx).
  */
 import { useEffect } from 'react';

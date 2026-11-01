@@ -1,4 +1,4 @@
-// A GatedDateField binds in its own render, after the parent has read gate.blocked, so a date the parent sets itself
+// useDateGate drops a refusal once the parent's date moves on, but a date the parent sets to the same value
 // needs gate.reset(key). The forms below clear their dates after a save, with the field still on screen, and a
 // refusal typed while the save was in flight must not outlive it as red text behind an open gate.
 import { useState } from 'react';
@@ -62,11 +62,11 @@ describe('a date the parent sets over refused text', () => {
     await waitFor(() => expect(save().disabled).toBe(true));
   };
 
-  it('without a reset, the text changes but the parent still holds the blocked it read before the field bound', async () => {
+  it('without a reset, a different date from the parent drops the stale refusal and opens the gate', async () => {
     await refuse();
     fireEvent.click(screen.getByRole('button', { name: 'Fill without reset' }));
     await waitFor(() => expect(field('When').value).toBe('02 Nov 2026'));
-    expect(save().disabled).toBe(true);
+    expect(save().disabled).toBe(false);
   });
 
   it.each([
