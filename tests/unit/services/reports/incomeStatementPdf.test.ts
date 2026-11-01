@@ -13,6 +13,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 import {
   buildIncomeStatementPdf,
   incomeStatementPdfRows,
+  parseComparators,
 } from '@/modules/accounting/services/reports/incomeStatementPdf';
 import type { PackPandLBand } from '@/modules/accounting/services/reports/incomeStatementPackRows';
 import type { CompanyDetails } from '@/modules/accounting/services/core/pdfShared';
@@ -110,7 +111,7 @@ describe('incomeStatementPdfRows', () => {
       { kind: 'warning', code: '5001', label: 'Cost of Goods Sold — carries the platform default subtype, i.e. nobody classified it', amount: 574253.66 },
       { kind: 'warning', code: '4001', label: 'Product Sales — no recognised account_subtype', amount: 700.25 },
       { kind: 'note', label: 'and 3 further affected account(s)' },
-      { kind: 'note', label: 'The amounts above are repeated elsewhere in this sheet — do not add them again.' },
+      { kind: 'note', label: 'The amounts above are repeated elsewhere in this statement — do not add them again.' },
     ]);
     expect(JSON.stringify(rows)).not.toContain('574953.91');
   });
@@ -124,6 +125,34 @@ describe('incomeStatementPdfRows', () => {
     const rows = incomeStatementPdfRows({ ...REPORT, grossMarginPct: null, netMarginPct: null });
     expect(rows.find((r) => r.kind === 'band' && r.band === 'grossProfit')).toMatchObject({ margin: null });
   });
+
+  it.each([['negative', -1000], ['nil', 0]])('shows no margin on %s turnover, whatever the service computed', (_name, totalRevenue) => {
+    // The service keeps a margin on negative turnover; the PDF follows the xlsx and CSV, which print none.
+    const rows = incomeStatementPdfRows({ ...REPORT, totalRevenue, grossMarginPct: 150, netMarginPct: 80 });
+    expect(rows.find((r) => r.kind === 'band' && r.band === 'grossProfit')).toMatchObject({ margin: null });
+    expect(rows.find((r) => r.kind === 'band' && r.band === 'netProfit')).toMatchObject({ margin: null });
+  });
+
+  it('keeps the report\'s own margins on positive turnover', () => {
+    const rows = incomeStatementPdfRows(REPORT);
+    expect(rows.find((r) => r.kind === 'band' && r.band === 'grossProfit')).toMatchObject({ margin: 60 });
+    expect(rows.find((r) => r.kind === 'band' && r.band === 'netProfit')).toMatchObject({ margin: 49.75 });
+  });
+
+  it('labels the bottom line as the screen and the xlsx do', () => {
+    const rows = incomeStatementPdfRows(REPORT);
+    expect(rows.find((r) => r.kind === 'band' && r.band === 'netProfit')).toMatchObject({ label: 'Net Profit / (Loss)' });
+  });
+});
+
+describe('parseComparators', () => {
+  it.each([
+    [undefined, []], ['prior', ['prior']], ['budget', ['budget']], ['prior,budget', ['prior', 'budget']], ['prior,prior', ['prior']],
+  ])('reads %j', (value, expected) => expect(parseComparators(value)).toEqual(expected));
+
+  it.each([[''], ['trend'], ['prior,trend'], ['prior,'], [['prior', 'budget']], ['toString']])('refuses %j', (value) => {
+    expect(parseComparators(value)).toBeNull();
+  });
 });
 
 describe('buildIncomeStatementPdf', () => {
@@ -133,13 +162,76 @@ describe('buildIncomeStatementPdf', () => {
     const text = await pdfText(pdf);
     for (const expected of [
       'Fixture Trading (Pty) Ltd', 'Income Statement', '01/04/2026', '30/04/2026', 'Cost centre: FNO-1',
-      'Total Turnover', 'R 1,000,000.25', 'Gross Profit', 'R 600,000.15', '60.0%', 'Other Income', 'R 40.50',
-      'Operating Profit', 'R 500,040.62', 'Other Expenses', 'R 2,500.07', 'Net Profit', 'R 497,540.55', '49.8%',
-      'Expense that could be cost of sales (at most)', 'R 574,253.66',
-      'Revenue that could be other income (at most)', 'R 700.25',
+      'Total Turnover R 1 000 000.25', 'Gross Profit R 600 000.15 60.0%', 'Other Income R 40.50',
+      'Operating Profit R 500 040.62', 'Other Expenses R 2 500.07', 'Net Profit / (Loss) R 497 540.55 49.8%',
+      'Expense that could be cost of sales (at most) R 574 253.66',
+      'Revenue that could be other income (at most) R 700.25',
       'and 3 further affected account(s)',
-      'The amounts above are repeated elsewhere in this sheet — do not add them again.',
+      'The amounts above are repeated elsewhere in this statement — do not add them again.',
     ]) expect(text).toContain(expected);
+  });
+
+  it('prints a loss and a contra line with their signs, in brackets, and a positive line without', async () => {
+    const loss = {
+      ...REPORT,
+      revenue: [line('4000', 'Sales', 10000), line('4050', 'Sales Returns', -2500.5)],
+      otherIncome: [], totalOtherIncome: 0, otherExpenses: [], totalOtherExpenses: 0,
+      costOfSales: [line('5000', 'Purchases', 9000.25)],
+      operatingExpenses: [line('6000', 'Rent', 1000.1), line('6100', 'Rent rebate', -200)],
+      totalRevenue: 7499.5, totalCostOfSales: 9000.25, totalOperatingExpenses: 800.1,
+      grossProfit: -1500.75, operatingProfit: -2300.85, netProfit: -2300.85,
+      grossMarginPct: -20.01, netMarginPct: -30.68, subtypeDisclosure: null,
+    } as unknown as IncomeStatementReport;
+    const text = await pdfText(await buildIncomeStatementPdf(loss, COMPANY, { scope: null, generatedOn: '2026-11-01' }));
+    for (const expected of [
+      '4000 Sales R 10 000.00', '4050 Sales Returns (R 2 500.50)', 'Total Turnover R 7 499.50',
+      '5000 Purchases R 9 000.25', 'Gross Profit (R 1 500.75) (20.0%)', '6100 Rent rebate (R 200.00)',
+      'Total Operating Expenses R 800.10', 'Operating Profit (R 2 300.85)', 'Net Profit / (Loss) (R 2 300.85) (30.7%)',
+    ]) expect(text).toContain(expected);
+    expect(text).not.toMatch(/-\s*R|R\s*-/);
+  });
+
+  it('prints a line under half a cent as nil, never as a negative zero', async () => {
+    const dust = {
+      ...REPORT,
+      revenue: [line('4000', 'Sales', 1000), line('4060', 'Rounding', -0.004)], netProfit: -0.0049, subtypeDisclosure: null,
+    } as unknown as IncomeStatementReport;
+    const text = await pdfText(await buildIncomeStatementPdf(dust, COMPANY, { scope: null, generatedOn: '2026-11-01' }));
+    expect(text).toContain('4060 Rounding –');
+    expect(text).toContain('Net Profit / (Loss) – 49.8%');
+    expect(text).not.toMatch(/-0\.00|\(R 0\.00\)/);
+  });
+
+  it('prints the no-margin cell on a period with no positive turnover', async () => {
+    const none = { ...REPORT, totalRevenue: -500, grossProfit: -400, netProfit: -300, grossMarginPct: 80, netMarginPct: 60 };
+    const text = await pdfText(await buildIncomeStatementPdf(none, COMPANY, { scope: null, generatedOn: '2026-11-01' }));
+    expect(text).toContain('Gross Profit (R 400.00) –');
+    expect(text).toContain('Net Profit / (Loss) (R 300.00) –');
+    expect(text).not.toContain('80.0%');
+  });
+
+  it('keeps a nine-figure bracketed amount on one line', async () => {
+    const large = { ...REPORT, netProfit: -212345678.9 };
+    const { PDFParse } = (await import('pdf-parse')) as unknown as {
+      PDFParse: new (o: { data: Buffer }) => { getText(): Promise<{ text: string }> };
+    };
+    const pdf = await buildIncomeStatementPdf(large, COMPANY, { scope: null, generatedOn: '2026-11-01' });
+    const raw = (await new PDFParse({ data: pdf }).getText()).text;
+    expect(raw).toMatch(/\(R[ \u00a0]212[ \u00a0]345[ \u00a0]678\.90\)/);
+  });
+
+  it.each([
+    [['prior', 'budget'], 'Comparators on screen, not included in this PDF: Prior period, Budget.'],
+    [['prior'], 'Comparators on screen, not included in this PDF: Prior period.'],
+    [['budget'], 'Comparators on screen, not included in this PDF: Budget.'],
+  ] as const)('says %j are left out', async (comparators, sentence) => {
+    const pdf = await buildIncomeStatementPdf(REPORT, COMPANY, { scope: null, generatedOn: '2026-11-01', omittedComparators: comparators });
+    expect(await pdfText(pdf)).toContain(sentence);
+  });
+
+  it('says nothing of comparators when the screen shows none', async () => {
+    const pdf = await buildIncomeStatementPdf(REPORT, COMPANY, { scope: null, generatedOn: '2026-11-01' });
+    expect(await pdfText(pdf)).not.toContain('Comparators');
   });
 
   it('runs to more pages rather than clipping a long statement', async () => {
