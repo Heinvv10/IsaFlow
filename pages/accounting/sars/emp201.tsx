@@ -129,12 +129,12 @@ export default function EMP201Page() {
         credentials: 'include',
         body: JSON.stringify({ id: savedId, action: 'mark_submitted', reference: sarsRef.trim() }),
       });
-      await assertOk(res, 'Could not mark the EMP201 as submitted - try again');
-      setSuccess('EMP201 marked as submitted to SARS');
+      await assertOk(res, 'Could not record the EMP201 as filed - try again');
+      setSuccess('EMP201 recorded as filed on eFiling');
       setShowSubmitModal(false);
       setSarsRef('');
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not mark the EMP201 as submitted - try again'));
+      setError(apiErrorMessage(err, 'Could not record the EMP201 as filed - try again'));
     } finally {
       setSubmitting(false);
     }
@@ -347,7 +347,7 @@ export default function EMP201Page() {
                     onClick={() => setShowSubmitModal(true)}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-success-700 text-white text-sm font-medium hover:bg-success-800"
                   >
-                    <Send className="h-4 w-4" /> Mark as Submitted
+                    <Send className="h-4 w-4" /> Record as filed on eFiling
                   </button>
                 )}
               </div>
@@ -359,10 +359,10 @@ export default function EMP201Page() {
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 w-full max-w-md mx-4">
                 <h3 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">
-                  Mark as Submitted to SARS
+                  Record as filed on eFiling
                 </h3>
                 <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
-                  Enter the SARS eFiling reference number after submitting the EMP201 on the SARS eFiling portal.
+                  This records an EMP201 filing you completed on SARS eFiling. ISAFlow does not send this return to SARS. Enter the SARS eFiling reference number.
                 </p>
                 <input
                   type="text"
@@ -384,7 +384,7 @@ export default function EMP201Page() {
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-success-700 text-white text-sm font-medium hover:bg-success-800 disabled:opacity-50"
                   >
                     {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    Confirm
+                    Record filing
                   </button>
                 </div>
               </div>

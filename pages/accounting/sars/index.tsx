@@ -36,32 +36,35 @@ interface Submission {
 }
 
 const statusBadge = (status: string) => {
+  const label = status === 'submitted'
+    ? 'Filed on eFiling'
+    : status.charAt(0).toUpperCase() + status.slice(1);
   switch (status) {
     case 'completed':
     case 'submitted':
     case 'accepted':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400">
-          <CheckCircle2 className="h-3 w-3" /> {status}
+          <CheckCircle2 className="h-3 w-3" /> {label}
         </span>
       );
     case 'overdue':
     case 'rejected':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400">
-          <XCircle className="h-3 w-3" /> {status}
+          <XCircle className="h-3 w-3" /> {label}
         </span>
       );
     case 'pending':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400">
-          <Clock className="h-3 w-3" /> {status}
+          <Clock className="h-3 w-3" /> {label}
         </span>
       );
     default:
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/10 text-gray-600 dark:text-gray-400">
-          {status}
+          {label}
         </span>
       );
   }
@@ -127,7 +130,7 @@ export default function SARSDashboard() {
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Compliance Calendar</h1>
               <p className="text-sm text-[var(--ff-text-secondary)]">
-                SARS eFiling overview — VAT201, EMP201, and submission tracking
+                SARS eFiling overview: VAT201, EMP201, and filing tracking
               </p>
             </div>
           </div>
@@ -166,7 +169,7 @@ export default function SARSDashboard() {
                   icon={<CheckCircle2 className="h-5 w-5" />}
                 />
                 <SummaryCard
-                  label="Submissions"
+                  label="Filings"
                   value={submissions.length}
                   color="teal"
                   icon={<FileText className="h-5 w-5" />}
@@ -192,8 +195,8 @@ export default function SARSDashboard() {
                 />
                 <QuickAction
                   href="/accounting/sars/submissions"
-                  title="Submission History"
-                  description="View all past SARS submissions"
+                  title="Filing History"
+                  description="View all past SARS filing records"
                   icon={<Calendar className="h-5 w-5 text-purple-500" />}
                 />
               </div>
@@ -258,7 +261,7 @@ export default function SARSDashboard() {
                 <div className="px-4 py-3 border-b border-[var(--ff-border-light)] flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] flex items-center gap-2">
                     <FileText className="h-5 w-5 text-teal-500" />
-                    Recent Submissions
+                    Recent Filings
                   </h2>
                   <Link
                     href="/accounting/sars/submissions"
@@ -282,7 +285,7 @@ export default function SARSDashboard() {
                       {submissions.length === 0 && (
                         <tr>
                           <td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
-                            No submissions yet. Generate a VAT201 or EMP201 to get started.
+                            No filing records yet. Generate a VAT201 or EMP201 to get started.
                           </td>
                         </tr>
                       )}

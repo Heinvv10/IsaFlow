@@ -34,7 +34,8 @@
 #      were written against. isaflow_test is cloned from it: the suites guard
 #      themselves by database NAME and the two guards disagree, so both names
 #      exist; plan.ts routes each suite to the one it accepts (suiteRoute.ts).
-#   2. The stopped cluster is copied SHARDS times; each copy starts on its own
+#   2. The stopped cluster is copied SHARDS times (one per CPU less one, at
+#      most 6, or CI_INT_SHARDS: suiteRoute.ts shardCount); each copy starts on its own
 #      port and runs its share of each database's suites, one file at a time
 #      (--no-file-parallelism: parallel files on one database deadlock), in
 #      its own session (shard.sh, under a time limit).
@@ -55,7 +56,16 @@ source scripts/ci/integration/pg-cluster.sh
 # shellcheck source=report.sh
 source scripts/ci/integration/report.sh
 
-SHARDS=6
+# One shard per CPU less one, at most 6; CI_INT_SHARDS overrides (shards.ts).
+SHARDS=$(bun scripts/ci/integration/shards.ts)
+# Each shard's time limit (shard.sh): 30 min at 6 shards, scaled up as fewer
+# shards each carry more, but kept under the job's 90 min.
+if [ -z "${CI_INT_SHARD_TIMEOUT:-}" ]; then
+  CI_INT_SHARD_TIMEOUT=$(( 1800 * 6 / SHARDS ))
+  [ "$CI_INT_SHARD_TIMEOUT" -gt 4500 ] && CI_INT_SHARD_TIMEOUT=4500
+fi
+export CI_INT_SHARD_TIMEOUT
+echo "[integration] $SHARDS shards, ${CI_INT_SHARD_TIMEOUT}s each"
 pg_require_extensions
 
 # 0. Sweep this user's runs that died without cleaning up (lifecycle.sh).
