@@ -2,149 +2,30 @@
  * Payroll Run Detail — Phase 2.
  * Route: /payroll/runs/[id]
  */
-import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage, apiJson, ApiRequestError } from '@/lib/apiFetch';
-import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare, BookOpen, ShieldCheck } from 'lucide-react';
-import { PayrollApproveDialog, type ApproveResult } from '@/components/payroll/PayrollApproveDialog';
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { PayrollApproveDialog } from '@/components/payroll/PayrollApproveDialog';
 import { useCompany } from '@/contexts/CompanyContext';
-import { PayrollRunStatusBadge as StatusBadge, isLocked } from '@/components/payroll/PayrollRunStatusBadge';
+import { isLocked } from '@/components/payroll/PayrollRunStatusBadge';
 import { canWrite } from '@/lib/auth/writeRoles';
-import { PayrollRunWarnings, type RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
+import { PayrollRunWarnings } from '@/components/payroll/PayrollRunWarnings';
 import { PayrollRunLinesTable, PayrollRunTotals } from '@/components/payroll/PayrollRunLinesTable';
-import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { RunHeaderActions } from '@/components/payroll/RunHeaderActions';
+import { useRunDetail } from '@/components/payroll/useRunDetail';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-interface Line {
-  id: string;
-  employeeId: string;
-  employeeNumber: string;
-  employeeName: string;
-  grossPay: number;
-  taxableIncome: number;
-  paye: number;
-  uifEmployee: number;
-  uifEmployer: number;
-  sdl: number;
-  eti: number;
-  netPay: number;
-  validationResults?: RunLineWarning[];
-}
-
-interface RunDetail {
-  id: string;
-  periodMonth: number;
-  periodYear: number;
-  status: string;
-  totalGross: number;
-  totalPaye: number;
-  totalUif: number;
-  totalSdl: number;
-  totalEti: number;
-  totalNet: number;
-  employeeCount: number;
-  journalEntryId: string | null;
-  lines: Line[];
-}
-
-const LOAD_FAILED = 'Could not load the payroll run - try again';
 
 export default function PayrollRunDetailPage() {
   const router = useRouter();
   const { id } = router.query;
   const runId = typeof id === 'string' ? id : '';
 
-  const [run, setRun] = useState<RunDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [calculating, setCalculating] = useState(false);
-  const [reopening, setReopening] = useState(false);
-  const [approveOpen, setApproveOpen] = useState(false);
-  // What the last approval did: posted a new journal, or re-locked onto the one the run carried.
-  const [approvedNow, setApprovedNow] = useState<'posted' | 'relocked' | null>(null);
   const { companyRole } = useCompany(); // the active company's role — who may approve
-  const hasRun = useRef(false);
-
-  // `keepNotice`: the reload that follows an approval keeps its notice; any
-  // other load clears it. The page is never blanked while it reloads a run it
-  // already shows, and a failed reload of one says so without contradicting it.
-  const load = useCallback(async (keepNotice = false) => {
-    if (!runId) return;
-    setIsLoading(true);
-    setError('');
-    try {
-      setRun((await apiJson(`/api/payroll/runs/${runId}`, undefined, 'Could not load the payroll run - try again')) as RunDetail);
-      hasRun.current = true;
-      if (!keepNotice) setApprovedNow(null);
-    } catch (err) {
-      const status = err instanceof ApiRequestError ? err.status : 0;
-      setError(hasRun.current
-        ? 'Could not refresh this run — reload the page to see its latest state.'
-        : status === 404 ? 'Pay run not found'
-        : payrollLoadMessage(status, status >= 500 ? LOAD_FAILED : apiErrorMessage(err, LOAD_FAILED)));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [runId]);
-
-  useEffect(() => {
-    // Another run: never show this one's figures under the new run's URL.
-    hasRun.current = false;
-    setRun(null);
-    void load();
-  }, [load]);
-
-  const calculate = async () => {
-    if (!runId) return;
-    setCalculating(true);
-    setError('');
-    try {
-      const res = await apiFetch(`/api/payroll/runs/${runId}/calculate`, { method: 'POST' });
-      await assertOk(res, 'Could not calculate the payroll run - try again');
-      await load();
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not calculate the payroll run - try again'));
-    } finally {
-      setCalculating(false);
-    }
-  };
-
-  const onApproved = (result: ApproveResult, newJournal: boolean) => {
-    setApproveOpen(false);
-    setApprovedNow(newJournal ? 'posted' : 'relocked');
-    setRun((prev) => (prev ? { ...prev, status: result.status, journalEntryId: result.journalEntryId } : prev));
-    void load(true);
-  };
-
-  const reopen = async () => {
-    if (!runId) return;
-    const reason = window.prompt(
-      'Reopening will move the run back to "calculated" so it can be edited and re-approved.\n\n' +
-      'Note: the GL journal posted at approval is NOT automatically reversed — reverse it manually if the period also needs that.\n\n' +
-      'Reason (≥ 5 characters):'
-    );
-    if (!reason || reason.trim().length < 5) {
-      if (reason !== null) alert('Reason must be at least 5 characters');
-      return;
-    }
-    setReopening(true);
-    setError('');
-    try {
-      const res = await apiFetch(`/api/payroll/runs/${runId}/reopen`, {
-        method: 'POST',
-        body: JSON.stringify({ reason: reason.trim() }),
-      });
-      await assertOk(res, 'Could not reopen the payroll run - try again');
-      await load();
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not reopen the payroll run - try again'));
-    } finally {
-      setReopening(false);
-    }
-  };
+  const {
+    run, isLoading, error, calculating, reopening, approveOpen, setApproveOpen, approvedNow, load, calculate, onApproved, reopen,
+  } = useRunDetail(runId);
 
   if (isLoading && !run) {
     return (
@@ -182,70 +63,9 @@ export default function PayrollRunDetailPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Link href="/payroll/runs" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
-                <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
-              </Link>
-              <div className="p-2 rounded-lg bg-teal-500/10">
-                <CalendarDays className="h-6 w-6 text-teal-500" />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Payroll Run — {period}</h1>
-                <div className="flex items-center gap-2 mt-1"><StatusBadge status={run.status} /></div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {run.journalEntryId && (
-                <Link href={`/accounting/journal-entries/${run.journalEntryId}`}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
-                  title="The GL journal this run posted at approval">
-                  <BookOpen className="h-4 w-4" /> View journal
-                </Link>
-              )}
-              <Link href={`/payroll/runs/${runId}/variance`}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
-                title="Compare to the prior run — spot ≥20% swings before approving">
-                <GitCompare className="h-4 w-4" /> Variance
-              </Link>
-              <Link href={`/payroll/runs/${runId}/cost-centre-summary`}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
-                title="Totals per cost centre">
-                Cost centres
-              </Link>
-              <Link href={`/payroll/runs/${runId}/cash-register`}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
-                title="ZAR denomination breakdown for cash-paid employees">
-                Cash register
-              </Link>
-              {canReopen && (
-                <button onClick={reopen} disabled={reopening}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-400 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 disabled:opacity-50 text-sm font-medium"
-                  title="Move the run back to 'calculated' so it can be edited and re-approved">
-                  {reopening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
-                  Reopen Period
-                </button>
-              )}
-              {/* The calculate route is withWriteAccess: a viewer would only get a 403. */}
-              {canWrite(companyRole) && (
-                <button onClick={calculate} disabled={calculating || !canCalculate}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium"
-                  title={locked ? 'Run is locked — reopen first to edit' : ''}>
-                  {calculating ? <Loader2 className="h-4 w-4 animate-spin" /> : locked ? <Lock className="h-4 w-4" /> : <Calculator className="h-4 w-4" />}
-                  {locked ? 'Locked' : run.status === 'draft' ? 'Calculate' : 'Recalculate'}
-                </button>
-              )}
-              {canApprove && (
-                <button onClick={() => setApproveOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium"
-                  title="Review the journal this run will post, then approve it">
-                  <ShieldCheck className="h-4 w-4" /> Review &amp; approve
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <RunHeaderActions runId={runId} period={period} run={run} companyRole={companyRole} locked={locked}
+          canCalculate={canCalculate} canReopen={canReopen} canApprove={canApprove} calculating={calculating} reopening={reopening}
+          calculate={calculate} reopen={reopen} openApprove={() => setApproveOpen(true)} />
 
         <div className="p-6 space-y-6">
           {error && (
