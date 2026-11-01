@@ -1,88 +1,23 @@
 // pages/accounting/reports/vat-reconciliation.tsx
 // VAT Reconciliation — monthly GL vs invoices vs submitted returns
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
-  FileSearch, Loader2, AlertCircle, AlertTriangle, CheckCircle, TrendingUp,
+  FileSearch, Loader2, AlertCircle, CheckCircle, TrendingUp,
 } from 'lucide-react';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import { formatAmount } from '@/lib/money/formatMoney';
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-interface VatReconMonth {
-  month: string;
-  glRevenue: number;
-  glOutputVat: number;
-  glInputVat: number;
-  glNetVat: number;
-  invoiceRevenue: number;
-  returnOutputVat: number | null;
-  returnInputVat: number | null;
-  returnNetVat: number | null;
-  returnStatus: string | null;
-  capitalGoodsOutput: number;
-  capitalGoodsInput: number;
-  otherGoodsOutput: number;
-  otherGoodsInput: number;
-  revenueVariance: number;
-  outputVatVariance: number;
-  inputVatVariance: number;
-  effectiveVatRate: number;
-}
-
-interface VatReconData {
-  type: 'reconciliation';
-  months: VatReconMonth[];
-  totals: {
-    glRevenue: number;
-    glOutputVat: number;
-    glInputVat: number;
-    glNetVat: number;
-    invoiceRevenue: number;
-    returnNetVat: number;
-    capitalGoodsOutput: number;
-    capitalGoodsInput: number;
-    revenueVariance: number;
-    outputVatVariance: number;
-    inputVatVariance: number;
-  };
-  issues: Array<{ month: string; severity: string; message: string }>;
-}
-
-interface VatYearSummary {
-  year: number;
-  totalOutputVat: number;
-  totalInputVat: number;
-  netVat: number;
-  totalRevenue: number;
-  effectiveRate: number;
-  returnsSubmitted: number;
-  returnsExpected: number;
-}
-
-interface MultiYearData {
-  type: 'multi_year';
-  summary: VatYearSummary[];
-}
-
-type ViewMode = 'reconciliation' | 'multi_year';
+import { fmtMonth, VatReconIssueList } from '@/components/accounting/sars/VatReconIssueList';
+import { useVatReconciliationData, type ViewMode } from '@/components/accounting/sars/useVatReconciliationData';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const fmtR = (n: number | null) =>
   n == null ? '—' : formatAmount(n);
-
-const fmtMonth = (m: string) => {
-  const [y, mo] = m.split('-');
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[Number(mo) - 1]} ${y}`;
-};
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 
@@ -100,33 +35,7 @@ export default function VatReconciliationPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
   });
   const dates = useDateGate();
-  const [reconData, setReconData] = useState<VatReconData | null>(null);
-  const [multiData, setMultiData] = useState<MultiYearData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const url = mode === 'multi_year'
-        ? '/api/accounting/vat-reconciliation?multi_year=3'
-        : `/api/accounting/vat-reconciliation?from=${from}&to=${to}`;
-      const res = await apiFetch(url); await assertOk(res, 'Could not load the VAT reconciliation - try again');
-      const json = await res.json();
-      if (mode === 'multi_year') {
-        setMultiData(json.data);
-      } else {
-        setReconData(json.data);
-      }
-    } catch (err: unknown) {
-      setReconData(null); setMultiData(null); setError(apiErrorMessage(err, 'Could not load the VAT reconciliation - try again'));
-    } finally {
-      setLoading(false);
-    }
-  }, [mode, from, to]);
-
-  useEffect(() => { void fetchData(); }, [fetchData]);
+  const { reconData, multiData, loading, error } = useVatReconciliationData(mode, from, to);
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.
   // While the answer is still unknown, render neither: flashing a VAT form at
@@ -190,24 +99,7 @@ export default function VatReconciliationPage() {
       {/* Monthly Reconciliation */}
       {mode === 'reconciliation' && reconData && !loading && (
         <div className="space-y-6">
-          {/* Issues */}
-          {reconData.issues.length > 0 && (
-            <div className="space-y-2">
-              {reconData.issues.map((issue, i) => (
-                <div
-                  key={i}
-                  className={`flex items-start gap-2 rounded-lg border px-4 py-2 text-xs ${
-                    issue.severity === 'error'
-                      ? 'border-red-800 bg-red-900/20 text-red-300'
-                      : 'border-amber-800 bg-amber-900/20 text-amber-300'
-                  }`}
-                >
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span><strong>{fmtMonth(issue.month)}:</strong> {issue.message}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <VatReconIssueList issues={reconData.issues} />
 
           {/* Main Table */}
           <div className="overflow-x-auto rounded-lg border border-zinc-700">
