@@ -37,9 +37,10 @@ async function handler(
   if (typeof id !== 'string' || !UUID_RE.test(id)) {
     return apiResponse.badRequest(res, 'Invalid run ID');
   }
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
 
   try {
-    const summary = await calculatePayrollRun(id, companyId);
+    const summary = await calculatePayrollRun(id, companyId, userId);
     return apiResponse.success(res, summary);
   } catch (err) {
     if (err instanceof PayrollRunLockedError) {

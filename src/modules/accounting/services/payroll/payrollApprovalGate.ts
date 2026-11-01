@@ -180,7 +180,12 @@ async function datedForReplacement(companyId: string, plan: PayrollJournalPlan, 
   };
 }
 
-function hashOf(plan: PayrollJournalPlan, posted: PostedPayrollJournal | null, replaces: PostedPayrollJournal | null): string {
+function hashOf(
+  plan: PayrollJournalPlan,
+  posted: PostedPayrollJournal | null,
+  replaces: PostedPayrollJournal | null,
+  revision: string | null,
+): string {
   return createHash('sha256').update(JSON.stringify({
     run: plan.runId,
     status: plan.status,
@@ -188,6 +193,7 @@ function hashOf(plan: PayrollJournalPlan, posted: PostedPayrollJournal | null, r
     description: plan.description,
     posted: posted?.journalEntryId ?? null,
     replaces: replaces?.journalEntryId ?? null,
+    revision,
     lines: plan.lines.map((l) => [l.glAccountId, l.accountCode, cents(l.debit), cents(l.credit)]),
     totals: Object.entries(plan.totals).map(([k, v]) => [k, cents(v)]),
   })).digest('hex');
@@ -261,5 +267,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();
 
-  return { plan, posted, replaces, blocker, planHash: hashOf(plan, posted, replaces) };
+  const revisionRows = (await sql`
+    SELECT approval_revision FROM payroll_run_headers
+    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+  `) as DbRow[];
+  const revision = revisionRows[0]?.approval_revision == null ? null : String(revisionRows[0].approval_revision);
+  return { plan, posted, replaces, blocker, planHash: hashOf(plan, posted, replaces, revision) };
 }

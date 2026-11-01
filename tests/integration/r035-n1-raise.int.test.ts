@@ -71,7 +71,7 @@ describe('approval_request_raise', () => {
     // Enforcement off: the roster snapshot (Q2, enforced types only) matches
     // the subject as text, through approval_company_other_members (708).
     const f = await freshBill();
-    await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [f.c]);
+    await pool.query("DELETE FROM approval_enforcement WHERE document_type <> 'pay_run' AND company_id = $1", [f.c]);
     expect(await raise(f.c, f.bill.id, f.ownerRule, u.b, { sub: u.b.toUpperCase() })).toHaveLength(1);
   });
 
