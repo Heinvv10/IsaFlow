@@ -3,7 +3,7 @@
  * Pack selector (Board/Management/Monthly) + preview + PDF download
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -26,6 +26,7 @@ import { PackPagesPrintPage } from '@/components/accounting/packs/PackPagesPrint
 import { SectionCard, type PackSection } from '@/components/accounting/packs/PackSectionCard';
 import { PackShareButton, PackCommentary } from '@/components/accounting/packs/PackOwnerTools';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -134,54 +135,53 @@ function ReportPacksScreen() {
    * moved off — showing Board figures under a Management heading, with the
    * download buttons pointed at Management. Nothing on the page said so.
    *
-   * Each run marks itself stale on cleanup, so only the newest effect can
-   * write state. `loading` is set on the way in, not derived, so the spinner
-   * covers the whole of the newest request rather than clearing when an older
-   * one lands.
+   * Only the newest run (`latest`) can write state. `loading` is set on the way
+   * in, not derived, so the spinner covers the whole of the newest request
+   * rather than clearing when an older one lands.
    */
-  useEffect(() => {
-    let stale = false;
+  const query = `type=${selectedType}&from=${from}&to=${to}`;
+  const loadPack = useCallback<ReportLoad>(async (latest) => {
     setLoading(true);
     setLoadError('');
 
-    void (async () => {
-      try {
-        const res = await apiFetch(`/api/accounting/reports-pack?type=${selectedType}&from=${from}&to=${to}`);
-        if (stale) return;
+    try {
+      const res = await apiFetch(`/api/accounting/reports-pack?${query}`);
+      if (!latest()) return true;
 
-        // `apiFetch` RESOLVES on a 4xx, so a 429 used to fall through to
-        // .json(), produce an envelope with no `data`, and leave the screen
-        // blank with no spinner and no message — indistinguishable from a
-        // company with no ledger. The limit is per company and shared with
-        // every other report, so a reader who exported a few packs hits it
-        // without doing anything unusual.
-        if (res.status === 429) {
-          setPack(null);
-          setUnclassified(null);
-          setRateLimited({ seconds: retryAfterSeconds(res.headers) });
-          return;
-        }
-        setRateLimited(null);
-        // Any other refusal (403, a 500 envelope, a proxy's 502 page) used to reach .json() and leave the screen blank.
-        await assertOk(res, PACK_LOAD_FAILED);
-
-        const body = await res.json();
-        if (stale) return;
-        if (body.data?.pack) setPack(body.data.pack);
-        if (body.data) setUnclassified(body.data.unclassifiedAccounts ?? null);
-      } catch (err) {
-        if (stale) return;
-        log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) });
+      // `apiFetch` RESOLVES on a 4xx, so a 429 used to fall through to
+      // .json(), produce an envelope with no `data`, and leave the screen
+      // blank with no spinner and no message — indistinguishable from a
+      // company with no ledger. The limit is per company and shared with
+      // every other report, so a reader who exported a few packs hits it
+      // without doing anything unusual.
+      if (res.status === 429) {
         setPack(null);
         setUnclassified(null);
-        setLoadError(apiErrorMessage(err, PACK_LOAD_FAILED));
-      } finally {
-        if (!stale) setLoading(false);
+        setRateLimited({ seconds: retryAfterSeconds(res.headers) });
+        return false;
       }
-    })();
+      setRateLimited(null);
+      // Any other refusal (403, a 500 envelope, a proxy's 502 page) used to reach .json() and leave the screen blank.
+      await assertOk(res, PACK_LOAD_FAILED);
 
-    return () => { stale = true; };
-  }, [selectedType, from, to]);
+      const body = await res.json();
+      if (!latest()) return true;
+      if (body.data?.pack) setPack(body.data.pack);
+      if (body.data) setUnclassified(body.data.unclassifiedAccounts ?? null);
+      return true;
+    } catch (err) {
+      if (!latest()) return true;
+      log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) });
+      setPack(null);
+      setUnclassified(null);
+      setLoadError(apiErrorMessage(err, PACK_LOAD_FAILED));
+      return false;
+    } finally {
+      if (latest()) setLoading(false);
+    }
+  }, [query]);
+
+  const stale = useGatedReportLoad(query, dates, loadPack);
 
   return (
     <AppLayout>
@@ -218,8 +218,8 @@ function ReportPacksScreen() {
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">
-          <DataQualityNotice unclassifiedAccounts={unclassified} />
-          <FixDateNotice gate={dates} />
+          {!stale && <DataQualityNotice unclassifiedAccounts={unclassified} />}
+          <FixDateNotice gate={dates} hidden={stale} />
           <PackNotices downloadError={downloadError} loadError={loadError} rateLimited={rateLimited} />
           {/* Pack Type Selector */}
           <div className="grid grid-cols-3 gap-4">
@@ -237,7 +237,7 @@ function ReportPacksScreen() {
             ))}
           </div>
 
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : pack ? (
             <div className="space-y-3">

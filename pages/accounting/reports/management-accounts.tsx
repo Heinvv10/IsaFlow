@@ -3,7 +3,7 @@
  * One-click combined P&L, Balance Sheet, and Cash Flow for a selected period.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
@@ -19,6 +19,7 @@ import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
 import { ManagementSection } from '@/components/accounting/ManagementSection';
 import { localISODate } from '@/lib/dateUtils';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,26 +132,33 @@ export default function ManagementAccountsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showEmail, setShowEmail] = useState(false);
+  const [runs, setRuns] = useState(0);
 
-  const loadReport = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+  const query = periodStart && periodEnd ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd }).toString() : '';
+
+  const loadReport = useCallback<ReportLoad>(async (latest) => {
+    if (!query) { setLoading(false); return true; }
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await apiFetch(`/api/accounting/reports-management-accounts?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-management-accounts?${query}`);
       await assertOk(res, 'Could not load report - try again');
       const json = await res.json();
-      setReport(json.data ?? json);
+      if (latest()) setReport(json.data ?? json);
+      return true;
     } catch (err) {
-      setReport(null);
-      setError(apiErrorMessage(err, 'Could not load report - try again'));
+      if (latest()) {
+        setReport(null);
+        setError(apiErrorMessage(err, 'Could not load report - try again'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [periodStart, periodEnd]);
+  }, [query]);
 
-  useEffect(() => { void loadReport(); }, [loadReport]);
+  // Run asks for the params already on screen, so `runs` is what tells this run from the last one.
+  const stale = useGatedReportLoad(query && `${query}#${runs}`, dates, loadReport);
 
   function handleDownload() {
     window.print();
@@ -163,7 +171,7 @@ export default function ManagementAccountsPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]" data-print-ready={report ? 'true' : 'false'}>
+      <div className="min-h-screen bg-[var(--ff-bg-primary)]" data-print-ready={report && !stale ? 'true' : 'false'}>
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
@@ -206,7 +214,7 @@ export default function ManagementAccountsPage() {
                 <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
               </div>
               <button
-                onClick={loadReport}
+                onClick={() => setRuns(n => n + 1)}
                 disabled={loading || dates.blocked}
                 className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
               >
@@ -219,20 +227,20 @@ export default function ManagementAccountsPage() {
 
         {/* Body */}
         <div className="px-6 py-6 max-w-5xl mx-auto space-y-6">
-          <FixDateNotice gate={dates} />
+          <FixDateNotice gate={dates} hidden={stale} />
           {error && (
             <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
 
-          {loading && !report && (
+          {!stale && loading && !report && (
             <div className="flex items-center justify-center py-20 text-[var(--ff-text-tertiary)]">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           )}
 
-          {report && (
+          {!stale && report && (
             <>
               {/* KPI Summary Cards */}
               <ManagementKpiRow k={k} />

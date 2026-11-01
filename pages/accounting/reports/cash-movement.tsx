@@ -3,7 +3,7 @@
  * Shows inflows, outflows and net movement per bank account for a date range.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -11,6 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { ArrowDownCircle, ArrowUpCircle, Banknote, Loader2, AlertCircle, TrendingUp } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface CashMovementRow {
   account_id: string;
@@ -55,24 +56,29 @@ export default function CashMovementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadData = useCallback(async () => {
+  const query = new URLSearchParams({ from, to }).toString();
+
+  const loadData = useCallback<ReportLoad>(async (latest) => {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ from, to });
-      const res = await apiFetch(`/api/accounting/reports/cash-movement?${params}`);
+      const res = await apiFetch(`/api/accounting/reports/cash-movement?${query}`);
       await assertOk(res, 'Could not load the cash movement report - try again');
       const json = await res.json();
-      setData(json.data ?? json);
+      if (latest()) setData(json.data ?? json);
+      return true;
     } catch (err) {
-      setData(null);
-      setError(apiErrorMessage(err, 'Could not load the cash movement report - try again'));
+      if (latest()) {
+        setData(null);
+        setError(apiErrorMessage(err, 'Could not load the cash movement report - try again'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [from, to]);
+  }, [query]);
 
-  useEffect(() => { void loadData(); }, [loadData]);
+  const stale = useGatedReportLoad(query, dates, loadData);
 
   const netColor = (n: number) =>
     n >= 0 ? 'text-teal-400' : 'text-red-400';
@@ -108,8 +114,8 @@ export default function CashMovementPage() {
             </div>
           </div>
 
-          <FixDateNotice gate={dates} />
-          {loading ? (
+          <FixDateNotice gate={dates} hidden={stale} />
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
             </div>
