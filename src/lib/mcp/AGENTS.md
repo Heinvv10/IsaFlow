@@ -208,6 +208,7 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
 
 
 ## Recent changes
+- 2026-10-31: `create_bank_rule` and `update_bank_rule` require `write:post` when the resulting rule keeps `auto_create_entry=true` or the company-wide auto-post setting makes the active rule post money; reactivating such a rule through `disable_bank_rule(enable=true)` does too. The decision is repeated against migration 877's authoritative predicate under the rule/settings lock before any applied or pending write. Missing `write:post` returns the structured `INSUFFICIENT_SCOPE` JSON error; permitted calls still propose a held `bank_rule` change where approval enforcement applies. Actual disabling remains available with `write:bank-tx` alone. Create/update now accept `dry_run`; previews apply the same permission, ownership and control-account checks, write nothing, and leave the idempotency key free.
 - 2026-10-31: `tools/list` includes MCP 2025-06-18 ToolAnnotations for every
   registered tool. Read-only, idempotent and closed-world hints derive from
   registry metadata; posting tools are destructive, while every non-posting
