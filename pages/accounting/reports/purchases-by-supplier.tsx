@@ -3,13 +3,14 @@
  * Sage Parity: Suppliers > Reports > Purchases by Supplier
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -26,23 +27,29 @@ export default function PurchasesBySupplierReport() {
   const [to, setTo] = useState(fmtDate(today));
   const dates = useDateGate();
 
-  const load = useCallback(async () => {
+  const query = `from=${from}&to=${to}`;
+
+  const load = useCallback<ReportLoad>(async (latest) => {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/reports/purchases-by-supplier?from=${from}&to=${to}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports/purchases-by-supplier?${query}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the purchases report - try again');
       const json = await res.json();
-      setRows(json.data || []);
+      if (latest()) setRows(json.data || []);
+      return true;
     } catch (err: unknown) {
-      setRows([]);
-      setError(apiErrorMessage(err, 'Could not load the purchases report - try again'));
+      if (latest()) {
+        setRows([]);
+        setError(apiErrorMessage(err, 'Could not load the purchases report - try again'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [from, to]);
+  }, [query]);
 
-  useEffect(() => { void load(); }, [load]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   const totals = rows.reduce((a, r) => ({
     invoiceCount: a.invoiceCount + r.invoiceCount,
@@ -75,43 +82,45 @@ export default function PurchasesBySupplierReport() {
         </div>
 
         <div className="p-6">
-          <FixDateNotice gate={dates} className="mb-4" />
+          <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-            {loading ? (
-              <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
-            ) : rows.length === 0 ? (
-              <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No purchase data for this period</div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoices</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Purchases</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid at {to}</th>
-                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding at {to}</th>
-                </tr></thead>
-                <tbody className="divide-y divide-[var(--ff-border-light)]">
-                  {rows.map(r => (
-                    <tr key={r.supplierId} className="hover:bg-teal-500/[0.04]">
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.supplierName}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalPurchases)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(r.paymentsMade)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(r.outstanding)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
-                  <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                  <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{totals.invoiceCount}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(totals.totalPurchases)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(totals.paymentsMade)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(totals.outstanding)}</td>
-                </tr></tfoot>
-              </table>
-            )}
-          </div>
+          {!stale && (
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+              {loading ? (
+                <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>
+              ) : rows.length === 0 ? (
+                <div className="p-8 text-center text-[var(--ff-text-tertiary)]">No purchase data for this period</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoices</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Purchases</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid at {to}</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding at {to}</th>
+                  </tr></thead>
+                  <tbody className="divide-y divide-[var(--ff-border-light)]">
+                    {rows.map(r => (
+                      <tr key={r.supplierId} className="hover:bg-teal-500/[0.04]">
+                        <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.supplierName}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalPurchases)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(r.paymentsMade)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(r.outstanding)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
+                    <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
+                    <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{totals.invoiceCount}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(totals.totalPurchases)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(totals.paymentsMade)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(totals.outstanding)}</td>
+                  </tr></tfoot>
+                </table>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </AppLayout>

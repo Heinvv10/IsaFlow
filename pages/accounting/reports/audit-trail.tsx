@@ -3,7 +3,7 @@
  * Phase 3: Full GL journal entry audit trail
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -12,6 +12,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface AuditRow {
   entryDate: string;
@@ -66,21 +67,25 @@ export default function AuditTrailPage() {
   const [sourceFilter, setSourceFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  const load = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+  const query = periodStart && periodEnd ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd }).toString() : '';
+
+  const load = useCallback<ReportLoad>(async (latest) => {
+    if (!query) { setLoading(false); return true; }
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await apiFetch(`/api/accounting/reports-audit-trail?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports-audit-trail?${query}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the audit trail - try again');
       const json = await res.json();
-      setRows(json.data || []);
-    } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load the audit trail - try again')); }
-    finally { setLoading(false); }
-  }, [periodStart, periodEnd]);
+      if (latest()) setRows(json.data || []);
+      return true;
+    } catch (err) {
+      if (latest()) { setRows([]); setError(apiErrorMessage(err, 'Could not load the audit trail - try again')); }
+      return false;
+    } finally { if (latest()) setLoading(false); }
+  }, [query]);
 
-  useEffect(() => { void load(); }, [load]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   const filteredRows = rows.filter(r => {
     if (sourceFilter && r.source !== sourceFilter) return false;
@@ -139,14 +144,14 @@ export default function AuditTrailPage() {
               </select>
             </div>
             <div className="ml-auto text-sm text-[var(--ff-text-secondary)] mt-4">
-              {filteredRows.length} entries
+              {!stale && `${filteredRows.length} entries`}
             </div>
           </div>
 
-          <FixDateNotice gate={dates} />
+          <FixDateNotice gate={dates} hidden={stale} />
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
