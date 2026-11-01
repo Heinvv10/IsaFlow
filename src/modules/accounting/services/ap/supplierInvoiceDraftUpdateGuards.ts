@@ -5,10 +5,12 @@
  * any write. Split from supplierInvoiceDraftUpdate.ts for the 300-line cap.
  */
 import { sql } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { DbRow } from '@/lib/neon';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
 import { billLineAccountRefusal } from './billLineAccountGuard';
+import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -54,8 +56,9 @@ export async function planLines(
   const kept = (await sql`
     SELECT description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id,
            po_item_id, project_id, cost_center_id, vat_classification, cc1_id, cc2_id, bu_id
-    FROM supplier_invoice_items
-    WHERE supplier_invoice_id = ${invoiceId}::UUID`) as DbRow[];
+    FROM supplier_invoice_items sii
+    WHERE supplier_invoice_id = ${invoiceId}::UUID
+    ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}`) as DbRow[];
   let totals: SupplierInvoiceTotals;
   try {
     const computed = computeSupplierInvoiceTotals(keepStoredDimensions(items, kept), taxRate, false);
@@ -85,12 +88,13 @@ export async function planLines(
   })).sort();
   const sent = totals.items.map(key).sort();
   if (stored.length === sent.length && stored.every((k, i) => k === sent[i])) return null;
-  const lost = kept.find((l) => l.po_item_id || l.project_id || l.cost_center_id
+  const lostAt = kept.findIndex((l) => l.po_item_id || l.project_id || l.cost_center_id
     || (l.vat_classification
         && l.vat_classification !== defaultVatClassification(Number(l.tax_rate ?? 0))));
+  const lost = kept[lostAt];
   if (lost) {
     throw new SupplierInvoiceDraftUpdateRefusal(
-      `Supplier invoice ${number}'s line "${String(lost.description)}" carries a purchase-order link, `
+      `Supplier invoice ${number} has stored line ${lostAt + 1} (${formatMoney(Number(lost.line_total))}) that carries a purchase-order link, `
       + 'project, cost centre or VAT classification that replacing the lines would drop. '
       + 'Edit it in the app instead, or cancel and re-enter it.',
     );
