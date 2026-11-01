@@ -223,8 +223,11 @@ describe('createEmployeeWithPay: a lost race on the employee number', () => {
     await expect(go()).rejects.toBe(original);
   });
 
-  it('any other failure of the insert stays a failure', async () => {
-    vi.mocked(createPayrollEmployee).mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '23514' }));
+  it('any other failure of the insert stays a failure, whatever the number looks like by then', async () => {
+    vi.mocked(createPayrollEmployee).mockImplementationOnce(async () => {
+      db.duplicate = true;
+      throw Object.assign(new Error('boom'), { code: '23514' });
+    });
     const err = await go().then(() => null, e => e as Error);
     expect(err?.message).toBe('boom');
     expect(err).not.toBeInstanceOf(EmployeeOnboardingRefused);
