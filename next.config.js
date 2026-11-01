@@ -18,6 +18,8 @@ const nextConfig = {
 
   // Blog hero/screenshot images are served as WebP (Next's default, pinned here).
   images: {
+    // Stop-gap for GHSA-2464-fhr4-w9xw / GHSA-2xp9-vwfh-vxw4 until Next 15.
+    unoptimized: true,
     formats: ['image/webp'],
   },
 
@@ -149,7 +151,7 @@ const nextConfig = {
   },
 };
 
-const { withSentryConfig } = require('@sentry/nextjs');
+const { withSentryConfig } = require('@sentry/nextjs/config');
 
 module.exports = withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG,
@@ -167,5 +169,9 @@ module.exports = withSentryConfig(nextConfig, {
     disable: !process.env.SENTRY_AUTH_TOKEN,
   },
   hideSourceMaps: true,
-  disableLogger: true,
+  webpack: {
+    treeshake: {
+      removeDebugLogging: true,
+    },
+  },
 });
