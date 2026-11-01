@@ -6,6 +6,9 @@
 // pays). The member stays, with no bank details, and the file is refused whole.
 // Run as a member of both companies (who could read B's supplier and paid it)
 // and of A alone (for whom RLS hid it, and the inner join shortened the file).
+// The refusal says why: "Account number is required" sends the operator to edit
+// bank details on a supplier that is not theirs, so it is answered first, ahead
+// of the bank-verification gate too.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -27,6 +30,19 @@ let user = '';
 let outsider = '';
 
 const FOREIGN_ACCOUNT = '99887766554';
+const NOT_HERE = 'names a supplier that is not in this company';
+
+/** The refusal names the payment and the cause, and nothing of the other company's. */
+function explained(res: Awaited<ReturnType<typeof callRoute>>, foreign: string, paymentNumber: string) {
+  expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+  const body = JSON.stringify(res.state.body);
+  expect(body).toContain(`Payment 2 (${paymentNumber}): ${NOT_HERE}`);
+  expect(body).not.toContain(foreign);
+  expect(body).not.toContain(`r035 ${foreign.slice(0, 6)}`);
+  expect(body).not.toContain(FOREIGN_ACCOUNT);
+  expect(body).not.toContain('content');
+  expect(body).not.toContain('Account number');
+}
 
 beforeAll(async () => {
   user = await createUser(pool, tokens);
@@ -52,19 +68,27 @@ describe('a batch member naming another company\'s supplier', () => {
   const WHO = [['a member of both companies', true], ['a member of this company alone', false]] as const;
 
   it.each(WHO)('eft-generate refuses the file whole and never carries that supplier\'s account (%s)', async (_who, both) => {
-    const { c, batch } = await poisonedBatch(both);
+    const { c, batch, foreign } = await poisonedBatch(both);
     const res = await callRoute(eftGenerate, tokens[user]!, c, 'POST', { batchId: batch.id, bank: 'fnb' }, '/api/accounting/eft-generate');
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
-    expect(JSON.stringify(res.state.body)).not.toContain(FOREIGN_ACCOUNT);
-    expect(JSON.stringify(res.state.body)).not.toContain('content');
+    explained(res, foreign, batch.members[1]!.number);
   });
 
   it.each(WHO)('netcash/submit refuses the batch whole and sends nothing (%s)', async (_who, both) => {
-    const { c, batch } = await poisonedBatch(both);
+    const { c, batch, foreign } = await poisonedBatch(both);
     const res = await callRoute(netcashSubmit, tokens[user]!, c, 'POST', { batchPaymentId: batch.id }, '/api/accounting/netcash/submit');
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
-    expect(JSON.stringify(res.state.body)).toContain('Payment 2');
-    expect(JSON.stringify(res.state.body)).not.toContain(FOREIGN_ACCOUNT);
+    explained(res, foreign, batch.members[1]!.number);
+    expect(sender.submitEftBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['eft-generate', () => eftGenerate, (id: string) => ({ batchId: id, bank: 'fnb' }), '/api/accounting/eft-generate'],
+    ['netcash/submit', () => netcashSubmit, (id: string) => ({ batchPaymentId: id }), '/api/accounting/netcash/submit'],
+  ] as const)('%s answers the same under the bank-verification control, which would say to verify bank details', async (_n, route, body, url) => {
+    const { c, batch, foreign } = await poisonedBatch(true);
+    await pool.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,'supplier_bank_details',$2)", [c, user]);
+    const res = await callRoute(route(), tokens[user]!, c, 'POST', body(batch.id), url);
+    explained(res, foreign, batch.members[1]!.number);
+    expect(JSON.stringify(res.state.body)).not.toContain('verif');
     expect(sender.submitEftBatch).not.toHaveBeenCalled();
   });
 
