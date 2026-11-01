@@ -45,6 +45,10 @@ interface Props {
   onRemove: (key: string) => void;
   options: InvoiceLineCodingOptions;
   showIncomeType?: boolean;
+  /** Inclusive mode: Unit Price holds the gross the user types, and Total the stored ex-VAT amount the subtotal adds up. */
+  pricesIncludeVat?: boolean;
+  /** Muted note saying where a defaulted line discount came from. */
+  discountHint?: string;
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -76,9 +80,11 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
 }
 
 export function InvoiceLineItemsTable({
-  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType,
+  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint,
 }: Props) {
-  const [showDiscount, setShowDiscount] = useState(false);
+  const [discountToggled, setDiscountToggled] = useState<boolean | null>(null);
+  // Open by default when a line carries a discount: a default the user cannot see is a discount they did not give.
+  const showDiscount = discountToggled ?? lines.some((l) => l.discount > 0);
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default when a line already carries a dimension, so an edit shows what it will save.
   const showDimensions = dimensionsToggled ?? lines.some((l) => l.projectId !== '' || l.cc2Id !== '' || l.buId !== '');
@@ -91,12 +97,13 @@ export function InvoiceLineItemsTable({
           <button type="button" aria-expanded={showDimensions} onClick={() => setDimensionsToggled(!showDimensions)} className={toggle(showDimensions)}>
             <Tags className="h-3 w-3" />{showDimensions ? 'Hide Dimensions' : 'Dimensions'}
           </button>
-          <button type="button" aria-expanded={showDiscount} onClick={() => setShowDiscount((v) => !v)} className={toggle(showDiscount)}>
+          <button type="button" aria-expanded={showDiscount} onClick={() => setDiscountToggled(!showDiscount)} className={toggle(showDiscount)}>
             <SlidersHorizontal className="h-3 w-3" />{showDiscount ? 'Hide Disc.' : 'Disc. %'}
           </button>
           <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
         </div>
       </div>
+      {discountHint && <p className="px-5 pt-3 text-xs text-gray-600 dark:text-gray-400">{discountHint}</p>}
       {options.error && (
         <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
           {options.error}{' '}
@@ -115,9 +122,9 @@ export function InvoiceLineItemsTable({
             {showDimensions && <th className={`${th} text-left w-36`}>CC2 project</th>}
             {showDimensions && <th className={`${th} text-left w-32`}>BU</th>}
             <th className={`${th} text-right w-20`}>Qty</th>
-            <th className={`${th} text-right w-32`}>Unit Price</th>
+            <th className={`${th} text-right w-32`}>Unit Price{pricesIncludeVat && <span className="font-normal"> (incl. VAT)</span>}</th>
             {showDiscount && <th className={`${th} text-right w-20`}>Disc.%</th>}
-            <th className={`${th} px-4 text-right w-32`}>Total</th>
+            <th className={`${th} px-4 text-right w-32`}>Total{pricesIncludeVat && <span className="font-normal"> (excl. VAT)</span>}</th>
             <th className="w-9" />
           </tr>
         </thead>
