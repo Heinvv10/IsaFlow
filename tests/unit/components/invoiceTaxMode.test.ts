@@ -86,6 +86,7 @@ describe('linesForModeChange', () => {
 
   it('converts nothing at a rate that cannot be read', () => {
     expect(linesForModeChange(lines, 'exclusive', 'inclusive', Number.NaN).map((l) => l.unitPrice)).toEqual([1000, 500]);
+    expect(linesForModeChange(lines, 'inclusive', 'exclusive', Number.NaN).map((l) => l.unitPrice)).toEqual([1000, 500]);
   });
 
   it('leaves the price alone between exclusive and No VAT, and keeps the rest of the line', () => {
