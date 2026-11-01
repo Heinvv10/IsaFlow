@@ -3,7 +3,7 @@
  * on the form kit: ContactPicker, Select, Input and DateField (typed dates: "1 Oct 2026", "t", and "+30" from the invoice date).
  * The page owns the form; this reports each change as a patch. The job picker stays the line editor's CodingPicker.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ContactPicker } from '@/components/ui/pickers/ContactPicker';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
@@ -33,6 +33,8 @@ interface Props {
   onTaxModeChange: (mode: TaxMode) => void;
   /** Muted notes saying where a default came from (useContactDefaults). */
   hints?: { dueDate?: string; taxMode?: string };
+  /** The customer's VAT type conflicts with the invoice's rate (vatTypeWarning). */
+  vatWarning?: string;
   /** The user committed something in Due date, even text it refused. */
   onDueDateEdited?: () => void;
 }
@@ -50,7 +52,8 @@ export function InvoiceCard({ n, title, children }: { n: number; title: string; 
   );
 }
 
-export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, onTaxModeChange, hints, onDueDateEdited }: Props) {
+export function InvoiceHeaderFields({ form, onChange, currencies, options, onProjectChange, onDateValidity, refused, clientLabel, resetKey, taxMode, onTaxModeChange, hints, vatWarning, onDueDateEdited }: Props) {
+  const vatNoteId = useId();
   const isFx = form.currencyCode !== 'ZAR';
   const currencyOptions = [{ value: 'ZAR', label: 'ZAR — South African Rand' }, ...currencies.filter((c) => c.code !== 'ZAR').map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))];
   // Due date's floor is the invoice date, so a refusal made against the old floor is stale once the invoice date moves:
@@ -75,8 +78,12 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
             onChange={(v) => onChange({ clientId: v ?? '' })} placeholder="Select client…"
             labelClassName="after:ml-0.5 after:text-red-600 dark:after:text-red-400 after:content-['*']" />
           <div>
-            <Select label="Amounts are" options={TAX_MODE_OPTIONS} value={taxMode} onChange={(v) => onTaxModeChange((v ?? 'exclusive') as TaxMode)} />
-            {hints?.taxMode && <p className={hint}>{hints.taxMode}</p>}
+            <Select label="Amounts are" options={TAX_MODE_OPTIONS} value={taxMode} onChange={(v) => onTaxModeChange((v ?? 'exclusive') as TaxMode)}
+              describedBy={hints?.taxMode || vatWarning ? vatNoteId : undefined} />
+            <div id={vatNoteId} role="status">
+              {hints?.taxMode && <p className={hint}>{hints.taxMode}</p>}
+              {vatWarning && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{vatWarning}</p>}
+            </div>
           </div>
           <Input label="VAT rate %" type="number" name="taxRate" value={effectiveTaxRate(taxMode, form.taxRate)} disabled={taxMode === 'none'}
             onChange={(e) => onChange({ taxRate: Number(e.target.value) })} />
@@ -95,7 +102,8 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
       <InvoiceCard n={2} title="Dates & Period">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {date('invoiceDate', 'Invoice date', { required: true })}
-          {date('dueDate', 'Due date', {
+          {/* Typing counts as touched before it commits: a default landing now would wipe the text under the cursor. */}
+          <div onInput={onDueDateEdited}>{date('dueDate', 'Due date', {
             anchorDate: form.invoiceDate,
             ...(hints?.dueDate ? { helperText: hints.dueDate } : {}),
             // The floor is only ever a real ISO date (DateField throws on any other); the field cannot re-check a value it
@@ -103,7 +111,7 @@ export function InvoiceHeaderFields({ form, onChange, currencies, options, onPro
             // the Due text on screen was itself refused: that reason is the one the user needs, and the field shows it).
             ...(isoOrEmpty(form.invoiceDate) ? { minDate: form.invoiceDate } : {}),
             ...(dueBeforeInvoice(form) && !refused.dueDate ? { error: 'The due date is before the invoice date' } : {}),
-          })}
+          })}</div>
           {date('billingPeriodStart', 'Period start')}
           {date('billingPeriodEnd', 'Period end')}
         </div>

@@ -25,6 +25,8 @@ export interface InvoiceLine {
   quantity: number;
   unitPrice: number;
   discount: number;
+  /** The new-invoice page only: `discount` is the customer's default, not the user's (useContactDefaults). Never sent. */
+  discountFromDefault?: boolean;
   /** '' = uncoded. */
   glAccountId: string;
   /** The job (`projects`). */

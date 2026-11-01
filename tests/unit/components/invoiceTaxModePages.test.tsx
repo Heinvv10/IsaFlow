@@ -3,7 +3,7 @@
  * ex-VAT prices, a customer's VAT type pre-selects it unless the user chose, and the edit page keeps a stored invoice
  * as it is until the user changes it. Pricing itself: invoiceTaxMode.test.ts.
  */
-import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -55,10 +55,10 @@ describe('VAT mode', () => {
     await open();
     await pickMode(/Including VAT/);
     await pickClient('c-zero');
-    await waitFor(() => expect(contactCalls().length).toBe(1));
-    await act(async () => { await Promise.resolve(); });
+    await screen.findByText(/zero-rated, but this invoice charges VAT at 15%/); // the customer's answer has landed, and says so
     expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).disabled).toBe(false);
-    expect(screen.queryByText(/zero-rated/i)).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Including VAT/);
+    expect(screen.queryByText(/from customer: zero-rated/i)).toBeNull();
   });
 
   it('a rate the user typed is not overwritten by the customer', async () => {
@@ -66,8 +66,7 @@ describe('VAT mode', () => {
     await open();
     fireEvent.change(screen.getByLabelText('VAT rate %'), { target: { value: '14' } });
     await pickClient('c-zero');
-    await waitFor(() => expect(contactCalls().length).toBe(1));
-    await act(async () => { await Promise.resolve(); });
+    await screen.findByText(/zero-rated, but this invoice charges VAT at 14%/);
     expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).value).toBe('14');
   });
 

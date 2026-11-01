@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, taxModeFromVatType, type TaxMode,
+  effectiveTaxRate, exVatUnitPrice, grossUnitPrice, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, storedUnitPrice, taxModeFromVatType, vatTypeWarning, type TaxMode,
 } from '@/components/accounting/customer-invoices/taxMode';
 import { previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 
@@ -137,7 +137,27 @@ describe('taxModeFromVatType', () => {
     ['', null],
     [null, null],
     ['something a script wrote', null],
+    [' Zero ', 'none'],
+    ['EXEMPT', 'none'],
+    ['  Standard', 'exclusive'],
   ])('%s -> %s', (vatType, mode) => {
     expect(taxModeFromVatType(vatType)).toBe(mode);
+  });
+});
+
+describe('vatTypeWarning', () => {
+  it.each([
+    ['zero', 15, 'This customer is zero-rated, but this invoice charges VAT at 15%.'],
+    ['exempt', 14, 'This customer is VAT exempt, but this invoice charges VAT at 14%.'],
+    [' ZERO ', 15, 'This customer is zero-rated, but this invoice charges VAT at 15%.'],
+    ['standard', 0, 'This customer is standard-rated, but this invoice charges no VAT.'],
+    ['Reduced', 15, 'This customer\'s VAT type "reduced" is not one IsaFlow knows: check the VAT on this invoice.'],
+    ['Reduced', 0, 'This customer\'s VAT type "reduced" is not one IsaFlow knows: check the VAT on this invoice.'],
+  ])('%s at %s percent warns', (vatType, rate, message) => {
+    expect(vatTypeWarning(vatType, rate)).toBe(message);
+  });
+
+  it.each([['zero', 0], ['exempt', 0], ['standard', 15], [null, 15], [null, 0], ['', 15], ['   ', 0], [undefined, 15]])('%s at %s percent says nothing', (vatType, rate) => {
+    expect(vatTypeWarning(vatType, rate)).toBeUndefined();
   });
 });

@@ -83,8 +83,24 @@ export const lineTotalForMode = (mode: TaxMode, rate: number, l: PricedLine): nu
 export const inclusiveTypedTotal = (lines: readonly PricedLine[]): number =>
   previewTotals(lines.map((l) => previewLineAmount(l.quantity, l.unitPrice, l.discount || 0)), 0).subtotal;
 
-/** The mode a customer's `default_vat_type` asks for, or null when it asks for none (the column is free text). */
+/** `default_vat_type` as it is compared: the column is free text. */
+export const normaliseVatType = (vatType: string | null | undefined): string => (vatType ?? '').trim().toLowerCase();
+
+/** The mode a customer's `default_vat_type` asks for, or null when it asks for none. */
 export function taxModeFromVatType(vatType: string | null | undefined): TaxMode | null {
-  if (vatType === 'zero' || vatType === 'exempt') return 'none';
-  return vatType === 'standard' ? 'exclusive' : null;
+  const v = normaliseVatType(vatType);
+  if (v === 'zero' || v === 'exempt') return 'none';
+  return v === 'standard' ? 'exclusive' : null;
+}
+
+const NO_VAT_CUSTOMER: Record<string, string> = { zero: 'zero-rated', exempt: 'VAT exempt' };
+
+/** What to tell the user when the customer's VAT type conflicts with the rate the invoice is stored at. Their choice stands. */
+export function vatTypeWarning(vatType: string | null | undefined, effectiveRate: number): string | undefined {
+  const v = normaliseVatType(vatType);
+  if (!v) return undefined;
+  const noVat = NO_VAT_CUSTOMER[v];
+  if (noVat) return effectiveRate === 0 ? undefined : `This customer is ${noVat}, but this invoice charges VAT at ${effectiveRate}%.`;
+  if (v === 'standard') return effectiveRate === 0 ? 'This customer is standard-rated, but this invoice charges no VAT.' : undefined;
+  return `This customer's VAT type "${v}" is not one IsaFlow knows: check the VAT on this invoice.`;
 }
