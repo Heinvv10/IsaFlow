@@ -2,7 +2,7 @@
  * New Purchase Order Page
  * Route: /accounting/purchase-orders/new
  */
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import Link from 'next/link';
@@ -37,6 +37,7 @@ export default function NewPurchaseOrderPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const dates = useDateGate();
+  const dateNoteId = useId();
   const { attach: attachLines, overflows: linesOverflow } = useOverflowX();
   const [saveAndNew, setSaveAndNew] = useState(false);
   const [form, setForm] = useState({
@@ -205,12 +206,13 @@ export default function NewPurchaseOrderPage() {
                     <span className="tabular-nums font-bold text-lg text-amber-500">{fmt(subtotal + tax)}</span>
                   </div>
                 </div>
-                <button type="submit" disabled={saving || dates.blocked} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button type="submit" disabled={saving || dates.blocked} aria-describedby={dates.blocked ? dateNoteId : undefined} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {saving && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Create Purchase Order'}
                 </button>
-                <button type="submit" disabled={saving || dates.blocked} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button type="submit" disabled={saving || dates.blocked} aria-describedby={dates.blocked ? dateNoteId : undefined} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {saving && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Save & New'}
                 </button>
+                {dates.blocked && <p id={dateNoteId} className="mt-2 text-xs text-red-600 dark:text-red-400 text-center">Fix the date above</p>}
               </div>
             </div>
           </form>
