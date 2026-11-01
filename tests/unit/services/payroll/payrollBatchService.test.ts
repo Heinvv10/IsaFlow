@@ -11,6 +11,7 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 
+import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import {
   createBatch,
   addBatchLines,
@@ -65,7 +66,10 @@ describe('createBatch', () => {
       posted_at: null,
       posted_by: null,
     };
-    routeMock([{ match: 'INSERT INTO payroll_batches', rows: [row] }]);
+    routeMock([
+      { match: 'FROM payroll_components', rows: [{ id: COMPONENT_ID }] },
+      { match: 'INSERT INTO payroll_batches', rows: [row] },
+    ]);
 
     const batch = await createBatch({
       companyId: COMPANY_ID,
@@ -86,6 +90,17 @@ describe('createBatch', () => {
 
     const insert = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_batches'));
     expect(insert).toBeDefined();
+  });
+
+  it("refuses another company's component before the insert, reading it by this company", async () => {
+    await expect(createBatch({
+      companyId: COMPANY_ID, batchType: 'component_values', componentId: COMPONENT_ID,
+      description: 'Foreign', periodYear: 2026, periodMonth: 4, userId: USER_ID,
+    })).rejects.toBeInstanceOf(EmployeeComponentRefused);
+    expect(sqlCalls.some(c => c.sql.includes('INSERT'))).toBe(false);
+    const lookup = sqlCalls.find(c => c.sql.includes('FROM payroll_components'));
+    expect(lookup!.sql).toContain('company_id = ?::uuid');
+    expect(lookup!.values).toEqual([COMPONENT_ID, COMPANY_ID]);
   });
 
   it('rejects component_values batch without componentId', async () => {
@@ -361,6 +376,7 @@ describe('postBatch', () => {
             effective_from: new Date('2026-04-15'), effective_to: null },
         ],
       },
+      { match: 'FROM payroll_components', rows: [{ id: COMPONENT_ID }] },
       { match: 'INSERT INTO payroll_employee_components', rows: [{ id: 'assign-1' }] },
       { match: 'UPDATE payroll_batches', rows: [] },
     ]);

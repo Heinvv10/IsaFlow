@@ -21,6 +21,8 @@ vi.mock('@/lib/api-error-handler', () => ({
 }));
 // NOTE: @/lib/auth/withWriteAccess is intentionally NOT mocked — we test the real gate.
 
+// The POST's employee-number check reads the table: free, here.
+vi.mock('@/lib/neon', async (importOriginal) => ({ ...await importOriginal<object>(), sql: vi.fn().mockResolvedValue([]) }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
   listPayrollEmployees: vi.fn().mockResolvedValue([]),
   createPayrollEmployee: vi.fn().mockResolvedValue({ id: 'e1' }),

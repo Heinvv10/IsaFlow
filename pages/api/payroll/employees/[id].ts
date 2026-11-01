@@ -17,6 +17,10 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { employeeNamesOnly } from '@/modules/accounting/services/payroll/payrollEmployeeRedaction';
 import {
+  EmployeeOnboardingRefused,
+  employeeChangesOf,
+} from '@/modules/accounting/services/payroll/payrollEmployeeOnboarding';
+import {
   getPayrollEmployee,
   updatePayrollEmployee,
 } from '@/modules/accounting/services/payroll/payrollEmployeeService';
@@ -39,9 +43,17 @@ async function handler(
   }
 
   if (req.method === 'PATCH') {
-    const updated = await updatePayrollEmployee(id, companyId, req.body as Record<string, unknown>, user.id);
-    if (!updated) return apiResponse.notFound(res, 'PayrollEmployee', id);
-    return apiResponse.success(res, updated);
+    const current = await getPayrollEmployee(id, companyId);
+    if (!current) return apiResponse.notFound(res, 'PayrollEmployee', id);
+    try {
+      const changes = employeeChangesOf(req.body as Record<string, unknown>, current);
+      const updated = await updatePayrollEmployee(id, companyId, changes, user.id);
+      if (!updated) return apiResponse.notFound(res, 'PayrollEmployee', id);
+      return apiResponse.success(res, updated);
+    } catch (err) {
+      if (err instanceof EmployeeOnboardingRefused) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH']);

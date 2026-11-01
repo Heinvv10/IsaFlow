@@ -51,7 +51,7 @@ const REASON_LABELS: Record<Reason, string> = {
   death: 'Death',
 };
 
-const LABEL = 'block text-xs text-[var(--ff-text-secondary)] mb-1';
+const LABEL = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'; // as FieldFrame's, beside the DateFields
 const INPUT = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-1 focus:ring-teal-500';
 
 export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
@@ -136,8 +136,9 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className={LABEL}>Reason</label>
+              <label htmlFor="termination-reason" className={LABEL}>Reason</label>
               <select
+                id="termination-reason"
                 className={INPUT}
                 value={details.reason ?? ''}
                 onChange={(e) => setDetails({ ...details, reason: (e.target.value || null) as Reason | null })}
@@ -151,8 +152,9 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
               <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Severance only applies for retrenchment (BCEA s41).</p>
             </div>
             <div>
-              <label className={LABEL}>Contractual notice period (days)</label>
+              <label htmlFor="termination-notice-period" className={LABEL}>Contractual notice period (days)</label>
               <input
+                id="termination-notice-period"
                 type="number" min={0} className={INPUT}
                 value={details.noticePeriodDays ?? ''}
                 onChange={(e) => setDetails({ ...details, noticePeriodDays: e.target.value === '' ? null : Number(e.target.value) })}
@@ -160,8 +162,9 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
               />
             </div>
             <div>
-              <label className={LABEL}>Notice days served</label>
+              <label htmlFor="termination-notice-served" className={LABEL}>Notice days served</label>
               <input
+                id="termination-notice-served"
                 type="number" min={0} className={INPUT}
                 value={details.servedNoticeDays ?? ''}
                 onChange={(e) => setDetails({ ...details, servedNoticeDays: e.target.value === '' ? null : Number(e.target.value) })}
@@ -169,8 +172,9 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
               />
             </div>
             <div>
-              <label className={LABEL}>Severance weeks per year</label>
+              <label htmlFor="termination-severance-weeks" className={LABEL}>Severance weeks per year</label>
               <input
+                id="termination-severance-weeks"
                 type="number" min={0} step="0.5" className={INPUT}
                 value={details.severanceWeeksPerYear ?? ''}
                 onChange={(e) => setDetails({ ...details, severanceWeeksPerYear: e.target.value === '' ? null : Number(e.target.value) })}
