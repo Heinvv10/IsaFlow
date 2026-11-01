@@ -1,29 +1,54 @@
 /**
  * Budget variance: what was planned against what the ledger actually carries.
  *
+ * A FACADE over the budgets P3 tracking engine (spec §3, PR-C). The figures
+ * are `budgets/tracking/trackingRange.ts`'s: the engine's one actuals SQL
+ * (`trackingActualRead`), its budget read, its dimension classes and its
+ * budget-absent and partial rules. This file only maps them onto P0's
+ * `BudgetVarianceResult`, which its consumers (the statement comparator, MCP
+ * budget_variance, the board pack, the old Budget vs Actual routes) read.
+ * With no options the result is deep-equal to the pre-facade service's on every
+ * window (tests/integration/budget-variance-facade-parity.int.test.ts, whose
+ * oracle is P0's own SQL; MCP budget_variance byte for byte:
+ * budget-variance-mcp-default.int.test.ts).
+ *
  * THE ACTUAL IS A RAW PER-ACCOUNT GL AGGREGATE, DELIBERATELY NOT THE INCOME
  * STATEMENT. `incomeStatementService` has open defects in exactly the layer a
  * variance would inherit — a rolling-window comparative, cost of sales bucketed
  * by account NAME rather than subtype, and no other-income / finance-cost / tax
- * layer at all. A variance computed against a net profit we already know is
- * wrong would be worse than no variance, because it would wear the authority of
- * a reconciliation. Summing posted journal lines per account borrows none of
- * that: it is the same figure the trial balance shows for the account.
+ * layer at all. Summing posted journal lines per account borrows none of that:
+ * it is the same figure the trial balance shows for the account.
  *
  * Signs are normalised so "more is more" on both sides: revenue is credit less
  * debit, expenses are debit less credit. The variance rules themselves live in
  * budgetVsActualLines so this and the Budget vs Actual report cannot drift.
+ *
+ * Two modes (the lead's ruling, PR-C):
+ *   - DEFAULT (no `partialWindow`): P0's rule. The window budget is the sum of
+ *     every budgeted month in it, across as many years as it spans, even when
+ *     a year has no budget or a line is budgeted in only some years. The result
+ *     is P0's shape with NO added field, so MCP budget_variance and the packs
+ *     answer byte for byte as before.
+ *   - `partialWindow: 'absent'` (the statement comparator): the engine's rule,
+ *     as Budget vs Actual prints it, mapped by `budgetVarianceTracked` (every
+ *     verdict copied from the engine). Only this mode takes a dimension filter
+ *     or a version, and a range that splits a budget month has no window
+ *     budget in it.
  */
 
-import { sql } from '@/lib/neon';
 import { round2 } from '../core/budgetMonths';
-import { budgetMonthKeysInWindow } from './budgetPeriodWindow';
-import { loadWindowBudgets } from './budgetWindowService';
-import { loadWindowActuals } from './budgetWindowActuals';
-import { buildBudgetVsActualLines, type BudgetVsActualLine } from './budgetVsActualLines';
+import { fromCents, toCents } from '../budgets/grid/cents';
+import { buildRangeTracking, type RangeTrackingOptions } from '../budgets/tracking/trackingRange';
+import type { TrackingLine } from '../budgets/tracking/trackingTypes';
+import { buildBudgetVsActualLines, type BudgetVsActualLine, type RawActualRow } from './budgetVsActualLines';
 import { buildBudgetVsActualSections, type BudgetVsActualSections } from './budgetVsActualSections';
-import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
-import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { trackedVariance, type BudgetVarianceTracked } from './budgetVarianceTracked';
+
+/** The engine's rule, a filter and a version: the statement comparator's mode. */
+export type BudgetVarianceTrackedOptions = Omit<RangeTrackingOptions, 'wholeMonthsOnly'> & { partialWindow: 'absent' };
+
+/** P0's rule (the default): no filter, no version, the partial-window sum. */
+export type BudgetVarianceOptions = { partialWindow?: 'sum' } | BudgetVarianceTrackedOptions;
 
 export interface BudgetVarianceResult {
   /** The financial year (registry label) holding the window's start. */
@@ -48,43 +73,60 @@ export interface BudgetVarianceResult {
   postedThrough: string | null;
 }
 
+/** `partialWindow: 'absent'` only: P0's identification fields beside the engine's view of the window. */
+export type BudgetVarianceTrackedResult = Pick<BudgetVarianceResult, 'fiscalYear' | 'monthKeys' | 'postedThrough'> & BudgetVarianceTracked;
+
+/** P0's window budget: every budgeted month of the window summed, null when none is (integer cents, as the engine sums). */
+function summedBudget(line: TrackingLine): number | null {
+  const months = line.monthly.filter((m) => m.budget !== null);
+  return months.length === 0 ? null : fromCents(months.reduce((c, m) => c + toCents(m.budget!), 0));
+}
+
+const FILTER_KEYS = ['versionId', 'cc1Id', 'cc2Id', 'buId', 'costCentreId'] as const;
+
+export function getBudgetVariance(
+  companyId: string, periodStart: string, periodEnd: string, opts: BudgetVarianceTrackedOptions,
+): Promise<BudgetVarianceTrackedResult>;
+export function getBudgetVariance(
+  companyId: string, periodStart: string, periodEnd: string, opts?: { partialWindow?: 'sum' },
+): Promise<BudgetVarianceResult>;
 export async function getBudgetVariance(
   companyId: string,
   periodStart: string,
   periodEnd: string,
-): Promise<BudgetVarianceResult> {
-  const monthKeys = budgetMonthKeysInWindow(periodStart, periodEnd);
-  // The financial year holding the window's start: a label for the reader to
-  // re-derive against, not a key the budget is looked up by (budgets are per
-  // calendar month, so a window spanning two years sums both).
-  const fiscalYear = (await fiscalYearForDate(companyId, periodStart)).fiscalYear;
-  const budgets = await loadWindowBudgets(companyId, periodStart, periodEnd);
-  const actuals = await loadWindowActuals(companyId, periodStart, periodEnd);
+  opts: BudgetVarianceOptions = {},
+): Promise<BudgetVarianceResult | BudgetVarianceTrackedResult> {
+  if (opts.partialWindow === 'absent') {
+    const { partialWindow: _mode, ...filter } = opts;
+    const range = await buildRangeTracking(companyId, periodStart, periodEnd, { ...filter, wholeMonthsOnly: true });
+    return { fiscalYear: range.startFiscalYear, monthKeys: range.months, postedThrough: range.postedThrough, ...trackedVariance(range) };
+  }
+  // A filter or a version under P0's rule would hide budget set above the filter with nobody told: refused.
+  const stray = FILTER_KEYS.filter((k) => (opts as Record<string, unknown>)[k] !== undefined);
+  if (stray.length > 0) throw new Error(`getBudgetVariance: ${stray.join(', ')} needs partialWindow 'absent'`);
 
-  const postedRows = (await sql`
-    SELECT MAX(je.entry_date)::text AS posted_through
-    FROM gl_journal_entries je
-    WHERE je.company_id = ${companyId}::UUID
-      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-  `) as Array<{ posted_through: string | null }>;
-
+  const range = await buildRangeTracking(companyId, periodStart, periodEnd);
+  // The engine's figures, through P0's own row builder (variance, %, favourable, the keep rule).
+  const actuals: RawActualRow[] = range.lines.map((l) => ({
+    id: l.accountId, account_code: l.accountCode, account_name: l.accountName, account_type: l.accountType, actual_amount: l.actual,
+  }));
+  const budgets: Record<string, number> = {};
+  for (const l of range.lines) {
+    const b = summedBudget(l);
+    if (b !== null) budgets[l.accountId] = b;
+  }
   const lines = buildBudgetVsActualLines(actuals, budgets);
   // Split on the budgeted BIT, never on the amount: a deliberate zero budget is a budget (D5).
   const rows = lines.filter((l) => l.budgeted);
   const unbudgeted = lines.filter((l) => !l.budgeted);
   const sections = buildBudgetVsActualSections(lines);
-
   return {
-    fiscalYear,
-    monthKeys,
+    fiscalYear: range.startFiscalYear,
+    monthKeys: range.months,
     lines,
     rows,
     unbudgeted,
     sections,
-    // Every account the report prints (budgeted, or carrying movement): the
-    // two halves are a partition of it, so it always equals rows + unbudgeted.
     universeTotal: lines.length,
     totals: {
       budget: sections.net_profit.budget,
@@ -94,6 +136,6 @@ export async function getBudgetVariance(
     unbudgetedMovement: round2(
       unbudgeted.reduce((s, l) => s + Math.abs(l.actual_amount), 0),
     ),
-    postedThrough: postedRows[0]?.posted_through ?? null,
+    postedThrough: range.postedThrough,
   };
 }
