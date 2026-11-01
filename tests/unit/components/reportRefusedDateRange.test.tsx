@@ -21,6 +21,7 @@ const SHOWN = /Fix the date marked in red: the report shown/;
 const NOT_RUN = 'Fix the date marked in red to run the report.';
 const NOW = 'REPORT-NOW';
 const LATE = 'REPORT-LATE';
+const FAILED = /Refused|Could not load/;
 // Dates no page opens on, whatever day this runs: the 3rd is no month start, and next January is no today.
 const year = new Date().getFullYear();
 const FROM_A = `${year}-02-03`;
@@ -103,7 +104,8 @@ describe.each(RANGE_PAGES)('$file', (page) => {
   it.each([
     { outcome: 'answer', late: () => body({ data: page.data(LATE) }) },
     { outcome: 'failure', late: () => body({ success: false, error: { message: 'Refused' } }, 500) },
-  ])('an older $outcome neither replaces the range that followed it nor ends its loading', async ({ late }) => {
+    { outcome: 'network failure', late: () => { throw new Error('offline'); } },
+  ])('an older $outcome neither replaces the range in flight after it nor ends its loading', async ({ late }) => {
     await open(page);
     const base = vi.mocked(apiFetch).getMockImplementation()!;
     const older = held();
@@ -121,12 +123,32 @@ describe.each(RANGE_PAGES)('$file', (page) => {
     await settle();
     expect(document.querySelector('.animate-spin')).toBeTruthy();
     expect(screen.queryByText(LATE)).toBeNull();
-    expect(screen.queryByText(/Refused/)).toBeNull();
+    expect(screen.queryByText(FAILED)).toBeNull();
     newer.release();
     await screen.findByText(NOW);
     await settle();
     expect(document.querySelector('.animate-spin')).toBeNull();
     expect(screen.queryByText(LATE)).toBeNull();
+    expect(screen.queryByText(FAILED)).toBeNull();
+  });
+
+  it('an older response landing after the newer one does not replace it', async () => {
+    await open(page);
+    const base = vi.mocked(apiFetch).getMockImplementation()!;
+    const older = held();
+    vi.mocked(apiFetch).mockImplementation(async (url, ...rest) => {
+      if (!String(url).includes(`${toParam}=${TO_A}`)) return base(url, ...rest);
+      await older.held;
+      return body({ data: page.data(LATE) });
+    });
+    typeDate(textbox('To'), TO_A);
+    await waitFor(() => expect(urls(paths[0]!).some((url) => url.includes(TO_A))).toBe(true));
+    typeDate(textbox('To'), TO_B);
+    await screen.findByText(NOW);
+    older.release();
+    await settle();
+    expect(screen.queryByText(LATE)).toBeNull();
+    expect(screen.getByText(NOW)).toBeTruthy();
   });
 
   it('a load that failed is retried when a refusal ends on the same range', async () => {
