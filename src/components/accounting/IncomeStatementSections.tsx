@@ -53,6 +53,8 @@ export function IncomeStatementSections({
         columns={cols}
         title="Statement of Comprehensive Income"
         sticky
+        // The Budget column prints as Budget vs Actual does: a budgeted zero 0.00, absent "—".
+        budgetCells
         expandedAccount={expandedAccount}
         onToggleAccount={onToggleAccount}
         onEvidence={code => onEvidence(code, nameOf(code))}

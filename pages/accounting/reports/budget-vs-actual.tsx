@@ -11,6 +11,7 @@
  * to its source document. CSV and Excel come from the same engine and rows.
  * The page renders; it computes no figure.
  */
+import type { BudgetTrackingReport } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { useMemo, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AlertCircle, BarChart3, Download, FileSpreadsheet } from 'lucide-react';
@@ -28,6 +29,10 @@ import { toBudgetTrackingRows } from '@/modules/accounting/services/reports/stat
 
 const COLUMNS: StatementColumns = { prior: false, budget: true, variance: true, trend: false, projection: true };
 const BUTTON = 'px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50';
+
+/** Every year the window reaches: those with a version (`versionsByFy`) and those without one (`noVersionYears`), in order. */
+const windowYears = (report: BudgetTrackingReport): number[] =>
+  [...new Set([...Object.keys(report.versionsByFy ?? {}).map(Number), ...report.notices.noVersionYears])].sort((a, b) => a - b);
 
 export default function BudgetVsActualPage() {
   const t = useBudgetTracking();
@@ -74,7 +79,7 @@ export default function BudgetVsActualPage() {
         <div className="p-4 sm:p-6 space-y-4">
           <BudgetTrackingControls controls={controls} years={t.years} shownYear={report?.window.fiscalYear ?? null}
             today={t.today} versions={t.versions} versionsError={t.versionsError}
-            crossYears={report?.versionsByFy ? Object.keys(report.versionsByFy).map(Number) : null}
+            crossYears={report?.versionsByFy ? windowYears(report) : null}
             centres={t.centres} units={t.units} update={t.update} setPeriod={t.setPeriod} setFiscalYear={t.setFiscalYear}
             problem={t.problem} />
           {Object.keys(t.refError).length > 0 && (
@@ -104,12 +109,16 @@ export default function BudgetVsActualPage() {
               </p>
             </div>
           ) : !report || !hasLines ? (
+            <div className="space-y-4">
+              {/* The reason a window is empty is in the notices: a year with a budget, none of it at this filter, says so here too. */}
+              {report && <BudgetTrackingNotices report={report} filtered={filtered} onViewUnfiltered={t.clearFilter} />}
             <div className="text-center py-12">
               <BarChart3 className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)]">No budget or actuals in this window</p>
               <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
                 Set a budget per GL account, or choose another period, version or filter.
               </p>
+            </div>
             </div>
           ) : (
             <>
