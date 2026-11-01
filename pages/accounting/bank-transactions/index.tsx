@@ -94,6 +94,7 @@ export default function BankTransactionsPage() {
   const [findMatchTxId, setFindMatchTxId] = useState<string | null>(null);
   const [attachmentsTxId, setAttachmentsTxId] = useState<string | null>(null);
   const [queryTx, setQueryTx] = useState<BankTx | null>(null);
+  const [detailTxId, setDetailTxId] = useState<string | null>(null);
   const [linkTx, setLinkTx] = useState<BankTx | null>(null);
   const [createRuleTx, setCreateRuleTx] = useState<BankTx | null>(null);
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
@@ -124,6 +125,9 @@ export default function BankTransactionsPage() {
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
+  // A toast's Undo outlives the render that offered it: an old loadTransactions would put that view's rows on this one.
+  const loadLatest = useRef(loadTransactions);
+  useEffect(() => { loadLatest.current = loadTransactions; });
   usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, failed: error !== '', setPage });
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
@@ -157,6 +161,7 @@ export default function BankTransactionsPage() {
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
     setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,
+    reloadCurrentView: () => { void loadLatest.current(); refreshBankAccounts(); },
     onLlmResidual: pollForLlmResults,
   });
 
@@ -234,7 +239,8 @@ export default function BankTransactionsPage() {
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
-            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}>
+            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}
+            detailTx={transactions.find(t => t.id === detailTxId)} onDetailClose={() => setDetailTxId(null)}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}
@@ -252,7 +258,7 @@ export default function BankTransactionsPage() {
               onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
               onCreateRule={tx => setCreateRuleTx(tx)}
               onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
-              onLink={tx => setLinkTx(tx)}
+              onLink={tx => setLinkTx(tx)} onOpenDetails={setDetailTxId}
             />
           </BankTxListFrame>
         </div>

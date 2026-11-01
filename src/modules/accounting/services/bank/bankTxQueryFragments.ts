@@ -140,6 +140,7 @@ export const TX_SELECT = `
     bt.transaction_date, bt.value_date,
     bt.amount, bt.description, bt.reference, bt.bank_reference,
     bt.status, bt.feed_state, bt.matched_journal_line_id, bt.reconciliation_id,
+    mje.journal_entry_id AS matched_journal_entry_id,
     bt.import_batch_id, bt.excluded_reason, bt.notes,
     bt.suggested_gl_account_id, bt.suggested_category,
     bt.suggested_supplier_id, bt.suggested_client_id,
@@ -170,6 +171,7 @@ export const TX_SELECT = `
   LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
   LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
+  LEFT JOIN gl_journal_lines mje ON mje.id = bt.matched_journal_line_id AND mje.company_id = bt.company_id
   ${ALLOCATED_ACCOUNT_LATERAL}
   LEFT JOIN LATERAL (${POSTED_VAT_LATERAL}) pv ON TRUE
   ${DIMENSION_JOINS}

@@ -1,12 +1,13 @@
 /**
  * Drawer — slide-in panel from the right side of the screen.
- * // WORKING: Portal-based, ESC key, backdrop click-to-close, smooth animation
+ * // WORKING: Portal-based, focus trap (ESC, focus returns on close), backdrop click-to-close, smooth animation
  */
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { useFocusTrap } from './useFocusTrap';
 
 type DrawerWidth = 'sm' | 'md' | 'lg' | 'xl';
 
@@ -20,10 +21,10 @@ interface DrawerProps {
 }
 
 const WIDTH_CLASSES: Record<DrawerWidth, string> = {
-  sm: 'w-80',    // 320px
-  md: 'w-[480px]',
-  lg: 'w-[640px]',
-  xl: 'w-[800px]',
+  sm: 'w-full max-w-[320px]',
+  md: 'w-full max-w-[480px]',
+  lg: 'w-full max-w-[640px]',
+  xl: 'w-full max-w-[800px]',
 };
 
 // WORKING: Drawer component with portal rendering
@@ -35,32 +36,14 @@ export function Drawer({
   width = 'md',
   className,
 }: DrawerProps) {
-  const previouslyFocused = useRef<Element | null>(null);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    },
-    [onClose]
-  );
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, open, onClose);
 
   useEffect(() => {
-    if (open) {
-      previouslyFocused.current = document.activeElement;
-      document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-      if (previouslyFocused.current instanceof HTMLElement) {
-        previouslyFocused.current.focus();
-      }
-    }
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
-    };
-  }, [open, handleKeyDown]);
+    if (!open) return undefined;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, [open]);
 
   if (typeof window === 'undefined') return null;
   if (!open) return null;
@@ -81,6 +64,7 @@ export function Drawer({
 
       {/* Panel */}
       <div
+        ref={panelRef}
         className={cn(
           'relative flex h-full flex-col bg-white shadow-xl',
           'dark:bg-gray-900',

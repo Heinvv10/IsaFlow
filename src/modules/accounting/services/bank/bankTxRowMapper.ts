@@ -31,6 +31,7 @@ export function mapTxRow(row: Row): BankTransaction {
     status: String(row.status) as BankTransaction['status'],
     feedState: feedStateOf(row),
     matchedJournalLineId: row.matched_journal_line_id ? String(row.matched_journal_line_id) : undefined,
+    matchedJournalEntryId: row.matched_journal_entry_id ? String(row.matched_journal_entry_id) : undefined,
     reconciliationId: row.reconciliation_id ? String(row.reconciliation_id) : undefined,
     importBatchId: row.import_batch_id ? String(row.import_batch_id) : undefined,
     excludeReason: row.excluded_reason ? String(row.excluded_reason) : undefined,
