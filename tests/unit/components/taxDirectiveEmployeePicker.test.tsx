@@ -2,7 +2,7 @@
  * PAYE 4a follow-ups round 2, R4: the new-directive form picks the payroll
  * employee the directive is paid to (required; leavers included, since
  * severance, retirement and death directives are for people who have left),
- * pre-fills the name and tax number from that employee, and sends employee_id.
+ * shows the name and tax number of that employee, and sends employee_id alone.
  * Without it a directive made here could be paid by neither a run nor /apply.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -71,9 +71,21 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     fill(/^Effective Date/, '2026-05-01');
     fireEvent.submit(select.closest('form')!);
     await waitFor(() => expect(onCreated).toHaveBeenCalled());
-    expect(posted).toEqual([expect.objectContaining({
-      employee_id: 'e-1', employee_name: 'Wanda Test', employee_tax_number: '0123456789', amount: 10_000,
-    })]);
+    expect(posted).toEqual([expect.objectContaining({ employee_id: 'e-1', amount: 10_000 })]);
+    // The server takes both from the record, so sending them only put a tax number in the request log.
+    expect(Object.keys(posted[0] as object)).not.toEqual(expect.arrayContaining(['employee_name']));
+    expect(Object.keys(posted[0] as object)).not.toEqual(expect.arrayContaining(['employee_tax_number']));
+  });
+
+  it('going back to no employee clears what the last pick showed', async () => {
+    serve([]);
+    render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
+    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(3));
+    fireEvent.change(select, { target: { value: 'e-1' } });
+    fireEvent.change(select, { target: { value: '' } });
+    expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Tax Number') as HTMLInputElement).value).toBe('');
   });
 
   it('an employee with no tax number clears the one a previous pick filled', async () => {

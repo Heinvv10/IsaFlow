@@ -11,7 +11,7 @@ import { redactShareToken, redactTokenParams } from '@/lib/observability/redactS
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { loggableRequestBody, loggableUrl, sanitizeRequestBody } from '@/lib/sanitizeRequestBody';
+import { loggableRequestBody, loggableUrl, maskedKeySet, sanitizeRequestBody } from '@/lib/sanitizeRequestBody';
 
 /**
  * Standard API error response
@@ -35,9 +35,11 @@ export interface ApiSuccessResponse<T = unknown> {
 
 export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
 
-export interface ErrorHandlerOptions {
+export interface WithErrorHandlerOptions {
   /** The body fields the request log may hold, for a route whose body is credentials: nothing else is logged. */
   logBodyFields?: readonly string[];
+  /** Body keys this route's request log must not show, at any depth: pay under a key too common to mask everywhere. */
+  maskBodyKeys?: readonly string[];
 }
 
 /**
@@ -52,8 +54,9 @@ export interface ErrorHandlerOptions {
 export function withErrorHandler(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   handler: (req: any, res: NextApiResponse<any>) => unknown,
-  options: ErrorHandlerOptions = {},
+  options: WithErrorHandlerOptions = {},
 ): NextApiHandler {
+  const maskedKeys = maskedKeySet(options.maskBodyKeys);
   return async (req: NextApiRequest, res: NextApiResponse) => {
     const requestId = generateRequestId();
     const startTime = Date.now();
@@ -89,7 +92,7 @@ export function withErrorHandler(
           method: req.method,
           url: safeUrl,
           query: redactTokenParams(sanitizeRequestBody(req.query) as typeof req.query),
-          body: req.method !== 'GET' ? loggableRequestBody(req, options.logBodyFields) : undefined,
+          body: req.method !== 'GET' ? loggableRequestBody(req, options.logBodyFields, maskedKeys) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 
         // Execute the actual handler
