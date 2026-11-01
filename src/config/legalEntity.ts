@@ -13,6 +13,8 @@ export const LEGAL_ENTITY = {
   legalStatus: 'Private company incorporated in South Africa',
   registeredAddress:
     '7 Burchel Close, Natures Valley, Somerset West, Western Cape, 7130, South Africa',
+  // Head office confirmed by the director on 31 October 2026; registeredAddress stays the CIPC record until CIPC is updated.
+  headOffice: 'Pretoria, Gauteng, South Africa',
   director: 'Jan Hendrik van Vuuren',
   informationOfficer: 'Jan Hendrik van Vuuren',
   contactEmail: 'accounts@isaflow.co.za',
@@ -20,4 +22,4 @@ export const LEGAL_ENTITY = {
 } as const;
 
 /** Date of the current revision of the public legal pages. */
-export const LEGAL_LAST_UPDATED = '2 October 2026';
+export const LEGAL_LAST_UPDATED = '31 October 2026';

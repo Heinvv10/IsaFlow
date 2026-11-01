@@ -55,7 +55,7 @@ const refuse = () => new Response(JSON.stringify({ success: false, error: { code
 const emptyBody = () => new Response('', { status: 500 });
 const NO_JSON = /JSON|Unexpected end/;
 const ALERT = { health_alert_email: 'd2-alerts@example.test', health_alert_webhook_url: '' };
-const SETTINGS = { maintenance_mode: false, registration_enabled: true, default_trial_days: 14, max_companies_per_user: 3, smtp_configured: true };
+const SETTINGS = { maintenance_mode: false, registration_enabled: true, max_companies_per_user: 3, smtp_configured: true };
 const KPI = { kpis: { revenue: { total: 0, priorTotal: 0, changePercent: 0 }, expenses: { total: 0, priorTotal: 0 }, grossProfit: { amount: 0, margin: 0 },
   netProfit: { amount: 0, margin: 0 }, cash: { total: 0, priorTotal: 0, change: 0 }, receivables: { total: 0, overdue: 0, avgDebtorDays: 0 },
   payables: { total: 0, overdue: 0, avgCreditorDays: 0 }, activity: { invoicesIssued: 0, paymentsReceived: 0, journalsPosted: 0 } },

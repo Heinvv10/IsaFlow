@@ -8,6 +8,7 @@
 import type { DriverLine, StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
 import type { PlannedHireInput, StoredPlannedHire } from '@/modules/accounting/services/budgets/drivers/driverRepository';
 import type { VersionHeadcount } from '@/modules/accounting/services/budgets/drivers/plannedHireService';
+import type { RestrictedHeadcount } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 import type { UnplacedActualLine } from '@/modules/accounting/services/budgets/drivers/reforecastInputs';
 import type { ReforecastCreated } from '@/modules/accounting/services/budgets/drivers/reforecastService';
 import type { RollOutcome } from '@/modules/accounting/services/budgets/drivers/rollingForecastService';
@@ -15,7 +16,7 @@ import type { RollingStatus } from '@/modules/accounting/services/budgets/driver
 import { call } from '@/components/accounting/budgets/workspace/budgetWorkspaceClient';
 import type { ApiResult } from '@/components/accounting/budgets/workspace/types';
 
-export type { RollingStatus, StoredPlannedHire, UnplacedActualLine, VersionHeadcount };
+export type { RestrictedHeadcount, RollingStatus, StoredPlannedHire, UnplacedActualLine, VersionHeadcount };
 /** The route's answers, typed from the services they pass through (tsc catches drift). */
 export type ReforecastCreatedView = ReforecastCreated;
 export type RollNowView = RollOutcome;
@@ -76,10 +77,12 @@ export async function resetOverride(versionId: string, token: string, target: Re
 
 // ── Headcount and planned hires ──────────────────────────────────────────────
 
-export async function fetchHeadcount(versionId: string, costCentreId: string | null): Promise<ApiResult<VersionHeadcount>> {
+/** The counts, or for a budget reader `perHeadRestricted` and no counts (perHeadAccess). */
+export async function fetchHeadcount(versionId: string, costCentreId: string | null): Promise<ApiResult<VersionHeadcount | RestrictedHeadcount>> {
   const fallback = 'Could not read the headcount.';
   const cc = costCentreId ? `&costCentreId=${enc(costCentreId)}` : '';
-  return pick(await call(`/api/accounting/budget-drivers/headcount?versionId=${enc(versionId)}${cc}`, undefined, fallback), has('months'), fallback);
+  const answer = (d: unknown) => has('months')(d) || has('perHeadRestricted')(d);
+  return pick(await call(`/api/accounting/budget-drivers/headcount?versionId=${enc(versionId)}${cc}`, undefined, fallback), answer, fallback);
 }
 
 export async function refreshHeadcount(versionId: string, token: string): Promise<ApiResult<DriverWriteAnswer & { headcountAsOf: string }>> {

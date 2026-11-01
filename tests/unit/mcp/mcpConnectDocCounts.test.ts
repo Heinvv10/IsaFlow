@@ -44,7 +44,14 @@ describe('docs/mcp-connect.md tool counts', () => {
   it('every tool the doc names in backticks exists', () => {
     const known = new Set<string>(CLIENT_MCP_TOOL_NAMES);
     const named = [...DOC.matchAll(/`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`/g)].map((x) => x[1]!);
-    const notTools = new Set(['idempotency_key', 'mcp_tool_calls', 'mcp_connector', 'dry_run', 'is_dynamic']);
+    const notTools = new Set([
+      'idempotency_key',
+      'mcp_tool_calls',
+      'mcp_connector',
+      'dry_run',
+      'is_dynamic',
+      'offline_access',
+    ]);
     expect(named.filter((n) => !known.has(n) && !notTools.has(n))).toEqual([]);
   });
 
