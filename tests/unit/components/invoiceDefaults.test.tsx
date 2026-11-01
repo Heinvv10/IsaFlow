@@ -4,8 +4,13 @@
  * invoiceTaxModePages.test.tsx.
  */
 import { act, cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
+import type { InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
+import type { InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import type { TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { typeDate } from '../helpers/dateFields';
 import {
@@ -183,6 +188,39 @@ describe('due date from the customer', () => {
     await pickClient('c-acme');
     await waitFor(() => expect(screen.getAllByRole('alert').map((a) => a.textContent).join('|')).toMatch(/customer's terms/i));
     expect(due().value).toBe('');
+  });
+});
+
+describe('a choice made as the customer lands', () => {
+  // A layout effect runs after the answer's commit and before that commit's passive effects: the window a click can land
+  // in. Those effects closed over the old `touched`, so the default would be queued after the user's choice and win.
+  function PicksAsTheAnswerLands({ choose }: { choose: (contact: ReturnType<typeof useContactDefaults>, setMode: (m: TaxMode) => void, setForm: (f: InvoiceHeaderForm) => void) => void }) {
+    const [form, setForm] = useState({ dueDate: '' } as InvoiceHeaderForm);
+    const [, setLines] = useState<InvoiceLine[]>([]);
+    const [mode, setMode] = useState<TaxMode>('exclusive');
+    const contact = useContactDefaults({ clientId: 'c-acme', invoiceDate: '2026-10-01', setForm, setLines, setTaxMode: setMode });
+    const chose = useRef(false);
+    useLayoutEffect(() => {
+      if (chose.current || contact.vatType === null) return;
+      chose.current = true;
+      choose(contact, setMode, setForm);
+    });
+    return <output>{`mode ${mode}, due ${form.dueDate || 'empty'}`}</output>;
+  }
+
+  it('a VAT mode picked then is not undone by the default', async () => {
+    serve();
+    render(<PicksAsTheAnswerLands choose={(contact, setMode) => { contact.touch('taxMode'); setMode('inclusive'); }} />);
+    await screen.findByText(/^mode inclusive/);
+  });
+
+  it('a Due touched then is not filled by the default', async () => {
+    serve();
+    render(<PicksAsTheAnswerLands choose={(contact) => { contact.touch('dueDate'); }} />);
+    await waitFor(() => expect(contactCalls().length).toBe(1));
+    await screen.findByText(/due empty$/);
+    await act(async () => { await new Promise((r) => { setTimeout(r); }); });
+    expect(screen.getByRole('status').textContent).toMatch(/due empty$/);
   });
 });
 

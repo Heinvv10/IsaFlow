@@ -8,9 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { typeDate } from '../helpers/dateFields';
-import { openCombobox } from '../helpers/kitPick';
 import {
-  contactCalls, descriptionField, discounts, due, fillLine, hintFromCustomer, invoiceDate, pickClient, pickMode, prices, sentBody, serve, submitAndWait,
+  contactCalls, descriptionField, discounts, due, fillLine, hintFromCustomer, invoiceDate, pickClient, pickMode, sentBody, serve, submitAndWait,
 } from '../helpers/invoiceDefaultsHarness';
 
 const push = vi.hoisted(() => vi.fn());
@@ -60,35 +59,6 @@ describe('VAT mode', () => {
     expect((screen.getByLabelText('VAT rate %') as HTMLInputElement).disabled).toBe(false);
     expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Including VAT/);
     expect(screen.queryByText(/from customer: zero-rated/i)).toBeNull();
-  });
-
-  it('a mode picked in the instant the customer lands stands: the default\'s late effect does not undo it', async () => {
-    const slow: { release?: () => void } = {};
-    serve();
-    const inner = vi.mocked(apiFetch).getMockImplementation()!;
-    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
-      if (String(url).includes('customers?id=')) await new Promise<void>((r) => { slow.release = r; });
-      return inner(url, init);
-    });
-    await open();
-    await pickClient('c-acme');
-    await waitFor(() => expect(slow.release).toBeTruthy());
-    openCombobox('Amounts are');
-    const inclusive = await screen.findByRole('option', { name: /Including VAT/ });
-    fillLine(0, '1000');
-    // Commit of the answer, then the click, then the passive effects of that commit: the order a browser can give.
-    const landed = new Promise<void>((resolve) => {
-      new MutationObserver((_, watcher) => { watcher.disconnect(); inclusive.click(); resolve(); })
-        .observe(document.body, { childList: true, subtree: true, characterData: true });
-    });
-    const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
-    actEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
-    slow.release!();
-    await landed;
-    await new Promise((r) => { setTimeout(r, 20); });
-    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Including VAT/));
-    expect(prices()).toEqual(['1150']);
   });
 
   it('a rate the user typed is not overwritten by the customer', async () => {
