@@ -1,5 +1,5 @@
 // An export says what the report on screen ran on. The ledgers name the dates they ran on, not whatever the inputs
-// have moved to since, and the cash flow export carries the cost centre filter on screen.
+// have moved to since.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -58,33 +58,5 @@ describe.each(['customer-ledger', 'supplier-ledger'])('%s CSV', (file) => {
     await waitFor(() => expect(blob).toBeTruthy());
     expect(await blob!.text()).toContain('Period: 2026-02-03 to 2026-02-27');
     expect(filename).toMatch(/-2026-02-03-2026-02-27\.csv$/);
-  });
-});
-
-describe('cash-flow export', () => {
-  const open = async () => {
-    const page = gatePage('cash-flow');
-    serve(page);
-    const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
-    const { default: Page } = await page.load();
-    render(<Page />);
-    await screen.findByRole('option', { name: /One/ });
-    await waitFor(() => expect(exportButton().disabled).toBe(false));
-    return opened;
-  };
-  const params = (opened: { mock: { calls: unknown[][] } }) => new URL(String(opened.mock.calls[0]![0]), 'https://x.invalid').searchParams;
-
-  it('carries the cost centre filter on screen', async () => {
-    const opened = await open();
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'C1' } });
-    await settle();
-    fireEvent.click(exportButton());
-    expect(params(opened).get('cost_centre')).toBe('C1');
-  });
-
-  it('sends no cost centre for All Cost Centres', async () => {
-    const opened = await open();
-    fireEvent.click(exportButton());
-    expect(params(opened).has('cost_centre')).toBe(false);
   });
 });

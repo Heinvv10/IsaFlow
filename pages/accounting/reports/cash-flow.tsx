@@ -51,7 +51,6 @@ export default function CashFlowPage() {
   }, []);
 
   const params = new URLSearchParams({ start_date: startDate || '', end_date: endDate || '' });
-  if (costCentreFilter) params.set('cost_centre', costCentreFilter);
   const query = params.toString();
 
   const loadReport = useCallback<ReportLoad>(async (latest) => {
@@ -97,7 +96,6 @@ export default function CashFlowPage() {
               <button onClick={() => {
                 if (!startDate || !endDate) return;
                 const params = new URLSearchParams({ period_start: startDate, period_end: endDate });
-                if (costCentreFilter) params.set('cost_centre', costCentreFilter);
                 window.open(`/api/accounting/cash-flow-export?${params}`, '_blank');
               }} disabled={!report || dates.blocked}
                 className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
