@@ -59,7 +59,9 @@ const consentReq = (companyRole: string, extra: Record<string, unknown> = {}) =>
   method: 'POST', headers: {}, url: '/api/oauth/consent', user: { id: 'u-1', claims: {} }, companyId: HOME, companyRole,
   body: {
     clientId: 'client_abc', redirectUri: 'https://claude.ai/cb', codeChallenge: 'c', codeChallengeMethod: 'S256',
-    scopes: ['read:reports', 'write:invoices', 'write:post'], optInConfirmed: ['write:post'], ...extra,
+    scopes: ['read:reports', 'write:invoices', 'write:post'],
+    optInConfirmed: ['write:invoices', 'write:post'],
+    ...extra,
   },
 });
 const granted = () => vi.mocked(createAuthorisationCode).mock.calls[0]![0].scopes;
@@ -120,7 +122,9 @@ describe('POST /api/oauth/consent — role gate on granted scopes', () => {
 
   it('refuses a viewer whose request holds nothing but write scopes (no code minted)', async () => {
     const res = makeRes();
-    await (consentHandler as H)(consentReq('viewer', { scopes: ['write:invoices'], optInConfirmed: [] }), res);
+    await (consentHandler as H)(consentReq('viewer', {
+      scopes: ['write:invoices'], optInConfirmed: ['write:invoices'],
+    }), res);
     expect(res.statusCode).toBe(403);
     expect(createAuthorisationCode).not.toHaveBeenCalled();
   });

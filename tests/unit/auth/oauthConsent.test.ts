@@ -33,7 +33,10 @@ vi.mock('@/modules/admin/services/featureFlagService', () => ({
 }));
 
 vi.mock('@/lib/auth/oauth', () => ({
-  OAUTH_SCOPES: ['read:invoices', 'read:reports', 'write:post', 'offline_access'],
+  OAUTH_SCOPES: [
+    'read:invoices', 'read:reports', 'write:invoices', 'write:journals',
+    'write:accounts', 'write:post', 'offline_access',
+  ],
   getOauthAppByClientId: vi.fn(),
   createAuthorisationCode: vi.fn(),
 }));
@@ -94,35 +97,38 @@ beforeEach(() => {
   vi.mocked(hasFeature).mockResolvedValue(true);
 });
 
-describe('POST /api/oauth/consent — write:post server-side opt-in gate', () => {
-  it('does NOT grant write:post when it is requested but not in optInConfirmed', async () => {
+describe('POST /api/oauth/consent — write scopes are server-side opt-in', () => {
+  it('does not grant requested write scopes that were not individually confirmed', async () => {
     const res = makeRes();
     await (handler as (req: unknown, res: unknown) => Promise<void>)(
-      makeReq({ scopes: ['read:reports', 'write:post'] }), res,
+      makeReq({ scopes: ['read:reports', 'write:journals', 'write:post'], optInConfirmed: ['write:journals'] }), res,
     );
     expect(res.statusCode).toBe(200);
     const grantedScopes = vi.mocked(createAuthorisationCode).mock.calls[0]![0].scopes;
-    expect(grantedScopes).toEqual(['read:reports']); // write:post stripped server-side
+    expect(grantedScopes).toEqual(['read:reports', 'write:journals']);
   });
 
-  it('grants write:post only when explicitly confirmed via optInConfirmed', async () => {
+  it('grants every requested write scope only when explicitly confirmed', async () => {
     const res = makeRes();
     await (handler as (req: unknown, res: unknown) => Promise<void>)(
-      makeReq({ scopes: ['read:reports', 'write:post'], optInConfirmed: ['write:post'] }), res,
+      makeReq({
+        scopes: ['read:reports', 'write:invoices', 'write:post'],
+        optInConfirmed: ['write:invoices', 'write:post'],
+      }), res,
     );
     expect(res.statusCode).toBe(200);
     const grantedScopes = vi.mocked(createAuthorisationCode).mock.calls[0]![0].scopes;
-    expect(grantedScopes).toEqual(['read:reports', 'write:post']);
+    expect(grantedScopes).toEqual(['read:reports', 'write:invoices', 'write:post']);
   });
 
   it('ignores an optInConfirmed scope the client never requested', async () => {
     const res = makeRes();
     await (handler as (req: unknown, res: unknown) => Promise<void>)(
-      makeReq({ scopes: ['read:reports'], optInConfirmed: ['write:post'] }), res,
+      makeReq({ scopes: ['read:reports'], optInConfirmed: ['write:accounts', 'write:post'] }), res,
     );
     expect(res.statusCode).toBe(200);
     const grantedScopes = vi.mocked(createAuthorisationCode).mock.calls[0]![0].scopes;
-    expect(grantedScopes).toEqual(['read:reports']); // not requested → not granted
+    expect(grantedScopes).toEqual(['read:reports']);
   });
 });
 

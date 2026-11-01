@@ -73,7 +73,6 @@
   "pages/accounting/purchase-orders/[poId].tsx": 6,
   "pages/accounting/purchase-orders/index.tsx": 1,
   "pages/accounting/purchase-orders/new.tsx": 5,
-  "pages/accounting/recurring-invoices/[id].tsx": 2,
   "pages/accounting/recurring-invoices/new.tsx": 2,
   "pages/accounting/recurring-journals/index.tsx": 5,
   "pages/accounting/reports/builder.tsx": 1,
