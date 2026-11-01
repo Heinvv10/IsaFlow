@@ -17,7 +17,7 @@ export function EmploymentSection({ form, errors, set, fieldRef, setDate }: Sect
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input ref={fieldRef('employeeNumber')} label="Employee number *" value={form.employeeNumber}
           error={errors.employeeNumber} onChange={e => set('employeeNumber', e.target.value)} autoComplete="off" />
-        <Select label="Employment type" options={TYPES} value={form.employmentType}
+        <Select label="Employment type" searchable options={TYPES} value={form.employmentType}
           onChange={v => v && set('employmentType', v as EmploymentType)} />
         <DateField ref={fieldRef('startDate')} label="Start date" required value={form.startDate || null}
           error={errors.startDate} onChange={setDate('startDate')} />
