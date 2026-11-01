@@ -57,7 +57,7 @@ export class EmployeeComponentRefused extends Error {
 }
 
 /** A user in two companies sees both through RLS and the foreign key is not tenant-aware, so only this predicate holds. */
-async function assertComponentInCompany(componentId: string, companyId: string): Promise<void> {
+export async function assertComponentInCompany(componentId: string, companyId: string): Promise<void> {
   const rows = isUuidParam(componentId) ? (await sql`
     SELECT id FROM payroll_components
     WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
