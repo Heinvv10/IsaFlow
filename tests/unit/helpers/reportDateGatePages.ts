@@ -25,6 +25,7 @@ const aging = { rows: [{ ...agingRow, customer_name: 'A', supplier_name: 'A' }],
 const ledger = { customer_name: 'A', opening_balance: 0, closing_balance: 10, transactions: [
   { type: 'invoice', transaction_id: 't1', reference: 'INV-1', transaction_date: '2026-04-01', debit: 10, credit: 0, status: 'open', running_balance: 10 },
 ] };
+const supplierLedger = { ...ledger, supplier_name: 'A' };
 const statementLine = { accountId: 'a', accountCode: '1', accountName: 'A', amount: 0 };
 const pack = { type: 'board', companyName: 'Co', period: 'p', sections: [] };
 
@@ -33,6 +34,13 @@ async function runCustomerLedger(): Promise<void> {
   fireEvent.focus(select);
   await screen.findByRole('option', { name: 'A' });
   fireEvent.change(select, { target: { value: 'c1' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run Report' }));
+  await screen.findByText(/Opening Balance/i);
+}
+
+/** Needs SupplierSelect mocked as a button: the real one is a server-searched typeahead. */
+async function runSupplierLedger(): Promise<void> {
+  fireEvent.click(screen.getByRole('button', { name: 'Pick supplier' }));
   fireEvent.click(screen.getByRole('button', { name: 'Run Report' }));
   await screen.findByText(/Opening Balance/i);
 }
@@ -71,6 +79,8 @@ export const GATE_PAGES: GatePage[] = [
     data: { pack, unclassifiedAccounts: null } },
   { file: 'sales-by-customer', load: () => import('@/../pages/accounting/reports/sales-by-customer'), dates: FROM_TO, actions: SHORT_CSV },
   { file: 'sales-by-item', load: () => import('@/../pages/accounting/reports/sales-by-item'), dates: FROM_TO, actions: SHORT_CSV },
+  { file: 'supplier-ledger', load: () => import('@/../pages/accounting/reports/supplier-ledger'), dates: FROM_TO, actions: [/Run Report/, /Export CSV/],
+    data: supplierLedger, prepare: runSupplierLedger },
   { file: 'supplier-pos', load: () => import('@/../pages/accounting/reports/supplier-pos'), dates: FROM_TO, actions: SHORT_CSV,
     data: { suppliers: [{ supplierId: 's', supplierName: 'S', poCount: 0, totalValue: 0, pos: [] }], grandTotal: 0, grandPoCount: 0 } },
   { file: 'supplier-reports', load: () => import('@/../pages/accounting/reports/supplier-reports'), dates: FROM_TO, actions: CSV,
