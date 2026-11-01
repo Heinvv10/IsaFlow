@@ -216,6 +216,20 @@ it('a URL that names only From leaves the refusal in To, on screen and gating', 
   expect(csv().disabled).toBe(true);
 });
 
+it('a URL that names only To leaves the refusal in From, on screen and gating', async () => {
+  const view = render(<IncomeStatementPage />);
+  await waitFor(() => expect(csv().disabled).toBe(false));
+  const from = screen.getByRole('textbox', { name: 'From' }) as HTMLInputElement;
+  typeDate(from, 'zz');
+  await waitFor(() => expect(csv().disabled).toBe(true));
+  route.query = { period_end: '2026-04-29' };
+  view.rerender(<IncomeStatementPage />);
+  await settle();
+  expect(from.value).toBe('zz');
+  expect(from.getAttribute('aria-invalid')).toBe('true');
+  expect(csv().disabled).toBe(true);
+});
+
 it('the open period landing on a refused To replaces the text and opens the gate, so a good date is not left blocked', async () => {
   let release: () => void = () => undefined;
   const held = new Promise<void>((resolve) => { release = resolve; });
