@@ -68,6 +68,7 @@ export function VatPeriodLockForm({ onLock }: Props) {
       setSubmitting(false);
     }
     if (err) { setError(err); return; }
+    dateGate.reset('period-start'); dateGate.reset('period-end');
     setPeriodStart(''); setPeriodEnd(''); setNotes(''); setOverrideReason(''); setCounts(null);
   };
 
