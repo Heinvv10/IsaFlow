@@ -37,12 +37,12 @@ interface Props {
 }
 
 const money = (n: number) => (n === 0 ? '' : formatCurrency(n));
-const monthName = (month: number) => new Date(Date.UTC(2000, month - 1, 1)).toLocaleString('en-ZA', { month: 'long', timeZone: 'UTC' });
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 /** The plan's own figures: the net it pays, and its debits, which are all labour (gross + employer UIF + SDL − ETI used). */
 function paymentSummary(plan: Preview['plan']): string {
   const people = `${plan.employeeCount} employee${plan.employeeCount === 1 ? '' : 's'}`;
-  return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${monthName(plan.periodMonth)} ${plan.periodYear}. `
+  return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${MONTHS[plan.periodMonth - 1]} ${plan.periodYear}. `
     + `Cost to the company ${formatCurrency(plan.totalDebit)} (gross plus employer UIF and SDL, less ETI used).`;
 }
 
