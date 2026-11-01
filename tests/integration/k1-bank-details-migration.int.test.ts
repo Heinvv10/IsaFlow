@@ -124,6 +124,38 @@ describe('952\'s grants, from the widest a role could hold before it', () => {
   });
 });
 
+describe('952 revokes what it finds, whoever holds it', () => {
+  const holders = async (db: PoolClient) => (await db.query(`
+    SELECT DISTINCT a.grantee::regrole::text AS role FROM pg_class c, aclexplode(c.relacl) a
+    WHERE c.oid = 'payroll_bank_details'::regclass AND a.privilege_type IN ('DELETE', 'TRUNCATE') ORDER BY 1`)).rows.map((r) => r.role);
+
+  it.each([
+    ['a role nobody listed, DELETE', 'CREATE ROLE k1_unseen NOLOGIN; GRANT DELETE ON payroll_bank_details TO k1_unseen'],
+    ['a role nobody listed, TRUNCATE', 'CREATE ROLE k1_unseen NOLOGIN; GRANT TRUNCATE ON payroll_bank_details TO k1_unseen'],
+    ['PUBLIC', 'GRANT DELETE, TRUNCATE ON payroll_bank_details TO PUBLIC'],
+    ['a role that passed it on', `CREATE ROLE k1_unseen NOLOGIN; CREATE ROLE k1_second NOLOGIN; GRANT k1_unseen TO CURRENT_USER;
+      GRANT DELETE ON payroll_bank_details TO k1_unseen WITH GRANT OPTION;
+      SET LOCAL ROLE k1_unseen; GRANT DELETE ON payroll_bank_details TO k1_second; RESET ROLE`],
+  ])('%s: the migration runs, and only the owner and migration_admin hold either', async (_name, grant) => {
+    await replay(async (db) => {
+      await db.query(grant);
+      await db.query(SQL);
+      expect(await holders(db)).toEqual(['migration_admin', 'postgres']);
+    });
+  });
+});
+
+describe('952 replaces the single policy an earlier build of it made', () => {
+  it('payroll_detail_tenant does not survive it', async () => {
+    await replay(async (db) => {
+      await db.query('CREATE POLICY payroll_detail_tenant ON payroll_bank_details FOR ALL TO app_user USING (true)');
+      await db.query(SQL);
+      const { rows } = await db.query("SELECT polname FROM pg_policy WHERE polrelid = 'payroll_bank_details'::regclass ORDER BY 1");
+      expect(rows.map((r) => r.polname)).toEqual(['payroll_detail_insert', 'payroll_detail_read', 'payroll_detail_update']);
+    });
+  });
+});
+
 describe('952 refuses to ship any other way', () => {
   const MARK = '-- ── Refuse to ship it any other way';
   const withBefore = (statement: string) => {

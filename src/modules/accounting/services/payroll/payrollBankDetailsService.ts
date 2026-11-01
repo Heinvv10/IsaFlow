@@ -8,7 +8,9 @@
  * decision 14); a change to existing details is owner / admin only, and that is
  * decided here under the employee row lock, so two people cannot both find "no
  * details yet". The details sent again unchanged write nothing, and that is
- * decided after the role, so a manager cannot use it to test a guessed number.
+ * decided after the role, so a manager's PUT cannot test a guessed number. That
+ * is this route only: /api/payroll/duplicates groups on the whole number, so a
+ * first entry with the guess confirms it there.
  * The account number is masked for everyone but owner / admin.
  * Sessions: the route refuses Login-as and tokens; MCP has no bank-details tool.
  *

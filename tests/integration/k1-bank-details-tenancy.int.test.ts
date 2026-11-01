@@ -129,6 +129,23 @@ describe('the service pool and the platform admin', () => {
   });
 });
 
+// What 952's header and the payroll .claude.md say stays open. A fix turns these red: then correct both.
+describe('stated residual risks', () => {
+  it('entity_changes keeps its app_service mirror: the service pool reads the whole number there, with no claims', async () => {
+    const seen = await as(pool, both, { role: 'app_service', claims: null }, async (db) => (await db.query(
+      `SELECT "after"->>'account_number' AS n FROM entity_changes WHERE entity_type = 'payroll_bank_detail' AND company_id = $1`, [A])).rows);
+    expect(seen.map((r) => r.n)).toContain(ROW.accountNumber);
+  });
+
+  it('duplicates can confirm a manager\'s guess: a first entry with the guessed number joins its group', async () => {
+    const c = await newCompany(pool, [[both, 'owner'], [m, 'manager']], companies);
+    expect((await put(tokens[both]!, c, await employee(pool, c), ROW)).state.statusCode).toBe(200);
+    expect((await put(tokens[m]!, c, await employee(pool, c), ROW)).state.statusCode).toBe(200);
+    const res = await callRoute(duplicates, tokens[m]!, c, 'GET', undefined, '/api/payroll/duplicates');
+    expect(dataOf<DuplicateResult>(res).bankAccount.map((g) => g.employees.length)).toEqual([2]);
+  });
+});
+
 describe('the route across companies', () => {
   it('B\'s owner gets a 404 for A\'s employee, reading and writing, and A\'s rows do not move', async () => {
     const before = await rowsOf(pool, empA);

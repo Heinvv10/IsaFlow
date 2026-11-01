@@ -20,7 +20,11 @@
 --      platform_admin holds nothing on it, and app_service has no mirror (915's
 --      list, as impersonation_sessions): it inherits app_user's grants, so a
 --      REVOKE from it would change nothing, and with no mirror those grants meet
---      app_user's policies. The service pool reads no row without forged claims.
+--      app_user's policies. This table gives the service pool no row without
+--      forged claims. RESIDUAL, an owner decision: entity_changes keeps its
+--      app_service SELECT mirror and its before / after hold the number in full
+--      (step 5), so SQL injected on the service pool reads every tenant's
+--      account numbers from the history with no forgery at all.
 --   5. 888's capture, ENABLE ALWAYS, as entity type payroll_bank_detail, with
 --      its own arm in entity_changes_read (owner, admin, manager, as
 --      payroll_employee) and its value in the entity_type CHECK. The history
@@ -39,7 +43,10 @@
 -- so the migration does not invert a request that writes a company and is then
 -- captured. entity_changes is held ACCESS EXCLUSIVE to COMMIT, with one scan
 -- for the CHECK: deploy after hours. A lock not granted within 5s aborts the
--- migration, which has then changed nothing: re-run it.
+-- migration, which has then changed nothing: re-run it. Both hold only under
+-- scripts/apply-migrations.ts, which runs the file in one transaction: outside
+-- one SET LOCAL does nothing, so psql -f neither bounds the wait nor undoes
+-- the steps before a failure.
 --
 -- Rollback: old code ignores the new columns and never writes the table, so
 -- reverting code alone is safe.
@@ -94,6 +101,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_bank_details_one_active
 -- ── 4. RLS and grants ─────────────────────────────────────────────────────
 ALTER TABLE payroll_bank_details ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payroll_bank_details FORCE ROW LEVEL SECURITY;
+-- payroll_detail_tenant: the single FOR ALL policy an earlier build of this file made.
+DROP POLICY IF EXISTS payroll_detail_tenant ON payroll_bank_details;
 DROP POLICY IF EXISTS payroll_detail_read ON payroll_bank_details;
 CREATE POLICY payroll_detail_read ON payroll_bank_details FOR SELECT TO app_user
   USING (
@@ -118,6 +127,24 @@ CREATE POLICY payroll_detail_update ON payroll_bank_details FOR UPDATE TO app_us
 -- A table-level REVOKE also clears column grants, so UPDATE comes back as is_active alone.
 REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON payroll_bank_details FROM app_user, app_service, PUBLIC;
 REVOKE ALL ON payroll_bank_details FROM platform_admin;
+-- Whoever else holds them, seen or not: production's ACL is not read here. The
+-- owner and migration_admin (the seed's sweep) keep theirs. The abort below stays
+-- as the check.
+DO $$
+DECLARE
+  v_grantee pg_catalog.text;
+BEGIN
+  FOR v_grantee IN
+    SELECT DISTINCT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(a.grantee)) END
+    FROM pg_catalog.pg_class c
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
+    WHERE c.oid = 'public.payroll_bank_details'::pg_catalog.regclass
+      AND a.privilege_type IN ('DELETE', 'TRUNCATE') AND a.grantee <> c.relowner
+      AND a.grantee IS DISTINCT FROM pg_catalog.to_regrole('migration_admin')::pg_catalog.oid
+  LOOP
+    EXECUTE pg_catalog.format('REVOKE DELETE, TRUNCATE ON public.payroll_bank_details FROM %s CASCADE', v_grantee);
+  END LOOP;
+END $$;
 GRANT SELECT, INSERT ON payroll_bank_details TO app_user;
 GRANT UPDATE (is_active) ON payroll_bank_details TO app_user;
 
