@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
+import { EnterDateNotice, FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import Link from 'next/link';
@@ -228,11 +228,13 @@ export default function ManagementAccountsPage() {
         {/* Body */}
         <div className="px-6 py-6 max-w-5xl mx-auto space-y-6">
           <FixDateNotice gate={dates} hidden={stale} />
-          {error && (
+          {error && !stale && (
             <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}
             </div>
           )}
+
+          {!stale && !query && <EnterDateNotice />}
 
           {!stale && loading && !report && (
             <div className="flex items-center justify-center py-20 text-[var(--ff-text-tertiary)]">

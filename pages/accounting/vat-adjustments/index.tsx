@@ -21,6 +21,7 @@ interface VATAdjustment {
   adjustmentType: string; amount: number; reason: string; status: string;
 }
 
+const FIX_DATE = 'Fix the date marked in red before saving.';
 const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
@@ -64,7 +65,7 @@ export default function VATAdjustmentsPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (dates.blocked) return;
+    if (dates.blocked) { setError(FIX_DATE); return; }
     setError(''); setBusy('new');
     try {
       const res = await apiFetch('/api/accounting/vat-adjustments', {

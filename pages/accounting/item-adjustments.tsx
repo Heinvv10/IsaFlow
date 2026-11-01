@@ -10,6 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
+const FIX_DATE = 'Fix the date marked in red before saving.';
 const fmtQty = (n: number) => new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 4 }).format(n);
 
 interface StockItem {
@@ -50,7 +51,7 @@ export default function ItemAdjustmentsPage() {
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (dates.blocked) return;
+    if (dates.blocked) { setErr(FIX_DATE); setMsg(''); return; }
     setSaving(true); setMsg(''); setErr('');
     let written = false;
     try {
