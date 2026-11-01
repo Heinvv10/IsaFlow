@@ -140,7 +140,7 @@ export default function EmployeesListPage() {
               }}
             />
           ) : (
-            <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
+            <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-x-auto bg-[var(--ff-surface-primary)]">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
