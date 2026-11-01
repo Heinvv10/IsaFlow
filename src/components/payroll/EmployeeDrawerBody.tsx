@@ -1,7 +1,8 @@
 /**
  * The employee drawer on /payroll/employees: who they are and what they are paid, without leaving the list.
- * The server decides what a role sees. GET /api/payroll/employees/[id] answers names only for a role that may not see
- * personal data, so pay is not even requested; a 403 on it (a role changed mid-session) reads the same way.
+ * The server decides what a role sees: GET /api/payroll/employees/[id] answers names only for a role that may not see
+ * personal data. For that role pay is not even requested (`mayWrite`); a 403 on it (a role changed mid-session) reads
+ * the same way.
  */
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -25,12 +26,12 @@ interface Loaded {
   pay: Assignment[] | null;
 }
 
-async function loadEmployee(employeeId: string): Promise<Loaded> {
+async function loadEmployee(employeeId: string, mayWrite: boolean): Promise<Loaded> {
   const res = await apiFetch(`/api/payroll/employees/${employeeId}`);
   await assertOk(res, 'Could not load the employee - try again');
   const json = await res.json();
   const employee = (json.data ?? json) as Employee;
-  if (!employee.startDate) return { employee, pay: null };
+  if (!mayWrite) return { employee, pay: null };
   const payRes = await apiFetch(`/api/payroll/employees/${employeeId}/components`);
   if (payRes.status === 403) return { employee, pay: null };
   await assertOk(payRes, 'Could not load their pay - try again');
@@ -38,7 +39,13 @@ async function loadEmployee(employeeId: string): Promise<Loaded> {
   return { employee, pay: (payJson.data ?? payJson) as Assignment[] };
 }
 
-const stillRuns = (a: Assignment, today: string) => !a.effectiveTo || String(a.effectiveTo).slice(0, 10) >= today;
+const stillRuns = (a: Assignment, today: string) =>
+  a.componentActive && (!a.effectiveTo || String(a.effectiveTo).slice(0, 10) >= today);
+
+function kindOf(a: Assignment): string {
+  const frequency = a.isRecurring ? 'Recurring' : 'Once-off';
+  return a.componentType === 'deduction' ? `Deduction, ${frequency.toLowerCase()}` : frequency;
+}
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
@@ -49,19 +56,19 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function EmployeeDrawerBody({ employeeId }: { employeeId: string }) {
+export function EmployeeDrawerBody({ employeeId, mayWrite }: { employeeId: string; mayWrite: boolean }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState('');
   const body = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let stale = false;
-    loadEmployee(employeeId).then(
+    loadEmployee(employeeId, mayWrite).then(
       (data) => { if (!stale) setLoaded(data); },
       (err: unknown) => { if (!stale) setError(apiErrorMessage(err, 'Could not load the employee - try again')); },
     );
     return () => { stale = true; };
-  }, [employeeId]);
+  }, [employeeId, mayWrite]);
 
   // Not on mount: Drawer records what to give focus back to in its own effect, which runs after this one would.
   const settled = loaded !== null || error !== '';
@@ -96,7 +103,7 @@ export function EmployeeDrawerBody({ employeeId }: { employeeId: string }) {
                     <span className="text-[var(--ff-text-primary)]">
                       {a.componentName}
                       <span className="ml-2 text-xs text-[var(--ff-text-secondary)]">
-                        {a.isRecurring ? 'Recurring' : 'Once-off'}, from {formatDisplayDate(a.effectiveFrom)}
+                        {kindOf(a)}, from {formatDisplayDate(a.effectiveFrom)}
                       </span>
                     </span>
                     <Money amount={a.amount} />

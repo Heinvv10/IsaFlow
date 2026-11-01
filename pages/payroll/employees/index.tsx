@@ -199,7 +199,7 @@ export default function EmployeesListPage() {
         title={selected ? `${selected.firstName} ${selected.lastName}` : ''}
         className="w-full max-w-[480px]"
       >
-        {selected && <EmployeeDrawerBody key={selected.id} employeeId={selected.id} />}
+        {selected && <EmployeeDrawerBody key={selected.id} employeeId={selected.id} mayWrite={mayWrite} />}
       </Drawer>
     </AppLayout>
   );

@@ -4,6 +4,7 @@
  *
  *  - POST .../employees/:id/components refuses another company's component before the insert.
  *  - PATCH .../employees/:id judges a changed tax or ID number as create does, and leaves a stored one alone.
+ *  - GET .../employees/:id/components says when an assignment's component is switched off (a run does not pay it).
  *  - The request log shows no amount on the two routes that name an employee next to one.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -83,6 +84,21 @@ describe('POST /api/payroll/employees/:id/components', () => {
     const out = await assign(mine);
     expect(out.statusCode, JSON.stringify(out.body)).toBe(201);
     expect((await assignments()).map(r => [r.component_id, r.amount])).toContainEqual([mine, String(AMOUNT)]);
+  });
+});
+
+describe('GET /api/payroll/employees/:id/components', () => {
+  it('says which assignments sit on a switched-off component', async () => {
+    const off = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_active)
+       VALUES ($1, 'Retired', '3713', 'earning', false) RETURNING id`, [company])).rows[0]!.id;
+    await pool.query(
+      "INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1,$2,1,'2026-01-01')", [staff, off]);
+    const out = await call(components as Route, 'GET', `/api/payroll/employees/${staff}/components`, staff);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    const rows = out.body.data as unknown as Array<{ componentId: string; componentActive: boolean }>;
+    expect(rows.find(r => r.componentId === off)?.componentActive).toBe(false);
+    expect(rows.find(r => r.componentId === mine)?.componentActive).toBe(true);
   });
 });
 
