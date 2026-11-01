@@ -87,7 +87,7 @@ export default function VerifyEmailPage() {
               <CheckCircle2 className="h-10 w-10 text-teal-600" />
               <h2 className="text-xl font-bold text-slate-900">Email confirmed</h2>
               <p className="text-sm text-slate-600">
-                Your account is active and your 14-day trial has started. Sign in to get going.
+                Your account is active and your 30-day trial has started. Sign in to get going.
               </p>
               <Link
                 href="/login"
