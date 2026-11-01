@@ -86,6 +86,33 @@ describe('the first entry', () => {
   });
 });
 
+describe('the first entry waits for the employee lock', () => {
+  it('a manager arriving behind an uncommitted entry waits, then sees a change and is refused', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const peer = await pool.connect();
+    try {
+      await peer.query('BEGIN');
+      await peer.query('SELECT 1 FROM payroll_employees WHERE id = $1 FOR UPDATE', [e]);
+      await peer.query(
+        `INSERT INTO payroll_bank_details (company_id, employee_id, bank_name, account_number, branch_code, is_active)
+         VALUES ($1, $2, 'Peer', '555555555', '250655', false)`, [c, e]);
+      const arriving = put(tokens[m]!, c, e, ROW);
+      await vi.waitFor(async () => {
+        const { rows } = await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FROM payroll_employees%FOR UPDATE%'");
+        expect(rows).toHaveLength(1);
+      }, { timeout: 3000, interval: 25 });
+      await peer.query('COMMIT');
+      expect((await arriving).state.statusCode).toBe(403);
+      expect(await rowsOf(pool, e)).toHaveLength(1);
+    } finally {
+      await peer.query('ROLLBACK');
+      peer.release();
+    }
+  });
+});
+
 describe('a change to existing details', () => {
   it('owner and admin: one active row, the old one kept inactive, one create in the new row\'s history', async () => {
     const { c, e } = await entered();
