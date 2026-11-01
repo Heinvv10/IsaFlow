@@ -175,7 +175,7 @@ export default function AfsIndexPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <StatusBadge status={doc.status} />
-                  <span className="text-xs text-zinc-400 dark:text-slate-500">
+                  <span className="text-xs text-zinc-400 dark:text-slate-400">
                     {formatDisplayDate(doc.updatedAt)}
                   </span>
                 </div>

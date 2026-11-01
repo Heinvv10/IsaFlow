@@ -85,8 +85,10 @@ export async function generateVAT201(companyId: string,
           CASE WHEN ci.tax_rate = 0 THEN 'zero_rated' ELSE 'standard' END
         ) AS vat_type
       FROM customer_invoices ci
-      LEFT JOIN customers c ON c.id = ci.customer_id
-      LEFT JOIN clients cl ON cl.id = ci.client_id
+      -- LEFT, so no document or VAT moves. cl reads customers: the clients view
+      -- has no company_id and cannot be scoped.
+      LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ci.company_id
+      LEFT JOIN customers cl ON cl.id = ci.client_id AND cl.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}
@@ -111,7 +113,7 @@ export async function generateVAT201(companyId: string,
         si.tax_rate,
         s.name AS supplier_name
       FROM supplier_invoices si
-      LEFT JOIN suppliers s ON s.id = si.supplier_id
+      LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
       WHERE si.company_id = ${companyId}
         -- A late-claimed bill (gl/vatLateClaimSplit) is filed in its claim
         -- period: dated by its posted companion, not by the invoice, while that

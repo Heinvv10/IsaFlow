@@ -14,6 +14,7 @@ import { csvCell } from '@/lib/csv';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -30,13 +31,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rows = await sql`
       SELECT
         si.supplier_id,
-        COALESCE(s.name, s.company_name) AS supplier_name,
+        COALESCE(s.name, s.company_name, ${UNKNOWN_SUPPLIER}) AS supplier_name,
         COUNT(si.id)::int AS invoice_count,
         COALESCE(SUM(si.total_amount), 0)::numeric AS total_purchases,
         COALESCE(SUM(${sql.unsafe(paid)}), 0)::numeric AS payments_made,
         COALESCE(SUM(si.total_amount - ${sql.unsafe(paid)}), 0)::numeric AS outstanding
       FROM supplier_invoices si
-      JOIN suppliers s ON s.id = si.supplier_id
+      -- LEFT: a bill naming another tenant's supplier is still this tenant's purchase.
+      LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
       LEFT JOIN LATERAL (
         ${rewindAmount({ companyId, asAtStr: to, todayStr: fmtDate(new Date()), side: 'ap' })}
       ) unpaid ON TRUE
