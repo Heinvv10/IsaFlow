@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DateGate } from '@/hooks/useDateGate';
 
-/** One run of a report. Touch state only while `latest()`, and resolve false if the run failed, so it can be retried. */
+/**
+ * One run of a report. Touch state only while `latest()`. Resolve false if the run failed: the same query may then run
+ * again, but only when the hook's effect next fires (the query, the gate or `load` changes). Nothing retries by itself.
+ */
 export type ReportLoad = (latest: () => boolean) => Promise<boolean>;
 
 /**
