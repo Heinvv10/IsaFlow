@@ -169,7 +169,7 @@ export function PoGrnSelector({
 
       {error && <p role="alert" className="text-xs text-red-500 mb-3">{error}</p>}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* PO dropdown */}
         <div>
           <label className={lbl}>Link to Purchase Order</label>
