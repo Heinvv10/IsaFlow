@@ -111,10 +111,24 @@ describe('ci.yml golden-paths: the merge-check step', () => {
     .jobs['golden-paths']!.steps);
   const at = steps.findIndex((s) => s.id === 'mq');
 
-  it('follows only the checkout, and gates every later step on its output', () => {
-    expect(at).toBe(1);
+  // The check is a bun script, and a hosted runner has no bun: the three tool-setup actions (as in static) run
+  // between the checkout and the check, on hosted runners only. Nothing else may precede it.
+  const HOSTED = "${{ runner.environment == 'github-hosted' }}";
+  const SETUP = [/^actions\/setup-node@/, /^oven-sh\/setup-bun@/, /^actions\/cache@/];
+
+  it('follows only the checkout and the hosted tool setup, and gates every later step on its output', () => {
+    expect(at).toBe(1 + SETUP.length);
     expect(steps[0]!.uses).toMatch(/^actions\/checkout@/);
-    for (const s of steps.slice(at + 1)) expect(s.if).toBe("steps.mq.outputs.skip != 'true'");
+    SETUP.forEach((re, i) => {
+      expect(steps[1 + i]!.uses).toMatch(re);
+      expect(steps[1 + i]!.if).toBe(HOSTED);
+    });
+    for (const s of steps.slice(at + 1)) {
+      expect([
+        "steps.mq.outputs.skip != 'true'",
+        "${{ runner.environment == 'github-hosted' && steps.mq.outputs.skip != 'true' }}",
+      ]).toContain(s.if);
+    }
   });
 
   it('passes the job token to the check (without it every push runs the full suite)', () => {
