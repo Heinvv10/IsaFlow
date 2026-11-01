@@ -3,8 +3,8 @@
  * Shows every GL account with its debit/credit entries and running balance
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { useState, useCallback } from 'react';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
@@ -12,6 +12,7 @@ import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { countPostedAccounts, derivedAccountNote } from '@/components/reports/generalLedgerRows';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface AccountReport {
   accountCode: string;
@@ -59,6 +60,7 @@ export default function GeneralLedgerPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [reports, setReports] = useState<AccountReport[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -66,43 +68,38 @@ export default function GeneralLedgerPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
 
-  const requestRef = useRef(0);
+  const query = periodStart && periodEnd ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd }).toString() : '';
 
-  const load = useCallback(async () => {
-    if (!periodStart || !periodEnd) {
+  const load = useCallback<ReportLoad>(async (latest) => {
+    if (!query) {
       // Clearing an input invalidates in-flight requests and clears data and loading.
-      requestRef.current += 1;
       setReports([]); setError(''); setLoading(false); setLoaded(false);
-      return;
+      return true;
     }
-    // Only the latest request may set state (same pattern as the account detail page).
-    const requestId = ++requestRef.current;
-    const latest = () => requestId === requestRef.current;
     const failure = 'Could not load the general ledger - try again';
     setLoading(true);
     setError('');
     setLoaded(false);
     try {
-      const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       // ONE request for every account. The previous version fanned out one
       // request per account from the browser and capped the list at 20, which
       // silently truncated the report (issue #287).
-      const data = await apiJson(`/api/accounting/reports-general-ledger?${params}`, { credentials: 'include' }, failure);
+      const data = await apiJson(`/api/accounting/reports-general-ledger?${query}`, { credentials: 'include' }, failure);
       if (latest()) { setReports(data.accounts ?? []); setLoaded(true); }
+      return true;
     } catch (err) {
       if (latest()) {
         // The server's own 400 message (bad date, inverted range); nothing stale stays on screen.
         setError(apiErrorMessage(err, failure));
         setReports([]);
       }
+      return false;
     } finally {
       if (latest()) setLoading(false);
     }
-  }, [periodStart, periodEnd]);
+  }, [query]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   const toggleExpand = (code: string) => {
     setExpanded(prev => {
@@ -130,7 +127,7 @@ export default function GeneralLedgerPage() {
           icon={BookOpen}
           title="General Ledger"
           subtitle={
-            reports.length > 0
+            reports.length > 0 && !stale
               ? `${postedVisible === postedTotal ? postedTotal : `${postedVisible} of ${postedTotal}`} account${postedTotal === 1 ? '' : 's'}${derivedAccountNote(reports)} with activity in this period`
               : 'Account transactions for the selected period'
           }
@@ -146,13 +143,14 @@ export default function GeneralLedgerPage() {
                 placeholder="Filter accounts..."
                 className="ff-input text-sm"
               />
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
               <button
                 onClick={() => {
                   const params = new URLSearchParams({ period_start: periodStart ?? '', period_end: periodEnd ?? '' });
                   window.open(`/api/accounting/audit-trail-export?${params}`, '_blank');
                 }}
+                disabled={dates.blocked}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-violet-700"
               >
                 <Download className="h-4 w-4" /> Export CSV
@@ -162,13 +160,14 @@ export default function GeneralLedgerPage() {
         />
 
         <div className="p-6">
+          <FixDateNotice gate={dates} hidden={stale} className="mb-4" />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
               <AlertCircle className="h-4 w-4" /> {error}
             </div>
           )}
 
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
             </div>

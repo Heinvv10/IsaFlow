@@ -3,14 +3,15 @@
  * Phase 3: Reporting Parity
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { useState, useCallback } from 'react';
+import { EnterDateNotice, FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface Row {
   supplierId: string;
@@ -35,25 +36,30 @@ export default function SupplierReportsPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+  const query = periodStart && periodEnd ? new URLSearchParams({ period_start: periodStart, period_end: periodEnd }).toString() : '';
+
+  const load = useCallback<ReportLoad>(async (latest) => {
+    if (!query) { setRows([]); setError(''); setLoading(false); return true; }
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await apiFetch(`/api/accounting/reports-supplier?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports-supplier?${query}`, { credentials: 'include' });
       await assertOk(res, 'Could not load the supplier report - try again');
       const json = await res.json();
-      setRows(json.data || []);
-    } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load the supplier report - try again')); }
-    finally { setLoading(false); }
-  }, [periodStart, periodEnd]);
+      if (latest()) setRows(json.data || []);
+      return true;
+    } catch (err) {
+      if (latest()) { setRows([]); setError(apiErrorMessage(err, 'Could not load the supplier report - try again')); }
+      return false;
+    } finally { if (latest()) setLoading(false); }
+  }, [query]);
 
-  useEffect(() => { void load(); }, [load]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   function handleExport() {
     const params = new URLSearchParams();
@@ -81,7 +87,7 @@ export default function SupplierReportsPage() {
               <div className="p-2 rounded-lg bg-orange-500/10"><ShoppingCart className="h-6 w-6 text-orange-500" /></div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supplier Report</h1>
             </div>
-            <button onClick={handleExport} disabled={rows.length === 0}
+            <button onClick={handleExport} disabled={rows.length === 0 || dates.blocked}
               className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium disabled:opacity-50">
               <Download className="h-4 w-4" /> Export CSV
             </button>
@@ -91,16 +97,17 @@ export default function SupplierReportsPage() {
         <div className="p-6 max-w-5xl space-y-4">
           <div className="flex items-center gap-4">
             <div>
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
             </div>
           </div>
 
-          {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
+          <FixDateNotice gate={dates} hidden={stale} />
+          {error && !stale && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
-          {loading ? (
+          {stale ? null : !query ? <EnterDateNotice /> : loading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-orange-500" /></div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
