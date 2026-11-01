@@ -98,7 +98,6 @@ export default function NewCustomerInvoicePage() {
     // A scan reads the rate and ex-VAT prices off the document, so the form goes back to taking them as they are; with
     // no lines on the scan, the gross prices already typed stay gross.
     const keepsTypedGross = taxMode === 'inclusive' && data.lineItems.length === 0;
-    if (data.vatRate !== null) contact.touch('taxMode');
     if (!keepsTypedGross && (data.vatRate !== null || taxMode === 'inclusive')) pickTaxMode('exclusive');
     setForm(f => ({ ...f, ...updates }));
     dates.clear(); setResetKey(k => k + 1);

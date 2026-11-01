@@ -41,7 +41,7 @@ describe('grossUnitPrice', () => {
     [100, 14, 114],
     [115, 0, 115],
     [-100, 15, -115],
-    [10.005, 15, 11.51], // priced as the column stores it: 10.01, not 10.005
+    [0.125, 15, 0.15], // grossed from what the column stores, 0.13: from 0.125 it is 0.14, which comes back as 0.12
   ])('%s at %s percent = %s', (ex, rate, gross) => {
     expect(grossUnitPrice(ex, rate)).toBe(gross);
   });
