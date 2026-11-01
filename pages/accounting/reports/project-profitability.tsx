@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
@@ -26,6 +26,7 @@ export default function ProjectProfitabilityPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [reports, setReports] = useState<ProjectProfitabilityReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -77,13 +78,14 @@ export default function ProjectProfitabilityPage() {
         <div className="p-6 space-y-6">
           <div className="flex items-center gap-4">
             <div>
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
             </div>
           </div>
 
+          <FixDateNotice gate={dates} />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}

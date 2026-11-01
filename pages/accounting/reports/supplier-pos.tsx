@@ -1,6 +1,6 @@
 /** Supplier POs by Supplier Report — Sage Parity */
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -181,6 +181,7 @@ export default function SupplierPosReport() {
   const [status, setStatus] = useState('');
   const [dateFrom, setDateFrom] = useState(firstOfMonth);
   const [dateTo, setDateTo] = useState(todayStr);
+  const dates = useDateGate();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -203,7 +204,7 @@ export default function SupplierPosReport() {
     }
   }, [status, dateFrom, dateTo]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!dates.blocked) void load(); }, [load, dates.blocked]);
 
   return (
     <AppLayout>
@@ -231,11 +232,11 @@ export default function SupplierPosReport() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
-              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={dateFrom || null} onValue={setDateFrom} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={dateTo || null} onValue={setDateTo} />
               <button
                 onClick={() => data && downloadCsv(data.suppliers)}
-                disabled={!data || data.suppliers.length === 0}
+                disabled={!data || data.suppliers.length === 0 || dates.blocked}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg transition-colors"
               >
                 <Download className="h-4 w-4" /> CSV
@@ -245,6 +246,7 @@ export default function SupplierPosReport() {
         </div>
 
         <div className="p-6">
+          <FixDateNotice gate={dates} className="mb-4" />
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
               {error}

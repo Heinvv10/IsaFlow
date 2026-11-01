@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -91,6 +91,7 @@ export default function CustomerLedgerPage() {
   const [customerId, setCustomerId] = useState('');
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
+  const dates = useDateGate();
   const [ledger, setLedger] = useState<LedgerData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -162,7 +163,7 @@ export default function CustomerLedgerPage() {
             </div>
             <button
               onClick={() => ledger && exportCsv(ledger, dateFrom, dateTo)}
-              disabled={!ledger || ledger.transactions.length === 0}
+              disabled={!ledger || ledger.transactions.length === 0 || dates.blocked}
               className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
             >
               <Download className="h-4 w-4" /> Export CSV
@@ -190,14 +191,14 @@ export default function CustomerLedgerPage() {
               </select>
             </div>
             <div>
-              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={dateFrom || null} onValue={setDateFrom} />
             </div>
             <div>
-              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={dateTo || null} onValue={setDateTo} />
             </div>
             <button
               onClick={runReport}
-              disabled={loading || !customerId}
+              disabled={loading || !customerId || dates.blocked}
               className="inline-flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -205,6 +206,7 @@ export default function CustomerLedgerPage() {
             </button>
           </div>
 
+          <FixDateNotice gate={dates} />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}

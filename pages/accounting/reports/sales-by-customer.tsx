@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -24,6 +24,7 @@ export default function SalesByCustomerReport() {
   // at (R-059), and toISOString names yesterday between 00:00 and 02:00 SAST.
   const [from, setFrom] = useState(fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)));
   const [to, setTo] = useState(fmtDate(today));
+  const dates = useDateGate();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,10 +64,10 @@ export default function SalesByCustomerReport() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
-              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
-              <button onClick={() => window.open(`/api/accounting/reports/sales-by-customer?from=${from}&to=${to}&format=csv`, '_blank')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg">
+              <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
+              <button onClick={() => window.open(`/api/accounting/reports/sales-by-customer?from=${from}&to=${to}&format=csv`, '_blank')} disabled={dates.blocked}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>
@@ -74,6 +75,7 @@ export default function SalesByCustomerReport() {
         </div>
 
         <div className="p-6">
+          <FixDateNotice gate={dates} className="mb-4" />
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             {loading ? (

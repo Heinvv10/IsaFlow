@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
@@ -59,6 +59,7 @@ export default function GeneralLedgerPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [reports, setReports] = useState<AccountReport[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -146,13 +147,14 @@ export default function GeneralLedgerPage() {
                 placeholder="Filter accounts..."
                 className="ff-input text-sm"
               />
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
               <button
                 onClick={() => {
                   const params = new URLSearchParams({ period_start: periodStart ?? '', period_end: periodEnd ?? '' });
                   window.open(`/api/accounting/audit-trail-export?${params}`, '_blank');
                 }}
+                disabled={dates.blocked}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-violet-700"
               >
                 <Download className="h-4 w-4" /> Export CSV
@@ -162,6 +164,7 @@ export default function GeneralLedgerPage() {
         />
 
         <div className="p-6">
+          <FixDateNotice gate={dates} className="mb-4" />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
               <AlertCircle className="h-4 w-4" /> {error}

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import Link from 'next/link';
@@ -126,6 +126,7 @@ export default function ManagementAccountsPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [report, setReport] = useState<ManagementReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -182,13 +183,15 @@ export default function ManagementAccountsPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleDownload}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)]"
+                  disabled={dates.blocked}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-[var(--ff-border-light)] rounded-lg text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-50"
                 >
                   <Download className="h-4 w-4" /> Download PDF
                 </button>
                 <button
                   onClick={() => setShowEmail(true)}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700"
+                  disabled={dates.blocked}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
                 >
                   <Mail className="h-4 w-4" /> Email to Director
                 </button>
@@ -197,14 +200,14 @@ export default function ManagementAccountsPage() {
             {/* Period selector */}
             <div className="flex items-center gap-3 mt-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+                <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
               </div>
               <div className="flex items-center gap-2">
-                <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+                <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
               </div>
               <button
                 onClick={loadReport}
-                disabled={loading}
+                disabled={loading || dates.blocked}
                 className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
               >
                 {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -216,6 +219,7 @@ export default function ManagementAccountsPage() {
 
         {/* Body */}
         <div className="px-6 py-6 max-w-5xl mx-auto space-y-6">
+          <FixDateNotice gate={dates} />
           {error && (
             <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               <AlertCircle className="h-4 w-4 shrink-0" /> {error}

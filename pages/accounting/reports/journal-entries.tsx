@@ -1,7 +1,7 @@
 /** Journal Entries Report — Sage Parity */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BookOpen, Loader2, Download } from 'lucide-react';
@@ -115,6 +115,7 @@ export default function JournalEntriesReport() {
   const [source, setSource] = useState('');
   const [dateFrom, setDateFrom] = useState(firstOfMonth);
   const [dateTo, setDateTo] = useState(todayStr);
+  const dates = useDateGate();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,7 +141,7 @@ export default function JournalEntriesReport() {
     }
   }, [status, source, dateFrom, dateTo]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!dates.blocked) void load(); }, [load, dates.blocked]);
 
   const totalDebits = data?.entries.reduce((s, e) => s + e.totalDebits, 0) ?? 0;
   const totalCredits = data?.entries.reduce((s, e) => s + e.totalCredits, 0) ?? 0;
@@ -180,11 +181,11 @@ export default function JournalEntriesReport() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) setDateFrom(iso ?? ''); }} />
-              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) setDateTo(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={dateFrom || null} onValue={setDateFrom} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={dateTo || null} onValue={setDateTo} />
               <button
                 onClick={() => data && downloadCsv(data.entries)}
-                disabled={!data || data.entries.length === 0}
+                disabled={!data || data.entries.length === 0 || dates.blocked}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg transition-colors"
               >
                 <Download className="h-4 w-4" /> CSV
@@ -194,6 +195,7 @@ export default function JournalEntriesReport() {
         </div>
 
         <div className="p-6">
+          <FixDateNotice gate={dates} className="mb-4" />
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
               {error}

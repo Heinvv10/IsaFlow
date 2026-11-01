@@ -1,7 +1,7 @@
 /** Customer Communication Report */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -75,6 +75,7 @@ export default function CustomerCommunicationReport() {
   const [customerSearch, setCustomerSearch] = useState('');
   const [dateFrom, setDateFrom] = useState(firstOfMonth);
   const [dateTo, setDateTo] = useState(todayStr);
+  const dates = useDateGate();
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const limit = 50;
@@ -111,7 +112,7 @@ export default function CustomerCommunicationReport() {
     }
   }, [buildParams]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!dates.blocked) void load(); }, [load, dates.blocked]);
 
   const handleExportCsv = useCallback(() => {
     const params = buildParams({ format: 'csv' });
@@ -166,11 +167,12 @@ export default function CustomerCommunicationReport() {
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
-              <DateField label="From" value={dateFrom || null} onChange={(iso, v) => { if (v.valid) { setDateFrom(iso ?? ''); setPage(1); } }} />
-              <DateField label="To" value={dateTo || null} onChange={(iso, v) => { if (v.valid) { setDateTo(iso ?? ''); setPage(1); } }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={dateFrom || null} onValue={iso => { setDateFrom(iso); setPage(1); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={dateTo || null} onValue={iso => { setDateTo(iso); setPage(1); }} />
               <button
                 onClick={handleExportCsv}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors"
+                disabled={dates.blocked}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg transition-colors"
               >
                 <Download className="h-4 w-4" /> CSV
               </button>
@@ -179,6 +181,7 @@ export default function CustomerCommunicationReport() {
         </div>
 
         <div className="p-6">
+          <FixDateNotice gate={dates} className="mb-4" />
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
               {error}
@@ -246,7 +249,7 @@ export default function CustomerCommunicationReport() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setPage(p => Math.max(1, p - 1))}
-                      disabled={page === 1}
+                      disabled={page === 1 || dates.blocked}
                       className="px-2 py-1 rounded border border-[var(--ff-border-light)] disabled:opacity-40 hover:bg-[var(--ff-bg-tertiary)]"
                     >
                       Prev
@@ -254,7 +257,7 @@ export default function CustomerCommunicationReport() {
                     <span>Page {page} of {totalPages}</span>
                     <button
                       onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
+                      disabled={page === totalPages || dates.blocked}
                       className="px-2 py-1 rounded border border-[var(--ff-border-light)] disabled:opacity-40 hover:bg-[var(--ff-bg-tertiary)]"
                     >
                       Next

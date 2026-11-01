@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, Presentation } from 'lucide-react';
@@ -110,6 +110,7 @@ function ReportPacksScreen() {
   // a window a day wider than the year it names.
   const [from, setFrom] = useState(() => localISODate(new Date(new Date().getFullYear(), 0, 1)));
   const [to, setTo] = useState(() => localISODate());
+  const dates = useDateGate();
   // The pack the person is LOOKING AT. A share link and its commentary are
   // both filed under (type, from, to), so a link minted here and the sentences
   // approved below are about the same document as the figures on screen.
@@ -198,26 +199,27 @@ function ReportPacksScreen() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
-              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
-              <button onClick={() => void download('pdf')} disabled={downloading !== null || !pack} className="ff-btn-secondary flex items-center gap-1 text-sm">
+              <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
+              <button onClick={() => void download('pdf')} disabled={downloading !== null || !pack || dates.blocked} className="ff-btn-secondary flex items-center gap-1 text-sm">
                 {downloading === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 PDF
               </button>
-              <button onClick={() => void download('pptx')} disabled={downloading !== null || !pack} className="ff-btn-secondary flex items-center gap-1 text-sm">
+              <button onClick={() => void download('pptx')} disabled={downloading !== null || !pack || dates.blocked} className="ff-btn-secondary flex items-center gap-1 text-sm">
                 {downloading === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4" />}
                 PowerPoint
               </button>
               {/* The deck for the pack ON SCREEN, over the period on screen:
                   the same values the downloads and the share link carry. */}
-              <PresentLink pack={selectedType} from={from} to={to} />
-              <PackShareButton params={packParams} />
+              <PresentLink pack={selectedType} from={dates.blocked ? '' : from} to={dates.blocked ? '' : to} />
+              {!dates.blocked && <PackShareButton params={packParams} />}
             </div>
           </div>
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} />
+          <FixDateNotice gate={dates} />
           <PackNotices downloadError={downloadError} loadError={loadError} rateLimited={rateLimited} />
           {/* Pack Type Selector */}
           <div className="grid grid-cols-3 gap-4">
@@ -225,7 +227,8 @@ function ReportPacksScreen() {
               <button
                 key={cfg.type}
                 onClick={() => setSelectedType(cfg.type)}
-                className={`rounded-lg border p-4 text-left transition-colors ${selectedType === cfg.type ? 'border-teal-500 bg-teal-500/10' : 'border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] hover:border-teal-500/50'}`}
+                disabled={dates.blocked}
+                className={`rounded-lg border p-4 text-left transition-colors disabled:opacity-50 ${selectedType === cfg.type ? 'border-teal-500 bg-teal-500/10' : 'border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] hover:border-teal-500/50'}`}
               >
                 <p className="font-semibold text-[var(--ff-text-primary)]">{cfg.label}</p>
                 <p className="text-xs text-[var(--ff-text-secondary)] mt-1">{cfg.description}</p>

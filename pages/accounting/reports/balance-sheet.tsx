@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -33,6 +34,11 @@ interface BusinessUnit { id: string; code: string; name: string }
 export default function BalanceSheetPage() {
   const { asAtDate, setAsAtDate, costCentreId, setCostCentreId,
     businessUnitId, setBusinessUnitId, queryKey, periodResolved, periodError } = useBalanceSheetFilters();
+  // The route sets this date too, so the field binds here, ahead of every read of `blocked` (GatedDateField binds later).
+  const dates = useDateGate();
+  const { reset: resetDate } = dates;
+  const onAsAtChange = dates.bind('asAt', setAsAtDate, asAtDate);
+  useEffect(() => { resetDate('asAt'); }, [queryKey, resetDate]);
   const restoredColumns = useRef('');
   const [columnsReadyKey, setColumnsReadyKey] = useState('');
   const reportRequestRef = useRef(0);
@@ -109,7 +115,7 @@ export default function BalanceSheetPage() {
     }
   }, [asAtDate, costCentreId, businessUnitId, showComparative, filtersReady]);
 
-  useEffect(() => { void loadReport(); }, [loadReport]);
+  useEffect(() => { if (!dates.blocked) void loadReport(); }, [loadReport, dates.blocked]);
 
   function makeExportParams() {
     const p = new URLSearchParams({ as_at_date: asAtDate });
@@ -146,12 +152,12 @@ export default function BalanceSheetPage() {
                   of its own. The deck's range is the same year-to-date
                   window the account drill-down already uses, so the two
                   surfaces cannot disagree about what "this period" means. */}
-              <PresentLink from={drillDownStart} to={drillDownEnd} />
-              <button onClick={handleXlsxExport} disabled={!report}
+              <PresentLink from={dates.blocked ? '' : drillDownStart} to={drillDownEnd} />
+              <button onClick={handleXlsxExport} disabled={!report || dates.blocked}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
                 <FileSpreadsheet className="h-4 w-4" /> Export Excel
               </button>
-              <button onClick={handleExport} disabled={!report}
+              <button onClick={handleExport} disabled={!report || dates.blocked}
                 className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
@@ -164,7 +170,7 @@ export default function BalanceSheetPage() {
         <div className="p-6 space-y-6">
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <DateField label="As at" value={asAtDate || null} onChange={(iso, v) => { if (v.valid) setAsAtDate(iso ?? ''); }} />
+              <DateField label="As at" value={asAtDate || null} resetKey={dates.resetKey('asAt')} onChange={onAsAtChange} />
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
@@ -198,6 +204,7 @@ export default function BalanceSheetPage() {
             companyWideUnavailable={companyWideUnavailable} />
 
           {Object.keys(refError).length > 0 && <p role="alert" className="text-xs text-amber-500">{Object.values(refError).join(' ')}</p>}
+          <FixDateNotice gate={dates} />
           {(error || periodError) && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error || periodError}

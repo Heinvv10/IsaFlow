@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
@@ -72,6 +72,7 @@ export default function ExecutiveDashboardPage() {
   const [inventory, setInventory] = useState<InventoryWarning | null>(null);
   const [from, setFrom] = useState(() => localISODate(new Date(new Date().getFullYear(), 0, 1)));
   const [to, setTo] = useState(() => localISODate());
+  const dates = useDateGate();
   // Density changes what is SHOWN and never what a figure IS: the owner view
   // hides the four ratio tiles and the scorecard, and computes nothing
   // differently.
@@ -154,8 +155,8 @@ export default function ExecutiveDashboardPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2 gap-y-2">
               <DensityToggle density={density} onChange={setDensity} />
-              <DateField label="From" value={from || null} onChange={(iso, v) => { if (v.valid) setFrom(iso ?? ''); }} />
-              <DateField label="To" value={to || null} onChange={(iso, v) => { if (v.valid) setTo(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={from || null} onValue={setFrom} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={to || null} onValue={setTo} />
             </div>
           </div>
           {densityError && (
@@ -168,6 +169,7 @@ export default function ExecutiveDashboardPage() {
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} inventory={inventory} />
+          <FixDateNotice gate={dates} />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}

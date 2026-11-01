@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -50,6 +50,7 @@ export default function AccountTransactionsPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [accountCode, setAccountCode] = useState('1110');
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreFilter, setCostCentreFilter] = useState('');
@@ -92,7 +93,7 @@ export default function AccountTransactionsPage() {
     finally { if (latest()) setLoading(false); }
   }, [periodStart, periodEnd, accountCode, costCentreFilter]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!dates.blocked) void load(); }, [load, dates.blocked]);
 
   function handleExport() {
     const params = new URLSearchParams();
@@ -118,7 +119,7 @@ export default function AccountTransactionsPage() {
               <div className="p-2 rounded-lg bg-violet-500/10"><BookOpen className="h-6 w-6 text-violet-500" /></div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Account Transactions</h1>
             </div>
-            <button onClick={handleExport} disabled={!report || !accountCode}
+            <button onClick={handleExport} disabled={!report || !accountCode || dates.blocked}
               className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm font-medium disabled:opacity-50">
               <Download className="h-4 w-4" /> Export CSV
             </button>
@@ -130,10 +131,10 @@ export default function AccountTransactionsPage() {
             <AccountPicker label="Account" valueKey="code" refine={postableAccounts} value={accountCode} onChange={code => setAccountCode(code ?? '')}
               className="w-72" labelClassName={REPORT_FILTER_LABEL_CLASS} />
             <div>
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
             </div>
             {costCentres.length > 0 && (
               <div>
@@ -146,6 +147,7 @@ export default function AccountTransactionsPage() {
             )}
           </div>
 
+          <FixDateNotice gate={dates} />
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
           {loading ? (
