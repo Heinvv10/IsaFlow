@@ -14,7 +14,7 @@ import type {
   AccountType,
 } from '@/modules/accounting/services/gl/accountClassification';
 import type { PeriodFigures } from '@/modules/accounting/services/gl/financialFiguresService';
-import type { BudgetVarianceResult } from '@/modules/accounting/services/reports/budgetVarianceService';
+import type { BudgetVarianceTrackedResult } from '@/modules/accounting/services/reports/budgetVarianceService';
 
 // Hoisted: `vi.mock` factories run before module-level consts are initialised.
 const { getFinancialFigures, getBudgetVariance, getCashFlowDirect, warn } = vi.hoisted(() => ({
@@ -87,18 +87,47 @@ const emptyLedger = (): PeriodFigures => ({
   cumulative: classified(),
 });
 
-const variance = (rows: BudgetVarianceResult['rows']): BudgetVarianceResult => ({
+type TrackedRow = BudgetVarianceTrackedResult['rows'][number];
+type Bands = BudgetVarianceTrackedResult['bands'];
+
+/** The engine's bands for a pack whose own actual is revenue 100 and nothing else (`figures(100)`). */
+const BANDS: Bands = [
+  { key: 'turnover', budget: 120, actual: 100 },
+  { key: 'cost_of_sales', budget: null, actual: 0 },
+  { key: 'other_income', budget: null, actual: 0 },
+  { key: 'operating_expense', budget: 0, actual: 0 },
+  { key: 'other_expense', budget: null, actual: 0 },
+  // A sentinel: not T − COS (COS has no budget); the pack must print it, never re-derive it.
+  { key: 'gross_profit', budget: 111, actual: 100 },
+  { key: 'operating_profit', budget: null, actual: 100 },
+  { key: 'net_profit', budget: null, actual: 100 },
+];
+
+/** The facade's engine view (`partialWindow: 'absent'`), as the pack now reads it. */
+const variance = (rows: TrackedRow[], over: Partial<BudgetVarianceTrackedResult> = {}): BudgetVarianceTrackedResult => ({
   fiscalYear: 2026,
   monthKeys: ['2026-03'],
+  postedThrough: '2026-03-31',
+  lines: rows,
   rows,
   unbudgeted: [],
-  universeTotal: rows.length,
+  sections: {} as BudgetVarianceTrackedResult['sections'],
   totals: { budget: 120, actual: 100, variance: -20 },
+  universeTotal: rows.length,
   unbudgetedMovement: 0,
-  postedThrough: '2026-03-31',
+  budgetAbsentYears: [],
+  budgetOutsideFilterYears: [],
+  splitsMonth: false,
+  version: { id: 'v1', name: 'Original', kind: 'original', status: 'approved', isPrimary: true },
+  unallocatedBudget: null,
+  partialBudgetCount: 0,
+  bands: BANDS,
+  ...over,
 });
 
-const row = (): BudgetVarianceResult['rows'][number] => ({
+const row = (): TrackedRow => ({
+  budget_verdict: 'budgeted',
+  band: 'turnover',
   account_id: 'a1',
   account_code: '4000',
   account_name: 'Sales',
@@ -208,6 +237,57 @@ describe('buildPackFigureSet', () => {
         budget: 120, actual: 100, variance: -20, variancePct: -16.67,
       },
     ]);
+  });
+
+  it('reads the tracking engine\'s whole-month view, on the primary unless a version is named', async () => {
+    getFinancialFigures.mockResolvedValue(figures(100));
+    getBudgetVariance.mockResolvedValue(variance([row()]));
+    await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
+    expect(getBudgetVariance).toHaveBeenLastCalledWith('c1', '2026-03-01', '2026-03-31', { partialWindow: 'absent' });
+    await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31', { versionId: 'v9' });
+    expect(getBudgetVariance).toHaveBeenLastCalledWith('c1', '2026-03-01', '2026-03-31', { partialWindow: 'absent', versionId: 'v9' });
+  });
+
+  it('copies every row\'s budget from the engine band, null and a zero kept apart, never re-derived', async () => {
+    getFinancialFigures.mockResolvedValue(figures(100));
+    getBudgetVariance.mockResolvedValue(variance([row()]));
+    const set = await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
+    expect(set.budget?.bands).toEqual({
+      'is.revenue': 120, 'is.costOfSales': null, 'is.grossProfit': 111, 'is.operatingExpenses': 0,
+      'is.otherIncome': null, 'is.operating': null, 'is.otherExpenses': null, 'is.netProfit': null,
+    });
+    expect(set.budget?.version).toEqual({ name: 'Original', status: 'approved' });
+  });
+
+  it('counts only the unbudgeted accounts that moved', async () => {
+    getFinancialFigures.mockResolvedValue(figures(100));
+    const moved = { ...row(), account_id: 'u1', budget_verdict: 'unbudgeted' as const, budget_amount: 0, actual_amount: 7 };
+    const still = { ...moved, account_id: 'u2', actual_amount: 0 };
+    getBudgetVariance.mockResolvedValue(variance([row()], { unbudgeted: [moved, still] }));
+    const set = await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
+    expect(set.budget?.unbudgetedCount).toBe(1);
+  });
+
+  it.each([
+    ['a year in the window has no budget', { budgetAbsentYears: [2026] }],
+    ['the window cuts a budget month', { splitsMonth: true }],
+    ['there is no version', { version: null }],
+  ])('carries no budget when %s', async (_why, over) => {
+    getFinancialFigures.mockResolvedValue(figures(100));
+    getBudgetVariance.mockResolvedValue(variance([row()], over as Partial<BudgetVarianceTrackedResult>));
+    const set = await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
+    expect(set.budget).toBeNull();
+  });
+
+  it('withholds the budget, and says so, when the engine read a different actual from the pack\'s', async () => {
+    getFinancialFigures.mockResolvedValue(figures(100));
+    getBudgetVariance.mockResolvedValue(variance([row()], {
+      bands: BANDS.map((b) => (b.key === 'cost_of_sales' ? { ...b, actual: 0.01 } : b)),
+    }));
+    const set = await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
+    expect(set.budget).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('different actuals'), expect.objectContaining({ bands: ['cost_of_sales'] }), 'packs');
   });
 
   it('carries a null budget rather than failing the pack when the budget fetch throws', async () => {

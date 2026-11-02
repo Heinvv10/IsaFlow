@@ -42,12 +42,38 @@ export { checkStatements, valueOf };
  */
 const PRIOR_SUFFIX = '.prior';
 
+/** Every budget cell is copied from the tracking engine (budgets P3 PR-E); see `packFigureSet.PACK_BUDGET_BAND`. */
+const BUDGET_PREFIX = 'budgetVariance.';
+
+/** A row's Budget and Variance (budgets P3 PR-E): the budget is the engine's, and the variance is the actual less it. */
+function checkBudgetCells(row: PackTable['rows'][number], where: string): string[] {
+  const { actual, budget, variance } = row.figures;
+  const failures: string[] = [];
+  if (budget && !budget.source.startsWith(BUDGET_PREFIX)) {
+    failures.push(`${where} row '${row.label}' fills the budget column from '${budget.source}', `
+      + 'which is not the budget engine\'s figure. A budget worked out on the page can differ from the budget set.');
+  }
+  if (!variance) return failures;
+  if (!budget || !actual) {
+    failures.push(`${where} row '${row.label}' prints a variance without the actual and budget it is the difference of.`);
+  } else if (budget.value === null || actual.value === null) {
+    if (variance.value !== null) {
+      failures.push(`${where} row '${row.label}' prints a variance against a budget or actual the pack does not state.`);
+    }
+  } else if (variance.value === null || Math.abs(variance.value - (actual.value - budget.value)) > MONEY_TOLERANCE) {
+    failures.push(`${where} row '${row.label}' prints a variance of ${String(variance.value)}, `
+      + `but its actual less its budget is ${String(actual.value - budget.value)}.`);
+  }
+  return failures;
+}
+
 export function checkColumns(table: PackTable, where: string): string[] {
   const failures: string[] = [];
   const declared = new Set<PackTableColumnKey>(table.columns);
   const carried = new Set<string>();
 
   for (const row of table.rows) {
+    failures.push(...checkBudgetCells(row, where));
     for (const [column, figure] of Object.entries(row.figures)) {
       if (!figure) continue;
       carried.add(column);

@@ -52,6 +52,12 @@ interface RowInput {
    * no movement to state at all.
    */
   priorUnavailable?: string;
+  /**
+   * The row's budget, on a table that prints the Budget columns: `source` names the engine
+   * figure it was copied from (`budgetVariance.<band>.budget`), `value` is null where the
+   * engine states no budget for it. Never summed here: a band's budget is the engine's.
+   */
+  budget?: { source: string; value: number | null };
 }
 
 interface TableOptions {
@@ -63,6 +69,8 @@ interface TableOptions {
   hasPctOfRevenue: boolean;
   /** Whether this table declares prior/change/change-% columns at all. */
   hasPrior: boolean;
+  /** Whether this table declares the Budget and Variance columns (the company has a budget for the window). */
+  hasBudget: boolean;
 }
 
 /**
@@ -136,6 +144,31 @@ function changeFigures(
   };
 }
 
+/** Why a row's Budget and Variance carry no figure: the engine states no budget for that line. */
+export const NO_BUDGET_FOR_LINE =
+  'No budget covers this line for the whole period, so no budget or variance is stated.';
+
+/** Budget and Variance (actual − budget, as every budget surface prints it). The variance is a property of the two figures beside it. */
+function budgetFigures(
+  p: PackFigureProvenance,
+  input: RowInput,
+  actual: number,
+): Partial<Record<PackTableColumnKey, ReturnType<PackFigureProvenance['figure']>>> {
+  const budget = input.budget;
+  if (budget === undefined) throw new Error(`budget columns declared, but row '${input.key}' was given no budget`);
+  const varianceSource = `packStatementTables.variance.${input.key}`;
+  if (budget.value === null) {
+    return {
+      budget: p.figure(budget.source, null, 'money', NO_BUDGET_FOR_LINE),
+      variance: p.figure(varianceSource, null, 'money', NO_BUDGET_FOR_LINE),
+    };
+  }
+  return {
+    budget: p.figure(budget.source, budget.value, 'money'),
+    variance: p.figure(varianceSource, actual - budget.value, 'money'),
+  };
+}
+
 function buildRow(p: PackFigureProvenance, input: RowInput, opts: TableOptions): PackTableRow {
   const actual =
     input.actual === null
@@ -149,6 +182,8 @@ function buildRow(p: PackFigureProvenance, input: RowInput, opts: TableOptions):
       ? absentPriorFigures(p, input)
       : changeFigures(p, input, input.actual, input.prior));
   }
+
+  if (input.actual !== null && opts.hasBudget) Object.assign(figures, budgetFigures(p, input, input.actual));
 
   // A DECLARED COLUMN ALWAYS CARRIES A FIGURE. The renderer's fallback for a
   // declared column with no figure is the em dash, which this pack defines as
@@ -176,10 +211,11 @@ function buildRow(p: PackFigureProvenance, input: RowInput, opts: TableOptions):
 }
 
 /** The columns the rows actually carry — declared once, never per cell. */
-function columnsFor(hasPrior: boolean, hasPctOfRevenue: boolean): PackTableColumnKey[] {
+function columnsFor(hasPrior: boolean, hasPctOfRevenue: boolean, hasBudget: boolean): PackTableColumnKey[] {
   const columns: PackTableColumnKey[] = ['actual'];
   if (hasPrior) columns.push('prior', 'change', 'changePct');
   if (hasPctOfRevenue) columns.push('pctOfRevenue');
+  if (hasBudget) columns.push('budget', 'variance');
   return columns;
 }
 
@@ -188,20 +224,24 @@ export function buildTable(
   inputs: RowInput[],
   set: PackFigureSet,
   withPctOfRevenue: boolean,
+  /** Only a table whose rows carry `budget` (page 6); it prints the columns when the set has a budget. */
+  withBudget = false,
 ): PackTable {
   const revenue = withPctOfRevenue ? set.current.revenue : 0;
   // `marginPct` on the revenue line itself is the cheapest honest test of
   // whether the base is usable at all: null here means null for every row.
   const usableBase = withPctOfRevenue && marginPct(set.current.revenue, revenue) !== null;
   const hasPrior = set.prior !== null;
+  const hasBudget = withBudget && set.budget !== null;
   const opts: TableOptions = {
     revenue: usableBase ? revenue : null,
     hasPctOfRevenue: withPctOfRevenue,
     hasPrior,
+    hasBudget,
   };
   return {
     scale: PACK_SCALE,
-    columns: columnsFor(hasPrior, withPctOfRevenue),
+    columns: columnsFor(hasPrior, withPctOfRevenue, hasBudget),
     rows: inputs.map((input) => buildRow(p, input, opts)),
   };
 }

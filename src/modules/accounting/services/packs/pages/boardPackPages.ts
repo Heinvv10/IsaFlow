@@ -39,10 +39,12 @@ import {
   TRENDS_PANELS_SPECIFIED,
 } from './packPageCharts';
 import {
+  anchorColumn,
   buildCashTable,
   buildIncomeStatementTable,
   buildPositionTable,
 } from './packStatementTables';
+import { budgetColumnFootnote } from './packStatementFootnotes';
 import {
   buildMonthlyResultsTable,
 } from './packMonthlyResults';
@@ -178,7 +180,10 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // PAGE 6 AND ITS BRIDGE, INCLUDING THE RUNG THE MEASURED SHEET CHOSE — see
   // `packIncomeSheet`. It is the largest self-contained piece this composer
   // held and it moved out whole; nothing else on the pack reads its locals.
-  const incomeSheet = buildIncomeStatementSheet(income, set, scale, panels, statementNotes);
+  // Page 6's Budget column names its budget in a footnote after the shared ones (budgets P3 PR-E).
+  const budgetNotes = budgetColumnFootnote(set.budget, statementNotes.length + 1);
+  const incomeWithBudget = budgetNotes.length === 0 ? income : anchorColumn(income, 'budget', budgetNotes[0]!.number);
+  const incomeSheet = buildIncomeStatementSheet(incomeWithBudget, set, scale, panels, [...statementNotes, ...budgetNotes]);
 
   // PAGE 8 AND THE RUNG ITS MEASURED SHEET CHOSE FOR THE CASH LINE — see
   // `packCashSheet`, the same construction page 6 uses for its bridge.
