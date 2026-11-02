@@ -254,6 +254,7 @@ describe('K-022 loan reversal edge cases', () => {
       officialRate: 0.085,
       journalEntryId: null,
       employeeIds: new Set([t.employee]),
+      takeInstalments: true, // a direct call: the run decides this from its LOAN deduction (hasLoanDeduction)
     };
     const first = await pool.connect();
     const second = await pool.connect();
@@ -339,6 +340,7 @@ describe('K-022 loan reversal edge cases', () => {
           officialRate: 0.085,
           journalEntryId: null,
           employeeIds: new Set([t.employee]),
+          takeInstalments: true, // a direct call: the run decides this from its LOAN deduction (hasLoanDeduction)
         }),
       ).then(() => null, (e: unknown) => e);
 
@@ -430,6 +432,7 @@ describe('K-022 loan reversal edge cases', () => {
           officialRate: 0.085,
           journalEntryId: null,
           employeeIds: new Set([t.employee]),
+          takeInstalments: true, // a direct call: the run decides this from its LOAN deduction (hasLoanDeduction)
         }),
       );
 
