@@ -85,7 +85,7 @@ async function handler(
     }
     try {
       const changed = await updateEmployeeComponentDates(
-        companyId, aid, effectiveFrom, effectiveTo ? effectiveTo : null, { userId: req.user.id, userEmail: req.user.email },
+        companyId, aid, effectiveFrom, effectiveTo ? effectiveTo : null, { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
       );
       if (!changed) return apiResponse.notFound(res, 'Component assignment');
       return apiResponse.success(res, { updated: aid });
@@ -105,8 +105,12 @@ async function handler(
     if (!effectiveTo) return apiResponse.badRequest(res, 'effectiveTo is required');
 
     try {
-      await endEmployeeComponent(companyId, aid, new Date(effectiveTo));
+      const ended = await endEmployeeComponent(companyId, aid, new Date(effectiveTo), {
+        userId: req.user.id, userEmail: req.user.email, channel: 'rest',
+      });
+      if (!ended) return apiResponse.notFound(res, 'Component assignment');
     } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
       if (respondIfLockTimeout(res, err)) return;
       throw err;
     }

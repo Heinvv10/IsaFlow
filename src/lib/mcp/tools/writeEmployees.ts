@@ -35,6 +35,7 @@ import {
   assignComponentToEmployee,
   endEmployeeComponent,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
+import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentRefused';
 import { listComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
 import type { EmploymentType } from '@/modules/accounting/services/payroll/payrollTypes';
 import {
@@ -394,7 +395,14 @@ export const endEmployeeComponentTool: McpTool = {
     // matches nothing and the statement succeeds having changed nothing —
     // answering `ended: true` there would tell an agent an old salary was
     // stopped while it stayed live, and the next costed run would pay it.
-    const ended = await endEmployeeComponent(ctx.companyId, assignmentId, asDate(effectiveTo));
+    let ended: boolean;
+    try {
+      ended = await endEmployeeComponent(ctx.companyId, assignmentId, asDate(effectiveTo), { userId: ctx.userId, channel: 'mcp' });
+    } catch (err) {
+      // End's guards (payrollComponentDateEdit): a refusal is the agent's to read; anything else is not.
+      if (err instanceof EmployeeComponentRefused) return toolError(err.message);
+      throw err;
+    }
     if (!ended) return toolError(NOT_FOUND);
     return ok({ assignment_id: assignmentId, effective_to: effectiveTo, ended: true });
   },

@@ -1,10 +1,11 @@
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
-import { assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidPeriodsOf, windowOf } from './payrollComponentPaidMonths';
+import { changeAssignmentDates, type ComponentChangeActor } from './payrollComponentDateEdit';
+import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 
 type Row = DbRow;
 
@@ -49,13 +50,7 @@ async function assertEmployeeInCompany(employeeId: string, companyId: string): P
   }
 }
 
-/** Raised before the insert, so the caller can answer it as a 400 (a 4xx commits). */
-export class EmployeeComponentRefused extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'EmployeeComponentRefused';
-  }
-}
+export { EmployeeComponentRefused };
 
 /** A user in two companies sees both through RLS and the foreign key is not tenant-aware, so only this predicate holds. */
 export async function assertComponentInCompany(componentId: string, companyId: string): Promise<void> {
@@ -109,54 +104,21 @@ export async function assignComponentToEmployee(
 }
 
 /**
- * Close an assignment. Returns whether a row was actually closed.
+ * End an assignment (the profile's End, DELETE …/components, MCP end_employee_component). Returns whether a row was
+ * actually ended: a stale, mistyped or foreign `assignmentId` matches nothing in the company and changes nothing, and
+ * a caller that reported success on that would tell an agent an old salary had been ended while it stayed live.
  *
- * The boolean is not decoration. The row is found inside the employee's
- * company, so a stale, mistyped-but-well-formed, or foreign `assignmentId`
- * matches NOTHING and nothing changes. A caller that reported success on that
- * would tell an agent an old salary had been ended while it stayed live — and
- * the next costed run would pay it.
- *
- * A once-off no run has paid is CANCELLED, whatever end date was sent: voided
- * (effective_to the day before effective_from), the shape the run reader never
- * pays. Shortening it would not cancel it, because a once-off is paid in the
- * month its window starts (getEmployeeComponents). A once-off a run has paid,
- * and a recurring row, get the end date sent. Under the company's payroll
- * approval lock and the row lock, so no approval decides "paid" under it.
+ * The rules and guards are Edit dates' (changeAssignmentDates, payrollComponentDateEdit): End only shortens; a
+ * once-off no run has paid is cancelled (voided); refused for a voided row, an end before the start, a change to what
+ * a paid run paid, or one that makes a replaced once-off be paid again. Audited with `actor`.
  */
 export async function endEmployeeComponent(
   companyId: string,
   assignmentId: string,
   effectiveTo: Date,
+  actor: ComponentChangeActor,
 ): Promise<boolean> {
-  const effectiveToStr = fmtDate(effectiveTo);
-  if (!isUuidParam(assignmentId)) return false;
-
-  return withTransaction(async (tx) => {
-    await lockCompanyPayrollForComponentChange(tx, companyId);
-    const rows = (await tx`
-      SELECT pec.id, pec.employee_id, pec.effective_from, pec.effective_to, pec.is_recurring
-      FROM payroll_employee_components pec
-      JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
-      WHERE pec.id = ${assignmentId}::uuid
-      FOR UPDATE OF pec
-    `) as Row[];
-    const row = rows[0];
-    if (!row) return false;
-    const window = windowOf(row);
-    const unpaidOnceOff = !window.recurring
-      && !(await paidPeriodsOf(tx, companyId, String(row.employee_id))).some((p) => assignmentReadInPeriod(window, p));
-
-    log.info('Ending employee component', {
-      companyId, assignmentId, effectiveTo: effectiveToStr, cancelled: unpaidOnceOff,
-    }, 'payrollEmployeeComponentService');
-    if (unpaidOnceOff) {
-      await tx`UPDATE payroll_employee_components SET effective_to = effective_from - 1 WHERE id = ${assignmentId}::uuid`;
-    } else {
-      await tx`UPDATE payroll_employee_components SET effective_to = ${effectiveToStr}::date WHERE id = ${assignmentId}::uuid`;
-    }
-    return true;
-  });
+  return changeAssignmentDates(companyId, assignmentId, { kind: 'end', to: fmtDate(effectiveTo) }, actor);
 }
 
 export async function listEmployeeComponentAssignments(
