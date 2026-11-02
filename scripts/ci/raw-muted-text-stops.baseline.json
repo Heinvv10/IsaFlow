@@ -246,7 +246,6 @@
   "pages/accounting/suppliers/[supplierId].tsx": 1,
   "pages/accounting/user-access.tsx": 9,
   "pages/accounting/customer-invoices/new.tsx": 1,
-  "pages/accounting/customer-invoices/edit/[invoiceId].tsx": 1,
   "pages/accounting/batch-payments/index.tsx": 1,
   "pages/accounting/batch-payments/new.tsx": 8,
   "pages/accounting/batch-payments/[batchId].tsx": 1,

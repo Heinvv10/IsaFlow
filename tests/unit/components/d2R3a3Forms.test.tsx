@@ -29,7 +29,7 @@ import PaymentDetailPage from '../../../pages/accounting/customer-payments/[paym
 import NewBankTxPage from '../../../pages/accounting/bank-transactions/new';
 import { ok } from '../helpers/d2CensusG4';
 import { trio3 } from '../helpers/d2R3a3';
-import { pickOption } from '../helpers/kitPick';
+import { clickWhenEnabled, pickOption } from '../helpers/kitPick';
 
 configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
@@ -46,7 +46,7 @@ describe('customer-invoices/new submit', () => {
     await pickOption('Client', 'D2 Client');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'D2 work' } });
     fireEvent.change(document.querySelector('input[name="unitPrice"]')!, { target: { value: '50' } });
-    await clickBtn(/^create invoice$/i);
+    await clickWhenEnabled(/^create invoice$/i); // it waits for the customer's defaults
   };
   trio3({ name: 'create invoice', render: () => render(<NewInvoicePage />), drive, match: (u, i) => u.includes('customer-invoices-create') && i?.method === 'POST',
     data: { id: 'new-inv' }, others: u => (u.includes('/customers') ? ok(CLIENTS) : u.includes('currencies') ? ok([]) : undefined),

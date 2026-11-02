@@ -15,6 +15,9 @@ Sage-style filters for `pages/accounting/customer-invoices/index.tsx`: status, s
 - `InvoiceHeaderFields` (client, VAT, currency, job, exchange rate, four dates), `InvoiceNotesCard`, `InvoiceSummaryCard`, `InvoiceLineItemsTable`: both `new.tsx` and `edit/[invoiceId].tsx` render them; the page owns the form state.
 - Dates are the kit's `DateField`. A refused date reaches the page as null, so `useInvoiceDateValidity` records the reason and `invoiceDateProblem` blocks submit on it, and on due-before-invoice (a later edit of the invoice date can break an accepted due date). Never submit on the form value alone.
 - The request bodies are unchanged by the kit: `tests/unit/components/invoiceFormKit.test.tsx` pins them.
+- `useContactDefaults` (new page only) fills Due date, the line discount and the VAT mode from the picked customer. A default is never written over what the user touched (a Due edit, even refused, cleared or still being typed; a VAT mode or rate edit; what a scan filled), follows the invoice date until edited, and comes back out when the customer changes to one without it. A line's discount follows the customer while `discountFromDefault` holds, priced or not; `editedLine` drops the flag (not while the customer is being read), and the flag never reaches the API. Save is disabled while the customer is being read. The edit page does not use it: a stored invoice's figures are the invoice.
+- `useCustomerLookup` is the single-customer GET behind both pages. The edit page reads its customer on load only to warn, and refills nothing; its Save waits only for a customer changed there. The lookup gives up after 15 s. `vatTypeWarning` shows on both pages when the customer's VAT type conflicts with the effective rate or is one nobody knows; the user's choice stands.
+- `taxMode.ts`: "Amounts are" (excl / incl / none) never reaches the API; it is a rate and a price by the time it is sent. `effectiveTaxRate` for every total and body, `storedUnitPrice` for every sent price. Switching mode converts the shown prices (`linesForModeChange`: grossed up into inclusive, back out of it), so it never reprices at the same rate: an untouched line saves as it was. A rate changed while inclusive holds the gross and moves the ex-VAT price; a rate below 0 converts nothing. An inclusive total can land off what was typed (spec decision 2): `InvoiceSummaryCard`'s `typedTotal` shows both, and the stored total is the invoice. The edit page loads in `exclusive`, or `none` for a stored rate of 0 (it prices the same, and leaving it seeds the standard rate).
 
 ## Main signatures
 - `hydrateARFilters(query)`, `arFiltersToQuery(f)`, `arFiltersToApiParams(f)` — `listQuery.ts`.
@@ -28,5 +31,7 @@ Sage-style filters for `pages/accounting/customer-invoices/index.tsx`: status, s
 
 ## Recent changes
 - 2026-11-01: a plain row click opens `InvoiceDrawerBody`, including a click on the number; Ctrl, Cmd, Shift and the middle button still open the page (master plan wave 3, PR U).
+- 2026-11-01: PR D review: mode changes convert the shown prices, per-line discount flag, VAT conflict warning, Save waits for the customer, a stored rate 0 draft loads as No VAT, the discount column cannot hide a charged discount.
+- 2026-11-01: customer defaults, tax mode, Due date "+30" anchored on the invoice date, edit page on PageHeader (master plan wave 3, PR D).
 - 2026-10-27: new/edit forms moved onto the kit (master plan wave 2, PR I).
 - 2026-09-23: created (invoice search & filters, PR 2 of 2).
