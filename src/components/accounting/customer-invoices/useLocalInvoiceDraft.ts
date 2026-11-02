@@ -17,6 +17,7 @@ import { invoiceDraftKey, readInvoiceDraft, removeInvoiceDraft, writeInvoiceDraf
 import type { InvoiceHeaderForm } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
 import type { TaxMode } from './taxMode';
+import { useCommitEffect } from './useServerInvoiceAutosave';
 
 export const LOCAL_DEBOUNCE_MS = 800;
 
@@ -73,7 +74,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => { latest.current = { json, data: opts?.snapshot ?? null }; });
+  useCommitEffect(() => { latest.current = { json, data: opts?.snapshot ?? null }; });
   useEffect(() => {
     if (!rebase.current || json === null) return;
     rebase.current = false;

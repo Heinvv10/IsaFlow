@@ -12,12 +12,17 @@
  *
  * The body is one render's snapshot, kept whole in one ref: never lines from one render and the mode from another.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { AutosaveState } from '@/components/ui/AutosaveStatus';
 import type { InvoicePutBody } from './invoicePutBody';
 
 export const SERVER_DEBOUNCE_MS = 1500;
+/**
+ * Syncs what a click reads in the commit itself: a passive effect can run after the page is on screen, and a Save
+ * clicked in between would find the ref still empty. (useEffect on the server, where there is no layout.)
+ */
+export const useCommitEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 const SAVE_FAILED = 'Could not save the invoice - try again';
 
 export interface ServerAutosaveOptions {
@@ -71,8 +76,8 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const armed = Boolean(opts && json !== null && !opts.done && !opts.paused && !opts.problem && !failed);
 
   // First: what the timers and the guard read. Then the body the page loaded with is what the server holds.
-  useEffect(() => { latest.current = { json, armed, done: Boolean(opts?.done) }; });
-  useEffect(() => {
+  useCommitEffect(() => { latest.current = { json, armed, done: Boolean(opts?.done) }; });
+  useCommitEffect(() => {
     if (json === null || lastSaved.current !== null) return;
     lastSaved.current = json;
     setSavedJson(json);
