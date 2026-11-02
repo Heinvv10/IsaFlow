@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
+import { findOverdrawnLines } from '../../src/modules/accounting/services/payroll/payrollRunLines';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -100,5 +101,45 @@ describe('a run from before the codes', () => {
     await recalculate(state.nov);
     await tailOn('UNION', -29000); // the stored breakdown now reads as R1 000 of dues: the code still decides
     expect((await judged()).blocker).toMatchObject({ code: 'deductions_exceed_pay' });
+  });
+
+  const atNil = async () => {
+    const { net } = await line(state.nov);
+    await addRow(comp.union!, net, '2026-01-01', null, true);
+    await recalculate(state.nov);
+    expect((await line(state.nov)).net).toBe(0);
+    await asBeforeTheCodes();
+  };
+  const breakdown = (json: string) => pool.query('UPDATE payroll_run_lines SET component_breakdown = $2::jsonb WHERE run_id = $1', [state.nov, json]);
+
+  it('an empty breakdown beside a gross, on a line at nil, cannot be judged: the gate asks for a recalculation', async () => {
+    await atNil();
+    await breakdown('[]');
+    const { blocker } = await judged();
+    expect(blocker).toMatchObject({ code: 'run_lines_unreadable' });
+    expect(blocker.detail).toContain('W301-1');
+    expect(blocker.detail).toContain('Recalculate this run');
+  });
+
+  it('a breakdown that is not an array, on a line at nil, is unreadable here; the gate already fails closed on it earlier', async () => {
+    await atNil();
+    await breakdown('{"amount": 1}');
+    expect(await findOverdrawnLines(state.coA, state.nov)).toMatchObject([{ employeeNumber: 'W301-1', unreadable: true }]);
+    // judgeRunDirectives reads every breakdown as an array first: the preview is a 500, and so is approval.
+    expect((await preview(state.nov)).statusCode).toBe(500);
+  });
+
+  it('an unreadable breakdown on a line that paid something blocks nothing', async () => {
+    await asBeforeTheCodes();
+    await breakdown('[]');
+    expect((await judged()).blocker).toBeNull();
+  });
+
+  it('a line that paid something is never rebuilt, whatever its breakdown says', async () => {
+    await addRow(comp.union!, 200, '2026-01-01', null, true);
+    await recalculate(state.nov);
+    await asBeforeTheCodes();
+    await tailOn('UNION', 50000);
+    expect(await judged()).toEqual({ blocker: null, loan: undefined });
   });
 });

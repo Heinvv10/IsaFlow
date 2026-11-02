@@ -17,6 +17,7 @@ type Row = DbRow;
  * on a payslip:
  *   - code 'LOAN'  : earner-facing deduction for principal + interest.
  *   - code '3801'  : taxable fringe benefit (low-interest loan).
+ * Only a deduction can carry the instalment: a LOAN-coded earning would add it to gross pay.
  * Callers pre-seed these components under Setup → Pay Components. Loans
  * silently skip the row if the component doesn't exist (the payment is
  * still recorded on payroll_loan_payments, just not shown on payslip
@@ -32,7 +33,8 @@ async function loadLoanComponents(companyId: string): Promise<{
       FROM payroll_components
      WHERE company_id = ${companyId}::uuid
        AND is_active = true
-       AND sars_source_code IN ('LOAN', '3801')
+       AND ((sars_source_code = 'LOAN' AND component_type = 'deduction') OR sars_source_code = '3801')
+     ORDER BY created_at, id
   `) as Row[];
 
   let deduction: PayrollComponent | null = null;
@@ -47,8 +49,9 @@ async function loadLoanComponents(companyId: string): Promise<{
       isUifApplicable: r.is_uif_applicable === true,
       isSdlApplicable: r.is_sdl_applicable === true,
     };
-    if (component.sarsSourceCode === 'LOAN') deduction = component;
-    if (component.sarsSourceCode === '3801') fringe = component;
+    // The first made of each, so the same one is used on every calculation.
+    if (component.sarsSourceCode === 'LOAN') deduction ??= component;
+    if (component.sarsSourceCode === '3801') fringe ??= component;
   }
   return { deduction, fringe };
 }

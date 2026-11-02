@@ -85,6 +85,31 @@ describe('a loan instalment above pay', () => {
   });
 });
 
+describe('the component a payslip shows the instalment on', () => {
+  const breakdownIds = async () => ((await pool.query('SELECT component_breakdown FROM payroll_run_lines WHERE run_id = $1', [state.nov]))
+    .rows[0]!.component_breakdown as Array<{ componentId: string }>).map((i) => i.componentId);
+
+  it('a LOAN-coded earning is never it: the instalment stays a deduction', async () => {
+    const plain = await line(state.nov);
+    const earning = await fx.addComponent(state.coA, 'Loan earning', 'LOAN', 'earning', true);
+    await addLoan(1000);
+    await recalculate(state.nov);
+    const l = await line(state.nov);
+    expect(l.gross).toBe(plain.gross);
+    expect(l.net).toBeCloseTo(plain.net - 1000, 2);
+    expect(await breakdownIds()).not.toContain(earning);
+  });
+
+  it('of two LOAN deductions, the first made is used, every time', async () => {
+    await fx.addComponent(state.coA, 'Second loan', 'LOAN', 'deduction', false);
+    await addLoan(1000);
+    for (let i = 0; i < 3; i++) {
+      await recalculate(state.nov);
+      expect(await breakdownIds()).toContain(comp.loan);
+    }
+  });
+});
+
 describe('assigning a component beside the grid', () => {
   const assign = () => call(components as Route, 'POST', `/api/payroll/employees/${state.employee}/components`, state.employee, {
     body: { componentId: comp.overtime, amount: 700, effectiveFrom: '2026-11-01', isRecurring: false },

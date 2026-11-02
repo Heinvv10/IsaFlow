@@ -275,6 +275,14 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     }
     // A shortfall the loan instalment alone causes stays out, as the advisory above: an instalment cannot be edited
     // on a run, so a blocker would stop every employee's pay over one leaver. Owner decision, in the module's .claude.md.
+    const unreadable = overdrawn.filter((l) => l.unreadable);
+    if (unreadable.length > 0) {
+      return {
+        code: 'run_lines_unreadable',
+        detail: `The stored lines of ${unreadable.map((l) => l.employeeNumber).join(', ')} pay nil and their breakdown cannot be read, `
+          + 'so nothing shows whether their deductions exceed their pay. Recalculate this run.',
+      };
+    }
     const blocked = overdrawn.filter((l) => !l.fromLoan);
     if (blocked.length > 0) {
       return {

@@ -61,6 +61,8 @@ export interface OverdrawnLine {
   shortfall: number;
   /** The shortfall would not exist without the loan instalment: LOAN_INSTALMENT_EXCEEDS_PAY. */
   fromLoan: boolean;
+  /** A line at nil from before the codes whose breakdown cannot be read: nothing can say whether it is overdrawn. */
+  unreadable?: true;
 }
 
 /**
@@ -72,16 +74,23 @@ export interface OverdrawnLine {
  * employer_contribution component can exist: the column holds 20 characters). The instalment is the
  * breakdown's items coded LOAN after the calculator's own trim (normaliseSarsCode), exact case. Both
  * rebuilt figures are rounded to the cent first, as the calculator rounds net, so a float tail in a
- * stored amount is no R0.01 shortfall.
- * Limit: a LOAN-coded EARNING (which the loan service never writes) would count as an instalment here.
+ * stored amount is no R0.01 shortfall. Only a line at nil is rebuilt: one that paid anything was not
+ * overdrawn. A line at nil whose breakdown is not an array, or is empty beside a gross, cannot be judged
+ * and is returned `unreadable`.
+ * Limit: a LOAN-coded EARNING counts as an instalment here. POST /api/payroll/components can make one,
+ * but the loan service only puts its instalment on a deduction (loadLoanComponents), so it reaches a
+ * stored line only when assigned by hand.
  * Net pay itself cannot prove the condition because negative values were always floored at nil.
  */
 export async function findOverdrawnLines(companyId: string, runId: string): Promise<OverdrawnLine[]> {
   const rows = (await sql`
     WITH run_lines AS (
-      SELECT prl.employee_id, pe.employee_number, prl.validation_results,
+      SELECT prl.employee_id, pe.employee_number, prl.validation_results, prl.net_pay = 0 AS net_pay_nil,
         (prl.validation_results @> '[{"code":"DEDUCTIONS_EXCEED_PAY"}]'::jsonb
           OR prl.validation_results @> '[{"code":"LOAN_INSTALMENT_EXCEEDS_PAY"}]'::jsonb) AS coded,
+        -- CASE, not AND: jsonb_array_length raises on a non-array, and SQL does not promise to short-circuit.
+        CASE WHEN jsonb_typeof(prl.component_breakdown) IS DISTINCT FROM 'array' THEN TRUE
+             ELSE jsonb_array_length(prl.component_breakdown) = 0 AND prl.gross_pay <> 0 END AS unreadable,
         ROUND(prl.gross_pay - prl.paye - prl.uif_employee - (stored.total - prl.gross_pay), 2) AS derived_raw_net,
         ROUND(prl.gross_pay - prl.paye - prl.uif_employee - (stored.total - prl.gross_pay) + stored.loan, 2) AS derived_without_loan
       FROM payroll_run_lines prl
@@ -97,13 +106,16 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
         AND prh.company_id = ${companyId}::uuid
     )
     SELECT * FROM run_lines
-    WHERE coded OR derived_raw_net < 0
+    WHERE coded OR (net_pay_nil AND (unreadable OR derived_raw_net < 0))
     ORDER BY employee_number
   `) as Row[];
   return rows.flatMap((r) => {
     const flagged = r.coded === true
       ? parseValidationResults(r.validation_results).find((v) => OVERDRAWN_CODES.has(v.code))
       : undefined;
+    if (!flagged && r.unreadable === true) {
+      return [{ employeeId: String(r.employee_id), employeeNumber: String(r.employee_number), shortfall: 0, fromLoan: false, unreadable: true as const }];
+    }
     const rawNet = typeof flagged?.rawNet === 'number' ? flagged.rawNet : Number(r.derived_raw_net);
     if (!Number.isFinite(rawNet) || rawNet >= 0) return [];
     const fromLoan = flagged
