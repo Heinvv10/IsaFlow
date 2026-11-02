@@ -26,12 +26,15 @@ export async function listComponents(companyId: string): Promise<PayrollComponen
   return rows.map(mapComponent);
 }
 
+/**
+ * The employee's components in force on `asOf`, a calendar day 'YYYY-MM-DD', bound as given: no Date, so no zone can
+ * move it. A pay run passes payrollRunReadDate(period), the last day of its period.
+ */
 export async function getEmployeeComponents(
   employeeId: string,
   companyId: string,
-  periodDate: Date,
+  asOf: string,
 ): Promise<EmployeeComponent[]> {
-  const dateStr = periodDate.toISOString().split('T')[0];
   const rows = (await sql`
     SELECT
       pec.amount,
@@ -42,8 +45,8 @@ export async function getEmployeeComponents(
     JOIN payroll_employees pe ON pe.id = pec.employee_id
     WHERE pec.employee_id = ${employeeId}::uuid
       AND pe.company_id = ${companyId}::uuid
-      AND pec.effective_from <= ${dateStr}
-      AND (pec.effective_to IS NULL OR pec.effective_to >= ${dateStr})
+      AND pec.effective_from <= ${asOf}::date
+      AND (pec.effective_to IS NULL OR pec.effective_to >= ${asOf}::date)
       AND pc.is_active = TRUE
     ORDER BY pc.component_type, pc.name
   `) as Row[];

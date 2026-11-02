@@ -3,12 +3,9 @@
  * one component row. A refusal leaves no employee behind (a 4xx COMMITs, so the check has to come before the insert),
  * and a failure after the insert rolls the employee back.
  *
- * The first-month behaviour is PINNED here, not endorsed. calculatePayrollRun reads components on
- * `new Date(year, month - 1, 28)` (payrollRunService.ts:137) and
- * getEmployeeComponents turns that into a date with toISOString() (payrollComponentService.ts:34), so in SAST the read
- * date is the 27th. A start up to the 27th gets the whole month's salary, with no part-month reduction; a start from
- * the 28th is on the run with no salary. The gate runs in SAST (ci.yml TZ); the pins state that first. The form warns
- * of both (firstMonthNotes). Changing the engine's behaviour belongs to W3.
+ * The first-month behaviour is PINNED here, not endorsed. calculatePayrollRun reads components as at the period's
+ * last day (payrollRunReadDate), so a start on any day of the month gets the whole month's salary, with no part-month
+ * reduction. The form warns of it (firstMonthNotes). Part-month pay belongs to W3.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -186,17 +183,13 @@ describe('POST /api/payroll/employees with a salary', () => {
   });
 });
 
-describe('the first run (PINNED, not endorsed: payrollRunService day 28, read through toISOString)', () => {
-  it('the gate reads the components on the 27th, which is why the line below falls between the 27th and the 28th', () => {
-    expect(new Date(2026, 10, 28).toISOString().slice(0, 10)).toBe('2026-11-27');
-  });
-
+describe('the first run (PINNED, not endorsed: components read as at the period\'s last day)', () => {
   it.each([
     ['1 Nov, the whole month', 'WP-8', '2026-11-01', SALARY_RANDS],
     ['15 Nov, still the whole month: no part-month reduction', 'WP-14', '2026-11-15', SALARY_RANDS],
-    ['27 Nov, the last day that is paid, and in full', 'WP-15', '2026-11-27', SALARY_RANDS],
-    ['28 Nov, on the run with gross 0', 'WP-16', '2026-11-28', 0],
-    ['29 Nov, on the run with gross 0', 'WP-9', '2026-11-29', 0],
+    ['27 Nov, the whole month', 'WP-15', '2026-11-27', SALARY_RANDS],
+    ['28 Nov, the whole month (was gross 0 while the run read as at the 27th)', 'WP-16', '2026-11-28', SALARY_RANDS],
+    ['30 Nov, the last day of the month: the whole month', 'WP-9', '2026-11-30', SALARY_RANDS],
   ])("start %s", async (_n, number, startDate, gross) => {
     const out = await post(body(number, startDate, { componentId: basic, amountCents: SALARY_CENTS }));
     expect(out.statusCode, JSON.stringify(out.body)).toBe(201);

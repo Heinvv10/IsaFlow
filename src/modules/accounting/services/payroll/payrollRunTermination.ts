@@ -208,7 +208,10 @@ export async function severanceOnlyComponents(
   period: PayrollPeriod,
   warnings: ValidationResult[],
 ): Promise<EmployeeComponent[]> {
-  const salaryAtExit = employee.endDate ? await getEmployeeComponents(employee.id, companyId, employee.endDate) : [];
+  // endDate is UTC midnight of the stored DATE (mapPayrollEmployeeRow), so its ISO day is that date.
+  const salaryAtExit = employee.endDate
+    ? await getEmployeeComponents(employee.id, companyId, employee.endDate.toISOString().slice(0, 10))
+    : [];
   const t = await terminationPayouts(companyId, employee, salaryAtExit, null);
   const line = await severanceByDirective(companyId, runId, employee, period, t?.severance ?? 0, warnings);
   // No line, so no line warning to carry it (the run skips the leaver): a run

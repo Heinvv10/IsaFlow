@@ -3,6 +3,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
+import { payrollRunReadDate } from './payrollRunReadDate';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
@@ -134,6 +135,9 @@ export async function calculatePayrollRun(
   // deductions and before any line is built. UnsupportedTaxYearError is a
   // refusal with nothing written; the callers answer it as a 4xx.
   getTaxYearConfig(taxYear);
+  // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
+  const readDate = payrollRunReadDate(period);
+  // The ETI table check reads only the month of this, through local getters, so the local Date is safe there.
   const periodDate = new Date(period.year, period.month - 1, 28);
 
   const employees = await listPayrollRunEmployees(companyId, period);
@@ -184,7 +188,7 @@ export async function calculatePayrollRun(
       componentsWithLoans = await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings);
       if (componentsWithLoans.length === 0) continue;
     } else {
-      const components = await getEmployeeComponents(employee.id, companyId, periodDate);
+      const components = await getEmployeeComponents(employee.id, companyId, readDate);
       const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
         companyId, runId, employee, components, period, terminationWarnings,
       );

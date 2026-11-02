@@ -6,11 +6,8 @@
  * assignComponentToEmployee already applies. Recurring batches stay open-ended.
  *
  * Reader under test: payrollComponentService.getEmployeeComponents — the
- * function payrollRunService.calculatePayrollRun calls per employee. The run
- * builds `new Date(period.year, period.month - 1, 28)` in LOCAL time and
- * getEmployeeComponents renders it with toISOString(), so the date actually
- * queried is day 27 in SAST and day 28 on a UTC server. Nothing here depends
- * on which: a once-off row is open for its whole month either way.
+ * function payrollRunService.calculatePayrollRun calls per employee, on
+ * payrollRunReadDate(period): the period's last day, as a plain string.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -20,6 +17,7 @@ import {
 } from '../../src/modules/accounting/services/payroll/payrollBatchService';
 import { getEmployeeComponents } from '../../src/modules/accounting/services/payroll/payrollComponentService';
 import { applyPackageToEmployee } from '../../src/modules/accounting/services/payroll/payPackageService';
+import { payrollRunReadDate } from '../../src/modules/accounting/services/payroll/payrollRunReadDate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -50,8 +48,8 @@ const travelNonTaxable = crypto.randomUUID();
 const otherComponent = crypto.randomUUID();
 const batchIds: string[] = [];
 
-// Exactly what calculatePayrollRun builds (local-time day 28; see header).
-const periodDate = (year: number, month: number) => new Date(year, month - 1, 28);
+// Exactly what calculatePayrollRun reads on (see header).
+const periodDate = (year: number, month: number) => payrollRunReadDate({ year, month });
 
 async function addEmployee(id: string, companyId: string, number: string) {
   await pool.query(
@@ -358,14 +356,12 @@ describe('supersede boundaries', () => {
   });
 });
 
-describe('R-006 (separate defect, deliberately NOT fixed here)', () => {
-  it('a line whose effective_from is the UI default month-end is skipped in its own period', async () => {
-    // The batch UI defaults effectiveFrom to endOfMonth (2025-03-31) while
-    // calculatePayrollRun evaluates near the end of the month but before it
-    // (day 27 in SAST), so the line is never picked up in its own period.
-    // Before K-025 it leaked into every LATER period; it no longer does, but the
-    // in-period miss is R-006 and still reproduces.
-    expect(await getEmployeeComponents(monthEndEmployee, company, periodDate(2025, 3))).toEqual([]);
+describe('R-006: a once-off dated on the month end (the batch UI default)', () => {
+  it('is paid in its own period, once', async () => {
+    // The batch UI defaults effectiveFrom to endOfMonth (2025-03-31). The run
+    // used to read as at the 27th (day 28 through toISOString in SAST), so the
+    // line was never paid. It now reads on the period's last day.
+    expect((await getEmployeeComponents(monthEndEmployee, company, periodDate(2025, 3))).map(c => c.amount)).toEqual([700]);
     expect(await getEmployeeComponents(monthEndEmployee, company, periodDate(2025, 4))).toEqual([]);
   });
 });

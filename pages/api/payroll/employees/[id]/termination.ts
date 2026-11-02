@@ -55,7 +55,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const leaveBalance = await getAnnualLeaveBalance(companyId, employeeId, balanceYear);
 
     const periodDate = employee.endDate ?? new Date();
-    const components = await getEmployeeComponents(employeeId, companyId, periodDate);
+    const components = await getEmployeeComponents(employeeId, companyId, periodDate.toISOString().slice(0, 10));
     const monthlySalary = components
       .filter((c) => c.component.componentType === 'earning')
       .reduce((s, c) => s + c.amount, 0);
