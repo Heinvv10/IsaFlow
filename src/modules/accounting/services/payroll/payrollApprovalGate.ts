@@ -84,6 +84,8 @@ export function toJournalPlanPreview(gate: PayrollApprovalGate): JournalPlanPrev
 }
 
 const cents = (n: number): number => Math.round(n * 100);
+/** An as-posted CC1 the tag history cannot tell (see readPostedJournal); never a centre id, so no plan matches it. */
+const AMBIGUOUS_TAG = 'ambiguous-tag-history';
 
 /**
  * The journal, and its lines AS POSTED for the gate's comparison (`asPosted`,
@@ -92,19 +94,27 @@ const cents = (n: number): number => Math.round(n * 100);
  * the run changing, and a tag cleared that way must not make a tagged journal
  * read as one from before CC1 (PR #1065 review round 2, M2). The tag tool is
  * the only writer of a posted line's CC1 (dimensionTagApply; its batch
- * reversal restores the old value). Batches of one transaction tie on
- * created_at; the batch id breaks the tie.
+ * reversal restores the old value).
+ *
+ * FAIL CLOSED on an unreadable history (round 3, T1): when the line's earliest
+ * tag rows are more than one — two batches of one transaction share created_at
+ * (an MCP JSON-RPC batch runs in one), or one batch lists the line twice
+ * (planDimensionTags refuses that, nothing else would) — which CC1 it was
+ * posted with cannot be told; a random batch id must not decide it. The line
+ * then reads as `AMBIGUOUS_TAG`, a CC1 no plan carries, so a recalculated run
+ * is refused as `recalculated_after_posting` (reverse, approve: a fresh one).
  */
 async function readPostedJournal(companyId: string, journalId: string): Promise<{ journal: PostedPayrollJournal; asPosted: FigureLine[] } | null> {
   const rows = (await sql`
     SELECT e.entry_number, e.status, e.reversed_at, l.gl_account_id, a.account_code, a.account_name,
            l.debit::float8 AS debit, l.credit::float8 AS credit, l.cc1_id,
-           (first_tag.journal_line_id IS NOT NULL) AS retagged, first_tag.old_cc1_id
+           (first_tag.journal_line_id IS NOT NULL) AS retagged, first_tag.old_cc1_id, first_tag.tied::int AS tied, l.id AS line_id
     FROM gl_journal_entries e
     LEFT JOIN gl_journal_lines l ON l.journal_entry_id = e.id AND l.company_id = e.company_id
     LEFT JOIN gl_accounts a ON a.id = l.gl_account_id AND a.company_id = e.company_id
     LEFT JOIN LATERAL (
-      SELECT bl.journal_line_id, bl.old_cc1_id FROM dimension_tag_batch_lines bl
+      SELECT bl.journal_line_id, bl.old_cc1_id, count(*) OVER (PARTITION BY b.created_at) AS tied
+        FROM dimension_tag_batch_lines bl
         JOIN dimension_tag_batches b ON b.id = bl.batch_id AND b.company_id = bl.company_id
        WHERE bl.journal_line_id = l.id AND bl.company_id = e.company_id
        ORDER BY b.created_at, b.id LIMIT 1
@@ -119,7 +129,7 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
     glAccountId: String(r.gl_account_id),
     debit: Number(r.debit) || 0,
     credit: Number(r.credit) || 0,
-    cc1Id: r.retagged === true ? id(r.old_cc1_id) : id(r.cc1_id),
+    cc1Id: r.retagged !== true ? id(r.cc1_id) : Number(r.tied) > 1 ? `${AMBIGUOUS_TAG}:${String(r.line_id)}` : id(r.old_cc1_id),
   }));
   const lines = rows.filter((r) => r.gl_account_id != null).map((r) => ({
     glAccountId: String(r.gl_account_id),
