@@ -11,7 +11,6 @@ import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, AlertCircle, Pencil } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { startPayNowCheckout } from '@/modules/accounting/utils/payNowCheckout';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { CustomerInvoiceSummary } from '@/components/invoices/CustomerInvoiceSummary';
@@ -25,7 +24,7 @@ import type { CustomerInvoiceDetail } from '@/modules/accounting/types/customerI
 import { CUSTOMER_INVOICE_STATUS_COLORS } from '@/modules/accounting/types/customerInvoice.types';
 import { InvoiceAdjacentNav, useAdjacentInvoices } from '@/components/invoices/InvoiceAdjacentNav';
 import { DocumentApprovalPanel } from '@/components/accounting/approvals/DocumentApprovalPanel';
-import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { useInvoiceLinkActions } from '@/components/invoices/useInvoiceLinkActions';
 import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
 import { approvalShown } from '@/components/accounting/customer-invoices/approveShown';
 
@@ -33,8 +32,6 @@ export default function CustomerInvoiceDetailPage() {
   const router = useRouter();
   const { invoiceId } = router.query;
   const [invoice, setInvoice] = useState<CustomerInvoiceDetail | null>(null);
-  const afterLinkCopied = useTimeoutOnce();
-  const afterPortalLinkCopied = useTimeoutOnce();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState('');
@@ -42,11 +39,6 @@ export default function CustomerInvoiceDetailPage() {
   const [emailTo, setEmailTo] = useState('');
   const [emailSending, setEmailSending] = useState(false);
   const [emailSuccess, setEmailSuccess] = useState('');
-  const [paymentLoading, setPaymentLoading] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
-  const [portalUrl, setPortalUrl] = useState('');
-  const [portalLinkLoading, setPortalLinkLoading] = useState(false);
-  const [portalLinkCopied, setPortalLinkCopied] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const { prevId, nextId, loadAdjacent, clear: clearAdjacent } = useAdjacentInvoices();
@@ -120,47 +112,8 @@ export default function CustomerInvoiceDetailPage() {
     } finally { setEmailSending(false); }
   };
 
-  const handlePayNow = async () => {
-    setPaymentLoading(true);
-    setError('');
-    try {
-      window.open(await startPayNowCheckout(invoiceId as string), '_blank', 'noopener,noreferrer');
-      await loadInvoice();
-    } catch (e) {
-      setError(apiErrorMessage(e, 'Could not start the payment - try again'));
-    } finally { setPaymentLoading(false); }
-  };
-
-  const handleCopyPaymentLink = async () => {
-    if (!invoice?.payment_url) return;
-    try {
-      await navigator.clipboard.writeText(invoice.payment_url);
-      setLinkCopied(true);
-      afterLinkCopied(() => setLinkCopied(false), 2000);
-    } catch { setError('Could not copy the link - copy it manually'); }
-  };
-
-  const handleCopyPortalLink = async () => {
-    if (!invoiceId) return;
-    setPortalLinkLoading(true);
-    setError('');
-    try {
-      const res = await apiFetch('/api/portal/invoice/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
-      });
-      await assertOk(res, 'Could not generate the portal link - try again');
-      const json = await res.json() as { success: boolean; data?: { portalUrl: string } };
-      if (!json.data?.portalUrl) throw new Error('Could not generate the portal link - try again');
-      setPortalUrl(json.data.portalUrl);
-      await navigator.clipboard.writeText(json.data.portalUrl);
-      setPortalLinkCopied(true);
-      afterPortalLinkCopied(() => setPortalLinkCopied(false), 3000);
-    } catch (e) {
-      setError(apiErrorMessage(e, 'Could not generate the portal link - try again'));
-    } finally { setPortalLinkLoading(false); }
-  };
+  const { paymentLoading, linkCopied, portalUrl, portalLinkLoading, portalLinkCopied, handlePayNow, handleCopyPaymentLink, handleCopyPortalLink } =
+    useInvoiceLinkActions({ invoiceId, invoice, loadInvoice, setError });
 
   const { groups, overflowActions } = useCustomerInvoiceActions(
     invoice ? {
