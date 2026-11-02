@@ -106,6 +106,34 @@ test('editing a draft autosaves after a change, never on load, and the change su
   }
 });
 
+test('Back from the edit page with a change still unsaved: not refused, history intact, the change saved as the page goes', async ({ page, context, baseURL }) => {
+  const { api, customerId } = await sandbox(context, baseURL!);
+  const id = await draft(api, customerId, `Z2 back ${Date.now().toString(36)}`);
+  try {
+    await page.goto(`/accounting/customer-invoices/${id}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('link', { name: /^edit$/i })).toBeVisible({ timeout: 60_000 });
+    await settle(page); // hydrated: the Edit link navigates client-side, so Back is a popstate, not a page load
+    await page.getByRole('link', { name: /^edit$/i }).click();
+    await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 60_000 });
+    await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
+    let asked = 0;
+    page.on('dialog', async (d) => { asked++; await d.dismiss(); });
+    const changed = `Z2 kept on Back ${Date.now().toString(36)}`;
+    await page.getByPlaceholder('Item description').first().fill(changed);
+    await page.goBack(); // inside the 1.5 s autosave wait
+    await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
+    expect(asked, 'Back is not refused').toBe(0);
+    await expect.poll(async () => (await api.get<{ items: { description: string }[] }>(`/api/accounting/customer-invoices-detail?id=${id}`)).items[0]!.description,
+      { timeout: 15_000 }).toBe(changed);
+    await page.goForward(); // the edit page's entry is still there
+    await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 30_000 });
+    await page.goBack();
+    await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
+  } finally {
+    await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
+  }
+});
+
 test('Approve & email approves, opens the email form, and sends only on Send (route-fulfilled, hit once)', async ({ page, context, baseURL }) => {
   const { api, customerId } = await sandbox(context, baseURL!);
   const sent = await interceptEmail(page);
