@@ -59,11 +59,10 @@ export function sameFigures(lines: { plan: FigureLine[]; posted: FigureLine[] },
  * (payrollApprovalGate#readPostedJournal), because re-tagging the ledger is
  * not the run changing.
  *
- *  - No labour line carried a CC1 as posted: a journal from before labour
- *    lines carried CC1 (or one whose centres were all untaggable). Compared per
- *    account only, CC1 stripped from both sides — no backfill, the run stays on
- *    its untagged journal. KNOWN LIMIT: in that journal a centre assigned after
- *    posting is not seen, as before 2026-11-02.
+ *  - No labour line carried a CC1 as posted: CC1 is stripped only while the
+ *    current plan is also wholly untagged. Once the plan tags labour, the old
+ *    journal cannot prove that labour belonged to the same centre, so the
+ *    comparison fails closed and requires reversal and reposting.
  *  - Otherwise the plan's labour is taken per SOURCE centre (`bySource`), so
  *    centres the plan cannot tag today stay apart: a centre the journal
  *    carries on that account keeps its id (deactivated since posting, it still
@@ -84,6 +83,8 @@ export function comparableLines(
   const key = (account: string | null, centre: string) => JSON.stringify([account, centre]);
   const carried = new Set(posted.filter((l) => cents(l.debit) !== 0 && l.cc1Id).map((l) => key(l.glAccountId, l.cc1Id!)));
   if (carried.size === 0) {
+    const planCarriesCc1 = planLines.some((l) => cents(l.debit) !== 0 && l.cc1Id !== null);
+    if (planCarriesCc1) return { plan: planLines, posted };
     const untag = (l: FigureLine): FigureLine => ({ ...l, cc1Id: null });
     return { plan: planLines.map(untag), posted: posted.map(untag) };
   }

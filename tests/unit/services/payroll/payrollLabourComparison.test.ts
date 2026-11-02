@@ -23,9 +23,13 @@ const same = (bySource: LabourSourceBucket[], journal: FigureLine[]) =>
   sameFigures(comparableLines(planLines(bySource), bySource, journal), true);
 
 describe('comparableLines + sameFigures (recalculated run)', () => {
-  it('a journal with no CC1 on any labour line is compared per account: unchanged re-locks', () => {
-    expect(same(source(['A', true, 600], ['B', true, 400]), posted([null, 1000]))).toBe(true);
-    expect(same(source(['A', true, 600], ['B', true, 500]), posted([null, 1000]))).toBe(false);
+  it('an untagged plan and journal are compared per account: unchanged re-locks', () => {
+    expect(same(source(['A', false, 600], ['B', false, 400]), posted([null, 1000]))).toBe(true);
+    expect(same(source(['A', false, 600], ['B', false, 500]), posted([null, 1000]))).toBe(false);
+  });
+
+  it('does not re-lock an untagged journal after labour moves to a tagged centre on the same account', () => {
+    expect(same(source(['A', true, 1000]), posted([null, 1000]))).toBe(false);
   });
 
   it('a centre deactivated since posting still equals its posted line', () => {
