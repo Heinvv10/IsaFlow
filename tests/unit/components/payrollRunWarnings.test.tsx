@@ -8,6 +8,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import React from 'react';
 import { render, screen, cleanup, within } from '@testing-library/react';
 import { PayrollRunWarnings, type RunLineWarning } from '@/components/payroll/PayrollRunWarnings';
+import colors from 'tailwindcss/colors';
+import { contrastRatio } from '@/lib/brand/contrast';
 
 afterEach(cleanup);
 
@@ -61,12 +63,42 @@ describe('PayrollRunWarnings', () => {
     expect(screen.getByRole('heading').textContent).toBe('1 issue blocks approval');
   });
 
+  it.each([
+    ['LOAN_DEDUCTION_MISSING', 'error'], ['LOAN_FRINGE_NOT_RECORDED', 'warning'], ['DEDUCTIONS_EXCEED_PAY', 'error'],
+    ['LOAN_INSTALMENT_EXCEEDS_PAY', 'warning'], ['SOMETHING_NEW', 'warning'],
+  ] as const)('%s with ONE employee: their own message is on the page, not only in a tooltip', (code, severity) => {
+    render(<PayrollRunWarnings lines={[line('e1', 'Zanele Grid', [result(code, LOAN_A, severity)])]} />);
+    const row = screen.getByText('Zanele Grid').closest('li')!;
+    expect(row.textContent).toContain('QA-LOAN-A (instalment R 1 000.00)');
+    expect(screen.getByText('Zanele Grid').getAttribute('title')).toBeNull();
+  });
+
+  it.each(['approved', 'paid', 'cancelled'])('a %s run: nothing is worded as blocking approval', (status) => {
+    render(<PayrollRunWarnings status={status} lines={[line('e1', 'Zanele Grid', [result('LOAN_DEDUCTION_MISSING', LOAN_A, 'error')])]} />);
+    expect(screen.queryByText(/block/i)).toBeNull();
+    expect(screen.getByRole('heading').textContent).toBe('1 warning on this run');
+  });
+
+  it('links read in light and dark mode, the same in both layouts, hover included', () => {
+    render(<PayrollRunWarnings lines={[
+      line('e1', 'Zanele Grid', [result('MISSING_TAX_NUMBER', 'No tax number'), result('LOAN_FRINGE_NOT_RECORDED', LOAN_A)]),
+    ]} />);
+    const [inline, own] = screen.getAllByRole('link', { name: 'Zanele Grid' });
+    expect(inline!.className).toBe(own!.className);
+    const hex = (cls: string, prefix: string) => {
+      const m = new RegExp(`(?:^|\\s)${prefix}text-([a-z]+)-(\\d{3})(?:\\s|$)`).exec(cls);
+      return m ? (colors as unknown as Record<string, Record<string, string>>)[m[1]!]![m[2]!]! : null;
+    };
+    expect(contrastRatio(hex(inline!.className, 'hover:')!, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(hex(inline!.className, 'dark:hover:')!, '#0f172a')).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('nothing blocking: the warnings do not block, and say so', () => {
     render(<PayrollRunWarnings lines={[
       line('e1', 'Zanele Grid', [result('LOAN_FRINGE_NOT_RECORDED', LOAN_A), result('LOAN_INSTALMENT_EXCEEDS_PAY', 'over')]),
     ]} />);
     expect(screen.getByRole('heading').textContent).toBe('2 warnings on this run');
-    expect(screen.getByText(/These do not block the run/)).toBeTruthy();
+    expect(screen.getByText('These warnings do not block approval themselves.')).toBeTruthy();
   });
 
   it('the same message for everyone stays one line of names', () => {

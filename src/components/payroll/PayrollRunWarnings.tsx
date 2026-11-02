@@ -7,6 +7,8 @@
  */
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
+import { isLocked } from '@/components/payroll/PayrollRunStatusBadge';
+import { BLOCKING_LINE_CODES, GROUP_LABEL, OWN_FIGURES } from '@/components/payroll/runWarningCodes';
 
 export interface RunLineWarning {
   code: string;
@@ -22,28 +24,6 @@ interface WarningLine {
   validationResults?: RunLineWarning[];
 }
 
-/** The group heading per code. An unknown code falls back to its first message. */
-const GROUP_LABEL: Record<string, string> = {
-  ETI_INDETERMINATE: 'ETI eligibility could not be determined — no ETI claimed',
-  ETI_TABLE_UNCONFIRMED: 'ETI claimed on a table that is unconfirmed for pay periods after 31 March 2026 — verify before submitting',
-  PAYE_ZERO_ON_TAXABLE_INCOME: 'Taxable income above the threshold but zero PAYE — verify tax number and directive',
-  MISSING_TAX_NUMBER: 'No SARS tax number — PAYE cannot be calculated',
-  INVALID_TAX_NUMBER_FORMAT: 'Tax number invalid — must be 10 digits',
-  DUPLICATE_TAX_NUMBER: 'Tax number already used by another employee',
-  INVALID_ID_NUMBER: 'ID number must be 13 digits',
-  MISSING_BANK_DETAILS: 'No bank details — EFT payment will fail',
-  DEDUCTIONS_EXCEED_PAY: 'Deductions and tax exceed pay — reduce the deductions, then recalculate',
-  LOAN_INSTALMENT_EXCEEDS_PAY: 'Loan instalment exceeds pay — net pay is nil and the deductions payable are understated',
-  LOAN_DEDUCTION_MISSING: 'Loan instalment not taken — no active LOAN deduction; add it under Setup → Pay Components, then recalculate',
-  LOAN_FRINGE_NOT_RECORDED: 'Loan fringe benefit not recorded — no active 3801 earning; the instalment was taken',
-};
-
-/** Codes whose message carries the employee's own figures (a loan, an amount): shown per employee. */
-const OWN_FIGURES: ReadonlySet<string> = new Set(['DEDUCTIONS_EXCEED_PAY', 'LOAN_INSTALMENT_EXCEEDS_PAY', 'LOAN_DEDUCTION_MISSING', 'LOAN_FRINGE_NOT_RECORDED']);
-
-/** Line results the approval gate refuses on (payrollLineBlockers): blocking, not warnings. */
-const BLOCKING: ReadonlySet<string> = new Set(['DEDUCTIONS_EXCEED_PAY', 'LOAN_DEDUCTION_MISSING']);
-
 interface Group {
   code: string;
   label: string;
@@ -53,13 +33,13 @@ interface Group {
   employees: Array<{ id: string; name: string; href: string; message: string }>;
 }
 
-function groupRunWarnings(lines: WarningLine[]): Group[] {
+function groupRunWarnings(lines: WarningLine[], canBlock: boolean): Group[] {
   const groups = new Map<string, Group>();
   for (const line of lines) {
     for (const w of line.validationResults ?? []) {
       let g = groups.get(w.code);
       if (!g) {
-        g = { code: w.code, label: GROUP_LABEL[w.code] ?? '', blocking: BLOCKING.has(w.code), perEmployee: false, employees: [] };
+        g = { code: w.code, label: GROUP_LABEL[w.code] ?? '', blocking: canBlock && BLOCKING_LINE_CODES.has(w.code), perEmployee: false, employees: [] };
         groups.set(w.code, g);
       }
       g.employees.push({
@@ -71,18 +51,23 @@ function groupRunWarnings(lines: WarningLine[]): Group[] {
     }
   }
   for (const g of groups.values()) {
-    // A labelled code whose messages only name the employee stays one line of names (PAY-08).
-    g.perEmployee = new Set(g.employees.map((e) => e.message)).size > 1 && (OWN_FIGURES.has(g.code) || !GROUP_LABEL[g.code]);
+    // A code carrying the employee's own figures, or an unlabelled one, always shows each employee's own
+    // message, even for one employee: a tooltip is out of reach by keyboard and touch. A labelled code whose
+    // messages only name the employee stays one line of names (PAY-08).
+    g.perEmployee = OWN_FIGURES.has(g.code) || !GROUP_LABEL[g.code];
     // An unknown code: its message only when it is everyone's; otherwise the code, never one employee's words.
-    g.label ||= g.perEmployee ? `Other (${g.code})` : g.employees[0]!.message;
+    g.label ||= `Other (${g.code})`;
   }
   return [...groups.values()].sort((a, b) => Number(b.blocking) - Number(a.blocking));
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-export function PayrollRunWarnings({ lines }: { lines: WarningLine[] }) {
-  const groups = groupRunWarnings(lines);
+const LINK = 'underline decoration-dotted hover:text-amber-800 dark:hover:text-amber-300';
+
+/** `status`: on an approved, paid or cancelled run nothing is worded as blocking approval. */
+export function PayrollRunWarnings({ lines, status }: { lines: WarningLine[]; status?: string }) {
+  const groups = groupRunWarnings(lines, !status || !isLocked(status));
   if (groups.length === 0) return null;
   const count = (blocking: boolean) => groups.filter((g) => g.blocking === blocking).reduce((n, g) => n + g.employees.length, 0);
   const [blocked, warned] = [count(true), count(false)];
@@ -103,13 +88,13 @@ export function PayrollRunWarnings({ lines }: { lines: WarningLine[] }) {
             {g.perEmployee ? (
               <ul className="mt-1 ml-4 list-disc space-y-1">
                 {g.employees.map((e, i) => (
-                  <li key={`${e.id}-${i}`}><Link href={e.href} className="underline decoration-dotted">{e.name}</Link>: {e.message}</li>
+                  <li key={`${e.id}-${i}`}><Link href={e.href} className={LINK}>{e.name}</Link>: {e.message}</li>
                 ))}
               </ul>
             ) : g.employees.map((e, i) => (
               <span key={`${e.id}-${i}`}>
                 {i > 0 && ', '}
-                <Link href={e.href} title={e.message} className="hover:text-amber-300 underline decoration-dotted">{e.name}</Link>
+                <Link href={e.href} className={LINK}>{e.name}</Link>
               </span>
             ))}
           </li>
@@ -118,7 +103,7 @@ export function PayrollRunWarnings({ lines }: { lines: WarningLine[] }) {
       <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
         {blocked > 0
           ? `The issues marked "Blocks approval" must be resolved before this run can be approved.${warned > 0 ? ' The warnings do not block it.' : ''}`
-          : 'These do not block the run — payroll can still be approved and paid.'}
+          : status && isLocked(status) ? 'Recorded when this run was calculated.' : 'These warnings do not block approval themselves.'}
       </p>
     </section>
   );

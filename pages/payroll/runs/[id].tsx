@@ -105,7 +105,7 @@ export default function PayrollRunDetailPage() {
 
           <PayrollRunTotals run={run} />
 
-          <PayrollRunWarnings lines={run.lines} />
+          <PayrollRunWarnings lines={run.lines} status={run.status} />
 
           <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
             <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] flex items-center justify-between">

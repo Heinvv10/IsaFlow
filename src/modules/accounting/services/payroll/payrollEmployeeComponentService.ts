@@ -97,7 +97,8 @@ export async function assignComponentToEmployee(
   // Once-off → auto-cap effective_to at end of effective_from's month so the
   // assignment dies after the period it was captured for. Caller-supplied
   // effectiveTo wins if provided.
-  const effectiveToStr = effectiveTo
+  // Only undefined or null mean "no end date": 0, false or '' are refused, not read as none.
+  const effectiveToStr = effectiveTo !== undefined && effectiveTo !== null
     ? dayOf(effectiveTo, 'effectiveTo')
     : isRecurring
     ? null

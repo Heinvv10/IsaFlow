@@ -246,7 +246,7 @@ describe('the approval summary', () => {
     serve(() => ok({}), {
       run: twoRuns({ totalNet: 1 }),
       preview: planBody(null, { plan: {
-        employeeCount: 13, paidEmployeeCount: 12, periodMonth: 11, periodYear: 2026, totalDebit: 498120, totalCredit: 498120,
+        employeeCount: 13, lineCount: 13, paidEmployeeCount: 12, periodMonth: 11, periodYear: 2026, totalDebit: 498120, totalCredit: 498120,
         totals: { gross: 75000, paye: 1, uif: 354.24, sdl: 750, eti: 100, etiUsed: 100, net: 412300, employerUif: 177.12, otherDeductions: 0 },
       } }),
     });
@@ -261,6 +261,13 @@ describe('the approval summary', () => {
     serve(() => ok({}), { preview: planBody(null, { plan: { advisories: [{ code: 'loan_fringe_not_recorded', detail }] } }) });
     const dialog = await open();
     expect(await within(dialog).findByText(detail)).toBeTruthy();
+  });
+
+  it('both counts come from the lines: a stale header count cannot hide the employee due nil', async () => {
+    serve(() => ok({}), { preview: planBody(null, { plan: { employeeCount: 2, lineCount: 3, paidEmployeeCount: 2 } }) });
+    const dialog = await open();
+    expect(await within(dialog).findByText(/^Paying 2 of the 3 employees R .* \(1 is due nil\)\./)).toBeTruthy();
+    expect(within(dialog).getByText(/for 3 employees:/)).toBeTruthy();
   });
 
   it('one employee is singular', async () => {

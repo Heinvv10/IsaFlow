@@ -41,11 +41,12 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 /** The plan's own figures: the net it pays, and its debits, which are all labour (gross + employer UIF + SDL − ETI used). */
 function paymentSummary(plan: Preview['plan']): string {
-  const nil = plan.employeeCount - plan.paidEmployeeCount;
-  // Against the journal's count ("for N employees" below): who is paid, and how many are due nil.
+  // Both counts from the run's lines, as the journal sentence below: who is paid, and how many are due nil.
+  const paid = Math.min(plan.paidEmployeeCount, plan.lineCount);
+  const nil = plan.lineCount - paid;
   const people = nil > 0
-    ? `${plan.paidEmployeeCount} of the ${plan.employeeCount} employees`
-    : `${plan.employeeCount} employee${plan.employeeCount === 1 ? '' : 's'}`;
+    ? `${paid} of the ${plan.lineCount} employees`
+    : `${plan.lineCount} employee${plan.lineCount === 1 ? '' : 's'}`;
   const nilNote = nil > 0 ? ` (${nil} ${nil === 1 ? 'is' : 'are'} due nil)` : '';
   return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${MONTHS[plan.periodMonth - 1]} ${plan.periodYear}${nilNote}. `
     + `Cost to the company ${formatCurrency(plan.totalDebit)} (gross plus employer UIF and SDL, less ETI used).`;
@@ -118,7 +119,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
               <p className="text-gray-600 dark:text-gray-300">
                 {posted
                   ? <>Already posted: journal <span className="font-mono">{posted.entryNumber}</span>. Approving locks this run again and posts nothing new.</>
-                  : <>Approving locks this run and posts journal <span className="font-mono">{plan.reference}</span> dated {plan.entryDate} for {plan.employeeCount} employee{plan.employeeCount === 1 ? '' : 's'}:</>}
+                  : <>Approving locks this run and posts journal <span className="font-mono">{plan.reference}</span> dated {plan.entryDate} for {plan.lineCount} employee{plan.lineCount === 1 ? '' : 's'}:</>}
               </p>
             )}
             {!blocker && replaces && (
@@ -149,10 +150,10 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
               </tbody>
             </table>
             {!posted && plan.advisories.map((a) => (
-              <p key={a.code} className="flex gap-2 text-amber-600 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" />{a.detail}</p>
+              <p key={a.code} className="flex gap-2 text-amber-700 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" />{a.detail}</p>
             ))}
             {warningCount > 0 && !blocker && (
-              <p className="flex gap-2 text-amber-600 dark:text-amber-400">
+              <p className="flex gap-2 text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 {warningCount} warning{warningCount === 1 ? '' : 's'} on this run (listed on the page). They do not block approval.
               </p>

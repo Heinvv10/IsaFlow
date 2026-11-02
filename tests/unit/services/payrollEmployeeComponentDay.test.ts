@@ -28,10 +28,10 @@ const CO = '11111111-1111-4111-8111-111111111111';
 beforeEach(() => { sqlCalls.length = 0; });
 
 describe('a date that is not a string', () => {
-  it.each([[['2026-03-01']], [20260301], [null], [{ toString: () => '2026-03-01' }]])('%j is refused before any lock or query', async (d) => {
+  it.each([[['2026-03-01']], [20260301], [null], [{ toString: () => '2026-03-01' }], [0], [false], ['']])('%j is refused before any lock or query', async (d) => {
     await expect(assignComponentToEmployee(CO, E, C, 1, d as never)).rejects.toBeInstanceOf(EmployeeComponentRefused);
     // A null end date means "no end date"; any other non-string end date is refused.
-    if (d !== null) await expect(assignComponentToEmployee(CO, E, C, 1, '2026-03-01', d as never)).rejects.toBeInstanceOf(EmployeeComponentRefused);
+    if (d !== null && d !== undefined) await expect(assignComponentToEmployee(CO, E, C, 1, '2026-03-01', d as never)).rejects.toBeInstanceOf(EmployeeComponentRefused);
     await expect(endEmployeeComponent(CO, E, d as never)).rejects.toBeInstanceOf(EmployeeComponentRefused);
     expect(sqlCalls).toEqual([]);
   });

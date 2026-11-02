@@ -64,7 +64,7 @@ export function planBody(
     posted: opts.posted ?? null,
     replaces: opts.replaces ?? null,
     plan: {
-      runId: RUN_ID, status: 'calculated', periodMonth: 9, periodYear: 2026, employeeCount: 1, paidEmployeeCount: 1,
+      runId: RUN_ID, status: 'calculated', periodMonth: 9, periodYear: 2026, employeeCount: 1, lineCount: 1, paidEmployeeCount: 1,
       alreadyPostedJournalId: null, entryDate: '2026-09-30', description: 'Payroll run 2026-09', reference: 'PAY-2026-09',
       lines: PLAN_LINES,
       totalDebit: 75927.12, totalCredit: 75927.12,

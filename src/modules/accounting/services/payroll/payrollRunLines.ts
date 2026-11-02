@@ -156,8 +156,8 @@ export interface LoanPaymentOnPayslip { employeeNumber: string; loanNumber: stri
  * How this run's recorded loan payments show on its payslips.
  *  - `offPayslip`: refused until recalculated. A repayment with no item on the employee's line coded
  *    LOAN (as the line stored it) whose component (by componentId) is a deduction, costed as not
- *    taxable (the item's own isTaxable), of that amount; or a fringe benefit whose only 3801 item of
- *    exactly that amount is not an earning (the old code took any 3801), unless the line warns
+ *    taxable (the item's own isTaxable), of that amount; or a fringe benefit with a 3801 item of exactly
+ *    that amount but none that is an earning (the old code took any 3801), unless the line warns
  *    LOAN_FRINGE_NOT_RECORDED for that loan. A run calculated before loans failed closed could do
  *    each of these. Zero amounts need no item.
  *  - `fringeNotRecorded`: a fringe benefit with no 3801 earning item of that amount. Collected without
