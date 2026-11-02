@@ -104,6 +104,11 @@ describe('a LOAN deduction is never a tax deduction (Hein: a taxable LOAN is ref
     expect(r.componentBreakdown.find((b) => b.componentId === 'loan')).toMatchObject({ isTaxable: false });
   });
 
+  it('a LOAN-coded EARNING keeps its taxable flag: the override is for the deduction only', () => {
+    const earning = { component: component({ id: 'loan-earning', sarsSourceCode: 'LOAN', componentType: 'earning', isTaxable: true }), amount: 500 };
+    expect(run([salary, earning]).componentBreakdown.find((b) => b.componentId === 'loan-earning')).toMatchObject({ isTaxable: true });
+  });
+
   it('any other taxable deduction still comes off PAYE income', () => {
     const sacrifice = { ...dues(1000), component: { ...dues(1000).component, sarsSourceCode: 'SACR', isTaxable: true } };
     expect(run([salary, sacrifice]).paye.monthlyPaye).toBeLessThan(run([salary]).paye.monthlyPaye);

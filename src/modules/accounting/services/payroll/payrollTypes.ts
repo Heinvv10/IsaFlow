@@ -124,6 +124,8 @@ export interface ValidationResult {
   rawNet?: number;
   /** LOAN_DEDUCTION_MISSING only: the loan numbers whose instalment was not taken. */
   loans?: string[];
+  /** LOAN_DEDUCTION_MISSING only: the components missing, 'LOAN' and, when also missing, '3801'. */
+  missing?: string[];
 }
 
 export interface PayrollLineInput {

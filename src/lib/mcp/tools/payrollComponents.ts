@@ -18,7 +18,7 @@ import { getPayrollEmployee } from '@/modules/accounting/services/payroll/payrol
 import { normaliseSarsCode } from '@/modules/accounting/services/payroll/payeAnnualPayment';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
-const isLoan = (code: string) => normaliseSarsCode(code) === 'LOAN';
+const isLoan = (c: { sarsSourceCode: string; componentType: string }) => c.componentType === 'deduction' && normaliseSarsCode(c.sarsSourceCode) === 'LOAN';
 
 export const listPayrollComponentsTool: McpTool = {
   name: 'list_payroll_components',
@@ -40,8 +40,8 @@ export const listPayrollComponentsTool: McpTool = {
         sars_source_code: c.sarsSourceCode,
         component_type: c.componentType,
         // A loan repayment is never a tax deduction (Hein): payroll ignores the flag on LOAN, so report what it does.
-        is_taxable: isLoan(c.sarsSourceCode) ? false : c.isTaxable,
-        ...(isLoan(c.sarsSourceCode) && c.isTaxable
+        is_taxable: isLoan(c) ? false : c.isTaxable,
+        ...(isLoan(c) && c.isTaxable
           ? { note: 'Flagged taxable, but payroll treats a loan repayment as not a tax deduction.' } : {}),
         is_uif_applicable: c.isUifApplicable,
         is_sdl_applicable: c.isSdlApplicable,

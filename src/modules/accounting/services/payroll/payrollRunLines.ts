@@ -130,7 +130,7 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
   });
 }
 
-export interface WithheldLoanLine { employeeNumber: string; loans: string[] }
+export interface WithheldLoanLine { employeeNumber: string; loans: string[]; fringeToo: boolean }
 
 /** Lines whose loan was not taken for want of a LOAN deduction (payrollLoanWithholding). */
 export async function findWithheldLoanLines(companyId: string, runId: string): Promise<WithheldLoanLine[]> {
@@ -146,22 +146,37 @@ export async function findWithheldLoanLines(companyId: string, runId: string): P
   `) as Row[];
   return rows.flatMap((r) => {
     const withheld = parseValidationResults(r.validation_results).find((v) => v.code === 'LOAN_DEDUCTION_MISSING');
-    return withheld ? [{ employeeNumber: String(r.employee_number), loans: withheld.loans ?? [] }] : [];
+    return withheld ? [{ employeeNumber: String(r.employee_number), loans: withheld.loans ?? [], fringeToo: withheld.missing?.includes('3801') === true }] : [];
   });
 }
 
+export interface LoanPaymentOnPayslip { employeeNumber: string; loanNumber: string }
+
 /**
- * Loan payments this run recorded that its payslips do not show as they must. A repayment needs an
- * item on the employee's line coded LOAN (as the line stored it) whose component (by componentId) is
- * a deduction, costed as not taxable (the item's own isTaxable), of that amount. A fringe benefit with a
- * 3801 item needs it to be an earning of that amount; with no 3801 item at all it is the warning case
- * (Hein). A run calculated before loans failed closed could break each of these: it took the payment
- * with nothing on the payslip, put it on a LOAN-coded earning or a 3801 deduction, or took a taxable
- * LOAN off PAYE income. Recalculating fixes it. Zero amounts need no item.
+ * How this run's recorded loan payments show on its payslips.
+ *  - `offPayslip`: refused until recalculated. A repayment with no item on the employee's line coded
+ *    LOAN (as the line stored it) whose component (by componentId) is a deduction, costed as not
+ *    taxable (the item's own isTaxable), of that amount; or a fringe benefit whose only 3801 item of
+ *    exactly that amount is not an earning (the old code took any 3801), unless the line warns
+ *    LOAN_FRINGE_NOT_RECORDED for that loan. A run calculated before loans failed closed could do
+ *    each of these. Zero amounts need no item.
+ *  - `fringeNotRecorded`: a fringe benefit with no 3801 earning item of that amount. Collected without
+ *    its benefit (Hein): an advisory, so the approver of an old run sees what a new one warns.
  */
-export async function findLoanPaymentsOffPayslip(companyId: string, runId: string): Promise<Array<{ employeeNumber: string; loanNumber: string }>> {
+export async function findLoanPaymentsOffPayslip(
+  companyId: string, runId: string,
+): Promise<{ offPayslip: LoanPaymentOnPayslip[]; fringeNotRecorded: LoanPaymentOnPayslip[] }> {
   const rows = (await sql`
-    SELECT pe.employee_number, l.loan_number
+    SELECT pe.employee_number, l.loan_number,
+      (p.interest_charged + p.principal_paid > 0
+        AND NOT COALESCE(bool_or(item.code = 'LOAN' AND item.type = 'deduction' AND NOT item.taxed
+          AND item.amount = ROUND(p.interest_charged + p.principal_paid, 2)), false))
+      OR (p.fringe_benefit > 0 AND NOT bool_or(COALESCE(prl.validation_results, '[]'::jsonb) @> jsonb_build_array(
+            jsonb_build_object('code', 'LOAN_FRINGE_NOT_RECORDED', 'loans', jsonb_build_array(l.loan_number))))
+        AND NOT COALESCE(bool_or(item.code = '3801' AND item.type = 'earning' AND item.amount = ROUND(p.fringe_benefit, 2)), false)
+        AND COALESCE(bool_or(item.code = '3801' AND item.amount = ROUND(p.fringe_benefit, 2)), false)) AS off_payslip,
+      p.fringe_benefit > 0
+        AND NOT COALESCE(bool_or(item.code = '3801' AND item.type = 'earning' AND item.amount = ROUND(p.fringe_benefit, 2)), false) AS fringe_missing
       FROM payroll_loan_payments p
       JOIN payroll_loans l ON l.id = p.loan_id AND l.company_id = ${companyId}::uuid
       JOIN payroll_employees pe ON pe.id = l.employee_id
@@ -174,14 +189,11 @@ export async function findLoanPaymentsOffPayslip(companyId: string, runId: strin
       ) item ON true
      WHERE p.run_id = ${runId}::uuid
      GROUP BY p.id, pe.employee_number, l.loan_number, p.interest_charged, p.principal_paid, p.fringe_benefit
-    HAVING (p.interest_charged + p.principal_paid > 0
-            AND NOT COALESCE(bool_or(item.code = 'LOAN' AND item.type = 'deduction' AND NOT item.taxed
-              AND item.amount = ROUND(p.interest_charged + p.principal_paid, 2)), false))
-        OR (p.fringe_benefit > 0 AND COALESCE(bool_or(item.code = '3801'), false)
-            AND NOT COALESCE(bool_or(item.code = '3801' AND item.type = 'earning' AND item.amount = ROUND(p.fringe_benefit, 2)), false))
      ORDER BY pe.employee_number, l.loan_number
   `) as Row[];
-  return rows.map((r) => ({ employeeNumber: String(r.employee_number), loanNumber: String(r.loan_number) }));
+  const of = (flag: string) => rows.filter((r) => r[flag] === true)
+    .map((r) => ({ employeeNumber: String(r.employee_number), loanNumber: String(r.loan_number) }));
+  return { offPayslip: of('off_payslip'), fringeNotRecorded: of('fringe_missing') };
 }
 
 export async function getPayrollRunLines(

@@ -132,7 +132,19 @@ describe('a low-interest loan with no 3801 earning (Hein: a warning, not a block
     expect(message).toContain('deduction coded LOAN');
     expect(message).toContain('earning coded 3801');
     expect(message).toContain('R 7.08');
+    expect(message).toContain('the instalment was not taken');
     expect(await blocker()).toMatchObject({ code: 'loan_deduction_missing' });
+    expect((await blocker()).detail).toContain('3801');
+  });
+
+  it('two loans withheld: one sentence, in the plural', async () => {
+    await pool.query('UPDATE payroll_components SET is_active = false WHERE id = $1', [comp.loan]);
+    await addLoan(1000, 'R-LOAN');
+    await addLoan(500, 'R-LOAN2');
+    await recalculate(state.nov);
+    const message = (await results()).find((r) => r.code === 'LOAN_DEDUCTION_MISSING')!.message;
+    expect(message).toMatch(/^Loans R-LOAN \(.*\) and R-LOAN2 \(.*\): no active deduction coded LOAN, so the instalments were not taken and the loans are unchanged/);
+    expect((await blocker()).detail).not.toContain('3801');
   });
 });
 

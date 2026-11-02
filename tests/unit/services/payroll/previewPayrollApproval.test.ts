@@ -27,7 +27,7 @@ const headerRow = vi.hoisted(() => ({ current: {} as Record<string, unknown> }))
 // Loan payments against the payslip have their own integration suite (payrun-loan-components).
 vi.mock('@/modules/accounting/services/payroll/payrollRunLines', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/modules/accounting/services/payroll/payrollRunLines')>(),
-  findLoanPaymentsOffPayslip: vi.fn(async () => []),
+  findLoanPaymentsOffPayslip: vi.fn(async () => ({ offPayslip: [], fringeNotRecorded: [] })),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollYearToDateGate', () => ({ judgeYearToDate: vi.fn(async () => ({ blocker: null, advisories: [] })) }));
 vi.mock('@/lib/neon', () => {

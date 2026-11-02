@@ -83,10 +83,14 @@ const groupBy = <T>(items: T[], key: (t: T) => string) => {
   return out;
 };
 
+const listed = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
+
 /** One blocking line result per employee, naming each withheld loan at what it would take and every missing component. */
 export function withheldLineResults(withheld: WithheldLoan[]): Map<string, ValidationResult[]> {
-  return new Map([...groupBy(withheld, (w) => w.employeeId)].map(([employeeId, loans]) => {
+  const ordered = [...withheld].sort((a, b) => a.loanNumber.localeCompare(b.loanNumber));
+  return new Map([...groupBy(ordered, (w) => w.employeeId)].map(([employeeId, loans]) => {
     const fringe = loans.some((w) => w.missing.includes('fringe'));
+    const several = loans.length > 1;
     const missing = `no active deduction coded LOAN${fringe ? ' and no active earning coded 3801 for the low-interest fringe benefit' : ''}`;
     const each = loans.map((w) => `${w.loanNumber} (instalment ${formatMoney(w.instalment)}`
       + `${w.missing.includes('fringe') ? `, fringe benefit ${formatMoney(w.fringeBenefit)}` : ''})`);
@@ -94,8 +98,10 @@ export function withheldLineResults(withheld: WithheldLoan[]): Map<string, Valid
       code: 'LOAN_DEDUCTION_MISSING',
       severity: 'error',
       loans: loans.map((w) => w.loanNumber),
-      message: `Loan ${each.join(', ')}: ${missing}, so the instalment was not taken and the loan is unchanged. `
-        + 'Add the missing component under Setup → Pay Components, then recalculate.',
+      missing: fringe ? ['LOAN', '3801'] : ['LOAN'],
+      message: `${several ? 'Loans' : 'Loan'} ${listed(each)}: ${missing}, so the ${several ? 'instalments were' : 'instalment was'} not taken `
+        + `and the ${several ? 'loans are' : 'loan is'} unchanged. Add the missing ${fringe ? 'components' : 'component'} under Setup → Pay Components, `
+        + 'then recalculate.',
     } satisfies ValidationResult]];
   }));
 }
@@ -111,9 +117,9 @@ export function fringeNotRecordedResults(applied: Map<string, ApplyLoanResult[]>
       code: 'LOAN_FRINGE_NOT_RECORDED',
       severity: 'warning',
       loans: missed.map((a) => a.loanNumber),
-      message: `Loan ${missed.map((a) => `${a.loanNumber} (fringe benefit ${formatMoney(a.fringeBenefit)})`).join(', ')}: `
-        + 'the instalment was taken, but no active earning is coded 3801, so the low-interest fringe benefit is not on the payslip '
-        + 'and was not taxed. Add it under Setup → Pay Components and recalculate to record it.',
+      message: `${missed.length > 1 ? 'Loans' : 'Loan'} ${listed(missed.map((a) => `${a.loanNumber} (fringe benefit ${formatMoney(a.fringeBenefit)})`))}: `
+        + `the ${missed.length > 1 ? 'instalments were' : 'instalment was'} taken, but no active earning is coded 3801, so the low-interest fringe `
+        + `${missed.length > 1 ? 'benefits are' : 'benefit is'} not on the payslip and not taxed. Add one under Setup → Pay Components and recalculate.`,
     });
   }
   return out;

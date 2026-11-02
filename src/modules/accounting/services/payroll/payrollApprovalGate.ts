@@ -46,7 +46,7 @@ import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDire
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
 import { findLoanPaymentsOffPayslip, findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
-import { lineBlocker, overdrawnNames } from './payrollLineBlockers';
+import { fringeAdvisory, lineBlocker, overdrawnNames } from './payrollLineBlockers';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -220,6 +220,7 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   // this run's change leaves stale (R1 limit (f)); neither is in the hash.
   const overdrawn = await findOverdrawnLines(companyId, runId);
   const byLoan = overdrawn.filter((l) => l.fromLoan);
+  const loanPayments = await findLoanPaymentsOffPayslip(companyId, runId);
   const plan = {
     ...dated,
     advisories: [
@@ -229,6 +230,7 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
         detail: `The loan instalment exceeds pay for ${overdrawnNames(byLoan)}: net pay is nil, the loan still falls by the whole instalment, `
           + 'and the deductions payable are understated by the amount over.',
       }] : []),
+      ...fringeAdvisory(loanPayments.fringeNotRecorded),
     ],
   };
 
@@ -277,7 +279,7 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     // A shortfall the loan instalment alone causes stays out, as the advisory above: an instalment cannot be edited
     // on a run, so a blocker would stop every employee's pay over one leaver. Owner decision, in the module's .claude.md.
     // A shortfall the loan instalment alone causes is the advisory above, not a blocker (payrollLineBlockers).
-    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), await findLoanPaymentsOffPayslip(companyId, runId));
+    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), loanPayments.offPayslip);
     if (fromLines) return fromLines;
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();

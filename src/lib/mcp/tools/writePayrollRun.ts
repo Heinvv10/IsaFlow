@@ -104,25 +104,25 @@ export const calculatePayRunTool: McpTool = {
     if (!run) return toolError(NOT_FOUND);
 
     if (args.dry_run === true) {
-      // dry_run must run the row-state guards the live path runs. Without this
-      // a reopened run whose GL journal is still posted was promised a recost
-      // that calculatePayrollRun then refuses.
-      const blocked = run.journalEntryId != null
+      // dry_run runs the live path's row-state guards, in its order (a locked run first): without them a reopened
+      // run whose GL journal is still posted was promised a recost that calculatePayrollRun then refuses.
+      const locked = isPayrollRunLocked(run.status) ? new PayrollRunLockedError(run.status).message : null;
+      const blocked = !locked && run.journalEntryId != null
         && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
-      const taxYearMissing = isPayrollRunLocked(run.status) ? new PayrollRunLockedError(run.status).message : unloadedTaxYearMessage(run.periodMonth, run.periodYear);
+      const refusal = locked ?? unloadedTaxYearMessage(run.periodMonth, run.periodYear);
       return ok({
         dryRun: true,
         wroteNothing: true,
         journals: [],
-        effects: blocked || taxYearMissing
+        effects: blocked || refusal
           ? []
           : [`Recost run ${run.periodMonth}/${run.periodYear} (status '${run.status}') and rebuild its lines.`],
         skipped: [
           ...(blocked ? [new PayrollRunJournalPostedError(runId).message] : []),
-          ...(taxYearMissing ? [taxYearMissing] : []),
+          ...(refusal ? [refusal] : []),
         ],
-        withheld_loans: blocked || taxYearMissing ? [] : await withheldLoans(ctx.companyId, run),
+        withheld_loans: blocked || refusal ? [] : await withheldLoans(ctx.companyId, run),
         current: runPayload(run),
       });
     }

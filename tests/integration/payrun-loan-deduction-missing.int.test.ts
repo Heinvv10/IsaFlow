@@ -165,6 +165,14 @@ describe('MCP calculate_pay_run says which instalments it did not take', () => {
     expect(out.withheld_loans).toEqual([]);
   });
 
+  it('list_payroll_components leaves a LOAN-coded EARNING\'s flag alone', async () => {
+    const earning = await addComponent(state.coA, 'Loan earning', 'LOAN', 'earning', true);
+    const listed = body(await listPayrollComponentsTool.handler({}, { companyId: state.coA, userId: fx.admin } as never) as never)
+      .components as Array<{ id: string; is_taxable: boolean; note?: string }>;
+    expect(listed.find((c) => c.id === earning)).toEqual(expect.objectContaining({ is_taxable: true }));
+    expect(listed.find((c) => c.id === earning)!.note).toBeUndefined();
+  });
+
   it('list_payroll_components reports a LOAN component flagged taxable as non-taxable for payroll', async () => {
     await pool.query('UPDATE payroll_components SET is_taxable = true WHERE id = $1', [comp.loan]);
     const listed = body(await listPayrollComponentsTool.handler({}, { companyId: state.coA, userId: fx.admin } as never) as never)
