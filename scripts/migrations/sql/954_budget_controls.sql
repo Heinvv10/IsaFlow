@@ -33,6 +33,9 @@
 --     parent order's company (trigger).
 --   - Column privileges: ids and creation stamps take their defaults (a
 --     writable stamp gets forged); budget_check_events has no UPDATE or DELETE.
+--   - Stamps (review round 2): actor stamps are the session user (auth.uid()) and
+--     time stamps the clock, set by triggers; a notification goes to a member of
+--     its company only; an event names its own company's document.
 --   - The cron runs on the service pool (app_service, no claims): it reaches
 --     these tables through the USING (true) mirrors app_service_sync_policies()
 --     (915) creates from the app_user policies. Both migration appliers call it
@@ -137,8 +140,11 @@ CREATE TABLE IF NOT EXISTS user_notifications (
   ref_id UUID,
   title TEXT NOT NULL CHECK (btrim(title) <> '' AND length(title) <= 200),
   body TEXT CHECK (length(body) <= 2000),
-  -- An in-app path only ('/accounting/...'): never a scheme, never protocol-relative ('//host').
-  href TEXT CHECK (href IS NULL OR (length(href) <= 500 AND left(href, 1) = '/' AND substr(href, 2, 1) NOT IN ('/', '\'))),
+  -- An in-app path only ('/accounting/...'): never a scheme, never protocol-relative ('//host', '/\host'), and no
+  -- control character or white space anywhere: a URL parser strips tab/LF/CR, so '/<TAB>/evil.com' is '//evil.com'
+  -- (src/lib/inAppPath.ts is the same rule).
+  href TEXT CHECK (href IS NULL OR (length(href) <= 500 AND left(href, 1) = '/' AND substr(href, 2, 1) NOT IN ('/', '\')
+                                    AND href !~ '[[:cntrl:][:space:]\u0080-\u009f]')),
   dedupe_key TEXT NOT NULL CHECK (btrim(dedupe_key) <> '' AND length(dedupe_key) <= 200),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   read_at TIMESTAMPTZ,
@@ -160,7 +166,8 @@ CREATE TABLE IF NOT EXISTS budget_check_events (
   lines JSONB NOT NULL CHECK (jsonb_typeof(lines) = 'array'),
   reason TEXT CHECK (length(reason) <= 2000),
   channel TEXT NOT NULL CHECK (channel IN ('ui', 'bulk', 'mcp', 'system')),
-  decided_by VARCHAR(255) NOT NULL,
+  -- The session's user (auth.uid()); budget_check_events_check overwrites anything sent.
+  decided_by VARCHAR(255) NOT NULL DEFAULT auth.uid(),
   decided_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_budget_check_events_document
@@ -338,9 +345,10 @@ BEGIN
 END;
 $$;
 
--- A centre a threshold, holder or slice review names keeps its kind (947/949's guards cover
--- amounts and drivers). Under RLS a session sees only the active company's rows; 947's guard
--- (same trigger point) already refuses a change from another company.
+-- A centre a threshold, alert, holder, slice review or PO line names keeps its kind (947/949's
+-- guards cover amounts and drivers). Under RLS a session sees only the active company's rows;
+-- 947's guard (same trigger point) already refuses a change from another company. po_items has
+-- no company_id: its order's company decides.
 CREATE OR REPLACE FUNCTION public.cost_centres_keep_control_kind()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -350,7 +358,10 @@ AS $$
 BEGIN
   IF EXISTS (SELECT 1 FROM budget_alert_thresholds x WHERE x.company_id = OLD.company_id AND OLD.id IN (x.cc1_id, x.cc2_id))
      OR EXISTS (SELECT 1 FROM budget_holders x WHERE x.company_id = OLD.company_id AND OLD.id IN (x.cc1_id, x.cc2_id))
-     OR EXISTS (SELECT 1 FROM budget_slice_reviews x WHERE x.company_id = OLD.company_id AND OLD.id IN (x.cc1_id, x.cc2_id)) THEN
+     OR EXISTS (SELECT 1 FROM budget_slice_reviews x WHERE x.company_id = OLD.company_id AND OLD.id IN (x.cc1_id, x.cc2_id))
+     OR EXISTS (SELECT 1 FROM budget_alerts x WHERE x.company_id = OLD.company_id AND OLD.id IN (x.cc1_id, x.cc2_id))
+     OR EXISTS (SELECT 1 FROM po_items x JOIN purchase_orders po ON po.id = x.purchase_order_id
+                 WHERE po.company_id = OLD.company_id AND OLD.id IN (x.cc1_id, x.cc2_id)) THEN
     RAISE EXCEPTION 'cost centre % is used by budget controls; its kind (cc_type) cannot change', OLD.id USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
@@ -360,6 +371,169 @@ DROP TRIGGER IF EXISTS trg_cost_centres_keep_control_kind ON cost_centres;
 CREATE TRIGGER trg_cost_centres_keep_control_kind BEFORE UPDATE OF cc_type ON cost_centres
   FOR EACH ROW WHEN (OLD.cc_type IS DISTINCT FROM NEW.cc_type) EXECUTE FUNCTION public.cost_centres_keep_control_kind();
 ALTER TABLE cost_centres ENABLE ALWAYS TRIGGER trg_cost_centres_keep_control_kind;
+
+-- ── Recipients, documents and stamps (review round 2) ───────────────────────
+-- Writable stamps get forged: every actor stamp an app session writes is the session's own user
+-- (auth.uid(), the claim withAuth sets), every time stamp the clock. With no session user (the
+-- service pool's cron, a migration) the writer's actor value stands; the columns that need one are
+-- NOT NULL. Claims are forgeable by injected SQL, as every app_user policy here assumes (915).
+
+-- A notification's recipient is a member of the row's company. The invoker reads company_users
+-- directly (the service pool's mirror, an owner/admin, or the user themself); a manager notifying
+-- an owner cannot see that row (cu_self_or_admin), so 714's reviewed definer answers instead,
+-- bound to the caller's own active company. No new definer.
+CREATE OR REPLACE FUNCTION public.user_notification_recipient_ok(p_company uuid, p_user text)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM company_users cu WHERE cu.company_id = p_company AND cu.user_id = p_user) THEN
+    RETURN true;
+  END IF;
+  IF auth.uid() IS NULL OR app.current_company_id() IS DISTINCT FROM p_company THEN
+    RETURN false;
+  END IF;
+  RETURN public.approval_company_member_name(p_company, p_user) IS NOT NULL;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.user_notifications_check()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NOT public.user_notification_recipient_ok(NEW.company_id, NEW.user_id) THEN
+    RAISE EXCEPTION 'notification recipient % is not a member of company %', NEW.user_id, NEW.company_id USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_user_notifications_check ON user_notifications;
+CREATE TRIGGER trg_user_notifications_check BEFORE INSERT OR UPDATE OF company_id, user_id ON user_notifications
+  FOR EACH ROW EXECUTE FUNCTION public.user_notifications_check();
+ALTER TABLE user_notifications ENABLE ALWAYS TRIGGER trg_user_notifications_check;
+
+-- An event names a document of its own company, of its own type; the session user decides it.
+CREATE OR REPLACE FUNCTION public.budget_check_events_check()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF (NEW.document_type = 'supplier_invoice'
+      AND NOT EXISTS (SELECT 1 FROM supplier_invoices d WHERE d.id = NEW.document_id AND d.company_id = NEW.company_id))
+     OR (NEW.document_type = 'purchase_order'
+      AND NOT EXISTS (SELECT 1 FROM purchase_orders d WHERE d.id = NEW.document_id AND d.company_id = NEW.company_id)) THEN
+    RAISE EXCEPTION 'budget check event: % % is not a document of company %', NEW.document_type, NEW.document_id, NEW.company_id
+      USING ERRCODE = '23503';
+  END IF;
+  NEW.decided_by := COALESCE(auth.uid(), NEW.decided_by);
+  NEW.decided_at := clock_timestamp();
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_budget_check_events_check ON budget_check_events;
+CREATE TRIGGER trg_budget_check_events_check BEFORE INSERT ON budget_check_events
+  FOR EACH ROW EXECUTE FUNCTION public.budget_check_events_check();
+ALTER TABLE budget_check_events ENABLE ALWAYS TRIGGER trg_budget_check_events_check;
+
+-- A slice review's actors and times come from the status move itself: submitted stamps the
+-- submitter, approved/returned the decider. A move with no session user is refused (no actor to stamp).
+CREATE OR REPLACE FUNCTION public.budget_slice_reviews_stamp()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  uid text := auth.uid();
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_by := COALESCE(uid, NEW.created_by);
+    NEW.submitted_by := NULL; NEW.submitted_at := NULL; NEW.decided_by := NULL; NEW.decided_at := NULL;
+    RETURN NEW;
+  END IF;
+  NEW.created_by := OLD.created_by;
+  NEW.submitted_by := OLD.submitted_by; NEW.submitted_at := OLD.submitted_at;
+  NEW.decided_by := OLD.decided_by; NEW.decided_at := OLD.decided_at;
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    IF uid IS NULL THEN
+      RAISE EXCEPTION 'a budget slice status change needs a session user' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.status = 'submitted' THEN
+      NEW.submitted_by := uid; NEW.submitted_at := clock_timestamp();
+    ELSIF NEW.status IN ('approved', 'returned') THEN
+      NEW.decided_by := uid; NEW.decided_at := clock_timestamp();
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_budget_slice_reviews_stamp ON budget_slice_reviews;
+CREATE TRIGGER trg_budget_slice_reviews_stamp BEFORE INSERT OR UPDATE ON budget_slice_reviews
+  FOR EACH ROW EXECUTE FUNCTION public.budget_slice_reviews_stamp();
+ALTER TABLE budget_slice_reviews ENABLE ALWAYS TRIGGER trg_budget_slice_reviews_stamp;
+
+-- An alert's fired_at is the clock's: set at insert, re-stamped only when a resolved alert fires
+-- again (resolved_at cleared); resolved_at is the clock's when it is set.
+CREATE OR REPLACE FUNCTION public.budget_alerts_stamp()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  NEW.fired_at := CASE WHEN OLD.resolved_at IS NOT NULL AND NEW.resolved_at IS NULL THEN clock_timestamp() ELSE OLD.fired_at END;
+  IF NEW.resolved_at IS NOT NULL THEN
+    NEW.resolved_at := COALESCE(OLD.resolved_at, clock_timestamp());
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_budget_alerts_stamp ON budget_alerts;
+CREATE TRIGGER trg_budget_alerts_stamp BEFORE UPDATE ON budget_alerts
+  FOR EACH ROW EXECUTE FUNCTION public.budget_alerts_stamp();
+ALTER TABLE budget_alerts ENABLE ALWAYS TRIGGER trg_budget_alerts_stamp;
+
+-- The other actor stamps: the session user overwrites what is sent. TG_ARGV[0] is the column an
+-- INSERT stamps, TG_ARGV[1] the one an UPDATE stamps ('-': none).
+CREATE OR REPLACE FUNCTION public.budget_controls_stamp_actor()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  uid text := auth.uid();
+  col text := CASE TG_OP WHEN 'INSERT' THEN TG_ARGV[0] ELSE TG_ARGV[1] END;
+BEGIN
+  IF uid IS NULL OR col = '-' THEN
+    RETURN NEW;
+  END IF;
+  NEW := jsonb_populate_record(NEW, jsonb_build_object(col, uid));
+  RETURN NEW;
+END;
+$$;
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES ('budget_control_settings', 'updated_by', 'updated_by'),
+                                 ('budget_alert_thresholds', 'created_by', 'updated_by'),
+                                 ('budget_holders', 'created_by', '-')) v(t, ins, upd) LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', 'trg_' || r.t || '_stamp_actor', r.t);
+    EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I FOR EACH ROW '
+                   'EXECUTE FUNCTION public.budget_controls_stamp_actor(%L, %L)', 'trg_' || r.t || '_stamp_actor', r.t, r.ins, r.upd);
+    EXECUTE format('ALTER TABLE %I ENABLE ALWAYS TRIGGER %I', r.t, 'trg_' || r.t || '_stamp_actor');
+  END LOOP;
+END;
+$$;
 
 -- ── Tenancy: 944's policy, verbatim, on each budget table ───────────────────
 
@@ -411,7 +585,9 @@ GRANT UPDATE (thresholds, updated_by, updated_at) ON budget_alert_thresholds TO 
 GRANT DELETE ON budget_alert_thresholds TO app_user;
 GRANT INSERT (company_id, version_id, gl_account_id, cc1_id, cc2_id, bu_id, month, threshold, budget, actual, committed, pct)
   ON budget_alerts TO app_user;
-GRANT UPDATE (budget, actual, committed, pct, fired_at, resolved_at) ON budget_alerts TO app_user;
+-- fired_at and resolved_at are the clock's (budget_alerts_stamp): resolved_at is granted only so a
+-- writer can set or clear it; the value written is replaced.
+GRANT UPDATE (budget, actual, committed, pct, resolved_at) ON budget_alerts TO app_user;
 GRANT INSERT (company_id, user_id, kind, ref_id, title, body, href, dedupe_key) ON user_notifications TO app_user;
 GRANT UPDATE (read_at) ON user_notifications TO app_user;
 GRANT INSERT (company_id, document_type, document_id, policy, outcome, lines, reason, channel, decided_by)
@@ -421,13 +597,21 @@ GRANT INSERT (company_id, version_id, user_id, cc1_id, cc2_id, bu_id, gl_account
 GRANT UPDATE (gl_account_ids) ON budget_holders TO app_user;
 GRANT DELETE ON budget_holders TO app_user;
 GRANT INSERT (company_id, version_id, cc1_id, cc2_id, bu_id, due_date, created_by) ON budget_slice_reviews TO app_user;
-GRANT UPDATE (status, due_date, submitted_by, submitted_at, decided_by, decided_at, decision_note, updated_at)
-  ON budget_slice_reviews TO app_user;
+-- Actor and time stamps are budget_slice_reviews_stamp's: never app-writable.
+GRANT UPDATE (status, due_date, decision_note, updated_at) ON budget_slice_reviews TO app_user;
 GRANT DELETE ON budget_slice_reviews TO app_user;
 
 REVOKE ALL ON FUNCTION public.po_items_dimensions_check() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_controls_same_company() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.cost_centres_keep_control_kind() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.user_notifications_check() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_check_events_check() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_slice_reviews_stamp() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_alerts_stamp() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_controls_stamp_actor() FROM PUBLIC;
+-- notifyUsers asks it before writing, so a non-member is a plain error, not a 23503 mid-transaction.
+REVOKE ALL ON FUNCTION public.user_notification_recipient_ok(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.user_notification_recipient_ok(uuid, text) TO app_user;
 
 -- The service pool (cron, after-commit work) reaches the new tables through these mirrors.
 SELECT public.app_service_sync_policies();

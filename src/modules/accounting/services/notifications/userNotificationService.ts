@@ -95,18 +95,53 @@ export async function markRead(
   return { updated: rows.length };
 }
 
+/** A recipient who is not a member of the company (checked before anything is written). */
+export class NotificationRecipientError extends Error {
+  constructor(readonly userIds: string[]) {
+    super(`Not a member of this company: ${userIds.join(', ')}`);
+    this.name = 'NotificationRecipientError';
+  }
+}
+
+/** The table's limits (954 CHECKs), in characters (code points, as Postgres counts them). */
+export const MAX_TITLE = 200;
+export const MAX_BODY = 2000;
+export const MAX_DEDUPE_KEY = 200;
+
+/** NUL dropped (Postgres text cannot hold it), trimmed, cut to `max` code points. */
+function fit(text: string, max: number): string {
+  return Array.from(text.replace(/\u0000/g, '').trim()).slice(0, max).join('');
+}
+
 /**
- * One notification to each user (duplicates collapse; an existing dedupe key is left alone). Returns
- * nothing: the rows written for OTHER users are not readable here (no RETURNING, no count), and a
- * producer that must know whether it is new decides that on its own row (e.g. the alert's insert).
+ * One notification to each user (duplicates collapse; an existing dedupe key is left alone). Every
+ * recipient must be a member of the company (`user_notification_recipient_ok`, the same rule the
+ * table's trigger holds): a non-member is a NotificationRecipientError before anything is written,
+ * never a 23503 in the caller's transaction. Title and body are fitted to the table, so a long
+ * generated text cannot fail the caller either; a blank title, a bad dedupe key or a link that is
+ * not an in-app path is a plain Error. Returns nothing: rows written for OTHER users are not
+ * readable here (no RETURNING, no count); a producer that must know whether it is new decides that
+ * on its own row (e.g. the alert's insert).
  */
 export async function notifyUsers(companyId: string, userIds: readonly string[], n: NewNotification): Promise<void> {
-  if (n.href !== null && !isInAppPath(n.href)) throw new Error(`notifyUsers: href must be an in-app path, got ${n.href}`);
+  if (n.href !== null && !isInAppPath(n.href)) throw new Error(`notifyUsers: href must be an in-app path, got ${JSON.stringify(n.href)}`);
+  const title = fit(n.title, MAX_TITLE);
+  if (title === '') throw new Error('notifyUsers: title is blank');
+  const dedupeKey = n.dedupeKey.trim();
+  if (dedupeKey === '' || Array.from(dedupeKey).length > MAX_DEDUPE_KEY || dedupeKey.includes('\u0000')) {
+    throw new Error(`notifyUsers: dedupeKey must be 1-${MAX_DEDUPE_KEY} characters`);
+  }
+  const body = n.body === null ? null : fit(n.body, MAX_BODY) || null;
   const users = [...new Set(userIds)];
   if (users.length === 0) return;
+  const refused = (await sql`
+    SELECT u FROM unnest(${users}::TEXT[]) AS u
+     WHERE NOT public.user_notification_recipient_ok(${companyId}::UUID, u)
+  `) as DbRow[];
+  if (refused.length > 0) throw new NotificationRecipientError(refused.map((r) => String(r.u)));
   await sql`
     INSERT INTO user_notifications (company_id, user_id, kind, ref_id, title, body, href, dedupe_key)
-    SELECT ${companyId}::UUID, u, ${n.kind}, ${n.refId}::UUID, ${n.title}, ${n.body}, ${n.href}, ${n.dedupeKey}
+    SELECT ${companyId}::UUID, u, ${n.kind}, ${n.refId}::UUID, ${title}, ${body}, ${n.href}, ${dedupeKey}
       FROM unnest(${users}::TEXT[]) AS u
     ON CONFLICT DO NOTHING
   `;
