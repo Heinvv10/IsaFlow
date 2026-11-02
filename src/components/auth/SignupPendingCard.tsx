@@ -21,7 +21,7 @@ export function SignupPendingCard({ email }: { email: string }) {
             <p className="text-sm text-slate-600">
               We sent a confirmation link to{' '}
               <span className="font-semibold text-slate-900">{email}</span>. Open it to
-              activate your account and start your 14-day trial.
+              activate your account and start your 30-day trial.
             </p>
             <p className="text-xs text-slate-500">
               The link expires in 24 hours. Check your spam folder if it hasn&apos;t

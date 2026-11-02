@@ -314,13 +314,28 @@ describe('McpRegistry — fence order', () => {
     expect(() => registry.register(makeTool())).toThrow(/duplicate/);
   });
 
-  it('getManifest exposes name/description/inputSchema only', () => {
+  it('getManifest exposes MCP wire fields including annotations', () => {
     registry.register(makeTool());
     const manifest = registry.getManifest();
     expect(manifest).toEqual([
-      { name: 't', description: 'test tool', inputSchema: expect.any(Object) },
+      {
+        name: 't',
+        description: 'test tool',
+        inputSchema: expect.any(Object),
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
     ]);
-    expect(Object.keys(manifest[0]!)).toEqual(['name', 'description', 'inputSchema']);
+    expect(Object.keys(manifest[0]!)).toEqual([
+      'name',
+      'description',
+      'inputSchema',
+      'annotations',
+    ]);
   });
 });
 

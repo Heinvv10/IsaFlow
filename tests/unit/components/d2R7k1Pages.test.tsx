@@ -45,10 +45,10 @@ describe('VAT201 mark-submitted', () => {
     render(<VAT201Page />);
     fireEvent.click(await screen.findByRole('button', { name: /generate/i }));
     fireEvent.click(await screen.findByRole('button', { name: /save draft/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /mark as submitted/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /record as filed on efiling/i }));
     fireEvent.change(await screen.findByPlaceholderText('SARS reference number'), { target: { value: 'REF-1' } });
   };
-  const confirm = () => fireEvent.click(screen.getByRole('button', { name: /^confirm$|override and confirm/i }));
+  const confirm = () => fireEvent.click(screen.getByRole('button', { name: /^(record filing|override and record filing)$/i }));
 
   it('a 400 gate refusal shows the server message AND the blocking counts, with the modal kept open', async () => {
     await open(blocked);
@@ -56,19 +56,19 @@ describe('VAT201 mark-submitted', () => {
     expect(await screen.findByText(MSG)).toBeTruthy();
     expect(await screen.findByText(/2 blocking VAT exceptions/)).toBeTruthy();
     expect(screen.getByPlaceholderText('SARS reference number')).toBeTruthy();
-    expect(screen.queryByText(/marked as submitted/i)).toBeNull();
+    expect(screen.queryByText(/recorded as filed/i)).toBeNull();
   });
   it('an empty-body 500 shows a plain sentence and keeps the modal', async () => {
     await open(empty500);
     confirm();
-    expect(await screen.findByText('Could not mark the VAT201 as submitted - try again')).toBeTruthy();
+    expect(await screen.findByText('Could not record the VAT201 as filed - try again')).toBeTruthy();
     expect(noRawText()).toBe(true);
     expect(screen.getByPlaceholderText('SARS reference number')).toBeTruthy();
   });
   it('a 200 reports success and closes the modal', async () => {
     await open(() => ok({}));
     confirm();
-    expect(await screen.findByText('VAT201 marked as submitted to SARS')).toBeTruthy();
+    expect(await screen.findByText('VAT201 recorded as filed on eFiling')).toBeTruthy();
     await waitFor(() => expect(screen.queryByPlaceholderText('SARS reference number')).toBeNull());
   });
 });

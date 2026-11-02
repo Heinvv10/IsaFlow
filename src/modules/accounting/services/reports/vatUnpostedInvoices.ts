@@ -92,7 +92,8 @@ export async function findUnpostedInvoiceVat(
         END AS reason
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = ${companyId}::UUID
-      LEFT JOIN clients cl ON cl.id = ci.client_id
+      -- customers, not the clients view: it has no company_id to scope by.
+      LEFT JOIN customers cl ON cl.id = ci.client_id AND cl.company_id = ci.company_id
       LEFT JOIN gl_journal_entries je
         ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}::UUID
       WHERE ci.company_id = ${companyId}::UUID

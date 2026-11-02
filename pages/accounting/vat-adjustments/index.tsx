@@ -14,13 +14,14 @@ import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { DateField } from '@/components/ui/DateField';
-import { useDateGate } from '@/hooks/useDateGate';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
   adjustmentType: string; amount: number; reason: string; status: string;
 }
 
+const FIX_DATE = 'Fix the date marked in red before saving.';
 const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
@@ -36,15 +37,17 @@ export default function VATAdjustmentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  // Two gates: a refused list filter must not block the form, and a refused form date is not about the list.
   const dates = useDateGate();
+  const filterDates = useDateGate();
   const [form, setForm] = useState({
     adjustmentDate: localISODate(),
     vatPeriod: '', adjustmentType: 'input', amount: '', reason: '',
   });
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const onFromChange = dates.bind('dateFrom', setDateFrom, dateFrom);
-  const onToChange = dates.bind('dateTo', setDateTo, dateTo);
+  const onFromChange = filterDates.bind('dateFrom', setDateFrom, dateFrom);
+  const onToChange = filterDates.bind('dateTo', setDateTo, dateTo);
 
   const load = useCallback(async () => {
     try {
@@ -62,7 +65,7 @@ export default function VATAdjustmentsPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (dates.blocked) return;
+    if (dates.blocked) { setError(FIX_DATE); return; }
     setError(''); setBusy('new');
     try {
       const res = await apiFetch('/api/accounting/vat-adjustments', {
@@ -139,15 +142,15 @@ export default function VATAdjustmentsPage() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
 
           <div className="flex items-center gap-4">
-            <DateField label="From" value={dateFrom || null} resetKey={dates.resetKey('dateFrom')} onChange={onFromChange} />
-            <DateField label="To" value={dateTo || null} resetKey={dates.resetKey('dateTo')} onChange={onToChange} />
+            <DateField label="From" value={dateFrom || null} resetKey={filterDates.resetKey('dateFrom')} onChange={onFromChange} />
+            <DateField label="To" value={dateTo || null} resetKey={filterDates.resetKey('dateTo')} onChange={onToChange} />
             {(dateFrom || dateTo) && (
-              <button onClick={() => { dates.reset('dateFrom'); dates.reset('dateTo'); setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
+              <button onClick={() => { filterDates.reset('dateFrom'); filterDates.reset('dateTo'); setDateFrom(''); setDateTo(''); }} className="mt-4 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-secondary)]">Clear</button>
             )}
             <span className="mt-4 text-sm text-[var(--ff-text-secondary)] ml-auto">{filteredItems.length} adjustments</span>
           </div>
 
-          {dates.blocked && (
+          {filterDates.blocked && (
             <div role="alert" className="p-3 rounded-lg bg-red-500/10 text-red-700 dark:text-red-400 text-sm">
               Fix the date marked in red: the list below still uses the previous dates.
             </div>
@@ -157,8 +160,8 @@ export default function VATAdjustmentsPage() {
             <form onSubmit={handleSubmit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
               <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">New VAT Adjustment</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <DateField label="Adjustment Date" name="adjustmentDate" required value={form.adjustmentDate || null}
-                  onChange={dates.bind('adjustmentDate', iso => setForm(f => ({ ...f, adjustmentDate: iso })), form.adjustmentDate)} />
+                <GatedDateField gate={dates} gateKey="adjustmentDate" label="Adjustment Date" name="adjustmentDate" required value={form.adjustmentDate || null}
+                  onValue={iso => setForm(f => ({ ...f, adjustmentDate: iso }))} />
                 <input value={form.vatPeriod} onChange={e => setForm(f => ({ ...f, vatPeriod: e.target.value }))} className="ff-input" placeholder="VAT Period (e.g. 2026-01)" />
                 <select value={form.adjustmentType} onChange={e => setForm(f => ({ ...f, adjustmentType: e.target.value }))} className="ff-select">
                   <option value="input">Input VAT (Claimable)</option>

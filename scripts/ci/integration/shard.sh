@@ -12,8 +12,9 @@
 # to <work dir>/c<i>/summary. Exits non-zero if either database's run failed,
 # ran a different number of files than it was given, or ran out of time.
 #
-# Time limit: the whole shard gets CI_INT_SHARD_TIMEOUT seconds (default 1800,
-# 30 min; the slowest shard measured 23 min at load ~250). A suite that hangs
+# Time limit: the whole shard gets CI_INT_SHARD_TIMEOUT seconds (run.sh sets it:
+# 1800, 30 min, at 6 shards, more with fewer; the slowest of 6 shards measured
+# 23 min at load ~250). A suite that hangs
 # is then killed, and the summary names the file that was running.
 #
 # --allowOnly=false: env -i drops CI, and without it vitest would honour an

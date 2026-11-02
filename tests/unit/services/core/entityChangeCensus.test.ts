@@ -28,6 +28,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ROOT, sourceFiles, stripComments, withoutSqlComments } from '../../helpers/sourceCensus';
+import { SLOT_WRITERS } from '../../helpers/slotWriterCensus';
 
 const MIGRATIONS = 'scripts/migrations/sql/';
 const HISTORY_FILE = '888_entity_change_history.sql';
@@ -87,6 +88,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/accounting/company-logo.ts', 'pages/api/admin/billing/payg/[companyId]/eligibility.ts',
     'pages/api/admin/companies/bulk-action.ts', 'scripts/large-scale-seed.ts', 'scripts/provision-isademo2.ts',
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
+    'scripts/ci/golden-hosted/seed-demo.sql', // seeds the throwaway database of a hosted Golden Paths run (psql), never a shared one
     'scripts/qa-cleanup-run.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
     'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,
@@ -216,7 +218,7 @@ describe('entity change history (census)', () => {
   it.each(TRACKED)('every writer of %s is pinned', (t) => {
     const re = writes(t);
     const found = nonMigrations().filter(({ file, text }) => re.test(code(file, text))).map(({ file }) => file).sort();
-    expect(found).toEqual([...WRITERS[t]!].sort());
+    expect(found).toEqual([...WRITERS[t]!, ...(SLOT_WRITERS[t] ?? [])].sort());
   });
 
   it('nothing writes entity_changes, and only entityChangeQuery.ts reads it', () => {

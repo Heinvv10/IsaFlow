@@ -47,6 +47,21 @@ export interface McpToolResult {
   wroteNothing?: boolean;
 }
 
+/** MCP 2025-06-18 hints clients use when deciding whether to confirm a call. */
+export interface McpToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+}
+
+export interface McpToolManifest {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  annotations: McpToolAnnotations;
+}
+
 export interface McpTool {
   name: string;
   description: string;

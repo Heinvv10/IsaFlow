@@ -14,7 +14,10 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/lib/auth/gotrue', () => ({ verifyToken: vi.fn(async () => ({ sub: 'user-1' })) }));
 vi.mock('@/lib/auth/oauth', async () => {
   const scopes = await import('@/lib/auth/oauthScopes');
-  return { getOauthAppByClientId: vi.fn(), OAUTH_SCOPES: scopes.OAUTH_SCOPES };
+  return {
+    getOauthAppByClientId: vi.fn(),
+    OAUTH_SCOPES: scopes.OAUTH_SCOPES,
+  };
 });
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getUserCompanies: vi.fn() }));
 vi.mock('@/modules/admin/services/featureFlagService', () => ({
@@ -37,7 +40,7 @@ const COMPANY = '22222222-2222-2222-2222-222222222222';
 function ctx(query: Record<string, string>) {
   return {
     req: { headers: { cookie: `${ACCESS_COOKIE}=tok` } },
-    res: {},
+    res: { setHeader: vi.fn() },
     query: {
       client_id: 'client_abc',
       redirect_uri: 'https://claude.ai/cb',
@@ -120,10 +123,15 @@ describe('/oauth/authorize getServerSideProps — scope handling', () => {
     expect(props).toEqual({ ok: false, error: UNKNOWN_SCOPE_MESSAGE });
   });
 
-  it('write:post requested is still opt-in, never auto-granted', async () => {
-    const props = await propsFor({ scope: 'read:reports write:post' });
+  it('all requested write scopes are opt-in, while reads stay automatic', async () => {
+    const props = await propsFor({ scope: 'read:reports write:journals write:post' });
     const { autoGranted, optIn } = partitionRequestedScopes(props.scopes as string[]);
     expect(autoGranted).toEqual(['read:reports']);
-    expect(optIn).toEqual(['write:post']);
+    expect(optIn).toEqual(['write:journals', 'write:post']);
+  });
+
+  it('does not load or attach existing grants for write-scope defaults', async () => {
+    const props = await propsFor({ scope: 'read:reports write:journals write:accounts' });
+    expect(props).not.toHaveProperty('previouslyGrantedScopesByCompany');
   });
 });

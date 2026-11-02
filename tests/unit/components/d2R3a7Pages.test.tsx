@@ -48,7 +48,7 @@ import FinancialYearsPage from '../../../pages/accounting/financial-years/index'
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import BankAccountsPage from '../../../pages/accounting/bank-accounts/index';
 import NewInvoicePage from '../../../pages/accounting/customer-invoices/new';
-import { pickOption } from '../helpers/kitPick';
+import { clickWhenEnabled, pickOption } from '../helpers/kitPick';
 
 useApiJsonOverMock();
 afterEach(() => { cleanup(); push.mockClear(); vi.mocked(notify.error).mockClear(); vi.mocked(notify.success).mockClear(); document.body.removeAttribute('data-add-error'); document.body.removeAttribute('data-add-error-class'); });
@@ -212,7 +212,7 @@ describe('new invoice: a 200 without an id is a failure, not /customer-invoices/
     await pickOption('Client', 'D2 Client');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'D2 work' } });
     fireEvent.change(document.querySelector('input[name="unitPrice"]')!, { target: { value: '50' } });
-    await click(/^create invoice$/i);
+    await clickWhenEnabled(/^create invoice$/i); // it waits for the customer's defaults
     expect(await screen.findByText(/could not be opened - check the invoice list/)).toBeTruthy();
     expect(push).not.toHaveBeenCalled();
     expect(JSON.stringify(push.mock.calls)).not.toContain('undefined');

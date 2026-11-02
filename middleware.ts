@@ -2,8 +2,8 @@
  * Next.js Edge Middleware
  * - admin.isaflow.co.za: serve /admin/* pages with super_admin auth verification
  * - app.isaflow.co.za: redirect / to /accounting (app domain — no landing page)
- * - isaflow.co.za: show landing page at /, plus the public /blog and /sitemap.xml
- * - app.isaflow.co.za: /blog/* and /sitemap.xml 308 to https://isaflow.co.za (marketing only)
+ * - isaflow.co.za: show landing page at /, plus public help, blog, compare and sitemap pages
+ * - app.isaflow.co.za: help, blog and sitemap paths redirect to the marketing origin
  * - Redirects /admin/* on non-admin hosts to admin.isaflow.co.za
  * - Redirects unauthenticated /accounting/* and /payroll/* requests to /login
  */
@@ -51,11 +51,16 @@ const PUBLIC_PATHS = [
 /** Hostnames that should skip the landing page and go straight to the app */
 const APP_HOSTS = ['app.isaflow.co.za'];
 
-/** The marketing site; /blog and /sitemap.xml live only here. */
+/** Paths that live only on the marketing site. */
 const MARKETING_ORIGIN = 'https://isaflow.co.za';
 
 export function isMarketingOnlyPath(pathname: string): boolean {
-  return pathname === '/blog' || pathname.startsWith('/blog/') || pathname === '/sitemap.xml';
+  return pathname === '/blog'
+    || pathname.startsWith('/blog/')
+    || pathname === '/help'
+    || pathname.startsWith('/help/')
+    || pathname.startsWith('/compare/')
+    || pathname === '/sitemap.xml';
 }
 
 /** Hostnames that serve the /admin platform */
@@ -73,6 +78,19 @@ const ADMIN_PASSTHROUGH = [
   '/manifest.json',
   '/sw.js',
 ];
+
+/** Public hosts whose Host header a redirect may be built from. */
+const PUBLIC_HOSTS = [...APP_HOSTS, ...ADMIN_HOSTS, 'isaflow.co.za', 'www.isaflow.co.za'];
+
+/**
+ * Absolute URL for a same-host redirect. Since Next 15, request.url behind the
+ * proxy carries the server's own address (https://localhost:<PORT>), so a
+ * redirect built from it sent browsers to localhost (2026-11-02 outage). A known
+ * public host gets its https origin; anything else (dev) keeps request.url.
+ */
+export function sameHostUrl(path: string, request: NextRequest, host: string): URL {
+  return new URL(path, PUBLIC_HOSTS.includes(host) ? `https://${host}` : request.url);
+}
 
 const ADMIN_URL = process.env.NEXT_PUBLIC_ADMIN_URL ?? 'https://admin.isaflow.co.za';
 const CANONICAL_ADMIN_URL = 'https://admin.isaflow.co.za';
@@ -111,7 +129,7 @@ export function getAdminRedirectBase(
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const host = request.headers.get('host')?.split(':')[0] ?? '';
+  const host = (request.headers.get('host')?.split(':')[0] ?? '').toLowerCase();
 
   const isAdminHost = ADMIN_HOSTS.includes(host);
 
@@ -141,7 +159,7 @@ export async function middleware(request: NextRequest) {
 
     const adminToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
     if (!adminToken) {
-      const loginUrl = new URL('/login', request.url);
+      const loginUrl = sameHostUrl('/login', request, host);
       loginUrl.searchParams.set('returnTo', pathname + request.nextUrl.search);
       return NextResponse.redirect(loginUrl);
     }
@@ -163,7 +181,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Marketing-only paths on the app host: 308 to isaflow.co.za ───────────────
-  // The blog and the sitemap belong to the marketing host. One canonical host keeps
+  // Help, blog and the sitemap belong to the marketing host. One canonical host keeps
   // SEO in one place, and a stray app-host link still lands on the right page.
   if (APP_HOSTS.includes(host) && isMarketingOnlyPath(pathname)) {
     return NextResponse.redirect(`${MARKETING_ORIGIN}${pathname}${request.nextUrl.search}`, 308);
@@ -193,14 +211,14 @@ export async function middleware(request: NextRequest) {
   // redirect below — without this, a fresh user landing on /
   // bounces to /accounting without a CSRF cookie).
   if (pathname === '/' && APP_HOSTS.includes(host)) {
-    return issueCsrfCookie(request, NextResponse.redirect(new URL('/accounting', request.url)));
+    return issueCsrfCookie(request, NextResponse.redirect(sameHostUrl('/accounting', request, host)));
   }
 
   // Check for auth cookie on protected routes
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
 
   if (!token && (pathname.startsWith('/accounting') || pathname.startsWith('/payroll'))) {
-    const loginUrl = new URL('/login', request.url);
+    const loginUrl = sameHostUrl('/login', request, host);
     loginUrl.searchParams.set('returnTo', pathname + request.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
@@ -212,7 +230,7 @@ export async function middleware(request: NextRequest) {
   // call afterward fails until they hit a passthrough page.
   if (token && !request.cookies.get('ff_onboarding_done')?.value) {
     if (pathname.startsWith('/accounting') || pathname.startsWith('/payroll')) {
-      return issueCsrfCookie(request, NextResponse.redirect(new URL('/onboarding', request.url)));
+      return issueCsrfCookie(request, NextResponse.redirect(sameHostUrl('/onboarding', request, host)));
     }
   }
 

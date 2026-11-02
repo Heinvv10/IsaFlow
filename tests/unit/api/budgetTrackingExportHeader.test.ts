@@ -4,6 +4,7 @@
  * Budget columns (no budget for a year in this window, lines budgeted for part of it), each year's
  * version on a cross-FY window, and an empty version marked as such; CSV and XLSX alike.
  */
+import { noBudgetYearNotice } from '@/modules/accounting/services/budgets/tracking/trackingNoticeText';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ExcelJS from 'exceljs';
 
@@ -34,16 +35,41 @@ describe('budget-tracking-export header', () => {
       return { ...r, notices: { ...r.notices, noVersion: false, noVersionYears: [2026] } };
     });
     const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
-    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026 in this window']);
+    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026 in this window: its Budget and variance columns are shown as —, never as zero.']);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load((await call(exportHandler, { ...query, format: 'xlsx' })).sent as ArrayBuffer);
     const head: unknown[][] = [];
     wb.worksheets[0]!.eachRow((r) => { head.push([r.getCell(1).value, r.getCell(2).value]); });
-    expect(head).toContainEqual(['Notice', 'No budget for FY2026 in this window']);
+    expect(head).toContainEqual(['Notice', 'No budget for FY2026 in this window: its Budget and variance columns are shown as —, never as zero.']);
     // A fully versioned window carries no notice line.
     buildBudgetTrackingReport.mockImplementation(async () => fixture());
     const plain = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
     expect(plain.find((r) => r[0] === 'Notice')).toBeUndefined();
+  });
+
+  it('r4: every year with no budget has its own Notice row, in the words of both pages (no "FY2026, FY2028" list)', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => {
+      const r = fixture();
+      return { ...r, notices: { ...r.notices, noVersionYears: [2026, 2028] } };
+    });
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.filter((r) => r[0] === 'Notice')).toEqual([
+      ['Notice', noBudgetYearNotice(2026)], ['Notice', noBudgetYearNotice(2028)],
+    ]);
+  });
+
+  it('r3: a year with a budget, none of it at the filter, says so in the header, CSV and XLSX (the same words as the page)', async () => {
+    buildBudgetTrackingReport.mockImplementation(async () => {
+      const r = fixture();
+      return { ...r, notices: { ...r.notices, noBudgetAtFilterYears: [2027] } };
+    });
+    const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
+    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'FY2027 has a budget, but none of it is at this filter.']);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await call(exportHandler, { ...query, format: 'xlsx' })).sent as ArrayBuffer);
+    const head: unknown[][] = [];
+    wb.worksheets[0]!.eachRow((r) => { head.push([r.getCell(1).value, r.getCell(2).value]); });
+    expect(head).toContainEqual(['Notice', 'FY2027 has a budget, but none of it is at this filter.']);
   });
 
   it('R2: a cross-FY window names every version it reads, per year, in CSV and XLSX', async () => {
@@ -82,7 +108,7 @@ describe('budget-tracking-export header', () => {
     });
     const csv = parseCsv(String((await call(exportHandler, { ...query, format: 'csv' })).sent));
     expect(csv.find((r) => r[0] === 'Version')).toEqual(['Version', 'FY2026: no budget in this window; FY2027: Original · approved']);
-    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026 in this window']);
+    expect(csv.find((r) => r[0] === 'Notice')).toEqual(['Notice', 'No budget for FY2026 in this window: its Budget and variance columns are shown as —, never as zero.']);
   });
 
   it('G2: a single-year window whose version holds no budget in it says so beside the version', async () => {

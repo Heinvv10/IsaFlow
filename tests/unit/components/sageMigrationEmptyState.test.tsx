@@ -1,7 +1,7 @@
 /**
  * The old Sage migration page, with nothing in its staging tables, led with
  * developer text naming the sage_* tables. A client now meets "Import from
- * Sage" first, and it leads to the file-upload Migration Wizard (CSV / Excel
+ * Sage" first, and it leads to the file-upload Migration Wizard (CSV files
  * exported from Sage), not to a sign-in to Sage. No table name is shown.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -32,7 +32,8 @@ describe('Sage migration page with nothing staged', () => {
     render(<SageMigrationPage />);
     const link = await screen.findByRole('link', { name: /Import from Sage/ });
     expect(link.getAttribute('href')).toBe('/accounting/migration');
-    expect(link.parentElement?.textContent).toMatch(/CSV or\s+Excel/);
+    expect(link.parentElement?.textContent).toMatch(/as CSV\s+files/);
+    expect(link.parentElement?.textContent).toMatch(/save it as CSV UTF-8 first/);
     expect(document.body.textContent).not.toMatch(/sage_accounts|sage_ledger_transactions|sage_supplier_invoices|sync tables|No Sage Data to Migrate/);
     expect(document.body.textContent).not.toMatch(/sign in to Sage|Sage password/i);
     // First in the page: before the staff pipeline's step cards.

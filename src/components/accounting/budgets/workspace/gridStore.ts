@@ -11,6 +11,7 @@ import type { PriorActuals } from '@/modules/accounting/services/budgets/priorAc
 import { type CellKey, type Dimension, cellKey, parseKey } from '@/modules/accounting/services/budgets/grid/cellKey';
 import { rowKeyFor, type CellSource, type RowKey } from '@/modules/accounting/services/budgets/drivers/driverTypes';
 import type { StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import { isRestrictedPerHead, type VisibleDriverLine } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 import { type GridContext, type GridState, initialGridState } from '@/modules/accounting/services/budgets/grid/keyboard';
 import { type View, memberTotals, viewCellKey } from '@/modules/accounting/services/budgets/grid/pivot';
 import type { Pos } from '@/modules/accounting/services/budgets/grid/selection';
@@ -224,7 +225,7 @@ export class GridStore extends GridStoreCore {
   getClosedMonths = (): ReadonlySet<string> => this.closedMonths;
   /** The cell's loaded source is 'driver' (a clear is refused: change or delete the driver). */
   isDriverCell(key: CellKey): boolean { return this.sources.get(key) === 'driver'; }
-  driverOfRow(rowKey: RowKey): StoredDriverLine | null { return this.drivers.get(rowKey) ?? null; }
+  driverOfRow(rowKey: RowKey): VisibleDriverLine | null { return this.drivers.get(rowKey) ?? null; }
   /** The last recompute's warnings (a driver write's or a grid save's), shown on the rows' chips until the next. */
   setDriverWarnings(warnings: ReadonlyArray<{ rowKey: string; message: string }>): void {
     const next = new Map<RowKey, string>();
@@ -233,12 +234,16 @@ export class GridStore extends GridStoreCore {
     this.driverWarnings = next;
     this.rebuildAll();
   }
-  /** What the pure driver engine needs to preview a driver over the grid as it stands. */
+  /**
+   * What the pure driver engine needs to preview a driver over the grid as it stands. A reader's per_head lines come
+   * without their rate (perHeadAccess): they are left out, so their rows read as their cells stand.
+   */
   driverInputs(): { values: Map<CellKey, number | null>; sources: ReadonlyMap<CellKey, CellSource>; drivers: StoredDriverLine[]; bands: Map<string, GridAccount['band']> } {
     const values = new Map<CellKey, number | null>();
     for (const m of this.values.values()) for (const [k, v] of m) values.set(k, v);
     const bands = new Map([...this.accounts.values()].map(a => [a.id, a.band] as const));
-    return { values, sources: this.sources, drivers: [...this.drivers.values()], bands };
+    const drivers = [...this.drivers.values()].filter((d): d is StoredDriverLine => !isRestrictedPerHead(d));
+    return { values, sources: this.sources, drivers, bands };
   }
 
   /** The displayed cents at a month column, or the FY at the total column. */

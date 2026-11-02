@@ -119,10 +119,21 @@ describeIfDb('aging joins to customers/suppliers are scoped to the document comp
     expect(JSON.stringify(rows)).not.toContain(S.LEAK_CUSTOMER);
   });
 
-  it('the unallocated credit-note read returns only A\'s credit note, for A\'s customer', async () => {
-    const rows = await fetchUnallocatedCreditNotes(S.A, AS_AT);
-    expect(rows.map((r) => r.entityName)).toEqual([`Tenant A Customer ${S.TAG}`]);
-    expect(rows.map((r) => r.balance)).toEqual([-AMOUNTS.cnOk]);
+  it('the unallocated credit-note read keeps A\'s notes, the foreign customer\'s under UNKNOWN_CUSTOMER, and none of B\'s', async () => {
+    const number = `CN-${S.TAG.slice(-9)}-NO-PARTY`;
+    await admin.query(`INSERT INTO credit_notes (company_id, credit_note_number, credit_date, type, status, total_amount, applied_amount, created_by)
+      VALUES ($1,$2,'2026-05-15','customer','approved',7,0,$3)`, [S.A, number, S.USER]);
+    try {
+      const rows = await fetchUnallocatedCreditNotes(S.A, AS_AT);
+      const sorted = rows.map((r) => [r.entityId, r.entityName, r.balance]).sort();
+      expect(sorted).toEqual([
+        [S.CUST_A, `Tenant A Customer ${S.TAG}`, -AMOUNTS.cnOk],
+        [S.CUST_B, UNKNOWN_CUSTOMER, -AMOUNTS.cnPoisoned],
+      ].sort());
+      expect(JSON.stringify(rows)).not.toContain(S.LEAK_CUSTOMER);
+    } finally {
+      await admin.query('DELETE FROM credit_notes WHERE company_id = $1 AND credit_note_number = $2', [S.A, number]);
+    }
   });
 
   // AP mirrors AR: the foreign-supplier bill stays in the total as unknown.

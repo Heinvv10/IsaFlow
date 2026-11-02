@@ -15,7 +15,10 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/lib/auth/gotrue', () => ({ verifyToken: vi.fn(async () => ({ sub: 'user-1' })) }));
 vi.mock('@/lib/auth/oauth', async () => {
   const scopes = await import('@/lib/auth/oauthScopes');
-  return { getOauthAppByClientId: vi.fn(), OAUTH_SCOPES: scopes.OAUTH_SCOPES };
+  return {
+    getOauthAppByClientId: vi.fn(),
+    OAUTH_SCOPES: scopes.OAUTH_SCOPES,
+  };
 });
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getUserCompanies: vi.fn() }));
 vi.mock('@/modules/admin/services/featureFlagService', () => ({
@@ -105,10 +108,10 @@ describe('authorizationErrorRedirect', () => {
   });
 });
 
-function ctx(query: Record<string, string>) {
+function ctx(query: Record<string, string>, setHeader = vi.fn()) {
   return {
     req: { headers: { cookie: `${ACCESS_COOKIE}=tok` } },
-    res: {},
+    res: { setHeader },
     query: {
       client_id: 'client_abc',
       redirect_uri: 'https://client.example/cb',
@@ -150,5 +153,40 @@ describe('/oauth/authorize — resource and iss', () => {
 
     const without = (await getServerSideProps(ctx({}))) as { props: Record<string, unknown> };
     expect(without.props).toMatchObject({ ok: true, resource: null, issuer: 'https://app.isaflow.co.za' });
+  });
+
+  it('allows a trusted remote logo origin in this response CSP only', async () => {
+    vi.mocked(getOauthAppByClientId).mockResolvedValue({
+      id: 'app-1', name: 'Partner', description: null,
+      logoUrl: 'https://cdn.partner.example/assets/logo.png', homepageUrl: null,
+      redirectUris: ['https://client.example/cb'], clientId: 'client_abc',
+      isVerified: true, isFirstParty: false, isConfidential: false,
+    });
+    const setHeader = vi.fn();
+    const out = (await getServerSideProps(ctx({}, setHeader))) as { props: Record<string, unknown> };
+    expect(out.props.app).toMatchObject({ logoUrl: 'https://cdn.partner.example/assets/logo.png' });
+    expect(setHeader).toHaveBeenCalledWith(
+      'Content-Security-Policy',
+      expect.stringContaining('https://cdn.partner.example'),
+    );
+  });
+
+  // The last header set is the one the response carries; only the invoice preview frames a blob:.
+  const finalFrameSrc = (setHeader: ReturnType<typeof vi.fn>) => String(setHeader.mock.calls.filter((c) => c[0] === 'Content-Security-Policy').at(-1)?.[1])
+    .split('; ').find((d) => d.startsWith('frame-src '));
+
+  it.each([
+    ['a consent page with a logo', {}, 'https://cdn.partner.example/assets/logo.png'],
+    ['a consent page with no logo', {}, null],
+    ['an error page', { response_type: 'token' }, null],
+  ])('frames no blob: on %s', async (_name, query, logoUrl) => {
+    vi.mocked(getOauthAppByClientId).mockResolvedValue({
+      id: 'app-1', name: 'Partner', description: null, logoUrl, homepageUrl: null,
+      redirectUris: ['https://client.example/cb'], clientId: 'client_abc',
+      isVerified: true, isFirstParty: false, isConfidential: false,
+    });
+    const setHeader = vi.fn();
+    await getServerSideProps(ctx(query, setHeader));
+    expect(finalFrameSrc(setHeader)).toBe("frame-src 'self' https://signum.brighttech.co.za");
   });
 });

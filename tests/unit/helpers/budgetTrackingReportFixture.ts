@@ -47,7 +47,7 @@ export function trackingReport(rows: FixtureRow[], over: Partial<BudgetTrackingR
     bands: buildBands(lines),
     notices: {
       unbudgetedCount: 0, unbudgetedActual: { income: 0, expense: 0 }, unallocatedBudget: { income: 0, expense: 0 },
-      noVersion: false, partialBudget: null, noVersionYears: [],
+      noVersion: false, partialBudget: null, noVersionYears: [], noBudgetAtFilterYears: [],
     },
     years: YEARS,
     ...over,

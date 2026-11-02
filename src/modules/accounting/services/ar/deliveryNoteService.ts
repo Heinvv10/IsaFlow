@@ -120,7 +120,7 @@ export async function getDeliveryNotes(
       SELECT dn.*, c.name AS customer_name,
              COUNT(dnl.id) AS line_count
       FROM delivery_notes dn
-      LEFT JOIN customers c ON c.id = dn.customer_id
+      LEFT JOIN customers c ON c.id = dn.customer_id AND c.company_id = dn.company_id
       LEFT JOIN delivery_note_lines dnl ON dnl.delivery_note_id = dn.id
       WHERE dn.company_id = ${companyId}::UUID
         AND dn.status = ${filters.status}
@@ -137,7 +137,7 @@ export async function getDeliveryNotes(
       SELECT dn.*, c.name AS customer_name,
              COUNT(dnl.id) AS line_count
       FROM delivery_notes dn
-      LEFT JOIN customers c ON c.id = dn.customer_id
+      LEFT JOIN customers c ON c.id = dn.customer_id AND c.company_id = dn.company_id
       LEFT JOIN delivery_note_lines dnl ON dnl.delivery_note_id = dn.id
       WHERE dn.company_id = ${companyId}::UUID
       GROUP BY dn.id, c.name
@@ -163,7 +163,7 @@ export async function getDeliveryNote(
   const rows = (await sql`
     SELECT dn.*, c.name AS customer_name
     FROM delivery_notes dn
-    LEFT JOIN customers c ON c.id = dn.customer_id
+    LEFT JOIN customers c ON c.id = dn.customer_id AND c.company_id = dn.company_id
     WHERE dn.id = ${id}::UUID AND dn.company_id = ${companyId}::UUID
   `) as Row[];
 

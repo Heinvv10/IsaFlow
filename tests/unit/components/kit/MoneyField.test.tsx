@@ -54,7 +54,7 @@ describe('MoneyField', () => {
     type('25 000,00');
     expect(spy).not.toHaveBeenCalled();
     fireEvent.blur(input());
-    expect(spy).toHaveBeenCalledExactlyOnceWith(2_500_000, { valid: true, reason: null });
+    expect(spy).toHaveBeenCalledExactlyOnceWith(2_500_000, { valid: true, code: null, reason: null });
   });
 
   it('commits on Enter', () => {
@@ -185,10 +185,10 @@ describe('MoneyField', () => {
     expect(spy.mock.calls[0]?.[1].reason).toMatch(/digits/);
     type('5');
     fireEvent.blur(input());
-    expect(spy).toHaveBeenLastCalledWith(500, { valid: true, reason: null });
+    expect(spy).toHaveBeenLastCalledWith(500, { valid: true, code: null, reason: null });
     type('');
     fireEvent.blur(input());
-    expect(spy).toHaveBeenLastCalledWith(null, { valid: true, reason: null });
+    expect(spy).toHaveBeenLastCalledWith(null, { valid: true, code: null, reason: null });
     expect(spy).toHaveBeenCalledTimes(3);
   });
 

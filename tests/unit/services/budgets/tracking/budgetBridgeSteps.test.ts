@@ -31,10 +31,10 @@ function reportOf(actual: Record<string, number>, budget: Record<string, number>
   return { bands: buildBands(lines) };
 }
 
-// Sales 1000.10 vs 900.05; interest 0.30 unbudgeted; COS 300.20 vs 400; rent 200.07 vs 150.01; finance 20 vs 20.
+// Sales 1000.10 vs 900.05; interest 0.30 vs 0.10 (a band with no budget would make the profit totals, and so the bridge, null: final R9); COS 300.20 vs 400; rent 200.07 vs 150.01; finance 20 vs 20.
 const REPORT = reportOf(
   { sales: 1000.1, interest: 0.3, cos: 300.2, rent: 200.07, fin: 20 },
-  { sales: 900.05, cos: 400, rent: 150.01, fin: 20 },
+  { sales: 900.05, interest: 0.1, cos: 400, rent: 150.01, fin: 20 },
 );
 const npOf = (k: 'actual' | 'budget') => REPORT.bands.find((b) => b.key === 'net_profit')![k]!;
 
@@ -62,7 +62,7 @@ describe('budgetBridgeSteps', () => {
   it('an expense step is the NEGATED Δ, labelled with the ledger Δ; an income step is +Δ', () => {
     const by = (label: string) => steps.find((s) => s.label === label)!;
     expect([by('Turnover').value, by('Turnover').labelValue]).toEqual([100.05, undefined]);
-    expect([by('Other Income').value, by('Other Income').labelValue]).toEqual([0.3, undefined]);
+    expect([by('Other Income').value, by('Other Income').labelValue]).toEqual([0.2, undefined]);
     expect([by('Cost of Sales').value, by('Cost of Sales').labelValue]).toEqual([99.8, -99.8]);
     expect([by('Operating Expenses').value, by('Operating Expenses').labelValue]).toEqual([-50.06, 50.06]);
   });

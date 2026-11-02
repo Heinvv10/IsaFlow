@@ -60,8 +60,8 @@ export function DocMessagesTab({ messages, onMessageChange }: Props) {
       <div className="space-y-5">
         {MESSAGE_FIELDS.map(({ key, label, placeholder }) => (
           <div key={key}>
-            <label className={LABEL_CLS}>{label}</label>
-            <textarea
+            <label htmlFor={`doc-messages-tab-${key}`} className={LABEL_CLS}>{label}</label>
+            <textarea id={`doc-messages-tab-${key}`}
               className={TEXTAREA_CLS}
               rows={3}
               placeholder={placeholder}

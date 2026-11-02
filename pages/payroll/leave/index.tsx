@@ -101,6 +101,7 @@ export default function LeaveIndexPage() {
           <div className="flex items-center gap-3 mb-6">
             <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
             <select
+              aria-label="Filter by status"
               value={filterStatus}
               onChange={e => setFilterStatus(e.target.value)}
               className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -112,6 +113,7 @@ export default function LeaveIndexPage() {
               <option value="cancelled">Cancelled</option>
             </select>
             <select
+              aria-label="Filter by month"
               value={filterMonth}
               onChange={e => setFilterMonth(e.target.value)}
               className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -162,7 +164,7 @@ export default function LeaveIndexPage() {
                     <tr key={r.id} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
                       <td className="py-3 px-4">
                         <span className="font-medium text-[var(--ff-text-primary)]">{r.employeeName}</span>
-                        <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-mono">{r.employeeNumber}</span>
+                        <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-id">{r.employeeNumber}</span>
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.leaveTypeName}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.startDate)}</td>

@@ -10,6 +10,7 @@ import {
   ANNUAL_BILLING,
   VAT_INCLUSIVE,
   VAT_NOTE,
+  PAYG_PLAN,
 } from '@/components/landing/pricingData';
 
 /**
@@ -73,6 +74,45 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
       expect(CLOSE_AGENT_ADDON.price).toContain('299');
       expect(CLOSE_AGENT_ADDON.unit).toMatch(/entity/i);
     });
+
+    it('describes approval without denying permission-based AI posting', () => {
+      const copy = `${CLOSE_AGENT_ADDON.desc} ${CLOSE_AGENT_ADDON.bullets.join(' ')}`;
+      expect(copy).toContain('prepares entries for you to approve');
+      expect(copy).toContain('only post if you give them posting permission');
+      expect(copy).not.toMatch(/nothing posts without|approve every entry|no autonomous posting/i);
+    });
+  });
+
+  describe('Pay-As-You-Go plan (pricingData)', () => {
+    it('publishes the supported plan limits and bundle catalogue', () => {
+      expect(PAYG_PLAN.name).toBe('Pay-As-You-Go');
+      expect(PAYG_PLAN.price).toContain('0');
+      expect(PAYG_PLAN.limits).toEqual(['1 user', '1 company']);
+      expect(PAYG_PLAN.bundles).toEqual([
+        { flows: 100, price: 'R 10' },
+        { flows: 500, price: 'R 50' },
+        { flows: 1_500, price: 'R 150' },
+        { flows: 2_500, price: 'R 250' },
+      ]);
+    });
+
+    it('does not advertise a monthly transaction limit', () => {
+      expect(JSON.stringify(PAYG_PLAN)).not.toMatch(/transactions?\s*(?:per|\/)\s*month/i);
+    });
+
+    it('explains eligibility and does not duplicate the page-wide VAT note', () => {
+      expect(PAYG_PLAN.desc).toBe(
+        'Prepaid Flows with no monthly fee for eligible low-volume businesses.',
+      );
+      expect(PAYG_PLAN.eligibility).toBe(
+        'Eligible if your company has under R1 million annual turnover, averages fewer than 200 posted journal entries per month, or is approved by our team. Start with the free trial, then ask us to switch an eligible company to Pay-As-You-Go.',
+      );
+      expect(PAYG_PLAN.topupNote).toBe(
+        'Top up by buying another bundle whenever you need more Flows.',
+      );
+      expect(PAYG_PLAN).not.toHaveProperty('autoTopupNote');
+      expect(PAYG_PLAN).not.toHaveProperty('checkoutNote');
+    });
   });
 
   describe('CPI price-lock guarantee (pricingData)', () => {
@@ -82,10 +122,37 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
   });
 
   describe('Sage anchor comparison (pricingData)', () => {
-    it('shows the fully-added-up Sage stack (R1,140) against Business (R549)', () => {
+    const rand = (s: string): number => Number(s.replace(/[^0-9]/g, ''));
+
+    it('compares Sage Standard + Debtors Manager (R815) against Business (R549)', () => {
       const blob = JSON.stringify(SAGE_COMPARISON);
-      expect(blob).toMatch(/1[ ,]?140/);
+      expect(blob).toMatch(/R815/);
       expect(blob).toMatch(/549/);
+    });
+
+    it('Sage rows add up to the stated monthly total', () => {
+      const rows = SAGE_COMPARISON.rows;
+      const total = rows[rows.length - 1];
+      const parts = rows.slice(0, -1).reduce((sum, r) => sum + rand(r.sage), 0);
+      expect(parts).toBe(rand(total.sage));
+    });
+
+    it('cites the Sage source and the date the prices were checked', () => {
+      expect(SAGE_COMPARISON.source).toMatch(/sage\.com\/en-za/);
+      expect(SAGE_COMPARISON.checkedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  describe('Competitor claims stay sourced (CPA comparative advertising)', () => {
+    it('practice tiers and price-lock points make no competitor price claims', () => {
+      for (const line of [...PRICE_LOCK.points, ...BUREAU_SKUS.flatMap((t) => t.features)]) {
+        if (/QuickBooks|Xero|Cashbook/.test(line)) expect(line).not.toMatch(/R\d|\d+%|rais/i);
+      }
+    });
+
+    it('Sage rows are only add-ons IsaFlow Business has an equivalent for', () => {
+      const labels = SAGE_COMPARISON.rows.map((r) => r.label).join(' ');
+      expect(labels).not.toMatch(/Advanced inventory|Multi-currency/i);
     });
   });
 

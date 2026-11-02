@@ -4,7 +4,7 @@
  * Supported placeholder variables: {customer}, {number}, {amount}, {due_date}, {company}
  */
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Mail, ChevronDown, ChevronRight } from 'lucide-react';
 import { Company, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 
@@ -89,6 +89,7 @@ function TemplateBlock({
   onChange: (field: keyof Company, value: unknown) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const uid = useId();
   const subject = String(company[section.subjectField] ?? section.defaultSubject);
   const body = (company[section.bodyField] as string | null) ?? '';
   const signature = (company[section.signatureField] as string | null) ?? '';
@@ -111,8 +112,8 @@ function TemplateBlock({
       {open && (
         <div className="p-4 space-y-4 border-t border-[var(--ff-border-primary)]">
           <div>
-            <label className={LABEL_CLS}>Email Subject</label>
-            <input
+            <label htmlFor={`${uid}-subject`} className={LABEL_CLS}>Email Subject</label>
+            <input id={`${uid}-subject`}
               type="text"
               className={INPUT_CLS}
               value={subject}
@@ -121,8 +122,8 @@ function TemplateBlock({
             />
           </div>
           <div>
-            <label className={LABEL_CLS}>Email Body</label>
-            <textarea
+            <label htmlFor={`${uid}-body`} className={LABEL_CLS}>Email Body</label>
+            <textarea id={`${uid}-body`}
               className={TEXTAREA_CLS}
               rows={5}
               value={body}
@@ -131,8 +132,8 @@ function TemplateBlock({
             />
           </div>
           <div>
-            <label className={LABEL_CLS}>Email Signature (HTML allowed)</label>
-            <textarea
+            <label htmlFor={`${uid}-signature`} className={LABEL_CLS}>Email Signature (HTML allowed)</label>
+            <textarea id={`${uid}-signature`}
               className={TEXTAREA_CLS}
               rows={4}
               value={signature}

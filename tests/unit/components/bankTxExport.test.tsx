@@ -94,5 +94,9 @@ describe('BankTxFilters "Export all accounts" button', () => {
     fireEvent.click(screen.getByRole('button', { name: /Export all accounts/ }));
     expect(onExportAll).toHaveBeenCalledTimes(1);
     expect(onExport).not.toHaveBeenCalled();
+    // The plain Export button exports the loaded page only.
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
+    expect(onExport).toHaveBeenCalledTimes(1);
+    expect(onExportAll).toHaveBeenCalledTimes(1);
   });
 });

@@ -11,7 +11,10 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/lib/auth/gotrue', () => ({ verifyToken: vi.fn(async () => ({ sub: 'user-1' })) }));
 vi.mock('@/lib/auth/oauth', async () => {
   const scopes = await import('@/lib/auth/oauthScopes');
-  return { getOauthAppByClientId: vi.fn(), OAUTH_SCOPES: scopes.OAUTH_SCOPES };
+  return {
+    getOauthAppByClientId: vi.fn(),
+    OAUTH_SCOPES: scopes.OAUTH_SCOPES,
+  };
 });
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getUserCompanies: vi.fn() }));
 vi.mock('@/modules/admin/services/featureFlagService', () => ({ companiesWithFeature: vi.fn() }));
@@ -31,7 +34,7 @@ function ctx(activeCompany?: string) {
   const cookie = `${ACCESS_COOKIE}=tok${activeCompany ? `; ${ACTIVE_COMPANY_COOKIE}=${activeCompany}` : ''}`;
   return {
     req: { headers: { cookie } },
-    res: {},
+    res: { setHeader: vi.fn() },
     query: {
       client_id: 'client_abc', redirect_uri: 'https://claude.ai/cb', response_type: 'code',
       code_challenge: 'cc', code_challenge_method: 'S256',

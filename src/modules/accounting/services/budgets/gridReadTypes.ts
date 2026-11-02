@@ -9,7 +9,7 @@ import type { Band, BandTotals } from './grid/subtotals';
 import type { AccountGrain } from './grid/pivot';
 import type { BudgetVersion } from './budgetVersionTypes';
 import type { CellSource } from './drivers/driverTypes';
-import type { StoredDriverLine } from './drivers/driverLine';
+import type { VisibleDriverLine } from './drivers/perHeadAccess';
 
 export interface GridAccount {
   id: string;
@@ -75,8 +75,8 @@ export interface GridReadModel {
   dimensions: GridDimensions;
   cells: GridCell[];
   grains: Record<string, AccountGrain>;
-  /** The version's driver lines (P4), one per row at most; empty with no version. */
-  drivers: StoredDriverLine[];
+  /** The version's driver lines (P4), one per row at most; empty with no version. per_head rates for budget writers only (perHeadAccess). */
+  drivers: VisibleDriverLine[];
   /**
    * Band totals and GP / OP / NP per month and FY, in rand. A line counts once, at company level
    * (the sum of its dimension rows); a legacy header counts its OWN amounts once, never its roll-up.

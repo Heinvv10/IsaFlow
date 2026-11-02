@@ -2,7 +2,7 @@
  * /register — public self-serve signup.
  *
  * Open registration since 2026-08-19 (docs/plans/2026-08-19-self-serve-signup.md).
- * Anyone can create a tenant here; it lands on a 14-day trial.
+ * Anyone can create a tenant here; it lands on a 30-day trial.
  *
  * `?invite=[token]` never shows this form. An invitation is to join a company
  * that already exists, and this form creates a new one, so an invitee who

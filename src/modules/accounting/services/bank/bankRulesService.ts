@@ -36,7 +36,7 @@ export async function getRules(companyId: string): Promise<BankCategorisationRul
     FROM bank_categorisation_rules r
     LEFT JOIN gl_accounts ga ON ga.id = r.gl_account_id
     LEFT JOIN suppliers s ON s.id = r.supplier_id
-    LEFT JOIN customers c ON c.id = r.client_id
+    LEFT JOIN customers c ON c.id = r.client_id AND c.company_id = r.company_id
     WHERE r.company_id = ${companyId}::UUID
     ORDER BY r.priority ASC, r.rule_name ASC
   `) as Record<string, unknown>[];

@@ -38,7 +38,11 @@ import {
   refreshAccessToken,
   OauthExchangeError,
 } from '@/lib/auth/oauth';
-import { sqlMock, resetSqlMock, mockSqlOnce } from './helpers';
+import {
+  sqlMock,
+  resetSqlMock,
+  mockSqlOnce,
+} from './helpers';
 
 /** Queue `rows` as the result of the NEXT admin-pool statement. */
 function mockAdminOnce(rows: unknown[]): void {

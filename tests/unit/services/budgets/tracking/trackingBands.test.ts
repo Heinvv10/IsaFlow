@@ -68,21 +68,25 @@ describe('bands', () => {
     expect([CASE.band('operating_expense').actual, CASE.band('operating_expense').budget, CASE.band('operating_expense').variance]).toEqual([280, 150, 130]);
   });
 
+  // The same ledger with interest budgeted at 40: every band has a budget, so the profit totals are figures.
+  const FULL = build(
+    [a('sales', 1000), a('interest', 50), a('cos', 300), a('rent', 200), a('wages', 80), a('fin', 20)],
+    [b('sales', 900), b('interest', 40), b('cos', 400), b('rent', 150), b('wages', 0), b('fin', 20)],
+  );
+
   it('profit totals follow the statement, never revenue + expense (D1)', () => {
-    expect([CASE.band('gross_profit').actual, CASE.band('gross_profit').budget]).toEqual([700, 500]);
-    // OP = GP + other income − opex; other income's budget is absent and counts 0.
-    expect([CASE.band('operating_profit').actual, CASE.band('operating_profit').budget]).toEqual([470, 350]);
-    expect([CASE.band('net_profit').actual, CASE.band('net_profit').budget, CASE.band('net_profit').variance]).toEqual([450, 330, 120]);
-    expect(CASE.band('net_profit').kind).toBe('grand');
+    expect([FULL.band('gross_profit').actual, FULL.band('gross_profit').budget]).toEqual([700, 500]);
+    // OP = GP + other income − opex.
+    expect([FULL.band('operating_profit').actual, FULL.band('operating_profit').budget]).toEqual([470, 390]);
+    expect([FULL.band('net_profit').actual, FULL.band('net_profit').budget, FULL.band('net_profit').variance]).toEqual([450, 370, 80]);
+    expect(FULL.band('net_profit').kind).toBe('grand');
   });
 
-  it('favourable by polarity: income up, expense down, profit up', () => {
-    expect(CASE.band('turnover').favourable).toBe(true);
-    expect(CASE.band('cost_of_sales').favourable).toBe(true);
-    expect(CASE.band('operating_expense').favourable).toBe(false);
-    expect(CASE.band('net_profit').favourable).toBe(true);
-    expect(CASE.line('cos')!.favourable).toBe(true);
-    expect(CASE.line('rent')!.favourable).toBe(false);
+  it('a band whose lines have no budget is null, and every profit total netting it is null too (final R9)', () => {
+    // CASE: interest (other income) has an actual and no budget. Gross profit does not net it; operating and net profit do.
+    expect([CASE.band('other_income').budget, CASE.band('gross_profit').budget]).toEqual([null, 500]);
+    expect([CASE.band('operating_profit').budget, CASE.band('net_profit').budget, CASE.band('net_profit').variance]).toEqual([null, null, null]);
+    expect(CASE.band('net_profit').actual).toBe(450);
   });
 
   it('a band whose only budgets are zero is budgeted at zero, not unbudgeted', () => {

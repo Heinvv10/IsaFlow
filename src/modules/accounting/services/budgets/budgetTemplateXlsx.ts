@@ -220,7 +220,7 @@ export async function buildBudgetTemplate(model: GridReadModel, grain: TemplateG
 
 /** The template for one of the company's versions; another tenant's id is BUDGET_VERSION_NOT_FOUND. */
 export async function loadBudgetTemplate(companyId: string, versionId: string, grain: TemplateGrain, members?: readonly string[]): Promise<{ file: Buffer; fileName: string }> {
-  const model = await loadGridReadModel(companyId, { versionId });
+  const model = await loadGridReadModel(companyId, { versionId }, 'totals');
   const prior = await loadPriorActuals(companyId, model.year.fiscalYear, grain);
   const name = (model.version?.name ?? 'budget').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'budget';
   return { file: await buildBudgetTemplate(model, grain, prior, members), fileName: `budget-FY${model.year.fiscalYear}-${name}-${grain}.xlsx` };

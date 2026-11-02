@@ -21,7 +21,7 @@ export function ConsentRejected({ error }: { error: string }) {
             <p className="text-sm text-slate-400 mt-1">{error}</p>
           </div>
         </div>
-        <p className="text-xs text-slate-500 mt-4">
+        <p className="text-xs text-slate-400 mt-4">
           If you didn&apos;t initiate this request, you can safely close this page.
         </p>
       </div>

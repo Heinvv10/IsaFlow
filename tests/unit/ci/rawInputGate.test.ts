@@ -1,18 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
-import { runGate, type GateDeps, type GitRunner } from '../../../scripts/ci/rawInputAllowlist';
+import { runGate, UNNAMED_CONTROL_LIST, type GateDeps, type GitRunner } from '../../../scripts/ci/rawInputAllowlist';
 
 const LIST = 'eslint/raw-input-allowlist.json';
 
 /** A git whose ref `origin/master` (or `ref`) holds `baseText` at the list path; null = no list; false = no ref. */
-function git(baseText: string | null | false, ref = 'origin/master'): GitRunner & { calls: string[][] } {
+function git(baseText: string | null | false, ref = 'origin/master', list = LIST): GitRunner & { calls: string[][] } {
   const calls: string[][] = [];
   const fn = ((args: string[]) => {
     calls.push(args);
     if (baseText === false) throw new Error('unknown revision');
     if (args[0] === 'rev-parse') return 'abc\n';
-    if (args[0] === 'ls-tree') return baseText === null ? '' : `${LIST}\n`;
+    if (args[0] === 'ls-tree') {
+      expect(args[4]).toBe(list);
+      return baseText === null ? '' : `${list}\n`;
+    }
     if (args[0] === 'show') {
-      expect(args[1]).toBe(`${ref}:${LIST}`);
+      expect(args[1]).toBe(`${ref}:${list}`);
       return baseText as string;
     }
     throw new Error(`unexpected ${args.join(' ')}`);
@@ -71,6 +74,17 @@ describe('runGate --write in CI', () => {
     expect(d.actualCounts).not.toHaveBeenCalled();
     expect(g.calls).toEqual([]);
     expect(out.written).toEqual([]);
+  });
+
+  it.each([[{ GITHUB_ACTIONS: 'true' }], [{ CI: '1' }]])('%j: --write is refused outright, for both lists, with nothing written', async (ci) => {
+    for (const list of [undefined, UNNAMED_CONTROL_LIST]) {
+      const g = git(null);
+      const { d, out } = deps({ writing: true, env: ci, git: g, readList: () => null, list });
+      expect(await runGate(d)).toBe(1);
+      expect(out.error.join('\n')).toMatch(/--write is refused in CI/);
+      expect(d.actualCounts).not.toHaveBeenCalled();
+      expect(out.written).toEqual([]);
+    }
   });
 
   it('locally --write ignores the override: it prunes and makes no git call at all', async () => {
@@ -151,5 +165,35 @@ describe('runGate --write', () => {
     });
     expect(await runGate(d)).toBe(1);
     expect(out.written).toEqual([{ 'a.tsx': 2 }]);
+  });
+});
+
+describe('runGate: the unnamed-control list', () => {
+  const CONTROL = UNNAMED_CONTROL_LIST.path;
+  const control = (over: Partial<GateDeps>) => deps({ list: UNNAMED_CONTROL_LIST, ...over });
+
+  it('absent on the base ref and present on the head passes: it is created once', async () => {
+    const { d, out } = control({ git: git(null, 'origin/master', CONTROL) });
+    expect(await runGate(d)).toBe(0);
+    expect(out.log.join('\n')).toMatch(/\[unnamed-control-allowlist\] origin\/master has no allowlist yet/);
+  });
+
+  it('present on the base with a lower count than the head fails RAISED', async () => {
+    const { d, out } = control({ git: git('{"a.tsx": 1}', 'origin/master', CONTROL), actualCounts: async () => ({ 'a.tsx': 2 }) });
+    expect(await runGate(d)).toBe(1);
+    expect(out.error.join('\n')).toMatch(/\[unnamed-control-allowlist\] RAISED: a\.tsx is 2 on the list but 1 on origin\/master/);
+  });
+
+  it('a file added on the head that the base list does not have fails ADDED', async () => {
+    const { d, out } = control({ git: git('{"b.tsx": 1}', 'origin/master', CONTROL), readList: () => '{"a.tsx": 2, "b.tsx": 1}', actualCounts: async () => ({ 'a.tsx': 2, 'b.tsx': 1 }) });
+    expect(await runGate(d)).toBe(1);
+    expect(out.error.join('\n')).toMatch(/ADDED: a\.tsx/);
+  });
+
+  it('a deleted list fails the gate, and NEW names the control kind', async () => {
+    expect(await runGate(control({ readList: () => null }).d)).toBe(1);
+    const { d, out } = control({ git: git('{"a.tsx": 2}', 'origin/master', CONTROL), actualCounts: async () => ({ 'a.tsx': 2, 'n.tsx': 1 }) });
+    expect(await runGate(d)).toBe(1);
+    expect(out.error.join('\n')).toMatch(/NEW: n\.tsx has 1 unnamed <select>\/<textarea>/);
   });
 });

@@ -2,6 +2,7 @@ import { configDefaults, defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { VELO_MACHINE_FILES } from './vitest.print.config';
 
 // Unit files that write journals to the dev DB (see `projects` below). Matched by
 // name, so a new real-DB test that writes journals must use one of these
@@ -38,7 +39,8 @@ export default defineConfig(({ mode }) => {
       // parallel. It runs as its own serial `browser-tests` step in
       // scripts/ci/run-ci.sh (`bun run test:print`, vitest.print.config.ts) —
       // excluded HERE so it is not run twice, and required THERE so it is not
-      // optional. Anything added to that directory moves with it. (The exclude
+      // optional. Anything added to that directory moves with it, and so do
+      // VELO_MACHINE_FILES (tests that need a binary only velo has). (The exclude
       // is on the `unit` project below: a project's include/exclude MERGE with
       // the root's under `extends`, so the root must not set either.)
       testTimeout: 10000,
@@ -48,7 +50,7 @@ export default defineConfig(({ mode }) => {
       // parallel they queue on each other and the losers fail with "lock
       // timeout". They run one file at a time, beside the parallel rest.
       projects: [
-        { extends: true, test: { name: 'unit', include: ['tests/unit/**/*.test.ts'], exclude: [...configDefaults.exclude, 'tests/unit/print/**', ...DB_UNIT_FILES] } },
+        { extends: true, test: { name: 'unit', include: ['tests/unit/**/*.test.ts'], exclude: [...configDefaults.exclude, 'tests/unit/print/**', ...VELO_MACHINE_FILES, ...DB_UNIT_FILES] } },
         { extends: true, test: { name: 'unit-db', include: DB_UNIT_FILES, fileParallelism: false } },
       ],
       coverage: {

@@ -7,11 +7,12 @@ import type { GetServerSideProps } from 'next';
 import { BLOG_REVALIDATE_SECONDS } from '@/lib/blog/constants';
 import { loadAllPosts } from '@/lib/blog/content';
 import { buildSitemapXml } from '@/lib/blog/feeds';
+import { loadAllHelpDocuments } from '@/lib/help/content';
 
 export const getServerSideProps: GetServerSideProps = async ({ res }) => {
   res.setHeader('Content-Type', 'application/xml; charset=utf-8');
   res.setHeader('Cache-Control', `public, s-maxage=${BLOG_REVALIDATE_SECONDS}, stale-while-revalidate=60`);
-  res.end(buildSitemapXml(loadAllPosts(), new Date()));
+  res.end(buildSitemapXml(loadAllPosts(), new Date(), loadAllHelpDocuments()));
   return { props: {} };
 };
 

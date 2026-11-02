@@ -229,7 +229,7 @@ describe('review round 5: a cross-year window budgeted in some years only (G1, G
     }
   });
 
-  it("A1a: CC2 = P1, FY2028's only rows are P2's (other for P1): FY2028 is budget-absent for P1's view", async () => {
+  it("A1a: CC2 = P1, FY2028's only rows are P2's (other for P1): FY2028 HAS a budget, none of it at P1 (review r2, R8: judged before the filter)", async () => {
     const r = await asRequest(pool, f.a, f.userA, () => buildBudgetTrackingReport(f.a, { ...W, cc2Id: f.cc.P1 }, NOW), {
       before: async (c) => {
         await del(c, f.v.primary28);
@@ -237,9 +237,10 @@ describe('review round 5: a cross-year window budgeted in some years only (G1, G
         await amt(c, f.v.primary28, f.acc.sales, '2027-06-01', 100, { cc2: f.cc.P2 });
       },
     });
-    expect(r.notices.noVersionYears).toEqual([2028]);
-    expect([line(r, f.acc.sales).budget, np(r).budget]).toEqual([null, null]);
-    expect(r.versionsByFy?.[2028]?.empty).toBe(true);
+    // Not "no budget for FY2028": the year is budgeted, at P2. Sales is budgeted at P1 in FY2027 only, so it is partial.
+    expect([r.notices.noVersionYears, r.notices.noBudgetAtFilterYears]).toEqual([[], [2028]]);
+    expect([line(r, f.acc.sales).budget, line(r, f.acc.sales).partialBudget, np(r).budget]).toEqual([null, true, null]);
+    expect(r.versionsByFy?.[2028]?.empty).toBeUndefined();
   });
 
   it('A1b: CC2 = P1, FY2028 holds only company-level opex (coarser for P1): the year stays, sales is partial', async () => {
