@@ -89,7 +89,7 @@ interface Props {
 }
 
 export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
-  const { selectedIds, rowSelections, onToggleSelect, onRowTypeChange, onUpdateNotes } = table;
+  const { selectedIds, rowSelections, onToggleSelect, onRowTypeChange, onUpdateNotes, onOpenDetails } = table;
   const isNew = tx.status === 'imported';
   const isAllocated = tx.status === 'allocated';
   const sel = rowSelections[tx.id];
@@ -103,7 +103,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
   return (
     <tr
       {...rowProps}
-      className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-secondary)]/50 outline-none data-[focused]:bg-[var(--ff-bg-tertiary)] data-[focused]:ring-1 data-[focused]:ring-inset data-[focused]:ring-[var(--ff-border-secondary)] ${
+      className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-secondary)]/50 outline-none data-[focused]:bg-[var(--ff-bg-tertiary)] dark:data-[focused]:bg-[var(--ff-bg-secondary)] data-[focused]:ring-1 data-[focused]:ring-inset data-[focused]:ring-[var(--ff-border-secondary)] ${
         isOpen ? 'bg-blue-500/5' : isAllocated ? 'bg-teal-500/5' : ''
       } ${isExcluded ? 'opacity-60' : ''}`}
     >
@@ -113,14 +113,23 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
           onChange={() => onToggleSelect(tx.id)} className="accent-teal-500"
           aria-label={`Select ${label}`} />
       </td>
-      <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
+      <td className="py-2 px-2 tabular-nums text-xs text-[var(--ff-text-secondary)]">
         {formatDisplayDate(tx.transactionDate)}
       </td>
       <td className="py-2 px-2 text-[var(--ff-text-primary)]">
-        <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+        {onOpenDetails ? (
+          <button type="button" onClick={() => onOpenDetails(tx.id)} aria-label={`Details, ${label}`}
+            // Enter here opens the drawer. Bubbled to the grid, it would accept the row, which posts a journal.
+            onKeyDown={e => { if (e.key === 'Enter') e.stopPropagation(); }}
+            className="block w-full text-left hover:underline">
+            <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+          </button>
+        ) : (
+          <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+        )}
         {isPendingFeedRow(tx) && <PendingFeedBadge />}
         {tx.status === 'provisional' && (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/40 text-amber-300 ml-1"
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 ml-1"
             title="Posted by AI — needs evidence">
             <Clock className="h-2.5 w-2.5" /> Provisional
           </span>

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2CensusG4';
-import { pickOption } from '../helpers/kitPick';
+import { clickWhenEnabled, pickOption } from '../helpers/kitPick';
 import { typeDate } from '../helpers/dateFields';
 
 const push = vi.fn();
@@ -57,7 +57,7 @@ const sentBody = (method: string): unknown => {
 };
 const calls = (method: string) => vi.mocked(apiFetch).mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === method).length;
 const field = (label: string) => screen.getByLabelText(label === 'Invoice date' ? /^Invoice date/ : label); // Invoice date is required: its label also holds the asterisk
-const submitNew = () => fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
+const submitNew = () => clickWhenEnabled(/^create invoice$/i);
 
 async function fillNew() {
   render(<NewPage />);
@@ -78,7 +78,7 @@ describe('request body is unchanged by the kit', () => {
   it('new invoice POST', async () => {
     serve();
     await fillNew();
-    submitNew();
+    await submitNew();
     await waitFor(() => expect(push).toHaveBeenCalled());
     expect(sentBody('POST')).toEqual({
       clientId: 'c-1', invoiceDate: '2026-10-01', dueDate: '2026-10-31', billingPeriodStart: '2026-09-01', billingPeriodEnd: '2026-09-30',
@@ -109,7 +109,7 @@ describe('dates', () => {
     serve();
     await fillNew();
     typeDate(field('Invoice date'), '1 Oct 2026');
-    submitNew();
+    await submitNew();
     await waitFor(() => expect(calls('POST')).toBe(1));
     expect((sentBody('POST') as { invoiceDate: string }).invoiceDate).toBe('2026-10-01');
   });
@@ -118,7 +118,7 @@ describe('dates', () => {
     serve();
     await fillNew();
     typeDate(field('Due date'), 'zz');
-    submitNew();
+    await submitNew();
     expect((await screen.findAllByRole('alert')).map((a) => a.textContent).join('|')).toContain('Fix the dates marked in red before saving');
     expect(calls('POST')).toBe(0);
   });
@@ -128,7 +128,7 @@ describe('dates', () => {
     await fillNew();
     typeDate(field('Due date'), '15 Sep 2026');
     expect(screen.getAllByRole('alert').map((a) => a.textContent).join('|')).toContain('on or after 01 Oct 2026');
-    submitNew();
+    await submitNew();
     await waitFor(() => expect(screen.getAllByRole('alert').map((a) => a.textContent).join('|')).toContain('Fix the dates marked in red'));
     expect(calls('POST')).toBe(0);
   });
@@ -137,7 +137,7 @@ describe('dates', () => {
     serve();
     await fillNew();
     typeDate(field('Invoice date'), '15 Nov 2026');
-    submitNew();
+    await submitNew();
     expect(await screen.findByText('The due date must be on or after the invoice date')).toBeTruthy();
     expect(calls('POST')).toBe(0);
   });
@@ -148,7 +148,7 @@ describe('dates', () => {
     typeDate(field('Due date'), '15 Sep 2026'); // refused: before the 1 Oct invoice date
     typeDate(field('Invoice date'), '1 Sep 2026');
     expect(screen.queryAllByRole('alert').map((a) => a.textContent).join('|')).not.toContain('on or after');
-    submitNew();
+    await submitNew();
     await waitFor(() => expect(calls('POST')).toBe(1));
     expect((sentBody('POST') as { dueDate: string }).dueDate).toBe('2026-10-31'); // the last accepted due date
   });
@@ -160,7 +160,7 @@ describe('dates', () => {
     fireEvent.click(screen.getByRole('button', { name: 'scan stub' }));
     await waitFor(() => expect((field('Due date') as HTMLInputElement).value).toBe('31 Aug 2026'));
     expect((field('Invoice date') as HTMLInputElement).value).toBe('01 Aug 2026');
-    submitNew();
+    await submitNew();
     await waitFor(() => expect(calls('POST')).toBe(1));
     expect(sentBody('POST')).toMatchObject({ invoiceDate: '2026-08-01', dueDate: '2026-08-31' });
   });
@@ -180,7 +180,7 @@ describe('dates', () => {
   it('Save & New clears the form, its due date and any refusal', async () => {
     serve();
     await fillNew();
-    fireEvent.click(screen.getByRole('button', { name: /save & new/i }));
+    await clickWhenEnabled(/save & new/i);
     await waitFor(() => expect(calls('POST')).toBe(1));
     await waitFor(() => expect((field('Due date') as HTMLInputElement).value).toBe(''));
     expect((field('Invoice date') as HTMLInputElement).value).not.toBe('');
@@ -191,7 +191,7 @@ describe('dates', () => {
     serve();
     await fillNew();
     typeDate(field('Invoice date'), '');
-    submitNew();
+    await submitNew();
     expect(await screen.findByText('Fix the dates marked in red before saving')).toBeTruthy(); // the page's refusal, shown after the click settled
     expect(calls('POST')).toBe(0);
   });
@@ -213,7 +213,7 @@ describe('kit pickers', () => {
   it('ContactPicker selection sets clientId', async () => {
     serve();
     await fillNew();
-    submitNew();
+    await submitNew();
     await waitFor(() => expect(calls('POST')).toBe(1));
     expect((sentBody('POST') as { clientId: string }).clientId).toBe('c-1');
   });
@@ -221,7 +221,7 @@ describe('kit pickers', () => {
   it('submit without a client is refused', async () => {
     serve();
     render(<NewPage />);
-    submitNew();
+    await submitNew();
     expect(await screen.findByText('Select a client')).toBeTruthy();
   });
 

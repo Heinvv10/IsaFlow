@@ -14,10 +14,12 @@ interface Props {
   currencyCode: string;
   /** Foreign-currency invoices only: the ZAR preview and the rate it used. */
   fx?: { zarTotal: number; rate: number };
+  /** Inclusive mode only: the gross the shown prices add up to. Shown beside `total` whenever the two differ; the stored total is the invoice (taxMode.ts). */
+  typedTotal?: number;
   children: ReactNode;
 }
 
-export function InvoiceSummaryCard({ subtotal, tax, total, taxRate, currencyCode, fx, children }: Props) {
+export function InvoiceSummaryCard({ subtotal, tax, total, taxRate, currencyCode, fx, typedTotal, children }: Props) {
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
       <div className="flex items-center gap-2 mb-5">
@@ -37,6 +39,14 @@ export function InvoiceSummaryCard({ subtotal, tax, total, taxRate, currencyCode
         <div className="flex justify-between">
           <span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span>
           <span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrencyAmount(total, currencyCode)}</span>
+        </div>
+        {/* Always mounted: a status region announces a change only if it was in the page before the change. */}
+        <div role="status">
+          {typedTotal !== undefined && typedTotal !== total && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              These prices come to {formatCurrencyAmount(typedTotal, currencyCode)} incl. VAT; the invoice total is {formatCurrencyAmount(total, currencyCode)}.
+            </p>
+          )}
         </div>
         {fx && (
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800">

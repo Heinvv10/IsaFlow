@@ -30,7 +30,9 @@ import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
 import { findJournalChainRoot, shareLockChainHeadOf } from '../shared/journalChainHead';
 import { postingRefOf, recordAutoPostUndone, recordExcluded, recordMatchDecision } from './codingDecisionLog';
+import { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedError } from './bankTxStatusErrors';
 export { BankMatchUnavailableError } from './bankTxLock';
+export { BankLineChangedError, BankMatchTargetError, BankTransactionAllocatedError, type BankMatchTargetCode } from './bankTxStatusErrors';
 
 type Row = DbRow;
 
@@ -47,49 +49,19 @@ type Row = DbRow;
 const POSTED_STATUS = 'allocated';
 
 /**
- * Raised when a status mutation is asked to overwrite a row that carries a
- * posted journal. The bank API routes return a caught service error's message
- * as a 400, so this wording is what the caller reads.
- */
-export class BankTransactionAllocatedError extends Error {
-  readonly code = 'BANK_TX_ALLOCATED';
-  constructor(bankTxId: string, status: string, verb: string) {
-    super(
-      `Bank transaction ${bankTxId} is ${status} with a posted journal — `
-      + `reverse the allocation before you ${verb} it.`,
-    );
-    this.name = 'BankTransactionAllocatedError';
-  }
-}
-
-/**
- * Raised when a match names a target this company cannot use, or a journal line
- * another bank transaction already holds.
- *
- * Typed rather than a bare `Error` because `autoMatchTransactions` rethrows
- * everything it does not recognise, and `withAuth` COMMITs the 4xx the route
- * then returns — so an escaping throw aborts the run with the matches it had
- * already applied persisted. `LINE_CLAIMED` is exactly the race that loop was
- * written to tolerate (the candidate query excludes claimed lines, so it can
- * only fire when a peer binds the line in between), so the code is what lets
- * the loop skip that one case and keep rethrowing the rest.
- */
-export type BankMatchTargetCode = 'LINE_NOT_FOUND' | 'LINE_CLAIMED' | 'LINE_REVERSED' | 'RECONCILIATION_NOT_FOUND';
-
-export class BankMatchTargetError extends Error {
-  constructor(readonly code: BankMatchTargetCode, message: string) {
-    super(message);
-    this.name = 'BankMatchTargetError';
-  }
-}
-
-/**
  * Lock the row, then refuse if it has already been allocated. `verb` is the
  * caller's own word for what it was about to do, so the message reads naturally.
  */
-async function lockForStatusWrite(companyId: string, bankTxId: string, verb: ProvisionalLineVerb): Promise<Row> {
+async function lockForStatusWrite(
+  companyId: string, bankTxId: string, verb: ProvisionalLineVerb, expectedStatus?: string,
+): Promise<Row> {
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
+  // First: to a caller holding an expectation, every other refusal below is this one. Exclude keeps a line's match,
+  // and this caller goes on to wipe it: the status alone cannot tell a line that was imported from one someone matched.
+  if (expectedStatus !== undefined && (row.status !== expectedStatus || row.matched_journal_line_id)) {
+    throw new BankLineChangedError('excluded');
+  }
   assertFeedPosted(row, verb);
   // D12: a line IN a completed reconciliation (the shared rule; its session was locked with the row) — 409.
   await refuseLineOfCompletedReconciliation(companyId, row);
@@ -262,9 +234,11 @@ export async function matchTransaction(
   }
 }
 
-export async function unmatchTransaction(companyId: string, bankTxId: string, userId?: string): Promise<BankTransaction> {
+export async function unmatchTransaction(
+  companyId: string, bankTxId: string, userId?: string, opts?: { expectedStatus?: 'excluded' },
+): Promise<BankTransaction> {
   try {
-    const before = postingRefOf(await lockForStatusWrite(companyId, bankTxId, 'unmatch'));
+    const before = postingRefOf(await lockForStatusWrite(companyId, bankTxId, 'unmatch', opts?.expectedStatus));
     const rows = (await sql`
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL,
@@ -281,18 +255,19 @@ export async function unmatchTransaction(companyId: string, bankTxId: string, us
   }
 }
 
+/** `priorStatus` is read under the lock: the page offers Undo from it, not from a grid that may be stale. */
 export async function excludeTransaction(
   companyId: string, bankTxId: string, reason: string | undefined, userId: string,
-): Promise<BankTransaction> {
+): Promise<BankTransaction & { priorStatus: string }> {
   try {
-    await lockForStatusWrite(companyId, bankTxId, 'exclude');
+    const priorStatus = String((await lockForStatusWrite(companyId, bankTxId, 'exclude')).status);
     const rows = (await sql`
       UPDATE bank_transactions SET status = 'excluded', excluded_reason = ${reason || null}
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     await recordExcluded(companyId, bankTxId, userId); // learning loop (non-fatal)
     log.info('Excluded bank transaction', { bankTxId, reason }, 'accounting');
-    return mapTxRow(rows[0]!);
+    return { ...mapTxRow(rows[0]!), priorStatus };
   } catch (err) {
     log.error('Failed to exclude bank transaction', { bankTxId, error: err }, 'accounting');
     throw err;
