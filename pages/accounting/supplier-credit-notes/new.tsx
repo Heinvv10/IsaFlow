@@ -4,14 +4,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
+import { Plus, Trash2, Loader2, Receipt, FileText } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 
 interface LineItem { description: string; quantity: number; unitPrice: number; vatType: string }
@@ -115,20 +114,12 @@ export default function NewSupplierCreditNotePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Hero header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/supplier-credit-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">Supplier Credit Note</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={FileText}
+          title="Supplier Credit Note"
+          breadcrumb={[{ label: 'Supplier Credit Notes', href: '/accounting/supplier-credit-notes' }, { label: 'New credit note' }]}
+          className="mb-0"
+        />
 
         <form onSubmit={e => { void handleSubmit(e); }} className="p-6 xl:p-8">
           <div className="max-w-6xl mx-auto flex gap-6 items-start">

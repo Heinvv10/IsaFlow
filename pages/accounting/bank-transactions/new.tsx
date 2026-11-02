@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { ArrowLeft, Loader2, Receipt, Banknote } from 'lucide-react';
+import { Loader2, Receipt, Banknote } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
 import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -16,7 +16,7 @@ import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes'
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 
 type TxType = 'spend' | 'receive';
 type AllocType = 'account' | 'supplier' | 'customer';
@@ -177,27 +177,19 @@ export default function NewBankTransactionPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/bank-transactions" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Bank Transactions
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">{txType === 'spend' ? 'Spend Money' : 'Receive Money'}</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={Banknote}
+          title={txType === 'spend' ? 'Spend Money' : 'Receive Money'}
+          breadcrumb={[{ label: 'Bank Transactions', href: '/accounting/bank-transactions' }, { label: 'New transaction' }]}
+          className="mb-0"
+        />
 
         {/* Type toggle */}
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
           <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-fit">
             {(['spend', 'receive'] as TxType[]).map(t => (
               <button key={t} type="button" onClick={() => setTxType(t)}
-                className={`px-4 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${txType === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+                className={`px-4 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${txType === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
                 {t === 'spend' ? 'Spend Money' : 'Receive Money'}
               </button>
             ))}
@@ -296,7 +288,7 @@ export default function NewBankTransactionPage() {
                                   return (
                                     <button key={o.id} type="button" onClick={() => handleEntitySelect(o.id, label)}
                                       className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm flex items-center gap-2 transition-colors">
-                                      {o.code && <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{o.code}</span>}
+                                      {o.code && <span className="font-id text-xs text-slate-500 dark:text-slate-400">{o.code}</span>}
                                       <span className="text-slate-900 dark:text-slate-100">{o.name}</span>
                                     </button>
                                   );
@@ -328,7 +320,7 @@ export default function NewBankTransactionPage() {
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Type</span>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${txType === 'spend' ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'}`}>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${txType === 'spend' ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400' : 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'}`}>
                         {txType === 'spend' ? 'Spend' : 'Receive'}
                       </span>
                     </div>

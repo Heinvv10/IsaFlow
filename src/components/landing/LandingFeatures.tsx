@@ -74,7 +74,7 @@ export function LandingDetailedFeatures() {
                     className="hidden aspect-[16/10] bg-gradient-to-br from-slate-800 to-gray-900 items-center justify-center"
                     style={{ display: 'none' }}
                   >
-                    <p className="text-gray-500 text-sm">{f.title} screenshot</p>
+                    <p className="text-slate-300 text-sm">{f.title} screenshot</p>
                   </div>
                 </div>
               </div>

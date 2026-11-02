@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { FileText, Plus, Loader2, Download, ChevronRight } from 'lucide-react';
-import { StatusPill } from '@/components/ui';
+import { PageHeader, StatusPill } from '@/components/ui';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -64,27 +64,24 @@ export default function CreditNotesPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10 flex items-center justify-between">
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Customers &amp; Suppliers</p>
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Credit Notes</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">{total} {total === 1 ? 'credit note' : 'credit notes'}</p>
-            </div>
-            <div className="flex items-center gap-2">
+        <PageHeader
+          icon={FileText}
+          title="Credit Notes"
+          subtitle={`${total} ${total === 1 ? 'credit note' : 'credit notes'}`}
+          className="mb-0"
+          actions={
+            <>
               {creditNotes.length > 0 && (
-                <button onClick={exportCSV} className="flex items-center gap-2 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-slate-900 dark:text-white rounded-xl text-sm font-medium transition-colors">
+                <button onClick={exportCSV} className="inline-flex items-center gap-2 px-3 py-2 bg-surface-raised hover:bg-surface-sunken text-ink border border-line rounded-lg text-sm font-medium transition-colors">
                   <Download className="w-4 h-4" /> CSV
                 </button>
               )}
-              <Link href="/accounting/credit-notes/new" className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25">
+              <Link href="/accounting/credit-notes/new" className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors">
                 <Plus className="w-4 h-4" /> New Credit Note
               </Link>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <div className="p-6 space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -128,10 +125,10 @@ export default function CreditNotesPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {creditNotes.map(cn => (
                       <tr key={cn.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => { window.location.href = `/accounting/credit-notes/${cn.id}`; }}>
-                        <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{cn.creditNoteNumber}</td>
+                        <td className="px-5 py-3.5 font-id text-amber-500 font-semibold">{cn.creditNoteNumber}</td>
                         <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TYPE_CLS[cn.type] || ''}`}>{cn.type}</span></td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.type === 'customer' ? cn.clientName : cn.supplierName || '—'}</td>
-                        <td className="px-5 py-3.5 font-mono text-xs text-slate-500 dark:text-slate-400">{cn.invoiceNumber || '—'}</td>
+                        <td className="px-5 py-3.5 font-id text-xs text-slate-500 dark:text-slate-400">{cn.invoiceNumber || '—'}</td>
                         <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{formatDisplayDate(cn.creditDate)}</td>
                         <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(cn.totalAmount)}</td>
                         <td className="px-5 py-3.5"><StatusPill status={cn.status} /></td>
