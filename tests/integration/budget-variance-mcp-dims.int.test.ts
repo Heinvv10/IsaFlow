@@ -93,6 +93,20 @@ describe('budget_variance with a version or a dimension, on a real ledger', () =
     expect(out).not.toHaveProperty('unallocated_budget');
   });
 
+  it.each([
+    ['a range that cuts a budget month', { period_start: '2026-03-15' }, { splits_budget_month: true }],
+    ['a year with no budget', { period_start: '2026-01-01', period_end: '2026-01-31' }, { budget_absent_years: [2026] }],
+  ])('%s: no rows, every account accounted for as budget_absent', async (_n, range, says) => {
+    const res = await asRequest(pool, f.a, f.userA, () => budgetVarianceTool.handler({ period_start: START, period_end: END, ...range, cc1_id: f.cc.FT },
+      { userId: f.userA, companyId: f.a, scopes: ['read:reports'], tokenJti: 'j', oauthAppId: null }), { appUser: true });
+    const out = parse(res) as Out & Record<string, unknown>;
+    expect(out).toMatchObject(says);
+    expect(out.rows).toEqual([]);
+    expect(out.excludedRows.length).toBeGreaterThan(0);
+    expect(new Set(out.excludedRows.map((x) => x.reason))).toEqual(new Set(['budget_absent']));
+    expect(out.completenessFault).toBeUndefined();
+  });
+
   it('another company\'s version or cost centre is a plain miss, carrying none of its figures', async () => {
     for (const args of [{ version_id: f.v.b27 }, { cc1_id: f.cc.BX }, { bu_id: f.bu.BBX }]) {
       const { res } = await asRequest(pool, f.a, f.userA, async () => ({

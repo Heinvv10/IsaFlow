@@ -94,6 +94,27 @@ describe('budget_variance version and dimensions', () => {
     expect((await budgetVarianceTool.handler({ ...RANGE, version_id: V }, ctx)).content[0]!.text).toBe('version is FY2027; the window reaches FY2028');
   });
 
+  it.each([['an empty string', ''], ['blank', '  '], ['a number', 5], ['an array', ['x']], ['null', null]])(
+    'refuses %s as a filter rather than answering company-wide', async (_n, value) => {
+      const res = await budgetVarianceTool.handler({ ...RANGE, cc1_id: value }, ctx);
+      expect(res).toEqual({ content: [{ type: 'text', text: 'invalid cc1_id' }], isError: true });
+      expect(getBudgetVariance).not.toHaveBeenCalled();
+    });
+
+  it('answers a 409 in fixed words, not engine text', async () => {
+    vi.mocked(buildRangeTracking).mockRejectedValueOnce(new TrackingError(409, 'year 7 of Secret Co is odd'));
+    expect((await budgetVarianceTool.handler({ ...RANGE, version_id: V }, ctx)).content[0]!.text)
+      .toBe('This range cannot be read against a budget in its current state.');
+  });
+
+  it('accounts for every line when the range has no budget: each is a budget_absent exclusion', async () => {
+    engine([line('6000', 'absent', 100, null), line('6100', 'absent', 0, null)]);
+    const env = json(await budgetVarianceTool.handler({ ...RANGE, cc1_id: CC }, ctx));
+    expect(env.rows).toEqual([]);
+    expect(env.excludedRows.map((x) => [x.id, x.reason, x.amount])).toEqual([['id-6000', 'budget_absent', 100], ['id-6100', 'budget_absent', 0]]);
+    expect(env.completenessFault).toBeUndefined();
+  });
+
   it('rethrows anything that is not a refusal', async () => {
     vi.mocked(buildRangeTracking).mockRejectedValueOnce(new Error('connection lost'));
     await expect(budgetVarianceTool.handler({ ...RANGE, cc1_id: CC }, ctx)).rejects.toThrow('connection lost');
@@ -128,5 +149,7 @@ describe('budget_variance version and dimensions', () => {
     expect(d).toMatch(/never split or apportioned/);
     expect(d).toMatch(/reason budget_above_filter/);
     expect(d).toMatch(/WHOLE MONTHS/);
+    expect(d).toMatch(/reason budget_absent/);
+    expect(d).toMatch(/count reason no_budget_set only/);
   });
 });
