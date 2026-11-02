@@ -1,9 +1,10 @@
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
 import { changeAssignmentDates, type ComponentChangeActor } from './payrollComponentDateEdit';
+import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMonths';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 
 type Row = DbRow;
@@ -77,6 +78,10 @@ function dayOf(value: string, field: string): string {
   return value;
 }
 
+/**
+ * Assign a component. The dates are plain 'YYYY-MM-DD' strings (#1057). Under the company's payroll-approval lock
+ * (taken first, as approval, End and Edit dates take it), so no run is approved while an assignment appears.
+ */
 export async function assignComponentToEmployee(
   companyId: string,
   employeeId: string,
@@ -86,11 +91,6 @@ export async function assignComponentToEmployee(
   effectiveTo?: string,
   isRecurring: boolean = true,
 ): Promise<EmployeeComponentAssignment> {
-  await assertEmployeeInCompany(employeeId, companyId);
-  await assertComponentInCompany(componentId, companyId);
-
-  log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
-
   const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
   // Once-off → auto-cap effective_to at end of effective_from's month so the
   // assignment dies after the period it was captured for. Caller-supplied
@@ -101,22 +101,30 @@ export async function assignComponentToEmployee(
     ? null
     : endOfMonthIso(Number(effectiveFromStr.slice(0, 4)), Number(effectiveFromStr.slice(5, 7)));
 
-  const rows = (await sql`
-    INSERT INTO payroll_employee_components (
-      employee_id, component_id, amount, effective_from, effective_to, is_recurring
-    ) VALUES (
-      ${employeeId}::uuid,
-      ${componentId}::uuid,
-      ${amount},
-      ${effectiveFromStr},
-      ${effectiveToStr},
-      ${isRecurring}
-    )
-    RETURNING *
-  `) as Row[];
+  return withTransaction(async (tx) => {
+    await lockCompanyPayrollForComponentChange(tx, companyId);
+    await assertEmployeeInCompany(employeeId, companyId);
+    await assertComponentInCompany(componentId, companyId);
 
-  if (!rows[0]) throw new Error('INSERT returned no row');
-  return mapAssignment(rows[0]);
+    log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
+
+    const rows = (await tx`
+      INSERT INTO payroll_employee_components (
+        employee_id, component_id, amount, effective_from, effective_to, is_recurring
+      ) VALUES (
+        ${employeeId}::uuid,
+        ${componentId}::uuid,
+        ${amount},
+        ${effectiveFromStr},
+        ${effectiveToStr},
+        ${isRecurring}
+      )
+      RETURNING *
+    `) as Row[];
+
+    if (!rows[0]) throw new Error('INSERT returned no row');
+    return mapAssignment(rows[0]);
+  });
 }
 
 /**
@@ -124,17 +132,21 @@ export async function assignComponentToEmployee(
  * actually ended: a stale, mistyped or foreign `assignmentId` matches nothing in the company and changes nothing, and
  * a caller that reported success on that would tell an agent an old salary had been ended while it stayed live.
  *
- * The rules and guards are Edit dates' (changeAssignmentDates, payrollComponentDateEdit): End only shortens; a
- * once-off no run has paid is cancelled (voided); refused for a voided row, an end before the start, a change to what
- * a paid run paid, or one that makes a replaced once-off be paid again. Audited with `actor`.
+ * The rules and guards are Edit dates' (changeAssignmentDates, payrollComponentDateEdit): End only shortens; an
+ * assignment no paid run read is CANCELLED (voided) when it is a once-off, when `effectiveTo` is before its start, or
+ * when `cancel` is asked; refused for a voided row, a cancel of a paid row, or a change to what a paid run paid.
+ * Audited with `actor`.
  */
 export async function endEmployeeComponent(
   companyId: string,
   assignmentId: string,
   effectiveTo: string,
   actor: ComponentChangeActor,
+  opts: { cancel?: boolean } = {},
 ): Promise<boolean> {
-  return changeAssignmentDates(companyId, assignmentId, { kind: 'end', to: dayOf(effectiveTo, 'effectiveTo') }, actor);
+  return changeAssignmentDates(
+    companyId, assignmentId, { kind: 'end', to: dayOf(effectiveTo, 'effectiveTo'), cancel: opts.cancel === true }, actor,
+  );
 }
 
 export async function listEmployeeComponentAssignments(

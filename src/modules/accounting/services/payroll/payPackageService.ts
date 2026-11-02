@@ -17,6 +17,7 @@
  */
 
 import { sql, withTransaction } from '@/lib/neon';
+import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMonths';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { endOfMonthIso } from './leaveAccrualService';
@@ -269,6 +270,8 @@ export async function applyPackageToEmployee(
   // `withTransaction` nests a SAVEPOINT when a request transaction is in flight
   // and opens a real one only when there is none.
   return withTransaction(async (tx) => {
+    // The company's payroll-approval lock first, as approval, assign, End and Edit dates take it.
+    await lockCompanyPayrollForComponentChange(tx, companyId);
     let ended = 0;
     for (const r of compRows) {
       const componentId = String(r.component_id);
@@ -279,7 +282,9 @@ export async function applyPackageToEmployee(
       // both and the run pays the component twice.
       const endResult = (await tx`
         UPDATE payroll_employee_components
-           SET effective_to = (${effectiveFrom}::date - INTERVAL '1 day')::date
+           SET effective_to = (${effectiveFrom}::date - INTERVAL '1 day')::date,
+               -- Recorded, not inferred (migration 953): the reader does not pay a once-off this cut.
+               superseded_at = now()
          WHERE employee_id = ${employeeId}::uuid
            AND component_id = ${componentId}::uuid
            AND (effective_to IS NULL OR effective_to >= ${effectiveFrom}::date)

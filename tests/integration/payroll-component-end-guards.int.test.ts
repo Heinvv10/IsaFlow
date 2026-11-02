@@ -85,7 +85,8 @@ afterAll(async () => {
 
 const REFUSED: Array<[string, string, string, RegExp]> = [
   ['an end later than the current end (End only shortens)', 'endedAllowance', '2026-06-30', /only bring.*earlier/i],
-  ['an end before the start', 'futureTravel', '2026-05-15', /before (its|the) start/i],
+  // A row no paid run read is cancelled instead (L1, payroll-approval-recalc-gates.int).
+  ['an end before the start of a row a paid run read', 'salary', '2019-12-31', /before its start.*a paid run read it/i],
   ['an end that takes a paid month out', 'salary', '2026-01-31', /2026-02 .*already paid/i],
   ['a voided row', 'voided', '2026-08-25', /cancelled/i],
 ];

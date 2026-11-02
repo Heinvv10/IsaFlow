@@ -99,7 +99,8 @@ async function handler(
   // DELETE — end an assignment (set effective_to)
   if (req.method === 'DELETE') {
     const { aid } = req.query;
-    const { effectiveTo } = req.body as { effectiveTo?: string };
+    // cancel: void an assignment no paid run read (payrollComponentDateEdit); refused once one has.
+    const { effectiveTo, cancel } = req.body as { effectiveTo?: string; cancel?: unknown };
 
     if (typeof aid !== 'string') return apiResponse.badRequest(res, 'aid (assignment ID) query param is required');
     if (!effectiveTo) return apiResponse.badRequest(res, 'effectiveTo is required');
@@ -107,7 +108,7 @@ async function handler(
     try {
       const ended = await endEmployeeComponent(companyId, aid, effectiveTo, {
         userId: req.user.id, userEmail: req.user.email, channel: 'rest',
-      });
+      }, { cancel: cancel === true });
       if (!ended) return apiResponse.notFound(res, 'Component assignment');
     } catch (err) {
       if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);

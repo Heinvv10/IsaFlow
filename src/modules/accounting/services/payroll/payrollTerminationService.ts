@@ -98,7 +98,7 @@ const SEVERANCE_PAY: PayrollComponent = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Severance only applies for retrenchment per BCEA s41. */
-function severanceApplies(reason: TerminationReason): boolean {
+export function severanceApplies(reason: TerminationReason): boolean {
   return reason === 'retrenchment';
 }
 

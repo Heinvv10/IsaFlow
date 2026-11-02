@@ -5,7 +5,8 @@
  * what another refuses (W3-01 review).
  *
  * In order:
- *   1. status: draft / calculated / processed, or approved with no journal;
+ *   1. status: draft / calculated / processed, or approved with no journal; then a run calculated by an older
+ *      calculation (`recalculate_required`, payrollRunRecalcGate);
  *   1a. severance lines whose SARS directive was paid by something else, or no
  *      longer matches them (`severance_directive_unavailable`, audit
  *      2026-10-18 P3, payrollRunDirectiveClaim) — re-checked under the
@@ -22,7 +23,8 @@
  *                   `datedForReplacement`;
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
- *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
+ *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then component dates changed after the
+ *      calculation or a leaver with no termination base (payrollRunRecalcGate), then a
  *      recurring row needing a manual pro-rata (`recurring_needs_pro_rata`,
  *      payrollRecurringProRata), then every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
@@ -43,6 +45,7 @@ import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDire
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
 import { runProRataBlocker } from './payrollRecurringProRata';
+import { recalculateRequiredRefusal, runLinesRefusal } from './payrollRunRecalcGate';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -221,6 +224,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
     const statusRefusal = approvalStatusRefusal(plan.status, linkedId);
     if (statusRefusal) return { code: 'status_not_approvable', detail: statusRefusal };
+    // Calculated by an older calculation (no stamp, migration 953): recalculate first (payrollRunRecalcGate).
+    const stale = await recalculateRequiredRefusal(companyId, runId);
+    if (stale) return stale;
     // Severance lines whose directive another payer took, or that no longer match it (P3).
     const directives = await judgeRunDirectives(companyId, runId);
     if (directives) return directives;
@@ -260,6 +266,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           + '. Recalculate this run first; it then leaves them out.',
       };
     }
+    // Component dates changed since calculation; a leaver with no termination base (payrollRunRecalcGate).
+    const lines = await runLinesRefusal(companyId, runId);
+    if (lines) return lines;
     // A recurring row the last-day read pays in full or drops, unresolved (payrollRecurringProRata).
     const proRata = await runProRataBlocker(companyId, runId);
     if (proRata) return proRata;

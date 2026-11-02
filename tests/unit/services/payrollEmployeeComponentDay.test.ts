@@ -3,15 +3,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { isRealCalendarDate } from '@/lib/validation';
 
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
-vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+vi.mock('@/lib/neon', () => {
+  const SQL = (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
     sqlCalls.push({ sql: text, values });
     if (text.includes('INSERT INTO')) return Promise.resolve([{ id: 'a', employee_id: 'e', component_id: 'c', amount: '1', is_recurring: true }]);
     if (text.includes('UPDATE')) return Promise.resolve([{ id: 'a' }]);
     return Promise.resolve([{ id: 'x' }]);
-  },
-}));
+  };
+  return {
+  sql: SQL,
+  // assign and batch post now run in a transaction under the company's payroll-approval lock: the lock's two
+  // statements are answered here and not recorded, everything else goes to the recorder above.
+  withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    if (text.includes('pg_advisory_xact_lock') || text.includes("set_config('lock_timeout'")) return Promise.resolve([{ previous: '0' }]);
+    return SQL(strings, ...values);
+  }),
+  };
+});
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import {

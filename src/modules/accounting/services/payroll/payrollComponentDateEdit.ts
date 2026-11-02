@@ -8,17 +8,20 @@
  * approved while the row changes; then the row and its siblings (same employee and component) FOR UPDATE inside the
  * company. Refused before any write (EmployeeComponentRefused, a 400):
  *   - a voided row (cancelled);
- *   - Edit: a non-date, an end before the start, a once-off left open-ended or spanning more than one month;
- *   - End: an end before the start, or later than the current end (End only shortens; Edit dates extends);
+ *   - Edit: a non-date, an end before the start, a once-off open-ended or spanning more than one month;
+ *   - End: an end before the start of a row a paid run read, or later than the current end (End only shortens;
+ *     Edit dates extends); a cancel of a row a paid run read;
  *   - a window overlapping another live sibling (both would be paid);
- *   - a change to what a paid run paid (payrollComponentPaidMonths);
- *   - a change that flips whether a once-off sibling (or the row) counts as superseded. getEmployeeComponents infers
- *     a supersede from a live sibling starting the day after a once-off ends, so moving or ending that sibling would
- *     make a replaced once-off be paid again (or stop a paid one). A superseded_at column would make it durable; that
- *     is a migration.
- * End on a once-off no paid run read is a CANCEL: voided (effective_to = effective_from - 1), the shape the reader
- * never pays. Every accepted change is written to audit_log (entity payroll_employee_component: effective_from and
- * effective_to before and after; metadata kind edit | end | cancel and the channel) in the same transaction.
+ *   - a change to what a paid run paid (payrollComponentPaidMonths).
+ * End CANCELS (voids: effective_to = effective_from - 1, the shape the reader never pays) an assignment no paid run
+ * read when it is a once-off, when the end date is before its start, or when the caller asks to cancel (MCP `cancel`).
+ * Since migration 953 a supersede is recorded (superseded_at) instead of inferred from a neighbour, so moving or ending
+ * a neighbour cannot revive a replaced once-off. Rows that existed before 953 (supersede_inferred) keep the neighbour
+ * rule in the reader, so for them a change that flips a pre-953 once-off's inferred supersede (revives it, or drops it)
+ * is refused.
+ * Every accepted change is written to audit_log (entity payroll_employee_component: effective_from and effective_to
+ * before and after; metadata kind edit | end | cancel and the channel) in the same transaction; the approval gate
+ * refuses a run calculated before such a change. Logs and audit rows carry ids and the window only, never the amount.
  * False when the id matches no assignment in the company.
  */
 import { withTransaction } from '@/lib/neon';
@@ -27,6 +30,7 @@ import { log } from '@/lib/logger';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
+import type { PayrollPeriod } from './payrollTypes';
 import { payrollRunReadDate } from './payrollRunReadDate';
 import {
   assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidPeriodChanged, paidPeriodsOf, periodLabel, windowOf,
@@ -34,36 +38,37 @@ import {
 } from './payrollComponentPaidMonths';
 
 export interface ComponentChangeActor { userId: string; userEmail?: string; channel: 'rest' | 'mcp' | 'service' }
-export type DateChange = { kind: 'edit'; from: string; to: string | null } | { kind: 'end'; to: string };
+export type DateChange = { kind: 'edit'; from: string; to: string | null } | { kind: 'end'; to: string; cancel?: boolean };
 
 type Sibling = AssignmentWindow & { id: string };
 
 const live = (w: AssignmentWindow) => w.to === null || w.to >= w.from;
 /** The window alone: what may be logged or audited. Never the amount (an employee's pay). */
-const windowOnly = (w: AssignmentWindow): AssignmentWindow => ({ from: w.from, to: w.to, recurring: w.recurring });
-const shiftDay = (iso: string, days: number): string => {
-  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-};
+const windowOnly = (w: AssignmentWindow): AssignmentWindow => ({ from: w.from, to: w.to, recurring: w.recurring, superseded: w.superseded, legacy: w.legacy });
+const shiftDayFwd = (iso: string) => shiftDay(iso, 1);
 
-/** Whether `x` counts as superseded among `rows`: a live other row starts the day after it ends. */
-function superseded(x: Sibling, rows: Sibling[]): boolean {
-  return x.to !== null && rows.some((y) => y.id !== x.id && live(y) && y.from === shiftDay(x.to!, 1));
+/** The reader's pre-953 rule (getEmployeeComponents): a live pre-953 sibling starts the day after `x` ends. */
+function inferredSuperseded(x: Sibling, rows: Sibling[]): boolean {
+  return x.legacy === true && x.to !== null && rows.some((y) => y.id !== x.id && y.legacy === true && live(y) && y.from === shiftDayFwd(x.to!));
 }
 
-/** A once-off whose supersede status this change flips, where that status decides whether it is paid. */
-function flippedOnceOff(before: Sibling[], after: Sibling[]): { row: Sibling; paidAgain: boolean } | null {
+/** A pre-953 once-off whose inferred supersede this change flips, where that decides whether it is paid. */
+function flippedLegacyOnceOff(before: Sibling[], after: Sibling[]): { row: Sibling; paidAgain: boolean } | null {
   for (const x of before) {
     const y = after.find((r) => r.id === x.id)!;
-    if (x.recurring || !live(x) || !live(y) || x.to === null || y.to === null) continue;
+    if (x.recurring || !x.legacy || x.superseded || !live(x) || !live(y) || x.to === null || y.to === null) continue;
     // A once-off covering its month's last day is paid whether superseded or not.
     if (y.to >= payrollRunReadDate({ year: Number(y.to.slice(0, 4)), month: Number(y.to.slice(5, 7)) })) continue;
-    const was = superseded(x, before);
-    const is = superseded(y, after);
+    const was = inferredSuperseded(x, before);
+    const is = inferredSuperseded(y, after);
     if (was !== is) return { row: x, paidAgain: was && !is };
   }
   return null;
 }
+const shiftDay = (iso: string, days: number): string => {
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
 
 function refuse(message: string): never {
   throw new EmployeeComponentRefused(message);
@@ -80,7 +85,7 @@ function validateRequest(change: DateChange): void {
 }
 
 /** The window after the change, and whether it is a cancel. Refuses what the change itself may not do. */
-function nextWindow(before: AssignmentWindow, change: DateChange, paidRead: boolean): { after: AssignmentWindow; kind: 'edit' | 'end' | 'cancel' } {
+function nextWindow(before: AssignmentWindow, change: DateChange, paidIn: PayrollPeriod | null): { after: AssignmentWindow; kind: 'edit' | 'end' | 'cancel' } {
   if (!live(before)) refuse('This assignment was cancelled (its end is before its start) and cannot be changed; assign a new one.');
   if (change.kind === 'edit') {
     const after = { from: change.from, to: change.to, recurring: before.recurring };
@@ -90,8 +95,13 @@ function nextWindow(before: AssignmentWindow, change: DateChange, paidRead: bool
     }
     return { after, kind: 'edit' };
   }
-  if (!before.recurring && !paidRead) return { after: { ...windowOnly(before), to: shiftDay(before.from, -1) }, kind: 'cancel' };
-  if (change.to < before.from) refuse(`The end (${change.to}) is before its start (${before.from}). To stop a row that has not started, use Edit dates.`);
+  if (change.cancel && paidIn) {
+    refuse(`This assignment was already paid in ${periodLabel(paidIn)} (approved run), so it cannot be cancelled; end it with a date instead.`);
+  }
+  if (!paidIn && (!before.recurring || change.cancel || change.to < before.from)) {
+    return { after: { ...windowOnly(before), to: shiftDay(before.from, -1) }, kind: 'cancel' };
+  }
+  if (change.to < before.from) refuse(`The end (${change.to}) is before its start (${before.from}), and a paid run read it; change its dates with Edit dates.`);
   if (before.to !== null && change.to > before.to) {
     refuse(`End can only bring the end date earlier (it is ${before.to}); use Edit dates to extend it.`);
   }
@@ -132,14 +142,14 @@ export async function changeAssignmentDates(
     `) as DbRow[])[0];
     if (!target) return false;
     const rows = (await tx`
-      SELECT id, effective_from, effective_to, is_recurring FROM payroll_employee_components
+      SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred FROM payroll_employee_components
       WHERE employee_id = ${target.employee_id}::uuid AND component_id = ${target.component_id}::uuid
       ORDER BY id FOR UPDATE
     `) as DbRow[];
     const siblings: Sibling[] = rows.map((r) => ({ ...windowOf(r), id: String(r.id) }));
     const self = siblings.find((r) => r.id === assignmentId)!;
     const paid = await paidPeriodsOf(tx, companyId, String(target.employee_id));
-    const { after, kind } = nextWindow(self, change, paid.some((p) => assignmentReadInPeriod(self, p)));
+    const { after, kind } = nextWindow(self, change, paid.find((p) => assignmentReadInPeriod(self, p)) ?? null);
 
     if (kind !== 'cancel') {
       const clash = siblings.find((y) => y.id !== self.id && live(y) && y.from <= (after.to ?? '9999-12-31') && (y.to === null || y.to >= after.from));
@@ -153,11 +163,10 @@ export async function changeAssignmentDates(
       refuse(`${periodLabel(changed)} is already paid (approved run) and this changes what it paid. `
         + 'Reopen that run first, or capture the correction in an open period.');
     }
-    const flip = flippedOnceOff(siblings, siblings.map((r) => (r.id === self.id ? { ...r, ...after } : r)));
+    const flip = flippedLegacyOnceOff(siblings, siblings.map((r) => (r.id === self.id ? { ...r, ...after } : r)));
     if (flip) {
-      const r = flip.row;
-      refuse(`This would make the once-off ${r.from} to ${r.to} ${flip.paidAgain ? 'be paid again' : 'stop being paid'}: `
-        + 'it was replaced by an assignment starting the day after it ends. Cancel or change that once-off first.');
+      refuse(`This would make the once-off ${flip.row.from} to ${flip.row.to} ${flip.paidAgain ? 'be paid again' : 'stop being paid'}: `
+        + 'before this release it was replaced by an assignment starting the day after it ends. Cancel or change that once-off first.');
     }
 
     await tx`

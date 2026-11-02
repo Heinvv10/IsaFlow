@@ -374,6 +374,8 @@ export const endEmployeeComponentTool: McpTool = {
     'Stop a pay component from a given date — a salary that changed, an allowance that ended. '
     + 'The assignment is CLOSED, never deleted, so past runs that costed it stay explainable. '
     + 'To change a salary: end the old assignment and assign a new one from the following month. '
+    + 'An end only shortens. An assignment no approved run has paid is cancelled (voided, never paid) when it is a '
+    + 'once-off, when effective_to is before its start, or with cancel: true. '
     + 'Resolve assignment_id with list_employee_components.',
   scope: 'write:payroll',
   requiresWriteRole: true,
@@ -383,6 +385,11 @@ export const endEmployeeComponentTool: McpTool = {
     properties: {
       assignment_id: { type: 'string', description: 'From list_employee_components' },
       effective_to: { type: 'string', format: 'date', description: 'Last date the component applies' },
+      cancel: {
+        type: 'boolean',
+        description: 'Cancel (void) an assignment no approved run has paid, instead of ending it: it is then never paid. '
+          + 'Refused once a paid run read it. A once-off no run has paid is always cancelled by an end.',
+      },
       idempotency_key: { type: 'string' },
     },
     required: ['assignment_id', 'effective_to', 'idempotency_key'],
@@ -403,7 +410,9 @@ export const endEmployeeComponentTool: McpTool = {
     // stopped while it stayed live, and the next costed run would pay it.
     let ended: boolean;
     try {
-      ended = await endEmployeeComponent(ctx.companyId, assignmentId, effectiveTo, { userId: ctx.userId, channel: 'mcp' });
+      ended = await endEmployeeComponent(ctx.companyId, assignmentId, effectiveTo, { userId: ctx.userId, channel: 'mcp' }, {
+        cancel: args.cancel === true,
+      });
     } catch (err) {
       // End's guards (payrollComponentDateEdit): a refusal is the agent's to read; anything else is not.
       if (err instanceof EmployeeComponentRefused) return toolError(err.message);

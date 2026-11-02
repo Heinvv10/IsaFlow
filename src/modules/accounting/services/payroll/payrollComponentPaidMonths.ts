@@ -6,40 +6,50 @@ import type { DbRow, TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
 import { isLockTimeout, setLocalLockTimeout } from './payrollRunLoanApplication';
+import { payrollJournalInForce } from './payrollJournalChain';
 import type { PayrollPeriod } from './payrollTypes';
 
 export interface AssignmentWindow {
   from: string;
   to: string | null;
   recurring: boolean;
+  /** superseded_at is set (migration 953): a package apply cut it. */
+  superseded?: boolean;
+  /** Existed before 953: the neighbour rule still decides its supersede (payrollComponentDateEdit). */
+  legacy?: boolean;
 }
 
-/**
- * Whether a run of `period` reads this assignment: getEmployeeComponents' rule (window covers the last day, or a
- * once-off starting in the month), without its supersede check, which depends on the other rows.
- */
+/** Whether a run of `period` reads this assignment: getEmployeeComponents' rule, row by row. */
 export function assignmentReadInPeriod(w: AssignmentWindow, period: PayrollPeriod): boolean {
   const last = payrollRunReadDate(period);
   const first = `${last.slice(0, 8)}01`;
   if (w.to !== null && w.to < w.from) return false;
   if (w.from > last) return false;
-  return w.to === null || w.to >= last || (!w.recurring && w.from >= first);
+  return w.to === null || w.to >= last || (!w.recurring && !w.superseded && w.from >= first);
 }
 
 /**
- * The months of the employee's lines on runs that have paid: approved or paid, or holding a posted journal (a
- * reopened run whose journal is linked). Company-scoped.
+ * The months of the employee's lines on runs that have paid: approved or paid, or reopened while the journal they
+ * posted is still in force in the ledger (its reversal chain, payrollJournalChain). A reopened run whose journal was
+ * reversed keeps the link but has not paid (M1). Company-scoped.
  */
 export async function paidPeriodsOf(tx: TxSql, companyId: string, employeeId: string): Promise<PayrollPeriod[]> {
   const rows = (await tx`
-    SELECT DISTINCT h.period_year, h.period_month
+    SELECT h.period_year, h.period_month, h.status, h.journal_entry_id
     FROM payroll_run_headers h
     JOIN payroll_run_lines l ON l.run_id = h.id AND l.employee_id = ${employeeId}::uuid
     WHERE h.company_id = ${companyId}::uuid
       AND (h.status IN ('approved', 'paid') OR h.journal_entry_id IS NOT NULL)
     ORDER BY 1, 2
   `) as DbRow[];
-  return rows.map((r) => ({ year: Number(r.period_year), month: Number(r.period_month) }));
+  const paid: PayrollPeriod[] = [];
+  for (const r of rows) {
+    const approved = r.status === 'approved' || r.status === 'paid';
+    if (approved || await payrollJournalInForce(companyId, String(r.journal_entry_id), tx)) {
+      paid.push({ year: Number(r.period_year), month: Number(r.period_month) });
+    }
+  }
+  return paid;
 }
 
 /** The paid month whose payment this change would alter, or null. */
@@ -51,7 +61,10 @@ export const periodLabel = (p: PayrollPeriod): string => `${p.year}-${String(p.m
 
 /** An assignment row as the window it is read by. */
 export function windowOf(r: DbRow): AssignmentWindow {
-  return { from: fmtDate(r.effective_from), to: r.effective_to ? fmtDate(r.effective_to) : null, recurring: r.is_recurring !== false };
+  return {
+    from: fmtDate(r.effective_from), to: r.effective_to ? fmtDate(r.effective_to) : null,
+    recurring: r.is_recurring !== false, superseded: r.superseded_at != null, legacy: r.supersede_inferred === true,
+  };
 }
 
 export class ComponentDatesLockTimeoutError extends Error {

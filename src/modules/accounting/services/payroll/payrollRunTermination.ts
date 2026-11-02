@@ -23,12 +23,14 @@ import {
   buildTerminationComponents,
   getTerminationDetails,
   getAnnualLeaveBalance,
+  severanceApplies,
   yearsOfService,
   type TerminationReason,
 } from './payrollTerminationService';
 import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
 import { findHandMadeLumpSumPaid, findSeveranceDirectiveForRun, severanceDirectiveComponent } from './payrollSeveranceDirective';
 import { normaliseSarsCode } from './payeAnnualPayment';
+import { TERMINATION_BASE_MISSING } from './payrollRunRecalcGate';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 const SYNTHETIC_SEVERANCE_ID = 'synthetic:termination:severance';
@@ -52,21 +54,25 @@ export async function terminationMonthlySalary(companyId: string, employeeId: st
 /**
  * Leave pay-out and notice pay for an employee leaving this period, and the
  * severance the termination flow calculates for them (paid only by directive),
- * on the termination base. Null when no termination reason is captured or the
- * base is nil.
+ * on the termination base. Null when no termination reason is captured. With a
+ * reason and a nil base: no pay-outs, `baseMissing`, and whether severance is
+ * due (its amount unknown) — Hein 2026-11-02, M2.
  */
 async function terminationPayouts(
   companyId: string,
   employee: PayrollEmployee,
   leaveYear: number | null,
-): Promise<{ payouts: EmployeeComponent[]; severance: number } | null> {
+): Promise<{ payouts: EmployeeComponent[]; severance: number; baseMissing?: { severanceDue: boolean } } | null> {
   const { endDate, startDate } = employee;
   if (!endDate) return null;
   const details = await getTerminationDetails(companyId, employee.id);
   if (!details || !details.reason) return null;
   // endDate is UTC midnight of the stored DATE (mapPayrollEmployeeRow), so its ISO day is that date.
   const monthlySalary = await terminationMonthlySalary(companyId, employee.id, endDate.toISOString().slice(0, 10));
-  if (monthlySalary <= 0) return null;
+  if (monthlySalary <= 0) {
+    const severanceDue = severanceApplies(details.reason as TerminationReason) && (details.severanceWeeksPerYear ?? 0) > 0;
+    return { payouts: [], severance: 0, baseMissing: { severanceDue } };
+  }
 
   const unusedLeaveDays = details.includeLeavePayout && leaveYear != null
     ? await getAnnualLeaveBalance(companyId, employee.id, leaveYear)
@@ -96,7 +102,7 @@ async function severanceByDirective(
   runId: string,
   employee: PayrollEmployee,
   period: PayrollPeriod,
-  calculated: number | null,
+  calculated: number | null | 'unknown',
   warnings: ValidationResult[],
   components: EmployeeComponent[] = [],
 ): Promise<EmployeeComponent[]> {
@@ -126,7 +132,7 @@ async function severanceByDirective(
     return [];
   }
   if (available) {
-    if (calculated != null && Math.abs(available.gross - calculated) >= 0.005) {
+    if (typeof calculated === 'number' && Math.abs(available.gross - calculated) >= 0.005) {
       warnings.push({
         code: 'SEVERANCE_DIRECTIVE_MISMATCH',
         severity: 'warning',
@@ -149,11 +155,15 @@ async function severanceByDirective(
       severity: 'warning',
       message: `Severance for ${who(employee)} was already paid under its SARS directive, outside this run, so it is not paid again.`,
     });
-  } else if (calculated != null && calculated > 0) {
+  } else if (calculated === 'unknown' || (calculated != null && calculated > 0)) {
+    // Not suppressed by a nil base (Hein, M2): the severance is due even when its amount cannot be calculated here.
+    const what = calculated === 'unknown'
+      ? `Severance for ${who(employee)} (its amount cannot be calculated: no recurring earnings on the end date)`
+      : `Severance of ${rands(calculated)} for ${who(employee)}`;
     warnings.push({
       code: 'SEVERANCE_AWAITING_DIRECTIVE',
       severity: 'warning',
-      message: `Severance of ${rands(calculated)} for ${who(employee)} is not paid in this run: SARS taxes it only at the figures on a `
+      message: `${what} is not paid in this run: SARS taxes it only at the figures on a `
         + 'tax directive (IRP3(a)), and none is approved. Apply for the directive; the first run after it is approved pays the severance alone.',
     });
   }
@@ -182,7 +192,7 @@ export async function appendTerminationIfEndingThisPeriod(
 
   const paid = await findPaidTerminationRun(companyId, employee.id, runId);
   let payouts: EmployeeComponent[] = [];
-  let calculated: number | null = null;
+  let calculated: number | null | 'unknown' = null;
   if (paid) {
     warnings.push({
       code: 'TERMINATION_ALREADY_PAID',
@@ -193,7 +203,16 @@ export async function appendTerminationIfEndingThisPeriod(
   } else {
     const t = await terminationPayouts(companyId, employee, period.year);
     payouts = t?.payouts ?? [];
-    calculated = t?.severance ?? 0;
+    calculated = t?.baseMissing ? (t.baseMissing.severanceDue ? 'unknown' : 0) : (t?.severance ?? 0);
+    if (t?.baseMissing) {
+      // Blocks approval (payrollRunRecalcGate): leave and notice pay would silently be nil.
+      warnings.push({
+        code: TERMINATION_BASE_MISSING,
+        severity: 'error',
+        message: `${who(employee)} has a termination reason but no recurring earnings on the end date; leave and notice pay need a base. `
+          + 'Correct the pay components (or the end date) and recalculate.',
+      });
+    }
   }
   const severance = await severanceByDirective(companyId, runId, employee, period, calculated, warnings, components);
   const termination = [...payouts, ...severance];

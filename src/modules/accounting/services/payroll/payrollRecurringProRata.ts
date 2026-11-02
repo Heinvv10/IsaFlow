@@ -77,16 +77,22 @@ export async function recurringRowsNeedingProRata(
   }));
 }
 
-/** The line's flag for one such row. */
+/** The line's flag for one such row. A row starting in the band and one ending there are fixed differently. */
 export function proRataValidation(row: ProRataRow): ValidationResult {
-  const effect = row.edge === 'starts' ? 'is paid in full' : 'is not paid';
+  const what = `${row.componentName} ${describeProRataRow(row)}`;
+  const message = row.edge === 'starts'
+    ? `${what}: this recurring component is paid in full in this run and needs a manual pro-rata. Use Edit dates on the `
+      + 'employee\'s Pay Components (for example, start it on the 1st of next month and assign the part month as a '
+      + 'once-off), then recalculate. Approval is refused until then.'
+    : `${what}: this recurring component is not paid at all in this run, though it ran for part of the month, and needs `
+      + 'a manual pro-rata. Assign the days it ran as a once-off and use Edit dates on the employee\'s Pay Components to '
+      + 'end it before the 27th, or run it to the month end if the whole month is due; then recalculate. Approval is '
+      + 'refused until then.';
   return {
     code: PRO_RATA_CODE,
     severity: 'error',
     field: 'components',
-    message: `${row.componentName} ${describeProRataRow(row)}: this recurring component ${effect} in this run and needs a `
-      + 'manual pro-rata. Use Edit dates on the employee\'s Pay Components (for example, start it on the 1st of next month '
-      + 'and assign the part month as a once-off), then recalculate. Approval is refused until then.',
+    message,
     deepLink: `/payroll/employees/${row.employeeId}#pay-components`,
   };
 }
