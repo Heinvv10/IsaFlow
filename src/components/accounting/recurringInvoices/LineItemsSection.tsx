@@ -66,6 +66,7 @@ export function LineItemsSection({
           <div className="col-span-2">
             <input
               type="number"
+              aria-label="Quantity"
               className={inputCls}
               value={line.quantity}
               min={0.01}
@@ -77,6 +78,7 @@ export function LineItemsSection({
           <div className="col-span-2">
             <input
               type="number"
+              aria-label="Unit price"
               className={inputCls}
               value={line.unitPrice}
               min={0}
@@ -91,6 +93,7 @@ export function LineItemsSection({
           <div className="col-span-1 flex justify-end">
             <button
               type="button"
+              aria-label="Remove line"
               onClick={() => onRemoveLine(line.key)}
               disabled={lines.length === 1}
               className="p-1 text-red-400 hover:text-red-300 disabled:opacity-30 transition-colors"
@@ -110,6 +113,7 @@ export function LineItemsSection({
           <div className="flex items-center gap-2">
             <span>VAT</span>
             <select
+              aria-label="VAT rate"
               className="text-xs px-2 py-0.5 bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] rounded text-[var(--ff-text-secondary)]"
               value={taxRate}
               onChange={e => onTaxRateChange(Number(e.target.value))}

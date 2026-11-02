@@ -110,8 +110,8 @@ export default function NewPurchaseOrderPage() {
                     <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(p => ({ ...p, supplierId: id }))} />
                   </div>
                   <div>
-                    <label className={lbl}>Reference</label>
-                    <input type="text" name="reference" value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} placeholder="Supplier quote ref" className={inp} />
+                    <label htmlFor="purchase-orders-new-reference" className={lbl}>Reference</label>
+                    <input id="purchase-orders-new-reference" type="text" name="reference" value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} placeholder="Supplier quote ref" className={inp} />
                   </div>
                   <div>
                     <DateField label="Order Date" required name="orderDate" value={form.orderDate || null}
@@ -152,9 +152,9 @@ export default function NewPurchaseOrderPage() {
                       {items.map((item, index) => (
                         <tr key={item.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2"><input type="text" required name="description" value={item.description} onChange={e => updateItem(item.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
-                          <td className="px-3 py-2"><input type="number" required name="quantity" min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(item.key, 'quantity', e.target.value)} className={`${inp} text-right`} /></td>
-                          <td className="px-3 py-2"><input type="number" required name="unitPrice" min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(item.key, 'unitPrice', e.target.value)} className={`${inp} text-right`} /></td>
-                          <td className="px-3 py-2"><input type="number" name="taxRate" min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
+                          <td className="px-3 py-2"><input type="number" required name="quantity" aria-label={`Line ${index + 1} quantity`} min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(item.key, 'quantity', e.target.value)} className={`${inp} text-right`} /></td>
+                          <td className="px-3 py-2"><input type="number" required name="unitPrice" aria-label={`Line ${index + 1} unit price`} min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(item.key, 'unitPrice', e.target.value)} className={`${inp} text-right`} /></td>
+                          <td className="px-3 py-2"><input type="number" name="taxRate" aria-label={`Line ${index + 1} VAT %`} min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
                           <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{fmt(lineTotal(item))}</td>
                           <td className="px-2 py-2">
                             <button type="button" aria-label={`Remove line ${index + 1}`} onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">

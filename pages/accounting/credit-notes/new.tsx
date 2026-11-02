@@ -97,8 +97,8 @@ export default function NewCreditNotePage() {
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={lbl}>Type *</label>
-                    <select name="type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as 'customer' | 'supplier', clientId: '', supplierId: '' }))} className={inp}>
+                    <label htmlFor="credit-notes-new-type" className={lbl}>Type *</label>
+                    <select id="credit-notes-new-type" name="type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as 'customer' | 'supplier', clientId: '', supplierId: '' }))} className={inp}>
                       <option value="customer">Customer Credit Note</option>
                       <option value="supplier">Supplier Credit Note</option>
                     </select>
@@ -106,8 +106,8 @@ export default function NewCreditNotePage() {
 
                   {form.type === 'customer' ? (
                     <div>
-                      <label className={lbl}>Client *</label>
-                      <select name="clientId" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
+                      <label htmlFor="credit-notes-new-client-id" className={lbl}>Client *</label>
+                      <select id="credit-notes-new-client-id" name="clientId" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
                         <option value="">Select client…</option>
                         {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
                       </select>
@@ -124,8 +124,8 @@ export default function NewCreditNotePage() {
                       onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>
-                    <label className={lbl}>Reason</label>
-                    <input type="text" name="reason" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for credit note" className={inp} />
+                    <label htmlFor="credit-notes-new-reason" className={lbl}>Reason</label>
+                    <input id="credit-notes-new-reason" type="text" name="reason" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for credit note" className={inp} />
                   </div>
                 </div>
               </div>
@@ -137,12 +137,12 @@ export default function NewCreditNotePage() {
                 </h3>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className={lbl}>Subtotal (excl. VAT) *</label>
-                    <input type="number" name="subtotal" step="0.01" min="0" value={form.subtotal || ''} onChange={e => setForm(f => ({ ...f, subtotal: Number(e.target.value) }))} className={inp} required />
+                    <label htmlFor="credit-notes-new-subtotal" className={lbl}>Subtotal (excl. VAT) *</label>
+                    <input id="credit-notes-new-subtotal" type="number" name="subtotal" step="0.01" min="0" value={form.subtotal || ''} onChange={e => setForm(f => ({ ...f, subtotal: Number(e.target.value) }))} className={inp} required />
                   </div>
                   <div>
-                    <label className={lbl}>VAT Rate (%)</label>
-                    <input type="number" name="taxRate" step="0.01" min="0" value={form.taxRate} onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))} className={inp} />
+                    <label htmlFor="credit-notes-new-tax-rate" className={lbl}>VAT Rate (%)</label>
+                    <input id="credit-notes-new-tax-rate" type="number" name="taxRate" step="0.01" min="0" value={form.taxRate} onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))} className={inp} />
                   </div>
                   <div>
                     <label className={lbl}>VAT Amount</label>

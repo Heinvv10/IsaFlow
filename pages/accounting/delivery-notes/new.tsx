@@ -149,7 +149,7 @@ export default function NewDeliveryNotePage() {
                     {loadingCustomers ? (
                       <div className={`${inp} flex items-center gap-2 text-slate-500 dark:text-slate-400`}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
                     ) : (
-                      <select name="customerId" value={customerId} onChange={e => { setCustomerId(e.target.value); setSalesOrderId(''); }} className={inp}>
+                      <select name="customerId" aria-label="Customer" value={customerId} onChange={e => { setCustomerId(e.target.value); setSalesOrderId(''); }} className={inp}>
                         <option value="">Select customer…</option>
                         {customers.map(c => <option key={c.id} value={c.id}>{String(c.name ?? c.company_name ?? c.companyName ?? '')}</option>)}
                       </select>
@@ -164,20 +164,20 @@ export default function NewDeliveryNotePage() {
                     {loadingOrders ? (
                       <div className={`${inp} flex items-center gap-2 text-slate-500 dark:text-slate-400`}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
                     ) : (
-                      <select name="salesOrderId" value={salesOrderId} onChange={e => setSalesOrderId(e.target.value)} disabled={!customerId} className={`${inp} disabled:opacity-50`}>
+                      <select name="salesOrderId" aria-label="Linked Sales Order" value={salesOrderId} onChange={e => setSalesOrderId(e.target.value)} disabled={!customerId} className={`${inp} disabled:opacity-50`}>
                         <option value="">None</option>
                         {salesOrders.map(so => <option key={so.id} value={so.id}>{so.orderNumber}</option>)}
                       </select>
                     )}
                   </div>
                   <div>
-                    <label className={lbl}>Delivery Address</label>
-                    <input name="deliveryAddress" value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} placeholder="Delivery address…" className={inp} />
+                    <label htmlFor="delivery-notes-new-delivery-address" className={lbl}>Delivery Address</label>
+                    <input id="delivery-notes-new-delivery-address" name="deliveryAddress" value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} placeholder="Delivery address…" className={inp} />
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className={lbl}>Notes</label>
-                  <textarea name="notes" value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Additional notes…" className={`${inp} resize-none`} />
+                  <label htmlFor="delivery-notes-new-notes" className={lbl}>Notes</label>
+                  <textarea id="delivery-notes-new-notes" name="notes" value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Additional notes…" className={`${inp} resize-none`} />
                 </div>
               </div>
 

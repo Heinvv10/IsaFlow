@@ -230,12 +230,12 @@ export default function NewSupplierInvoicePage() {
                   <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
                   <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })), form.dueDate)} />
                   <div>
-                    <label className={lbl}>Payment Terms</label>
-                    <select value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
+                    <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
+                    <select id="supplier-invoices-new-payment-terms" value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
                       <option value="">None</option><option value="immediate">Immediate</option><option value="net30">Net 30</option><option value="net60">Net 60</option><option value="net90">Net 90</option>
                     </select>
                   </div>
-                  <div><label className={lbl}>Reference</label><input type="text" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Free-text ref or delivery note" /></div>
+                  <div><label htmlFor="supplier-invoices-new-reference" className={lbl}>Reference</label><input id="supplier-invoices-new-reference" type="text" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Free-text ref or delivery note" /></div>
                 </div>
 
                 {/* 3-Way match — PO + GRN selectors */}
@@ -269,8 +269,8 @@ export default function NewSupplierInvoicePage() {
                   Notes
                 </h3>
                 <div>
-                  <label className={lbl}>VAT Rate (%)</label>
-                  <input type="number" step="0.01" value={form.taxRate}
+                  <label htmlFor="supplier-invoices-new-vat-rate" className={lbl}>VAT Rate (%)</label>
+                  <input id="supplier-invoices-new-vat-rate" type="number" step="0.01" value={form.taxRate}
                     onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))}
                     className={`${inp} w-32 mb-4`} />
                 </div>

@@ -183,6 +183,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                 </td>
                 <td className="px-3 py-2">
                   <select
+                    aria-label={`Line ${index + 1} account`}
                     value={line.glAccountId}
                     onChange={e => onUpdate(line.key, 'glAccountId', e.target.value)}
                     className={inp}
@@ -218,6 +219,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                 <td className="px-3 py-2">
                   <input
                     type="number"
+                    aria-label={`Line ${index + 1} quantity`}
                     step="0.01"
                     min="0.01"
                     required
@@ -229,6 +231,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                 <td className="px-3 py-2">
                   <input
                     type="number"
+                    aria-label={`Line ${index + 1} unit price`}
                     step="0.01"
                     min="0"
                     required
