@@ -6,7 +6,8 @@ const BASE = 'https://app.isaflow.co.za';
 // admin@isaflow.co.za is a member of the demo company (00000000-0000-0000-0000-000000000001)
 // and was validated working on 2026-04-29
 const EMAIL = process.env.E2E_TENANT_EMAIL || process.env.E2E_ADMIN_EMAIL || 'admin@isaflow.co.za';
-const PASSWORD = process.env.E2E_TENANT_PASSWORD || process.env.E2E_ADMIN_PASSWORD || 'admin123';
+const PASSWORD = process.env.E2E_TENANT_PASSWORD || process.env.E2E_ADMIN_PASSWORD;
+if (!PASSWORD) throw new Error('Set E2E_TENANT_PASSWORD or E2E_ADMIN_PASSWORD');
 const OUT = join(process.cwd(), 'tmp/tenant-e2e-audit');
 const SHOTS = join(OUT, 'screenshots');
 
