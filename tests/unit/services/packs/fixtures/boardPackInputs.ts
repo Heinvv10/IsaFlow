@@ -197,6 +197,19 @@ export const demoSet: PackFigureSet = {
   priorWindow: { start: '2025-09-01', end: '2026-02-28' },
   budget: {
     fiscalYear: 2026,
+    version: { name: 'Original', status: 'approved' },
+    // The engine's band budgets and profit totals (GP = T − COS; OP = GP + OI − Opex; NP = OP − OE).
+    bands: {
+      'is.revenue': 4_000_000,
+      'is.costOfSales': 2_200_000,
+      'is.grossProfit': 1_800_000,
+      'is.operatingExpenses': 1_150_000,
+      'is.otherIncome': 30_000,
+      'is.operating': 680_000,
+      'is.otherExpenses': 20_000,
+      'is.netProfit': 660_000,
+    },
+    unbudgetedCount: 0,
     totals: { budget: 4_000_000, actual: 4_200_000, variance: 200_000 },
     rows: [
       {
