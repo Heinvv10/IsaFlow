@@ -65,6 +65,7 @@ async function handler(
         effectiveFrom,
         effectiveTo || undefined,
         isRecurring !== false, // default true
+        { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
       );
       res.status(201).json({ success: true, data: assignment });
       return;

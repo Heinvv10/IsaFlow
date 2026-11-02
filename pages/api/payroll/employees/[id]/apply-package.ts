@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentRefused';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import {
@@ -40,6 +41,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.success(res, result);
   } catch (err) {
     if (err instanceof PayPackageNotFoundError) return apiResponse.notFound(res, err.message);
+    // A package that would cut what a paid run paid (payPackageService): the reason is the user's to read.
+    if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
     return apiResponse.badRequestFromError(res, err, 'Apply failed');
   }
 }

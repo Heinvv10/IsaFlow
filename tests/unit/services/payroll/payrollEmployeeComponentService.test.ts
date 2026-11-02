@@ -37,6 +37,7 @@ const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const EMPLOYEE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const COMPONENT_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const ASSIGNMENT_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+const ACTOR = { userId: 'u-1', channel: 'service' as const };
 
 describe('assignComponentToEmployee', () => {
   it('inserts and returns the mapped row when employee is in company', async () => {
@@ -70,6 +71,9 @@ describe('assignComponentToEmployee', () => {
       COMPONENT_ID,
       5000,
       '2025-01-01',
+      undefined,
+      true,
+      ACTOR,
     );
 
     expect(result).toEqual({
@@ -106,7 +110,7 @@ describe('assignComponentToEmployee', () => {
     };
 
     await assignComponentToEmployee(
-      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01', undefined, false,
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01', undefined, false, ACTOR,
     );
 
     const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
@@ -126,7 +130,7 @@ describe('assignComponentToEmployee', () => {
     };
 
     await assignComponentToEmployee(
-      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01',
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01', undefined, true, ACTOR,
     );
 
     const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
@@ -136,7 +140,7 @@ describe('assignComponentToEmployee', () => {
   it("refuses another company's component before the insert, reading it by this company", async () => {
     mockImpl = (strings) => Promise.resolve(strings.join('?').includes('FROM payroll_employees') ? [{ id: EMPLOYEE_ID }] : []);
     await expect(
-      assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-01-01'),
+      assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-01-01', undefined, true, ACTOR),
     ).rejects.toBeInstanceOf(EmployeeComponentRefused);
     expect(sqlCalls.find(c => c.sql.includes('INSERT'))).toBeUndefined();
     const lookup = sqlCalls.find(c => c.sql.includes('FROM payroll_components'));
@@ -169,7 +173,7 @@ describe('day strings', () => {
   it('refuses a date that is not a real YYYY-MM-DD before any write', async () => {
     mockImpl = (strings) => Promise.resolve(strings.join('?').includes('FROM') ? [{ id: 'x' }] : []);
     for (const bad of ['2025-02-30', '2025-3-1', 'tomorrow', '2025-03-01T00:00:00Z']) {
-      await expect(assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 1, bad))
+      await expect(assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 1, bad, undefined, true, ACTOR))
         .rejects.toBeInstanceOf(EmployeeComponentRefused);
     }
     await expect(endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, '2025-02-30'))

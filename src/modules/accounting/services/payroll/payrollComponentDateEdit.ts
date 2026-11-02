@@ -25,10 +25,10 @@
  * False when the id matches no assignment in the company.
  */
 import { withTransaction } from '@/lib/neon';
-import type { DbRow, TxSql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
-import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
+import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import type { PayrollPeriod } from './payrollTypes';
 import { payrollRunReadDate } from './payrollRunReadDate';
@@ -37,14 +37,14 @@ import {
   type AssignmentWindow,
 } from './payrollComponentPaidMonths';
 
-export interface ComponentChangeActor { userId: string; userEmail?: string; channel: 'rest' | 'mcp' | 'service' }
+export type { ComponentChangeActor } from './payrollComponentAudit';
 export type DateChange = { kind: 'edit'; from: string; to: string | null } | { kind: 'end'; to: string; cancel?: boolean };
 
 type Sibling = AssignmentWindow & { id: string };
 
 const live = (w: AssignmentWindow) => w.to === null || w.to >= w.from;
 /** The window alone: what may be logged or audited. Never the amount (an employee's pay). */
-const windowOnly = (w: AssignmentWindow): AssignmentWindow => ({ from: w.from, to: w.to, recurring: w.recurring, superseded: w.superseded, legacy: w.legacy });
+const windowOnly = (w: AssignmentWindow): AssignmentWindow => ({ from: w.from, to: w.to, recurring: w.recurring, supersededAt: w.supersededAt, legacy: w.legacy });
 const shiftDayFwd = (iso: string) => shiftDay(iso, 1);
 
 /** The reader's pre-953 rule (getEmployeeComponents): a live pre-953 sibling starts the day after `x` ends. */
@@ -56,7 +56,7 @@ function inferredSuperseded(x: Sibling, rows: Sibling[]): boolean {
 function flippedLegacyOnceOff(before: Sibling[], after: Sibling[]): { row: Sibling; paidAgain: boolean } | null {
   for (const x of before) {
     const y = after.find((r) => r.id === x.id)!;
-    if (x.recurring || !x.legacy || x.superseded || !live(x) || !live(y) || x.to === null || y.to === null) continue;
+    if (x.recurring || !x.legacy || x.supersededAt != null || !live(x) || !live(y) || x.to === null || y.to === null) continue;
     // A once-off covering its month's last day is paid whether superseded or not.
     if (y.to >= payrollRunReadDate({ year: Number(y.to.slice(0, 4)), month: Number(y.to.slice(5, 7)) })) continue;
     const was = inferredSuperseded(x, before);
@@ -106,21 +106,6 @@ function nextWindow(before: AssignmentWindow, change: DateChange, paidIn: Payrol
     refuse(`End can only bring the end date earlier (it is ${before.to}); use Edit dates to extend it.`);
   }
   return { after: { ...windowOnly(before), to: change.to }, kind: 'end' };
-}
-
-async function audit(tx: TxSql, companyId: string, id: string, before: AssignmentWindow, after: AssignmentWindow,
-  kind: string, actor: ComponentChangeActor): Promise<void> {
-  await logAuditOrThrow({
-    companyId, userId: actor.userId, userEmail: actor.userEmail, action: 'update',
-    entityType: 'payroll_employee_component', entityId: id,
-    changes: {
-      fields: [
-        { field: 'effective_from', old: before.from, new: after.from, label: 'Effective from' },
-        { field: 'effective_to', old: before.to, new: after.to, label: 'Effective to' },
-      ],
-      metadata: { kind, channel: actor.channel },
-    },
-  }, tx);
 }
 
 export async function changeAssignmentDates(
@@ -173,7 +158,7 @@ export async function changeAssignmentDates(
       UPDATE payroll_employee_components SET effective_from = ${after.from}::date, effective_to = ${after.to}::date
       WHERE id = ${assignmentId}::uuid
     `;
-    await audit(tx, companyId, assignmentId, self, after, kind, actor);
+    await auditComponentChange(tx, companyId, assignmentId, windowOnly(self), windowOnly(after), kind, actor);
     log.info('Changed employee component dates', {
       companyId, assignmentId, kind, before: windowOnly(self), after: windowOnly(after),
     }, 'payrollComponentDateEdit');

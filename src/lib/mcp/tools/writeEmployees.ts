@@ -349,6 +349,7 @@ export const assignEmployeeComponentTool: McpTool = {
         effectiveFrom,
         effectiveTo,
         args.is_recurring !== false,
+        { userId: ctx.userId, channel: 'mcp' },
       );
     } catch (err) {
       if (err instanceof EmployeeComponentRefused) return toolError(err.message);

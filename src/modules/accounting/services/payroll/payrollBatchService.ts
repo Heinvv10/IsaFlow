@@ -11,11 +11,12 @@
  */
 
 import { sql, withTransaction } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { endOfMonthIso } from './leaveAccrualService';
 import { assertComponentInCompany } from './payrollEmployeeComponentService';
 import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMonths';
+import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
@@ -409,11 +410,13 @@ export async function postBatch(
   // The company's payroll-approval lock first, held to the end, as approval, assign, End and Edit dates take it.
   return withTransaction(async (tx) => {
     await lockCompanyPayrollForComponentChange(tx, companyId);
-    return postBatchLocked(companyId, batchId, userId);
+    return postBatchLocked(tx, companyId, batchId, userId);
   });
 }
 
-async function postBatchLocked(companyId: string, batchId: string, userId: string): Promise<{ inserted: number }> {
+async function postBatchLocked(tx: TxSql, companyId: string, batchId: string, userId: string): Promise<{ inserted: number }> {
+  // Each assignment is written and audited in the post's transaction (payrollComponentAudit).
+  const write = (opts: AssignmentInsert) => insertAssignment(tx, companyId, { userId, channel: 'rest' }, opts);
   const batch = await loadBatchForCompany(companyId, batchId);
   if (batch.status === 'posted' || batch.status === 'cancelled') {
     throw new BatchNotEditableError(batch.status);
@@ -439,7 +442,7 @@ async function postBatchLocked(companyId: string, batchId: string, userId: strin
     await assertComponentInCompany(componentId, companyId);
     for (const line of lines) {
       const effectiveFrom = toDate(line.effective_from);
-      await insertAssignment({
+      await write({
         employeeId: String(line.employee_id),
         componentId,
         amount: Number(line.value ?? 0),
@@ -462,7 +465,7 @@ async function postBatchLocked(companyId: string, batchId: string, userId: strin
       const effectiveTo = closeOnceOffAt(batch, effectiveFrom, toDateOrNull(line.effective_to));
 
       if (taxable > 0) {
-        await insertAssignment({
+        await write({
           employeeId: String(line.employee_id),
           componentId: taxableComponent,
           amount: taxable,
@@ -473,7 +476,7 @@ async function postBatchLocked(companyId: string, batchId: string, userId: strin
         inserted += 1;
       }
       if (nonTaxable > 0) {
-        await insertAssignment({
+        await write({
           employeeId: String(line.employee_id),
           componentId: nonTaxableComponent,
           amount: nonTaxable,
@@ -521,26 +524,32 @@ async function resolveTravelComponent(companyId: string, sarsCode: '3702' | '370
   return String(row.id);
 }
 
-async function insertAssignment(opts: {
+interface AssignmentInsert {
   employeeId: string;
   componentId: string;
   amount: number;
   effectiveFrom: Date;
   effectiveTo: Date | null;
   isRecurring: boolean;
-}): Promise<void> {
-  await sql`
+}
+
+async function insertAssignment(tx: TxSql, companyId: string, actor: ComponentChangeActor, opts: AssignmentInsert): Promise<void> {
+  const from = toIso(opts.effectiveFrom);
+  const to = opts.effectiveTo ? toIso(opts.effectiveTo) : null;
+  const rows = (await tx`
     INSERT INTO payroll_employee_components (
       employee_id, component_id, amount, effective_from, effective_to, is_recurring
     ) VALUES (
       ${opts.employeeId}::uuid,
       ${opts.componentId}::uuid,
       ${opts.amount},
-      ${toIso(opts.effectiveFrom)},
-      ${opts.effectiveTo ? toIso(opts.effectiveTo) : null},
+      ${from},
+      ${to},
       ${opts.isRecurring}
     )
-  `;
+    RETURNING id
+  `) as Row[];
+  await auditComponentChange(tx, companyId, String(rows[0]!.id), null, { from, to, recurring: opts.isRecurring }, 'batch_assign', actor);
 }
 
 export async function deleteBatch(companyId: string, batchId: string): Promise<void> {

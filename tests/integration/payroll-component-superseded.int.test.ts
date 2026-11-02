@@ -66,7 +66,7 @@ beforeAll(async () => {
     [pkg, comp.bonus, comp.basic]);
   for (const k of ['weekly', 'reapply', 'cancelReplacement', 'lastMonth']) await employee(k);
   for (const [from, to, amount] of [['2026-11-01', '2026-11-07', 101], ['2026-11-08', '2026-11-14', 102], ['2026-11-15', '2026-11-21', 103], ['2026-11-22', '2026-11-30', 104]] as const) {
-    await assignComponentToEmployee(company, emp.weekly!, comp.overtime, amount, from, to, false);
+    await assignComponentToEmployee(company, emp.weekly!, comp.overtime, amount, from, to, false, actor());
   }
   await applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-01', user);
   await applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-15', user);
@@ -139,7 +139,7 @@ describe("the writers wait for the company's payroll-approval lock", () => {
 
   it('assign', async () => {
     vi.useRealTimers();
-    await waitsForLock(() => assignComponentToEmployee(company, emp.weekly!, comp.bonus, 50, '2026-12-03', undefined, false));
+    await waitsForLock(() => assignComponentToEmployee(company, emp.weekly!, comp.bonus, 50, '2026-12-03', undefined, false, actor()));
   });
 
   it('pay package apply', async () => {

@@ -3,7 +3,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
-import { changeAssignmentDates, type ComponentChangeActor } from './payrollComponentDateEdit';
+import { changeAssignmentDates } from './payrollComponentDateEdit';
+import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { lockCompanyPayrollForComponentChange } from './payrollComponentPaidMonths';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 
@@ -80,7 +81,8 @@ function dayOf(value: string, field: string): string {
 
 /**
  * Assign a component. The dates are plain 'YYYY-MM-DD' strings (#1057). Under the company's payroll-approval lock
- * (taken first, as approval, End and Edit dates take it), so no run is approved while an assignment appears.
+ * (taken first, as approval, End and Edit dates take it), so no run is approved while an assignment appears; audited
+ * with `actor` in the same transaction (payrollComponentAudit), so the approval gate sees it.
  */
 export async function assignComponentToEmployee(
   companyId: string,
@@ -88,8 +90,9 @@ export async function assignComponentToEmployee(
   componentId: string,
   amount: number,
   effectiveFrom: string,
-  effectiveTo?: string,
-  isRecurring: boolean = true,
+  effectiveTo: string | undefined,
+  isRecurring: boolean,
+  actor: ComponentChangeActor,
 ): Promise<EmployeeComponentAssignment> {
   const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
   // Once-off → auto-cap effective_to at end of effective_from's month so the
@@ -123,6 +126,8 @@ export async function assignComponentToEmployee(
     `) as Row[];
 
     if (!rows[0]) throw new Error('INSERT returned no row');
+    await auditComponentChange(tx, companyId, String(rows[0].id), null,
+      { from: effectiveFromStr, to: effectiveToStr, recurring: isRecurring }, 'assign', actor);
     return mapAssignment(rows[0]);
   });
 }

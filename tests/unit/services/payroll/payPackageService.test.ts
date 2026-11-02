@@ -19,9 +19,12 @@ vi.mock('@/lib/neon', () => ({
   // regression that dropped withTransaction entirely — leaving a mid-loop
   // failure to strand a DELETE with no INSERTs — would pass every test here.
   withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(
-    (strings: TemplateStringsArray, ...values: unknown[]) => {
+    async (strings: TemplateStringsArray, ...values: unknown[]) => {
       sqlCalls.push({ sql: strings.join('?'), values, viaTx: true });
-      return mockImpl(strings, ...values);
+      const rows = await mockImpl(strings, ...values);
+      // The apply now audits each row it inserts (payrollComponentAudit), so the INSERT returns its id.
+      if (rows.length === 0 && strings.join('?').includes('INSERT INTO payroll_employee_components')) return [{ id: 'inserted-row' }];
+      return rows;
     },
   ),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -175,7 +178,8 @@ describe('applyPackageToEmployee', () => {
     expect(inserts[1]!.values).toContain('2026-05-31');  // once-off closes at month end
     // The supersede must reach the already-closed once-off row too, or a second
     // apply in the same month leaves two overlapping windows and pays it twice.
-    const supersedes = sqlCalls.filter(c => c.sql.includes('UPDATE payroll_employee_components'));
+    // The rows to cut are chosen (and locked) first, then cut by id (payPackageSupersede).
+    const supersedes = sqlCalls.filter(c => c.sql.includes('FOR UPDATE') && c.sql.includes('FROM payroll_employee_components'));
     expect(supersedes).toHaveLength(2);
     for (const call of supersedes) {
       expect(call.sql).toContain('effective_to IS NULL OR effective_to >=');
