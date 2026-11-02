@@ -60,16 +60,17 @@ export async function getEmployeeComponents(
       AND (
         pec.effective_to IS NULL OR pec.effective_to >= ${asOf}::date
         -- A leaver's recurring row ending on their end date INSIDE the band (the 27th to the month end) pays the whole
-        -- last month, as before this release (Hein 2026-11-02), unless a live RECURRING row of the same component
-        -- replaces it from the next day (a once-off, a cancelled replacement or another component does not). A row
-        -- this skips is flagged as ending by the pro-rata guard, which asks this reader what it paid.
+        -- last month, as before this release (Hein 2026-11-02), unless a live row of the same component replaces it
+        -- from the next day: a recurring one, or any one when a package cut this row (superseded_at: the package's
+        -- once-off is the replacement). A hand-entered once-off, a cancelled replacement or another component does not.
+        -- A row this skips is flagged as ending by the pro-rata guard, which asks this reader what it paid.
         OR (
           pec.is_recurring AND pec.effective_to = pe.end_date
           AND pec.effective_to >= (date_trunc('month', ${asOf}::date) + INTERVAL '26 days')::date
           AND NOT EXISTS (
             SELECT 1 FROM payroll_employee_components nxt
             WHERE nxt.id <> pec.id AND nxt.employee_id = pec.employee_id AND nxt.component_id = pec.component_id
-              AND nxt.is_recurring
+              AND (nxt.is_recurring OR pec.superseded_at IS NOT NULL)
               AND nxt.effective_from = pec.effective_to + 1
               AND (nxt.effective_to IS NULL OR nxt.effective_to >= nxt.effective_from)
           )

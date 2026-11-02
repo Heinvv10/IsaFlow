@@ -154,17 +154,32 @@ const PAYROLL_TERMS = [
 /**
  * For the payroll approval gate (payrollRunRecalcGate): the employees among `employeeIds` whose end date or
  * termination details changed after run `runId` was calculated (both stamps compared in SQL: the capture's
- * clock_timestamp() against the run's calculated_at). An end-date change counts only when the old or the new date is
- * on or before the run's last day, or empty; a termination-detail change only for an employee whose end date is on or
- * before it. NULL when this caller may not read payroll_employee history (RLS: owner / admin / manager; a superuser or
- * a BYPASSRLS role reads it all): the gate then fails closed rather than read "no change".
+ * clock_timestamp() against the run's calculated_at). An end-date change counts only when the earlier of the old and
+ * the new date (empty = no end) is on or before the run's last day; a termination-detail change only for an employee
+ * whose end date is on or before it. NULL when this caller may not read the history: without SELECT on the columns
+ * read (migration_admin has none), or neither bypassing RLS nor an owner / admin / manager of the request's company.
+ * The gate then fails closed rather than read "no change".
  */
 export async function payrollTermsChangedSinceCalculation(
   companyId: string, runId: string, employeeIds: string[],
 ): Promise<string[] | null> {
+  // The privilege on every column read below (app_user holds column grants only, so a table-level check would say no;
+  // migration_admin bypasses RLS but holds none), AND either an RLS bypass or the 888 policy's own terms for this
+  // company: the request's company and a payroll-reading role.
   const access = (await sql`
-    SELECT COALESCE((SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = current_user), false)
-        OR COALESCE(public.company_member_actor_role(${companyId}::uuid) IN ('owner', 'admin', 'manager'), false) AS can_read
+    SELECT (
+      has_column_privilege(current_user, 'public.entity_changes', 'company_id', 'SELECT')
+      AND has_column_privilege(current_user, 'public.entity_changes', 'entity_type', 'SELECT')
+      AND has_column_privilege(current_user, 'public.entity_changes', 'entity_id', 'SELECT')
+      AND has_column_privilege(current_user, 'public.entity_changes', 'changed', 'SELECT')
+      AND has_column_privilege(current_user, 'public.entity_changes', 'before', 'SELECT')
+      AND has_column_privilege(current_user, 'public.entity_changes', 'after', 'SELECT')
+      AND has_column_privilege(current_user, 'public.entity_changes', 'recorded_at', 'SELECT')
+    ) AND (
+      COALESCE((SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = current_user), false)
+      OR (COALESCE(public.company_member_actor_role(${companyId}::uuid) IN ('owner', 'admin', 'manager'), false)
+          AND ${companyId}::uuid IS NOT DISTINCT FROM app.current_company_id())
+    ) AS can_read
   `) as Array<{ can_read: boolean }>;
   if (access[0]?.can_read !== true) return null;
   if (employeeIds.length === 0) return [];
@@ -180,9 +195,10 @@ export async function payrollTermsChangedSinceCalculation(
       AND c.recorded_at > h.calculated_at
       AND c.changed && ${PAYROLL_TERMS}::text[]
       AND (
-        ('end_date' = ANY(c.changed) AND (
-          c.before->>'end_date' IS NULL OR (c.before->>'end_date')::date <= p.last_day
-          OR c.after->>'end_date' IS NULL OR (c.after->>'end_date')::date <= p.last_day))
+        -- An empty end date is no end (infinity): the change counts when the earlier of the two is in or before the run.
+        ('end_date' = ANY(c.changed) AND LEAST(
+          COALESCE((c.before->>'end_date')::date, 'infinity'::date),
+          COALESCE((c.after->>'end_date')::date, 'infinity'::date)) <= p.last_day)
         OR (c.changed && ${PAYROLL_TERMS.slice(1)}::text[]
           AND c.after->>'end_date' IS NOT NULL AND (c.after->>'end_date')::date <= p.last_day)
       )
