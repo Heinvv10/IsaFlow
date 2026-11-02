@@ -17,6 +17,8 @@ export interface LineInsert {
   additionalMedicalCredit: number;
   /** Deductions coded 4005 on the line (migration 926). */
   medicalSchemeFees: number;
+  /** Retirement fund contributions (4001/4003/4006) and the deduction the PAYE took into account (migration 948, payeCumulative). */
+  retirementContributions: number; retirementDeduction: number;
   uifEmployee: number; uifEmployer: number;
   sdl: number; sdlLeviable: number;
   eti: number; netPay: number;
@@ -48,12 +50,12 @@ export async function replaceRunLines(runId: string, companyId: string, lineInse
       await tx`
         INSERT INTO payroll_run_lines (
           run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, medical_credit, additional_medical_credit, medical_scheme_fees,
-          uif_employee, uif_employer, sdl, eti, net_pay,
+          retirement_contributions, retirement_deduction, uif_employee, uif_employer, sdl, eti, net_pay,
           component_breakdown, validation_results, created_at
         ) VALUES (
           ${runId}::uuid, ${ins.employeeId}::uuid,
           ${ins.grossPay}, ${ins.taxableIncome}, ${ins.periodicTaxable}, ${ins.annualTaxable}, ${ins.paye}, ${ins.medicalCredit}, ${ins.additionalMedicalCredit}, ${ins.medicalSchemeFees},
-          ${ins.uifEmployee}, ${ins.uifEmployer},
+          ${ins.retirementContributions}, ${ins.retirementDeduction}, ${ins.uifEmployee}, ${ins.uifEmployer},
           ${ins.sdl}, ${ins.eti}, ${ins.netPay},
           ${ins.componentBreakdown},
           ${ins.validationResults}, clock_timestamp()

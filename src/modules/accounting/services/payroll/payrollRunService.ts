@@ -205,7 +205,8 @@ export async function calculatePayrollRun(
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
     const empValidation = validateEmployee(employee, otherTaxNumbers);
     const lineValidation = validatePayrollLine({
-      taxableIncome: line.taxableIncome,
+      // After the retirement fund deduction: a contribution can legitimately bring it under the threshold.
+      taxableIncome: line.taxableIncome - line.retirementDeduction,
       monthlyPaye: line.paye.monthlyPaye,
       grossPay: line.grossPay,
     });
@@ -220,6 +221,8 @@ export async function calculatePayrollRun(
       medicalCredit: line.medicalCredit,
       additionalMedicalCredit: line.additionalMedicalCredit,
       medicalSchemeFees: line.medicalSchemeFees,
+      retirementContributions: line.retirementContributions,
+      retirementDeduction: line.retirementDeduction,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,
       sdl: 0, // set below, once the run's own leviable total decides leviability

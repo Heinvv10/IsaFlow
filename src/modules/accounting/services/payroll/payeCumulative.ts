@@ -78,6 +78,25 @@
  * floored at nil and carried like any over-deduction. Its record (4120,
  * `additionalMedicalCredit`) follows the same rule as the MTC's.
  *
+ * Retirement fund contributions (PAYE 4c, retirementFund.ts): the deduction
+ * comes off the annual equivalent before the tables, rebates and credits. C =
+ * contributions to date (deductions coded 4001/4003/4006, ytd included),
+ * annualised over the same n as the pay (C × 12 ÷ n; with n = 0, as they
+ * stand); remuneration = AE + all annual payments to date, both BEFORE the
+ * deduction (the s11F base); D = allowedRetirementDeduction(C × 12 ÷ n,
+ * remuneration). AE becomes AE − D, so the liability to date is tax(AE − D) ×
+ * n ÷ 12 + [tax(AE − D + A) − tax(AE − D)]: the deduction weighted n ÷ 12, the
+ * proviso that limits the cap to the period paid (G21 2027 p. 10). At n = 12
+ * the year's liability is tax(remuneration − D), the s11F year. Should D
+ * exceed AE (an annual payment over 2.6 × the annual pay), the excess comes off
+ * the annual payments in full, never below nil and never past the contributions
+ * to date or the cap × n ÷ 12 (each less the AE part × n ÷ 12). Donations (4030, s18A) are added back to the
+ * base (G21 2027 p. 10). The line records the deduction inside
+ * the liability to date ((D − excess) × n ÷ 12 + excess) less what the earlier
+ * lines recorded (ytd.retirementDeduction), as the credits are recorded.
+ * periodicTaxable / annualPayments (in and in ytd) are remuneration BEFORE the
+ * deduction.
+ *
  * A month's PAYE depends on which earlier months are approved when it is
  * calculated (the year-to-date reads approved/paid runs only): a month
  * calculated while the previous one is still a draft, or before an earlier
@@ -88,6 +107,8 @@
  */
 
 import { annualTaxAfterCredits, calculatePAYE } from './payeEngine';
+import { allowedRetirementDeduction } from './retirementFund';
+import { getTaxYearConfig } from './taxTables';
 import type { PayeResult, PayeYearToDate } from './payrollTypes';
 
 export interface CumulativePayeInput {
@@ -102,6 +123,10 @@ export interface CumulativePayeInput {
   monthlyMedicalBeneficiaries: number;
   /** This period's medical scheme fees paid through payroll (deductions coded 4005), for the 65+ additional credit. */
   medicalSchemeFees: number;
+  /** This period's employee retirement fund contributions (deductions coded 4001/4003/4006); absent = none. */
+  retirementContributions?: number;
+  /** This period's donations deducted as taxable deductions (4030, s18A), inside regularTaxable; absent = none. */
+  donations?: number;
 }
 
 export interface CumulativePayeResult {
@@ -115,6 +140,8 @@ export interface CumulativePayeResult {
   medicalCredit: number;
   /** The 65+ additional medical expenses tax credit this line records (see the header). */
   additionalMedicalCredit: number;
+  /** The retirement fund deduction this line records (see the header). */
+  retirementDeduction: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -137,21 +164,46 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const annualBefore = Math.max(0, ytd.annualPayments);
   const annualNow = Math.max(0, input.annualPayments);
 
-  const regularInfo = calculatePAYE({ ...base, annualTaxableIncome: annualEquivalent });
+  // The retirement fund deduction, on annual figures before it (see the header).
+  const contributions = Math.max(0, ytd.retirementContributions ?? 0) + Math.max(0, input.retirementContributions ?? 0);
+  const annualise = (toDate: number) => (periods > 0 ? (toDate * PERIODS_IN_YEAR) / periods : toDate);
+  // The 27.5% base is taxable income "before allowing any deduction under ss11F, 6quat(1C) and 18A" (G21 (2027)
+  // p. 10): donations (4030), deducted from regularTaxable, are added back to it.
+  const donations = Math.max(0, ytd.donations ?? 0) + Math.max(0, input.donations ?? 0);
+  const deduction = allowedRetirementDeduction(
+    annualise(contributions), annualEquivalent + annualise(donations) + annualBefore + annualNow, input.taxYear);
+  // The part off the annual equivalent is weighted n ÷ 12; the rest comes off the annual payments in full, but
+  // never past what was contributed to date (review #891: an unlimited excess deducted more than was paid), nor
+  // past the cap × n ÷ 12, "at any time during the year" (G21 (2027) p. 10; review #891 round 2). A period paid
+  // only an annual payment counts as one.
+  const offPeriodic = Math.min(deduction, annualEquivalent);
+  const periodicToDate = (offPeriodic * periods) / PERIODS_IN_YEAR;
+  const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods) + (hasPeriodic || annualNow > 0 ? 1 : 0);
+  const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / PERIODS_IN_YEAR;
+  const offAnnual = Math.max(0, Math.min(deduction - offPeriodic, annualBefore + annualNow,
+    contributions - periodicToDate, capToDate - periodicToDate));
+  const taxedAE = annualEquivalent - offPeriodic;
+  const annualAll = annualBefore + annualNow - offAnnual;
+  const annualEarlier = Math.max(0, annualBefore - offAnnual);
+
+  const regularInfo = calculatePAYE({ ...base, annualTaxableIncome: taxedAE });
   // A period with neither periodic pay nor an annual payment (a severance-only
   // line) deducts nothing from the tables: there is nothing to deduct it from.
   if (!hasPeriodic && annualNow <= 0) {
-    return { regular: { ...regularInfo, monthlyPaye: 0 }, annualPaymentPaye: 0, periods, annualEquivalent, medicalCredit: 0, additionalMedicalCredit: 0 };
+    return {
+      regular: { ...regularInfo, monthlyPaye: 0 }, annualPaymentPaye: 0, periods, annualEquivalent,
+      medicalCredit: 0, additionalMedicalCredit: 0, retirementDeduction: 0,
+    };
   }
-  const taxAE = tax(annualEquivalent);
-  const taxAll = tax(annualEquivalent + annualBefore + annualNow);
+  const taxAE = tax(taxedAE);
+  const taxAll = tax(taxedAE + annualAll);
   const liability = (taxAE * periods) / PERIODS_IN_YEAR + (taxAll - taxAE);
   const due = Math.max(0, round2(liability - ytd.tablePaye));
-  const annualDue = Math.max(0, taxAll - tax(annualEquivalent + annualBefore));
+  const annualDue = Math.max(0, taxAll - tax(taxedAE + annualEarlier));
   const annualPaymentPaye = round2(Math.min(due, annualDue));
   // A credit inside the liability to date, weighted as the liability is (see the header).
-  const atAE = credits(annualEquivalent);
-  const atAll = credits(annualEquivalent + annualBefore + annualNow);
+  const atAE = credits(taxedAE);
+  const atAll = credits(taxedAE + annualAll);
   const toDate = (used: (c: typeof atAE) => number) => (used(atAE) * periods) / PERIODS_IN_YEAR + (used(atAll) - used(atAE));
   return {
     regular: { ...regularInfo, monthlyPaye: round2(due - annualPaymentPaye) },
@@ -160,5 +212,6 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
     annualEquivalent: round2(annualEquivalent),
     medicalCredit: round2(toDate(c => c.medicalCreditUsed) - ytd.medicalCredit),
     additionalMedicalCredit: round2(toDate(c => c.additionalMedicalCreditUsed) - ytd.additionalMedicalCredit),
+    retirementDeduction: round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0)),
   };
 }
