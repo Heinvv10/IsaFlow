@@ -14,7 +14,8 @@ import { journalInForceOrNull } from './payrollJournalChain';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
-import { appendLoanComponents } from './payrollRunLoanComponents';
+import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
+import { fringeNotRecordedResults, runOfficialRate, withheldLineResults, type WithheldLoan } from './payrollLoanWithholding';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
@@ -151,19 +152,26 @@ export async function calculatePayrollRun(
   // Undo the loan deductions THIS run already applied, then re-apply the
   // instalments due — one locked transaction, so a recalculation reproduces
   // the same payslip instead of dropping the deduction while keeping the
-  // reduced balance. See payrollRunLoanApplication.ts.
+  // reduced balance. See payrollRunLoanApplication.ts. A loan the payslip has no component for is
+  // not taken at all (payrollLoanWithholding); its line is marked instead.
+  const loanComponents = await loadLoanComponents(companyId);
+  const withheld: WithheldLoan[] = [];
   const loansByEmployee = await applyRunLoans({
     companyId,
     runId,
     periodYear: period.year,
     periodMonth: period.month,
-    officialRate: Number(process.env.SARS_OFFICIAL_RATE ?? 0.085),
+    officialRate: runOfficialRate(),
     // Only a journal whose amounts are in the ledger blocks loan work (round 5).
     journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
     // Only the run's own employees: an instalment taken from someone with no
     // line here would reduce the loan with no deduction on any payslip.
     employeeIds: new Set(employees.map(e => e.id)),
+    components: { deduction: loanComponents.deduction != null, fringe: loanComponents.fringe != null },
+    onWithheld: (w) => withheld.push(w),
   });
+  const withheldResults = withheldLineResults(withheld);
+  const fringeWarnings = fringeNotRecordedResults(loansByEmployee, loanComponents);
 
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
@@ -189,7 +197,7 @@ export async function calculatePayrollRun(
         companyId, runId, employee, components, period, terminationWarnings,
       );
       const loanApplications: ApplyLoanResult[] = loansByEmployee.get(employee.id) ?? [];
-      componentsWithLoans = await appendLoanComponents(companyId, componentsWithTermination, loanApplications);
+      componentsWithLoans = appendLoanComponents(componentsWithTermination, loanApplications, loanComponents);
     }
 
     const line = calculatePayrollLine({
@@ -229,7 +237,7 @@ export async function calculatePayrollRun(
       componentBreakdown: JSON.stringify(line.componentBreakdown),
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
-        ...line.validationResults, ...terminationWarnings,
+        ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),
         // Only a line taxed from the tables feeds the later months' cumulative PAYE.
         ...((line.periodicTaxable > 0 || line.annualTaxable > 0) && laterApproved.has(employee.id) ? [laterApproved.get(employee.id)!] : []),
       ]),

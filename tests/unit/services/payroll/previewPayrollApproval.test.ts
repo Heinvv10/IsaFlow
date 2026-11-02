@@ -24,6 +24,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveClaim', () => 
 const headerRow = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 // approvePayrollRun takes its header lock through withTransaction (payrollRunLock).
 // The stale year-to-date blocker (PAYE 4a follow-ups G4) has its own tests (p4fu-brk-order, p4fu-cumulative-paye).
+// Loan payments against the payslip have their own integration suite (payrun-loan-components).
+vi.mock('@/modules/accounting/services/payroll/payrollRunLines', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/modules/accounting/services/payroll/payrollRunLines')>(),
+  findLoanPaymentsOffPayslip: vi.fn(async () => ({ offPayslip: [], fringeNotRecorded: [] })),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollYearToDateGate', () => ({ judgeYearToDate: vi.fn(async () => ({ blocker: null, advisories: [] })) }));
 vi.mock('@/lib/neon', () => {
   const sql = vi.fn(async () => [headerRow.current]);

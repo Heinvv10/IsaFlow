@@ -20,6 +20,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { endOfMonthIso } from './leaveAccrualService';
+import { lockCompanyPayrollApprovals } from './payrollRunLock';
 
 export interface PayPackage {
   id: string;
@@ -269,6 +270,7 @@ export async function applyPackageToEmployee(
   // `withTransaction` nests a SAVEPOINT when a request transaction is in flight
   // and opens a real one only when there is none.
   return withTransaction(async (tx) => {
+    await lockCompanyPayrollApprovals(null, companyId);
     let ended = 0;
     for (const r of compRows) {
       const componentId = String(r.component_id);

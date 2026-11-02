@@ -79,6 +79,10 @@ export interface PayrollJournalPlan {
   periodMonth: number;
   periodYear: number;
   employeeCount: number;
+  /** Lines with net above nil: everyone approval actually pays. */
+  paidEmployeeCount: number;
+  /** The run's lines, counted where paidEmployeeCount is (the header's employee_count can be stale). */
+  lineCount: number;
   /** Set when the run has already posted — the poster returns this id unchanged. */
   alreadyPostedJournalId: string | null;
   /** YYYY-MM-DD, last day of the period month. */
@@ -120,8 +124,10 @@ export async function buildPayrollJournalPlan(
   runId: string,
 ): Promise<PayrollJournalPlan | null> {
   const headerRows = (await sql`
-    SELECT * FROM payroll_run_headers
-    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    SELECT h.*, (SELECT COUNT(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id AND l.net_pay > 0) AS paid_employee_count,
+           (SELECT COUNT(*)::int FROM payroll_run_lines l WHERE l.run_id = h.id) AS line_count
+    FROM payroll_run_headers h
+    WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
   `) as Row[];
   const hdr = headerRows[0];
   if (!hdr) return null;
@@ -283,6 +289,8 @@ export async function buildPayrollJournalPlan(
     periodMonth,
     periodYear,
     employeeCount: Number(hdr.employee_count) || 0,
+    paidEmployeeCount: Number(hdr.paid_employee_count) || 0,
+    lineCount: Number(hdr.line_count) || 0,
     alreadyPostedJournalId: hdr.journal_entry_id == null ? null : String(hdr.journal_entry_id),
     entryDate,
     description: `Payroll run ${periodYear}-${mm}`,

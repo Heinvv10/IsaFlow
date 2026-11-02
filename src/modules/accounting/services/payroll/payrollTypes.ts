@@ -120,6 +120,12 @@ export interface ValidationResult {
   deepLink?: string;
   /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
   periods?: string[];
+  /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
+  rawNet?: number;
+  /** LOAN_DEDUCTION_MISSING only: the loan numbers whose instalment was not taken. */
+  loans?: string[];
+  /** LOAN_DEDUCTION_MISSING only: the components missing, 'LOAN' and, when also missing, '3801'. */
+  missing?: string[];
 }
 
 export interface PayrollLineInput {

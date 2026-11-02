@@ -23,6 +23,9 @@
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then
+ *      the line refusals of payrollLineBlockers (`run_lines_unreadable`, `loan_payments_off_payslip`,
+ *      `loan_deduction_missing`, `loan_fringe_not_recorded`, `loan_instalment_exceeds_pay`,
+ *      `deductions_exceed_pay`), then
  *      every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
  *      'already_posted', which names the journal being replaced.
@@ -42,6 +45,8 @@ import { readJournalChain, runRecalculatedSince, type JournalChain } from './pay
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
+import { findFringeNotRecordedLines, findLoanPaymentsOffPayslip, findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
+import { lineBlocker } from './payrollLineBlockers';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -214,6 +219,8 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const yearToDate = await judgeYearToDate(companyId, runId);
   // Leavers whose approved severance directive this run does not pay, and why (P3), and a paid later month
   // this run's change leaves stale (R1 limit (f)); neither is in the hash.
+  const overdrawn = await findOverdrawnLines(companyId, runId);
+  const loanPayments = await findLoanPaymentsOffPayslip(companyId, runId);
   const plan = {
     ...dated,
     advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories],
@@ -265,6 +272,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           + '. Recalculate this run first; it then leaves them out.',
       };
     }
+    // Unreadable lines, loans off the payslip, withheld or above pay, an unrecorded fringe benefit, a shortfall (payrollLineBlockers).
+    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), loanPayments.offPayslip,
+      [...await findFringeNotRecordedLines(companyId, runId), ...loanPayments.fringeNotRecorded]);
+    if (fromLines) return fromLines;
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();
 

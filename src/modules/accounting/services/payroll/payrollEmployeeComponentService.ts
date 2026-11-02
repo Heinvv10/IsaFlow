@@ -3,6 +3,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
+import { lockCompanyPayrollApprovals } from './payrollRunLock';
 
 type Row = DbRow;
 
@@ -69,7 +70,8 @@ export async function assertComponentInCompany(componentId: string, companyId: s
  * and `toISOString()` reports it in UTC, which stored a local-midnight date one day early east of UTC.
  */
 function dayOf(value: string, field: string): string {
-  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  // A string only: RegExp.exec would read ['2026-03-01'] as its text, and the array would then be bound as the date.
+  const day = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
   let real = false;
   if (day && +day[1]! >= 1) {
     // setUTCFullYear, not Date.UTC: Date.UTC reads years 0-99 as 1900-1999. Same rule as isRealCalendarDate.
@@ -90,20 +92,24 @@ export async function assignComponentToEmployee(
   effectiveTo?: string,
   isRecurring: boolean = true,
 ): Promise<EmployeeComponentAssignment> {
-  await assertEmployeeInCompany(employeeId, companyId);
-  await assertComponentInCompany(componentId, companyId);
-
-  log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
-
+  // The dates first: a refused one reads nothing and takes no lock.
   const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
   // Once-off → auto-cap effective_to at end of effective_from's month so the
   // assignment dies after the period it was captured for. Caller-supplied
   // effectiveTo wins if provided.
-  const effectiveToStr = effectiveTo
+  // Only undefined or null mean "no end date": 0, false or '' are refused, not read as none.
+  const effectiveToStr = effectiveTo !== undefined && effectiveTo !== null
     ? dayOf(effectiveTo, 'effectiveTo')
     : isRecurring
     ? null
     : endOfMonthIso(Number(effectiveFromStr.slice(0, 4)), Number(effectiveFromStr.slice(5, 7)));
+
+  await assertEmployeeInCompany(employeeId, companyId);
+  // The pay-run grid reads the month's rows and writes under this lock; a row landing in between would pay twice.
+  await lockCompanyPayrollApprovals(null, companyId);
+  await assertComponentInCompany(componentId, companyId);
+
+  log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 
   const rows = (await sql`
     INSERT INTO payroll_employee_components (
@@ -138,6 +144,8 @@ export async function endEmployeeComponent(
   effectiveTo: string,
 ): Promise<boolean> {
   const effectiveToStr = dayOf(effectiveTo, 'effectiveTo');
+  // Serialise with the review grid's read-calculate-write transaction so it cannot commit stale lines.
+  await lockCompanyPayrollApprovals(null, companyId);
 
   log.info('Ending employee component', { companyId, assignmentId, effectiveTo: effectiveToStr }, 'payrollEmployeeComponentService');
 

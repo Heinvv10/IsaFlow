@@ -37,6 +37,21 @@ interface Props {
 }
 
 const money = (n: number) => (n === 0 ? '' : formatCurrency(n));
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** The plan's own figures: the net it pays, and its debits, which are all labour (gross + employer UIF + SDL − ETI used). */
+function paymentSummary(plan: Preview['plan']): string {
+  // Both counts from the run's lines, as the journal sentence below: who is paid, and how many are due nil.
+  const paid = Math.min(plan.paidEmployeeCount, plan.lineCount);
+  const nil = plan.lineCount - paid;
+  const people = nil > 0
+    ? `${paid} of the ${plan.lineCount} employees`
+    : `${plan.lineCount} employee${plan.lineCount === 1 ? '' : 's'}`;
+  const nilNote = nil > 0 ? ` (${nil} ${nil === 1 ? 'is' : 'are'} due nil)` : '';
+  return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${MONTHS[plan.periodMonth - 1]} ${plan.periodYear}${nilNote}. `
+    + `Cost to the company ${formatCurrency(plan.totalDebit)} (gross plus employer UIF and SDL, less ETI used).`;
+}
+
 const UNCERTAIN = 'The approval could not be confirmed. The run has been reloaded — check its status before approving again.';
 
 export function PayrollApproveDialog({ runId, period, warningCount, open, onClose, onApproved, onUncertain }: Props) {
@@ -94,16 +109,17 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
     <Modal open={open} onClose={onClose} title={`Approve payroll — ${period}`} size="lg">
       <Modal.Body className="space-y-4 text-sm">
         {!preview && !loadError && (
-          <div className="flex items-center gap-2 text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading the journal…</div>
+          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-300"><Loader2 className="h-4 w-4 animate-spin" /> Loading the journal…</div>
         )}
-        {loadError && <p className="text-red-500">{loadError}</p>}
+        {loadError && <p className="text-red-600 dark:text-red-400">{loadError}</p>}
         {plan && shown && (
           <>
+            {!blocker && !posted && <p className="font-medium text-gray-900 dark:text-white">{paymentSummary(plan)}</p>}
             {!blocker && (
               <p className="text-gray-600 dark:text-gray-300">
                 {posted
                   ? <>Already posted: journal <span className="font-mono">{posted.entryNumber}</span>. Approving locks this run again and posts nothing new.</>
-                  : <>Approving locks this run and posts journal <span className="font-mono">{plan.reference}</span> dated {plan.entryDate} for {plan.employeeCount} employee{plan.employeeCount === 1 ? '' : 's'}:</>}
+                  : <>Approving locks this run and posts journal <span className="font-mono">{plan.reference}</span> dated {plan.entryDate} for {plan.lineCount} employee{plan.lineCount === 1 ? '' : 's'}:</>}
               </p>
             )}
             {!blocker && replaces && (
@@ -113,7 +129,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
             )}
             <table className="w-full">
               <thead>
-                <tr className="text-left text-xs text-gray-500">
+                <tr className="text-left text-xs text-gray-500 dark:text-gray-300">
                   <th className="py-1">{posted && !blocker ? 'Account (already posted)' : 'Account'}</th>
                   <th className="py-1 text-right">Debit</th><th className="py-1 text-right">Credit</th>
                 </tr>
@@ -134,20 +150,20 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
               </tbody>
             </table>
             {!posted && plan.advisories.map((a) => (
-              <p key={a.code} className="flex gap-2 text-amber-600 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" />{a.detail}</p>
+              <p key={a.code} className="flex gap-2 text-amber-700 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" />{a.detail}</p>
             ))}
-            {warningCount > 0 && (
-              <p className="flex gap-2 text-amber-600 dark:text-amber-400">
+            {warningCount > 0 && !blocker && (
+              <p className="flex gap-2 text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 {warningCount} warning{warningCount === 1 ? '' : 's'} on this run (listed on the page). They do not block approval.
               </p>
             )}
             {blocker && (
-              <p className="flex gap-2 text-red-500"><AlertCircle className="h-4 w-4 shrink-0" />{blocker.detail}</p>
+              <p className="flex gap-2 text-red-600 dark:text-red-400"><AlertCircle className="h-4 w-4 shrink-0" />{blocker.detail}</p>
             )}
           </>
         )}
-        {approveError && <p role="alert" className="flex gap-2 text-red-500"><AlertCircle className="h-4 w-4 shrink-0" />{approveError}</p>}
+        {approveError && <p role="alert" className="flex gap-2 text-red-600 dark:text-red-400"><AlertCircle className="h-4 w-4 shrink-0" />{approveError}</p>}
       </Modal.Body>
       <Modal.Footer>
         <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-white/20 text-sm">Cancel</button>

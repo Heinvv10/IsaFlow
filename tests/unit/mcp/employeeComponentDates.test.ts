@@ -29,6 +29,10 @@ vi.mock('@/lib/neon', () => ({
     return Promise.resolve([]);
   },
 }));
+// The company payroll lock (payrollRunLock), recorded in the same trail, so its place among the statements is judged.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockCompanyPayrollApprovals: vi.fn(async () => { sqlCalls.push({ sql: 'LOCK company payroll', values: [] }); }),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -66,6 +70,9 @@ describe('assign_employee_component stores the date it was given (SAST)', () => 
   it('recurring from the 1st', async () => {
     const r = await assign({ effective_from: '2026-03-01' });
     expect(r.isError).toBeFalsy();
+    const lock = sqlCalls.findIndex((c) => c.sql.startsWith('LOCK'));
+    expect(lock).toBeGreaterThan(-1);
+    expect(lock).toBeLessThan(sqlCalls.findIndex((c) => c.sql.includes('INSERT INTO payroll_employee_components')));
     expect(insertValues()).toContain('2026-03-01');
     expect(insertValues()).not.toContain('2026-02-28');
   });
@@ -106,6 +113,8 @@ describe('the other MCP date writes agree (regression pins)', () => {
       { assignment_id: ASSIGNMENT, effective_to: '2026-03-01', idempotency_key: 'k' }, ctx);
     const upd = sqlCalls.find((c) => c.sql.includes('UPDATE payroll_employee_components'))!;
     expect(upd.values).toContain('2026-03-01');
+    expect(sqlCalls.findIndex((c) => c.sql.startsWith('LOCK'))).toBeLessThan(sqlCalls.indexOf(upd));
+    expect(sqlCalls.findIndex((c) => c.sql.startsWith('LOCK'))).toBeGreaterThan(-1);
   });
 
   it('regression pin: create_employee stores start_date, end_date and date_of_birth as given', async () => {
