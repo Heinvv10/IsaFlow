@@ -4,6 +4,7 @@
  * the prior column is. Split out of `packBasis.ts` for the 300-line cap; that
  * file re-exports every export here, so each caller still imports it there.
  */
+import type { PackBudgetFigures } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackComparativePeriod, PackFootnote } from './packPageModel';
 import { comparativeLengthClause } from './packPeriodLabel';
 import type { PeriodWindow } from '@/modules/accounting/services/reports/priorPeriod';
@@ -166,4 +167,24 @@ export function priorColumnFootnote(
     text: `The prior column is the period ${comparative.label} — `
       + `${comparativeLengthClause(reportingWindow, comparative)}`,
   };
+}
+
+/**
+ * Page 6's Budget column, in one sentence (budgets P3 PR-E): which budget it is, what Variance
+ * means, and the accounts whose budget counts as nil because none was set. Anchored on the
+ * Budget heading by the caller; none where the page prints no Budget column.
+ */
+export function budgetColumnFootnote(budget: PackBudgetFigures | null, number: number): PackFootnote[] {
+  if (budget === null) return [];
+  const n = budget.unbudgetedCount;
+  const nil = n === 0 ? ''
+    : n === 1 ? ' One account with actuals in the period has no budget, so its budget counts as nil.'
+      : ` ${n} accounts with actuals in the period have no budget, so their budget counts as nil.`;
+  // Fixed words only (the version's kind and status), never its user-typed name: the prose gate refuses
+  // some spellings, and a pack refused for what a user called a budget is a pack nobody gets. A window over
+  // two financial years reads each year's primary, so no one version can be named.
+  const which = budget.version === null
+    ? 'each financial year\'s primary budget for the months in it'
+    : `the ${budget.version.kind} budget (${budget.version.status}) for these months`;
+  return [{ number, text: `The budget column is ${which}; variance is the actual less the budget.${nil}` }];
 }

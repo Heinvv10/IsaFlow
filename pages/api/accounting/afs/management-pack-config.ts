@@ -24,7 +24,8 @@ import type { ManagementPackConfig } from '@/modules/accounting/services/afs/afs
 // Server-controlled fields (id, companyId) are accepted then stripped before
 // the service call so a strict schema doesn't reject the UI's full-object PUT.
 const PutConfigSchema = z.object({
-  id: UUID.optional(),
+  // '' is the id of the defaults a company with no saved config is given (GET), which the UI sends back.
+  id: UUID.or(z.literal('')).optional(),
   companyId: UUID.optional(),
   enabled: z.boolean().optional(),
   deliveryDay: z.number().int().min(1).max(28).optional(),
