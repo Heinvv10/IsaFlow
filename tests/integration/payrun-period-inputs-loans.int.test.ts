@@ -6,6 +6,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import components from '../../pages/api/payroll/employees/[id]/components';
+import applyPackage from '../../pages/api/payroll/employees/[id]/apply-package';
+import postBatch from '../../pages/api/payroll/batches/[id]/post';
+import {
+  addBatchLines, createBatch, validateBatch,
+} from '../../src/modules/accounting/services/payroll/payrollBatchService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
 import type { Route } from './w3-01-payroll.helpers';
@@ -40,18 +45,19 @@ describe('judged against a fresh calculation, not the stored line', () => {
 });
 
 describe('a loan instalment above pay', () => {
-  it('warns, names the employee, and approves as it does today: nothing in the figures moves', async () => {
+  it('blocks approval because the loan subledger would exceed the deductions liability', async () => {
     await addLoan(30000);
     await recalculate(state.nov);
     const l = await line(state.nov);
     expect(l.net).toBe(0);
     expect(codes(l)).toEqual(['LOAN_INSTALMENT_EXCEEDS_PAY']);
     const { blocker, plan, planHash } = (await preview(state.nov)).body.data!;
-    expect(blocker).toBeNull();
+    expect(blocker).toMatchObject({ code: 'deductions_exceed_pay' });
+    expect(blocker.detail).toContain('W301-1');
     const advisory = plan.advisories.find((a: { code: string }) => a.code === 'loan_instalment_exceeds_pay');
     expect(advisory.detail).toContain('W301-1');
-    expect((await doApprove(state.nov, planHash)).statusCode).toBe(200);
-    expect(await header(state.nov)).toMatchObject({ status: 'approved' });
+    expect((await doApprove(state.nov, planHash)).statusCode).toBe(400);
+    expect(await header(state.nov)).toMatchObject({ status: 'calculated', journal_entry_id: null });
   });
 
   it('the grid still refuses an edit that makes it worse', async () => {
@@ -116,4 +122,66 @@ describe('assigning a component beside the grid', () => {
     }
     expect(await rows(comp.overtime!)).toEqual([]);
   }, 15_000);
+});
+
+describe('other component writers beside the grid', () => {
+  const waitsForPayrollLock = async (write: () => Promise<{ statusCode: number }>) => {
+    const holder = await pool.connect();
+    const key = `payroll_approval:${state.coA}`;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [key]);
+      const pending = write();
+      await vi.waitFor(async () => expect(await lockWaiters(key)).toBe(1), { timeout: 4000, interval: 25 });
+      expect(await rows(comp.overtime!)).toEqual([]);
+      await holder.query('COMMIT');
+      expect((await pending).statusCode).toBe(200);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await rows(comp.overtime!)).toHaveLength(1);
+  };
+
+  it('batch posting waits for the company payroll lock before inserting assignments', async () => {
+    const batch = await createBatch({
+      companyId: state.coA, batchType: 'component_values', componentId: comp.overtime,
+      description: 'R inputs lock batch', periodYear: 2026, periodMonth: 11,
+      isRecurring: false, userId: fx.admin,
+    });
+    await addBatchLines(state.coA, batch.id, [{
+      employeeId: state.employee, value: 700, effectiveFrom: new Date('2026-11-01'),
+    }]);
+    try {
+      expect((await validateBatch(state.coA, batch.id)).ok).toBe(true);
+      await waitsForPayrollLock(() => call(
+        postBatch as Route, 'POST', `/api/payroll/batches/${batch.id}/post`, batch.id,
+      ));
+    } finally {
+      await pool.query('DELETE FROM payroll_batch_lines WHERE batch_id = $1', [batch.id]);
+      await pool.query('DELETE FROM payroll_batches WHERE id = $1', [batch.id]);
+    }
+  });
+
+  it('pay-package application waits for the company payroll lock before inserting assignments', async () => {
+    const packageId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO pay_packages (id, company_id, code, name) VALUES ($1, $2, 'R-LOCK', 'R lock package')`,
+      [packageId, state.coA],
+    );
+    await pool.query(
+      `INSERT INTO pay_package_components (package_id, component_id, amount, is_recurring)
+       VALUES ($1, $2, 700, false)`,
+      [packageId, comp.overtime],
+    );
+    try {
+      await waitsForPayrollLock(() => call(
+        applyPackage as Route, 'POST', `/api/payroll/employees/${state.employee}/apply-package`, state.employee,
+        { body: { packageId, effectiveFrom: '2026-11-01' } },
+      ));
+    } finally {
+      await pool.query('DELETE FROM pay_package_components WHERE package_id = $1', [packageId]);
+      await pool.query('DELETE FROM pay_packages WHERE id = $1', [packageId]);
+    }
+  });
 });
