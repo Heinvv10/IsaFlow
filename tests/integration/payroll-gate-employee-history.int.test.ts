@@ -13,6 +13,8 @@ import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, 
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { setTerminationDetails } from '@/modules/accounting/services/payroll/payrollTerminationService';
+import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
+import { als } from '@/lib/als';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -21,6 +23,7 @@ const admin = crypto.randomUUID();
 let call: ReturnType<typeof routeCaller>;
 let leaver = '';
 let future = '';
+let open = '';
 
 const preview = async (run: string) =>
   ((await call(journalPlan as Route, 'GET', `/api/payroll/runs/${run}/journal-plan`, run)).body.data as { blocker: { code: string; detail: string } | null }).blocker;
@@ -44,6 +47,7 @@ beforeAll(async () => {
   call = routeCaller({ [admin]: token }, { user: admin, company });
   leaver = await employee('GH-LEAVER', '2026-03-15');
   future = await employee('GH-FUTURE', '2027-06-30');
+  open = await employee('GH-OPEN', null);
 });
 
 afterAll(async () => {
@@ -60,6 +64,13 @@ describe(`the gate reads termination and end-date changes (TZ=${process.env.TZ ?
     expect(await preview(april)).toBeNull();
     await updatePayrollEmployee(future, company, { endDate: new Date('2027-07-31') });
     expect(await preview(april)).toBeNull();
+  });
+
+  it('2 (L): an empty end date set to 31 May 2026 does not touch the February run (empty = no end)', async () => {
+    const feb = await calculatedRun(call, 2);
+    expect(await preview(feb)).toBeNull();
+    await updatePayrollEmployee(open, company, { endDate: new Date('2026-05-31') });
+    expect(await preview(feb)).toBeNull();
   });
 
   it('2: a retrenchment reason added after calculation refuses approval until recalculated', async () => {
@@ -98,5 +109,29 @@ describe('3: end-date and termination writers wait for the company lock', () => 
     await waitsForLock(() => setTerminationDetails(company, future, {
       reason: 'resignation', noticePeriodDays: 30, servedNoticeDays: 30, severanceWeeksPerYear: null, includeLeavePayout: false,
     }));
+  });
+});
+
+describe('3 (L): a role that may not read the history gets null (the gate then refuses), not an error or "no change"', () => {
+  async function asRole(role: string): Promise<string[] | null> {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query(`SET LOCAL ROLE ${role}`);
+      const run = String((await c.query('SELECT id FROM payroll_run_headers WHERE company_id=$1 LIMIT 1', [company]).catch(() => ({ rows: [{ id: crypto.randomUUID() }] }))).rows[0]?.id ?? crypto.randomUUID());
+      return await als.run({ client: c, userId: admin, companyId: company, claims: {} } as never,
+        () => payrollTermsChangedSinceCalculation(company, run, [leaver]));
+    } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
+      c.release();
+    }
+  }
+
+  it('migration_admin: bypasses RLS but holds no privilege on entity_changes', async () => {
+    expect(await asRole('migration_admin')).toBeNull();
+  });
+
+  it('app_user with no company member role (no session claims)', async () => {
+    expect(await asRole('app_user')).toBeNull();
   });
 });

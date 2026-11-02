@@ -78,6 +78,11 @@ beforeAll(async () => {
   await employee('arrears', '2020-01-01', '2026-03-30');
   await add('ar1', 'arrears', salary, 21670, '2020-01-01', '2026-03-30', true);
   await add('ar2', 'arrears', salary, 1500, '2026-03-31', '2026-03-31', false);
+  // Leaving 28 March: a package applied on the 29th cut the salary to the 28th; its Basic Salary item is a once-off
+  // from the 29th. That once-off replaces the salary (the row was superseded), so the salary is not also paid in full.
+  await employee('pkgOnceOff', '2020-01-01', '2026-03-28');
+  await add('po1', 'pkgOnceOff', salary, 21670, '2020-01-01', '2026-03-28', true, '2026-03-01T00:00:00Z');
+  await add('po2', 'pkgOnceOff', salary, 2000, '2026-03-29', '2026-03-31', false);
   // Leaving 27 March: a package applied on the 28th cut the salary to the 27th, and its replacement was cancelled.
   await employee('voidedReplacement', '2020-01-01', '2026-03-27');
   await add('vr1', 'voidedReplacement', salary, 21670, '2020-01-01', '2026-03-27', true, '2026-03-01T00:00:00Z');
@@ -126,6 +131,12 @@ describe(`1-3: the leaver exemption is the band only (TZ=${process.env.TZ ?? 'un
     const l = await line(march, 'arrears');
     expect(l.paid).toEqual([['Basic Salary', 1500], ['Basic Salary', 21670]]);
     expect(flaggedEnding(l, '2026-03-30')).toBe(false);
+  });
+
+  it('a package whose Basic Salary item is a once-off replaces the cut salary: the once-off is paid, the salary flagged', async () => {
+    const l = await line(march, 'pkgOnceOff');
+    expect(l.paid).toEqual([['Basic Salary', 2000]]);
+    expect(flaggedEnding(l, '2026-03-28')).toBe(true);
   });
 
   it('a replacement that was cancelled is not a successor: the 27 March leaver is paid in full, not flagged', async () => {
