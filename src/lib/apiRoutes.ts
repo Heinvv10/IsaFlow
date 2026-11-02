@@ -69,6 +69,8 @@ import type { listAssetBankLinks } from '@/modules/accounting/services/items/ass
 import type { BudgetVersion } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import type { GridCellsOnly, GridReadModel } from '@/modules/accounting/services/budgets/gridReadTypes';
 import type { PriorActuals } from '@/modules/accounting/services/budgets/priorActuals';
+import type { RemainingResult } from '@/modules/accounting/services/budgets/remainingBudgetCore';
+import type { NotificationFeed } from '@/modules/accounting/services/notifications/userNotificationService';
 import type { SaveCellsResult } from '@/modules/accounting/services/budgets/gridSave';
 import type { SeedResult } from '@/modules/accounting/services/budgets/seedVersion';
 import type { ImportPreview } from '@/modules/accounting/services/budgets/budgetImportDiff';
@@ -125,6 +127,10 @@ interface StaticRoutes {
   // PUT: the note as stored (trimmed; null when cleared). Year-scoped (P2 follow-up F1).
   '/api/accounting/budget-grid/note': { note: string | null };
   '/api/accounting/budget-drivers': DriversResponse;
+  // Budgets P5-1: remaining-budget preview (POST); the header bell's feed (GET) and mark-read (POST).
+  '/api/accounting/budgets/remaining': { lines: RemainingResult[] };
+  '/api/accounting/notifications': NotificationFeed;
+  '/api/accounting/notifications/read': { updated: number };
   '/api/accounting/budget-drivers/override': DriverOverrideResponse;
   '/api/accounting/budget-drivers/headcount': DriverHeadcountResponse;
   '/api/accounting/budget-drivers/planned-hires': PlannedHiresResponse;
