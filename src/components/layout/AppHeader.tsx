@@ -39,7 +39,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
   const inline = showSidebar ? 'hidden xl:block' : 'hidden lg:block';
 
   return (
-    <header className="flex flex-wrap items-center px-4 gap-x-3 gap-y-1 py-1 flex-shrink-0" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
+    <header className="flex flex-wrap items-center px-4 gap-x-2 sm:gap-x-3 gap-y-1 py-1 flex-shrink-0" style={{ minHeight: SHELL_HEIGHTS.header, background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
       {/* Mobile hamburger */}
       <button
         ref={menuButtonRef}
@@ -71,7 +71,7 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
       <button
         data-tour="command-palette"
         onClick={onOpenCommandPalette}
-        className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] hover:border-teal-400 hover:text-[var(--ff-text-primary)] transition-colors"
+        className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] hover:border-teal-400 hover:text-[var(--ff-text-primary)] transition-colors"
         title="Search (Ctrl+K)"
       >
         <Search className="w-3.5 h-3.5" />
@@ -81,8 +81,8 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
         </kbd>
       </button>
 
-      {/* Mobile search icon */}
-      <button onClick={onOpenCommandPalette} className={`sm:hidden ${ICON_BUTTON}`} title="Search" aria-label="Open search">
+      {/* Search icon below lg (the pill from lg), so the bar stays one row with the notifications bell */}
+      <button onClick={onOpenCommandPalette} className={`lg:hidden ${ICON_BUTTON}`} title="Search" aria-label="Open search">
         <Search className="w-4 h-4" />
       </button>
 
