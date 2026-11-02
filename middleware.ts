@@ -128,7 +128,7 @@ export function getAdminRedirectBase(
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const host = request.headers.get('host')?.split(':')[0] ?? '';
+  const host = (request.headers.get('host')?.split(':')[0] ?? '').toLowerCase();
 
   const isAdminHost = ADMIN_HOSTS.includes(host);
 

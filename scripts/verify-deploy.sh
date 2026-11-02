@@ -44,6 +44,31 @@ if [ "$HEALTHY" != "1" ]; then
 fi
 echo "OK: health endpoint responding"
 
+# ── 1b. Public-host routing ──────────────────────────────────────────────────
+# BASE_URL is the colour's own localhost address, where a redirect to
+# localhost works and a failed middleware rewrite looks like any other page.
+# Ask as the public hosts do (nginx passes Host and X-Forwarded-Proto): a
+# logged-out redirect must stay on that host, and the admin rewrite (/ ->
+# /admin) must answer 2xx. Both broke on 2026-11-02 and this gate saw neither.
+check_location() {  # host path
+  local loc
+  loc=$(curl -s -o /dev/null --max-time 15 -D - -H "Host: $1" -H 'X-Forwarded-Proto: https' \
+    "$BASE_URL$2" | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
+  case "$loc" in
+    /login*|"https://$1/login"*) ;;
+    *) echo "FAIL: logged-out $1$2 redirects to '$loc', not $1/login"; exit 1 ;;
+  esac
+}
+check_location app.isaflow.co.za /accounting
+check_location admin.isaflow.co.za /
+ADMIN_STATUS=$(curl -s -o /dev/null --max-time 30 -w '%{http_code}' -H 'Host: admin.isaflow.co.za' \
+  -H 'X-Forwarded-Proto: https' -H 'Cookie: sb-access-token=verify-deploy' "$BASE_URL/")
+case "$ADMIN_STATUS" in
+  2??) ;;
+  *) echo "FAIL: admin.isaflow.co.za/ with a session cookie answered $ADMIN_STATUS (middleware rewrite broken?)"; exit 1 ;;
+esac
+echo "OK: public-host redirects and the admin rewrite stay on their host"
+
 # ── 2. Golden-paths suite ────────────────────────────────────────────────────
 echo "[2/3] Golden-paths E2E suite..."
 if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
