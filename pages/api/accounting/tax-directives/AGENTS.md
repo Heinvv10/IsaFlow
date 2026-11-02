@@ -16,7 +16,7 @@ Services: `src/modules/accounting/services/payroll/taxDirectiveService.ts` (CRUD
 | `GET /api/accounting/tax-directives/[id]` | `[id].ts` | Single directive. |
 | `PATCH /api/accounting/tax-directives/[id]` | `[id].ts` | Update `status` and/or `issued_date` (or null). `employee_id` cannot be changed (400): the run's claim at approval does not re-read the employee, so moving an approved directive would let a run calculated for the first employee claim it; cancel and create anew. A directive whose payment stands (run claim or stand-alone, while its journal is in force) cannot leave `approved`: **409** naming what paid it; reverse that journal first. |
 | `DELETE /api/accounting/tax-directives/[id]` | `[id].ts` | Delete directive. **409** while it is paid (the paid guard) or any payment row names it; cancel it instead. |
-| `POST /api/accounting/tax-directives/[id]/apply` | `[id]/apply.ts` | **Apply** the directive — creates a `tax_directive_payments` row + posts GL journal. Body: `{ paymentDate: YYYY-MM-DD, bankAccountId?: uuid }`. UNIQUE per directive — second call throws "already applied". |
+| `POST /api/accounting/tax-directives/[id]/apply` | `[id]/apply.ts` | **Apply** the directive — creates a `tax_directive_payments` row + posts GL journal. Body: `{ paymentDate: YYYY-MM-DD, bankAccountId?: uuid }`. UNIQUE per directive — second call throws "already applied". The labour debit is split and CC1-tagged like a pay run's (`payrollCostCentreTags`); the response carries `advisories` (`labour_cost_centre_untagged`). |
 
 ## Auth
 
