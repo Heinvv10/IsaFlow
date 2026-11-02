@@ -23,6 +23,7 @@ import {
   type RunLabourLine,
   type AllocationShare,
 } from './payrollJournalSplitBuilder';
+import type { LabourSourceBucket } from './payrollLabourComparison';
 
 type Row = DbRow;
 
@@ -133,6 +134,14 @@ export async function resolveAccountsById(
  * it by gross moved cost between cost-centre accounts. The per-employee
  * amounts are then tied to `labourDebit` to the cent (residual on the largest),
  * because the GL rejects a journal that is out by even R0.01.
+ *
+ * Each line carries the employee's cost centre as `cc1Id` (Hein 2026-11-02).
+ * `createJournalEntry` refuses a CC1 that is not an ACTIVE `cc_type = 'cc1'`
+ * centre, so a centre that is inactive, a CC2, or unreadable posts UNTAGGED on
+ * the account its mapping picks, and `advisory` names it — a dimension tag
+ * never blocks payroll. The read holds the centres FOR SHARE (see
+ * `taggableCentres`), so in approval a deactivation cannot commit between this
+ * plan and the GL's own check.
  */
 export async function buildLabourLines(
   companyId: string,
@@ -141,12 +150,17 @@ export async function buildLabourLines(
   totalGross: number,
   defaultAccountId: string,
   etiUsed: number,
-): Promise<Array<{ glAccountId: string; debit: number; description: string }>> {
-  const fallback = [{
-    glAccountId: defaultAccountId,
-    debit: labourDebit,
-    description: 'Labour costs — gross pay + statutory employer contributions − ETI',
-  }];
+): Promise<LabourLines> {
+  const fallback: LabourLines = {
+    lines: [{
+      glAccountId: defaultAccountId,
+      cc1Id: null,
+      debit: labourDebit,
+      description: 'Labour costs — gross pay + statutory employer contributions − ETI',
+    }],
+    advisory: null,
+    bySource: [{ glAccountId: defaultAccountId, centreId: null, taggable: false, debit: labourDebit }],
+  };
   if (labourDebit === 0 || totalGross === 0) return fallback;
 
   const lineRows = (await sql`
@@ -202,12 +216,71 @@ export async function buildLabourLines(
     });
   }
 
-  return buildLabourDebitLines({
-    runLines: tied, employeeCostCentre, employeeAllocations, mappings, defaultAccountId,
-  }).map((l) => ({
-    glAccountId: l.glAccountId,
-    debit: l.debit,
-    description: l.description ?? 'Labour costs',
-  }));
+  // The centres that carry labour: an employee's allocations, else their own centre.
+  const centres = [...new Set(tied.flatMap((l) => {
+    const allocations = employeeAllocations[l.employeeId] ?? [];
+    if (allocations.length > 0) return allocations.map((a) => a.costCentreId);
+    const own = employeeCostCentre[l.employeeId];
+    return own ? [own] : [];
+  }))];
+  const { taggable, advisory } = await taggableCentres(companyId, centres);
+
+  const split = { runLines: tied, employeeCostCentre, employeeAllocations, mappings, defaultAccountId };
+  const lines = buildLabourDebitLines({ ...split, taggableCostCentres: taggable })
+    .map((l) => ({ glAccountId: l.glAccountId, cc1Id: l.cc1Id, debit: l.debit, description: l.description }));
+  // The same split with every centre kept apart, for the approval gate's comparison (payrollLabourComparison).
+  const bySource = buildLabourDebitLines({ ...split, taggableCostCentres: new Set(centres) })
+    .map((l) => ({ glAccountId: l.glAccountId, centreId: l.cc1Id, taggable: l.cc1Id !== null && taggable.has(l.cc1Id), debit: l.debit }));
+  return { lines, advisory, bySource };
+}
+
+export interface LabourLines {
+  lines: Array<{ glAccountId: string; cc1Id: string | null; debit: number; description: string }>;
+  /** `labour_cost_centre_untagged`, when a centre carrying labour cannot be a CC1 tag. */
+  advisory: { code: string; detail: string } | null;
+  /** The labour per (account, source centre), untaggable centres kept apart — the gate's comparison only. */
+  bySource: LabourSourceBucket[];
+}
+
+/**
+ * Which of `ids` the GL accepts as a new CC1 tag — the rule of
+ * `journalCostCentreValidation#assertJournalAnalysisDimensions`: this company's,
+ * `cc_type = 'cc1'`, active — and an advisory naming the rest.
+ *
+ * FOR SHARE, as that GL check takes: inside approvePayrollRun the centres the
+ * plan tags stay as judged until the journal is written. LOCK ORDER: approval
+ * holds the company approval lock, the run header and its journal chain, then
+ * these rows, then (claimRunSeveranceDirectives) the directive rows; the GL's
+ * own FOR SHARE on the same rows comes later and is already held. On master the
+ * GL took these share locks after the directive claim, so the one new pair is
+ * cost_centres before directives. Nothing takes them the other way round: the
+ * only cost_centres writer, the dimension master edit (dimensionMasterEdit,
+ * advisory lock, then the row), locks no directive, run header or journal, and
+ * applyTaxDirective's journal names no CC1. A preview (GET journal-plan, MCP
+ * dry run) holds them only for its own read-only request.
+ */
+async function taggableCentres(companyId: string, ids: string[]): Promise<{ taggable: Set<string>; advisory: LabourLines['advisory'] }> {
+  if (ids.length === 0) return { taggable: new Set(), advisory: null };
+  const rows = (await sql`
+    SELECT cc.id, cc.code, cc.cc_type, cc.is_active FROM cost_centres cc
+     WHERE cc.company_id = ${companyId}::uuid AND cc.id = ANY(${ids}::uuid[])
+     FOR SHARE OF cc
+  `) as Row[];
+  const byId = new Map(rows.map((r) => [String(r.id), r]));
+  const taggable = new Set<string>();
+  const refused: string[] = [];
+  for (const id of [...ids].sort()) {
+    const r = byId.get(id);
+    if (r && String(r.cc_type) === 'cc1' && r.is_active === true) taggable.add(id);
+    else refused.push(!r ? `${id} (not found)` : r.is_active !== true ? `${String(r.code)} (inactive)` : `${String(r.code)} (a ${String(r.cc_type).toUpperCase()}, not a CC1)`);
+  }
+  return {
+    taggable,
+    advisory: refused.length === 0 ? null : {
+      code: 'labour_cost_centre_untagged',
+      detail: `Labour for cost centre${refused.length > 1 ? 's' : ''} ${refused.join(', ')} posts WITHOUT a CC1 tag, on the same account: `
+        + 'the ledger tags a line only with an active CC1 cost centre. Budgets by CC1 will not see this cost.',
+    },
+  };
 }
 

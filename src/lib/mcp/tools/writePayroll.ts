@@ -153,6 +153,7 @@ export const postPayrollJournalTool: McpTool = {
             accountName: l.accountName,
             debit: l.debit,
             credit: l.credit,
+            cc1Id: l.cc1Id,
           })),
           totalDebit: plan.totalDebit,
           totalCredit: plan.totalCredit,

@@ -81,6 +81,8 @@ export async function postPayrollRunJournal(
     debit: l.debit,
     credit: l.credit,
     description: l.description,
+    // The labour lines' cost centre (budgets by CC1 read it). Absent, not null, on the rest: JournalLineInput.cc1Id is optional.
+    ...(l.cc1Id ? { cc1Id: l.cc1Id } : {}),
   }));
 
   // sourceDocumentId is the FK to captured_documents (OCR source). A payroll
