@@ -25,6 +25,8 @@ export interface InvoiceLine {
   quantity: number;
   unitPrice: number;
   discount: number;
+  /** The new-invoice page only: `discount` is the customer's default, not the user's (useContactDefaults). Never sent. */
+  discountFromDefault?: boolean;
   /** '' = uncoded. */
   glAccountId: string;
   /** The job (`projects`). */
@@ -45,11 +47,15 @@ interface Props {
   onRemove: (key: string) => void;
   options: InvoiceLineCodingOptions;
   showIncomeType?: boolean;
+  /** Inclusive mode: Unit Price holds the gross the user types, and Total the stored ex-VAT amount the subtotal adds up. */
+  pricesIncludeVat?: boolean;
+  /** Muted note saying where a defaulted line discount came from. */
+  discountHint?: string;
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const th = 'px-3 py-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400';
-const toggle = (on: boolean) => `inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${on ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`;
+const toggle = (on: boolean) => `inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${on ? 'border-teal-400/60 text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`;
 
 const UNOFFERED: Record<InvoiceLineCodingOptions['status'], string> = {
   loading: 'Loading…',
@@ -76,9 +82,13 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
 }
 
 export function InvoiceLineItemsTable({
-  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType,
+  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, pricesIncludeVat, discountHint,
 }: Props) {
-  const [showDiscount, setShowDiscount] = useState(false);
+  const [discountToggled, setDiscountToggled] = useState<boolean | null>(null);
+  // Open whenever a line carries a discount, and not hideable: a discount the user cannot see is one they did not give.
+  // Typing in the column pins it open, so clearing a discount to retype it does not take the field away.
+  const carriesDiscount = lines.some((l) => l.discount > 0);
+  const showDiscount = carriesDiscount || discountToggled === true;
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default when a line already carries a dimension, so an edit shows what it will save.
   const showDimensions = dimensionsToggled ?? lines.some((l) => l.projectId !== '' || l.cc2Id !== '' || l.buId !== '');
@@ -91,12 +101,13 @@ export function InvoiceLineItemsTable({
           <button type="button" aria-expanded={showDimensions} onClick={() => setDimensionsToggled(!showDimensions)} className={toggle(showDimensions)}>
             <Tags className="h-3 w-3" />{showDimensions ? 'Hide Dimensions' : 'Dimensions'}
           </button>
-          <button type="button" aria-expanded={showDiscount} onClick={() => setShowDiscount((v) => !v)} className={toggle(showDiscount)}>
+          <button type="button" aria-expanded={showDiscount} disabled={carriesDiscount} title={carriesDiscount ? 'Clear the discounts to hide this column' : undefined} onClick={() => setDiscountToggled(!showDiscount)} className={`${toggle(showDiscount)} disabled:opacity-60 disabled:cursor-not-allowed`}>
             <SlidersHorizontal className="h-3 w-3" />{showDiscount ? 'Hide Disc.' : 'Disc. %'}
           </button>
           <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
         </div>
       </div>
+      {discountHint && <p className="px-5 pt-3 text-xs text-gray-600 dark:text-gray-400">{discountHint}</p>}
       {options.error && (
         <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
           {options.error}{' '}
@@ -115,9 +126,9 @@ export function InvoiceLineItemsTable({
             {showDimensions && <th className={`${th} text-left w-36`}>CC2 project</th>}
             {showDimensions && <th className={`${th} text-left w-32`}>BU</th>}
             <th className={`${th} text-right w-20`}>Qty</th>
-            <th className={`${th} text-right w-32`}>Unit Price</th>
+            <th className={`${th} text-right w-32`}>Unit Price{pricesIncludeVat && <span className="font-normal"> (incl. VAT)</span>}</th>
             {showDiscount && <th className={`${th} text-right w-20`}>Disc.%</th>}
-            <th className={`${th} px-4 text-right w-32`}>Total</th>
+            <th className={`${th} px-4 text-right w-32`}>Total{pricesIncludeVat && <span className="font-normal"> (excl. VAT)</span>}</th>
             <th className="w-9" />
           </tr>
         </thead>
@@ -133,11 +144,11 @@ export function InvoiceLineItemsTable({
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}
               <td className="px-3 py-2"><input type="number" name="quantity" aria-label="Quantity" value={l.quantity} onChange={(e) => onUpdate(l.key, 'quantity', Number(e.target.value))} className={`${inp} text-right`} /></td>
-              <td className="px-3 py-2"><input type="number" name="unitPrice" aria-label="Unit price" value={l.unitPrice} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
-              {showDiscount && <td className="px-3 py-2"><input type="number" aria-label="Discount %" min={0} max={100} step={0.01} value={l.discount || ''} onChange={(e) => onUpdate(l.key, 'discount', e.target.value === '' ? 0 : discountInput(Number(e.target.value)))} placeholder="0" className={`${inp} text-right`} /></td>}
+              <td className="px-3 py-2"><input type="number" name="unitPrice" aria-label={pricesIncludeVat ? 'Unit price incl. VAT' : 'Unit price'} value={l.unitPrice} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
+              {showDiscount && <td className="px-3 py-2"><input type="number" aria-label="Discount %" min={0} max={100} step={0.01} value={l.discount || ''} onChange={(e) => { setDiscountToggled(true); onUpdate(l.key, 'discount', e.target.value === '' ? 0 : discountInput(Number(e.target.value))); }} placeholder="0" className={`${inp} text-right`} /></td>}
               <td className="px-4 py-2 text-right">
                 <span className="tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), currencyCode)}</span>
-                {showDiscount && l.discount > 0 && <span className="block text-xs text-teal-600 dark:text-teal-400 font-medium">-{l.discount}%</span>}
+                {showDiscount && l.discount > 0 && <span className="block text-xs text-teal-700 dark:text-teal-400 font-medium">-{l.discount}%</span>}
               </td>
               <td className="px-2 py-2"><button type="button" aria-label="Remove line" onClick={() => onRemove(l.key)} className="p-1.5 rounded-lg text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button></td>
             </tr>
