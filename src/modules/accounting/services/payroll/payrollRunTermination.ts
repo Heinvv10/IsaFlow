@@ -62,21 +62,23 @@ async function terminationPayouts(
   companyId: string,
   employee: PayrollEmployee,
   leaveYear: number | null,
-): Promise<{ payouts: EmployeeComponent[]; severance: number; baseMissing?: { severanceDue: boolean } } | null> {
+): Promise<{ payouts: EmployeeComponent[]; severance: number; baseMissing?: { severanceDue: boolean; payoutNeedsBase: boolean } } | null> {
   const { endDate, startDate } = employee;
   if (!endDate) return null;
   const details = await getTerminationDetails(companyId, employee.id);
   if (!details || !details.reason) return null;
   // endDate is UTC midnight of the stored DATE (mapPayrollEmployeeRow), so its ISO day is that date.
   const monthlySalary = await terminationMonthlySalary(companyId, employee.id, endDate.toISOString().slice(0, 10));
-  if (monthlySalary <= 0) {
-    const severanceDue = severanceApplies(details.reason as TerminationReason) && (details.severanceWeeksPerYear ?? 0) > 0;
-    return { payouts: [], severance: 0, baseMissing: { severanceDue } };
-  }
-
   const unusedLeaveDays = details.includeLeavePayout && leaveYear != null
     ? await getAnnualLeaveBalance(companyId, employee.id, leaveYear)
     : 0;
+  if (monthlySalary <= 0) {
+    const severanceDue = severanceApplies(details.reason as TerminationReason) && (details.severanceWeeksPerYear ?? 0) > 0;
+    // Blocks only when a pay-out is figured on the base: leave pay-out, unserved notice, or retrenchment severance.
+    const unservedNotice = (details.noticePeriodDays ?? 0) - (details.servedNoticeDays ?? 0) > 0;
+    return { payouts: [], severance: 0, baseMissing: { severanceDue, payoutNeedsBase: severanceDue || unservedNotice || unusedLeaveDays > 0 } };
+  }
+
   const all = buildTerminationComponents({
     monthlySalary,
     unusedLeaveDays,
@@ -205,10 +207,10 @@ export async function appendTerminationIfEndingThisPeriod(
     payouts = t?.payouts ?? [];
     calculated = t?.baseMissing ? (t.baseMissing.severanceDue ? 'unknown' : 0) : (t?.severance ?? 0);
     if (t?.baseMissing) {
-      // Blocks approval (payrollRunRecalcGate): leave and notice pay would silently be nil.
+      // An error blocks approval (payrollRunRecalcGate): a pay-out would silently be nil. Else only a warning.
       warnings.push({
         code: TERMINATION_BASE_MISSING,
-        severity: 'error',
+        severity: t.baseMissing.payoutNeedsBase ? 'error' : 'warning',
         message: `${who(employee)} has a termination reason but no recurring earnings on the end date; leave and notice pay need a base. `
           + 'Correct the pay components (or the end date) and recalculate.',
       });

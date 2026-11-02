@@ -6,7 +6,8 @@
  *
  * In order:
  *   1. status: draft / calculated / processed, or approved with no journal; then a run calculated by an older
- *      calculation (`recalculate_required`, payrollRunRecalcGate);
+ *      calculation (`recalculate_required`), and after the directive and year-to-date checks, component dates changed
+ *      since calculation or a leaver with no termination base (payrollRunRecalcGate) — for every approval;
  *   1a. severance lines whose SARS directive was paid by something else, or no
  *      longer matches them (`severance_directive_unavailable`, audit
  *      2026-10-18 P3, payrollRunDirectiveClaim) — re-checked under the
@@ -23,8 +24,7 @@
  *                   `datedForReplacement`;
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
- *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then component dates changed after the
- *      calculation or a leaver with no termination base (payrollRunRecalcGate), then a
+ *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
  *      recurring row needing a manual pro-rata (`recurring_needs_pro_rata`,
  *      payrollRecurringProRata), then every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
@@ -231,6 +231,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     const directives = await judgeRunDirectives(companyId, runId);
     if (directives) return directives;
     if (yearToDate.blocker) return yearToDate.blocker;
+    // Component dates changed since calculation; a leaver with no termination base (payrollRunRecalcGate). Also for a
+    // re-approval onto a journal in force.
+    const lines = await runLinesRefusal(companyId, runId);
+    if (lines) return lines;
     if (linkedId && !out) {
       const numbers = chain?.journals.map((j) => j.entryNumber).join(', ');
       if (!chain || !linked || chain.state === 'unclear') {
@@ -266,9 +270,6 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           + '. Recalculate this run first; it then leaves them out.',
       };
     }
-    // Component dates changed since calculation; a leaver with no termination base (payrollRunRecalcGate).
-    const lines = await runLinesRefusal(companyId, runId);
-    if (lines) return lines;
     // A recurring row the last-day read pays in full or drops, unresolved (payrollRecurringProRata).
     const proRata = await runProRataBlocker(companyId, runId);
     if (proRata) return proRata;

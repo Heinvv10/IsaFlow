@@ -25,6 +25,8 @@ export async function auditComponentChange(
   await logAuditOrThrow({
     companyId, userId: actor.userId, userEmail: actor.userEmail, action: before ? 'update' : 'create',
     entityType: 'payroll_employee_component', entityId: assignmentId,
+    // After the company lock, so audit rows order with calculated_at as the lock orders the work (payrollRunRecalcGate).
+    atClockTime: true,
     changes: {
       fields: [
         { field: 'effective_from', old: before?.from ?? null, new: after.from, label: 'Effective from' },

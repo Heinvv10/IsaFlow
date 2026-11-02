@@ -17,6 +17,8 @@ export interface AssignmentWindow {
   supersededAt?: number | null;
   /** Existed before 953: the neighbour rule still decides its supersede (payrollComponentDateEdit). */
   legacy?: boolean;
+  /** The employee's end date: a recurring row ending on it is read for that whole month (Hein 2026-11-02). */
+  employeeEnd?: string | null;
 }
 
 /** A month a paid run read, with when that run was calculated (epoch ms; null before migration 953). */
@@ -31,7 +33,13 @@ export function assignmentReadInPeriod(w: AssignmentWindow, period: PaidPeriod):
   const last = payrollRunReadDate(period);
   const first = `${last.slice(0, 8)}01`;
   if (w.to !== null && w.to < w.from) return false;
+  // A run calculated before migration 953 read every row on the 27th (the old day 28 through toISOString in SAST).
+  if (period.calculatedAt === null) {
+    const day27 = `${last.slice(0, 8)}27`;
+    return w.from <= day27 && (w.to === null || w.to >= day27);
+  }
   if (w.from > last) return false;
+  if (w.recurring && w.to !== null && w.to === w.employeeEnd && w.to >= first) return true;
   const cutBefore = w.supersededAt != null && period.calculatedAt != null && w.supersededAt <= period.calculatedAt;
   return w.to === null || w.to >= last || (!w.recurring && !cutBefore && w.from >= first);
 }
@@ -75,6 +83,7 @@ export function windowOf(r: DbRow): AssignmentWindow {
   return {
     from: fmtDate(r.effective_from), to: r.effective_to ? fmtDate(r.effective_to) : null,
     recurring: r.is_recurring !== false, legacy: r.supersede_inferred === true,
+    employeeEnd: r.employee_end ? fmtDate(r.employee_end) : null,
     supersededAt: r.superseded_at == null ? null : new Date(r.superseded_at as string | Date).getTime(),
   };
 }

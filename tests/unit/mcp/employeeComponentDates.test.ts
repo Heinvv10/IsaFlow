@@ -21,7 +21,7 @@ function sqlMock(strings: TemplateStringsArray, ...values: unknown[]): Promise<u
     if (text.includes('JOIN payroll_employees e ON e.id = pec.employee_id')) {
       return Promise.resolve([{ id: ASSIGNMENT, employee_id: EMPLOYEE, component_id: COMPONENT }]);
     }
-    if (text.includes('supersede_inferred FROM payroll_employee_components')) {
+    if (text.includes('AS employee_end')) {
       return Promise.resolve([{ id: ASSIGNMENT, effective_from: '2026-01-01', effective_to: null, is_recurring: true }]);
     }
     if (text.includes('FROM payroll_employees') && text.includes('SELECT id')) return Promise.resolve([{ id: 'x' }]);

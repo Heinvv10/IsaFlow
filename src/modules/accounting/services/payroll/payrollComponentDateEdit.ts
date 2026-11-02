@@ -41,7 +41,9 @@ export type { ComponentChangeActor } from './payrollComponentAudit';
 export type DateChange = { kind: 'edit'; from: string; to: string | null } | { kind: 'end'; to: string; cancel?: boolean };
 
 /** The window alone: what may be logged or audited. Never the amount (an employee's pay). */
-const windowOnly = (w: AssignmentWindow): AssignmentWindow => ({ from: w.from, to: w.to, recurring: w.recurring, supersededAt: w.supersededAt, legacy: w.legacy });
+const windowOnly = (w: AssignmentWindow): AssignmentWindow => ({
+  from: w.from, to: w.to, recurring: w.recurring, supersededAt: w.supersededAt, legacy: w.legacy, employeeEnd: w.employeeEnd,
+});
 
 function refuse(message: string): never {
   throw new EmployeeComponentRefused(message);
@@ -61,7 +63,8 @@ function validateRequest(change: DateChange): void {
 function nextWindow(before: AssignmentWindow, change: DateChange, paidIn: PayrollPeriod | null): { after: AssignmentWindow; kind: 'edit' | 'end' | 'cancel' } {
   if (!live(before)) refuse('This assignment was cancelled (its end is before its start) and cannot be changed; assign a new one.');
   if (change.kind === 'edit') {
-    const after = { from: change.from, to: change.to, recurring: before.recurring };
+    // The row's own facts (supersede, pre-953 marker, the employee's end date) stay: only the dates change.
+    const after = { ...windowOnly(before), from: change.from, to: change.to };
     if (!after.recurring && after.to === null) refuse('A once-off needs an end date: it is paid once, in its own month.');
     if (!after.recurring && after.to !== null && after.to.slice(0, 7) !== after.from.slice(0, 7)) {
       refuse('A once-off must start and end in one month: it is paid once, in that month.');
@@ -100,7 +103,9 @@ export async function changeAssignmentDates(
     `) as DbRow[])[0];
     if (!target) return false;
     const rows = (await tx`
-      SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred FROM payroll_employee_components
+      SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred,
+             (SELECT end_date FROM payroll_employees WHERE id = employee_id) AS employee_end
+        FROM payroll_employee_components
       WHERE employee_id = ${target.employee_id}::uuid AND component_id = ${target.component_id}::uuid
       ORDER BY id FOR UPDATE
     `) as DbRow[];

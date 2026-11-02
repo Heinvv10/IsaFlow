@@ -5,13 +5,16 @@
  *     than PAYROLL_CALCULATION_VERSION: its lines were read under other rules.
  *   - components_changed_after_calculation: an employee on the run had an assignment's dates changed (Edit dates,
  *     End, cancel: audit_log entity payroll_employee_component) after the run was calculated.
- *   - termination_base_missing: a leaver's line carries TERMINATION_BASE_MISSING (a termination reason and no
- *     recurring earnings on the end date, so leave and notice pay have no base).
+ *   - termination_base_missing: a leaver's line carries TERMINATION_BASE_MISSING as an error (a termination reason,
+ *     no recurring earnings on the end date, and a pay-out that needs that base). As a warning it does not refuse.
+ * Both run on every approval, also a re-approval onto a journal still in force. The changed check covers the run's
+ * lines and its population now (listPayrollRunEmployees), so a hire with pay added after calculation counts.
  * IsaFlow has no per-employee hold, so each refuses the whole run, naming the employees.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
+import { listPayrollRunEmployees } from './payrollEmployeeService';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 
 export const TERMINATION_BASE_MISSING = 'TERMINATION_BASE_MISSING';
@@ -32,15 +35,23 @@ export async function recalculateRequiredRefusal(companyId: string, runId: strin
 
 /** Component dates changed after calculation, or a leaver with no termination base. Null when neither. */
 export async function runLinesRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
+  const head = ((await sql`
+    SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+  `) as DbRow[])[0];
+  if (!head) return null;
+  // The run's lines AND everyone the run would pay now: a hire with pay added after calculation has no line yet.
+  const lineIds = ((await sql`SELECT employee_id FROM payroll_run_lines WHERE run_id = ${runId}::uuid`) as DbRow[])
+    .map((r) => String(r.employee_id));
+  const population = await listPayrollRunEmployees(companyId, { year: Number(head.period_year), month: Number(head.period_month) });
+  const ids = [...new Set([...lineIds, ...population.map((e) => e.id)])];
   const changed = (await sql`
     SELECT DISTINCT e.employee_number
     FROM payroll_run_headers h
-    JOIN payroll_run_lines l ON l.run_id = h.id
-    JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
-    JOIN payroll_employee_components pec ON pec.employee_id = l.employee_id
-    JOIN audit_log a ON a.entity_id = pec.id AND a.company_id = h.company_id
-                    AND a.entity_type = 'payroll_employee_component'
+    JOIN audit_log a ON a.company_id = h.company_id AND a.entity_type = 'payroll_employee_component'
+    JOIN payroll_employee_components pec ON pec.id = a.entity_id
+    JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = h.company_id
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+      AND pec.employee_id = ANY(${ids}::uuid[])
       AND a.created_at > h.calculated_at
     ORDER BY 1
   `) as DbRow[];
@@ -57,7 +68,7 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
     JOIN payroll_run_headers h ON h.id = l.run_id
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-      AND jsonb_path_exists(l.validation_results, ${`$[*] ? (@.code == "${TERMINATION_BASE_MISSING}")`}::jsonpath)
+      AND jsonb_path_exists(l.validation_results, ${`$[*] ? (@.code == "${TERMINATION_BASE_MISSING}" && @.severity == "error")`}::jsonpath)
     ORDER BY 1
   `) as DbRow[];
   if (baseless.length > 0) {

@@ -36,6 +36,7 @@ export async function listComponents(companyId: string): Promise<PayrollComponen
  * once-offs are all paid. Except between rows that existed before 953 (supersede_inferred): there the old rule holds,
  * a live pre-953 row of the same component starting the day after a pre-953 once-off ends supersedes it. End on a never-paid once-off voids it (payrollComponentDateEdit). A window that began in
  * an earlier month and ends before `asOf` is not read again: it was paid in the month whose last day it covered. A
+ * leaver's recurring row ending on their end date is read in that month (the last month pays in full, Hein). A
  * voided row (ends before it starts) is never read.
  */
 export async function getEmployeeComponents(
@@ -57,6 +58,8 @@ export async function getEmployeeComponents(
       AND (pec.effective_to IS NULL OR pec.effective_to >= pec.effective_from)
       AND (
         pec.effective_to IS NULL OR pec.effective_to >= ${asOf}::date
+        -- A leaver's recurring row ending on their end date pays the whole last month, as before (Hein 2026-11-02).
+        OR (pec.is_recurring AND pec.effective_to = pe.end_date AND pec.effective_to >= date_trunc('month', ${asOf}::date)::date)
         OR (
           pec.is_recurring = FALSE
           AND pec.effective_from >= date_trunc('month', ${asOf}::date)::date

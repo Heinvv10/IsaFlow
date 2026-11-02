@@ -42,7 +42,7 @@ async function recordRevivedLegacyOnceOffs(
   const after = before.map((r) => (cutIds.has(r.id) ? { ...r, to: cutTo, supersededAt: Date.now() } : r));
   for (const { row, paidAgain } of legacyFlips(before, after)) {
     if (!paidAgain) continue;
-    await tx`UPDATE payroll_employee_components SET superseded_at = now() WHERE id = ${row.id}::uuid AND superseded_at IS NULL`;
+    await tx`UPDATE payroll_employee_components SET superseded_at = clock_timestamp() WHERE id = ${row.id}::uuid AND superseded_at IS NULL`;
     await auditComponentChange(tx, companyId, row.id, row, row, 'package_supersede', actor);
   }
 }
@@ -57,7 +57,8 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   // row and leave two overlapping windows — getEmployeeComponents returns
   // both and the run pays the component twice.
   const all = (await tx`
-    SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred
+    SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred,
+           (SELECT end_date FROM payroll_employees WHERE id = employee_id) AS employee_end
       FROM payroll_employee_components
      WHERE employee_id = ${employeeId}::uuid
        AND component_id = ${componentId}::uuid
@@ -77,7 +78,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
     UPDATE payroll_employee_components
        SET effective_to = ${cutTo}::date,
            -- Recorded, not inferred (migration 953): the reader does not pay a once-off this cut.
-           superseded_at = now()
+           superseded_at = clock_timestamp()
      WHERE id = ANY(${toCut.map((row) => String(row.id))}::uuid[])
     RETURNING id, effective_from
   `) as DbRow[];

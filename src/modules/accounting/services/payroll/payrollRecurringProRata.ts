@@ -63,7 +63,8 @@ export async function recurringRowsNeedingProRata(
       AND (pec.effective_to IS NULL OR pec.effective_to >= pec.effective_from)
       AND (
         (pec.effective_from > ${day27}::date AND pec.effective_from <= ${last}::date)
-        OR (pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date)
+        -- Not a leaver's row ending on their end date: the reader pays that month in full (Hein 2026-11-02).
+        OR (pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date AND pec.effective_to IS DISTINCT FROM e.end_date)
       )
     ORDER BY e.employee_number, pc.name, pec.effective_from
   `) as DbRow[];
@@ -87,7 +88,8 @@ export function proRataValidation(row: ProRataRow): ValidationResult {
     : `${what}: this recurring component is not paid at all in this run, though it ran for part of the month, and needs `
       + 'a manual pro-rata. Assign the days it ran as a once-off and use Edit dates on the employee\'s Pay Components to '
       + 'end it before the 27th, or run it to the month end if the whole month is due; then recalculate. Approval is '
-      + 'refused until then.';
+      + 'refused until then. (A leaver\'s row ending on their end date is not flagged: their last month pays in full; '
+      + 'pro-rate it by hand if due.)';
   return {
     code: PRO_RATA_CODE,
     severity: 'error',

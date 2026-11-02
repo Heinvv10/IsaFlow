@@ -59,6 +59,8 @@ export interface LogAuditParams {
   ip?: string;
   userAgent?: string;
   sessionId?: string;
+  /** Stamp created_at with clock_timestamp() (now, inside the transaction) rather than the transaction's start. */
+  atClockTime?: boolean;
 }
 
 export interface AuditLogFilters {
@@ -85,7 +87,7 @@ export async function logAuditOrThrow(params: LogAuditParams, db: TxSql = sql): 
     INSERT INTO audit_log (
       company_id, user_id, user_email, action,
       entity_type, entity_id, entity_ref,
-      changes, ip_address, user_agent, session_id
+      changes, ip_address, user_agent, session_id, created_at
     ) VALUES (
       ${params.companyId}::UUID,
       ${params.userId},
@@ -97,7 +99,8 @@ export async function logAuditOrThrow(params: LogAuditParams, db: TxSql = sql): 
       ${changesJson}::JSONB,
       ${params.ip ?? null},
       ${params.userAgent ?? null},
-      ${params.sessionId ?? null}::UUID
+      ${params.sessionId ?? null}::UUID,
+      CASE WHEN ${params.atClockTime === true} THEN clock_timestamp() ELSE now() END
     )
   `;
 }

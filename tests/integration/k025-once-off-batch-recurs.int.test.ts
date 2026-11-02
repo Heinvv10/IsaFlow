@@ -126,9 +126,13 @@ beforeAll(async () => {
   // A deliberately recurring batch must stay open-ended.
   await postOne(company, { batchType: 'component_values', componentId: allowanceComponent, isRecurring: true, month: 3 },
     { employeeId: recurringEmployee, value: 1500, effectiveFrom: new Date('2025-03-01') });
-  // An explicit effectiveTo must be preserved, not overwritten by the period end.
+  // An explicit effectiveTo inside the month is preserved, not overwritten by the period end. One running past the
+  // month is refused at post (final payroll breaker, 2026-11-02: a once-off is paid once, in its own month).
   await postOne(company, { batchType: 'component_values', componentId: bonusComponent, isRecurring: false, month: 3 },
-    { employeeId: explicitEndEmployee, value: 900, effectiveFrom: new Date('2025-03-01'), effectiveTo: new Date('2025-05-31') });
+    { employeeId: explicitEndEmployee, value: 900, effectiveFrom: new Date('2025-03-01'), effectiveTo: new Date('2025-03-20') });
+  await expect(postOne(company, { batchType: 'component_values', componentId: bonusComponent, isRecurring: false, month: 3 },
+    { employeeId: explicitEndEmployee, value: 901, effectiveFrom: new Date('2025-03-01'), effectiveTo: new Date('2025-05-31') }))
+    .rejects.toThrow(/one month/);
   // Reimbursive travel splits into a 3702 and a 3703 row; both must close.
   await postOne(company, { batchType: 'reimbursive_travel', isRecurring: false, month: 3 },
     { employeeId: travelEmployee, km: 1000, ratePerKm: 5, taxablePortion: 1000, nonTaxablePortion: 4000, effectiveFrom: new Date('2025-03-01') });
@@ -237,11 +241,12 @@ describe('adjacent cases', () => {
     expect(later.map(c => c.amount)).toEqual([1500]);
   });
 
-  it('an explicit line effective_to is preserved, not overwritten by the period end', async () => {
+  it('an explicit line effective_to inside the month is preserved; one past the month was refused, nothing written', async () => {
     const rows = await assignments(explicitEndEmployee);
-    expect(new Date(rows[0].effective_to).toISOString().slice(0, 10)).toBe('2025-05-31');
-    expect(await getEmployeeComponents(explicitEndEmployee, company, periodDate(2025, 5))).toHaveLength(1);
-    expect(await getEmployeeComponents(explicitEndEmployee, company, periodDate(2025, 6))).toEqual([]);
+    expect(rows).toHaveLength(1);
+    expect(new Date(rows[0].effective_to).toISOString().slice(0, 10)).toBe('2025-03-20');
+    expect(await getEmployeeComponents(explicitEndEmployee, company, periodDate(2025, 3))).toHaveLength(1);
+    expect(await getEmployeeComponents(explicitEndEmployee, company, periodDate(2025, 4))).toEqual([]);
   });
 
   it('both reimbursive-travel rows (3702 and 3703) close at the period end', async () => {
