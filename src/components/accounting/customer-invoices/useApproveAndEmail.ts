@@ -46,6 +46,7 @@ interface Detail { invoice_number?: string; client_email?: string | null; email_
 
 /** A refusal's reason code (`error.details.reason`), read from a copy so assertOk still reads the body. */
 async function refusalReason(res: Response): Promise<string | undefined> {
+  if (res.ok) return undefined;
   try {
     const body = await res.clone().json() as { error?: { details?: { reason?: unknown } } };
     return typeof body.error?.details?.reason === 'string' ? body.error.details.reason : undefined;
