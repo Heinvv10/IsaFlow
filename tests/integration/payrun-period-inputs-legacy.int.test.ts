@@ -129,6 +129,13 @@ describe('a run from before the codes', () => {
     expect((await preview(state.nov)).statusCode).toBe(500);
   });
 
+  it('an employee on no pay at all, nil gross and an empty breakdown, is readable and blocks nothing', async () => {
+    await fx.addEmployee('W301-2');
+    await recalculate(state.nov);
+    await asBeforeTheCodes();
+    expect(await judged()).toEqual({ blocker: null, loan: undefined });
+  });
+
   it('an unreadable breakdown on a line that paid something blocks nothing', async () => {
     await asBeforeTheCodes();
     await breakdown('[]');
