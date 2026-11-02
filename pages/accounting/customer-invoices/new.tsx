@@ -7,12 +7,11 @@ import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Loader2, Info, Send } from 'lucide-react';
+import { FileText, Info } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
-import { formatSavedAgo } from '@/components/ui/AutosaveStatus';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
@@ -30,6 +29,7 @@ import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/us
 import { droppedLineProblem } from '@/components/accounting/customer-invoices/invoicePutBody';
 import { useInvoiceDraftOwner, type LocalDraftData } from '@/components/accounting/customer-invoices/useLocalInvoiceDraft';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
+import { KeptDraftOffer, NewInvoiceActions } from '@/components/accounting/customer-invoices/NewInvoiceParts';
 import { stashApproveRefusal, useApproveAndEmail, type SavedInvoice } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
 interface Client { id: string; name: string }
@@ -240,15 +240,7 @@ export default function NewCustomerInvoicePage() {
                   <button onClick={() => setScanBanner(null)} className="ml-auto text-xs font-medium opacity-70 hover:opacity-100">Dismiss</button>
                 </div>
               )}
-              {draft.offer && (
-                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm flex flex-wrap items-center gap-2">
-                  <Info className="h-4 w-4 flex-shrink-0" />An invoice you started {formatSavedAgo(Date.now() - draft.offer.savedAt)} was kept on this device. What you type here is not kept until you Restore or Discard it.
-                  <span className="ml-auto flex gap-2">
-                    <button type="button" onClick={draft.restore} disabled={inert} className="px-3 py-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold">Restore</button>
-                    <button type="button" onClick={draft.discard} disabled={inert} className="px-3 py-1 rounded-lg border border-amber-400 text-xs font-semibold">Discard</button>
-                  </span>
-                </div>
-              )}
+              {draft.offer && <KeptDraftOffer savedAt={draft.offer.savedAt} disabled={inert} onRestore={draft.restore} onDiscard={draft.discard} />}
               {(error || contact.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error || contact.error}</div>}
 
               <fieldset disabled={inert} className="min-w-0 space-y-5">
@@ -272,15 +264,8 @@ export default function NewCustomerInvoicePage() {
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode}
                 fx={isFx ? { zarTotal, rate: form.exchangeRate } : undefined} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
                 <InvoiceAutosaveStatus where="device" state={draft.state} savedAt={draft.savedAt} error={draft.error} />
-                <button onClick={() => handleSubmit(false)} disabled={busy} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                  {submitting && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Create Invoice</>}
-                </button>
-                <button onClick={() => handleSubmit(true)} disabled={busy} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                  {submitting && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Save &amp; New</>}
-                </button>
-                <button onClick={approve.start} disabled={busy} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                  {approve.busy ? <><Loader2 className="h-4 w-4 animate-spin" />Approving…</> : <><Send className="h-4 w-4" />Approve &amp; email</>}
-                </button>
+                <NewInvoiceActions busy={busy} submitting={submitting} saveAndNew={saveAndNew} approving={approve.busy}
+                  onCreate={() => { void handleSubmit(false); }} onSaveAndNew={() => { void handleSubmit(true); }} onApprove={approve.start} />
               </InvoiceSummaryCard>
               <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2">Create saves a draft. Approve &amp; email approves it and opens the email form; nothing is sent until you click Send.</p>
             </div>
