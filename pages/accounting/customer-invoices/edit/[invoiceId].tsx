@@ -169,8 +169,8 @@ export default function EditCustomerInvoicePage() {
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    const saved = await saveDraft(true);
-    setSubmitting(false);
+    let saved = false;
+    try { saved = await saveDraft(true); } finally { setSubmitting(false); }
     if (!saved) return;
     try { await router.push(`/accounting/customer-invoices/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-edit-invoiceId'); }
   };
