@@ -1,5 +1,6 @@
 import Script from 'next/script';
 import { BRAND, BRAND_SAME_AS, FAQ_ITEMS } from '@/components/landing/landingData';
+import { buildFaqPage } from '@/lib/seo/faqSchema';
 
 const ORG_ID = `${BRAND.url}#organization`;
 const APP_ID = `${BRAND.url}#software`;
@@ -14,6 +15,12 @@ function buildGraph() {
       url: BRAND.url,
       logo: BRAND.logo,
       description: BRAND.description,
+      address: {
+        '@type': 'PostalAddress',
+        addressLocality: BRAND.addressLocality,
+        addressRegion: BRAND.addressRegion,
+        addressCountry: BRAND.countryCode,
+      },
       areaServed: {
         '@type': 'Country',
         name: 'South Africa',
@@ -38,26 +45,18 @@ function buildGraph() {
       featureList: [
         'Invoicing & quotes',
         'Bank reconciliation',
-        'VAT & tax compliance',
-        'Payroll',
+        'VAT201 preparation for SARS',
+        'Payroll: PAYE, UIF, SDL, EMP201 and IRP5 data',
+        'Fixed assets and budgets',
+        'Financial reports and annual financial statements',
+        'AI document capture',
         'Bank statement imports (CSV, PDF, OFX, QIF)',
         'Migration from Sage, Xero, QuickBooks, Pastel',
         'Two-factor authentication (TOTP)',
         'Field-level audit trail',
       ],
     },
-    {
-      '@type': 'FAQPage',
-      '@id': `${BRAND.url}#faq`,
-      mainEntity: FAQ_ITEMS.map((item) => ({
-        '@type': 'Question',
-        name: item.q,
-        acceptedAnswer: {
-          '@type': 'Answer',
-          text: item.a,
-        },
-      })),
-    },
+    buildFaqPage(`${BRAND.url}#faq`, FAQ_ITEMS),
   ];
 
   return {

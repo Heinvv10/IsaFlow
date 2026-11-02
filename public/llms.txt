@@ -1,0 +1,43 @@
+# ISAFlow
+
+> ISAFlow is cloud accounting software for South African businesses. It covers invoicing and quotes, bank reconciliation, VAT201 and SARS compliance, payroll (PAYE, UIF, SDL, EMP201, IRP5 data), fixed assets, budgets, financial reporting and AI document capture. It runs in the browser. Application and database servers are hosted in South Africa. ISAFlow is based in Pretoria, Gauteng, and serves businesses and accounting practices across South Africa.
+
+ISAFlow is operated by Brightsphere Technologies (Pty) Ltd and trades as ISAFlow (also written IsaFlow). It is not affiliated with Sage, Xero, Intuit or Zoho.
+
+## Who it is for
+
+- Small and medium South African businesses that need books, VAT and payroll in one place.
+- Sole traders and micro businesses, growing businesses with several users, and multi-entity groups.
+- Accounting practices and bureaus that run the books for many clients.
+- Businesses moving from Sage, Xero, QuickBooks or Pastel.
+
+## What it does
+
+- Invoicing: invoices, quotes, sales orders, recurring invoices, credit notes, customer statements and debtor ageing.
+- Purchases: supplier invoices, payments and creditor ageing.
+- Banking: statement import (CSV, OFX, QFX, QIF, MT940, PDF), automatic matching with rules and AI, and a browser import for ABSA. There is no live direct feed from every bank.
+- VAT and SARS: VAT201 figures prepared for each period, pre-filing checks, and locking of filed periods. Returns are captured on SARS eFiling by the user.
+- Payroll: PAYE, UIF and SDL calculations, payslips, and EMP201 and IRP5 data. Payroll is an add-on priced per active employee.
+- Fixed assets, budgets, financial reports and annual financial statements.
+- AI document capture: receipts and supplier invoices turned into draft entries for review.
+- Migration tools for Sage, Xero, QuickBooks and Pastel exports.
+- Security: two-factor authentication, module permissions and a field-level audit trail.
+
+## Key pages
+
+- [Home](https://isaflow.co.za/): overview, features and frequently asked questions
+- [Pricing](https://isaflow.co.za/pricing): plans in rand, with a 30-day free trial and no credit card needed
+- [ISAFlow vs Sage](https://isaflow.co.za/compare/sage): plain-language comparison with Sage Business Cloud Accounting
+- [ISAFlow vs Xero](https://isaflow.co.za/compare/xero): plain-language comparison with Xero
+- [ISAFlow vs QuickBooks](https://isaflow.co.za/compare/quickbooks): plain-language comparison with QuickBooks Online
+- [Help centre](https://isaflow.co.za/help): how-to guides for using ISAFlow
+- [Blog](https://isaflow.co.za/blog): guides on VAT, payroll and running a South African business
+- [Contact and demo](https://isaflow.co.za/contact): book a demo or talk to the team
+- [Privacy policy](https://isaflow.co.za/privacy): POPIA-based privacy policy
+- [Terms](https://isaflow.co.za/terms): terms of use
+
+## Optional
+
+- [Sign up](https://app.isaflow.co.za/register): start the free trial
+- [Sitemap](https://isaflow.co.za/sitemap.xml)
+- [Blog RSS feed](https://isaflow.co.za/blog/rss.xml)
