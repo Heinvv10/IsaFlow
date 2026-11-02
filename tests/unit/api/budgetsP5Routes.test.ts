@@ -4,8 +4,8 @@
  * GET /notifications and POST /notifications/read (any member; CSRF on the write; the session's
  * company and user, never the body's).
  *
- * Mutation check: drop withCsrf or withWriteAccess, read companyId or userId from the body, or
- * accept { ids: [] }, and the matching test goes red.
+ * Mutation check: drop withCsrf or withWriteAccess, read companyId or userId from the body, accept
+ * { ids: [] }, or drop a bound of remainingKeysProblem, and the matching test goes red.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -20,7 +20,11 @@ vi.mock('@/lib/auth', async () => ({
   withWriteAccess: (await vi.importActual<typeof import('@/lib/auth/withWriteAccess')>('@/lib/auth/withWriteAccess')).withWriteAccess,
 }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
-vi.mock('@/modules/accounting/services/budgets/remainingBudget', () => ({ remainingFor: svc.remaining }));
+// The bounds are the real ones (remainingKeysProblem); only the read is mocked.
+vi.mock('@/modules/accounting/services/budgets/remainingBudget', async () => ({
+  ...(await vi.importActual<typeof import('@/modules/accounting/services/budgets/remainingBudget')>('@/modules/accounting/services/budgets/remainingBudget')),
+  remainingFor: svc.remaining,
+}));
 vi.mock('@/modules/accounting/services/notifications/userNotificationService', () => ({
   listNotifications: svc.list, markRead: svc.read, MAX_MARK_READ_IDS: 100,
 }));
@@ -79,12 +83,41 @@ describe('POST /api/accounting/budgets/remaining', () => {
     expect(svc.remaining).not.toHaveBeenCalled();
   });
 
-  it('422 for a bad month, a bad id, no lines or more than 200', async () => {
-    for (const body of [{ lines: [{ ...line, month: '2026-13' }] }, { lines: [{ ...line, month: '2026-04-01' }] },
-      { lines: [{ ...line, glAccountId: 'x' }] }, { lines: [] }, { lines: Array.from({ length: 201 }, () => line) }]) {
+  it('422 for a bad id or a month that is not even 7 characters of text', async () => {
+    for (const body of [{ lines: [{ ...line, glAccountId: 'x' }] }, { lines: [{ ...line, month: 202604 }] },
+      { lines: [{ ...line, month: '2026-04-01' }] }, { lines: 'all' }]) {
       expect((await call(remainingRoute, { body })).statusCode).toBe(422);
     }
     expect(svc.remaining).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['more than 200 lines', { lines: Array.from({ length: 201 }, () => line) }, /At most 200 lines/],
+    ['no lines', { lines: [] }, /At least one line/],
+    ['a month that is not YYYY-MM', { lines: [{ ...line, month: '2026-13' }] }, /YYYY-MM/],
+    ['a year before 1900', { lines: [{ ...line, month: '1899-12' }] }, /1900-2200/],
+    ['a year after 2200', { lines: [{ ...line, month: '2201-01' }] }, /1900-2200/],
+    ['months spanning 13', { lines: [line, { ...line, month: '2027-04' }] }, /span at most 12 months \(these span 13\)/],
+  ])('400 for %s, before any read', async (_n, body, message) => {
+    const r = await call(remainingRoute, { body });
+    expect(r.statusCode).toBe(400);
+    expect(r.sent.error?.message).toMatch(message);
+    expect(svc.remaining).not.toHaveBeenCalled();
+  });
+
+  it('12 months first to last, and exactly 200 lines, are accepted', async () => {
+    expect((await call(remainingRoute, { body: { lines: [line, { ...line, month: '2027-03' }] } })).statusCode).toBe(200);
+    expect((await call(remainingRoute, { body: { lines: Array.from({ length: 200 }, () => line) } })).statusCode).toBe(200);
+  });
+
+  it('remainingFor itself refuses the same keys (TrackingError 400) before reading anything', async () => {
+    const { remainingFor } = await vi.importActual<typeof import('@/modules/accounting/services/budgets/remainingBudget')>(
+      '@/modules/accounting/services/budgets/remainingBudget');
+    const k = { glAccountId: ACCT, cc1Id: null, cc2Id: null, buId: null };
+    await expect(remainingFor(COMPANY, [{ ...k, month: '2026-01' }, { ...k, month: '2027-06' }]))
+      .rejects.toMatchObject({ name: 'TrackingError', status: 400 });
+    await expect(remainingFor(COMPANY, [{ ...k, month: '0001-01' }])).rejects.toMatchObject({ status: 400 });
+    await expect(remainingFor(COMPANY, Array.from({ length: 201 }, () => ({ ...k, month: '2026-01' })))).rejects.toMatchObject({ status: 400 });
   });
 
   it('429 past the bucket; a registry refusal is its 4xx, not a 500', async () => {
