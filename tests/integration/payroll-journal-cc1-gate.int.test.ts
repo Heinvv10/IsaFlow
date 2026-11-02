@@ -5,8 +5,8 @@
  * (account, CC1) for such a run, so:
  *
  *  1. a journal posted BEFORE labour lines carried CC1 (every labour line
- *     cc1_id NULL) is compared per account only — the no-backfill ruling keeps
- *     the run on its untagged journal;
+ *     cc1_id NULL) cannot prove its labour belonged to today's tagged centres,
+ *     so it fails closed and requires reversal and reposting;
  *  2. a posted CC1 that is no longer taggable (deactivated since, or no longer
  *     a CC1) is compared as untagged, as today's plan books that centre.
  *
@@ -40,7 +40,7 @@ beforeAll(async () => {
 afterAll(async () => { await r.teardown(); });
 
 describe('the gate on a recalculated run whose journal\'s CC1 no longer matches though no figure changed', () => {
-  it('a pre-CC1 (untagged) journal, reopened and recalculated with nothing changed, re-locks', async () => {
+  it('a pre-CC1 (untagged) journal cannot re-lock onto a recalculated tagged plan', async () => {
     const id = await r.calculatedRun(6);
     const approved = await r.api.approve(id);
     expect(approved.statusCode).toBe(200);
@@ -57,10 +57,7 @@ describe('the gate on a recalculated run whose journal\'s CC1 no longer matches 
       .filter((l) => l.debit > 0).reduce<Record<string, number>>((m, l) => ({ ...m, [l.accountCode]: (m[l.accountCode] ?? 0) + l.debit }), {}))
       .map(([account_code, d]) => ({ account_code, d })).sort((x, y) => x.account_code.localeCompare(y.account_code));
     expect(planPerAccount).toEqual(perAccount);
-    expect(p.body.data!.blocker).toBeNull();
-    const again = await r.api.approve(id);
-    expect(again.statusCode).toBe(200);
-    expect(again.body.data).toMatchObject({ journalEntryId: j });
+    expect(p.body.data!.blocker).toMatchObject({ code: 'recalculated_after_posting' });
   });
 
   it('a centre deactivated after posting leaves an unchanged recalculated run approvable onto its journal', async () => {
