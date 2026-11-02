@@ -1,6 +1,6 @@
 /**
  * The header stays one row at 390 / 768 / 1024 / 1280 px with the notifications bell (PR #1066
- * browser measurement): below lg the search is an icon (the 152px pill only from lg), below sm the
+ * browser measurement): the search is an icon until xl (2xl in sidebar mode; the 152px pill from there), below sm the
  * gaps are 8px and the company switcher's padding/gap tighter. Recovered at 390 vs master: 8 gaps x
  * 4px + 8px padding + 4px inner gap = 44px, the bell's 32px + one gap. happy-dom has no layout, so
  * this pins the classes; the pixel check is the browser measurement.
@@ -22,19 +22,29 @@ vi.mock('@/components/onboarding/SetupGuideButton', () => ({ SetupGuideButton: (
 
 afterEach(cleanup);
 
-async function header() {
+async function header(navMode: 'top' | 'side' = 'top') {
   const { AppHeader } = await import('@/components/layout/AppHeader');
   const ref = { current: null };
-  render(<AppHeader navMode="top" isAdminHost={false} mobileNavOpen={false} onToggleMobileNav={vi.fn()} menuButtonRef={ref}
+  render(<AppHeader navMode={navMode} isAdminHost={false} mobileNavOpen={false} onToggleMobileNav={vi.fn()} menuButtonRef={ref}
     onToggleNavMode={vi.fn()} onOpenCommandPalette={vi.fn()} />);
   return document.querySelector('header')!;
 }
 
 describe('AppHeader fits one row with the bell', () => {
-  it('search: the pill only from lg, the icon below lg', async () => {
-    await header();
-    expect(screen.getByTitle('Search (Ctrl+K)').className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', 'lg:flex']));
-    expect(screen.getByRole('button', { name: 'Open search' }).className.split(/\s+/)).toContain('lg:hidden');
+  it('search (top nav): the pill only from xl, the icon below xl', async () => {
+    await header('top');
+    const pill = screen.getByTitle('Search (Ctrl+K)').className.split(/\s+/);
+    expect(pill).toEqual(expect.arrayContaining(['hidden', 'xl:flex']));
+    expect(pill).not.toContain('lg:flex');
+    expect(screen.getByRole('button', { name: 'Open search' }).className.split(/\s+/)).toContain('xl:hidden');
+  });
+
+  it('search (sidebar): the pill only from 2xl, the icon below 2xl', async () => {
+    await header('side');
+    const pill = screen.getByTitle('Search (Ctrl+K)').className.split(/\s+/);
+    expect(pill).toEqual(expect.arrayContaining(['hidden', '2xl:flex']));
+    expect(pill).not.toContain('xl:flex');
+    expect(screen.getByRole('button', { name: 'Open search' }).className.split(/\s+/)).toContain('2xl:hidden');
   });
 
   it('gaps are 8px below sm, 12px from sm', async () => {
