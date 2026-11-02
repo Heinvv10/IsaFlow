@@ -46,6 +46,8 @@ import {
 } from './packBlockHeights';
 import { mattersTableMm } from './packMattersPrinted';
 import type { PackPage, PackPageBlock } from './packPageModel';
+import { PACK_SCALE } from './packScale';
+import { tableLabelShare } from './packTableLabelShare';
 
 export { MATTERS_OMITTED_NOTE_MM };
 
@@ -119,7 +121,7 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
         block.table.rows.map((r) => r.label),
         block.table.rows.flatMap((r) => block.table.columns.map((c) => r.figures[c])),
         width,
-        0.4,
+        tableLabelShare(block.table, width, PACK_SCALE),
       );
     case 'scorecard': {
       const groups = block.groups.reduce((sum, g, i) => sum + (i === 0 ? 0 : 4)
