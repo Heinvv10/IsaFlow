@@ -61,8 +61,11 @@ check_location() {  # host path
 }
 check_location app.isaflow.co.za /accounting
 check_location admin.isaflow.co.za /
+# The token is deliberately fake: middleware only checks the cookie is present
+# and rewrites; the admin page itself answers 200 and checks the session client
+# side. A curl failure reports 000 and fails below with a message.
 ADMIN_STATUS=$(curl -s -o /dev/null --max-time 30 -w '%{http_code}' -H 'Host: admin.isaflow.co.za' \
-  -H 'X-Forwarded-Proto: https' -H 'Cookie: sb-access-token=verify-deploy' "$BASE_URL/")
+  -H 'X-Forwarded-Proto: https' -H 'Cookie: sb-access-token=verify-deploy' "$BASE_URL/") || true
 case "$ADMIN_STATUS" in
   2??) ;;
   *) echo "FAIL: admin.isaflow.co.za/ with a session cookie answered $ADMIN_STATUS (middleware rewrite broken?)"; exit 1 ;;
