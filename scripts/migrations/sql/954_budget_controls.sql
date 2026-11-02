@@ -400,13 +400,24 @@ BEGIN
 END;
 $$;
 
+-- Who may notify: from a request (a session user), only an owner, admin or manager of the row's
+-- company (the write roles, src/lib/auth/writeRoles.ts); the sender's own membership row is always
+-- visible to them (cu_self_or_admin), so no definer is needed. With no session user (the service
+-- pool's cron, a migration) the server code is the sender and decides.
 CREATE OR REPLACE FUNCTION public.user_notifications_check()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+DECLARE
+  sender text := auth.uid();
 BEGIN
+  IF sender IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM company_users cu
+        WHERE cu.company_id = NEW.company_id AND cu.user_id = sender AND cu.role IN ('owner', 'admin', 'manager')) THEN
+    RAISE EXCEPTION 'only an owner, admin or manager of company % may send a notification', NEW.company_id USING ERRCODE = '42501';
+  END IF;
   IF NOT public.user_notification_recipient_ok(NEW.company_id, NEW.user_id) THEN
     RAISE EXCEPTION 'notification recipient % is not a member of company %', NEW.user_id, NEW.company_id USING ERRCODE = '23503';
   END IF;
@@ -444,7 +455,10 @@ CREATE TRIGGER trg_budget_check_events_check BEFORE INSERT ON budget_check_event
 ALTER TABLE budget_check_events ENABLE ALWAYS TRIGGER trg_budget_check_events_check;
 
 -- A slice review's actors and times come from the status move itself: submitted stamps the
--- submitter, approved/returned the decider. A move with no session user is refused (no actor to stamp).
+-- submitter (and clears the previous decision and its note: a resubmission is decided afresh),
+-- approved/returned the decider. A move with no session user is refused (no actor to stamp).
+-- WHICH moves are allowed (open → submitted → approved|returned → submitted …, who may make them)
+-- is P5-6's slice workflow (sliceReviewState.ts); this trigger only stamps.
 CREATE OR REPLACE FUNCTION public.budget_slice_reviews_stamp()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -468,6 +482,7 @@ BEGIN
     END IF;
     IF NEW.status = 'submitted' THEN
       NEW.submitted_by := uid; NEW.submitted_at := clock_timestamp();
+      NEW.decided_by := NULL; NEW.decided_at := NULL; NEW.decision_note := NULL;
     ELSIF NEW.status IN ('approved', 'returned') THEN
       NEW.decided_by := uid; NEW.decided_at := clock_timestamp();
     END IF;

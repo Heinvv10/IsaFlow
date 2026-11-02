@@ -60,9 +60,9 @@ async function billedByPoItem(companyId: string, poItemIds: string[], own: strin
   `) as DbRow[];
   const linked = new Set(poItemIds);
   for (const b of bills) {
-    const own = items.filter((i) => String(i.supplier_invoice_id) === String(b.id));
-    const poOf = new Map(own.map((i) => [String(i.id), text(i.po_item_id)]));
-    for (const line of buildExpenseLines({ ...mapInvoiceRow(b), items: own.map(itemOf) }, 'unused')) {
+    const billItems = items.filter((i) => String(i.supplier_invoice_id) === String(b.id));
+    const poOf = new Map(billItems.map((i) => [String(i.id), text(i.po_item_id)]));
+    for (const line of buildExpenseLines({ ...mapInvoiceRow(b), items: billItems.map(itemOf) }, 'unused')) {
       const po = poOf.get(String(line.description));
       if (po && linked.has(po)) out.set(po, Math.round(((out.get(po) ?? 0) + line.debit) * 100) / 100);
     }

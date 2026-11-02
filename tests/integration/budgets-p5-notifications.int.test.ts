@@ -135,15 +135,31 @@ describe('notifyUsers', () => {
     }
   });
 
-  it('refuses a non-member (another company\'s user, an unknown id) before writing, leaving the transaction usable', async () => {
-    await as('app_user', A, manager, async () => {
-      const n = { kind: 'budget_slice' as const, refId: null, title: 'x', body: null, href: null, dedupeKey: 'nm' };
-      await expect(notifyUsers(A, [owner, bUser], n)).rejects.toMatchObject({ name: 'NotificationRecipientError', userIds: [bUser] });
-      await expect(notifyUsers(A, ['no-such-user'], n)).rejects.toMatchObject({ name: 'NotificationRecipientError' });
-      // Nothing written, and the request can go on (no 23503 poisoned it).
-      expect((await listNotifications(A, manager)).unread).toBe(3);
-    });
-    expect((await pool.query(`SELECT COUNT(*)::int n FROM user_notifications WHERE dedupe_key = 'nm'`)).rows[0].n).toBe(0);
+  it('skips a recipient who is no longer a member (another company\'s user, an unknown id), writes the rest, and says whom it skipped', async () => {
+    const n = { kind: 'budget_slice' as const, refId: null, title: 'x', body: null, href: null, dedupeKey: 'nm' };
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: manager })]);
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [A]);
+      await als.run({ client, companyId: A, userId: manager, claims: { sub: manager } }, async () => {
+        expect(await notifyUsers(A, [owner, bUser, 'no-such-user'], n)).toEqual({ skipped: [bUser, 'no-such-user'] });
+        expect(await notifyUsers(A, ['no-such-user'], n)).toEqual({ skipped: ['no-such-user'] });
+        // The request goes on: no 23503 poisoned it.
+        expect((await listNotifications(A, manager)).unread).toBe(3);
+      });
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally { client.release(); }
+    try {
+      const r = await pool.query(`SELECT user_id FROM user_notifications WHERE dedupe_key = 'nm'`);
+      expect(r.rows.map((x) => x.user_id)).toEqual([owner]);
+    } finally {
+      await pool.query(`DELETE FROM user_notifications WHERE dedupe_key = 'nm'`);
+    }
   });
 
   it('fits title and body to the table (200 / 2 000 characters, NUL dropped) instead of failing the caller\'s transaction', async () => {

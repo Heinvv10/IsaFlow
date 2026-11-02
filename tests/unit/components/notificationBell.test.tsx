@@ -161,6 +161,16 @@ describe('NotificationBell', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(h.fetch).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Notifications' })).toBeNull();
+    // Its 32px slot is kept (as AppHeader keeps the setup guide's), so the cog beside it does not move.
+    const slot = screen.getByTestId('notification-bell-slot');
+    expect(slot.getAttribute('aria-hidden')).toBe('true');
+    expect(slot.className).toContain('w-8');
+  });
+
+  it('the bell occupies the same 32px slot', async () => {
+    h.fetch.mockImplementation(async () => feed([], 0));
+    render(<NotificationBell />);
+    expect(bell().parentElement?.className).toContain('w-8');
   });
 
   it('a link that is not an in-app path is never followed', async () => {
