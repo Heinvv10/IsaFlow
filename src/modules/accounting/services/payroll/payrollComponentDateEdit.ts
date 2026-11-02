@@ -36,9 +36,11 @@ import {
 export interface ComponentChangeActor { userId: string; userEmail?: string; channel: 'rest' | 'mcp' | 'service' }
 export type DateChange = { kind: 'edit'; from: string; to: string | null } | { kind: 'end'; to: string };
 
-type Sibling = AssignmentWindow & { id: string; amount: number };
+type Sibling = AssignmentWindow & { id: string };
 
 const live = (w: AssignmentWindow) => w.to === null || w.to >= w.from;
+/** The window alone: what may be logged or audited. Never the amount (an employee's pay). */
+const windowOnly = (w: AssignmentWindow): AssignmentWindow => ({ from: w.from, to: w.to, recurring: w.recurring });
 const shiftDay = (iso: string, days: number): string => {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
@@ -88,12 +90,12 @@ function nextWindow(before: AssignmentWindow, change: DateChange, paidRead: bool
     }
     return { after, kind: 'edit' };
   }
-  if (!before.recurring && !paidRead) return { after: { ...before, to: shiftDay(before.from, -1) }, kind: 'cancel' };
+  if (!before.recurring && !paidRead) return { after: { ...windowOnly(before), to: shiftDay(before.from, -1) }, kind: 'cancel' };
   if (change.to < before.from) refuse(`The end (${change.to}) is before its start (${before.from}). To stop a row that has not started, use Edit dates.`);
   if (before.to !== null && change.to > before.to) {
     refuse(`End can only bring the end date earlier (it is ${before.to}); use Edit dates to extend it.`);
   }
-  return { after: { ...before, to: change.to }, kind: 'end' };
+  return { after: { ...windowOnly(before), to: change.to }, kind: 'end' };
 }
 
 async function audit(tx: TxSql, companyId: string, id: string, before: AssignmentWindow, after: AssignmentWindow,
@@ -130,11 +132,11 @@ export async function changeAssignmentDates(
     `) as DbRow[])[0];
     if (!target) return false;
     const rows = (await tx`
-      SELECT id, amount, effective_from, effective_to, is_recurring FROM payroll_employee_components
+      SELECT id, effective_from, effective_to, is_recurring FROM payroll_employee_components
       WHERE employee_id = ${target.employee_id}::uuid AND component_id = ${target.component_id}::uuid
       ORDER BY id FOR UPDATE
     `) as DbRow[];
-    const siblings: Sibling[] = rows.map((r) => ({ ...windowOf(r), id: String(r.id), amount: Number(r.amount) }));
+    const siblings: Sibling[] = rows.map((r) => ({ ...windowOf(r), id: String(r.id) }));
     const self = siblings.find((r) => r.id === assignmentId)!;
     const paid = await paidPeriodsOf(tx, companyId, String(target.employee_id));
     const { after, kind } = nextWindow(self, change, paid.some((p) => assignmentReadInPeriod(self, p)));
@@ -154,7 +156,7 @@ export async function changeAssignmentDates(
     const flip = flippedOnceOff(siblings, siblings.map((r) => (r.id === self.id ? { ...r, ...after } : r)));
     if (flip) {
       const r = flip.row;
-      refuse(`This would make the once-off of R${r.amount} (${r.from} to ${r.to}) ${flip.paidAgain ? 'be paid again' : 'stop being paid'}: `
+      refuse(`This would make the once-off ${r.from} to ${r.to} ${flip.paidAgain ? 'be paid again' : 'stop being paid'}: `
         + 'it was replaced by an assignment starting the day after it ends. Cancel or change that once-off first.');
     }
 
@@ -163,7 +165,9 @@ export async function changeAssignmentDates(
       WHERE id = ${assignmentId}::uuid
     `;
     await audit(tx, companyId, assignmentId, self, after, kind, actor);
-    log.info('Changed employee component dates', { companyId, assignmentId, kind, before: self, after }, 'payrollComponentDateEdit');
+    log.info('Changed employee component dates', {
+      companyId, assignmentId, kind, before: windowOnly(self), after: windowOnly(after),
+    }, 'payrollComponentDateEdit');
     return true;
   });
 }

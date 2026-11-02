@@ -88,7 +88,7 @@ const REFUSED: Array<[string, string, string, RegExp]> = [
   ['an end before the start', 'futureTravel', '2026-05-15', /before (its|the) start/i],
   ['an end that takes a paid month out', 'salary', '2026-01-31', /2026-02 .*already paid/i],
   ['a voided row', 'voided', '2026-08-25', /cancelled/i],
-  ['cancelling a once-off that replaced another (it would be paid again)', 'replacement', '2026-07-20', /1200.*2026-07-01.*paid again/i],
+  ['cancelling a once-off that replaced another (it would be paid again)', 'replacement', '2026-07-20', /2026-07-01 to 2026-07-14.*paid again/i],
 ];
 
 describe.each([['REST', 'rest'], ['MCP', 'mcp']] as const)('End through %s refuses, nothing written', (_n, path) => {

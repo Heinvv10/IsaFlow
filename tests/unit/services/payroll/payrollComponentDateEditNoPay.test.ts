@@ -17,7 +17,7 @@ vi.mock('@/lib/neon', () => {
     const text = strings.join('?');
     bound.push(values);
     if (text.includes('JOIN payroll_employees e')) return [{ id: selfRow.id, employee_id: 'e-1', component_id: 'c-1' }];
-    if (text.includes('SELECT id, amount, effective_from')) return [selfRow, ...(siblingRow ? [siblingRow] : [])];
+    if (text.includes('effective_from, effective_to, is_recurring FROM payroll_employee_components')) return [selfRow, ...(siblingRow ? [siblingRow] : [])];
     return [];
   };
   return { sql: tx, withTransaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx) };
