@@ -80,19 +80,25 @@ const CONCURRENCY = { group: 'ci-${{ github.ref }}', 'cancel-in-progress': true 
  * workflow that takes the ci- group cancels the gate jobs. Scanning group
  * strings is another arms race, so the SET is fixed instead: ci.yml is the
  * only workflow file, its jobs are exactly these, golden-paths keeps its own
- * group (a -queue one for runs the merge queue waits on, chosen by
- * golden-lane; a per-run one when hosted), and no other job takes one. A new workflow or job means
- * changing this rule in review.
+ * group (on velo per ref, with a -queue one for runs the merge queue waits on,
+ * chosen by golden-lane; a per-run one when hosted), and no other job takes
+ * one. A new workflow or job means changing this rule in review.
+ *
+ * On velo the golden group is per ref, not one group for every ref: the suite
+ * writes to a Golden Paths slot company (ci.yml maps the runner to one, and a
+ * runner runs one job at a time), so runs of different refs may overlap on
+ * different runners. The group only stops two golden runs of one ref from
+ * running at once. It must stay clear of the `ci-` prefix and never cancel.
  */
 export const WORKFLOW_FILES = ['ci.yml'];
 const JOBS = ['route', 'static', 'velo', QUALITY_JOB, 'golden-lane', 'golden-paths'];
 /**
- * On velo (CI_HOSTED=off) the shared Demo company needs the shared groups; on a
+ * On velo (CI_HOSTED=off) the slot companies need the per-ref groups; on a
  * hosted runner the run has a database of its own and takes a group of its own
  * (the run id), so hosted runs neither wait for each other nor cancel each other.
  */
 const GOLDEN_PATHS_CONCURRENCY = {
-  group: "${{ vars.CI_HOSTED == 'off' && format('golden-paths-dev-demo{0}', needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}",
+  group: "${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}",
   'cancel-in-progress': false,
 };
 /**
