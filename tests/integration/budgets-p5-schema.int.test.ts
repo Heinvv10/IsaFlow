@@ -39,7 +39,7 @@ async function seedRows(c: Co, versionId: string): Promise<Record<Table, string>
        VALUES ($1, $2, $3, '2026-03-01', 100, 10, 11, 0, 110) RETURNING id`, [c.id, versionId, c.acct]),
     budget_check_events: await one(
       `INSERT INTO budget_check_events (company_id, document_type, document_id, policy, outcome, lines, channel, decided_by)
-       VALUES ($1, 'supplier_invoice', gen_random_uuid(), 'warn', 'warn', '[]', 'ui', $2) RETURNING id`, [c.id, c.user]),
+       VALUES ($1, 'purchase_order', $3, 'warn', 'warn', '[]', 'ui', $2) RETURNING id`, [c.id, c.user, po[c.id]]),
     budget_holders: await one(
       `INSERT INTO budget_holders (company_id, version_id, user_id, cc1_id, gl_account_ids, created_by)
        VALUES ($1, $2, $3, $4, ARRAY[$5]::UUID[], $3) RETURNING id`, [c.id, versionId, c.user, c.cc1, c.acct]),
@@ -60,12 +60,12 @@ beforeAll(async () => {
   await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'manager')", [A.id, memberA2]);
   for (const c of [A, B]) {
     versionOf[c.id] = await version(c, { primary: true });
-    rowsOf[c.id] = await seedRows(c, versionOf[c.id]!);
     supplier[c.id] = crypto.randomUUID();
     await pool.query('INSERT INTO suppliers (id, company_id, name) VALUES ($1, $2, $3)', [supplier[c.id], c.id, 'P5 supplier']);
     po[c.id] = String((await pool.query(
       `INSERT INTO purchase_orders (company_id, po_number, supplier_id, order_date, status)
        VALUES ($1, 'P5-PO-1', $2, '2026-03-10', 'approved') RETURNING id`, [c.id, supplier[c.id]])).rows[0].id);
+    rowsOf[c.id] = await seedRows(c, versionOf[c.id]!);
   }
   // A second member of A has a notification of their own.
   await pool.query(`INSERT INTO user_notifications (company_id, user_id, kind, title, dedupe_key)
@@ -156,7 +156,7 @@ describe('954: budget_check_events is insert-only for the app pools', () => {
     const own = rowsOf[A.id]!.budget_check_events;
     await asAppUser(A, async (q) => {
       expect(await codeOf(q, `INSERT INTO budget_check_events (company_id, document_type, document_id, policy, outcome, lines, reason, channel, decided_by)
-        VALUES ($1, 'supplier_invoice', gen_random_uuid(), 'block', 'override', '[]', 'owner said so', 'ui', $2)`, [A.id, A.user])).toBe('ok');
+        VALUES ($1, 'purchase_order', $3, 'block', 'override', '[]', 'owner said so', 'ui', $2)`, [A.id, A.user, po[A.id]])).toBe('ok');
       expect(await codeOf(q, `UPDATE budget_check_events SET reason = 'rewritten' WHERE id = $1`, [own])).toBe('42501');
       expect(await codeOf(q, `UPDATE budget_check_events SET outcome = 'pass' WHERE id = $1`, [own])).toBe('42501');
       expect(await codeOf(q, `DELETE FROM budget_check_events WHERE id = $1`, [own])).toBe('42501');

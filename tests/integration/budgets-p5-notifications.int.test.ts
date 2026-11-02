@@ -135,6 +135,51 @@ describe('notifyUsers', () => {
     }
   });
 
+  it('refuses a non-member (another company\'s user, an unknown id) before writing, leaving the transaction usable', async () => {
+    await as('app_user', A, manager, async () => {
+      const n = { kind: 'budget_slice' as const, refId: null, title: 'x', body: null, href: null, dedupeKey: 'nm' };
+      await expect(notifyUsers(A, [owner, bUser], n)).rejects.toMatchObject({ name: 'NotificationRecipientError', userIds: [bUser] });
+      await expect(notifyUsers(A, ['no-such-user'], n)).rejects.toMatchObject({ name: 'NotificationRecipientError' });
+      // Nothing written, and the request can go on (no 23503 poisoned it).
+      expect((await listNotifications(A, manager)).unread).toBe(3);
+    });
+    expect((await pool.query(`SELECT COUNT(*)::int n FROM user_notifications WHERE dedupe_key = 'nm'`)).rows[0].n).toBe(0);
+  });
+
+  it('fits title and body to the table (200 / 2 000 characters, NUL dropped) instead of failing the caller\'s transaction', async () => {
+    try {
+      await as('app_service', A, owner, async () => {
+        await notifyUsers(A, [owner], { kind: 'budget_alert', refId: null, title: `  ${'T'.repeat(250)}\u0000`, body: `${'é'.repeat(2500)}`, href: null, dedupeKey: 'long' });
+        const row = (await listNotifications(A, owner)).items.find((x) => x.title.startsWith('T'))!;
+        expect([...row.title]).toHaveLength(200);
+        expect([...row.body!]).toHaveLength(2000);
+        expect(row.title.includes('\u0000')).toBe(false);
+      });
+      await as('app_user', A, owner, async () => {
+        await expect(notifyUsers(A, [owner], { kind: 'budget_alert', refId: null, title: '   ', body: null, href: null, dedupeKey: 'blank' }))
+          .rejects.toThrow(/title/);
+        await expect(notifyUsers(A, [owner], { kind: 'budget_alert', refId: null, title: 't', body: null, href: null, dedupeKey: 'k'.repeat(201) }))
+          .rejects.toThrow(/dedupeKey/);
+      });
+    } finally {
+      await pool.query(`DELETE FROM user_notifications WHERE dedupe_key = 'long'`);
+    }
+  });
+
+  it('the service pool\'s login (isaflow_service, no claims: the cron) writes for a member', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE isaflow_service');
+      await als.run({ client, companyId: A, userId: '', claims: {} }, () => notifyUsers(A, [owner],
+        { kind: 'budget_alert', refId: null, title: 'From the cron', body: null, href: '/accounting/budgets', dedupeKey: 'cron' }));
+      expect((await client.query(`SELECT COUNT(*)::int n FROM user_notifications WHERE dedupe_key = 'cron' AND user_id = $1`, [owner])).rows[0].n).toBe(1);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
   it('refuses a link that is not an in-app path before writing', async () => {
     await as('app_user', A, owner, async () => {
       await expect(notifyUsers(A, [owner], { kind: 'budget_alert', refId: null, title: 't', body: null, href: 'https://evil.example', dedupeKey: 'x' }))
