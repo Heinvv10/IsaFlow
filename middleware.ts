@@ -78,6 +78,19 @@ const ADMIN_PASSTHROUGH = [
   '/sw.js',
 ];
 
+/** Public hosts whose Host header a redirect may be built from. */
+const PUBLIC_HOSTS = [...APP_HOSTS, ...ADMIN_HOSTS, 'isaflow.co.za', 'www.isaflow.co.za'];
+
+/**
+ * Absolute URL for a same-host redirect. Since Next 15, request.url behind the
+ * proxy carries the server's own address (https://localhost:<PORT>), so a
+ * redirect built from it sent browsers to localhost (2026-11-02 outage). A known
+ * public host gets its https origin; anything else (dev) keeps request.url.
+ */
+export function sameHostUrl(path: string, request: NextRequest, host: string): URL {
+  return new URL(path, PUBLIC_HOSTS.includes(host) ? `https://${host}` : request.url);
+}
+
 const ADMIN_URL = process.env.NEXT_PUBLIC_ADMIN_URL ?? 'https://admin.isaflow.co.za';
 const CANONICAL_ADMIN_URL = 'https://admin.isaflow.co.za';
 
@@ -145,7 +158,7 @@ export async function middleware(request: NextRequest) {
 
     const adminToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
     if (!adminToken) {
-      const loginUrl = new URL('/login', request.url);
+      const loginUrl = sameHostUrl('/login', request, host);
       loginUrl.searchParams.set('returnTo', pathname + request.nextUrl.search);
       return NextResponse.redirect(loginUrl);
     }
@@ -197,14 +210,14 @@ export async function middleware(request: NextRequest) {
   // redirect below — without this, a fresh user landing on /
   // bounces to /accounting without a CSRF cookie).
   if (pathname === '/' && APP_HOSTS.includes(host)) {
-    return issueCsrfCookie(request, NextResponse.redirect(new URL('/accounting', request.url)));
+    return issueCsrfCookie(request, NextResponse.redirect(sameHostUrl('/accounting', request, host)));
   }
 
   // Check for auth cookie on protected routes
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
 
   if (!token && (pathname.startsWith('/accounting') || pathname.startsWith('/payroll'))) {
-    const loginUrl = new URL('/login', request.url);
+    const loginUrl = sameHostUrl('/login', request, host);
     loginUrl.searchParams.set('returnTo', pathname + request.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
@@ -216,7 +229,7 @@ export async function middleware(request: NextRequest) {
   // call afterward fails until they hit a passthrough page.
   if (token && !request.cookies.get('ff_onboarding_done')?.value) {
     if (pathname.startsWith('/accounting') || pathname.startsWith('/payroll')) {
-      return issueCsrfCookie(request, NextResponse.redirect(new URL('/onboarding', request.url)));
+      return issueCsrfCookie(request, NextResponse.redirect(sameHostUrl('/onboarding', request, host)));
     }
   }
 
