@@ -39,7 +39,8 @@ The labour debit follows the employee's allocations (else own centre): the cost-
 (`labour_cost_centre_untagged`), and a centre mapped to a DEACTIVATED account posts to 5200 with its CC1
 (`labour_account_inactive`) — mapping and tagging never block a payment. `advisories` in the response carry these.
 409 `TAX_DIRECTIVE_SPLIT_CHANGED` (retryable, nothing written): the split named a new centre while the payment waited
-for the directive row (`payrollCostCentreTags` lock order, `taxDirectiveLabour`).
+for the directive row, or a mapped labour account was deactivated before the post (`payrollCostCentreTags` lock order,
+`taxDirectiveLabour`; the route's `withJournalDateRefusal` savepoint is what rolls the claim back).
 
 Cent-level balance guard — throws before creating the entry if the arithmetic doesn't round.
 

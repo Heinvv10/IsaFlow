@@ -83,8 +83,7 @@ export function comparableLines(
   const key = (account: string | null, centre: string) => JSON.stringify([account, centre]);
   const carried = new Set(posted.filter((l) => cents(l.debit) !== 0 && l.cc1Id).map((l) => key(l.glAccountId, l.cc1Id!)));
   if (carried.size === 0) {
-    const planCarriesCc1 = planLines.some((l) => cents(l.debit) !== 0 && l.cc1Id !== null);
-    if (planCarriesCc1) return { plan: planLines, posted };
+    if (predatesTagging(planLines, posted)) return { plan: planLines, posted };
     const untag = (l: FigureLine): FigureLine => ({ ...l, cc1Id: null });
     return { plan: planLines.map(untag), posted: posted.map(untag) };
   }
@@ -96,4 +95,14 @@ export function comparableLines(
     cc1Id: b.centreId !== null && (carried.has(key(b.glAccountId, b.centreId)) || b.taggable) ? b.centreId : null,
   }));
   return { plan: [...planLines.filter((l) => cents(l.debit) === 0), ...labour], posted };
+}
+
+/**
+ * True when the posted journal carries no CC1 on any labour line while the plan
+ * tags labour: a journal from before cost-centre tagging (or one whose centres
+ * were all untaggable then). `comparableLines` fails such a comparison closed
+ * (d416d6de6), and the gate's refusal names this cause.
+ */
+export function predatesTagging(planLines: FigureLine[], posted: FigureLine[]): boolean {
+  return !posted.some((l) => cents(l.debit) !== 0 && l.cc1Id) && planLines.some((l) => cents(l.debit) !== 0 && l.cc1Id !== null);
 }

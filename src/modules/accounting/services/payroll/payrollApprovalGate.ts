@@ -37,7 +37,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
-import { comparableLines, sameFigures, type FigureLine } from './payrollLabourComparison';
+import { comparableLines, predatesTagging, sameFigures, type FigureLine } from './payrollLabourComparison';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
@@ -247,10 +247,13 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
         ? comparableLines(plan.lines, plan.labourBySourceCentre, read!.asPosted)
         : { plan: plan.lines, posted: linked.lines };
       if (!sameFigures(compared, perAccount)) {
+        const cause = perAccount && predatesTagging(plan.lines, read!.asPosted)
+          ? 'the journal predates cost-centre tagging and this run now tags its labour by cost centre'
+          : 'it was recalculated, or its pay moved between cost centres, after posting';
         return {
           code: 'recalculated_after_posting',
-          detail: `This run's figures no longer match the journal it posted (${numbers}) — it was recalculated, or its pay moved between `
-            + `cost centres, after posting. Reverse journal ${inForce.entryNumber} first; approving then posts a new one.`,
+          detail: `This run's figures no longer match the journal it posted (${numbers}) — ${cause}. `
+            + `Reverse journal ${inForce.entryNumber} first; approving then posts a new one.`,
         };
       }
       return null;

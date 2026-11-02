@@ -25,7 +25,7 @@ import { directivePaye } from './payrollSeveranceDirective';
 import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
 import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
 import { employeeLabourLines } from './payrollCostCentreTags';
-import { lockDirectiveLabour, refreshDirectiveLabour } from './taxDirectiveLabour';
+import { lockDirectiveLabour, postOrRetry, refreshDirectiveLabour } from './taxDirectiveLabour';
 
 export { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError };
 
@@ -230,41 +230,45 @@ export async function applyTaxDirective(
   // was unwound only by its 23505 aborting the transaction, an opaque 500 where
   // the correct answer is a refusal raised before the first posting. The
   // journal link is written after the posting, the only thing left to record.
-  const claimed = await claimUnderLockTimeout('tax directive', async () => (await sql`
-    INSERT INTO tax_directive_payments (
-      company_id, tax_directive_id, payment_date,
-      gross_amount, paye_amount, net_amount,
-      bank_account_id, created_by
-    ) VALUES (
-      ${companyId}, ${directiveId}, ${input.paymentDate},
-      ${gross}, ${paye}, ${net},
-      ${bankAccountId}, ${userId}
-    )
-    ON CONFLICT (company_id, tax_directive_id) DO NOTHING
-    RETURNING id
-  `) as Row[]);
-  if (claimed.length === 0) {
-    // Re-read rather than trusting a row read before the INSERT: the loser of a
-    // double-click needs the payment the winner left behind.
-    // A payroll run that paid a severance directive holds this same row (its
-    // claim, payrollRunDirectiveClaim), so the run is refused here too.
-    const now = (await sql`
-      SELECT id, payroll_run_id FROM tax_directive_payments
-      WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
-      LIMIT 1
-    `) as Row[];
-    const run = now[0]?.payroll_run_id;
-    throw new TaxDirectiveAlreadyAppliedError(directiveId, now[0] ? String(now[0].id) : null, run == null ? null : String(run));
-  }
-  const paymentId = String(claimed[0]!.id);
+  // Claim to link (taxDirectiveLabour#postOrRetry): a mapped account deactivated since the re-read → retryable 409.
+  const { paymentId, entry } = await postOrRetry(companyId, directiveId, lines, labourAccountId, async () => {
+    const claimed = await claimUnderLockTimeout('tax directive', async () => (await sql`
+      INSERT INTO tax_directive_payments (
+        company_id, tax_directive_id, payment_date,
+        gross_amount, paye_amount, net_amount,
+        bank_account_id, created_by
+      ) VALUES (
+        ${companyId}, ${directiveId}, ${input.paymentDate},
+        ${gross}, ${paye}, ${net},
+        ${bankAccountId}, ${userId}
+      )
+      ON CONFLICT (company_id, tax_directive_id) DO NOTHING
+      RETURNING id
+    `) as Row[]);
+    if (claimed.length === 0) {
+      // Re-read rather than trusting a row read before the INSERT: the loser of a
+      // double-click needs the payment the winner left behind.
+      // A payroll run that paid a severance directive holds this same row (its
+      // claim, payrollRunDirectiveClaim), so the run is refused here too.
+      const now = (await sql`
+        SELECT id, payroll_run_id FROM tax_directive_payments
+        WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
+        LIMIT 1
+      `) as Row[];
+      const run = now[0]?.payroll_run_id;
+      throw new TaxDirectiveAlreadyAppliedError(directiveId, now[0] ? String(now[0].id) : null, run == null ? null : String(run));
+    }
+    const paymentId = String(claimed[0]!.id);
 
-  // 6. Create + post journal entry, then link it to the claimed payment.
-  const entry = await createJournalEntry(companyId, journalInput, userId);
-  await postJournalEntry(companyId, entry.id, userId);
-  await sql`
-    UPDATE tax_directive_payments SET journal_entry_id = ${entry.id}
-    WHERE id = ${paymentId} AND company_id = ${companyId}
-  `;
+    // 6. Create + post journal entry, then link it to the claimed payment.
+    const entry = await createJournalEntry(companyId, journalInput, userId);
+    await postJournalEntry(companyId, entry.id, userId);
+    await sql`
+      UPDATE tax_directive_payments SET journal_entry_id = ${entry.id}
+      WHERE id = ${paymentId} AND company_id = ${companyId}
+    `;
+    return { paymentId, entry };
+  });
 
   log.info('Tax directive applied', {
     companyId, directiveId, paymentId, journalEntryId: entry.id, gross, paye, net,

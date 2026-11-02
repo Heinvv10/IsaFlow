@@ -11,7 +11,11 @@
  *     centre the payment did not lock first is refused with a retryable 409
  *     (TAX_DIRECTIVE_SPLIT_CHANGED), nothing written;
  *  3. an unapproved directive is refused before any centre lock is waited for;
- *  4. the advisory never prints another company's centre id.
+ *  4. the advisory never prints another company's centre id;
+ *  5. (round 2, N1) a mapped account deactivated AFTER the re-read, before the
+ *     post — the window a concurrent claim's wait stretches — is the same
+ *     retryable 409, with the claim and the draft journal rolled back; the
+ *     retry posts to 5200.
  *
  * Real routes (withAuth, app_user, RLS) on the disposable fixture.
  */
@@ -173,6 +177,57 @@ describe('the split is the one standing when the payment is written', () => {
     } finally {
       await editor.query('ROLLBACK').catch(() => undefined);
       editor.release();
+    }
+  });
+
+  it('N1: a mapped account deactivated after the re-read is a retryable 409, nothing written; the retry posts to 5200', async () => {
+    await allocate([[cc.a, 100]]);
+    await map(cc.a, acct5210);
+    const directive = await approvedDirective(f, 1000, 0.18, '2026-08-31', number());
+    const rival = await pool.connect();
+    try {
+      // A concurrent claim of the same directive holds its payment row, so this payment waits AFTER its re-read.
+      await rival.query('BEGIN');
+      await rival.query(`INSERT INTO tax_directive_payments (company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount)
+                         VALUES ($1,$2,'2026-09-15',1000,180,820)`, [f.company, directive]);
+      const paying = applyStandalone(f, directive);
+      for (let i = 0; ; i++) {
+        const n = (await pool.query(`SELECT count(*)::int AS n FROM pg_stat_activity
+          WHERE wait_event_type = 'Lock' AND query ILIKE '%INSERT INTO tax_directive_payments%'`)).rows[0]!.n;
+        if (n > 0) break;
+        if (i > 100) throw new Error('the payment never waited on the claim');
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [acct5210]);
+      await rival.query('ROLLBACK');
+      const refused = await paying;
+      expect(refused.statusCode).toBe(409);
+      expect(JSON.stringify(refused.body)).toContain('TAX_DIRECTIVE_SPLIT_CHANGED');
+      expect(await payments(directive)).toBe(0);
+      expect((await pool.query("SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id = $1 AND description LIKE 'SARS directive ' || $2 || '%'",
+        [f.company, (await pool.query('SELECT directive_number FROM tax_directives WHERE id = $1', [directive])).rows[0]!.directive_number])).rows[0]!.n).toBe(0);
+      const retried = await applyStandalone(f, directive);
+      expect(retried.statusCode).toBe(200);
+      expect(await labour(String(retried.body.data!.journalEntryId))).toEqual([['5200', cc.a, 100000]]);
+    } finally {
+      await rival.query('ROLLBACK').catch(() => undefined);
+      rival.release();
+      await pool.query('UPDATE gl_accounts SET is_active = true WHERE id = $1', [acct5210]);
+    }
+  });
+
+  it('a deactivated DEFAULT labour account is not answered as retryable: retrying cannot fix it, so it is refused as before', async () => {
+    await allocate([]);
+    const a5200 = (await pool.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_code = '5200'", [f.company])).rows[0]!.id;
+    await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [a5200]);
+    try {
+      const directive = await approvedDirective(f, 1000, 0.18, '2026-08-31', number());
+      const refused = await applyStandalone(f, directive);
+      expect(refused.statusCode).not.toBe(409);
+      expect(JSON.stringify(refused.body)).toContain('Cannot post to deactivated GL account');
+      expect(await payments(directive)).toBe(0);
+    } finally {
+      await pool.query('UPDATE gl_accounts SET is_active = true WHERE id = $1', [a5200]);
     }
   });
 });
