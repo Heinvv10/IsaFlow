@@ -142,7 +142,6 @@
   "src/components/landing/LandingPricingTestimonialsFooter.tsx": 8,
   "src/components/landing/PricingPageSections.tsx": 12,
   "src/components/landing/WaitlistForm.tsx": 9,
-  "src/utils/toast.tsx": 1,
   "src/modules/accounting/types/customerInvoice.types.ts": 2,
   "pages/login.tsx": 8,
   "pages/reset-password.tsx": 6,

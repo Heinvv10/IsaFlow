@@ -48,6 +48,14 @@ export const AR_OPEN_STATUSES = [
 
 export type AROpenStatus = (typeof AR_OPEN_STATUSES)[number];
 
+/**
+ * Whether a customer invoice's total less paid is a balance to show: on an open status it is, and on a 'paid' one left
+ * carrying a balance it still is, because the aging counts it (the header above). On a draft or a cancelled invoice it
+ * means nothing, and a 'paid' one with nothing left has nothing to show.
+ */
+export const showsARBalance = (status: string, balance: number): boolean =>
+  (AR_OPEN_STATUSES as readonly string[]).includes(status) || (status === 'paid' && Math.abs(balance) >= 0.005);
+
 /** Supplier invoice statuses counted as open/outstanding for AP reporting and dashboards. */
 export const AP_OPEN_STATUSES = ['approved', 'partially_paid'] as const;
 

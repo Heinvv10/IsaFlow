@@ -3,6 +3,7 @@
  * (pages/accounting/customer-invoices/index.tsx) to keep it under 300 lines.
  */
 
+import type { MouseEvent } from 'react';
 import Link from 'next/link';
 import { Eye } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
@@ -10,6 +11,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { toBucketKey, relativeTimeSince } from '@/components/invoices/ARFilters';
 import { BUCKET_COLORS, BUCKET_LABELS } from '@/lib/format/aging';
 import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { showsARBalance } from '@/lib/constants/invoiceStatuses';
 
 export interface CustomerInvoiceRow {
   id: string;
@@ -35,9 +37,22 @@ interface Props {
   limit: number;
   total: number;
   onPage: (page: number) => void;
+  /** A plain click on a row: the drawer. Ctrl, Cmd, Shift and the middle button keep opening the page. */
+  onOpen: (invoiceId: string) => void;
 }
 
-export function CustomerInvoiceTable({ invoices, page, limit, total, onPage }: Props) {
+const invoicePath = (id: string) => `/accounting/customer-invoices/${id}`;
+const onLink = (e: MouseEvent) => (e.target as Element).closest('a') !== null;
+const withModifier = (e: MouseEvent) => e.ctrlKey || e.metaKey || e.shiftKey;
+
+export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onOpen }: Props) {
+  const onRowClick = (e: MouseEvent, id: string) => {
+    if (!withModifier(e)) onOpen(id);
+    else if (!onLink(e) && !e.shiftKey) window.open(invoicePath(id), '_blank', 'noopener'); // on the number, the browser's own
+  };
+  const onRowAuxClick = (e: MouseEvent, id: string) => {
+    if (e.button === 1 && !onLink(e)) window.open(invoicePath(id), '_blank', 'noopener');
+  };
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -61,9 +76,11 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage }: P
             const bucketLabel = inv.aging_bucket === 'Current' ? 'Current' : (bucketKey ? BUCKET_LABELS[bucketKey] : null);
             const bucketColor = bucketKey ? BUCKET_COLORS[bucketKey] : 'text-teal-500';
             return (
-              <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
+              <tr key={inv.id} onClick={(e) => onRowClick(e, inv.id)} onAuxClick={(e) => onRowAuxClick(e, inv.id)}
+                className="cursor-pointer border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                 <td className="py-3 px-4 font-mono">
-                  <Link href={`/accounting/customer-invoices/${inv.id}`} className="text-blue-400 hover:text-blue-300">{inv.invoice_number}</Link>
+                  <Link href={invoicePath(inv.id)} onClick={(e) => { if (!withModifier(e)) e.preventDefault(); }}
+                    className="text-blue-400 hover:text-blue-300">{inv.invoice_number}</Link>
                 </td>
                 <td className="py-3 px-4 text-[var(--ff-text-primary)]">{inv.client_name || '-'}</td>
                 <td className="py-3 px-4 text-[var(--ff-text-tertiary)] max-w-[200px] truncate" title={inv.reference}>
@@ -71,9 +88,13 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage }: P
                 </td>
                 <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
                 <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
-                <td className={`py-3 px-4 text-right tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
-                  {formatCurrency(outstanding)}
-                </td>
+                {showsARBalance(inv.status, outstanding) ? (
+                  <td className={`py-3 px-4 text-right tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
+                    {formatCurrency(outstanding)}
+                  </td>
+                ) : (
+                  <td className="py-3 px-4 text-right text-[var(--ff-text-tertiary)]">—</td>
+                )}
                 <td className="py-3 px-4 whitespace-nowrap">
                   {inv.status === 'paid' ? (
                     <span className="text-xs text-[var(--ff-text-tertiary)]">Paid</span>
