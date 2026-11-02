@@ -5,7 +5,8 @@ import { FAQ_ITEMS } from '@/components/landing/landingData';
 import { COMPARE_ENTRIES } from '@/lib/compare/compareData';
 import { buildSitemapXml } from '@/lib/blog/feeds';
 import { buildFaqPage, jsonLdScriptText } from '@/lib/seo/faqSchema';
-import { isMarketingOnlyPath } from '../../../middleware';
+import { NextRequest } from 'next/server';
+import { isMarketingOnlyPath, middleware } from '../../../middleware';
 
 const pub = (f: string) => readFileSync(path.join(process.cwd(), 'public', f), 'utf8');
 
@@ -41,22 +42,54 @@ describe('compare pages', () => {
     }
   });
 
-  it('are marketing-host only', () => {
-    expect(isMarketingOnlyPath('/compare/sage')).toBe(true);
+  it('are marketing-host only: the app host 308s to isaflow.co.za', async () => {
     expect(isMarketingOnlyPath('/compared')).toBe(false);
+    const host = 'app.isaflow.co.za';
+    const res = await middleware(new NextRequest('https://app.isaflow.co.za/compare/sage?x=1', { headers: { host } }));
+    expect(res.status).toBe(308);
+    expect(res.headers.get('location')).toBe('https://isaflow.co.za/compare/sage?x=1');
+    const own = await middleware(new NextRequest('https://isaflow.co.za/compare/sage', { headers: { host: 'isaflow.co.za' } }));
+    expect(own.headers.get('location')).toBeNull();
   });
 });
 
 describe('robots.txt and llms.txt', () => {
   const robots = pub('robots.txt');
-  it('allows the AI crawlers, blocks app paths, lists the sitemap', () => {
-    for (const bot of ['GPTBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended', 'OAI-SearchBot']) {
-      expect(robots).toMatch(new RegExp(`User-agent: ${bot}\\nAllow: /\\n`));
+  const groups = (): Map<string, string[]> => {
+    const out = new Map<string, string[]>();
+    let agents: string[] = [];
+    let lastWasAgent = false;
+    for (const raw of robots.split('\n')) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const [k, ...rest] = line.split(':');
+      const key = (k ?? '').toLowerCase();
+      const val = rest.join(':').trim();
+      if (key === 'user-agent') {
+        if (!lastWasAgent) agents = [];
+        agents.push(val);
+        out.set(val, []);
+        lastWasAgent = true;
+      } else {
+        lastWasAgent = false;
+        if (key === 'disallow') for (const a of agents) out.get(a)?.push(val);
+      }
     }
-    expect(robots).toContain('Disallow: /accounting/');
-    expect(robots).toContain('Disallow: /api/');
+    return out;
+  };
+
+  it('every named group allows crawling and carries the full Disallow list of the * group', () => {
+    const g = groups();
+    const star = g.get('*') ?? [];
+    expect(star).toEqual(expect.arrayContaining(['/accounting/', '/payroll/', '/api/', '/auth/', '/login']));
+    for (const bot of ['GPTBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended', 'OAI-SearchBot']) {
+      expect(g.has(bot), bot).toBe(true);
+    }
+    for (const [agent, disallows] of g) {
+      expect([...disallows].sort(), agent).toEqual([...star].sort());
+      expect(disallows, agent).not.toContain('/');
+    }
     expect(robots).toContain('Sitemap: https://isaflow.co.za/sitemap.xml');
-    expect(robots).not.toMatch(/^Disallow: \/$/m);
   });
 
   it('llms.txt follows the llmstxt.org shape and links the new pages', () => {
@@ -64,5 +97,14 @@ describe('robots.txt and llms.txt', () => {
     expect(llms.startsWith('# ISAFlow\n')).toBe(true);
     expect(llms).toMatch(/^> /m);
     expect(llms).toContain('https://isaflow.co.za/compare/sage');
+  });
+});
+
+describe('copy that must match the product', () => {
+  const src = (f: string) => readFileSync(path.join(process.cwd(), f), 'utf8');
+  it('does not promise 2FA backup codes (TwoFactorSection ships TOTP only)', () => {
+    for (const f of ['src/components/landing/faqData.ts', 'pages/login.tsx', 'public/llms.txt']) {
+      expect(src(f), f).not.toMatch(/backup code/i);
+    }
   });
 });

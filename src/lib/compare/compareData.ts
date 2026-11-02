@@ -47,7 +47,7 @@ const BANK_ROW: CompareRow = {
 
 const FIXED_ROW: CompareRow = {
   topic: 'Fixed assets, budgets and reports',
-  isaflow: 'Fixed assets, budgets and financial reports are part of the product.',
+  isaflow: 'Fixed assets, budgets and financial reports are part of the product. Annual financial statements are on the Premium plan.',
   other: 'Check what is in your plan and what needs an add-on or app.',
 };
 
@@ -70,8 +70,8 @@ export const COMPARE_ENTRIES: CompareEntry[] = [
     ],
     isaflowStrengths: [
       'VAT201, EMP201 and payroll tax sit in one South African product.',
-      'Pricing is published in rand on our pricing page, with a 30-day free trial.',
-      'AI document capture and AI bank matching are built in.',
+      'Plans are priced in rand, with a 30-day free trial.',
+      'AI bank matching is built in, and AI document capture is on the Business plan and above.',
     ],
     switching: 'ISAFlow includes a migration wizard for Sage exports. It maps your chart of accounts and brings over customers, suppliers and opening balances. It checks that the balances agree before anything is posted. Run it in the free trial first and compare the numbers with your Sage reports.',
     faq: [
@@ -98,9 +98,9 @@ export const COMPARE_ENTRIES: CompareEntry[] = [
       'Many accountants and bookkeepers know it well.',
     ],
     isaflowStrengths: [
-      'South African VAT201, EMP201 and payroll tax are the core design, not an add-on to a global product.',
-      'Rand pricing is published, with a 30-day free trial.',
-      'AI document capture and AI bank matching are built in.',
+      'South African VAT201, EMP201 and payroll tax are the core design.',
+      'Plans are priced in rand, with a 30-day free trial.',
+      'AI bank matching is built in, and AI document capture is on the Business plan and above.',
     ],
     switching: 'ISAFlow includes a migration tool for Xero exports. It maps your chart of accounts and brings over customers, suppliers and opening balances, then checks the balances. Try it in the free trial and compare your trial balance with Xero.',
     faq: [
@@ -128,8 +128,8 @@ export const COMPARE_ENTRIES: CompareEntry[] = [
     ],
     isaflowStrengths: [
       'VAT201, EMP201 and payroll tax are built for South Africa.',
-      'Rand pricing is published, with a 30-day free trial.',
-      'AI document capture and AI bank matching are built in.',
+      'Plans are priced in rand, with a 30-day free trial.',
+      'AI bank matching is built in, and AI document capture is on the Business plan and above.',
     ],
     switching: 'ISAFlow includes a migration tool for QuickBooks exports. It maps your chart of accounts and brings over customers, suppliers and opening balances, then checks the balances. Run it during the free trial and compare reports before you switch.',
     faq: [
