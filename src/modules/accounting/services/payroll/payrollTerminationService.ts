@@ -19,7 +19,8 @@
  * Pure logic: no DB access. Callers assemble inputs from the DB and pass them.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import { lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateTerminationPayout } from '@/modules/accounting/services/core/leaveService';
@@ -192,7 +193,10 @@ export async function setTerminationDetails(
   input: TerminationDetailsInput,
 ): Promise<void> {
   log.info('Updating employee termination details', { companyId, employeeId, reason: input.reason }, 'payrollTerminationService');
-  await sql`
+  // Under the company's payroll-approval lock, as every change the approval gate re-checks (payrollRunRecalcGate).
+  await withTransaction(async (tx) => {
+    await lockCompanyPayrollForComponentChange(tx, companyId);
+    await tx`
     UPDATE payroll_employees
        SET termination_reason                   = ${input.reason},
            termination_notice_period_days       = ${input.noticePeriodDays},
@@ -202,6 +206,7 @@ export async function setTerminationDetails(
      WHERE id         = ${employeeId}::uuid
        AND company_id = ${companyId}::uuid
   `;
+  });
 }
 
 /**

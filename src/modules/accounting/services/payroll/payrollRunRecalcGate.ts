@@ -15,7 +15,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
-import { employeesWithEndDateChangedSince } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
+import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 
 export const TERMINATION_BASE_MISSING = 'TERMINATION_BASE_MISSING';
@@ -37,7 +37,7 @@ export async function recalculateRequiredRefusal(companyId: string, runId: strin
 /** Component dates changed after calculation, or a leaver with no termination base. Null when neither. */
 export async function runLinesRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const head = ((await sql`
-    SELECT period_year, period_month, calculated_at FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   if (!head) return null;
   // The run's lines AND everyone the run would pay now: a hire with pay added after calculation has no line yet.
@@ -56,9 +56,16 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
       AND a.created_at > h.calculated_at
     ORDER BY 1
   `) as DbRow[];
-  // An end date changed after calculation (the 888 entity history): it moves who the run pays and what the termination
-  // base and the leaver rule read.
-  const movedEnd = head.calculated_at == null ? [] : await employeesWithEndDateChangedSince(companyId, ids, head.calculated_at as Date);
+  // An end date or termination detail changed after calculation (the 888 entity history): it moves who the run pays,
+  // what the termination pay-outs and the leaver rule read. Unreadable history fails closed.
+  const movedEnd = await payrollTermsChangedSinceCalculation(companyId, runId, ids);
+  if (movedEnd === null) {
+    return {
+      code: 'employee_history_unreadable',
+      detail: 'Approving this run checks the employees\' change history (end dates, termination details) since it was '
+        + 'calculated, and your role cannot read it. Ask an owner, admin or manager to approve the run.',
+    };
+  }
   if (movedEnd.length > 0) {
     changed.push(...((await sql`
       SELECT employee_number FROM payroll_employees WHERE company_id = ${companyId}::uuid AND id = ANY(${movedEnd}::uuid[])
@@ -67,7 +74,7 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
   if (changed.length > 0) {
     return {
       code: 'components_changed_after_calculation',
-      detail: `Pay component dates or an end date changed after this run was calculated for ${[...new Set(changed.map((r) => String(r.employee_number)))].sort().join(', ')}: `
+      detail: `Pay component dates, an end date or termination details changed after this run was calculated for ${[...new Set(changed.map((r) => String(r.employee_number)))].sort().join(', ')}: `
         + 'the run still holds the old figures. Recalculate this run, then approve it.',
     };
   }

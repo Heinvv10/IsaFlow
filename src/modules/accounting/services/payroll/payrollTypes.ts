@@ -44,6 +44,8 @@ export interface EmployeeComponent {
   directive?: DirectiveFigures;
   /** The assignment's is_recurring, when read from payroll_employee_components (the termination base takes recurring rows only). */
   isRecurring?: boolean;
+  /** The payroll_employee_components row it was read from (the pro-rata guard asks which rows the reader paid). */
+  assignmentId?: string;
 }
 
 export interface PayrollPeriod {

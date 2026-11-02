@@ -18,6 +18,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
+import { getEmployeeComponents } from './payrollComponentService';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import type { PayrollPeriod, ValidationResult } from './payrollTypes';
@@ -32,6 +33,8 @@ export interface ProRataRow {
   edge: 'starts' | 'ends' | 'within';
   from: string;
   to: string | null;
+  /** A pay package replaced it (superseded_at): Edit dates refuses it, so the flag points at End. */
+  superseded?: boolean;
 }
 
 /** "starts on 2026-03-28", "ends on 2026-03-30", "starts on 2026-03-28 and ends on 2026-03-29". */
@@ -41,7 +44,12 @@ export function describeProRataRow(row: ProRataRow): string {
   return `starts on ${row.from} and ends on ${row.to}`;
 }
 
-/** The recurring rows of these employees (in this company) that start or end inside the period's pro-rata band. */
+/**
+ * The recurring rows of these employees (in this company) that start or end inside the period's pro-rata band, as
+ * the run's reader treats them: a row ending in the band that the reader pays in full (a leaver's last month, Hein)
+ * is exempt; one it skips is flagged as ending. The reader is asked directly (getEmployeeComponents at the period's
+ * last day), so the guard and the pay cannot disagree about which rows are paid.
+ */
 export async function recurringRowsNeedingProRata(
   companyId: string,
   period: PayrollPeriod,
@@ -51,10 +59,8 @@ export async function recurringRowsNeedingProRata(
   const last = payrollRunReadDate(period);
   const day27 = `${last.slice(0, 8)}27`;
   const rows = (await sql`
-    SELECT pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to,
-           pec.effective_from > ${day27}::date AS starts,
-           pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date
-             AND pec.effective_to IS DISTINCT FROM e.end_date AS ends
+    SELECT pec.id, pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to, pec.superseded_at,
+           pec.effective_from > ${day27}::date AS starts
     FROM payroll_employee_components pec
     JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
     JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = ${companyId}::uuid
@@ -64,19 +70,31 @@ export async function recurringRowsNeedingProRata(
       AND (pec.effective_to IS NULL OR pec.effective_to >= pec.effective_from)
       AND (
         (pec.effective_from > ${day27}::date AND pec.effective_from <= ${last}::date)
-        -- Not a leaver's row ending on their end date: the reader pays that month in full (Hein 2026-11-02).
-        OR (pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date AND pec.effective_to IS DISTINCT FROM e.end_date)
+        OR (pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date)
       )
     ORDER BY e.employee_number, pc.name, pec.effective_from
   `) as DbRow[];
-  return rows.map((r) => ({
-    employeeId: String(r.employee_id),
-    employeeNumber: String(r.employee_number),
-    componentName: String(r.name),
-    edge: r.starts && r.ends ? 'within' : r.starts ? 'starts' : 'ends',
-    from: fmtDate(r.effective_from),
-    to: r.effective_to ? fmtDate(r.effective_to) : null,
-  }));
+  const paidIds = new Set<string>();
+  for (const employeeId of new Set(rows.map((r) => String(r.employee_id)))) {
+    for (const c of await getEmployeeComponents(employeeId, companyId, last)) if (c.assignmentId) paidIds.add(c.assignmentId);
+  }
+  const out: ProRataRow[] = [];
+  for (const r of rows) {
+    const paid = paidIds.has(String(r.id));
+    // Read in full and ending in the band: a leaver's last month (Hein), exempt. Starting in the band and read: paid in
+    // full, flagged as starting. Not read: flagged as ending (also when it starts in the band too).
+    if (paid && !r.starts) continue;
+    out.push({
+      employeeId: String(r.employee_id),
+      employeeNumber: String(r.employee_number),
+      componentName: String(r.name),
+      edge: paid ? 'starts' : r.starts ? 'within' : 'ends',
+      from: fmtDate(r.effective_from),
+      to: r.effective_to ? fmtDate(r.effective_to) : null,
+      superseded: r.superseded_at != null,
+    });
+  }
+  return out;
 }
 
 /** The line's flag for one such row. A row starting in the band and one ending there are fixed differently. */
@@ -86,11 +104,16 @@ export function proRataValidation(row: ProRataRow): ValidationResult {
     ? `${what}: this recurring component is paid in full in this run and needs a manual pro-rata. Use Edit dates on the `
       + 'employee\'s Pay Components (for example, start it on the 1st of next month and assign the part month as a '
       + 'once-off), then recalculate. Approval is refused until then.'
-    : `${what}: this recurring component is not paid at all in this run, though it ran for part of the month, and needs `
-      + 'a manual pro-rata. Assign the days it ran as a once-off and use Edit dates on the employee\'s Pay Components to '
-      + 'end it before the 27th, or run it to the month end if the whole month is due; then recalculate. Approval is '
-      + 'refused until then. (A leaver\'s row ending on their end date is not flagged: their last month pays in full; '
-      + 'pro-rate it by hand if due.)';
+    : row.superseded
+      // A pay package replaced it, and Edit dates refuses a superseded row: End is what is left.
+      ? `${what}: this recurring component is not paid at all in this run, though it ran for part of the month, and needs `
+        + 'a manual pro-rata. A pay package replaced it: assign the days it ran as a once-off and use End on the '
+        + 'employee\'s Pay Components to end it before the 27th; then recalculate. Approval is refused until then.'
+      : `${what}: this recurring component is not paid at all in this run, though it ran for part of the month, and needs `
+        + 'a manual pro-rata. Assign the days it ran as a once-off and use Edit dates on the employee\'s Pay Components to '
+        + 'end it before the 27th, or run it to the month end if the whole month is due; then recalculate. Approval is '
+        + 'refused until then. (A leaver\'s row ending on their end date is not flagged when their last month pays in '
+        + 'full; pro-rate it by hand if due.)';
   return {
     code: PRO_RATA_CODE,
     severity: 'error',

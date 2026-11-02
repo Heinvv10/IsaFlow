@@ -145,22 +145,47 @@ export async function listEntityChanges(companyId: string, opts: ListEntityChang
   };
 }
 
+/** The payroll_employees columns whose change after calculation sends a pay run back for recalculation. */
+const PAYROLL_TERMS = [
+  'end_date', 'termination_reason', 'termination_notice_period_days', 'termination_served_notice_days',
+  'termination_severance_weeks_per_year', 'termination_include_leave_payout',
+];
+
 /**
- * The employees among `employeeIds` whose end_date changed after `since` (the payroll approval gate,
- * payrollRunRecalcGate: an end date moved after a run was calculated). recorded_at is the capture's
- * clock_timestamp(). Runs as the request's app_user: RLS lets owner / admin / manager read payroll_employee
- * changes, the roles that may approve a run.
+ * For the payroll approval gate (payrollRunRecalcGate): the employees among `employeeIds` whose end date or
+ * termination details changed after run `runId` was calculated (both stamps compared in SQL: the capture's
+ * clock_timestamp() against the run's calculated_at). An end-date change counts only when the old or the new date is
+ * on or before the run's last day, or empty; a termination-detail change only for an employee whose end date is on or
+ * before it. NULL when this caller may not read payroll_employee history (RLS: owner / admin / manager; a superuser or
+ * a BYPASSRLS role reads it all): the gate then fails closed rather than read "no change".
  */
-export async function employeesWithEndDateChangedSince(
-  companyId: string, employeeIds: string[], since: Date | string,
-): Promise<string[]> {
+export async function payrollTermsChangedSinceCalculation(
+  companyId: string, runId: string, employeeIds: string[],
+): Promise<string[] | null> {
+  const access = (await sql`
+    SELECT COALESCE((SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = current_user), false)
+        OR COALESCE(public.company_member_actor_role(${companyId}::uuid) IN ('owner', 'admin', 'manager'), false) AS can_read
+  `) as Array<{ can_read: boolean }>;
+  if (access[0]?.can_read !== true) return null;
   if (employeeIds.length === 0) return [];
   const rows = (await sql`
-    SELECT DISTINCT entity_id FROM entity_changes
-    WHERE company_id = ${companyId}::uuid AND entity_type = 'payroll_employee'
-      AND entity_id = ANY(${employeeIds}::uuid[])
-      AND 'end_date' = ANY(changed)
-      AND recorded_at > ${since}::timestamptz
+    SELECT DISTINCT c.entity_id
+    FROM entity_changes c
+    JOIN payroll_run_headers h ON h.id = ${runId}::uuid AND h.company_id = c.company_id
+    CROSS JOIN LATERAL (
+      SELECT (pg_catalog.make_date(h.period_year, h.period_month, 1) + INTERVAL '1 month - 1 day')::date AS last_day
+    ) p
+    WHERE c.company_id = ${companyId}::uuid AND c.entity_type = 'payroll_employee'
+      AND c.entity_id = ANY(${employeeIds}::uuid[])
+      AND c.recorded_at > h.calculated_at
+      AND c.changed && ${PAYROLL_TERMS}::text[]
+      AND (
+        ('end_date' = ANY(c.changed) AND (
+          c.before->>'end_date' IS NULL OR (c.before->>'end_date')::date <= p.last_day
+          OR c.after->>'end_date' IS NULL OR (c.after->>'end_date')::date <= p.last_day))
+        OR (c.changed && ${PAYROLL_TERMS.slice(1)}::text[]
+          AND c.after->>'end_date' IS NOT NULL AND (c.after->>'end_date')::date <= p.last_day)
+      )
   `) as Array<{ entity_id: string }>;
   return rows.map((r) => String(r.entity_id));
 }

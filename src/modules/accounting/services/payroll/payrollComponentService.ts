@@ -37,7 +37,7 @@ export async function listComponents(companyId: string): Promise<PayrollComponen
  * a live pre-953 row of the same component starting the day after a pre-953 once-off ends supersedes it. End on a never-paid once-off voids it (payrollComponentDateEdit). A window that began in
  * an earlier month and ends before `asOf` is not read again: it was paid in the month whose last day it covered. A
  * leaver's recurring row ending on their end date between the 27th and the month end is read in that month (the last
- * month pays in full, Hein), unless superseded or followed by a live row of the same component. A
+ * month pays in full, Hein), unless a live recurring row of the same component follows it the next day. A
  * voided row (ends before it starts) is never read.
  */
 export async function getEmployeeComponents(
@@ -47,7 +47,7 @@ export async function getEmployeeComponents(
 ): Promise<EmployeeComponent[]> {
   const rows = (await sql`
     SELECT
-      pec.amount, pec.is_recurring,
+      pec.id AS assignment_id, pec.amount, pec.is_recurring,
       pc.id, pc.name, pc.sars_source_code, pc.component_type,
       pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable
     FROM payroll_employee_components pec
@@ -60,14 +60,16 @@ export async function getEmployeeComponents(
       AND (
         pec.effective_to IS NULL OR pec.effective_to >= ${asOf}::date
         -- A leaver's recurring row ending on their end date INSIDE the band (the 27th to the month end) pays the whole
-        -- last month, as before this release (Hein 2026-11-02); not one that was superseded or has a live successor.
+        -- last month, as before this release (Hein 2026-11-02), unless a live RECURRING row of the same component
+        -- replaces it from the next day (a once-off, a cancelled replacement or another component does not). A row
+        -- this skips is flagged as ending by the pro-rata guard, which asks this reader what it paid.
         OR (
           pec.is_recurring AND pec.effective_to = pe.end_date
           AND pec.effective_to >= (date_trunc('month', ${asOf}::date) + INTERVAL '26 days')::date
-          AND pec.superseded_at IS NULL
           AND NOT EXISTS (
             SELECT 1 FROM payroll_employee_components nxt
             WHERE nxt.id <> pec.id AND nxt.employee_id = pec.employee_id AND nxt.component_id = pec.component_id
+              AND nxt.is_recurring
               AND nxt.effective_from = pec.effective_to + 1
               AND (nxt.effective_to IS NULL OR nxt.effective_to >= nxt.effective_from)
           )
@@ -95,6 +97,7 @@ export async function getEmployeeComponents(
     component: mapComponent(r),
     amount: Number(r.amount),
     isRecurring: r.is_recurring !== false,
+    assignmentId: String(r.assignment_id),
   }));
 }
 

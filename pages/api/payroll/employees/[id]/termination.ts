@@ -2,6 +2,7 @@
  * GET  /api/payroll/employees/[id]/termination — fetch stored termination details + live preview.
  * PUT  /api/payroll/employees/[id]/termination — save termination details.
  */
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -113,7 +114,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       severanceWeeksPerYear: body.severanceWeeksPerYear ?? null,
       includeLeavePayout: body.includeLeavePayout ?? true,
     };
-    await setTerminationDetails(companyId, employeeId, input);
+    try {
+      await setTerminationDetails(companyId, employeeId, input);
+    } catch (err) {
+      // Waits for the company's payroll lock (an approval in flight): retry, not a server error.
+      if (respondIfLockTimeout(res, err)) return;
+      throw err;
+    }
     return apiResponse.success(res, { ok: true });
   }
 

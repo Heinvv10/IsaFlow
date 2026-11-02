@@ -5,7 +5,6 @@
 import type { DbRow, TxSql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
-import { isLockTimeout, setLocalLockTimeout } from './payrollRunLoanApplication';
 import { payrollJournalInForce } from './payrollJournalChain';
 import type { PayrollPeriod } from './payrollTypes';
 
@@ -39,10 +38,9 @@ export function assignmentReadInPeriod(w: AssignmentWindow, period: PaidPeriod):
     return w.from <= day27 && (w.to === null || w.to >= day27);
   }
   if (w.from > last) return false;
-  // A leaver's row ending on their end date in the band (getEmployeeComponents); a successor row is not visible here,
-  // so this may say "read" where the run did not: it refuses more, never less.
-  const cutBeforeCalc = w.supersededAt != null && period.calculatedAt != null && w.supersededAt <= period.calculatedAt;
-  if (w.recurring && w.to !== null && w.to === w.employeeEnd && w.to >= `${last.slice(0, 8)}27` && !cutBeforeCalc) return true;
+  // A leaver's row ending on their end date in the band (getEmployeeComponents); a recurring successor row is not
+  // visible here, so this may say "read" where the run did not: it refuses more, never less.
+  if (w.recurring && w.to !== null && w.to === w.employeeEnd && w.to >= `${last.slice(0, 8)}27`) return true;
   const cutBefore = w.supersededAt != null && period.calculatedAt != null && w.supersededAt <= period.calculatedAt;
   return w.to === null || w.to >= last || (!w.recurring && !cutBefore && w.from >= first);
 }
@@ -94,26 +92,4 @@ export function windowOf(r: DbRow): AssignmentWindow {
   };
 }
 
-export class ComponentDatesLockTimeoutError extends Error {
-  readonly code = 'PAYROLL_COMPONENT_LOCK_TIMEOUT';
-  constructor() {
-    super('A payroll run of this company is being approved - retry in a moment.');
-    this.name = 'ComponentDatesLockTimeoutError';
-  }
-}
-
-/**
- * The company's payroll-approval lock (the advisory lock approvePayrollRun takes), held to the end of `tx`, waiting
- * at most 5s: no run of the company is approved while an assignment's dates change, so "already paid" cannot change
- * under the check.
- */
-export async function lockCompanyPayrollForComponentChange(tx: TxSql, companyId: string): Promise<void> {
-  const previous = await setLocalLockTimeout(tx, '5s');
-  try {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_approval:${companyId}`}, 0))`;
-  } catch (err) {
-    if (isLockTimeout(err)) throw new ComponentDatesLockTimeoutError();
-    throw err;
-  }
-  await setLocalLockTimeout(tx, previous);
-}
+export { ComponentDatesLockTimeoutError, lockCompanyPayrollForComponentChange } from './payrollCompanyLock';
