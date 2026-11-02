@@ -6,8 +6,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui';
 import Link from 'next/link';
-import { ArrowLeft, Layers, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
+import { Layers, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
@@ -91,20 +92,12 @@ export default function NewBatchPaymentPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/batch-payments" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Batches
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">New Batch Payment</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={Layers}
+          title="New Batch Payment"
+          breadcrumb={[{ label: 'Batch Payments', href: '/accounting/batch-payments' }, { label: 'New batch' }]}
+          className="mb-0"
+        />
 
         <form onSubmit={handleSubmit} className="p-6 xl:p-8">
           <div className="max-w-6xl mx-auto flex gap-6 items-start">
@@ -129,15 +122,15 @@ export default function NewBatchPaymentPage() {
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={lbl}>Payment Method</label>
-                    <select name="paymentMethod" value={method} onChange={e => setMethod(e.target.value)} className={inp}>
+                    <label htmlFor="batch-payments-new-payment-method" className={lbl}>Payment Method</label>
+                    <select id="batch-payments-new-payment-method" name="paymentMethod" value={method} onChange={e => setMethod(e.target.value)} className={inp}>
                       <option value="eft">EFT</option>
                       <option value="cheque">Cheque</option>
                     </select>
                   </div>
                   <div>
-                    <label className={lbl}>Notes</label>
-                    <input name="notes" value={notes} onChange={e => setNotes(e.target.value)} className={inp} placeholder="Optional batch notes" />
+                    <label htmlFor="batch-payments-new-notes" className={lbl}>Notes</label>
+                    <input id="batch-payments-new-notes" name="notes" value={notes} onChange={e => setNotes(e.target.value)} className={inp} placeholder="Optional batch notes" />
                   </div>
                 </div>
               </div>
@@ -163,7 +156,7 @@ export default function NewBatchPaymentPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {lines.map(line => {
+                    {lines.map((line, index) => {
                       const supplierInvoices = invoices.filter(i => !line.supplierId || String(i.supplierId) === line.supplierId);
                       const inv = invoices.find(i => i.id === line.invoiceId);
                       const balance = inv ? available(inv) : 0;
@@ -174,7 +167,7 @@ export default function NewBatchPaymentPage() {
                               onChange={id => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: id, invoiceId: '' } : l))} />
                           </td>
                           <td className="px-3 py-2">
-                            <select name="invoiceId" value={line.invoiceId}
+                            <select name="invoiceId" aria-label={`Line ${index + 1} invoice`} value={line.invoiceId}
                               onChange={e => {
                                 const i = invoices.find(x => x.id === e.target.value);
                                 setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? available(i) : 0 } : l));
@@ -217,7 +210,7 @@ export default function NewBatchPaymentPage() {
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Lines</span>
-                      <span className="font-mono text-slate-900 dark:text-slate-100">{lines.length}</span>
+                      <span className="tabular-nums text-slate-900 dark:text-slate-100">{lines.length}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Method</span>

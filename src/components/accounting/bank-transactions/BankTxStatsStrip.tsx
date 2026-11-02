@@ -33,7 +33,7 @@ export function BankTxStatsStrip({ bank, tab, total }: Props) {
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-3">
         <p className="truncate text-sm text-[var(--ff-text-secondary)]" title={bank.accountName}>
           <span className="font-semibold text-[var(--ff-text-primary)]">{bank.accountName}</span>
-          <span className="ml-2 font-mono text-xs">{bank.accountCode}</span>
+          <span className="ml-2 font-id text-xs">{bank.accountCode}</span>
         </p>
         <div className="flex flex-wrap gap-3">
           <Stat value={bank.allocatedCount} label="Allocated" className="text-teal-700 dark:text-teal-400" />
