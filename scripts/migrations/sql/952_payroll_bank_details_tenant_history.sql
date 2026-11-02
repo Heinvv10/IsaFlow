@@ -30,14 +30,16 @@
 --      list, as impersonation_sessions): it inherits app_user's grants, so a
 --      REVOKE from it would change nothing, and with no mirror those grants meet
 --      app_user's policies. This table gives the service pool no row without
---      forged claims. RESIDUAL, an owner decision: entity_changes keeps its
---      app_service SELECT mirror and its before / after hold the number in full
---      (step 5), so SQL injected on the service pool reads every tenant's
---      account numbers from the history with no forgery at all.
+--      forged claims.
 --   5. 888's capture, ENABLE ALWAYS, as entity type payroll_bank_detail, with
 --      its own arm in entity_changes_read (owner, admin, manager, as
 --      payroll_employee) and its value in the entity_type CHECK. The history
---      stores the account number in full; the API masks it (SENSITIVE_FIELDS).
+--      stores the account number in full (a reveal needs it); the API masks it
+--      (SENSITIVE_FIELDS). app_service's SELECT mirror on entity_changes is
+--      USING (true), so with no claims at all the service pool would read every
+--      tenant's numbers there. A RESTRICTIVE policy hides payroll_bank_detail
+--      rows from any app_service session; nothing on that pool reads the history
+--      (every reader, the route, MCP and the audit snapshots, runs as app_user).
 --      The capture function is unchanged, so 930's definer registry is too:
 --      entity_change_projection already keeps every column but id and created_at.
 --
@@ -208,6 +210,14 @@ CREATE POLICY entity_changes_read ON entity_changes
       ELSE COALESCE(public.company_member_actor_role(company_id) IN ('owner', 'admin'), false)
     END);
 
+-- Restrictive, so it narrows whatever else admits a row. TO app_user, which
+-- app_service inherits, not TO app_service: 915's sync and drift check judge
+-- only policies naming app_service, so a re-run of 915 neither drops it nor
+-- reports it. It binds only a session that is (a member of) app_service.
+DROP POLICY IF EXISTS bank_history_off_service_pool ON entity_changes;
+CREATE POLICY bank_history_off_service_pool ON entity_changes AS RESTRICTIVE FOR SELECT TO app_user
+  USING (entity_type <> 'payroll_bank_detail' OR NOT pg_catalog.pg_has_role('app_service', 'MEMBER'));
+
 -- After step 3, so the migration's own deactivations are not recorded as anyone's change.
 DROP TRIGGER IF EXISTS entity_change_capture ON payroll_bank_details;
 CREATE TRIGGER entity_change_capture AFTER INSERT OR UPDATE OR DELETE ON payroll_bank_details
@@ -248,6 +258,11 @@ BEGIN
     SELECT 1 FROM pg_catalog.pg_policy p WHERE p.polrelid = v_table AND 'app_service'::pg_catalog.regrole = ANY (p.polroles)
   ) THEN
     RAISE EXCEPTION 'migration 952: app_service has a policy on payroll_bank_details';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy p WHERE p.polrelid = 'public.entity_changes'::pg_catalog.regclass
+                   AND p.polname = 'bank_history_off_service_pool' AND NOT p.polpermissive AND p.polcmd = 'r'
+                   AND p.polroles = ARRAY['app_user'::pg_catalog.regrole::pg_catalog.oid]) THEN
+    RAISE EXCEPTION 'migration 952: app_service may read payroll_bank_detail history';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_class c
