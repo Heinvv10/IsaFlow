@@ -59,12 +59,24 @@ describe('leaving with a change unsaved', () => {
     expect(confirm).toHaveBeenCalledTimes(2);
   });
 
-  it('back or forward refused: beforePopState answers false and the URL is put back', async () => {
+  it('back or forward refused: beforePopState answers false and the URL is put back without a new history entry', async () => {
     const pushState = vi.spyOn(window.history, 'pushState');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
     await openDirty();
     expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(false);
-    expect(pushState).toHaveBeenCalledTimes(1);
-    expect(String(pushState.mock.calls[0]![2])).toBe(window.location.href);
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(String(replaceState.mock.calls[0]![2])).toBe(window.location.href);
+  });
+
+  it('a confirmed back/forward that turns out to be a hash change does not let the next leave through unasked', async () => {
+    await openDirty();
+    confirm.mockReturnValue(true);
+    expect(h.pop!({ url: '/x#a', as: '/x#a', options: {} })).toBe(true);
+    h.router!.events.emit('hashChangeStart', '/x#a');
+    confirm.mockReturnValue(false);
+    expect(() => h.router!.events.emit('routeChangeStart', '/elsewhere')).toThrow(/unsaved/i);
+    expect(confirm).toHaveBeenCalledTimes(2);
   });
 
   it('back or forward confirmed: allowed, and the route change it starts is not asked about again', async () => {

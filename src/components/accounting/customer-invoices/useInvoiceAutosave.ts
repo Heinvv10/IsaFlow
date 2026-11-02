@@ -6,10 +6,12 @@
  *
  * While a change is unsaved, or a save is out, leaving asks first, and refusing is never an error:
  *   - closing or reloading the tab: `beforeunload`;
- *   - back and forward: `beforePopState`, whose false keeps the page; the URL the browser already moved is put back;
+ *   - back and forward: `beforePopState`, whose false keeps the page; the URL the browser already moved is put back
+ *     with replaceState (no new history entry; the entry it moved to now holds this page);
  *   - a push or replace (a link, a button): `routeChangeStart` throws, Next's only way to cancel one, and the router's
  *     push and replace are wrapped for this page's life so the cancellation resolves false instead of rejecting (no
- *     unhandled rejection: no Sentry event, no dev overlay). A leave confirmed on back/forward is not asked again.
+ *     unhandled rejection: no Sentry event, no dev overlay). A leave confirmed on back/forward is not asked again; if
+ *     it was a hash change (no route change follows), the pass is dropped.
  * The question is asked of the moment it is needed, so the page's own navigation just after a save goes through unasked.
  */
 import { useEffect, useRef } from 'react';
@@ -61,6 +63,7 @@ function useLeaveGuard(unsaved: () => boolean): void {
       e.preventDefault();
       e.returnValue = '';
     };
+    const onHashChange = () => { confirmed = false; };
     const onRouteChange = () => {
       if (confirmed) { confirmed = false; return; }
       if (ask()) return;
@@ -71,12 +74,14 @@ function useLeaveGuard(unsaved: () => boolean): void {
     router.beforePopState?.(() => {
       if (!check.current()) return true;
       if (window.confirm(LEAVE_MESSAGE)) { confirmed = true; return true; }
-      window.history.pushState(entry.state, '', entry.url);
+      window.history.replaceState(entry.state, '', entry.url);
       return false;
     });
     window.addEventListener('beforeunload', onBeforeUnload);
     events?.on('routeChangeStart', onRouteChange);
+    events?.on('hashChangeStart', onHashChange);
     return () => {
+      events?.off('hashChangeStart', onHashChange);
       window.removeEventListener('beforeunload', onBeforeUnload);
       events?.off('routeChangeStart', onRouteChange);
       restoreNavigation();

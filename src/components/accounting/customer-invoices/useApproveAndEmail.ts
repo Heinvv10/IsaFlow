@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 
 const APPROVE_FAILED = 'Could not approve the invoice - try again';
 const SEND_FAILED = 'Could not send the invoice email - try again';
+const OPEN_FAILED = 'Could not open the invoice - it is approved; find it in the invoice list.';
 const APPROVED = 'Approved. Nothing is sent until you click Send Email.';
 const DRIFTED = 'The invoice changed while it was being approved: that change was not saved and is not on the approved invoice.';
 
@@ -71,9 +72,9 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Opt
     if (busy) return;
     setBusy(true);
     try {
+      const approvedBody = bodyNow(); // before the save: a change typed while it is out is not on the approved invoice
       const saved = await save();
       if (!saved) return;
-      const approvedBody = bodyNow();
       try {
         const res = await apiFetch('/api/accounting/customer-invoices-detail', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: saved.id, action: 'approve' }),
@@ -116,11 +117,14 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Opt
   const close = useCallback(() => {
     if (!email || sending) return;
     const id = email.invoiceId;
-    setEmail(null);
+    // The form goes only once the invoice is open: behind it, the editor is not the page to be left on.
     void (async () => {
-      try { await router.push(`/accounting/customer-invoices/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'useApproveAndEmail'); }
+      let opened = false;
+      try { opened = (await router.push(`/accounting/customer-invoices/${id}`)) === true; } catch (e) { log.warn('navigation failed', { error: e }, 'useApproveAndEmail'); }
+      if (opened) setEmail(null);
+      else setResult((r) => (sent ? `${r} ${OPEN_FAILED}` : OPEN_FAILED)); // once sent, Send stays off
     })();
-  }, [email, sending, router]);
+  }, [email, sending, sent, router]);
 
   return {
     busy,

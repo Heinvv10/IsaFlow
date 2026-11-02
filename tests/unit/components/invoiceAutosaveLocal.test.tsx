@@ -118,7 +118,7 @@ describe('new invoice: the draft on this device', () => {
   });
 
   const OLD = JSON.stringify({ savedAt: Date.now(), data: { form: { clientId: '', invoiceDate: '2026-09-01', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: 'old', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' }, lines: [{ key: '1', description: 'Old', quantity: 1, unitPrice: 5, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }], taxMode: 'exclusive' } });
-  it('an unanswered kept draft survives a create; after Save & New its offer goes, and nothing typed then overwrites it', async () => {
+  it('an unanswered kept draft survives a create; after Save & New it is still offered, and nothing typed then overwrites it', async () => {
     localStorage.setItem(KEY, OLD);
     await open();
     expect(screen.getByRole('button', { name: 'Restore' })).toBeTruthy();
@@ -129,7 +129,8 @@ describe('new invoice: the draft on this device', () => {
     for (let i = 0; i < 4; i++) await advance(0);
     expect(calls('customer-invoices-create')).toHaveLength(1);
     expect(localStorage.getItem(KEY)).toBe(OLD);
-    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeTruthy();
+    expect(screen.getByText(/not kept until you Restore or Discard it/)).toBeTruthy();
     type(description(), 'Typed after Save & New');
     await advance(2_000);
     expect(localStorage.getItem(KEY)).toBe(OLD);
@@ -150,6 +151,17 @@ describe('new invoice: the draft on this device', () => {
     type(description(), 'New page');
     await advance(800);
     expect(stored()!.data.lines[0]).toMatchObject({ description: 'New page' });
+  });
+
+  it('a clear in another tab (sign-out there) stops this tab writing too', async () => {
+    await open();
+    type(description(), 'Racing another tab');
+    await advance(400);
+    // Another tab's clearInvoiceDrafts: it removes the drafts and moves the shared generation on.
+    const generation = Number(localStorage.getItem('isaflow:invoice-drafts-generation') ?? '0');
+    localStorage.setItem('isaflow:invoice-drafts-generation', String(generation + 1));
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 
   it('a draft kept under another company, or by another user, is never offered here', async () => {

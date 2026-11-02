@@ -56,6 +56,7 @@ export default function EditCustomerInvoicePage() {
   const [invoiceNumber, setInvoiceNumber] = useState('');
 
   const dates = useInvoiceDateValidity();
+  const clearDates = dates.clear;
   const [form, setForm] = useState<InvoiceHeaderForm>({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([]);
   const [taxMode, setTaxMode] = useState<TaxMode>('exclusive'); // a stored price is ex-VAT, so it loads as one
@@ -92,7 +93,8 @@ export default function EditCustomerInvoicePage() {
       // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
       // standard rate behind it, as the new page does, so leaving No VAT does not leave a rate of 0.
       const storedRate = Number(invoice.tax_rate ?? 15);
-      if (storedRate === 0) setTaxMode('none');
+      setTaxMode(storedRate === 0 ? 'none' : 'exclusive'); // this invoice's own mode, not the one opened before it
+      clearDates();
       const clientId = String(invoice.client_id || invoice.customer_id || '');
       setLoadedClient(clientId);
       setForm({
@@ -136,7 +138,7 @@ export default function EditCustomerInvoicePage() {
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
       setLoading(false);
     });
-  }, [invoiceId]);
+  }, [invoiceId, clearDates]);
 
   const updateLine = (key: string, field: keyof LineItem, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
@@ -162,9 +164,14 @@ export default function EditCustomerInvoicePage() {
     onApproved: () => setApproved(true),
     bodyNow: () => autosave.currentBody(),
   });
+  // A date the server has taken (loaded, or saved on this visit) is kept by it if the body leaves it out.
+  const keepStoredDates = (json: string) => {
+    const b = JSON.parse(json) as Partial<Record<keyof StoredDates, string>>;
+    setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
+  };
   const autosave = useInvoiceAutosave({
     mode: 'server', invoiceId: id, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
-    problem: autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved,
+    problem: autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
   });
 
   const saveDraft = async (always: boolean): Promise<boolean> => {
@@ -175,6 +182,9 @@ export default function EditCustomerInvoicePage() {
     if (!saved.ok) setError(saved.message);
     return saved.ok;
   };
+  // A refusal on screen (a Save or an approval) is answered by the next save the server takes.
+  useEffect(() => { if (autosave.savedAt !== null) setError(''); }, [autosave.savedAt]);
+
   const handleSubmit = async () => {
     setSubmitting(true);
     let saved = false;
@@ -219,7 +229,7 @@ export default function EditCustomerInvoicePage() {
             <div className="min-w-0 space-y-5">
               {(error || customer.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error || customer.error}</div>}
 
-              <fieldset disabled={approve.busy} className="min-w-0 space-y-5">
+              <fieldset disabled={approve.busy || approved} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
                 onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
 

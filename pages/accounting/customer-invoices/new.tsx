@@ -101,6 +101,7 @@ export default function NewCustomerInvoicePage() {
   const [rateEditing, setRateEditing] = useState(false);
   // A kept draft comes back whole: its mode with its prices, and nothing the customer's defaults may then overwrite.
   const restoreDraft = (d: LocalDraftData) => {
+    if (inert) return;
     contact.touch('dueDate'); contact.touch('taxMode'); lookupSeq.current++;
     setForm(d.form); setLines(d.lines); setTaxMode(d.taxMode); dates.clear(); setResetKey(k => k + 1);
   };
@@ -108,6 +109,7 @@ export default function NewCustomerInvoicePage() {
   const draft = useInvoiceAutosave({ mode: 'local', ...owner, snapshot: { form, lines, taxMode }, paused: rateEditing, onRestore: restoreDraft });
 
   function handleExtracted(data: ExtractedDocument) {
+    if (inert) return; // a scan landing while the invoice is created or approved, or after, changes nothing
     // A scan is OCR output: only a real YYYY-MM-DD goes in (anything else would make DateField's minDate throw); else the field is left empty.
     const updates: Partial<InvoiceHeaderForm> = {};
     if (data.date) updates.invoiceDate = isoOrEmpty(data.date);
@@ -127,13 +129,14 @@ export default function NewCustomerInvoicePage() {
     setScanBanner(`Auto-filled (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
   }
 
+  // Created by Approve & email, the form is done whatever the approval answers: the page stays inert (behind the email
+  // form, or while the draft's edit page opens), so no key or click creates a second invoice (a number burnt, a wallet
+  // charge). The ref holds from the moment of the create, before the next render.
+  const [done, setDone] = useState(false);
+  const doneNow = useRef(false);
   /** Creates the draft (the page shows any refusal); the device's copy goes once the server has it. */
-  // Approved here, the form is done: everything behind the email form is inert, so no key or click creates a second
-  // invoice (a number burnt, a wallet charge). The ref holds from the moment of approval, before the next render.
-  const [approved, setApproved] = useState(false);
-  const approvedNow = useRef(false);
   const createInvoice = async (): Promise<SavedInvoice | null> => {
-    if (approvedNow.current) return null;
+    if (doneNow.current) return null;
     if (!form.clientId) { setError('Select a client'); return null; }
     const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
     if (tooSmall) { setError(pricesToNothingMessage(tooSmall.description)); return null; }
@@ -178,17 +181,23 @@ export default function NewCustomerInvoicePage() {
 
   // A refused approval leaves the created draft: its edit page says why.
   const approve = useApproveAndEmail({
-    save: createInvoice,
+    save: async () => {
+      const made = await createInvoice();
+      if (made) { doneNow.current = true; setDone(true); }
+      return made;
+    },
     bodyNow: draft.current,
-    onApproved: () => { approvedNow.current = true; setApproved(true); },
     onRefused: (id, message) => {
       stashApproveRefusal(id, message);
       void (async () => {
-        try { await router.push(`/accounting/customer-invoices/edit/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
+        let opened = false;
+        try { opened = (await router.push(`/accounting/customer-invoices/edit/${id}`)) === true; } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
+        if (!opened) setError(`${message} The invoice was created as a draft: open it from the invoice list to change it.`);
       })();
     },
   });
-  const busy = submitting || approve.busy || approved || contact.pending;
+  const inert = submitting || approve.busy || done;
+  const busy = inert || contact.pending;
 
   return (
     <AppLayout>
@@ -215,14 +224,14 @@ export default function NewCustomerInvoicePage() {
                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm flex flex-wrap items-center gap-2">
                   <Info className="h-4 w-4 flex-shrink-0" />An invoice you started {formatSavedAgo(Date.now() - draft.offer.savedAt)} was kept on this device. What you type here is not kept until you Restore or Discard it.
                   <span className="ml-auto flex gap-2">
-                    <button type="button" onClick={draft.restore} className="px-3 py-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold">Restore</button>
-                    <button type="button" onClick={draft.discard} className="px-3 py-1 rounded-lg border border-amber-400 text-xs font-semibold">Discard</button>
+                    <button type="button" onClick={draft.restore} disabled={inert} className="px-3 py-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold">Restore</button>
+                    <button type="button" onClick={draft.discard} disabled={inert} className="px-3 py-1 rounded-lg border border-amber-400 text-xs font-semibold">Discard</button>
                   </span>
                 </div>
               )}
               {(error || contact.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error || contact.error}</div>}
 
-              <fieldset disabled={submitting || approve.busy || approved} className="min-w-0 space-y-5">
+              <fieldset disabled={inert} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
                 onChange={patch => { if ('clientId' in patch) lookupSeq.current++; if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}

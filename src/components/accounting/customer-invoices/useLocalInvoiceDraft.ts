@@ -5,8 +5,8 @@
  *
  * - Nothing is written until the form differs from how the page opened, and nothing without a company and a user.
  * - A kept draft is offered on the next visit; nothing overwrites it until the user restores or discards it. An invoice
- *   created meanwhile leaves it kept, unanswered, for the next visit (the offer leaves this page: it was for the form
- *   that was just saved, and this page writes nothing over it).
+ *   created meanwhile leaves it kept and still offered (after Save & New too), and this page writes nothing over it
+ *   until the user answers; the page says so beside the offer.
  * - A clear (sign-out, a company switch) ends this page's writing: a timer still pending writes nothing back.
  * - Never while `paused` (a VAT rate edit under way), as on the edit page.
  * - A storage that throws is shown, never raised; the next change tries again.
@@ -77,7 +77,6 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const since = useRef(invoiceDraftGeneration());
   const sealed = () => since.current !== invoiceDraftGeneration();
   const [offer, setOffer] = useState<StoredDraft<LocalDraftData> | null>(null);
-  const [offerHidden, setOfferHidden] = useState(false);
   const [writtenJson, setWrittenJson] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
@@ -123,8 +122,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const clear = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-    if (offer) setOfferHidden(true); // an unanswered kept draft is not this invoice: it stays for the next visit
-    else if (key) removeInvoiceDraft(key);
+    if (!offer && key) removeInvoiceDraft(key); // an unanswered kept draft is not this invoice: it stays, still offered
     written.current = latest.current.json; // nothing unsaved now; the next render's form is the new start
     rebase.current = true;
     setSavedAt(null);
@@ -137,5 +135,5 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     : failed ? 'error'
       : writtenJson !== null && json !== writtenJson ? 'dirty'
         : savedAt !== null ? 'saved' : null;
-  return { state, savedAt, error: failed ? FAILED : null, offer: offer && !offerHidden ? { savedAt: offer.savedAt } : null, restore, discard, clear, unsaved, current };
+  return { state, savedAt, error: failed ? FAILED : null, offer: offer ? { savedAt: offer.savedAt } : null, restore, discard, clear, unsaved, current };
 }

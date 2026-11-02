@@ -36,6 +36,8 @@ export interface ServerAutosaveOptions {
   paused: boolean;
   /** The invoice is no longer a draft (approved here): nothing more is saved. */
   done?: boolean;
+  /** The body the server just took (JSON). */
+  onSaved?: (json: string) => void;
 }
 
 export type SaveResult = { ok: true } | { ok: false; message: string };
@@ -76,6 +78,8 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const again = useRef(false);
   const seq = useRef(0);
 
+  const onSaved = useRef(opts?.onSaved);
+  useCommitEffect(() => { onSaved.current = opts?.onSaved; });
   const failed = failure !== null && failure.json === json ? failure : null;
   const armed = Boolean(opts && json !== null && !opts.done && !opts.paused && !opts.problem && !failed);
 
@@ -117,6 +121,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
       setSavedAt(Date.now());
       setSavedCount((n) => n + 1);
       setFailure(null);
+      onSaved.current?.(sent);
       return { ok: true };
     } catch (err) {
       const message = apiErrorMessage(err, SAVE_FAILED);
