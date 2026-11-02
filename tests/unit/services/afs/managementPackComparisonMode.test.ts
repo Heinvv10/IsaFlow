@@ -16,10 +16,12 @@ const m = vi.hoisted(() => ({
   updateSection: vi.fn(),
   commentary: vi.fn(),
   summary: vi.fn(),
+  withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('@/lib/neon', () => ({ sql: m.sql }));
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@/lib/neon', () => ({ sql: m.sql, withSavepoint: m.withSavepoint }));
+vi.mock('@/lib/logger', () => ({ log: m.log }));
 vi.mock('@/modules/accounting/services/budgets/tracking/budgetTrackingService', () => ({ buildBudgetTrackingReport: m.buildReport }));
 vi.mock('@/modules/accounting/services/afs/afsDocumentService', () => ({ createAfsDocument: vi.fn(async () => ({ id: 'doc-1' })) }));
 vi.mock('@/modules/accounting/services/afs/afsSectionService', () => ({ createAfsSection: m.createSection, updateAfsSection: m.updateSection }));
@@ -27,7 +29,8 @@ vi.mock('@/modules/accounting/services/afs/afsKpiService', () => ({
   fetchBalanceSnapshot: vi.fn(async () => ({})),
   getKpiScorecard: vi.fn(async () => ({ kpis: [] })),
 }));
-vi.mock('@/modules/accounting/services/afs/packAiSummaryService', () => ({
+vi.mock('@/modules/accounting/services/afs/packAiSummaryService', async (importOriginal) => ({
+  buildExecutiveSummaryPrompt: (await importOriginal<typeof import('@/modules/accounting/services/afs/packAiSummaryService')>()).buildExecutiveSummaryPrompt,
   generateExecutiveSummary: m.summary,
   generateSectionCommentary: m.commentary,
 }));
@@ -36,6 +39,8 @@ vi.mock('@/modules/accounting/services/afs/packDeliveryService', () => ({ delive
 import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 import { comparisonPlan, topVarianceLines } from '@/modules/accounting/services/afs/managementPackComparison';
 import { TrackingError } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
+import { buildExecutiveSummaryPrompt } from '@/modules/accounting/services/afs/packAiSummaryService';
 
 const figures = { projected: 0, fyBudget: null, projVariance: null, projFavourable: null, unallocatedBudget: 0 };
 const band = (key: TrackingBand['key'], label: string, actual: number, budget: number | null): TrackingBand => ({
@@ -105,6 +110,7 @@ beforeEach(() => {
   m.commentary.mockResolvedValue('commentary');
   m.summary.mockResolvedValue('summary');
   m.buildReport.mockResolvedValue(report());
+  m.withSavepoint.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn());
 });
 
 describe('comparisonPlan', () => {
@@ -222,18 +228,64 @@ describe('the budget sections', () => {
     expect(texts(out.income_vs_budget)).toContain('2026-09 is in progress; actuals posted through 2026-09-12.');
   });
 
-  it('an engine refusal is printed in the section and the rest of the pack still generates', async () => {
-    m.buildReport.mockRejectedValue(new TrackingError(409, 'This year does not run on calendar months'));
-    const out = await generate('budget', ['income_statement', 'income_vs_budget']);
-    expect(out.income_vs_budget?.blocks).toEqual([{ type: 'paragraph', text: 'Budget figures are unavailable: This year does not run on calendar months' }]);
-    expect(out.income_statement).toBeDefined();
+  const UNAVAILABLE = [{ type: 'paragraph', text: 'Budget figures are unavailable for this month.' }];
+
+  it.each([
+    ['a tracking refusal', new TrackingError(409, 'FY2027 (id 1234) does not run on calendar months'), 'warn'],
+    ['a version refusal', new BudgetVersionError('NOT_FOUND', 'version abc not found'), 'warn'],
+    ['any other failure', new Error('relation "budget_versions" does not exist'), 'error'],
+  ] as const)('%s prints the fixed sentence in every budget section, logs the reason, and the pack still generates', async (_n, err, level) => {
+    m.buildReport.mockRejectedValue(err);
+    const out = await generate('budget', ['income_statement', 'income_vs_budget', 'budget_variance']);
+    expect(out.income_vs_budget?.blocks).toEqual(UNAVAILABLE);
+    expect(out.budget_variance?.blocks).toEqual(UNAVAILABLE);
+    // income_vs_budget is on, so the income statement section prints no budget block of its own.
+    expect(out.income_statement?.blocks.slice(1)).toEqual([]);
+    expect(JSON.stringify(out)).not.toContain(err.message);
+    expect(m.log[level]).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ error: err.message }), 'managementPackComparison');
+    const snap = (m.updateSection.mock.calls as [string, string, string, { dataSnapshot?: unknown }][]).find((c) => c[0] === 'budget_variance')?.[3].dataSnapshot;
+    expect(snap).toEqual({ unavailable: 'Budget figures are unavailable for this month.' });
   });
 
-  it('any other engine failure stops the pack before a document exists', async () => {
-    const { createAfsDocument } = await import('@/modules/accounting/services/afs/afsDocumentService');
-    m.buildReport.mockRejectedValue(new Error('connection lost'));
-    await expect(generate('budget', ['income_vs_budget'])).rejects.toThrow('connection lost');
-    expect(createAfsDocument).not.toHaveBeenCalled();
+  it('reads the budget inside a savepoint, so a failed query cannot abort the request transaction the pack is written in', async () => {
+    await generate('budget', ['income_vs_budget']);
+    expect(m.withSavepoint).toHaveBeenCalledTimes(1);
+    expect(m.withSavepoint.mock.calls[0]?.[0]).toBe('mgmt_pack_budget');
+    expect(m.buildReport).toHaveBeenCalledTimes(1);
+  });
+
+  it('budget mode with income_vs_budget off puts the no-budget sentence in the income statement section', async () => {
+    m.buildReport.mockResolvedValue(report({ notices: { ...report().notices, noVersion: true } }));
+    const out = await generate('budget', ['income_statement']);
+    expect(out.income_statement?.blocks.slice(1)).toEqual([{ type: 'paragraph', text: 'No budget for FY2027 in this pack\'s month.' }]);
+  });
+
+  it('budget mode with income_vs_budget off and no engine report puts the unavailable sentence there', async () => {
+    m.buildReport.mockRejectedValue(new Error('boom'));
+    const out = await generate('budget', ['income_statement']);
+    expect(out.income_statement?.blocks.slice(1)).toEqual(UNAVAILABLE);
+  });
+
+  it('budget_variance with every budgeted line on budget says so instead of an empty table', async () => {
+    m.buildReport.mockResolvedValue(report({ lines: [line('6000', 0), line('6200', null)] }));
+    const out = await generate('budget', ['budget_variance']);
+    expect(out.budget_variance?.blocks[0]).toEqual({ type: 'paragraph', text: 'No budgeted account is off budget this month.' });
+  });
+
+  it('the executive summary prompt names what each prior figure is', () => {
+    const prompt = buildExecutiveSummaryPrompt({
+      companyName: 'Co', period: '2026-09', revenue: 1500, priorRevenue: 900, priorLabel: 'the same month last year',
+      grossMarginPct: 40, priorGrossMarginPct: 35, ebitda: 0, closingCash: 0, cashChange: 0, debtorDays: 30,
+      priorDebtorDays: 28, overdueDebtors: 0, topRevenueAccount: 'a', revenueMovement: 1, topExpenseAccount: 'b', expenseMovement: 1, kpis: [],
+    });
+    expect(prompt).toContain('(the same month last year: R900)');
+    expect(prompt).toContain('Gross margin: 40.0% (prior month: 35.0%)');
+    expect(prompt).toContain('Debtor days: 30 (prior month: 28)');
+    const byDefault = buildExecutiveSummaryPrompt({
+      companyName: 'Co', period: '2026-09', revenue: 1, priorRevenue: 2, grossMarginPct: 0, priorGrossMarginPct: null, ebitda: 0, closingCash: 0,
+      cashChange: 0, debtorDays: 0, priorDebtorDays: null, overdueDebtors: 0, topRevenueAccount: 'a', revenueMovement: 0, topExpenseAccount: 'b', expenseMovement: 0, kpis: [],
+    });
+    expect(byDefault).toMatch(/Revenue: R\S+ \(prior month: R2\)/);
   });
 
   it('snapshots the printed figures and asks no AI commentary on a budget section', async () => {
