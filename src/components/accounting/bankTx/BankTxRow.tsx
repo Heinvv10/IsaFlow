@@ -103,7 +103,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
   return (
     <tr
       {...rowProps}
-      className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-secondary)]/50 outline-none data-[focused]:bg-[var(--ff-bg-tertiary)] data-[focused]:ring-1 data-[focused]:ring-inset data-[focused]:ring-[var(--ff-border-secondary)] ${
+      className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-secondary)]/50 outline-none data-[focused]:bg-[var(--ff-bg-tertiary)] dark:data-[focused]:bg-[var(--ff-bg-secondary)] data-[focused]:ring-1 data-[focused]:ring-inset data-[focused]:ring-[var(--ff-border-secondary)] ${
         isOpen ? 'bg-blue-500/5' : isAllocated ? 'bg-teal-500/5' : ''
       } ${isExcluded ? 'opacity-60' : ''}`}
     >
