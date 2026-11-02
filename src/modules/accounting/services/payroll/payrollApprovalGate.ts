@@ -273,11 +273,14 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           + '. Recalculate this run first; it then leaves them out.',
       };
     }
-    if (overdrawn.length > 0) {
+    // A shortfall the loan instalment alone causes stays out, as the advisory above: an instalment cannot be edited
+    // on a run, so a blocker would stop every employee's pay over one leaver. Owner decision, in the module's .claude.md.
+    const blocked = overdrawn.filter((l) => !l.fromLoan);
+    if (blocked.length > 0) {
       return {
         code: 'deductions_exceed_pay',
-        detail: `Deductions and tax exceed pay for ${overdrawnNames(overdrawn)}: net pay would be nil and the deductions payable understated. `
-          + 'Reduce or end employee deductions on the employee page, adjust any loan instalment, or add to the pay, then recalculate.',
+        detail: `Deductions and tax exceed pay for ${overdrawnNames(blocked)}: net pay would be nil and the deductions payable understated. `
+          + 'Reduce or end those deductions on the employee page, or add to the pay, then recalculate.',
       };
     }
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;

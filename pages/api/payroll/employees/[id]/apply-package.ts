@@ -6,6 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
@@ -40,6 +41,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.success(res, result);
   } catch (err) {
     if (err instanceof PayPackageNotFoundError) return apiResponse.notFound(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     return apiResponse.badRequestFromError(res, err, 'Apply failed');
   }
 }

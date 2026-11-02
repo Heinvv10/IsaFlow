@@ -45,19 +45,18 @@ describe('judged against a fresh calculation, not the stored line', () => {
 });
 
 describe('a loan instalment above pay', () => {
-  it('blocks approval because the loan subledger would exceed the deductions liability', async () => {
+  it('warns, names the employee, and approves as it does today: nothing in the figures moves', async () => {
     await addLoan(30000);
     await recalculate(state.nov);
     const l = await line(state.nov);
     expect(l.net).toBe(0);
     expect(codes(l)).toEqual(['LOAN_INSTALMENT_EXCEEDS_PAY']);
     const { blocker, plan, planHash } = (await preview(state.nov)).body.data!;
-    expect(blocker).toMatchObject({ code: 'deductions_exceed_pay' });
-    expect(blocker.detail).toContain('W301-1');
+    expect(blocker).toBeNull();
     const advisory = plan.advisories.find((a: { code: string }) => a.code === 'loan_instalment_exceeds_pay');
     expect(advisory.detail).toContain('W301-1');
-    expect((await doApprove(state.nov, planHash)).statusCode).toBe(400);
-    expect(await header(state.nov)).toMatchObject({ status: 'calculated', journal_entry_id: null });
+    expect((await doApprove(state.nov, planHash)).statusCode).toBe(200);
+    expect(await header(state.nov)).toMatchObject({ status: 'approved' });
   });
 
   it('the grid still refuses an edit that makes it worse', async () => {
@@ -125,6 +124,73 @@ describe('assigning a component beside the grid', () => {
 });
 
 describe('other component writers beside the grid', () => {
+  const batchOf700 = async () => {
+    const batch = await createBatch({
+      companyId: state.coA, batchType: 'component_values', componentId: comp.overtime,
+      description: 'R inputs lock batch', periodYear: 2026, periodMonth: 11,
+      isRecurring: false, userId: fx.admin,
+    });
+    await addBatchLines(state.coA, batch.id, [{
+      employeeId: state.employee, value: 700, effectiveFrom: new Date('2026-11-01'),
+    }]);
+    expect((await validateBatch(state.coA, batch.id)).ok).toBe(true);
+    return batch.id;
+  };
+  const dropBatch = async (id: string) => {
+    await pool.query('DELETE FROM payroll_batch_lines WHERE batch_id = $1', [id]);
+    await pool.query('DELETE FROM payroll_batches WHERE id = $1', [id]);
+  };
+  const packageOf700 = async () => {
+    const id = crypto.randomUUID();
+    await pool.query(`INSERT INTO pay_packages (id, company_id, code, name) VALUES ($1, $2, 'R-LOCK', 'R lock package')`, [id, state.coA]);
+    await pool.query(`INSERT INTO pay_package_components (package_id, component_id, amount, is_recurring) VALUES ($1, $2, 700, false)`, [id, comp.overtime]);
+    return id;
+  };
+  const dropPackage = async (id: string) => {
+    await pool.query('DELETE FROM pay_package_components WHERE package_id = $1', [id]);
+    await pool.query('DELETE FROM pay_packages WHERE id = $1', [id]);
+  };
+  const postIt = (id: string) => call(postBatch as Route, 'POST', `/api/payroll/batches/${id}/post`, id);
+  const applyIt = (packageId: string) => call(applyPackage as Route, 'POST', `/api/payroll/employees/${state.employee}/apply-package`, state.employee, {
+    body: { packageId, effectiveFrom: '2026-11-01' },
+  });
+  /** Held past the 5s bound: a retryable 503, as every payroll lock wait answers, and nothing written. */
+  const answersBusy = async (write: () => Promise<{ statusCode: number; body: { error?: { code?: string } } }>) => {
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`payroll_approval:${state.coA}`]);
+      const res = await write();
+      expect(res.statusCode, JSON.stringify(res.body)).toBe(503);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await rows(comp.overtime!)).toEqual([]);
+  };
+
+  it('batch posting held past the bound answers a retryable 503, and the batch stays postable', async () => {
+    const id = await batchOf700();
+    try {
+      await answersBusy(() => postIt(id));
+      expect((await postIt(id)).statusCode).toBe(200);
+      expect(await rows(comp.overtime!)).toHaveLength(1);
+    } finally {
+      await dropBatch(id);
+    }
+  }, 15_000);
+
+  it('pay-package application held past the bound answers a retryable 503, and can be retried', async () => {
+    const id = await packageOf700();
+    try {
+      await answersBusy(() => applyIt(id));
+      expect((await applyIt(id)).statusCode).toBe(200);
+      expect(await rows(comp.overtime!)).toHaveLength(1);
+    } finally {
+      await dropPackage(id);
+    }
+  }, 15_000);
+
   const waitsForPayrollLock = async (write: () => Promise<{ statusCode: number }>) => {
     const holder = await pool.connect();
     const key = `payroll_approval:${state.coA}`;
@@ -144,44 +210,20 @@ describe('other component writers beside the grid', () => {
   };
 
   it('batch posting waits for the company payroll lock before inserting assignments', async () => {
-    const batch = await createBatch({
-      companyId: state.coA, batchType: 'component_values', componentId: comp.overtime,
-      description: 'R inputs lock batch', periodYear: 2026, periodMonth: 11,
-      isRecurring: false, userId: fx.admin,
-    });
-    await addBatchLines(state.coA, batch.id, [{
-      employeeId: state.employee, value: 700, effectiveFrom: new Date('2026-11-01'),
-    }]);
+    const id = await batchOf700();
     try {
-      expect((await validateBatch(state.coA, batch.id)).ok).toBe(true);
-      await waitsForPayrollLock(() => call(
-        postBatch as Route, 'POST', `/api/payroll/batches/${batch.id}/post`, batch.id,
-      ));
+      await waitsForPayrollLock(() => postIt(id));
     } finally {
-      await pool.query('DELETE FROM payroll_batch_lines WHERE batch_id = $1', [batch.id]);
-      await pool.query('DELETE FROM payroll_batches WHERE id = $1', [batch.id]);
+      await dropBatch(id);
     }
   });
 
   it('pay-package application waits for the company payroll lock before inserting assignments', async () => {
-    const packageId = crypto.randomUUID();
-    await pool.query(
-      `INSERT INTO pay_packages (id, company_id, code, name) VALUES ($1, $2, 'R-LOCK', 'R lock package')`,
-      [packageId, state.coA],
-    );
-    await pool.query(
-      `INSERT INTO pay_package_components (package_id, component_id, amount, is_recurring)
-       VALUES ($1, $2, 700, false)`,
-      [packageId, comp.overtime],
-    );
+    const id = await packageOf700();
     try {
-      await waitsForPayrollLock(() => call(
-        applyPackage as Route, 'POST', `/api/payroll/employees/${state.employee}/apply-package`, state.employee,
-        { body: { packageId, effectiveFrom: '2026-11-01' } },
-      ));
+      await waitsForPayrollLock(() => applyIt(id));
     } finally {
-      await pool.query('DELETE FROM pay_package_components WHERE package_id = $1', [packageId]);
-      await pool.query('DELETE FROM pay_packages WHERE id = $1', [packageId]);
+      await dropPackage(id);
     }
   });
 });
