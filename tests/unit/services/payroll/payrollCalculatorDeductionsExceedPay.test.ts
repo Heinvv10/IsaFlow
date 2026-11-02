@@ -114,4 +114,3 @@ describe('a LOAN deduction is never a tax deduction (Hein: a taxable LOAN is ref
     expect(run([salary, sacrifice]).paye.monthlyPaye).toBeLessThan(run([salary]).paye.monthlyPaye);
   });
 });
-

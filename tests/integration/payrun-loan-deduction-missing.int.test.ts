@@ -181,4 +181,3 @@ describe('MCP calculate_pay_run says which instalments it did not take', () => {
     expect(listed.find((c) => c.id === comp.loan)!.note).toContain('not a tax deduction');
   });
 });
-
