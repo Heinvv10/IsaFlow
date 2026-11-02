@@ -6,8 +6,7 @@
  * comparison each mode asks for and what each section is made of.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ManagementPackConfig, NoteContent, NoteContentTable } from '@/modules/accounting/services/afs/afsTypes';
-import type { BudgetTrackingReport, TrackingBand, TrackingLine } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import type { ManagementPackConfig } from '@/modules/accounting/services/afs/afsTypes';
 
 const m = vi.hoisted(() => ({
   sql: vi.fn(),
@@ -38,66 +37,13 @@ vi.mock('@/modules/accounting/services/afs/packAiSummaryService', async (importO
 }));
 vi.mock('@/modules/accounting/services/afs/packDeliveryService', () => ({ deliverPack: vi.fn() }));
 
-import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
+import { AGGS, band, generateWith, line, report, table, texts } from './managementPackFixtures';
 import { comparisonPlan, topVarianceLines } from '@/modules/accounting/services/afs/managementPackComparison';
 import { TrackingError } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { BudgetVersionError } from '@/modules/accounting/services/budgets/budgetVersionTypes';
 import { buildExecutiveSummaryPrompt } from '@/modules/accounting/services/afs/packAiSummaryService';
 
-const figures = { projected: 0, fyBudget: null, projVariance: null, projFavourable: null, unallocatedBudget: 0 };
-const band = (key: TrackingBand['key'], label: string, actual: number, budget: number | null): TrackingBand => ({
-  ...figures, key, label, kind: 'band', polarity: 'income', partialBudget: false, actual, budget,
-  variance: budget === null ? null : actual - budget,
-  variancePct: budget ? ((actual - budget) / budget) * 100 : null,
-  favourable: budget === null ? null : actual >= budget,
-});
-const line = (code: string, variance: number | null): TrackingLine => ({
-  ...figures, accountId: code, accountCode: code, accountName: `Acc ${code}`, accountType: 'expense', band: 'opex',
-  actual: 100, budget: variance === null ? null : 100 - variance, variance, variancePct: null,
-  favourable: variance === null ? null : variance <= 0, budgetAboveFilter: false, fyBudgetAboveFilter: false,
-  partialBudget: false, budgetVerdict: variance === null ? 'unbudgeted' : 'budgeted', monthly: [],
-});
-const report = (over: Partial<BudgetTrackingReport> = {}): BudgetTrackingReport => ({
-  window: { period: 'month', label: '2026-09', startDate: '2026-09-01', endDate: '2026-09-30', months: ['2026-09'], fiscalYear: 2027, inProgress: null, postedThrough: '2026-09-30', notStarted: false },
-  version: { id: 'v1', name: 'Original', kind: 'original', status: 'approved', isPrimary: true },
-  filter: {},
-  projection: { fiscalYear: 2027, cutoff: '2026-09-30', actualMonths: [], budgetMonths: [], judgedThrough: '2026-09' },
-  lines: [line('6000', 50), line('6100', -80), line('6200', null)],
-  bands: [band('revenue', 'Turnover', 1500, 1000), band('net_profit', 'Net profit', 300, null)],
-  notices: { unbudgetedCount: 1, unbudgetedActual: { income: 0, expense: 100 }, unallocatedBudget: null, noVersion: false, partialBudget: null, noVersionYears: [], noBudgetAtFilterYears: [] },
-  years: [],
-  ...over,
-});
-
-/** The ledger aggregate of a window, by its start date: pack month, prior month, same month last year. */
-const AGGS: Record<string, Record<string, string>> = {
-  '2026-09-01': { revenue: '1500.00', cogs: '400.00', net_profit: '300.00' },
-  '2026-08-01': { revenue: '1200.00', cogs: '300.00', net_profit: '250.00' },
-  '2025-09-01': { revenue: '900.00', cogs: '100.00', net_profit: '200.00' },
-};
-
-const config = (mode: ManagementPackConfig['comparisonMode'], sections: string[]): ManagementPackConfig => ({
-  id: 'c', companyId: 'co', enabled: true, generationDay: 5, deliveryDay: 10, reviewRequired: true,
-  sectionsEnabled: Object.fromEntries(sections.map((s) => [s, true])),
-  recipients: [], packStyle: 'detailed', comparisonMode: mode, currencyDisplay: 'full',
-});
-
-async function generate(mode: ManagementPackConfig['comparisonMode'], sections: string[]): Promise<Record<string, NoteContent>> {
-  await generateManagementPack({ companyId: 'co', period: '2026-09', config: config(mode, sections), triggeredBy: 'manual' });
-  const out: Record<string, NoteContent> = {};
-  for (const [id, , , patch] of m.updateSection.mock.calls as [string, string, string, { content?: NoteContent }][]) {
-    if (patch.content) out[id] = patch.content;
-  }
-  return out;
-}
-/** formatMoney groups with a no-break space. */
-const plain = (s: string) => s.replace(/\u00A0/g, ' ');
-const table = (c: NoteContent | undefined, n = 0): NoteContentTable => {
-  const t = c?.blocks.filter((b): b is NoteContentTable => b.type === 'table')[n];
-  if (!t) throw new Error(`no table ${n}`);
-  return { ...t, rows: t.rows.map((r) => r.map(plain)) };
-};
-const texts = (c: NoteContent | undefined) => (c?.blocks ?? []).flatMap((b) => (b.type === 'paragraph' ? [plain(b.text)] : []));
+const generate = (mode: ManagementPackConfig['comparisonMode'], sections: string[]) => generateWith(m.updateSection, mode, sections);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -261,6 +207,24 @@ describe('the budget sections', () => {
       m.buildReport.mockRejectedValueOnce(new TrackingError(409, 'not calendar months'));
       await generate('budget', ['income_vs_budget']);
       expect(m.capture).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('does not report to Bugsink when Sentry is off, and a failed capture is only a warning', async () => {
+    vi.stubEnv('SENTRY_ENABLED', 'false');
+    m.buildReport.mockRejectedValueOnce(new Error('boom'));
+    await generate('budget', ['income_vs_budget']);
+    expect(m.capture).not.toHaveBeenCalled();
+    vi.stubEnv('SENTRY_ENABLED', 'true');
+    try {
+      m.capture.mockImplementationOnce(() => { throw new Error('sentry down'); });
+      m.buildReport.mockRejectedValueOnce(new Error('boom'));
+      m.updateSection.mockClear();
+      const out = await generate('budget', ['income_vs_budget']);
+      expect(out.income_vs_budget?.blocks).toEqual(UNAVAILABLE);
+      expect(m.log.warn).toHaveBeenCalledWith('management pack: Sentry capture failed', { error: 'sentry down' }, 'managementPackComparison');
     } finally {
       vi.unstubAllEnvs();
     }
