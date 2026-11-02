@@ -1104,7 +1104,7 @@ All API routes follow the pattern `/api/accounting/*` and return standardised re
 ### Tailwind Configuration (`tailwind.config.mjs`)
 - Dark mode via CSS class toggle
 - Custom colour scales: primary (blue), secondary (slate), accent (purple), semantic (success/warning/error/info)
-- Font families: Inter (sans), Georgia (serif), Monaco/Consolas (mono)
+- Font families: Inter (sans), Georgia (serif), ui-monospace/Consolas (mono)
 - Custom animations: fade-in, slide-up, slide-down, pulse-subtle, spin-slow, spin-fast, shimmer
 - HSL CSS variables for dynamic theming
 

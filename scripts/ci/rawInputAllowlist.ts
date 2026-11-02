@@ -19,6 +19,8 @@ export interface ListSpec {
   what: string;
   /** How to fix one, for NEW and GROWN. */
   fix: string;
+  /** The command that prunes the list, for STALE and SHRUNK; the raw-input CLI when omitted. */
+  writeCommand?: string;
 }
 
 export const RAW_INPUT_LIST: ListSpec = {
@@ -107,6 +109,7 @@ export function readBaseList(ref: string, listPath: string, git: GitRunner): Bas
 /** Every reason the list and the tree disagree, or the list grew against `base`. Empty means the gate passes. */
 export function compareCounts(listed: Counts, actual: Counts, base: Counts | null, ref: string, list: ListSpec = RAW_INPUT_LIST): string[] {
   const problems: string[] = [];
+  const write = list.writeCommand ?? 'bun scripts/ci/check-raw-input-allowlist.ts --write';
   const files = [...new Set([...Object.keys(listed), ...Object.keys(actual)])].sort();
   for (const file of files) {
     const have = listed[file];
@@ -114,11 +117,11 @@ export function compareCounts(listed: Counts, actual: Counts, base: Counts | nul
     if (have === undefined && now > 0) {
       problems.push(`NEW: ${file} has ${now} ${list.what}. ${list.fix}; do not add it to the allowlist.`);
     } else if (have !== undefined && now === 0) {
-      problems.push(`STALE: ${file} no longer violates (or is gone). Remove it from ${list.path} (bun scripts/ci/check-raw-input-allowlist.ts --write).`);
+      problems.push(`STALE: ${file} no longer violates (or is gone). Remove it from ${list.path} (${write}).`);
     } else if (have !== undefined && now > have) {
       problems.push(`GROWN: ${file} now has ${now} (list says ${have}). A listed file may not gain more. ${list.fix}.`);
     } else if (have !== undefined && now < have) {
-      problems.push(`SHRUNK: ${file} now has ${now} (list says ${have}). Lower the count (bun scripts/ci/check-raw-input-allowlist.ts --write).`);
+      problems.push(`SHRUNK: ${file} now has ${now} (list says ${have}). Lower the count (${write}).`);
     }
   }
   if (base !== null) {
