@@ -53,8 +53,8 @@ beforeAll(async () => {
   const token = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   call = routeCaller({ [admin]: token }, { user: admin, company });
-  const [bonus, allowance, travel] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
-  for (const [id, name, code] of [[bonus, 'Bonus', '3605'], [allowance, 'Allowance', '3713'], [travel, 'Travel', '3701']]) {
+  const [bonus, allowance, travel, commission] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+  for (const [id, name, code] of [[bonus, 'Bonus', '3605'], [allowance, 'Allowance', '3713'], [travel, 'Travel', '3701'], [commission, 'Commission', '3606']]) {
     await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,$3,$4,'earning')", [id, company, name, code]);
   }
   await add('endedAllowance', allowance, 500, '2025-01-01', '2026-04-30', true);
@@ -65,6 +65,9 @@ beforeAll(async () => {
   await add('replaced', bonus, 1200, '2026-07-01', '2026-07-14', false);
   await add('replacement', bonus, 1200, '2026-07-15', '2026-07-31', false);
   await add('mcpOnceOff', bonus, 250, '2026-09-10', '2026-09-30', false);
+  // A once-off covering its month's last day is paid whether or not a row follows it.
+  await add('fullMonthOnceOff', commission, 800, '2026-10-01', '2026-10-31', false);
+  await add('nextCommission', commission, 900, '2026-11-01', null, true);
 
   const feb = await calculatedRun(call, 2);
   const plan = await call(journalPlan as Route, 'GET', `/api/payroll/runs/${feb}/journal-plan`, feb);
@@ -134,6 +137,11 @@ describe('accepted, and audited with the actor', () => {
     const [a] = await audits(row.mcpOnceOff!);
     expect(a.user_id).toBe(admin);
     expect(a.changes.metadata).toMatchObject({ kind: 'cancel', channel: 'mcp' });
+  });
+
+  it("moving the row after a full-month once-off: allowed, that once-off is paid in October either way", async () => {
+    const out = await patch(row.nextCommission!, { effectiveFrom: '2026-11-02', effectiveTo: null });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
   });
 
   it('the replaced once-off can be cancelled first, then its replacement', async () => {
