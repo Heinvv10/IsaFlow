@@ -129,9 +129,12 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
  * caller with no outer transaction (a script) holds this lock, like the header
  * lock, only for withTransaction's own block, so it serialises nothing there.
  */
+/** Shared key for every write whose verdict depends on payroll approval state. */
+export const payrollApprovalLockScope = (companyId: string): string => `payroll_approval:${companyId}`;
+
 export async function lockCompanyPayrollApprovals(runId: string, companyId: string): Promise<void> {
   await withBoundedLockWait(runId, (tx) => tx`
-    SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_approval:${companyId}`}, 0))
+    SELECT pg_advisory_xact_lock(hashtextextended(${payrollApprovalLockScope(companyId)}, 0))
   `);
 }
 
