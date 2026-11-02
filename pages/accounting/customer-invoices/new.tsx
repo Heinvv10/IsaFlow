@@ -1,14 +1,18 @@
 /**
- * Create Customer Invoice — two-column document editor layout
+ * Create Customer Invoice — two-column document editor layout. The form is kept on this device until it is created
+ * (PR S: never a server draft, as create is wallet-metered), leaving with a change unsaved asks first, and Approve &
+ * email creates, approves and opens the email form (sending stays the user's click).
  */
 import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Loader2, Info } from 'lucide-react';
+import { FileText, Loader2, Info, Send } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
+import { formatSavedAgo } from '@/components/ui/AutosaveStatus';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
@@ -22,6 +26,10 @@ import { invoiceDateProblem, isoOrEmpty, useInvoiceDateValidity, type InvoiceHea
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
 import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, pricesToNothingMessage, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
+import { useInvoiceDraftOwner, type LocalDraftData } from '@/components/accounting/customer-invoices/useLocalInvoiceDraft';
+import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
+import { stashApproveRefusal, useApproveAndEmail, type SavedInvoice } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
 interface Client { id: string; name: string }
 type LineItem = InvoiceLine;
@@ -89,6 +97,15 @@ export default function NewCustomerInvoicePage() {
     } catch (err) { if (lookupSeq.current === seq) setError(apiErrorMessage(err, 'Could not load clients - try again')); }
   }
 
+  const [rateEditing, setRateEditing] = useState(false);
+  // A kept draft comes back whole: its mode with its prices, and nothing the customer's defaults may then overwrite.
+  const restoreDraft = (d: LocalDraftData) => {
+    contact.touch('dueDate'); contact.touch('taxMode'); lookupSeq.current++;
+    setForm(d.form); setLines(d.lines); setTaxMode(d.taxMode); dates.clear(); setResetKey(k => k + 1);
+  };
+  const owner = useInvoiceDraftOwner();
+  const draft = useInvoiceAutosave({ mode: 'local', ...owner, snapshot: { form, lines, taxMode }, paused: rateEditing, onRestore: restoreDraft });
+
   function handleExtracted(data: ExtractedDocument) {
     // A scan is OCR output: only a real YYYY-MM-DD goes in (anything else would make DateField's minDate throw); else the field is left empty.
     const updates: Partial<InvoiceHeaderForm> = {};
@@ -109,22 +126,34 @@ export default function NewCustomerInvoicePage() {
     setScanBanner(`Auto-filled (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
   }
 
-  const handleSubmit = async (andNew = false) => {
-    if (!form.clientId) return setError('Select a client');
+  /** Creates the draft (the page shows any refusal); the device's copy goes once the server has it. */
+  const createInvoice = async (): Promise<SavedInvoice | null> => {
+    if (!form.clientId) { setError('Select a client'); return null; }
     const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
-    if (tooSmall) return setError(pricesToNothingMessage(tooSmall.description));
+    if (tooSmall) { setError(pricesToNothingMessage(tooSmall.description)); return null; }
     const validLines = lines.map(({ discountFromDefault: _fromDefault, ...l }) => ({ ...l, unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate) })).filter(l => l.description && l.unitPrice > 0);
-    if (validLines.length === 0) return setError('Add at least one line item');
+    if (validLines.length === 0) { setError('Add at least one line item'); return null; }
     const dateProblem = invoiceDateProblem(form, dates.refused);
-    if (dateProblem) return setError(dateProblem);
-    if (isFx && form.exchangeRate <= 0) return setError('Exchange rate must be greater than 0');
-    setSaveAndNew(andNew);
-    setSubmitting(true); setError('');
+    if (dateProblem) { setError(dateProblem); return null; }
+    if (isFx && form.exchangeRate <= 0) { setError('Exchange rate must be greater than 0'); return null; }
+    setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, taxRate, items: validLines }) });
       await assertOk(res, 'Could not create the invoice - try again');
-      const json = await res.json() as { data?: { id?: string }; id?: string };
+      const json = await res.json() as { data?: { id?: string; invoiceNumber?: string }; id?: string; invoiceNumber?: string };
       const d = json.data || json;
+      if (!d.id) throw new ApiEnvelopeError('The invoice could not be opened - check the invoice list before creating it again');
+      draft.clear();
+      return { id: d.id, invoiceNumber: d.invoiceNumber ?? '' };
+    } catch (e) { setError(apiErrorMessage(e, 'Could not create the invoice - try again')); return null; }
+  };
+
+  const handleSubmit = async (andNew = false) => {
+    setSaveAndNew(andNew);
+    setSubmitting(true);
+    try {
+      const made = await createInvoice();
+      if (!made) return;
       if (andNew) {
         const today = localISODate();
         setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
@@ -133,12 +162,22 @@ export default function NewCustomerInvoicePage() {
         dates.clear(); setResetKey(k => k + 1); lookupSeq.current++;
         try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       } else {
-        if (!d.id) throw new ApiEnvelopeError('The invoice could not be opened - check the invoice list before creating it again');
-        try { await router.push(`/accounting/customer-invoices/${d.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
+        try { await router.push(`/accounting/customer-invoices/${made.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       }
-    } catch (e) { setError(apiErrorMessage(e, 'Could not create the invoice - try again')); }
-    finally { setSubmitting(false); }
+    } finally { setSubmitting(false); }
   };
+
+  // A refused approval leaves the created draft: its edit page says why.
+  const approve = useApproveAndEmail({
+    save: createInvoice,
+    onRefused: (id, message) => {
+      stashApproveRefusal(id, message);
+      void (async () => {
+        try { await router.push(`/accounting/customer-invoices/edit/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
+      })();
+    },
+  });
+  const busy = submitting || approve.busy || contact.pending;
 
   return (
     <AppLayout>
@@ -161,12 +200,21 @@ export default function NewCustomerInvoicePage() {
                   <button onClick={() => setScanBanner(null)} className="ml-auto text-xs font-medium opacity-70 hover:opacity-100">Dismiss</button>
                 </div>
               )}
+              {draft.offer && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm flex flex-wrap items-center gap-2">
+                  <Info className="h-4 w-4 flex-shrink-0" />An invoice you started {formatSavedAgo(Date.now() - draft.offer.savedAt)} was kept on this device.
+                  <span className="ml-auto flex gap-2">
+                    <button type="button" onClick={draft.restore} className="px-3 py-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold">Restore</button>
+                    <button type="button" onClick={draft.discard} className="px-3 py-1 rounded-lg border border-amber-400 text-xs font-semibold">Discard</button>
+                  </span>
+                </div>
+              )}
               {(error || contact.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error || contact.error}</div>}
 
               <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
                 onChange={patch => { if ('clientId' in patch) lookupSeq.current++; if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}
-                taxMode={taxMode} onTaxModeChange={pickTaxMode} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} />
+                taxMode={taxMode} onTaxModeChange={pickTaxMode} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} onRateEditing={setRateEditing} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
@@ -175,22 +223,28 @@ export default function NewCustomerInvoicePage() {
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Add any notes or payment instructions…" />
+              <p className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-3 text-sm text-[var(--ff-text-secondary)]">Save the draft to preview the PDF.</p>
             </div>
 
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode}
                 fx={isFx ? { zarTotal, rate: form.exchangeRate } : undefined} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                <button onClick={() => handleSubmit(false)} disabled={submitting || contact.pending} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <InvoiceAutosaveStatus where="device" state={draft.state} savedAt={draft.savedAt} error={draft.error} />
+                <button onClick={() => handleSubmit(false)} disabled={busy} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Create Invoice</>}
                 </button>
-                <button onClick={() => handleSubmit(true)} disabled={submitting || contact.pending} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <button onClick={() => handleSubmit(true)} disabled={busy} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Save &amp; New</>}
                 </button>
+                <button onClick={approve.start} disabled={busy} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  {approve.busy ? <><Loader2 className="h-4 w-4 animate-spin" />Approving…</> : <><Send className="h-4 w-4" />Approve &amp; email</>}
+                </button>
               </InvoiceSummaryCard>
-              <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2">Invoice will be saved as a draft. You can email it from the invoice detail page.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2">Create saves a draft. Approve &amp; email approves it and opens the email form; nothing is sent until you click Send.</p>
             </div>
           </div>
         </div>
+        {approve.modal && <InvoiceEmailModal {...approve.modal} />}
       </div>
     </AppLayout>
   );

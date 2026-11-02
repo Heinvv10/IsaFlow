@@ -14,6 +14,8 @@ interface Props {
   emailSuccess: string;
   emailSentAt?: string;
   emailSentTo?: string;
+  /** A line above the address, e.g. that the invoice was just approved and is not sent yet. */
+  notice?: string;
   onEmailToChange: (v: string) => void;
   onSend: () => void;
   onClose: () => void;
@@ -27,6 +29,7 @@ export function InvoiceEmailModal({
   emailSuccess,
   emailSentAt,
   emailSentTo,
+  notice,
   onEmailToChange,
   onSend,
   onClose,
@@ -55,6 +58,7 @@ export function InvoiceEmailModal({
         <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
           Send invoice <strong>{invoiceNumber}</strong> as a PDF attachment.
         </p>
+        {notice && <p className="text-sm text-[var(--ff-text-secondary)] mb-4">{notice}</p>}
         <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
           Recipient Email
         </label>

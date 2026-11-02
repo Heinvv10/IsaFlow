@@ -16,6 +16,7 @@ import {
   writeStoredCompany, clearStoredCompany, type Company, type CompanyUser,
 } from './companyModel';
 import { recoverActiveCompany } from './companyRecovery';
+import { clearInvoiceDrafts } from '@/lib/invoiceDrafts';
 
 // The shapes and the two pure translations live in companyModel.ts (300-line
 // ceiling). Re-exported so every existing import site is unchanged.
@@ -29,7 +30,8 @@ interface CompanyContextType {
   switchCompany: (companyId: string) => Promise<void>;
 }
 
-const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
+/** Exported for a reader that must not throw outside the provider (useInvoiceDraftOwner); everyone else uses useCompany. */
+export const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 
 interface CompanyProviderProps {
   children: ReactNode;
@@ -235,6 +237,7 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
         throw new ApiEnvelopeError(apiErrorMessage(e, 'Could not switch company - try again'));   // a plain, user-facing sentence; callers show it via apiErrorMessage
       }
       if (match) setCompanyRole(match.role);
+      clearInvoiceDrafts(); // switched: no draft is offered under another company
 
       // Best-effort: persist as user's default company for next login.
       try {

@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
+import { clearInvoiceDrafts } from '@/lib/invoiceDrafts';
 import { log } from '@/lib/logger';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useSessionCheck } from './useSessionCheck';
@@ -59,7 +60,8 @@ interface AuthContextType {
   hasRole: (role: AuthRole) => boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+/** Exported for a reader that must not throw outside the provider (useInvoiceDraftOwner); everyone else uses useAuth. */
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /**
  * Map the raw API response into a typed AuthUser
@@ -210,6 +212,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     } finally {
       setUser(null);
       clearTenantClientState();
+      clearInvoiceDrafts(); // the next person at this browser is never offered this user's invoice
       if (typeof window !== 'undefined') {
         window.location.href = '/login';
       }

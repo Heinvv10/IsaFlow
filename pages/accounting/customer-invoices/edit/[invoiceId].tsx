@@ -1,28 +1,34 @@
 /**
  * Edit Customer Invoice — only allowed while status === 'draft'.
- * Mirrors the new.tsx layout but loads the existing invoice and submits PUT.
+ * Mirrors the new.tsx layout but loads the existing invoice and submits PUT. Autosaves the draft (PR S: the same PUT,
+ * never create), asks before leaving with a change unsaved, previews the stored draft's PDF, and offers Approve & email.
  */
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, AlertCircle, Send } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { log } from '@/lib/logger';
 import { discountFromAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
-import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
-import { invoiceDateProblem, useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
+import { useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
-import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, pricesToNothingMessage, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
+import { autosaveProblem, invoicePutBody, saveProblem, type EditLine } from '@/components/accounting/customer-invoices/invoicePutBody';
+import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
+import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
+import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
+import { takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
-// CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
-// otherwise null, so derivation sets it (the project's FNO, else the customer's: dimensionKeepStored).
-type LineItem = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string };
+// CC2 / BU are edited here; CC1 follows its CC2 (invoicePutBody re-sends it only while the CC2 is the one it loaded with).
+type LineItem = EditLine;
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 const CUSTOMER_FAILED = "Could not load the customer's VAT type - check the VAT on this invoice by hand";
 type InvoiceItemRow = {
@@ -56,6 +62,8 @@ export default function EditCustomerInvoicePage() {
   // Read only to warn: a stored invoice is not refilled, so Save waits for a customer changed here, not for the one it loaded with.
   const [loadedClient, setLoadedClient] = useState('');
   const customer = useCustomerLookup(form.clientId, CUSTOMER_FAILED);
+  const [rateEditing, setRateEditing] = useState(false);
+  const [approved, setApproved] = useState(false);
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -73,6 +81,8 @@ export default function EditCustomerInvoicePage() {
         return;
       }
       setInvoiceNumber(invoice.invoice_number);
+      const refusal = takeApproveRefusal(id); // Approve & email on the new page landed here: say why
+      if (refusal) setError(refusal);
       // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
       // standard rate behind it, as the new page does, so leaving No VAT does not leave a rate of 0.
       const storedRate = Number(invoice.tax_rate ?? 15);
@@ -135,47 +145,34 @@ export default function EditCustomerInvoicePage() {
   const pickTaxMode = (mode: TaxMode) => { setLines(ls => linesForModeChange(ls, taxMode, mode, form.taxRate)); setTaxMode(mode); };
   const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), taxRate);
 
+  // One render's form, lines and mode, together: the Save button, autosave and Approve & email all send this body.
+  const id = String(invoiceId ?? '');
+  const draft = { form, lines, taxMode };
+  const autosave = useInvoiceAutosave({
+    mode: 'server', invoiceId: id, body: !loading && invoiceNumber ? invoicePutBody(id, draft) : null,
+    problem: autosaveProblem(draft, dates.refused), paused: rateEditing, done: approved,
+  });
+
+  const saveDraft = async (always: boolean): Promise<boolean> => {
+    const problem = saveProblem(draft, dates.refused);
+    if (problem) { setError(problem); return false; }
+    setError('');
+    const saved = await autosave.saveNow(always);
+    if (!saved.ok) setError(saved.message);
+    return saved.ok;
+  };
+  const approve = useApproveAndEmail({
+    save: async () => (await saveDraft(false) ? { id, invoiceNumber } : null),
+    onRefused: (_id, message) => setError(message),
+    onApproved: () => setApproved(true),
+  });
+
   const handleSubmit = async () => {
-    if (!form.clientId) return setError('Select a client');
-    const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
-    if (tooSmall) return setError(pricesToNothingMessage(tooSmall.description));
-    const validLines = lines.filter(l => l.description && l.unitPrice >= 0 && l.quantity > 0);
-    if (validLines.length === 0) return setError('Add at least one line item');
-    const dateProblem = invoiceDateProblem(form, dates.refused);
-    if (dateProblem) return setError(dateProblem);
-    setSubmitting(true); setError('');
-    try {
-      const res = await apiFetch('/api/accounting/customer-invoices-detail', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: String(invoiceId),
-          clientId: form.clientId,
-          invoiceDate: form.invoiceDate,
-          dueDate: form.dueDate || undefined,
-          billingPeriodStart: form.billingPeriodStart || undefined,
-          billingPeriodEnd: form.billingPeriodEnd || undefined,
-          taxRate,
-          notes: form.notes || undefined,
-          currencyCode: form.currencyCode,
-          exchangeRate: form.exchangeRate,
-          projectId: form.projectId || null,
-          items: validLines.map(l => ({
-            description: l.description, quantity: l.quantity,
-            unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate), taxRate,
-            discount: l.discount || 0,
-            glAccountId: l.glAccountId || null,
-            projectId: l.projectId || null,
-            cc2Id: l.cc2Id || null,
-            buId: l.buId || null,
-            cc1Id: l.cc2Id === (l.cc2AtLoad ?? '') ? (l.cc1Id ?? null) : null,
-          })),
-        }),
-      });
-      await assertOk(res, 'Could not save the invoice - try again');
-      try { await router.push(`/accounting/customer-invoices/${String(invoiceId)}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-edit-invoiceId'); }
-    } catch (e) { setError(apiErrorMessage(e, 'Could not save the invoice - try again')); }
-    finally { setSubmitting(false); }
+    setSubmitting(true);
+    const saved = await saveDraft(true);
+    setSubmitting(false);
+    if (!saved) return;
+    try { await router.push(`/accounting/customer-invoices/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-edit-invoiceId'); }
   };
 
   if (loading) return <AppLayout><Head><title>Edit invoice · Sales · IsaFlow</title></Head><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div></AppLayout>;
@@ -215,7 +212,7 @@ export default function EditCustomerInvoicePage() {
               {(error || customer.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error || customer.error}</div>}
 
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
-                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} />
+                onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
 
               <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
@@ -223,18 +220,24 @@ export default function EditCustomerInvoicePage() {
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Notes or payment instructions…" />
+              {id && <InvoicePdfPreview invoiceId={id} version={autosave.savedCount} />}
             </div>
 
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                <button onClick={handleSubmit} disabled={submitting || (customer.pending && form.clientId !== loadedClient)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                <InvoiceAutosaveStatus where="server" state={autosave.state} savedAt={autosave.savedAt} error={autosave.error} />
+                <button onClick={handleSubmit} disabled={submitting || approve.busy || approved || (customer.pending && form.clientId !== loadedClient)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
+                </button>
+                <button onClick={approve.start} disabled={submitting || approve.busy || approved || (customer.pending && form.clientId !== loadedClient)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  {approve.busy ? <><Loader2 className="h-4 w-4 animate-spin" />Approving…</> : <><Send className="h-4 w-4" />Approve &amp; email</>}
                 </button>
                 <Link href={`/accounting/customer-invoices/${String(invoiceId)}`} className="block w-full mt-2 py-2.5 text-center border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold rounded-xl transition-colors text-sm">Cancel</Link>
               </InvoiceSummaryCard>
             </div>
           </div>
         </div>
+        {approve.modal && <InvoiceEmailModal {...approve.modal} />}
       </div>
     </AppLayout>
   );
