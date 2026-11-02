@@ -60,6 +60,8 @@ describe('a manager\'s first entry for an employee already paid through a run', 
   it.each<[string, RunShape]>([
     ['an approved run', { status: 'approved', approvedAt: true }],
     ['a paid run', { status: 'paid', approvedAt: true }],
+    ['an approved run from before 718 stamped approved_at', { status: 'approved' }],
+    ['a paid run from before 718', { status: 'paid' }],
     ['a posted run, its journal linked, whatever its status', { status: 'calculated', journal: true }],
     ['a run approved, then reopened', { status: 'calculated', history: true }],
     ['a run approved, reopened, and the employee since taken off it', { status: 'calculated', history: true, taxed: true, line: false }],
