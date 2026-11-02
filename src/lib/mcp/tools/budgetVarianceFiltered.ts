@@ -16,7 +16,6 @@ import type { DetailLevel, ExcludedRow } from '../contracts';
 import type { McpToolResult } from '../types';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
 
-const NO_LEDGER_ROWS = '1970-01-01T00:00:00.000Z';
 const EXCLUDED_SAMPLE_CAP = 200;
 
 export interface BudgetVarianceFilter {
@@ -26,7 +25,8 @@ export interface BudgetVarianceFilter {
   buId?: string;
 }
 
-const EXCLUSION_DETAIL: Record<'unbudgeted' | 'above-filter' | 'partial', [reason: string, detail: string]> = {
+const EXCLUSION_DETAIL: Record<'unbudgeted' | 'above-filter' | 'partial' | 'absent', [reason: string, detail: string]> = {
+  absent: ['budget_absent', 'has no budget stated because the range as a whole has none: see splits_budget_month, budget_absent_years and budget_outside_filter_years.'],
   unbudgeted: ['no_budget_set', 'carries posted movement in this range and no budget for any month of it, so it can produce no variance.'],
   'above-filter': ['budget_above_filter', 'is budgeted only above this filter (at company level, or at a level the filter names more finely), so its budget is not split to the filter; it is in unallocated_budget, never apportioned.'],
   partial: ['budget_partial', 'is budgeted for only part of this range (some of its financial years, or at another grain in another version), so no budget for the whole range is stated.'],
@@ -41,11 +41,14 @@ function exclusions(result: BudgetVarianceTrackedResult): ExcludedRow[] {
     });
 }
 
+/** A 409: fixed words, not engine text. */
+const CANNOT_READ = 'This range cannot be read against a budget in its current state.';
+
 /** The engine's refusals as tool errors: an id that is not this company's reads as any other miss. */
 function refusal(err: unknown): McpToolResult | null {
-  if (err instanceof TrackingError) return toolError(err.status === 404 ? NOT_FOUND : err.message);
-  if (err instanceof BudgetVersionError) return toolError(err.status === 404 ? NOT_FOUND : err.message);
-  return null;
+  if (!(err instanceof TrackingError || err instanceof BudgetVersionError)) return null;
+  if (err.status === 404) return toolError(NOT_FOUND);
+  return toolError(err.status === 400 ? err.message : CANNOT_READ);
 }
 
 export async function filteredBudgetVariance(
@@ -73,7 +76,7 @@ export async function filteredBudgetVariance(
     excludedTotal: excluded.length,
     detail,
     as_at: end,
-    posted_through: result.postedThrough ? `${result.postedThrough}T00:00:00.000Z` : NO_LEDGER_ROWS,
+    posted_through: result.postedThrough ? `${result.postedThrough}T00:00:00.000Z` : null,
     excludedRows: excluded.slice(0, EXCLUDED_SAMPLE_CAP),
     figureBasis: figureBasis('budget.actual.v1'),
   });

@@ -23,6 +23,8 @@ const NO_LEDGER_ROWS = '1970-01-01T00:00:00.000Z';
 /** Enough exclusions to read; the total is carried separately either way. */
 const EXCLUDED_SAMPLE_CAP = 200;
 
+const FILTER_ARGS = ['version_id', 'cc1_id', 'cc2_id', 'bu_id'] as const;
+
 function detailOf(args: Record<string, unknown>): DetailLevel {
   const raw = strArg(args, 'detail');
   return raw && isDetailLevel(raw) ? raw : 'standard';
@@ -41,7 +43,7 @@ export const budgetVarianceTool: McpTool = {
     'VERSION AND DIMENSIONS (optional; with none of them, everything above holds exactly). Without version_id each financial year is read on its primary budget version; version_id reads that version instead (any status), and the whole range must lie in its financial year. ' +
     'cc1_id, cc2_id and bu_id filter by EXPLICIT dimension level, ANDed: an actual counts when its journal line carries that cost centre at that level (cc1_id = CC1, cc2_id = CC2) and that business unit; untagged lines fall outside a filter that names the dimension. ' +
     'A budget counts under a filter when it was set at the filter or below it (a CC2 budget counts under its CC1). A budget set ABOVE the filter (at company level, or at CC1 when filtering by a CC2) is never split or apportioned: it is reported as unallocated_budget (income and expense separately) and its account appears in excludedRows with reason budget_above_filter. ' +
-    'With any of these four arguments the range is read in WHOLE MONTHS: a range that cuts a budget month (period_start not the 1st, or period_end not a month end) has no budget at all (splits_budget_month true), and so does one reaching a financial year with no budget (budget_absent_years) or whose budget is all at other members of the filter (budget_outside_filter_years). An account budgeted for only part of the range is excluded with reason budget_partial. ' +
+    'With any of these four arguments the range is read in WHOLE MONTHS: a range that cuts a budget month (period_start not the 1st, or period_end not a month end) has no budget at all (splits_budget_month true), and so does one reaching a financial year with no budget (budget_absent_years) or whose budget is all at other members of the filter (budget_outside_filter_years). In all three the actual of every account is in excludedRows with reason budget_absent. An account budgeted for only part of the range is excluded with reason budget_partial. unbudgeted_accounts and unbudgeted_movement count reason no_budget_set only; excludedTotal counts every reason. ' +
     'Those responses add version (id, name, kind, status, isPrimary), dimension_filter, unallocated_budget (with a dimension), budget_absent_years, budget_outside_filter_years and splits_budget_month; a section budget is null where any account under it is above the filter or partial.',
   scope: 'read:reports',
   write: false,
@@ -60,12 +62,17 @@ export const budgetVarianceTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const guard = guardCastableArgs(args, { date: ['period_start', 'period_end'], uuid: ['version_id', 'cc1_id', 'cc2_id', 'bu_id'] });
+    const guard = guardCastableArgs(args, { date: ['period_start', 'period_end'], uuid: [...FILTER_ARGS] });
     if (guard) return guard;
     const start = strArg(args, 'period_start');
     const end = strArg(args, 'period_end');
     if (!start || !end) return toolError('period_start and period_end are required (YYYY-MM-DD)');
     if (end < start) return toolError('period_end must not precede period_start');
+
+    // strArg passes over an empty or non-string value: a filter dropped that way would answer company-wide.
+    for (const key of FILTER_ARGS) {
+      if (args[key] !== undefined && strArg(args, key) === undefined) return toolError(`invalid ${key}`);
+    }
 
     const detail = detailOf(args);
     // Only arguments actually given: an absent one is never defaulted into the call, so with none the
