@@ -10,7 +10,10 @@ import { toInstant } from './frontmatter';
 import { isPublished } from './visibility';
 
 /** Public marketing pages on isaflow.co.za (the app host is never in the sitemap). */
-export const MARKETING_PAGES = ['/', '/pricing', '/contact', '/privacy', '/terms'] as const;
+export const MARKETING_PAGES = [
+  '/', '/pricing', '/contact', '/privacy', '/terms',
+  '/compare/sage', '/compare/xero', '/compare/quickbooks',
+] as const;
 
 export const postUrl = (slug: string): string => `${BLOG_URL}/${slug}`;
 

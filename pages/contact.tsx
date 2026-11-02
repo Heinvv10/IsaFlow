@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import Head from 'next/head';
+import { PageHead } from '@/components/seo/PageHead';
 import { ArrowRight, CheckCircle2 } from 'lucide-react';
 import { LandingNavbar } from '@/components/landing/LandingNavbar';
 import { LandingFooter } from '@/components/landing/LandingPricingTestimonialsFooter';
@@ -62,15 +62,11 @@ export default function ContactPage() {
 
   return (
     <>
-      <Head>
-        <title>Contact us — ISAFlow | Book a demo</title>
-        <meta
-          name="description"
-          content="Book a demo or talk to the ISAFlow team about books, VAT, payroll and the month-end Close Agent for your business or practice."
-        />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
+      <PageHead
+        path="/contact"
+        title="Contact ISAFlow: Book a Demo of Cloud Accounting in South Africa"
+        description="Talk to the ISAFlow team in Pretoria about accounting, VAT201, payroll and month-end for your South African business or accounting practice. Book a demo."
+      />
 
       <div className="min-h-screen bg-white text-gray-900">
         <LandingNavbar
