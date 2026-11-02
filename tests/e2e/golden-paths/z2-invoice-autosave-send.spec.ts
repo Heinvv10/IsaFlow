@@ -60,6 +60,16 @@ function countPuts(page: Page): () => number {
   return () => n;
 }
 
+/** Answers /api/accounting/invoice-email here, before anything loads: the real route would send through dev's live SMTP. */
+async function interceptEmail(page: Page): Promise<unknown[]> {
+  const sent: unknown[] = [];
+  await page.route('**/api/accounting/invoice-email', async (route) => {
+    sent.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { sent: true } }) });
+  });
+  return sent;
+}
+
 const shot = async (page: Page, name: string) => {
   if (!EVIDENCE) return;
   mkdirSync(EVIDENCE, { recursive: true });
@@ -98,12 +108,7 @@ test('editing a draft autosaves after a change, never on load, and the change su
 
 test('Approve & email approves, opens the email form, and sends only on Send (route-fulfilled, hit once)', async ({ page, context, baseURL }) => {
   const { api, customerId } = await sandbox(context, baseURL!);
-  const sent: unknown[] = [];
-  // Before anything loads: the real route would email the customer through dev's live SMTP.
-  await page.route('**/api/accounting/invoice-email', async (route) => {
-    sent.push(route.request().postDataJSON());
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { sent: true } }) });
-  });
+  const sent = await interceptEmail(page);
   const id = await draft(api, customerId, `Z2 approve ${Date.now().toString(36)}`);
   try {
     await openEdit(page, id);
@@ -130,10 +135,43 @@ test('Approve & email approves, opens the email form, and sends only on Send (ro
   }
 });
 
+test('on a new invoice, once approved the form behind the email form is inert: Enter on Create makes no second invoice', async ({ page, context, baseURL }) => {
+  const { api } = await sandbox(context, baseURL!);
+  const sent = await interceptEmail(page);
+  let creates = 0;
+  page.on('request', (r) => { if (r.method() === 'POST' && r.url().includes('/api/accounting/customer-invoices-create')) creates++; });
+  await page.goto(NEW, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: 'Customer Invoice', level: 1 })).toBeVisible({ timeout: 60_000 });
+  await settle(page);
+  await page.getByRole('combobox', { name: 'Client' }).click();
+  await page.getByPlaceholder(/search/i).last().fill(CUSTOMER.name);
+  await page.locator('li[role=option]').filter({ hasText: CUSTOMER.name }).click();
+  await page.getByPlaceholder('Item description').fill(`Z2 new approve ${Date.now().toString(36)}`);
+  await page.getByLabel('Unit price').fill('100');
+  const created = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('/api/accounting/customer-invoices-create'));
+  await page.getByRole('button', { name: /approve & email/i }).click();
+  const id = ((await (await created).json()) as { data: { id: string } }).data.id;
+  try {
+    await expect(page.getByRole('dialog', { name: 'Email Invoice' })).toBeVisible({ timeout: 30_000 });
+    const create = page.getByRole('button', { name: /^create invoice$/i });
+    await expect(create).toBeDisabled();
+    await expect(page.getByPlaceholder('Item description')).toBeDisabled();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(2_000);
+    expect(creates, 'one invoice, however Enter is pressed').toBe(1);
+    expect(sent, 'nothing sent').toEqual([]);
+  } finally {
+    await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
+  }
+});
+
 for (const theme of THEMES) {
-  test(`${theme}: new and edit with the autosave line on, axe clean`, async ({ page, context, baseURL }) => {
+  test(`${theme}: new and edit with the autosave line on, and the open email form, axe clean`, async ({ page, context, baseURL }) => {
     await seedTheme(page, theme);
     const { api, customerId } = await sandbox(context, baseURL!);
+    const sent = await interceptEmail(page);
     await page.setViewportSize({ width: 1568, height: 900 });
     await page.goto(NEW, { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: 'Customer Invoice', level: 1 })).toBeVisible({ timeout: 60_000 });
@@ -150,6 +188,13 @@ for (const theme of THEMES) {
       await expect(page.getByRole('status').filter({ hasText: /^Saved/ })).toBeVisible({ timeout: 15_000 });
       await shot(page, `invoice-edit-autosave-${theme}`);
       await expectNoSeriousA11yViolations(page, { key: EDIT_KEY });
+      await page.getByRole('button', { name: /approve & email/i }).click();
+      await expect(page.getByRole('dialog', { name: 'Email Invoice' })).toBeVisible({ timeout: 30_000 });
+      await shot(page, `invoice-email-dialog-${theme}`);
+      await expectNoSeriousA11yViolations(page, { key: EDIT_KEY });
+      await page.keyboard.press('Escape');
+      await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
+      expect(sent, 'nothing sent').toEqual([]);
     } finally {
       await api.post('/api/accounting/customer-invoices-detail', { id, action: 'cancel' });
     }
