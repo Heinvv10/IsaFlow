@@ -24,6 +24,9 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
   const [showWarnings, setShowWarnings] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const cancelPoll = useRef<(() => void) | null>(null);
+  // A scan takes seconds and the page moves on while it reads: the answer goes to the page as it is now, not as it was.
+  const onExtractedNow = useRef(onExtracted);
+  onExtractedNow.current = onExtracted;
 
   useEffect(() => () => cancelPoll.current?.(), []);
 
@@ -76,7 +79,7 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
         warnings: extracted.warnings,
       });
 
-      onExtracted(extracted);
+      onExtractedNow.current(extracted);
 
       if (extracted.confidence >= 0.7) {
         notify.success(`Document scanned (${Math.round(extracted.confidence * 100)}% confidence)`);

@@ -1,6 +1,6 @@
 /**
  * GET /api/accounting/customers — the two additions the shared ContactPicker needs:
- *   ?id=<uuid>   one customer (names a preselected id that is not in the first page)
+ *   ?id=<uuid>   one customer (names a preselected id that is not in the first page; the new-invoice page's defaults)
  *   ?limit=<n>   a short first page (the picker must not load the directory to open)
  * `?id=` that is not a UUID keeps its old meaning (the full list), and `?id=&include=activity` is untouched.
  */
@@ -45,6 +45,15 @@ describe('customers GET ?id=', () => {
     // The tenant scope is a bound value of the query itself: the id AND this company's id, nothing else.
     const bound = (mocks.sql.mock.calls[0] as unknown[]).slice(1);
     expect(bound).toEqual([CUSTOMER, COMPANY]);
+  });
+
+  it('selects the terms, discount and VAT type the new-invoice page defaults from', async () => {
+    mocks.sql.mockResolvedValueOnce([{ id: CUSTOMER, name: 'Acme' }]);
+    await handler(get({ id: CUSTOMER }), response());
+    const query = (mocks.sql.mock.calls[0]![0] as string[]).join('?');
+    for (const column of ['payment_terms', 'payment_terms_type', 'default_discount', 'default_vat_type']) {
+      expect(query).toMatch(new RegExp(`\\b${column}\\b`));
+    }
   });
 
   it('answers 404 for a customer that is missing or another company\'s (the query is scoped by company_id)', async () => {
