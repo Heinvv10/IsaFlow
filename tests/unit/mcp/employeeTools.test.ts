@@ -243,6 +243,12 @@ describe('assign_employee_component', () => {
     expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![6]).toBe(true);
   });
 
+  it('hands the service the day strings as given, never a Date', async () => {
+    await assignEmployeeComponentTool.handler(args({ effective_from: '2026-03-01', effective_to: '2026-06-30' }), ctx());
+    const [, , , , from, to] = vi.mocked(assignComponentToEmployee).mock.calls[0]!;
+    expect([from, to]).toEqual(['2026-03-01', '2026-06-30']);
+  });
+
   it('honours is_recurring: false for a once-off', async () => {
     await assignEmployeeComponentTool.handler(args({ is_recurring: false }), ctx());
     expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![6]).toBe(false);
@@ -286,7 +292,7 @@ describe('end_employee_component', () => {
     const [companyId, id, date, actor] = vi.mocked(endEmployeeComponent).mock.calls[0]!;
     expect(companyId).toBe(COMPANY);
     expect(id).toBe(ASSIGNMENT);
-    expect(fmtDate(date)).toBe('2025-12-31');
+    expect(date).toBe('2025-12-31');
     // The audit trail names the MCP caller (payrollComponentDateEdit).
     expect(actor).toEqual({ userId: ctx().userId, channel: 'mcp' });
   });

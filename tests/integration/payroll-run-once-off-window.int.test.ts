@@ -76,7 +76,7 @@ beforeAll(async () => {
   // Ended (End on the profile, the DELETE route, the MCP tool) before November is paid: cancelled, not shortened.
   await employee('ended', [['bonus', 450, '2026-11-05', '2026-11-30', false]]);
   const endedRow = String((await pool.query('SELECT id FROM payroll_employee_components WHERE employee_id=$1 AND NOT is_recurring', [emp.ended])).rows[0]!.id);
-  expect(await endEmployeeComponent(company, endedRow, new Date('2026-11-20'), { userId: user, channel: 'service' })).toBe(true);
+  expect(await endEmployeeComponent(company, endedRow, '2026-11-20', { userId: user, channel: 'service' })).toBe(true);
   // A voided row of the same component starting the day after a short once-off does not supersede it.
   await employee('voidedNext', [['bonus', 1500, '2026-11-10', '2026-11-27', false], ['bonus', 610, '2026-11-28', '2026-11-27', false]]);
 

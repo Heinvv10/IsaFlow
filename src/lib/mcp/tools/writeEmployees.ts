@@ -339,15 +339,21 @@ export const assignEmployeeComponentTool: McpTool = {
     if (!component) return toolError(NOT_FOUND);
 
     const effectiveTo = strArg(args, 'effective_to');
-    const assignment = await assignComponentToEmployee(
-      ctx.companyId,
-      employeeId,
-      componentId,
-      amount,
-      asDate(effectiveFrom),
-      effectiveTo === undefined ? undefined : asDate(effectiveTo),
-      args.is_recurring !== false,
-    );
+    let assignment: Awaited<ReturnType<typeof assignComponentToEmployee>>;
+    try {
+      assignment = await assignComponentToEmployee(
+        ctx.companyId,
+        employeeId,
+        componentId,
+        amount,
+        effectiveFrom,
+        effectiveTo,
+        args.is_recurring !== false,
+      );
+    } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return toolError(err.message);
+      throw err;
+    }
 
     return ok({
       id: assignment.id,
@@ -397,7 +403,7 @@ export const endEmployeeComponentTool: McpTool = {
     // stopped while it stayed live, and the next costed run would pay it.
     let ended: boolean;
     try {
-      ended = await endEmployeeComponent(ctx.companyId, assignmentId, asDate(effectiveTo), { userId: ctx.userId, channel: 'mcp' });
+      ended = await endEmployeeComponent(ctx.companyId, assignmentId, effectiveTo, { userId: ctx.userId, channel: 'mcp' });
     } catch (err) {
       // End's guards (payrollComponentDateEdit): a refusal is the agent's to read; anything else is not.
       if (err instanceof EmployeeComponentRefused) return toolError(err.message);

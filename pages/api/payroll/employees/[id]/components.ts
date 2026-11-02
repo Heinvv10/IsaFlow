@@ -62,8 +62,8 @@ async function handler(
         id,
         componentId,
         Number(amount),
-        new Date(effectiveFrom),
-        effectiveTo ? new Date(effectiveTo) : undefined,
+        effectiveFrom,
+        effectiveTo || undefined,
         isRecurring !== false, // default true
       );
       res.status(201).json({ success: true, data: assignment });
@@ -105,7 +105,7 @@ async function handler(
     if (!effectiveTo) return apiResponse.badRequest(res, 'effectiveTo is required');
 
     try {
-      const ended = await endEmployeeComponent(companyId, aid, new Date(effectiveTo), {
+      const ended = await endEmployeeComponent(companyId, aid, effectiveTo, {
         userId: req.user.id, userEmail: req.user.email, channel: 'rest',
       });
       if (!ended) return apiResponse.notFound(res, 'Component assignment');
