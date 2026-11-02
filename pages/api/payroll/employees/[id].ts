@@ -4,6 +4,7 @@
  * PATCH /api/payroll/employees/[id]  - Update payroll employee
  */
 
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -52,6 +53,8 @@ async function handler(
       return apiResponse.success(res, updated);
     } catch (err) {
       if (err instanceof EmployeeOnboardingRefused) return apiResponse.badRequest(res, err.message);
+      // An end date waits for the company's payroll lock (an approval in flight): retry, not a server error.
+      if (respondIfLockTimeout(res, err)) return;
       throw err;
     }
   }

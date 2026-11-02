@@ -17,6 +17,10 @@
  */
 
 import { sql, withTransaction } from '@/lib/neon';
+import { lockCompanyPayrollForComponentChange, paidPeriodsOf } from './payrollComponentPaidMonths';
+import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
+import { supersedeForPackage } from './payPackageSupersede';
+import { refuseOnceOffInPaidMonth } from './payrollOnceOffGuard';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { endOfMonthIso } from './leaveAccrualService';
@@ -231,11 +235,6 @@ export interface ApplyResult {
   ended: number;
 }
 
-/** pg returns DATE columns as 'YYYY-MM-DD', but a Date can reach here too. */
-function isoDate(v: unknown): string {
-  return v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
-}
-
 export async function applyPackageToEmployee(
   companyId: string,
   packageId: string,
@@ -269,41 +268,14 @@ export async function applyPackageToEmployee(
   // `withTransaction` nests a SAVEPOINT when a request transaction is in flight
   // and opens a real one only when there is none.
   return withTransaction(async (tx) => {
+    // The company's payroll-approval lock first, as approval, assign, End and Edit dates take it.
+    await lockCompanyPayrollForComponentChange(tx, companyId);
+    const actor: ComponentChangeActor = { userId, channel: 'rest' };
+    const paid = await paidPeriodsOf(tx, companyId, employeeId);
     let ended = 0;
     for (const r of compRows) {
       const componentId = String(r.component_id);
-      // Supersede every assignment this apply overlaps, not only the
-      // open-ended ones. A once-off row is inserted already closed, so an
-      // `effective_to IS NULL` predicate would step over the previous apply's
-      // row and leave two overlapping windows — getEmployeeComponents returns
-      // both and the run pays the component twice.
-      const endResult = (await tx`
-        UPDATE payroll_employee_components
-           SET effective_to = (${effectiveFrom}::date - INTERVAL '1 day')::date
-         WHERE employee_id = ${employeeId}::uuid
-           AND component_id = ${componentId}::uuid
-           AND (effective_to IS NULL OR effective_to >= ${effectiveFrom}::date)
-        RETURNING id, effective_from
-      `) as DbRow[];
-      ended += endResult.length;
-
-      // A row starting on or after effectiveFrom is not shortened by the
-      // supersede, it is cancelled outright: the new effective_to lands before
-      // its effective_from, leaving an empty window the reader never selects.
-      // That is the intended outcome and the idiom already used for open-ended
-      // rows, but it is silent — a future-dated assignment disappears from a
-      // period nobody is looking at yet — so name the rows it happened to.
-      const cancelled = endResult.filter(row => isoDate(row.effective_from) >= effectiveFrom);
-      if (cancelled.length > 0) {
-        log.warn(
-          'Pay package apply cancelled assignments it fully overlaps',
-          {
-            companyId, packageId, employeeId, componentId, effectiveFrom,
-            cancelled: cancelled.map(row => ({ id: String(row.id), effectiveFrom: isoDate(row.effective_from) })),
-          },
-          'payPackageService',
-        );
-      }
+      ended += await supersedeForPackage(tx, { companyId, packageId, employeeId, componentId, effectiveFrom, paid, actor });
 
       // A once-off package row must be paid once. Without an explicit
       // effective_to the row is open-ended, and the payroll reader
@@ -312,12 +284,16 @@ export async function applyPackageToEmployee(
       // close rule as payrollBatchService and assignComponentToEmployee.
       const isRecurring = r.is_recurring === true;
       const effectiveTo = isRecurring ? null : endOfMonthIso(startYear, startMonth);
-      await tx`
+      if (!isRecurring) await refuseOnceOffInPaidMonth(tx, companyId, effectiveFrom, effectiveTo);
+      const inserted = (await tx`
         INSERT INTO payroll_employee_components
-          (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
+          (employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred)
         VALUES
-          (${employeeId}::uuid, ${componentId}::uuid, ${Number(r.amount)}, ${effectiveFrom}::date, ${effectiveTo}, ${isRecurring})
-      `;
+          (${employeeId}::uuid, ${componentId}::uuid, ${Number(r.amount)}, ${effectiveFrom}::date, ${effectiveTo}, ${isRecurring}, FALSE)
+        RETURNING id
+      `) as DbRow[];
+      await auditComponentChange(tx, companyId, String(inserted[0]!.id), null,
+        { from: effectiveFrom, to: effectiveTo, recurring: isRecurring }, 'package_assign', actor);
     }
     return { inserted: compRows.length, ended };
   });

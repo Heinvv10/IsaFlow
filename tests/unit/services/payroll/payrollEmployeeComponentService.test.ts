@@ -4,12 +4,22 @@ const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
-vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+vi.mock('@/lib/neon', () => {
+  const SQL = (strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
-  },
-}));
+  };
+  return {
+  sql: SQL,
+  // assign and batch post now run in a transaction under the company's payroll-approval lock: the lock's two
+  // statements are answered here and not recorded, everything else goes to the recorder above.
+  withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    if (text.includes('pg_advisory_xact_lock') || text.includes("set_config('lock_timeout'")) return Promise.resolve([{ previous: '0' }]);
+    return SQL(strings, ...values);
+  }),
+  };
+});
 
 import {
   assignComponentToEmployee,
@@ -27,6 +37,7 @@ const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const EMPLOYEE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const COMPONENT_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const ASSIGNMENT_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+const ACTOR = { userId: 'u-1', channel: 'service' as const };
 
 describe('assignComponentToEmployee', () => {
   it('inserts and returns the mapped row when employee is in company', async () => {
@@ -60,6 +71,9 @@ describe('assignComponentToEmployee', () => {
       COMPONENT_ID,
       5000,
       '2025-01-01',
+      undefined,
+      true,
+      ACTOR,
     );
 
     expect(result).toEqual({
@@ -96,7 +110,7 @@ describe('assignComponentToEmployee', () => {
     };
 
     await assignComponentToEmployee(
-      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01', undefined, false,
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01', undefined, false, ACTOR,
     );
 
     const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
@@ -116,7 +130,7 @@ describe('assignComponentToEmployee', () => {
     };
 
     await assignComponentToEmployee(
-      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01',
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01', undefined, true, ACTOR,
     );
 
     const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
@@ -126,7 +140,7 @@ describe('assignComponentToEmployee', () => {
   it("refuses another company's component before the insert, reading it by this company", async () => {
     mockImpl = (strings) => Promise.resolve(strings.join('?').includes('FROM payroll_employees') ? [{ id: EMPLOYEE_ID }] : []);
     await expect(
-      assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-01-01'),
+      assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-01-01', undefined, true, ACTOR),
     ).rejects.toBeInstanceOf(EmployeeComponentRefused);
     expect(sqlCalls.find(c => c.sql.includes('INSERT'))).toBeUndefined();
     const lookup = sqlCalls.find(c => c.sql.includes('FROM payroll_components'));
@@ -159,7 +173,7 @@ describe('day strings', () => {
   it('refuses a date that is not a real YYYY-MM-DD before any write', async () => {
     mockImpl = (strings) => Promise.resolve(strings.join('?').includes('FROM') ? [{ id: 'x' }] : []);
     for (const bad of ['2025-02-30', '2025-3-1', 'tomorrow', '2025-03-01T00:00:00Z']) {
-      await expect(assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 1, bad))
+      await expect(assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 1, bad, undefined, true, ACTOR))
         .rejects.toBeInstanceOf(EmployeeComponentRefused);
     }
     await expect(endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, '2025-02-30'))
@@ -169,17 +183,11 @@ describe('day strings', () => {
 });
 
 describe('endEmployeeComponent', () => {
-  it('issues UPDATE with the effective_to date and company-scope subquery', async () => {
-    mockImpl = () => Promise.resolve([]);
-
-    await endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, '2025-12-31');
-
-    expect(sqlCalls).toHaveLength(1);
-    const call = sqlCalls[0];
-    expect(call).toBeDefined();
-    expect(call!.sql).toContain('UPDATE payroll_employee_components');
-    expect(call!.sql).toContain('effective_to');
-    expect(call!.sql).toContain('SELECT id FROM payroll_employees');
+  // What End does to a row (cancel an unpaid once-off, end the rest, refuse foreign ids) runs against a real
+  // database: tests/integration/payroll-component-edit-dates-guards.int.test.ts, payroll-run-once-off-window.int.test.ts.
+  it('an id that is not a uuid changes nothing and touches no table', async () => {
+    expect(await endEmployeeComponent(COMPANY_ID, 'not-a-uuid', '2025-12-31', { userId: 'u-1', channel: 'service' })).toBe(false);
+    expect(sqlCalls).toHaveLength(0);
   });
 });
 

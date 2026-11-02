@@ -206,7 +206,9 @@ export async function createEmployeeWithPay(companyId: string, userId: string, b
 
   const employee = await insertEmployee(companyId, fields);
   if (salary) {
-    await assignComponentToEmployee(companyId, employee.id, salary.componentId, salary.cents / 100, String(body.startDate), undefined, true);
+    await assignComponentToEmployee(
+      companyId, employee.id, salary.componentId, salary.cents / 100, String(body.startDate), undefined, true, { userId, channel: 'rest' },
+    );
   }
   log.info('Employee onboarded', { companyId, employeeId: employee.id, userId, withSalary: salary !== null }, 'payrollEmployeeOnboarding');
   return employee;
