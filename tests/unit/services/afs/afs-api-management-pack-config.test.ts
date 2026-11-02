@@ -71,6 +71,14 @@ describe('PUT /afs/management-pack-config', () => {
     expect(apiResponse.methodNotAllowed).toHaveBeenCalled();
   });
 
+  it('saves a first config: the defaults the GET returns carry id "" and must round-trip', async () => {
+    vi.mocked(upsertManagementPackConfig).mockResolvedValueOnce({} as never);
+    const res = makeRes();
+    await (handler as unknown as Handler)(makeReq({ id: '', companyId: COMPANY_ID, comparisonMode: 'all_three' }), res);
+    expect(apiResponse.zodValidationError).not.toHaveBeenCalled();
+    expect(vi.mocked(upsertManagementPackConfig).mock.calls[0]?.[1]).toEqual({ comparisonMode: 'all_three' });
+  });
+
   // ── Backward-compat: the UI round-trips the full ManagementPackConfig ──────
   // (id, companyId, enabled, reviewRequired, sectionsEnabled). The handler
   // must accept these and strip server-controlled fields before calling the
