@@ -59,7 +59,7 @@ const VELO_HEADER = '  velo:\n    name: Browser & integration\n';
 const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]\n';
 const LIGHT = `\${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}`;
 const STATIC_RUNS_ON = `\${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
-const GOLDEN_GROUP = "      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-dev-demo{0}', needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}\n";
+const GOLDEN_GROUP = "      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}\n";
 
 describe('the committed workflow', () => {
   it('passes', () => {
@@ -152,8 +152,8 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['a cap just under the floor', 'timeout-minutes: 59'],
     ['no timeout at all (key removed)', null],
   ])('golden-paths with %s: every run is cut short and ends cancelled', (_label, line) => {
-    const from = '    timeout-minutes: 60\n    # The suite writes to the SHARED';
-    const to = line === null ? '    # The suite writes to the SHARED' : `    ${line}\n    # The suite writes to the SHARED`;
+    const from = '    timeout-minutes: 60\n    # Velo (CI_HOSTED=off): each runner owns';
+    const to = line === null ? '    # Velo (CI_HOSTED=off): each runner owns' : `    ${line}\n    # Velo (CI_HOSTED=off): each runner owns`;
     expect(check(edit(from, to)).length).toBeGreaterThan(0);
   });
 
@@ -175,11 +175,12 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it("golden-paths moved into the workflow's own ci- group (deadlock cancels the run)", () => {
-    expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}`, '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(GOLDEN_GROUP, '      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(GOLDEN_GROUP, '      group: ci-golden\n')).length).toBeGreaterThan(0);
   });
 
-  it("golden-paths back on the one shared group (every PR push cancels the queue's pending run, #938)", () => {
-    expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-dev-demo\n')).length).toBeGreaterThan(0);
+  it("golden-paths without the -queue lane (an ordinary run cancels the queue's pending run, #938)", () => {
+    expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-${{ github.ref }}\n')).length).toBeGreaterThan(0);
   });
 
   it('golden-paths hosted runs on a group shared across runs (they would queue behind each other)', () => {
@@ -202,6 +203,18 @@ describe('refuses every way found to keep the job green while skipping gates', (
   it('golden-paths concurrency removed or set to cancel', () => {
     expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
     expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['the old fixed group, which serialises every ref onto one slot', 'golden-paths-dev-demo'],
+    ['a per-sha group, which a fallback push would not share with PR runs', 'golden-paths-${{ github.sha }}'],
+    ['a per-runner group, which queues a job on a busy runner instead of an idle one', 'golden-paths-${{ runner.name }}'],
+  ])('golden-paths group set to %s', (_label, group) => {
+    expect(check(edit(GOLDEN_GROUP, `      group: ${group}\n`)).length).toBeGreaterThan(0);
+  });
+
+  it('golden-paths concurrency given an extra key', () => {
+    expect(check(edit(`${GOLDEN_GROUP}      cancel-in-progress: false\n`, `${GOLDEN_GROUP}      cancel-in-progress: false\n      queue: max\n`)).length).toBeGreaterThan(0);
   });
 
   it('actions: write on the workflow token (any job could then cancel the run)', () => {

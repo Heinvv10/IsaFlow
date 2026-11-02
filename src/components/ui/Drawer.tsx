@@ -21,10 +21,10 @@ interface DrawerProps {
 }
 
 const WIDTH_CLASSES: Record<DrawerWidth, string> = {
-  sm: 'w-80',    // 320px
-  md: 'w-[480px]',
-  lg: 'w-[640px]',
-  xl: 'w-[800px]',
+  sm: 'w-full max-w-[320px]',
+  md: 'w-full max-w-[480px]',
+  lg: 'w-full max-w-[640px]',
+  xl: 'w-full max-w-[800px]',
 };
 
 // WORKING: Drawer component with portal rendering
