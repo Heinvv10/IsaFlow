@@ -17,6 +17,7 @@
  *
  * Balance formula:
  *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
+ *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
  *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
  *   CR 2175 Other employee deductions (residual)   CR 1110 Bank (net pay)
  *
@@ -61,6 +62,8 @@ export interface PayrollJournalPlanLine {
   description: string;
   /** True when the target account is deactivated. Reported, never filtered. */
   inactiveAccount: boolean;
+  /** Labour lines: the employee's CC1 cost centre, posted to gl_journal_lines.cc1_id. Null on every other line. */
+  cc1Id: string | null;
 }
 
 /** Machine-stable code plus prose. Blockers stop the post; advisories do not. */
@@ -181,17 +184,19 @@ export async function buildPayrollJournalPlan(
       credit: round2(credit),
       description,
       inactiveAccount: acc ? !acc.isActive : false,
+      cc1Id: null,
     };
   };
 
   const built: PayrollJournalPlanLine[] = [];
   const labourAccountId = accounts.get('5200')?.id;
   if (labourAccountId) {
-    const labour = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed);
+    const { lines: labour, advisory: untagged } = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed);
+    if (untagged) advisories.push(untagged);
     // The split can route a share to a cost-centre account other than 5200;
-    // each line carries its own account's code and active flag.
+    // each line carries its own account's code and active flag, and its CC1.
     const centres = await resolveAccountsById(
-      companyId, labour.map((l) => l.glAccountId).filter((id) => id !== labourAccountId));
+      companyId, [...new Set(labour.map((l) => l.glAccountId).filter((id) => id !== labourAccountId))]);
     for (const l of labour) {
       const acc = l.glAccountId === labourAccountId
         ? { code: '5200', ...accounts.get('5200')! }
@@ -204,6 +209,7 @@ export async function buildPayrollJournalPlan(
         credit: 0,
         description: l.description,
         inactiveAccount: acc ? !acc.isActive : false,
+        cc1Id: l.cc1Id,
       });
     }
   } else {

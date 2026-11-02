@@ -2,19 +2,26 @@
  * Pure split-builder for the payroll labour-expense debit lines.
  *
  * Given per-employee labour amounts + per-employee cost-centre (or
- * allocation split) + the cost-centre → expense-account map, produce
- * one JournalLineInput per distinct account. The default account
- * absorbs:
- *   - employees with no cost centre
- *   - employees whose centre has no mapping
- *   - any allocation rows pointing at unmapped centres
- *   - rounding residual (so the account totals tie to the sum of inputs)
+ * allocation split) + the cost-centre → expense-account map, produce one line
+ * per distinct (account, CC1). The mapping picks the ACCOUNT; the centre
+ * itself rides on the line as `cc1Id` (Hein 2026-11-02, so budgets by CC1 see
+ * payroll actuals), unless it is not in `taggableCostCentres` — a centre the
+ * ledger would refuse as a CC1 (inactive, or a CC2 project) posts untagged on
+ * the same account. A dimension tag never blocks payroll.
  *
- * The default line comes last so reversal output is deterministic and
- * the legacy single-line case is a drop-in replacement.
+ * The default account absorbs:
+ *   - employees with no cost centre (untagged)
+ *   - employees whose centre has no mapping (tagged with that centre)
+ *   - any allocation rows pointing at unmapped centres (tagged likewise)
+ *   - the global rounding residual, on its UNTAGGED bucket (created only when
+ *     the residual is not zero), so a cent no centre earned is not reported
+ *     against one
+ *
+ * Order: by account, then CC1 with untagged after tagged; the default account
+ * comes last, its untagged line last of all. So the posted journal, its
+ * reversal and the plan hash never depend on input order, and the legacy
+ * single-line case (no centres) is unchanged.
  */
-
-import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 
 export interface RunLabourLine {
   employeeId: string;
@@ -36,17 +43,34 @@ export interface BuildLabourDebitInput {
   mappings: Record<string, string>;
   /** Fallback GL account when the centre has no mapping or the employee has no centre. */
   defaultAccountId: string;
+  /** Centres a line may carry as CC1 (active, cc_type 'cc1'). Any other centre still picks the account, untagged. */
+  taggableCostCentres: ReadonlySet<string>;
+}
+
+export interface LabourDebitLine {
+  glAccountId: string;
+  /** The employee's cost centre, or null (no centre, or one the ledger would refuse as a CC1). */
+  cc1Id: string | null;
+  debit: number;
+  credit: 0;
+  description: string;
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+const LABOUR_DESCRIPTION = 'Labour costs — gross pay + statutory employer contributions − ETI';
 
-export function buildLabourDebitLines(input: BuildLabourDebitInput): JournalLineInput[] {
-  const { runLines, employeeCostCentre, employeeAllocations, mappings, defaultAccountId } = input;
+export function buildLabourDebitLines(input: BuildLabourDebitInput): LabourDebitLine[] {
+  const { runLines, employeeCostCentre, employeeAllocations, mappings, defaultAccountId, taggableCostCentres } = input;
   if (runLines.length === 0) return [];
 
-  const byAccount = new Map<string, number>();
-  const accumulate = (accountId: string, amount: number): void => {
-    byAccount.set(accountId, r2((byAccount.get(accountId) ?? 0) + amount));
+  const buckets = new Map<string, { glAccountId: string; cc1Id: string | null; amount: number }>();
+  const accumulate = (centre: string | null, amount: number): void => {
+    const glAccountId = centre != null ? (mappings[centre] ?? defaultAccountId) : defaultAccountId;
+    const cc1Id = centre != null && taggableCostCentres.has(centre) ? centre : null;
+    const key = JSON.stringify([glAccountId, cc1Id]);
+    const bucket = buckets.get(key) ?? { glAccountId, cc1Id, amount: 0 };
+    bucket.amount = r2(bucket.amount + amount);
+    buckets.set(key, bucket);
   };
 
   let grandTotalInput = 0;
@@ -56,7 +80,7 @@ export function buildLabourDebitLines(input: BuildLabourDebitInput): JournalLine
     const allocations = employeeAllocations[line.employeeId];
     if (allocations && allocations.length > 0) {
       const shares = allocations.map(a => ({
-        accountId: mappings[a.costCentreId] ?? defaultAccountId,
+        centre: a.costCentreId,
         amount: r2((line.labourAmount * a.percentage) / 100),
       }));
       const summed = shares.reduce<number>((s, x) => s + x.amount, 0);
@@ -65,36 +89,32 @@ export function buildLabourDebitLines(input: BuildLabourDebitInput): JournalLine
         const last = shares[shares.length - 1]!;
         last.amount = r2(last.amount + residual);
       }
-      for (const s of shares) accumulate(s.accountId, s.amount);
+      for (const s of shares) accumulate(s.centre, s.amount);
     } else {
-      const centre = employeeCostCentre[line.employeeId] ?? null;
-      const accountId = centre != null ? (mappings[centre] ?? defaultAccountId) : defaultAccountId;
-      accumulate(accountId, line.labourAmount);
+      accumulate(employeeCostCentre[line.employeeId] ?? null, line.labourAmount);
     }
   }
 
-  // Ensure rounding residual never leaks — adjust default bucket so totals tie.
-  const summed = Array.from(byAccount.values()).reduce((s, a) => s + a, 0);
+  // Ensure rounding residual never leaks — the default account's untagged bucket takes it so totals tie.
+  const summed = Array.from(buckets.values()).reduce((s, b) => s + b.amount, 0);
   const residual = r2(grandTotalInput - summed);
-  if (residual !== 0) {
-    byAccount.set(defaultAccountId, r2((byAccount.get(defaultAccountId) ?? 0) + residual));
-  }
+  if (residual !== 0) accumulate(null, residual);
 
-  const nonDefault = Array.from(byAccount.entries())
-    .filter(([acct]) => acct !== defaultAccountId)
-    .sort(([a], [b]) => a.localeCompare(b));
+  const rank = (b: { glAccountId: string; cc1Id: string | null }): [number, string, number, string] => [
+    b.glAccountId === defaultAccountId ? 1 : 0, b.glAccountId, b.cc1Id === null ? 1 : 0, b.cc1Id ?? ''];
+  const ordered = Array.from(buckets.values())
+    .filter((b) => b.amount !== 0)
+    .sort((x, y) => {
+      const [a, b] = [rank(x), rank(y)];
+      return a[0] - b[0] || a[1].localeCompare(b[1]) || a[2] - b[2] || a[3].localeCompare(b[3]);
+    });
 
-  const defaultAmount = byAccount.get(defaultAccountId);
-  const orderedEntries: Array<[string, number]> = [...nonDefault];
-  if (defaultAmount !== undefined && defaultAmount !== 0) {
-    orderedEntries.push([defaultAccountId, defaultAmount]);
-  }
-
-  return orderedEntries.map(([glAccountId, debit]) => ({
-    glAccountId,
-    debit,
+  return ordered.map((b) => ({
+    glAccountId: b.glAccountId,
+    cc1Id: b.cc1Id,
+    debit: b.amount,
     credit: 0,
-    description: 'Labour costs — gross pay + statutory employer contributions − ETI',
+    description: LABOUR_DESCRIPTION,
   }));
 }
 
