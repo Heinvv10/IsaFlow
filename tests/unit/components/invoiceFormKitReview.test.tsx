@@ -8,7 +8,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok } from '../helpers/d2CensusG4';
 import { typeDate } from '../helpers/dateFields';
-import { pickOption } from '../helpers/kitPick';
+import { clickWhenEnabled, pickOption } from '../helpers/kitPick';
 
 const push = vi.fn();
 type Scan = { date: string | null; dueDate: string | null; customerName: string | null };
@@ -63,7 +63,7 @@ async function completeAndSubmit() {
   await pickOption('Client', 'Acme');
   fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
   fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
-  fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
+  await clickWhenEnabled(/^create invoice$/i);
 }
 const scanNow = () => fireEvent.click(screen.getByRole('button', { name: 'scan stub' }));
 
@@ -130,7 +130,7 @@ describe('Save & New', () => {
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
     fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
     typeDate(field('Due date'), 'zz');
-    fireEvent.click(screen.getByRole('button', { name: /save & new/i }));
+    await clickWhenEnabled(/save & new/i);
     expect(await screen.findByText('Fix the dates marked in red before saving')).toBeTruthy();
     expect(calls('POST')).toBe(0);
   });
@@ -186,7 +186,7 @@ describe('a slow scan lookup cannot overwrite what the user did meanwhile', () =
     expect(clientBox()).toContain('Beta');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
     fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
-    fireEvent.click(screen.getByRole('button', { name: /^create invoice$/i }));
+    await clickWhenEnabled(/^create invoice$/i);
     await waitFor(() => expect(calls('POST')).toBe(1));
     expect(sentBody('POST')).toMatchObject({ clientId: 'c-2' });
   });
@@ -200,7 +200,7 @@ describe('a slow scan lookup cannot overwrite what the user did meanwhile', () =
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
     fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
     scanNow(); // the lookup starts after the last pick, so only the reset can invalidate it
-    fireEvent.click(screen.getByRole('button', { name: /save & new/i }));
+    await clickWhenEnabled(/save & new/i);
     await waitFor(() => expect(calls('POST')).toBe(1));
     await waitFor(() => expect(clientBox()).toContain('Select client'));
     g.release();
