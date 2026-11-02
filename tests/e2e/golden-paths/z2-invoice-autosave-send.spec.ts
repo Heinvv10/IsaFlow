@@ -4,7 +4,9 @@
  * Edit a sandbox draft: loading the page sends no PUT; a change shows "Saved" and survives a reload. Approve & email
  * approves the draft and opens the email form with the customer's address; nothing is sent until Send, and Send is
  * answered HERE: /api/accounting/invoice-email is route-fulfilled and must be hit exactly once (dev's SMTP is live, and
- * the fixture customer's address is a .invalid one besides). axe reports nothing serious on new and edit, both themes.
+ * the fixture customer's address is a .invalid one besides). Leaving with a change unsaved asks; refusing keeps the page
+ * with no page error (no unhandled rejection). axe reports nothing serious on new and edit, both themes, and on the
+ * open email form.
  * Evidence mode: INVOICE_EVIDENCE_DIR=<dir> writes screenshots.
  */
 // golden:dev-only
@@ -74,8 +76,17 @@ test('editing a draft autosaves after a change, never on load, and the change su
     expect(puts(), 'loading the edit page must send no PUT').toBe(0);
 
     const changed = `Z2 changed ${Date.now().toString(36)}`;
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    const asked: string[] = [];
+    page.once('dialog', async (d) => { asked.push(d.message()); await d.dismiss(); });
     await page.getByPlaceholder('Item description').first().fill(changed);
+    await page.getByRole('link', { name: 'Cancel' }).click(); // before the 1.5 s autosave: the change is unsaved
+    await expect.poll(() => asked).toEqual(['This invoice has changes that are not saved yet. Leave without them?']);
+    expect(page.url()).toContain(`/edit/${id}`);
     await expect(page.getByRole('status').filter({ hasText: /^Saved/ })).toBeVisible({ timeout: 15_000 });
+    expect(errors, 'a refused leave is not a page error').toEqual([]);
+    await expect(page.getByText(/Navigation cancelled|Unhandled Runtime Error/)).toHaveCount(0); // no Next error overlay (dev)
     expect(puts()).toBe(1);
 
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -103,12 +114,14 @@ test('Approve & email approves, opens the email form, and sends only on Send (ro
     expect((await api.get<{ status: string }>(`/api/accounting/customer-invoices-detail?id=${id}`)).status).toBe('approved');
     expect(sent, 'nothing is sent before Send').toEqual([]);
     await shot(page, 'invoice-approve-email-modal');
+    await expect(page.getByRole('dialog', { name: 'Email Invoice' })).toBeVisible();
+    await expectNoSeriousA11yViolations(page, { key: EDIT_KEY });
 
     await page.getByRole('button', { name: /send email/i }).click();
     await expect(page.getByText('Invoice emailed successfully!')).toBeVisible();
     expect(sent).toEqual([{ invoiceId: id, recipientEmail: CUSTOMER.email }]);
 
-    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
     expect(sent, 'the email route was hit exactly once').toHaveLength(1);
   } finally {
