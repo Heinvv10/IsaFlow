@@ -163,7 +163,8 @@ export function SageComparison() {
           </table>
         </div>
         <p className="flex items-center justify-center gap-2 text-sm text-gray-500 mt-6">
-          <TrendingDown className="w-4 h-4 text-teal-500" /> All prices include 15% VAT. Sage add-on prices amortised monthly.
+          <TrendingDown className="w-4 h-4 text-teal-500" /> All prices include 15% VAT. Sage prices from{' '}
+          <a href={SAGE_COMPARISON.source} className="underline" rel="nofollow noopener noreferrer" target="_blank">sage.com</a>, monthly, checked {SAGE_COMPARISON.checkedOn}.
         </p>
       </div>
     </section>
