@@ -59,6 +59,8 @@ export interface BudgetVarianceTracked {
   unallocatedBudget: ByPolarity | null;
   /** The engine's count of accounts budgeted for only part of the window. */
   partialBudgetCount: number;
+  /** Every financial year the range touches (registry labels), in order. */
+  years: number[];
   /** The engine's band and profit-total figures; `actual` lets a reader that prints its own actual check it reads the same ledger (the board pack). */
   bands: Array<{ key: TrackingBandKey | TrackingTotalKey; budget: number | null; actual: number }>;
 }
@@ -105,6 +107,7 @@ export function trackedVariance(range: RangeTracking): BudgetVarianceTracked {
     version: range.version,
     unallocatedBudget: range.notices.unallocatedBudget,
     partialBudgetCount: range.notices.partialBudget?.count ?? 0,
+    years: range.years.map((y) => y.fiscalYear),
     bands: range.bands.map((b) => ({ key: b.key, budget: b.budget, actual: b.actual })),
   };
 }

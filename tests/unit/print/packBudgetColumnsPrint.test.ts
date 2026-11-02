@@ -11,6 +11,7 @@ import { chromium } from 'playwright';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { formatStatementFigure, MONEY_SCALES } from '@/lib/format/money';
 import { demoInput, demoSet } from '../services/packs/fixtures/boardPackInputs';
+import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/packBoardPackInput';
 import { printBoardPack, type PrintedPack } from './renderPackPdf';
 
 let browser: Browser;
@@ -48,4 +49,43 @@ describe('page 6 with a budget, on paper', () => {
       expect(incomeSheet(), `${key} budget ${text}`).toContain(text);
     }
   });
+});
+
+/**
+ * The demo pack's figures scaled by `k` (adversarial review r1, REPRO 3): with eight data
+ * columns and figures in the billions the label column was left too little room, "Operating
+ * expenses" wrapped, and page 6 spilled onto a thirteenth sheet, because the fit model charged
+ * every table a 40% label column. `loss` doubles operating expenses; `negative` makes revenue
+ * a net debit (the Brightsphere shape). Shapes and scales from that review.
+ */
+function scaled(k: number, negative: boolean, loss: boolean): BoardPackInput {
+  const c = demoSet.current;
+  const m = (v: number) => Math.round(v * k);
+  const s = negative ? -1 : 1;
+  const opexK = loss ? 2 : 1;
+  const current = { ...c, revenue: m(c.revenue) * s, costOfSales: m(c.costOfSales), operatingExpenses: m(c.operatingExpenses) * opexK,
+    otherIncome: m(c.otherIncome ?? 0), otherExpenses: m(c.otherExpenses ?? 0) };
+  const op = current.revenue - current.costOfSales + current.otherIncome - current.operatingExpenses;
+  const b = demoSet.budget!.bands;
+  const bands = { ...b, 'is.revenue': m(b['is.revenue']!) * s, 'is.costOfSales': m(b['is.costOfSales']!),
+    'is.otherIncome': m(b['is.otherIncome']!), 'is.operatingExpenses': m(b['is.operatingExpenses']!) * opexK, 'is.otherExpenses': m(b['is.otherExpenses']!) };
+  bands['is.grossProfit'] = bands['is.revenue'] - bands['is.costOfSales'];
+  bands['is.operating'] = bands['is.grossProfit'] + bands['is.otherIncome'] - bands['is.operatingExpenses'];
+  bands['is.netProfit'] = bands['is.operating'] - bands['is.otherExpenses'];
+  const pr = demoSet.prior!;
+  const prior = { ...pr, revenue: m(pr.revenue) * s, costOfSales: m(pr.costOfSales), operatingExpenses: m(pr.operatingExpenses),
+    operatingProfit: m(pr.operatingProfit ?? 0), netProfit: m(pr.netProfit), otherIncome: m(pr.otherIncome ?? 0), otherExpenses: m(pr.otherExpenses ?? 0) };
+  return { ...demoInput, set: { ...demoSet, current: { ...current, operatingProfit: op, netProfit: op - current.otherExpenses }, prior, budget: { ...demoSet.budget!, bands } } };
+}
+
+describe('page 6 with a budget at the figures that spilled it', () => {
+  it.each([
+    ['a loss at about R12.6bn of revenue', 3000, false, true],
+    ['a net-debit revenue of about R840m', 200, true, false],
+  ] as const)('%s prints on as many sheets as it has pages, with nothing past the edge', async (_name, k, negative, loss) => {
+    const document = buildBoardPackPages(scaled(k, negative, loss));
+    const out = await printBoardPack(document, browser);
+    expect(out.overflow).toEqual([]);
+    expect(out.sheets).toBe(document.pages.length);
+  }, 180_000);
 });

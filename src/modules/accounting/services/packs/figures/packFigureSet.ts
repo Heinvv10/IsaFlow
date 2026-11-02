@@ -43,7 +43,7 @@ import {
   getBudgetVariance,
   type BudgetVarianceTrackedResult,
 } from '@/modules/accounting/services/reports/budgetVarianceService';
-import type { TrackingBandKey } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import type { TrackingBandKey, TrackingTotalKey } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
 import { PACK_BUDGET_BAND, type PackBudgetRowKey } from './packBudgetBands';
 import { operatingProfitOf } from './packMetricReads';
 
@@ -68,12 +68,14 @@ export interface PackBudgetRow {
  */
 export interface PackBudgetFigures {
   fiscalYear: number;
-  /** The version read (the primary unless one was named). */
-  version: { name: string; status: string };
+  /** The one version read (its kind and status: fixed words, never the user-typed name); null when
+   *  the window spans financial years and each year's primary was read. */
+  version: { kind: string; status: string } | null;
   /** Each income-statement row's budget, the engine's band or profit total; null where
    *  the engine states none (no account in it budgeted, or one budgeted for part of the window). */
   bands: Record<PackBudgetRowKey, number | null>;
-  /** Accounts with posted movement in the window and no budget: their budget counts as nil. */
+  /** Accounts with posted movement and no budget whose line still prints a budget (their band has one):
+   *  their budget counts as nil there. One in a band with no budget is in that line's n/m instead. */
   unbudgetedCount: number;
   /** Net profit (revenue − expenses) over EVERY account with a budget or
    *  movement, budgeted or not (budgets P0, D11): it does not foot to Σ `rows`,
@@ -151,14 +153,17 @@ async function fetchPrior(
   return figures;
 }
 
-/** The pack's own actual for each engine band (natural sign, as the engine states them). */
-function packBandActuals(f: ReportPackFigures): Record<TrackingBandKey, number> {
+/** The pack's own actual for each engine band and profit total, as page 6 prints it (natural sign, as the engine states them). */
+function packBandActuals(f: ReportPackFigures): Record<TrackingBandKey | TrackingTotalKey, number> {
   return {
     turnover: f.revenue,
     cost_of_sales: f.costOfSales,
     other_income: f.otherIncome ?? 0,
     operating_expense: f.operatingExpenses,
     other_expense: f.otherExpenses ?? 0,
+    gross_profit: f.revenue - f.costOfSales,
+    operating_profit: operatingProfitOf(f),
+    net_profit: f.netProfit,
   };
 }
 
@@ -169,7 +174,7 @@ const SAME_CENT = 0.005;
 function disagreeingBands(result: BudgetVarianceTrackedResult, current: ReportPackFigures): string[] {
   const own = packBandActuals(current);
   return result.bands
-    .filter((b): b is typeof b & { key: TrackingBandKey } => b.key in own)
+    .filter((b) => b.key in own)
     .filter((b) => Math.abs(b.actual - own[b.key]) > SAME_CENT)
     .map((b) => b.key);
 }
@@ -180,8 +185,14 @@ function toPackBudget(
   logFields: Record<string, unknown>,
 ): PackBudgetFigures | null {
   // No budgeted account, a year in the window with no budget, or a window that cuts a budget month:
-  // the engine states no window budget, and a column of dashes is not a budget column.
-  if (result.rows.length === 0 || result.budgetAbsentYears.length > 0 || result.splitsMonth || result.version === null) {
+  // the engine states no window budget, and a column of dashes is not a budget column. Logged, so a
+  // budgeted company whose pack has no Budget column can be told why.
+  const absent = result.version === null ? 'no budget version'
+    : result.budgetAbsentYears.length > 0 ? 'a financial year in the window has no budget'
+      : result.splitsMonth ? 'the window cuts a budget month (budgets are set by whole month)'
+        : result.rows.length === 0 ? 'no account is budgeted for the window' : null;
+  if (absent !== null) {
+    log.info('packFigureSet: no budget column', { ...logFields, reason: absent }, 'packs');
     return null;
   }
   const disagree = disagreeingBands(result, current);
@@ -194,11 +205,12 @@ function toPackBudget(
   const bands = Object.fromEntries(
     Object.entries(PACK_BUDGET_BAND).map(([row, band]) => [row, byKey.get(band) ?? null]),
   ) as Record<PackBudgetRowKey, number | null>;
+  const version = result.years.length > 1 || result.version === null ? null : { kind: result.version.kind, status: result.version.status };
   return {
     fiscalYear: result.fiscalYear,
-    version: { name: result.version.name, status: result.version.status },
+    version,
     bands,
-    unbudgetedCount: result.unbudgeted.filter((l) => l.actual_amount !== 0).length,
+    unbudgetedCount: result.unbudgeted.filter((l) => l.actual_amount !== 0 && byKey.get(l.band) != null).length,
     totals: result.totals,
     rows: result.rows.map((r) => ({
       accountCode: r.account_code,
