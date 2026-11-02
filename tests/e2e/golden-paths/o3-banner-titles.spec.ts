@@ -87,19 +87,25 @@ test('customer-invoices-edit: a token header, with every text at AA in light and
   await expectPageReads(page, 'customer-invoices-edit', `/accounting/customer-invoices/edit/${draft!.id}`, draft!.invoice_number);
 });
 
-test('font-id keeps the app face, with tabular figures and a slashed zero', async ({ page }) => {
+test('font-id keeps the app face, with tabular figures and a zero that really is slashed', async ({ page }) => {
   await page.goto('/accounting/credit-notes', { waitUntil: 'domcontentloaded' });
   await settle(page);
-  const seen = await page.evaluate(() => {
+  const seen = await page.evaluate(async () => {
     const main = document.querySelector('main')!;
-    const id = document.createElement('span');
-    id.className = 'font-id';
-    main.appendChild(id);
-    const style = getComputedStyle(id);
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:#fff;color:#000;font-size:48px;width:400px;';
+    box.innerHTML = '<span id="o3-id" class="font-id">0</span> <span id="o3-plain">0</span>';
+    main.appendChild(box);
+    await document.fonts.ready;
+    const style = getComputedStyle(document.getElementById('o3-id')!);
     return { font: style.fontFamily, numeric: style.fontVariantNumeric, app: getComputedStyle(main).fontFamily };
   });
   expect(seen.font).toBe(seen.app);
   expect(seen.font).not.toMatch(/mono/i);
   expect(seen.numeric).toContain('tabular-nums');
   expect(seen.numeric).toContain('slashed-zero');
+  // A computed style proves the request, not the glyph: a face without the `zero` feature paints the plain zero.
+  const painted = await page.locator('#o3-id').screenshot();
+  const plain = await page.locator('#o3-plain').screenshot();
+  expect(painted.equals(plain), 'the figures face must carry the slashed zero').toBe(false);
 });
