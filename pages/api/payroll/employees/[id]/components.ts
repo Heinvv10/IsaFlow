@@ -59,8 +59,8 @@ async function handler(
         id,
         componentId,
         Number(amount),
-        new Date(effectiveFrom),
-        effectiveTo ? new Date(effectiveTo) : undefined,
+        effectiveFrom,
+        effectiveTo || undefined,
         isRecurring !== false, // default true
       );
       res.status(201).json({ success: true, data: assignment });
@@ -79,7 +79,7 @@ async function handler(
     if (typeof aid !== 'string') return apiResponse.badRequest(res, 'aid (assignment ID) query param is required');
     if (!effectiveTo) return apiResponse.badRequest(res, 'effectiveTo is required');
 
-    await endEmployeeComponent(companyId, aid, new Date(effectiveTo));
+    await endEmployeeComponent(companyId, aid, effectiveTo);
     return apiResponse.success(res, { ended: aid });
   }
 

@@ -151,8 +151,8 @@ describe('createEmployeeWithPay: what it writes', () => {
     expect(assignComponentToEmployee).toHaveBeenCalledTimes(1);
     const [company, employee, component, rands, from, to, recurring] = vi.mocked(assignComponentToEmployee).mock.calls[0]!;
     expect([company, employee, component, rands, to, recurring]).toEqual([COMPANY, 'e1', COMPONENT, 25000.5, undefined, true]);
-    // assignComponentToEmployee renders this with toISOString(): a local-midnight Date would land on 31 Oct in SAST.
-    expect(from.toISOString().slice(0, 10)).toBe('2026-11-01');
+    // A plain day string, never a Date: a Date rendered with toISOString() would land on 31 Oct in SAST.
+    expect(from).toBe('2026-11-01');
   });
 
   it('the employee is written first: the assignment needs its id', async () => {

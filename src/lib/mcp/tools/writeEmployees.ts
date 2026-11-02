@@ -343,8 +343,8 @@ export const assignEmployeeComponentTool: McpTool = {
       employeeId,
       componentId,
       amount,
-      asDate(effectiveFrom),
-      effectiveTo === undefined ? undefined : asDate(effectiveTo),
+      effectiveFrom,
+      effectiveTo,
       args.is_recurring !== false,
     );
 
@@ -394,7 +394,7 @@ export const endEmployeeComponentTool: McpTool = {
     // matches nothing and the statement succeeds having changed nothing —
     // answering `ended: true` there would tell an agent an old salary was
     // stopped while it stayed live, and the next costed run would pay it.
-    const ended = await endEmployeeComponent(ctx.companyId, assignmentId, asDate(effectiveTo));
+    const ended = await endEmployeeComponent(ctx.companyId, assignmentId, effectiveTo);
     if (!ended) return toolError(NOT_FOUND);
     return ok({ assignment_id: assignmentId, effective_to: effectiveTo, ended: true });
   },
