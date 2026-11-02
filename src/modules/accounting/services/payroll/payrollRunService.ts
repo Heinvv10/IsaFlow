@@ -4,6 +4,7 @@ import { log } from '@/lib/logger';
 import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
 import { payrollRunReadDate } from './payrollRunReadDate';
+import { proRataValidation, recurringRowsNeedingProRata } from './payrollRecurringProRata';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
@@ -180,6 +181,8 @@ export async function calculatePayrollRun(
   // Earlier periods of the tax year, for the cumulative PAYE (PAYE 4a follow-ups G4).
   const ytdByEmployee = await loadPayeYearToDate(companyId, runId, period, population.map(p => p.employee.id));
   const laterApproved = await laterPeriodsWarnings(companyId, runId, period);
+  // Recurring rows the last-day read pays in full or drops: flagged on the line, refused at approval.
+  const proRata = await recurringRowsNeedingProRata(companyId, period, employees.map(e => e.id));
 
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
@@ -236,6 +239,7 @@ export async function calculatePayrollRun(
         ...line.validationResults, ...terminationWarnings,
         // Only a line taxed from the tables feeds the later months' cumulative PAYE.
         ...((line.periodicTaxable > 0 || line.annualTaxable > 0) && laterApproved.has(employee.id) ? [laterApproved.get(employee.id)!] : []),
+        ...proRata.filter(r => r.employeeId === employee.id).map(proRataValidation),
       ]),
     });
 

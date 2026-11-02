@@ -32,6 +32,7 @@ const GROUP_LABEL: Record<string, string> = {
   DUPLICATE_TAX_NUMBER: 'Tax number already used by another employee',
   INVALID_ID_NUMBER: 'ID number must be 13 digits',
   MISSING_BANK_DETAILS: 'No bank details — EFT payment will fail',
+  RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata; approval is refused until its dates are changed',
 };
 
 interface Group {
@@ -87,7 +88,9 @@ export function PayrollRunWarnings({ lines }: { lines: WarningLine[] }) {
         ))}
       </ul>
       <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
-        These do not block the run — payroll can still be approved and paid.
+        {groups.some((g) => g.code === 'RECURRING_NEEDS_PRO_RATA')
+          ? 'A recurring component needing a pro-rata blocks approval until its dates are changed and the run is recalculated; the other warnings do not.'
+          : 'These do not block the run — payroll can still be approved and paid.'}
       </p>
     </section>
   );

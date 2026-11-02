@@ -74,7 +74,7 @@ export function PaySection({ form, errors, set, fieldRef, setSalary }: Props) {
       number={4}
       title="Pay"
       description="Optional. Leave it blank and add pay on the profile later."
-      help={{ text: 'The salary repeats every month until it is ended on the profile. A start on any day of the month is paid the full month in that month\'s run, with no part-month reduction.' }}
+      help={{ text: 'The salary repeats every month until it is ended on the profile. A start date on or before the 27th is paid the full month in that month\'s run, with no part-month reduction; a later one needs a manual pro-rata in that month\'s run.' }}
     >
       {loadError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{loadError}</p>}
       {!loadError && components === null && <p className="text-sm text-[var(--ff-text-secondary)]">Loading pay components…</p>}

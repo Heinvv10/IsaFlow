@@ -22,8 +22,9 @@
  *                   `datedForReplacement`;
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
- *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then
- *      every journal-plan blocker except
+ *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
+ *      recurring row needing a manual pro-rata (`recurring_needs_pro_rata`,
+ *      payrollRecurringProRata), then every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
  *      'already_posted', which names the journal being replaced.
  *
@@ -41,6 +42,7 @@ import { readJournalChain, runRecalculatedSince, type JournalChain } from './pay
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
+import { runProRataBlocker } from './payrollRecurringProRata';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -258,6 +260,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           + '. Recalculate this run first; it then leaves them out.',
       };
     }
+    // A recurring row the last-day read pays in full or drops, unresolved (payrollRecurringProRata).
+    const proRata = await runProRataBlocker(companyId, runId);
+    if (proRata) return proRata;
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();
 
