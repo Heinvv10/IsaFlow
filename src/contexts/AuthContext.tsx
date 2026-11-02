@@ -9,7 +9,6 @@ import {
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
-import { clearInvoiceDrafts } from '@/lib/invoiceDrafts';
 import { log } from '@/lib/logger';
 import { apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useSessionCheck } from './useSessionCheck';
@@ -212,7 +211,6 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     } finally {
       setUser(null);
       clearTenantClientState();
-      clearInvoiceDrafts(); // the next person at this browser is never offered this user's invoice
       if (typeof window !== 'undefined') {
         window.location.href = '/login';
       }

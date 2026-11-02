@@ -1,11 +1,13 @@
 /**
- * Master plan wave 3, PR S: every `isaflow:invoice-draft:*` key goes on sign-out and on a company switch, so the next
+ * Master plan wave 3, PR S: every `isaflow:invoice-draft:*` key goes on sign-out, on a session that expired (every
+ * redirect to /login runs clearTenantClientState), and on a company switch, so the next
  * person at this browser, or the next company, is never offered another's invoice. Other keys stay. A switch the
  * server refused leaves the user where they were, drafts included.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { clearInvoiceDrafts, invoiceDraftKey } from '@/lib/invoiceDrafts';
+import { apiFetch } from '@/lib/apiFetch';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 const authState = vi.hoisted(() => ({ value: null as unknown }));
@@ -56,6 +58,20 @@ describe('sign-out', () => {
     plant();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'sign out' })); });
     await waitFor(() => expect(drafts()).toEqual([]));
+    expect(localStorage.getItem('isaflow_theme')).toBe('dark');
+  });
+});
+
+describe('session expiry', () => {
+  it('a refused session refresh, on its way to /login, clears the invoice drafts', async () => {
+    const location = { ...window.location, pathname: '/accounting/customer-invoices/new', href: '/accounting/customer-invoices/new' };
+    vi.stubGlobal('location', location);
+    stubFetch(() => json(401, { success: false, error: { code: 'UNAUTHORIZED', message: 'expired' } }));
+    plant();
+    const res = await apiFetch('/api/accounting/customers');
+    expect(res.status).toBe(401);
+    expect(location.href).toBe('/login?reason=session-expired');
+    expect(drafts()).toEqual([]);
     expect(localStorage.getItem('isaflow_theme')).toBe('dark');
   });
 });

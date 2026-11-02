@@ -71,6 +71,7 @@ describe('new invoice: the draft on this device', () => {
 
   it('offers the kept draft on the next visit; Restore puts it back, mode and gross prices together, and the customer does not overwrite it', async () => {
     await open();
+    await pick('Client', /Client/); // a customer with no VAT type: its default would put the mode back to Excluding VAT
     await pick('Amounts are', /Including VAT/);
     type(description(), 'Restored work');
     type(price(), '230');
@@ -82,7 +83,9 @@ describe('new invoice: the draft on this device', () => {
     await advance(0);
     expect(description().value).toBe('Restored work');
     expect(price().value).toBe('230');
+    await advance(0); // the customer's answer lands after the restore
     expect(screen.getByRole('combobox', { name: 'Amounts are' }).textContent).toMatch(/Including VAT/);
+    expect(price().value).toBe('230');
     expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
   });
 
@@ -109,6 +112,18 @@ describe('new invoice: the draft on this device', () => {
     await advance(0);
     expect(h.push).toHaveBeenCalledWith('/accounting/customer-invoices/inv-1');
     expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('a draft kept under another company, or by another user, is never offered here', async () => {
+    const other = JSON.stringify({ savedAt: Date.now(), data: { form: { clientId: '' }, lines: [], taxMode: 'exclusive' } });
+    localStorage.setItem('isaflow:invoice-draft:co-2:u-1', other);
+    localStorage.setItem('isaflow:invoice-draft:co-1:u-2', other);
+    await open();
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+    type(description(), 'Mine');
+    await advance(800);
+    expect(stored()!.data.lines[0]).toMatchObject({ description: 'Mine' });
+    expect(localStorage.getItem('isaflow:invoice-draft:co-2:u-1')).toBe(other);
   });
 
   it('writes nothing without a company and a user to key it by', async () => {
