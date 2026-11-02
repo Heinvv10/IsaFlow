@@ -55,6 +55,7 @@ import type { unclassifiedWarning } from '@/modules/accounting/services/gl/finan
 import type { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 import type { approvePayrollRun } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import type { JournalPlanPreview } from '@/modules/accounting/services/payroll/payrollApprovalGate';
+import type { RunInputsState } from '@/modules/accounting/services/payroll/payrollRunPeriodInputs';
 import type { getSetupProgress } from '@/modules/accounting/services/core/setupProgressService';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
@@ -204,6 +205,8 @@ interface DynamicRoutes {
   // plan.blockers is withheld from the response (the route strips it): the top-level `blocker` is the one answer.
   '/api/payroll/runs/{}/journal-plan': JournalPlanPreview;
   '/api/payroll/runs/{}/approve': Awaited<ReturnType<typeof approvePayrollRun>>;
+  // Wave 3 R. GET and PUT answer the same state, so a PUT hands the grid the recalculated lines.
+  '/api/payroll/runs/{}/inputs': RunInputsState;
   // Fleet records (mig 853): GET the list, POST the new record, DELETE `{ deleted, id }` — the list and the item of
   // one resource, so a union (see above). The bank-links read is GET only; null (404) never reaches the caller.
   '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };

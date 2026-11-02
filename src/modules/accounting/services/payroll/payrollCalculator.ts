@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money/formatMoney';
 import { getAge } from './payeEngine';
 import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
 import { calculateCumulativePaye } from './payeCumulative';
@@ -41,6 +42,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // (the 3810 fringe benefit, deemed paid by the employee) is not supported.
   // They decide the 65+ additional medical expenses tax credit (payeEngine).
   let medicalSchemeFees = 0;
+  let loanInstalments = 0;
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
@@ -83,6 +85,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       totalDeductions += amount;
       if (component.isTaxable) taxableDeductions += amount;
       if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
+      if (normaliseSarsCode(component.sarsSourceCode) === 'LOAN') loanInstalments += amount;
     }
   }
 
@@ -163,6 +166,27 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
   ) / 100;
+
+  // Reported, never corrected: the line below still floors net at nil, and every other figure stands.
+  // The approval gate refuses a run carrying DEDUCTIONS_EXCEED_PAY (findOverdrawnLines). A shortfall that
+  // would not exist without the loan instalment is only a warning: an instalment cannot be edited on a
+  // run, and refusing it would stop every employee's pay over one leaver's last month.
+  if (netPay < 0) {
+    const fromLoan = round2(netPay + loanInstalments) >= 0;
+    warnings.push(fromLoan ? {
+      code: 'LOAN_INSTALMENT_EXCEEDS_PAY',
+      severity: 'warning',
+      rawNet: netPay,
+      message: `The loan instalment takes ${formatMoney(-netPay)} more than this employee's pay, so net pay shows as nil and `
+        + 'the deductions payable are understated by that amount.',
+    } : {
+      code: 'DEDUCTIONS_EXCEED_PAY',
+      severity: 'error',
+      rawNet: netPay,
+      message: `Deductions and tax come to ${formatMoney(-netPay)} more than this employee's pay, so net pay shows as nil and `
+        + 'the deductions payable are understated by that amount. Reduce the deductions, then recalculate.',
+    });
+  }
 
   return {
     employeeId: employee.id,

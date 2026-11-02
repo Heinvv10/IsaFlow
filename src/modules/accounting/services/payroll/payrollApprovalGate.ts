@@ -23,6 +23,8 @@
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then
+ *      a line whose deductions and tax exceed its pay (`deductions_exceed_pay`; one the
+ *      loan instalment alone causes is the advisory `loan_instalment_exceeds_pay`), then
  *      every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
  *      'already_posted', which names the journal being replaced.
@@ -34,6 +36,7 @@
  */
 import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
@@ -41,6 +44,7 @@ import { readJournalChain, runRecalculatedSince, type JournalChain } from './pay
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
+import { findOverdrawnLines, type OverdrawnLine } from './payrollRunLines';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -82,6 +86,8 @@ export function toJournalPlanPreview(gate: PayrollApprovalGate): JournalPlanPrev
 }
 
 const cents = (n: number): number => Math.round(n * 100);
+
+const overdrawnNames = (lines: OverdrawnLine[]) => lines.map((l) => `${l.employeeNumber} (${formatMoney(l.shortfall)} over)`).join(', ');
 
 async function readPostedJournal(companyId: string, journalId: string): Promise<PostedPayrollJournal | null> {
   const rows = (await sql`
@@ -211,9 +217,18 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const yearToDate = await judgeYearToDate(companyId, runId);
   // Leavers whose approved severance directive this run does not pay, and why (P3), and a paid later month
   // this run's change leaves stale (R1 limit (f)); neither is in the hash.
+  const overdrawn = await findOverdrawnLines(companyId, runId);
+  const byLoan = overdrawn.filter((l) => l.fromLoan);
   const plan = {
     ...dated,
-    advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories],
+    advisories: [
+      ...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories,
+      ...(byLoan.length > 0 ? [{
+        code: 'loan_instalment_exceeds_pay',
+        detail: `The loan instalment exceeds pay for ${overdrawnNames(byLoan)}: net pay is nil, the loan still falls by the whole instalment, `
+          + 'and the deductions payable are understated by the amount over.',
+      }] : []),
+    ],
   };
 
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
@@ -256,6 +271,16 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
         detail: 'Termination pay-outs on this run were already paid in another run (approved, or reopened with its journal posted): '
           + paidTwice.map(p => `${p.employeeNumber} (${p.year}-${String(p.month).padStart(2, '0')})`).join(', ')
           + '. Recalculate this run first; it then leaves them out.',
+      };
+    }
+    // A shortfall the loan instalment alone causes stays out, as the advisory above: an instalment cannot be edited
+    // on a run, so a blocker would stop every employee's pay over one leaver. Owner decision, in the module's .claude.md.
+    const blocked = overdrawn.filter((l) => !l.fromLoan);
+    if (blocked.length > 0) {
+      return {
+        code: 'deductions_exceed_pay',
+        detail: `Deductions and tax exceed pay for ${overdrawnNames(blocked)}: net pay would be nil and the deductions payable understated. `
+          + 'Reduce or end those deductions on the employee page, or add to the pay, then recalculate.',
       };
     }
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;

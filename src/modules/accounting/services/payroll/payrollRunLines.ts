@@ -52,6 +52,45 @@ function safeJsonParse(raw: string): unknown {
   }
 }
 
+const OVERDRAWN_CODES = new Set(['DEDUCTIONS_EXCEED_PAY', 'LOAN_INSTALMENT_EXCEEDS_PAY']);
+
+/** A line whose deductions and tax exceed its pay, by how much in rand. */
+export interface OverdrawnLine {
+  employeeId: string;
+  employeeNumber: string;
+  shortfall: number;
+  /** The shortfall would not exist without the loan instalment: LOAN_INSTALMENT_EXCEEDS_PAY. */
+  fromLoan: boolean;
+}
+
+/**
+ * The run's lines the calculator flagged as overdrawn. Their net is floored at nil, so the residual
+ * the journal credits to 2175 understates what was deducted. Only a line calculated since the codes
+ * existed can carry one: a run calculated earlier shows nothing until it is recalculated.
+ */
+export async function findOverdrawnLines(companyId: string, runId: string): Promise<OverdrawnLine[]> {
+  const rows = (await sql`
+    SELECT prl.employee_id, pe.employee_number, prl.validation_results
+    FROM payroll_run_lines prl
+    JOIN payroll_run_headers prh ON prh.id = prl.run_id
+    JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
+    WHERE prl.run_id = ${runId}::uuid
+      AND prh.company_id = ${companyId}::uuid
+      AND (prl.validation_results @> '[{"code":"DEDUCTIONS_EXCEED_PAY"}]'::jsonb
+        OR prl.validation_results @> '[{"code":"LOAN_INSTALMENT_EXCEEDS_PAY"}]'::jsonb)
+    ORDER BY pe.employee_number
+  `) as Row[];
+  return rows.flatMap((r) => {
+    const flagged = parseValidationResults(r.validation_results).find((v) => OVERDRAWN_CODES.has(v.code));
+    return flagged ? [{
+      employeeId: String(r.employee_id),
+      employeeNumber: String(r.employee_number),
+      shortfall: -Number(flagged.rawNet),
+      fromLoan: flagged.code === 'LOAN_INSTALMENT_EXCEEDS_PAY',
+    }] : [];
+  });
+}
+
 export async function getPayrollRunLines(
   runId: string,
   companyId: string,

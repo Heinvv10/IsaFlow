@@ -30,6 +30,10 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
+  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
+}));
+
 import {
   createPayPackage,
   listPayPackages,

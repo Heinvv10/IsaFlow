@@ -4,6 +4,7 @@ import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
+import { lockCompanyPayrollApprovals } from './payrollRunLock';
 
 type Row = DbRow;
 
@@ -75,6 +76,8 @@ export async function assignComponentToEmployee(
   isRecurring: boolean = true,
 ): Promise<EmployeeComponentAssignment> {
   await assertEmployeeInCompany(employeeId, companyId);
+  // The pay-run grid reads the month's rows and writes under this lock; a row landing in between would pay twice.
+  await lockCompanyPayrollApprovals(null, companyId);
   await assertComponentInCompany(componentId, companyId);
 
   log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');

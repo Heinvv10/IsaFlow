@@ -53,8 +53,9 @@ export class PayrollRunJournalPostedError extends Error {
 
 export class PayrollLoanLockTimeoutError extends Error {
   readonly code = 'PAYROLL_LOAN_LOCK_TIMEOUT';
-  constructor(runId: string) {
-    super(`Payroll run ${runId} is being calculated by another request — retry in a moment.`);
+  /** `runId` null: the wait was on the company's payroll, not one run. */
+  constructor(runId: string | null) {
+    super(`${runId ? `Payroll run ${runId}` : 'This company\'s payroll'} is being calculated by another request — retry in a moment.`);
     this.name = 'PayrollLoanLockTimeoutError';
   }
 }

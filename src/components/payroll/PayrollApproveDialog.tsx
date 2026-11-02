@@ -37,6 +37,15 @@ interface Props {
 }
 
 const money = (n: number) => (n === 0 ? '' : formatCurrency(n));
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** The plan's own figures: the net it pays, and its debits, which are all labour (gross + employer UIF + SDL − ETI used). */
+function paymentSummary(plan: Preview['plan']): string {
+  const people = `${plan.paidEmployeeCount} employee${plan.paidEmployeeCount === 1 ? '' : 's'}`;
+  return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${MONTHS[plan.periodMonth - 1]} ${plan.periodYear}. `
+    + `Cost to the company ${formatCurrency(plan.totalDebit)} (gross plus employer UIF and SDL, less ETI used).`;
+}
+
 const UNCERTAIN = 'The approval could not be confirmed. The run has been reloaded — check its status before approving again.';
 
 export function PayrollApproveDialog({ runId, period, warningCount, open, onClose, onApproved, onUncertain }: Props) {
@@ -99,6 +108,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
         {loadError && <p className="text-red-500">{loadError}</p>}
         {plan && shown && (
           <>
+            {!blocker && !posted && <p className="font-medium text-gray-900 dark:text-white">{paymentSummary(plan)}</p>}
             {!blocker && (
               <p className="text-gray-600 dark:text-gray-300">
                 {posted
@@ -136,7 +146,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
             {!posted && plan.advisories.map((a) => (
               <p key={a.code} className="flex gap-2 text-amber-600 dark:text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" />{a.detail}</p>
             ))}
-            {warningCount > 0 && (
+            {warningCount > 0 && !blocker && (
               <p className="flex gap-2 text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 {warningCount} warning{warningCount === 1 ? '' : 's'} on this run (listed on the page). They do not block approval.

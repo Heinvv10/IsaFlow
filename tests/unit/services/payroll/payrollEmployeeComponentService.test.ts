@@ -11,6 +11,9 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 
+// The wait on the company's payroll: tests/integration/payrun-period-inputs-loans.int.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockCompanyPayrollApprovals: vi.fn(async () => undefined) }));
+
 import {
   assignComponentToEmployee,
   EmployeeComponentRefused,

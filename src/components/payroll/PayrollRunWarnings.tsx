@@ -32,6 +32,8 @@ const GROUP_LABEL: Record<string, string> = {
   DUPLICATE_TAX_NUMBER: 'Tax number already used by another employee',
   INVALID_ID_NUMBER: 'ID number must be 13 digits',
   MISSING_BANK_DETAILS: 'No bank details — EFT payment will fail',
+  DEDUCTIONS_EXCEED_PAY: 'Deductions and tax exceed pay — this run cannot be approved until they are reduced',
+  LOAN_INSTALMENT_EXCEEDS_PAY: 'Loan instalment exceeds pay — net pay is nil and the deductions payable are understated',
 };
 
 interface Group {
@@ -87,7 +89,9 @@ export function PayrollRunWarnings({ lines }: { lines: WarningLine[] }) {
         ))}
       </ul>
       <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
-        These do not block the run — payroll can still be approved and paid.
+        {groups.some((g) => g.code === 'DEDUCTIONS_EXCEED_PAY')
+          ? 'Deductions above pay block approval. Any others here do not.'
+          : 'These do not block the run — payroll can still be approved and paid.'}
       </p>
     </section>
   );

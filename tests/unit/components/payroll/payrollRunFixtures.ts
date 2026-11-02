@@ -7,6 +7,7 @@ export const RUN_ID = '11111111-1111-4111-8111-111111111111';
 export const RUN_URL = `/api/payroll/runs/${RUN_ID}`;
 export const PLAN_URL = `/api/payroll/runs/${RUN_ID}/journal-plan`;
 export const APPROVE_URL = `/api/payroll/runs/${RUN_ID}/approve`;
+export const INPUTS_URL = `/api/payroll/runs/${RUN_ID}/inputs`;
 export const PLAN_HASH = 'plan-hash-1';
 
 export type Warning = { code: string; severity: 'warning'; message: string; deepLink?: string };
@@ -44,6 +45,15 @@ export const PLAN_LINES = [
   planLine('2175', 'Other Employee Deductions Payable', 0, 13175),
 ];
 
+export const OVERTIME = { id: 'c-ot', name: 'Overtime', sarsSourceCode: '3607', componentType: 'earning' };
+export const UNION = { id: 'c-un', name: 'Union dues', sarsSourceCode: 'UNION', componentType: 'deduction' };
+
+/** GET and PUT …/inputs: the run, what the grid may edit, and what is captured for the month. */
+export function inputsBody(run: Record<string, unknown>, over: Record<string, unknown> = {}) {
+  const lines = (run.lines ?? []) as Array<{ employeeId: string }>;
+  return { run, inputs: { components: [OVERTIME, UNION], employeeIds: lines.map((l) => l.employeeId), amounts: [], recurring: [], ...over } };
+}
+
 export function planBody(
   blocker: Note | null = null,
   opts: { plan?: Record<string, unknown>; posted?: Record<string, unknown> | null; replaces?: Record<string, unknown> | null } = {},
@@ -54,7 +64,7 @@ export function planBody(
     posted: opts.posted ?? null,
     replaces: opts.replaces ?? null,
     plan: {
-      runId: RUN_ID, status: 'calculated', periodMonth: 9, periodYear: 2026, employeeCount: 1,
+      runId: RUN_ID, status: 'calculated', periodMonth: 9, periodYear: 2026, employeeCount: 1, paidEmployeeCount: 1,
       alreadyPostedJournalId: null, entryDate: '2026-09-30', description: 'Payroll run 2026-09', reference: 'PAY-2026-09',
       lines: PLAN_LINES,
       totalDebit: 75927.12, totalCredit: 75927.12,

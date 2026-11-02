@@ -6,12 +6,15 @@
  * "Other deductions" is the residual gross − PAYE − employee UIF − net, the
  * same residual the payroll journal credits to 2175, so the column is the
  * voluntary deductions (medical aid, pension, RA, loans) the calculator took.
+ *
+ * `edit` adds the review grid's columns (PayRunReviewGrid); the figures stay these.
  */
+import type { ReactNode } from 'react';
 import { formatCurrency } from '@/utils/formatters';
 import { splitRunTotals } from '@/modules/accounting/services/payroll/payrollRunTotalsSplit';
 
 export interface RunLineAmounts {
-  id: string;
+  employeeId: string;
   employeeNumber: string;
   employeeName: string;
   grossPay: number;
@@ -84,23 +87,37 @@ export function PayrollRunTotals({ run }: { run: RunHeaderTotals }) {
 const th = 'py-2 px-4 text-[var(--ff-text-secondary)] font-medium';
 const num = 'py-2 px-4 text-right tabular-nums';
 
-export function PayrollRunLinesTable({ lines }: { lines: RunLineAmounts[] }) {
+/** The grid's extra columns: a cell per line and its row index; the save status sits under the name, always on screen. */
+export interface RunLinesEdit {
+  earning: RunLinesColumn;
+  deduction?: RunLinesColumn;
+  statusCell: (line: RunLineAmounts) => ReactNode;
+}
+
+interface RunLinesColumn {
+  head: string;
+  cell: (line: RunLineAmounts, row: number) => ReactNode;
+}
+
+export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[]; edit?: RunLinesEdit }) {
   const t = sumRunLines(lines);
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="bg-[var(--ff-bg-secondary)] text-xs">
-          <th colSpan={3} />
-          <th colSpan={3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employee deductions</th>
+          <th colSpan={edit ? 4 : 3} />
+          <th colSpan={edit?.deduction ? 4 : 3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employee deductions</th>
           <th className="border-l border-[var(--ff-border-primary)]" />
           <th colSpan={3} className={`${th} text-center border-l border-[var(--ff-border-primary)]`}>Employer contributions</th>
         </tr>
         <tr className="bg-[var(--ff-bg-secondary)] text-left">
           <th className={th}>Emp #</th>
           <th className={th}>Name</th>
+          {edit && <th className={`${th} text-right`}>{edit.earning.head}</th>}
           <th className={`${th} text-right`}>Gross</th>
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>PAYE</th>
           <th className={`${th} text-right`}>UIF</th>
+          {edit?.deduction && <th className={`${th} text-right`}>{edit.deduction.head}</th>}
           <th className={`${th} text-right`}>Other</th>
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>Net</th>
           <th className={`${th} text-right border-l border-[var(--ff-border-primary)]`}>UIF</th>
@@ -109,13 +126,16 @@ export function PayrollRunLinesTable({ lines }: { lines: RunLineAmounts[] }) {
         </tr>
       </thead>
       <tbody>
-        {lines.map((l) => (
-          <tr key={l.id} className="border-t border-[var(--ff-border-primary)]">
+        {lines.map((l, row) => (
+          // By employee, not line id: a recalculation re-inserts every line, and the grid's cells must survive it.
+          <tr key={l.employeeId} className="border-t border-[var(--ff-border-primary)]">
             <td className="py-2 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
-            <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}</td>
+            <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}{edit?.statusCell(l)}</td>
+            {edit && <td className={num}>{edit.earning.cell(l, row)}</td>}
             <td className={`${num} text-[var(--ff-text-primary)]`}>{formatCurrency(l.grossPay)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.paye)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.uifEmployee)}</td>
+            {edit?.deduction && <td className={num}>{edit.deduction.cell(l, row)}</td>}
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(otherDeductions(l))}</td>
             <td className={`${num} text-teal-400 font-medium border-l border-[var(--ff-border-primary)]`}
               title={`${formatCurrency(l.grossPay)} gross − ${formatCurrency(l.paye)} PAYE − ${formatCurrency(l.uifEmployee)} UIF − ${formatCurrency(otherDeductions(l))} other = ${formatCurrency(l.netPay)} net`}>
@@ -129,10 +149,11 @@ export function PayrollRunLinesTable({ lines }: { lines: RunLineAmounts[] }) {
       </tbody>
       <tfoot>
         <tr className="border-t-2 border-[var(--ff-border-primary)] font-semibold text-[var(--ff-text-primary)]">
-          <td className="py-2 px-4" colSpan={2}>Totals</td>
+          <td className="py-2 px-4" colSpan={edit ? 3 : 2}>Totals</td>
           <td className={num}>{formatCurrency(t.grossPay)}</td>
           <td className={`${num} border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.paye)}</td>
           <td className={num}>{formatCurrency(t.uifEmployee)}</td>
+          {edit?.deduction && <td />}
           <td className={num}>{formatCurrency(t.other)}</td>
           <td className={`${num} text-teal-400 border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.netPay)}</td>
           <td className={`${num} border-l border-[var(--ff-border-primary)]`}>{formatCurrency(t.uifEmployer)}</td>

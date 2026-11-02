@@ -22,6 +22,7 @@ import eftFileRelease from '../../pages/api/accounting/eft-file-release';
 import eftGenerate from '../../pages/api/accounting/eft-generate';
 import closeRunDecide from '../../pages/api/accounting/close-run/decide';
 import payrollRunApprove from '../../pages/api/payroll/runs/[id]/approve';
+import payrollRunInputs from '../../pages/api/payroll/runs/[id]/inputs';
 import payrollBatchPost from '../../pages/api/payroll/batches/[id]/post';
 import expenseClaimApprove from '../../pages/api/accounting/expense-claims/[id]/approve';
 import expenseClaimPost from '../../pages/api/accounting/expense-claims/[id]/post';
@@ -83,6 +84,8 @@ const CASES: Case[] = [
   { name: 'close-run proposal reject', handler: closeRunDecide,
     call: { body: { runId: missing, proposalId: other, decision: 'reject' } } },
   { name: 'pay run approve', handler: payrollRunApprove, call: { query: { id: missing }, body: { expectedPlanHash: 'r032-any' } } },
+  { name: 'pay run period amount', handler: payrollRunInputs,
+    call: { method: 'PUT', query: { id: missing }, body: { employeeId: other, componentId: other, amount: 1, expectedAmount: 0 } } },
   { name: 'payroll batch post', handler: payrollBatchPost, call: { query: { id: missing } } },
   { name: 'expense claim approve', handler: expenseClaimApprove, call: { query: { id: missing }, body: { decision: 'approve' } } },
   { name: 'expense claim reject', handler: expenseClaimApprove, call: { query: { id: missing }, body: { decision: 'reject' } } },
