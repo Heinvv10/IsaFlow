@@ -4,8 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { Truck, Loader2, ArrowLeft } from 'lucide-react';
+import { Truck, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
@@ -14,7 +13,7 @@ import {
   type LineItem,
 } from '@/components/accounting/deliveryNotes/DeliveryNoteLineEditor';
 import { localISODate } from '@/lib/dateUtils';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 
 interface CustomerOption {
@@ -127,19 +126,12 @@ export default function NewDeliveryNotePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/delivery-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Delivery Notes
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">Delivery Note</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={Truck}
+          title="Delivery Note"
+          breadcrumb={[{ label: 'Delivery Notes', href: '/accounting/delivery-notes' }, { label: 'New delivery note' }]}
+          className="mb-0"
+        />
 
         <div className="p-6 xl:p-8">
           <div className="max-w-6xl mx-auto flex gap-6 items-start">
@@ -218,16 +210,16 @@ export default function NewDeliveryNotePage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Delivery Date</span>
-                      <span className="font-mono text-slate-900 dark:text-slate-100">{deliveryDate || '—'}</span>
+                      <span className="font-id text-slate-900 dark:text-slate-100">{deliveryDate || '—'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Line Items</span>
-                      <span className="font-mono font-bold text-lg text-amber-500">{validLineCount}</span>
+                      <span className="font-id font-bold text-lg text-amber-500">{validLineCount}</span>
                     </div>
                     {salesOrderId && (
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500 dark:text-slate-400">Sales Order</span>
-                        <span className="font-mono text-slate-900 dark:text-slate-100 text-xs">
+                        <span className="font-id text-slate-900 dark:text-slate-100 text-xs">
                           {salesOrders.find(so => so.id === salesOrderId)?.orderNumber ?? '—'}
                         </span>
                       </div>

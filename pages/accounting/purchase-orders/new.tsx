@@ -4,15 +4,14 @@
  */
 import { useId, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
-import Link from 'next/link';
+import { Plus, Trash2, Loader2, Receipt, ShoppingCart } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useOverflowX } from '@/hooks/useOverflowX';
 
@@ -89,20 +88,12 @@ export default function NewPurchaseOrderPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Hero header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/purchase-orders" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Purchase Orders
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">Purchase Order</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={ShoppingCart}
+          title="Purchase Order"
+          breadcrumb={[{ label: 'Purchase Orders', href: '/accounting/purchase-orders' }, { label: 'New order' }]}
+          className="mb-0"
+        />
 
         <div className="p-4 sm:p-6 xl:p-8">
           <form onSubmit={(e) => handleSubmit(e, saveAndNew)} className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
