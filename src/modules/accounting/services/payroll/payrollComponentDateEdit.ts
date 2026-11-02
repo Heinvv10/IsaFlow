@@ -63,6 +63,9 @@ function validateRequest(change: DateChange): void {
 function nextWindow(before: AssignmentWindow, change: DateChange, paidIn: PayrollPeriod | null): { after: AssignmentWindow; kind: 'edit' | 'end' | 'cancel' } {
   if (!live(before)) refuse('This assignment was cancelled (its end is before its start) and cannot be changed; assign a new one.');
   if (change.kind === 'edit') {
+    if (before.supersededAt != null) {
+      refuse('A pay package replaced this assignment (it is superseded); edit the assignment that replaced it instead.');
+    }
     // The row's own facts (supersede, pre-953 marker, the employee's end date) stay: only the dates change.
     const after = { ...windowOnly(before), from: change.from, to: change.to };
     if (!after.recurring && after.to === null) refuse('A once-off needs an end date: it is paid once, in its own month.');

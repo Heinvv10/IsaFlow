@@ -39,7 +39,10 @@ export function assignmentReadInPeriod(w: AssignmentWindow, period: PaidPeriod):
     return w.from <= day27 && (w.to === null || w.to >= day27);
   }
   if (w.from > last) return false;
-  if (w.recurring && w.to !== null && w.to === w.employeeEnd && w.to >= first) return true;
+  // A leaver's row ending on their end date in the band (getEmployeeComponents); a successor row is not visible here,
+  // so this may say "read" where the run did not: it refuses more, never less.
+  const cutBeforeCalc = w.supersededAt != null && period.calculatedAt != null && w.supersededAt <= period.calculatedAt;
+  if (w.recurring && w.to !== null && w.to === w.employeeEnd && w.to >= `${last.slice(0, 8)}27` && !cutBeforeCalc) return true;
   const cutBefore = w.supersededAt != null && period.calculatedAt != null && w.supersededAt <= period.calculatedAt;
   return w.to === null || w.to >= last || (!w.recurring && !cutBefore && w.from >= first);
 }
@@ -49,13 +52,16 @@ export function assignmentReadInPeriod(w: AssignmentWindow, period: PaidPeriod):
  * posted is still in force in the ledger (its reversal chain, payrollJournalChain). A reopened run whose journal was
  * reversed keeps the link but has not paid (M1). Company-scoped.
  */
-export async function paidPeriodsOf(tx: TxSql, companyId: string, employeeId: string): Promise<PaidPeriod[]> {
+export async function paidPeriodsOf(tx: TxSql, companyId: string, employeeId: string | null): Promise<PaidPeriod[]> {
+  // employeeId null: every paid month of the company, whoever its run paid (a once-off back-dated into it would never
+  // be paid by that run, line or not).
   const rows = (await tx`
-    SELECT h.period_year, h.period_month, h.status, h.journal_entry_id, h.calculated_at
+    SELECT DISTINCT h.period_year, h.period_month, h.status, h.journal_entry_id, h.calculated_at
     FROM payroll_run_headers h
-    JOIN payroll_run_lines l ON l.run_id = h.id AND l.employee_id = ${employeeId}::uuid
     WHERE h.company_id = ${companyId}::uuid
       AND (h.status IN ('approved', 'paid') OR h.journal_entry_id IS NOT NULL)
+      AND (${employeeId}::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM payroll_run_lines l WHERE l.run_id = h.id AND l.employee_id = ${employeeId}::uuid))
     ORDER BY 1, 2
   `) as DbRow[];
   const paid: PaidPeriod[] = [];

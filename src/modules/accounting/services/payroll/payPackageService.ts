@@ -284,7 +284,7 @@ export async function applyPackageToEmployee(
       // close rule as payrollBatchService and assignComponentToEmployee.
       const isRecurring = r.is_recurring === true;
       const effectiveTo = isRecurring ? null : endOfMonthIso(startYear, startMonth);
-      if (!isRecurring) await refuseOnceOffInPaidMonth(tx, companyId, employeeId, effectiveFrom, effectiveTo);
+      if (!isRecurring) await refuseOnceOffInPaidMonth(tx, companyId, effectiveFrom, effectiveTo);
       const inserted = (await tx`
         INSERT INTO payroll_employee_components
           (employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred)

@@ -94,13 +94,15 @@ describe('8: a paid run from before 953 read on the 27th', () => {
   });
 });
 
-describe('9: Edit dates keeps the supersede when it judges a paid month', () => {
-  it('a once-off superseded before April was calculated was not paid in April: moving it within April is allowed', async () => {
+describe('9: a change keeps the supersede when it judges a paid month', () => {
+  it('a once-off superseded before April was calculated was not paid in April: ending it earlier is allowed; editing it is refused', async () => {
     const cut = await rawOnceOff('2026-04-05', '2026-04-14', '2026-01-01T00:00:00Z');
     const april = await calculatedRun(call, 4);
     await approveRun(april);
-    const out = await patch(cut, { effectiveFrom: '2026-04-06', effectiveTo: '2026-04-14' });
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    const ended = await call(components as Route, 'DELETE', url(cut), employee, { body: { effectiveTo: '2026-04-10' }, query: { aid: cut } });
+    expect(ended.statusCode, JSON.stringify(ended.body)).toBe(200);
+    // Edit dates refuses a superseded row outright (blind review 2026-11-02, payroll-leaver-exemption.int).
+    expect((await patch(cut, { effectiveFrom: '2026-04-06', effectiveTo: '2026-04-10' })).statusCode).toBe(400);
   });
 });
 

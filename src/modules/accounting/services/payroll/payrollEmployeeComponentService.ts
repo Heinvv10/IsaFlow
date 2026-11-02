@@ -110,7 +110,7 @@ export async function assignComponentToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     await assertEmployeeInCompany(employeeId, companyId);
     await assertComponentInCompany(componentId, companyId);
-    if (!isRecurring) await refuseOnceOffInPaidMonth(tx, companyId, employeeId, effectiveFromStr, effectiveToStr);
+    if (!isRecurring) await refuseOnceOffInPaidMonth(tx, companyId, effectiveFromStr, effectiveToStr);
 
     log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 

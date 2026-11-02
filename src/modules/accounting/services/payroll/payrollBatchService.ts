@@ -539,7 +539,7 @@ async function insertAssignment(tx: TxSql, companyId: string, actor: ComponentCh
   const to = opts.effectiveTo ? toIso(opts.effectiveTo) : null;
   if (!opts.isRecurring) {
     refuseOnceOffSpan(from, to);
-    await refuseOnceOffInPaidMonth(tx, companyId, opts.employeeId, from, to);
+    await refuseOnceOffInPaidMonth(tx, companyId, from, to);
   }
   const rows = (await tx`
     INSERT INTO payroll_employee_components (

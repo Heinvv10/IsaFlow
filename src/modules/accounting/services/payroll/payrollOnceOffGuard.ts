@@ -14,11 +14,14 @@ export function refuseOnceOffSpan(from: string, to: string | null): void {
   }
 }
 
-/** A once-off a paid run would have read: refused, since that run will never pay it. */
+/**
+ * A once-off dated in a month whose run has paid: refused, since that run will never pay it. Judged on the company's
+ * paid runs, not only those with a line for this employee (a back-dated once-off for someone not on the run).
+ */
 export async function refuseOnceOffInPaidMonth(
-  tx: TxSql, companyId: string, employeeId: string, from: string, to: string | null,
+  tx: TxSql, companyId: string, from: string, to: string | null,
 ): Promise<void> {
-  const paid = await paidPeriodsOf(tx, companyId, employeeId);
+  const paid = await paidPeriodsOf(tx, companyId, null);
   const hit = paid.find((p) => assignmentReadInPeriod({ from, to, recurring: false }, { ...p, calculatedAt: undefined }));
   if (hit) {
     throw new EmployeeComponentRefused(

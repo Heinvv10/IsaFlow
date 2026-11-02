@@ -53,7 +53,8 @@ export async function recurringRowsNeedingProRata(
   const rows = (await sql`
     SELECT pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to,
            pec.effective_from > ${day27}::date AS starts,
-           pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date AS ends
+           pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date
+             AND pec.effective_to IS DISTINCT FROM e.end_date AS ends
     FROM payroll_employee_components pec
     JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
     JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = ${companyId}::uuid
