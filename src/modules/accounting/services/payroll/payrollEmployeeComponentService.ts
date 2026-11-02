@@ -1,7 +1,6 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { fmtDate } from '@/lib/fmtDate';
 import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
 import { lockCompanyPayrollApprovals } from './payrollRunLock';
@@ -66,31 +65,49 @@ export async function assertComponentInCompany(componentId: string, companyId: s
   if (rows.length === 0) throw new EmployeeComponentRefused('That pay component was not found in this company');
 }
 
+/**
+ * A calendar day travels as a plain `YYYY-MM-DD` string from the caller to the column. A `Date` has a zone
+ * and `toISOString()` reports it in UTC, which stored a local-midnight date one day early east of UTC.
+ */
+function dayOf(value: string, field: string): string {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  let real = false;
+  if (day && +day[1]! >= 1) {
+    // setUTCFullYear, not Date.UTC: Date.UTC reads years 0-99 as 1900-1999. Same rule as isRealCalendarDate.
+    const dt = new Date(0);
+    dt.setUTCFullYear(+day[1]!, +day[2]! - 1, +day[3]!);
+    real = dt.getUTCFullYear() === +day[1]! && dt.getUTCMonth() === +day[2]! - 1 && dt.getUTCDate() === +day[3]!;
+  }
+  if (!real) throw new EmployeeComponentRefused(`${field} must be a real date (YYYY-MM-DD)`);
+  return value;
+}
+
 export async function assignComponentToEmployee(
   companyId: string,
   employeeId: string,
   componentId: string,
   amount: number,
-  effectiveFrom: Date,
-  effectiveTo?: Date,
+  effectiveFrom: string,
+  effectiveTo?: string,
   isRecurring: boolean = true,
 ): Promise<EmployeeComponentAssignment> {
+  // The dates first: a refused one reads nothing and takes no lock.
+  const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
+  // Once-off → auto-cap effective_to at end of effective_from's month so the
+  // assignment dies after the period it was captured for. Caller-supplied
+  // effectiveTo wins if provided.
+  const effectiveToStr = effectiveTo
+    ? dayOf(effectiveTo, 'effectiveTo')
+    : isRecurring
+    ? null
+    : endOfMonthIso(Number(effectiveFromStr.slice(0, 4)), Number(effectiveFromStr.slice(5, 7)));
+
   await assertEmployeeInCompany(employeeId, companyId);
   // The pay-run grid reads the month's rows and writes under this lock; a row landing in between would pay twice.
   await lockCompanyPayrollApprovals(null, companyId);
   await assertComponentInCompany(componentId, companyId);
 
   log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
-
-  const effectiveFromStr = effectiveFrom.toISOString().slice(0, 10);
-  // Once-off → auto-cap effective_to at end of effective_from's month so the
-  // assignment dies after the period it was captured for. Caller-supplied
-  // effectiveTo wins if provided.
-  const effectiveToStr = effectiveTo
-    ? effectiveTo.toISOString().slice(0, 10)
-    : isRecurring
-    ? null
-    : endOfMonthIso(effectiveFrom.getUTCFullYear(), effectiveFrom.getUTCMonth() + 1);
 
   const rows = (await sql`
     INSERT INTO payroll_employee_components (
@@ -122,11 +139,11 @@ export async function assignComponentToEmployee(
 export async function endEmployeeComponent(
   companyId: string,
   assignmentId: string,
-  effectiveTo: Date,
+  effectiveTo: string,
 ): Promise<boolean> {
+  const effectiveToStr = dayOf(effectiveTo, 'effectiveTo');
   // Serialise with the review grid's read-calculate-write transaction so it cannot commit stale lines.
   await lockCompanyPayrollApprovals(null, companyId);
-  const effectiveToStr = fmtDate(effectiveTo);
 
   log.info('Ending employee component', { companyId, assignmentId, effectiveTo: effectiveToStr }, 'payrollEmployeeComponentService');
 
