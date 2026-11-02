@@ -20,8 +20,11 @@ import { assertDisposable, request, response } from './mfa-impersonation-postgre
 import type { Route } from './w3-01-payroll.helpers';
 import components from '../../pages/api/payroll/employees/[id]/components';
 import easyfile from '../../pages/api/payroll/irp5/easyfile-export';
+import summary from '../../pages/api/payroll/irp5/summary';
 import { assignEmployeeComponentTool } from '../../src/lib/mcp/tools/writeEmployees';
+import { irp5DataTool } from '../../src/lib/mcp/tools/payrollSars';
 import type { McpToolContext } from '../../src/lib/mcp/types';
+import { getIrp5EmployeeTotals } from '../../src/modules/accounting/services/payroll/irp5DataService';
 import { approveRun, calculateRun, cleanSeveranceFixtures, type SeveranceFixture } from './p3-severance.helpers';
 import { seedEmployee, setSalary } from './p4fu-cumulative.helpers';
 import createRun from '../../pages/api/payroll/runs';
@@ -84,6 +87,17 @@ async function certificateLines(f: SeveranceFixture): Promise<string[]> {
   return file.split(/\r\n/);
 }
 
+async function summaryTaxable(f: SeveranceFixture): Promise<number> {
+  const req = request({ 'sb-access-token': f.token, active_company_id: f.company }, 'GET') as unknown as { url: string; query: Record<string, unknown> };
+  req.url = '/api/payroll/irp5/summary?taxYear=2027';
+  req.query = { taxYear: '2027' };
+  const out = response();
+  await (summary as Route)(req as never, out.res as never);
+  expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
+  const body = out.state.body as { data: { employees: Array<{ totalTaxable: number }> } };
+  return body.data.employees[0]!.totalTaxable;
+}
+
 beforeAll(async () => { await pool.query('SELECT 1'); });
 afterAll(async () => {
   try { await cleanSeveranceFixtures(pool, fixtures); } finally { await pool.end(); }
@@ -100,6 +114,14 @@ describe('PAYE 4c: the deduction month by month', () => {
     expect(months[2]).toMatchObject({ periodic: 60_000, taxable: 60_000, contributions: 2_708.59, deduction: 2_708.59 });
     // Paid through payroll: 60 000 − 2 708.59 − 12 440.49 − UIF 177.12.
     expect(months[2]!.net).toBe(44_673.8);
+    const expectedTaxable = 171_874.23;
+    expect(await summaryTaxable(f)).toBe(expectedTaxable);
+    expect((await getIrp5EmployeeTotals(f.company, 2027)).rows[0]!.taxableIncome).toBe(expectedTaxable);
+    const ctx = { userId: f.admin, companyId: f.company, scopes: ['read:payroll'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as McpToolContext;
+    const mcp = JSON.parse((await irp5DataTool.handler({ tax_year: 2027 }, ctx)).content[0]!.text) as {
+      rows: Array<{ taxable_income: number }>;
+    };
+    expect(mcp.rows[0]!.taxable_income).toBe(expectedTaxable);
     const lines = await certificateLines(f);
     expect(lines).toContain('4006,8125'); // 3 × 2 708.59 = 8 125.77, cents dropped
     expect(lines.some(l => /^4(001|003),/.test(l))).toBe(false);
