@@ -63,7 +63,7 @@ import {
   page,
   type UnnumberedPage,
 } from './packFrontMatter';
-import { buildIncomeStatementSheet } from './packIncomeSheet';
+import { incomeSheetWithBudget } from './packIncomeBudget';
 import { buildCashSheet } from './packCashSheet';
 import { buildMonthlyResultsPage } from './packMonthlyPage';
 import { ledgerStalenessNote } from './packLedgerStaleness';
@@ -178,7 +178,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // PAGE 6 AND ITS BRIDGE, INCLUDING THE RUNG THE MEASURED SHEET CHOSE — see
   // `packIncomeSheet`. It is the largest self-contained piece this composer
   // held and it moved out whole; nothing else on the pack reads its locals.
-  const incomeSheet = buildIncomeStatementSheet(income, set, scale, panels, statementNotes);
+  const incomeSheet = incomeSheetWithBudget(income, set, scale, panels, statementNotes);
 
   // PAGE 8 AND THE RUNG ITS MEASURED SHEET CHOSE FOR THE CASH LINE — see
   // `packCashSheet`, the same construction page 6 uses for its bridge.

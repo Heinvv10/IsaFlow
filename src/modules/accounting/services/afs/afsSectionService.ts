@@ -75,22 +75,22 @@ export async function updateAfsSection(
   const rows = await sql`
     UPDATE afs_sections
     SET
-      status                = COALESCE(${input.status ?? null}, status),
+      status                = COALESCE(${input.status ?? null}::TEXT, status),
       data_snapshot         = COALESCE(${input.dataSnapshot ? JSON.stringify(input.dataSnapshot) : null}::JSONB, data_snapshot),
       content               = COALESCE(${input.content ? JSON.stringify(input.content) : null}::JSONB, content),
       overrides             = COALESCE(${input.overrides ? JSON.stringify(input.overrides) : null}::JSONB, overrides),
-      ai_narrative          = COALESCE(${input.aiNarrative ?? null}, ai_narrative),
-      ai_narrative_accepted = COALESCE(${input.aiNarrativeAccepted ?? null}, ai_narrative_accepted),
-      reviewed_by           = COALESCE(${input.reviewedBy ?? null}, reviewed_by),
-      reviewed_at           = CASE WHEN ${input.reviewedBy ?? null} IS NOT NULL THEN now() ELSE reviewed_at END,
-      signed_off_by         = COALESCE(${input.signedOffBy ?? null}, signed_off_by),
-      signed_off_at         = CASE WHEN ${input.signedOffBy ?? null} IS NOT NULL THEN now() ELSE signed_off_at END,
+      ai_narrative          = COALESCE(${input.aiNarrative ?? null}::TEXT, ai_narrative),
+      ai_narrative_accepted = COALESCE(${input.aiNarrativeAccepted ?? null}::BOOLEAN, ai_narrative_accepted),
+      reviewed_by           = COALESCE(${input.reviewedBy ?? null}::TEXT, reviewed_by),
+      reviewed_at           = CASE WHEN ${input.reviewedBy ?? null}::TEXT IS NOT NULL THEN now() ELSE reviewed_at END,
+      signed_off_by         = COALESCE(${input.signedOffBy ?? null}::TEXT, signed_off_by),
+      signed_off_at         = CASE WHEN ${input.signedOffBy ?? null}::TEXT IS NOT NULL THEN now() ELSE signed_off_at END,
       version_history       = COALESCE(version_history, '[]'::JSONB) || CASE
         WHEN ${input.content ? JSON.stringify(input.content) : null}::JSONB IS NOT NULL
         THEN jsonb_build_array(jsonb_build_object(
           'version', (SELECT COUNT(*) FROM jsonb_array_elements(COALESCE(version_history, '[]'::JSONB))) + 1,
           'savedAt', now()::TEXT,
-          'savedBy', COALESCE(${input.reviewedBy ?? input.signedOffBy ?? null}, 'system'),
+          'savedBy', COALESCE(${input.reviewedBy ?? input.signedOffBy ?? null}::TEXT, 'system'),
           'content', ${input.content ? JSON.stringify(input.content) : null}::JSONB
         ))
         ELSE '[]'::JSONB

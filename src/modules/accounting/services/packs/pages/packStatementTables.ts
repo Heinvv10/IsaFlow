@@ -31,6 +31,7 @@
 
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import { PACK_BUDGET_BAND, type PackBudgetRowKey } from '@/modules/accounting/services/packs/figures/packBudgetBands';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
 import {
   absentComparativeCashFlow,
@@ -50,11 +51,27 @@ export { anchorRow, anchorColumn } from './packTableAnchors';
 
 const grossProfitOf = (f: ReportPackFigures): number => f.revenue - f.costOfSales;
 
+/** Each income row with its budget; a row key outside `PACK_BUDGET_BAND` is a defect, not a silent blank. */
+function withBudgets<R extends { key: string }>(rows: R[], budget: (key: PackBudgetRowKey) => { source: string; value: number | null }) {
+  return rows.map((row) => {
+    if (!(row.key in PACK_BUDGET_BAND)) throw new Error(`income row '${row.key}' has no budget band`);
+    return { ...row, budget: budget(row.key as PackBudgetRowKey) };
+  });
+}
 
-/** Page 6 — the condensed P&L, six data columns being the ceiling. */
+
+/**
+ * Page 6 — the condensed P&L. Six data columns, eight when the company has a budget for the
+ * window: Budget and Variance (actual − budget), each row's budget the engine's band or profit
+ * total (`PACK_BUDGET_BAND`), never a sum of the rows above it.
+ */
 export function buildIncomeStatementTable(set: PackFigureSet, p: PackFigureProvenance): PackTable {
   const { current, prior } = set;
-  return buildTable(p, [
+  const budget = (key: PackBudgetRowKey) => ({
+    source: `budgetVariance.${PACK_BUDGET_BAND[key]}.budget`,
+    value: set.budget?.bands[key] ?? null,
+  });
+  return buildTable(p, withBudgets([
     { label: 'Revenue', key: 'is.revenue', source: 'packFigureSet.current.revenue', actual: current.revenue, prior: prior?.revenue ?? null },
     { label: 'Cost of sales', key: 'is.costOfSales', source: 'packFigureSet.current.costOfSales', level: 1, actual: current.costOfSales, prior: prior?.costOfSales ?? null },
     { label: 'Gross profit', key: 'is.grossProfit', source: 'packStatementTables.grossProfit', role: 'subtotal', actual: grossProfitOf(current), prior: prior ? grossProfitOf(prior) : null },
@@ -81,7 +98,7 @@ export function buildIncomeStatementTable(set: PackFigureSet, p: PackFigureProve
     // Profit.
     { label: 'Other expenses', key: 'is.otherExpenses', source: 'packFigureSet.current.otherExpenses', level: 1, actual: current.otherExpenses ?? 0, prior: prior?.otherExpenses ?? null },
     { label: 'Net profit', key: 'is.netProfit', source: 'packFigureSet.current.netProfit', role: 'total', actual: current.netProfit, prior: prior?.netProfit ?? null },
-  ], set, true);
+  ], budget), set, true, true);
 }
 
 /**

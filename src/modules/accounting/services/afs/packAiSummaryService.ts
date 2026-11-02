@@ -10,6 +10,8 @@ export interface ExecutiveSummaryParams {
   period: string;
   revenue: number;
   priorRevenue: number | null;
+  /** What `priorRevenue` is; defaults to the prior month. */
+  priorLabel?: string;
   grossMarginPct: number;
   priorGrossMarginPct: number | null;
   ebitda: number;
@@ -30,11 +32,11 @@ export function buildExecutiveSummaryPrompt(params: ExecutiveSummaryParams): str
   return `You are a senior financial analyst. Write a concise 3-5 paragraph executive summary for ${params.companyName} for ${params.period}.
 
 Key figures:
-- Revenue: R${fmt(params.revenue)} (prior month: ${params.priorRevenue !== null ? `R${fmt(params.priorRevenue)}` : 'N/A'})
-- Gross margin: ${params.grossMarginPct.toFixed(1)}% (prior: ${params.priorGrossMarginPct !== null ? `${params.priorGrossMarginPct.toFixed(1)}%` : 'N/A'})
+- Revenue: R${fmt(params.revenue)} (${params.priorLabel ?? 'prior month'}: ${params.priorRevenue !== null ? `R${fmt(params.priorRevenue)}` : 'N/A'})
+- Gross margin: ${params.grossMarginPct.toFixed(1)}% (prior month: ${params.priorGrossMarginPct !== null ? `${params.priorGrossMarginPct.toFixed(1)}%` : 'N/A'})
 - EBITDA: R${fmt(params.ebitda)}
 - Cash: R${fmt(params.closingCash)} (change: R${fmt(params.cashChange)})
-- Debtor days: ${params.debtorDays.toFixed(0)} (prior: ${params.priorDebtorDays !== null ? params.priorDebtorDays.toFixed(0) : 'N/A'})
+- Debtor days: ${params.debtorDays.toFixed(0)} (prior month: ${params.priorDebtorDays !== null ? params.priorDebtorDays.toFixed(0) : 'N/A'})
 - 60+ day debtors: R${fmt(params.overdueDebtors)}
 - Top revenue movement: ${params.topRevenueAccount} R${fmt(params.revenueMovement)}
 - Top expense movement: ${params.topExpenseAccount} R${fmt(params.expenseMovement)}
