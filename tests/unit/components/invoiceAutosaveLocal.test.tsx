@@ -97,6 +97,7 @@ describe('new invoice: the draft on this device', () => {
     type(description(), 'New typing');
     await advance(2_000);
     expect(stored()!.data.lines[0]).toMatchObject({ description: 'Old' });
+    expect(screen.getByText(/What you type here is not kept until you Restore or Discard it\./)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
     await advance(0);
     expect(localStorage.getItem(KEY)).toBeNull();

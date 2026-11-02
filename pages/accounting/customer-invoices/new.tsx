@@ -128,7 +128,12 @@ export default function NewCustomerInvoicePage() {
   }
 
   /** Creates the draft (the page shows any refusal); the device's copy goes once the server has it. */
+  // Approved here, the form is done: everything behind the email form is inert, so no key or click creates a second
+  // invoice (a number burnt, a wallet charge). The ref holds from the moment of approval, before the next render.
+  const [approved, setApproved] = useState(false);
+  const approvedNow = useRef(false);
   const createInvoice = async (): Promise<SavedInvoice | null> => {
+    if (approvedNow.current) return null;
     if (!form.clientId) { setError('Select a client'); return null; }
     const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
     if (tooSmall) { setError(pricesToNothingMessage(tooSmall.description)); return null; }
@@ -175,6 +180,7 @@ export default function NewCustomerInvoicePage() {
   const approve = useApproveAndEmail({
     save: createInvoice,
     bodyNow: draft.current,
+    onApproved: () => { approvedNow.current = true; setApproved(true); },
     onRefused: (id, message) => {
       stashApproveRefusal(id, message);
       void (async () => {
@@ -182,7 +188,7 @@ export default function NewCustomerInvoicePage() {
       })();
     },
   });
-  const busy = submitting || approve.busy || contact.pending;
+  const busy = submitting || approve.busy || approved || contact.pending;
 
   return (
     <AppLayout>
@@ -207,7 +213,7 @@ export default function NewCustomerInvoicePage() {
               )}
               {draft.offer && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm flex flex-wrap items-center gap-2">
-                  <Info className="h-4 w-4 flex-shrink-0" />An invoice you started {formatSavedAgo(Date.now() - draft.offer.savedAt)} was kept on this device.
+                  <Info className="h-4 w-4 flex-shrink-0" />An invoice you started {formatSavedAgo(Date.now() - draft.offer.savedAt)} was kept on this device. What you type here is not kept until you Restore or Discard it.
                   <span className="ml-auto flex gap-2">
                     <button type="button" onClick={draft.restore} className="px-3 py-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold">Restore</button>
                     <button type="button" onClick={draft.discard} className="px-3 py-1 rounded-lg border border-amber-400 text-xs font-semibold">Discard</button>
@@ -216,7 +222,7 @@ export default function NewCustomerInvoicePage() {
               )}
               {(error || contact.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error || contact.error}</div>}
 
-              <fieldset disabled={submitting || approve.busy} className="min-w-0 space-y-5">
+              <fieldset disabled={submitting || approve.busy || approved} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
                 onChange={patch => { if ('clientId' in patch) lookupSeq.current++; if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}

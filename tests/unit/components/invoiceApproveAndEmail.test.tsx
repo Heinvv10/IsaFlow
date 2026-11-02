@@ -71,6 +71,25 @@ describe('Approve & email on a new invoice', () => {
     expect(bodyOf(emails()[0]!)).toEqual({ invoiceId: 'inv-1', recipientEmail: 'billing@client.example' });
   });
 
+  it('once approved, the form behind the email form is inert: Enter or a click on Create makes no second invoice', async () => {
+    serveInvoice();
+    await openNew();
+    await approveAndEmail();
+    expect(dialog()).toBeTruthy();
+    const create = screen.getByRole('button', { name: /^create invoice$/i });
+    expect(create).toBeDisabled();
+    expect(screen.getByRole('button', { name: /save & new/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve & email/i })).toBeDisabled();
+    expect(description()).toBeDisabled();
+    create.focus();
+    fireEvent.keyDown(create, { key: 'Enter' });
+    fireEvent.keyUp(create, { key: 'Enter' });
+    fireEvent.click(create);
+    fireEvent.submit(create);
+    for (let i = 0; i < 6; i++) await advance(0);
+    expect(calls('customer-invoices-create')).toHaveLength(1);
+  });
+
   it('closing the email form lands on the invoice, approved and unsent', async () => {
     serveInvoice();
     await openNew();
