@@ -4,7 +4,9 @@
  * posts the GL journal entry.  One payment per directive (idempotent).
  *
  * Journal shape:
- *   DR 5200 Labour Costs       = gross_amount
+ *   DR labour                  = gross_amount, split as a pay run splits it
+ *                                (payrollCostCentreTags: allocations, mapping,
+ *                                default 5200, the employee's CC1 on each line)
  *   CR 2140 PAYE Payable       = paye_amount
  *   CR 1110 Bank (or override) = net_amount
  *
@@ -22,6 +24,7 @@ import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accoun
 import { directivePaye } from './payrollSeveranceDirective';
 import { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
 import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
+import { employeeLabourLines, readEmployeeLabourSplit, type EmployeeLabourSplit } from './payrollCostCentreTags';
 
 export { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError };
 
@@ -41,6 +44,8 @@ export interface ApplyDirectiveResult {
   paye: number;
   net: number;
   status: 'applied';
+  /** `labour_cost_centre_untagged` when a centre of the employee's cannot be a CC1 tag (it posts untagged). */
+  advisories: Array<{ code: string; detail: string }>;
 }
 
 /**
@@ -119,6 +124,13 @@ export async function applyTaxDirective(
 ): Promise<ApplyDirectiveResult> {
   log.info('applyTaxDirective start', { companyId, directiveId }, 'taxDirective');
 
+  // 0. The employee's centres, share-locked BEFORE the directive row as approval takes them (payrollCostCentreTags);
+  // employee_id is never updated, so it is read without a lock. A directive with none is refused below.
+  const who = (await sql`
+    SELECT employee_id FROM tax_directives WHERE company_id = ${companyId} AND id = ${directiveId}
+  `) as Row[];
+  const split: EmployeeLabourSplit | null = who[0]?.employee_id == null ? null : await readEmployeeLabourSplit(companyId, String(who[0].employee_id));
+
   // 1. Load and lock the directive — scoped by company_id. FOR SHARE, held to
   // the end of the request: a concurrent cancel (updateTaxDirective, FOR
   // UPDATE) waits for this payment and is then refused, or, if it got there
@@ -189,12 +201,8 @@ export async function applyTaxDirective(
   const narrative = `SARS directive ${directiveNum} — ${employeeName}`;
 
   const lines: JournalLineInput[] = [
-    {
-      glAccountId: labourAccountId,
-      debit: gross,
-      credit: 0,
-      description: `${narrative} — gross lump sum`,
-    },
+    ...(split ? employeeLabourLines(split, gross, labourAccountId, `${narrative} — gross lump sum`)
+      : [{ glAccountId: labourAccountId, debit: gross, credit: 0, description: `${narrative} — gross lump sum` }]),
     {
       glAccountId: payeAccountId,
       debit: 0,
@@ -265,7 +273,7 @@ export async function applyTaxDirective(
     companyId, directiveId, paymentId, journalEntryId: entry.id, gross, paye, net,
   }, 'taxDirective');
 
-  return { paymentId, journalEntryId: entry.id, gross, paye, net, status: 'applied' };
+  return { paymentId, journalEntryId: entry.id, gross, paye, net, status: 'applied', advisories: split?.advisory ? [split.advisory] : [] };
 }
 
 // ─── listTaxDirectivePayments ─────────────────────────────────────────────────
