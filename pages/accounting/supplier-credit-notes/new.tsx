@@ -4,14 +4,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
+import { Plus, Trash2, Loader2, Receipt, FileText } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 
 interface LineItem { description: string; quantity: number; unitPrice: number; vatType: string }
@@ -115,20 +114,12 @@ export default function NewSupplierCreditNotePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Hero header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/supplier-credit-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">Supplier Credit Note</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={FileText}
+          title="Supplier Credit Note"
+          breadcrumb={[{ label: 'Supplier Credit Notes', href: '/accounting/supplier-credit-notes' }, { label: 'New credit note' }]}
+          className="mb-0"
+        />
 
         <form onSubmit={e => { void handleSubmit(e); }} className="p-6 xl:p-8">
           <div className="max-w-6xl mx-auto flex gap-6 items-start">
@@ -154,12 +145,12 @@ export default function NewSupplierCreditNotePage() {
                       onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>
-                    <label className={lbl}>Reference Number</label>
-                    <input type="text" name="reference" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Auto-generated if blank" />
+                    <label htmlFor="supplier-credit-notes-new-reference" className={lbl}>Reference Number</label>
+                    <input id="supplier-credit-notes-new-reference" type="text" name="reference" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Auto-generated if blank" />
                   </div>
                   <div>
-                    <label className={lbl}>Description</label>
-                    <input type="text" name="description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={inp} placeholder="Reason for credit note" />
+                    <label htmlFor="supplier-credit-notes-new-description" className={lbl}>Description</label>
+                    <input id="supplier-credit-notes-new-description" type="text" name="description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={inp} placeholder="Reason for credit note" />
                   </div>
                 </div>
               </div>
@@ -191,10 +182,10 @@ export default function NewSupplierCreditNotePage() {
                       {lineItems.map((li, idx) => (
                         <tr key={idx} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-2 py-2"><input type="text" value={li.description} onChange={e => updateLine(idx, { description: e.target.value })} placeholder="Item description" className={inp} required /></td>
-                          <td className="px-2 py-2"><input type="number" min="0.001" step="0.001" value={li.quantity} onChange={e => updateLine(idx, { quantity: Number(e.target.value) })} className={`${inp} text-right`} /></td>
-                          <td className="px-2 py-2"><input type="number" min="0" step="0.01" value={li.unitPrice} onChange={e => updateLine(idx, { unitPrice: Number(e.target.value) })} className={`${inp} text-right`} /></td>
+                          <td className="px-2 py-2"><input type="number" aria-label={`Line ${idx + 1} quantity`} min="0.001" step="0.001" value={li.quantity} onChange={e => updateLine(idx, { quantity: Number(e.target.value) })} className={`${inp} text-right`} /></td>
+                          <td className="px-2 py-2"><input type="number" aria-label={`Line ${idx + 1} unit price`} min="0" step="0.01" value={li.unitPrice} onChange={e => updateLine(idx, { unitPrice: Number(e.target.value) })} className={`${inp} text-right`} /></td>
                           <td className="px-2 py-2">
-                            <select name="vatType" value={li.vatType} onChange={e => updateLine(idx, { vatType: e.target.value })} className={inp}>
+                            <select name="vatType" aria-label={`Line ${idx + 1} VAT type`} value={li.vatType} onChange={e => updateLine(idx, { vatType: e.target.value })} className={inp}>
                               {VAT_TYPES.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
                             </select>
                           </td>
@@ -202,7 +193,7 @@ export default function NewSupplierCreditNotePage() {
                             {formatCurrency(li.quantity * li.unitPrice)}
                           </td>
                           <td className="px-2 py-2">
-                            <button type="button" onClick={() => removeLine(idx)} disabled={lineItems.length === 1} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
+                            <button type="button" aria-label={`Remove line ${idx + 1}`} onClick={() => removeLine(idx)} disabled={lineItems.length === 1} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>

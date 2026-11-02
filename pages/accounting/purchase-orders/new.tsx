@@ -4,15 +4,14 @@
  */
 import { useId, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { ArrowLeft, Plus, Trash2, Loader2, Receipt } from 'lucide-react';
-import Link from 'next/link';
+import { Plus, Trash2, Loader2, Receipt, ShoppingCart } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 import { useOverflowX } from '@/hooks/useOverflowX';
 
@@ -89,20 +88,12 @@ export default function NewPurchaseOrderPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Hero header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/purchase-orders" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Purchase Orders
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">Purchase Order</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={ShoppingCart}
+          title="Purchase Order"
+          breadcrumb={[{ label: 'Purchase Orders', href: '/accounting/purchase-orders' }, { label: 'New order' }]}
+          className="mb-0"
+        />
 
         <div className="p-4 sm:p-6 xl:p-8">
           <form onSubmit={(e) => handleSubmit(e, saveAndNew)} className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
@@ -119,8 +110,8 @@ export default function NewPurchaseOrderPage() {
                     <SupplierSelect required value={form.supplierId} inputClassName={inp} onChange={id => setForm(p => ({ ...p, supplierId: id }))} />
                   </div>
                   <div>
-                    <label className={lbl}>Reference</label>
-                    <input type="text" name="reference" value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} placeholder="Supplier quote ref" className={inp} />
+                    <label htmlFor="purchase-orders-new-reference" className={lbl}>Reference</label>
+                    <input id="purchase-orders-new-reference" type="text" name="reference" value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} placeholder="Supplier quote ref" className={inp} />
                   </div>
                   <div>
                     <DateField label="Order Date" required name="orderDate" value={form.orderDate || null}
@@ -161,9 +152,9 @@ export default function NewPurchaseOrderPage() {
                       {items.map((item, index) => (
                         <tr key={item.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
                           <td className="px-3 py-2"><input type="text" required name="description" value={item.description} onChange={e => updateItem(item.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
-                          <td className="px-3 py-2"><input type="number" required name="quantity" min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(item.key, 'quantity', e.target.value)} className={`${inp} text-right`} /></td>
-                          <td className="px-3 py-2"><input type="number" required name="unitPrice" min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(item.key, 'unitPrice', e.target.value)} className={`${inp} text-right`} /></td>
-                          <td className="px-3 py-2"><input type="number" name="taxRate" min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
+                          <td className="px-3 py-2"><input type="number" required name="quantity" aria-label={`Line ${index + 1} quantity`} min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(item.key, 'quantity', e.target.value)} className={`${inp} text-right`} /></td>
+                          <td className="px-3 py-2"><input type="number" required name="unitPrice" aria-label={`Line ${index + 1} unit price`} min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(item.key, 'unitPrice', e.target.value)} className={`${inp} text-right`} /></td>
+                          <td className="px-3 py-2"><input type="number" name="taxRate" aria-label={`Line ${index + 1} VAT %`} min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
                           <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{fmt(lineTotal(item))}</td>
                           <td className="px-2 py-2">
                             <button type="button" aria-label={`Remove line ${index + 1}`} onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">

@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
-import { StatusPill } from '@/components/ui';
+import { PageHeader, StatusPill } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -56,31 +56,27 @@ export default function PurchaseOrdersPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Hero header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10 flex items-center justify-between">
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Purchasing</p>
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Purchase Orders</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">{count} {count === 1 ? 'order' : 'orders'}{pendingCount > 0 ? ` · ${pendingCount} pending delivery` : ''}</p>
-            </div>
-            <div className="flex items-center gap-2">
+        <PageHeader
+          icon={ShoppingCart}
+          title="Purchase Orders"
+          subtitle={`${count} ${count === 1 ? 'order' : 'orders'}${pendingCount > 0 ? ` · ${pendingCount} pending delivery` : ''}`}
+          className="mb-0"
+          actions={
+            <>
               <ExportCSVButton endpoint="/api/accounting/purchase-orders?format=csv" filenamePrefix="purchase-orders" label="Export" />
-              <Link href="/accounting/purchase-orders/new" className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25">
+              <Link href="/accounting/purchase-orders/new" className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors">
                 <Plus className="w-4 h-4" /> New PO
               </Link>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <div className="p-6 space-y-4">
           {/* Filters */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex-wrap">
               {TABS.map(t => (
-                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                   {t.replace(/_/g, ' ')}
                 </button>
               ))}
@@ -120,7 +116,7 @@ export default function PurchaseOrdersPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {orders.map(o => (
                     <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                      <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">
+                      <td className="px-5 py-3.5 font-id text-amber-500 font-semibold">
                         <Link href={`/accounting/purchase-orders/${o.id}`} className="hover:text-amber-400 transition-colors">{o.po_number}</Link>
                       </td>
                       <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{o.supplier_name}</td>
