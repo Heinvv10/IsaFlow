@@ -1,9 +1,8 @@
 /**
  * PR S final-final review: what is approved is the invoice on screen, in its currency.
  * - Approve sends the total, the currency and the exchange rate shown (invoice page, edit page, /new).
- * - The edit page: a STALE_VIEW refusal reloads the invoice and says why; a stored total that the current pricing
- *   would not give (a quote-converted or WIP draft rounded another way) is re-saved before approving, so Approve &
- *   email is not refused on every click.
+ * - The edit page: a STALE_VIEW refusal reloads the invoice and says why. (A stored total the lines no longer price to
+ *   is never re-saved unasked: invoiceRepriceAndOpenInvoice.test.tsx.)
  * - The invoice page and the edit page ignore a load for an invoice that is no longer the one open, and the invoice
  *   page approves and cancels the invoice it shows.
  */
@@ -61,17 +60,7 @@ describe('Approve sends what is shown: total, currency and exchange rate', () =>
   });
 });
 
-describe('the edit page and a total the server would not agree with', () => {
-  it('a stored total the current pricing would not give is re-saved before approving', async () => {
-    serveInvoice(undefined, { ...DRAFT, total_amount: 115.01 }); // stored by an older rounding; the lines now price to 115.00
-    render(<EditPage />);
-    await settle();
-    fireEvent.click(screen.getByRole('button', { name: /approve & email/i }));
-    await settle();
-    expect(puts()).toHaveLength(1);
-    expect(approves()).toHaveLength(1);
-  });
-
+describe('the edit page and a STALE_VIEW', () => {
   it('a STALE_VIEW refusal reloads the invoice and says why', async () => {
     serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'POST' ? refused(409, STALE, { reason: 'STALE_VIEW' }) : undefined));
     render(<EditPage />);

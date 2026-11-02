@@ -55,7 +55,7 @@ export interface LocalDraft {
   current: () => string | null;
   /** The user chose to leave without the change: nothing is written as the page goes (for this form only). */
   leaveWithout: () => void;
-  /** Whether "Leave without them" was chosen for the form on screen now. */
+  /** Whether "Leave without them" was chosen and the form has not changed since. */
   leftWithout: () => boolean;
 }
 
@@ -88,13 +88,17 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const since = useRef(invoiceDraftGeneration());
   const [clearedElsewhere, setClearedElsewhere] = useState(false);
-  const discarded = useRef<string | null>(null); // the form "Leave without them" was about: only that one is not kept
+  const discarded = useRef<string | null>(null); // the form "Leave without them" was about; any change after it ends it
   const [offer, setOffer] = useState<StoredDraft<LocalDraftData> | null>(null);
   const [writtenJson, setWrittenJson] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
 
-  useCommitEffect(() => { latest.current = { json, data: opts?.snapshot ?? null }; });
+  useCommitEffect(() => {
+    // A real change after "Leave without them" (even one typed back to the same text) ends it: the form is kept again.
+    if (discarded.current !== null && json !== latest.current.json) discarded.current = null;
+    latest.current = { json, data: opts?.snapshot ?? null };
+  });
   useEffect(() => {
     if (!rebase.current || json === null) return;
     rebase.current = false;
@@ -135,7 +139,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   // the draft keeps the typed values, so it restores what was on screen.
   useEffect(() => () => {
     const { key: k, offered } = writer.current;
-    if (k && !offered && latest.current.json !== discarded.current && latest.current.json !== written.current) writeNow();
+    if (k && !offered && discarded.current === null && latest.current.json !== written.current) writeNow();
   }, [writeNow]);
   useEffect(() => {
     if (!armed || !key || json === written.current) return undefined;
@@ -176,7 +180,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const current = useCallback(() => latest.current.json, []);
   const leaveWithout = useCallback(() => { discarded.current = latest.current.json; }, []);
   /** "Leave without them" was chosen for the form on screen now. */
-  const leftWithout = useCallback(() => discarded.current !== null && discarded.current === latest.current.json, []);
+  const leftWithout = useCallback(() => discarded.current !== null, []);
 
   const state: AutosaveState | null = !key ? null
     : failed || clearedElsewhere ? 'error'

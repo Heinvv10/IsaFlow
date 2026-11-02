@@ -17,6 +17,7 @@ import { discountFromAmount, previewTotals } from '@/modules/accounting/services
 import { InvoiceLineItemsTable } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { InvoiceHeaderFields, InvoiceNotesCard, type InvoiceCurrency } from '@/components/accounting/customer-invoices/InvoiceHeaderFields';
 import { InvoiceSummaryCard } from '@/components/accounting/customer-invoices/InvoiceSummaryCard';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/accounting/customer-invoices/invoiceHeaderForm';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
@@ -171,9 +172,19 @@ export default function EditCustomerInvoicePage() {
   const draft = { form, lines, taxMode };
   // Approve & email first: autosave waits while it runs (the form is disabled then too). Its save reads `autosave`
   // only when clicked, after this render has made it.
+  // A stored total the lines no longer price to (a quote converted at 0%, a WIP draft rounded per line): never re-saved
+  // unasked (that reprices, drops WIP links, stales an approval and makes the clicker an author). Both figures show,
+  // and Approve & email refuses until the user saves or approves the stored figure from the invoice page.
+  const stalePriced = storedTotal !== null && Math.round(storedTotal * 100) !== Math.round(total * 100);
+  const money = (n: number) => formatCurrencyAmount(n, form.currencyCode);
   const approve = useApproveAndEmail({
-    // A stored total the lines no longer give is re-saved first (unchanged body), so the server reprices it as shown.
-    save: async () => (await saveDraft(storedTotal !== null && Math.round(storedTotal * 100) !== Math.round(total * 100)) ? { id, invoiceNumber } : null),
+    save: async () => {
+      if (stalePriced && storedTotal !== null && !autosave.unsaved()) {
+        setError(`Save to reprice at ${money(total)}, or approve ${money(storedTotal)} from the invoice page`);
+        return null;
+      }
+      return (await saveDraft(false)) ? { id, invoiceNumber } : null;
+    },
     onRefused: (_id, message, status, reason) => {
       if (reason === 'STALE_VIEW') { stashApproveRefusal(id, message); setReloads(n => n + 1); return; } // show what is stored, and why
       setError(message); setErrorStays(status === 409);
@@ -194,7 +205,7 @@ export default function EditCustomerInvoicePage() {
     setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
   };
   const autosave = useInvoiceAutosave({
-    mode: 'server', invoiceId: id, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
+    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
     problem: autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
   });
 
@@ -268,6 +279,7 @@ export default function EditCustomerInvoicePage() {
 
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
+                {stalePriced && storedTotal !== null && <p className="mt-3 text-xs text-amber-800 dark:text-amber-300">Stored total {money(storedTotal)}; these lines price to {money(total)}. Saving reprices the invoice.</p>}
                 <InvoiceAutosaveStatus where="server" state={autosave.state} savedAt={autosave.savedAt} error={autosave.error} held={autosave.held} />
                 <button onClick={handleSubmit} disabled={submitting || approve.busy || approved || (customer.pending && form.clientId !== loadedClient)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}

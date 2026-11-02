@@ -30,6 +30,8 @@ const SAVE_FAILED = 'Could not save the invoice - try again';
 export interface ServerAutosaveOptions {
   mode: 'server';
   invoiceId: string;
+  /** Bumped when the page reloads the invoice in place (a STALE_VIEW): what loads next is the new baseline. */
+  loadKey?: number;
   /** The Save button's body this render; null until the invoice has loaded. */
   body: InvoicePutBody | null;
   /** autosaveProblem's answer this render: why the body is held back, or null. */
@@ -123,6 +125,16 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
 
   // Another invoice opened in place: the old one's waiting change goes first; then nothing the new one shows has been
   // saved by this page yet, and a reply for the old one is stale.
+  const loadKey = opts?.loadKey ?? 0;
+  const loadedAs = useRef(loadKey);
+  useCommitEffect(() => {
+    if (loadedAs.current === loadKey) return;
+    loadedAs.current = loadKey; // reloaded in place: what the server holds now is the baseline; nothing is sent back
+    lastShown.current = null;
+    lastSaved.current = null;
+    setSavedJson(null);
+    setFailure(null);
+  }, [loadKey]);
   const shownFor = useRef(invoiceId);
   useCommitEffect(() => {
     if (shownFor.current === invoiceId) return;

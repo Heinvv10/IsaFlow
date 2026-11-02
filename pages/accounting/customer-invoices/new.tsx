@@ -205,8 +205,9 @@ export default function NewCustomerInvoicePage() {
     },
     bodyNow: draft.current,
     shown: { total, currencyCode: form.currencyCode, exchangeRate: form.exchangeRate },
-    onRefused: (id, message, status) => {
-      stashApproveRefusal(id, message, status);
+    onRefused: (id, message, status, reason) => {
+      // A STALE_VIEW is answered by the edit page's next save; only the gate's 409 stays on screen there.
+      stashApproveRefusal(id, message, reason === 'STALE_VIEW' ? undefined : status);
       void (async () => {
         let opened = false;
         try { opened = (await router.push(`/accounting/customer-invoices/edit/${id}`)) === true; } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }

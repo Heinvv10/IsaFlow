@@ -9,13 +9,14 @@ import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import type { CustomerInvoiceDetail } from '@/modules/accounting/types/customerInvoice.types';
 
 interface Args {
-  invoiceId: string | string[] | undefined;
   invoice: CustomerInvoiceDetail | null;
   loadInvoice: () => Promise<void>;
   setError: (message: string) => void;
 }
 
-export function useInvoiceLinkActions({ invoiceId, invoice, loadInvoice, setError }: Args) {
+/** Every link is for the invoice shown (`invoice.id`), never the URL's: another may be loading. */
+export function useInvoiceLinkActions({ invoice, loadInvoice, setError }: Args) {
+  const invoiceId = invoice?.id;
   const afterLinkCopied = useTimeoutOnce();
   const afterPortalLinkCopied = useTimeoutOnce();
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -28,7 +29,8 @@ export function useInvoiceLinkActions({ invoiceId, invoice, loadInvoice, setErro
     setPaymentLoading(true);
     setError('');
     try {
-      window.open(await startPayNowCheckout(invoiceId as string), '_blank', 'noopener,noreferrer');
+      if (!invoiceId) return;
+      window.open(await startPayNowCheckout(invoiceId), '_blank', 'noopener,noreferrer');
       await loadInvoice();
     } catch (e) {
       setError(apiErrorMessage(e, 'Could not start the payment - try again'));

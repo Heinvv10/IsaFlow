@@ -43,33 +43,41 @@ export default function CustomerInvoiceDetailPage() {
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const { prevId, nextId, loadAdjacent, clear: clearAdjacent } = useAdjacentInvoices();
 
-  const loads = useRef(0); // only the newest load is shown: another invoice opened meanwhile wins
-  const loadInvoice = useCallback(async () => {
+  // The invoice the URL opens now. A load is shown only if it is the newest AND for that invoice: an action's reload of
+  // A answering after the user moved on to B is dropped, so nothing (Email, Cancel…) is ever done to A from B's page.
+  const openId = useRef('');
+  const loads = useRef(0);
+  const loadInvoice = useCallback(async (id: string) => {
     const mine = ++loads.current;
+    const current = () => mine === loads.current && id === openId.current;
     setLoading(true);
     setError('');
     try {
-      await invoiceSavesSettled(String(invoiceId)); // an edit page's last save, sent as it closed, lands first
-      const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
+      await invoiceSavesSettled(id); // an edit page's last save, sent as it closed, lands first
+      const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`);
       await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
-      if (mine === loads.current) setInvoice(json.data || json);
+      if (current()) setInvoice(json.data || json);
     } catch (err) {
-      if (mine !== loads.current) return;
+      if (!current()) return;
       setInvoice(null); clearAdjacent();
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
-      if (mine === loads.current) setLoading(false);
+      if (current()) setLoading(false);
     }
-  }, [invoiceId, clearAdjacent]);
+  }, [clearAdjacent]);
+  const reloadOpen = useCallback(() => loadInvoice(openId.current), [loadInvoice]);
 
   useEffect(() => {
     if (!invoiceId) return;
-    void loadInvoice();
+    openId.current = String(invoiceId);
+    void loadInvoice(String(invoiceId));
     void loadAdjacent(invoiceId as string);
   }, [invoiceId, loadInvoice, loadAdjacent]);
 
   const handleAction = useCallback(async (action: string) => {
+    const actedOn = invoice?.id;
+    if (!actedOn) return;
     setActionLoading(action);
     setError('');
     try {
@@ -79,45 +87,47 @@ export default function CustomerInvoiceDetailPage() {
         // The invoice shown, never the URL's (another may be loading). Approve carries what is on screen: anything stored
         // differently is refused (409 STALE_VIEW) and reloaded below.
         body: JSON.stringify(action === 'approve'
-          ? { id: invoice?.id, action, ...approvalShown({ total: Number(invoice?.total_amount), currencyCode: invoice?.currency_code ?? 'ZAR', exchangeRate: Number(invoice?.exchange_rate ?? 1) }) }
-          : { id: invoice?.id, action }),
+          ? { id: actedOn, action, ...approvalShown({ total: Number(invoice?.total_amount), currencyCode: invoice?.currency_code ?? 'ZAR', exchangeRate: Number(invoice?.exchange_rate ?? 1) }) }
+          : { id: actedOn, action }),
       });
+      if (openId.current !== actedOn) return; // the user moved on: nothing about A belongs on this page now
       // R-035: 409 is the approval gate — reload so the page offers Submit for approval — or STALE_VIEW: show what is stored.
-      if (res.status === 409) await loadInvoice();
+      if (res.status === 409) await loadInvoice(actedOn);
       await assertOk(res, 'Could not complete that action - try again');
-      await loadInvoice();
+      await loadInvoice(actedOn);
     } catch (e) {
-      setError(apiErrorMessage(e, 'Could not complete that action - try again'));
+      if (openId.current === actedOn) setError(apiErrorMessage(e, 'Could not complete that action - try again'));
     } finally {
       setActionLoading('');
     }
   }, [invoice, loadInvoice]);
 
   const handleSendEmail = async () => {
-    if (!emailTo.trim()) return;
+    const sentFor = invoice?.id;
+    if (!emailTo.trim() || !sentFor) return;
     setEmailSending(true);
     setEmailSuccess('');
     try {
       const res = await apiFetch('/api/accounting/invoice-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId, recipientEmail: emailTo.trim() }),
+        body: JSON.stringify({ invoiceId: sentFor, recipientEmail: emailTo.trim() }),
       });
       await assertOk(res, 'Could not send the invoice email - try again');
       const json = await res.json();
       setEmailSuccess(json.data?.sent ? 'Invoice emailed successfully!' : (json.message || 'Email could not be sent.'));
-      if (json.data?.sent) await loadInvoice();
+      if (json.data?.sent && openId.current === sentFor) await loadInvoice(sentFor);
     } catch (e) {
       setError(apiErrorMessage(e, 'Could not send the invoice email - try again'));
     } finally { setEmailSending(false); }
   };
 
   const { paymentLoading, linkCopied, portalUrl, portalLinkLoading, portalLinkCopied, handlePayNow, handleCopyPaymentLink, handleCopyPortalLink } =
-    useInvoiceLinkActions({ invoiceId, invoice, loadInvoice, setError });
+    useInvoiceLinkActions({ invoice, loadInvoice: reloadOpen, setError });
 
   const { groups, overflowActions } = useCustomerInvoiceActions(
     invoice ? {
-      invoiceId: invoiceId as string, invoice, actionLoading, paymentLoading,
+      invoiceId: invoice.id, invoice, actionLoading, paymentLoading,
       portalLinkLoading, portalLinkCopied, linkCopied,
       onOpenEmailModal: () => { setEmailTo(invoice.client_email || invoice.email_sent_to || ''); setEmailSuccess(''); setShowEmailModal(true); },
       onCopyPortalLink: () => { void handleCopyPortalLink(); },
@@ -133,6 +143,7 @@ export default function CustomerInvoiceDetailPage() {
   if (!invoice) return <AppLayout><div className="flex items-center justify-center min-h-[60vh] flex-col"><AlertCircle className="h-8 w-8 text-red-400 mb-2" /><p className="text-[var(--ff-text-secondary)]">{error || 'Invoice not found'}</p></div></AppLayout>;
 
   const balance = Number(invoice.total_amount) - Number(invoice.amount_paid);
+  const shownCurrency = (i: CustomerInvoiceDetail) => { const code = i.currency_code || 'ZAR'; return code === 'ZAR' ? code : `${code} at ${Number(i.exchange_rate ?? 1)}`; };
   const trail = buildInvoiceTrail('customer', router.query, invoice.client_name, invoice.invoice_number);
 
   return (
@@ -153,11 +164,12 @@ export default function CustomerInvoiceDetailPage() {
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{invoice.invoice_number}</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">{invoice.client_name} — {invoice.project_name}</p>
+                <p className="text-xs text-[var(--ff-text-secondary)]">Currency: {shownCurrency(invoice)}</p>
               </div>
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${CUSTOMER_INVOICE_STATUS_COLORS[invoice.status] || ''}`}>{invoice.status.replace(/_/g, ' ')}</span>
               {invoice.status === 'draft' && (
                 <Link
-                  href={`/accounting/customer-invoices/edit/${String(invoiceId)}`}
+                  href={`/accounting/customer-invoices/edit/${invoice.id}`}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-amber-500/40 text-amber-500 hover:bg-amber-500/10 transition-colors"
                   title="Edit draft invoice"
                 >
@@ -171,7 +183,7 @@ export default function CustomerInvoiceDetailPage() {
 
         {error && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{error}</div>}
         <DocumentApprovalPanel documentType="customer_invoice" documentId={invoice.id} noun="invoice"
-          approval={invoice.approval} onChanged={loadInvoice} />
+          approval={invoice.approval} onChanged={reloadOpen} />
         {portalUrl && (
           <div className="mx-6 mt-3 flex items-center gap-2">
             <span className="text-xs text-[var(--ff-text-secondary)] shrink-0">Portal link:</span>
@@ -200,13 +212,13 @@ export default function CustomerInvoiceDetailPage() {
             </Link>
           )}
           <MarkVatDeclaredElsewhereButton
-            kind="customer" invoiceId={invoiceId as string}
+            kind="customer" invoiceId={invoice.id}
             glJournalEntryId={invoice.gl_journal_entry_id || null} taxAmount={invoice.tax_amount}
-            onMarked={() => void loadInvoice()}
+            onMarked={() => void reloadOpen()}
           />
           <AccountingDocumentPanel
             entityType="customer_invoice"
-            entityId={invoiceId as string}
+            entityId={invoice.id}
             allowedTypes={[
               { value: 'invoice', label: 'Invoice PDF' },
               { value: 'other', label: 'Other' },
@@ -239,10 +251,10 @@ export default function CustomerInvoiceDetailPage() {
         />
         <RevokePaymentLinkDialog
           open={showRevokeConfirm}
-          invoiceId={invoiceId as string}
+          invoiceId={invoice.id}
           invoiceNumber={invoice.invoice_number}
           onClose={() => setShowRevokeConfirm(false)}
-          onDone={() => { setError(''); void loadInvoice(); }}
+          onDone={() => { setError(''); void reloadOpen(); }}
           onError={setError}
         />
       </div>

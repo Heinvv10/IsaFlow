@@ -105,6 +105,21 @@ describe('"Leave without them" holds for that change only', () => {
   });
 });
 
+describe('new: "Leave without them" and a later real change', () => {
+  it('a change after it, even typed back to the same text, keeps the form on /new → /new', async () => {
+    serveInvoice();
+    render(owned(<NewPage />));
+    await advance(0);
+    type(description(), 'Thrown away');
+    await leave();
+    type(description(), 'Changed my mind');
+    type(description(), 'Thrown away');
+    act(() => { router().events.emit('routeChangeComplete', '/accounting/customer-invoices/new'); });
+    await settle();
+    expect(description().value).toBe('Thrown away');
+  });
+});
+
 describe('edit: another invoice opened in place', () => {
   it('closes the first one\'s email form', async () => {
     serveInvoice((u) => (u.includes('id=inv-2') ? ok({ ...DRAFT, id: 'inv-2' }) : undefined));
