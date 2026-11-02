@@ -26,6 +26,8 @@ import type { DbRow } from '@/lib/neon';
 import { monthEnd, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { primaryVersionScopeAndYears } from './budgetVersionScope';
 import { readTrackingActuals } from './tracking/trackingActualRead';
+import { TrackingError } from './tracking/trackingTypes';
+import { YEAR_MAX, YEAR_MIN } from './tracking/trackingWindow';
 import {
   computeRemaining,
   GRAIN_BY_DIM,
@@ -49,11 +51,39 @@ export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'receiv
 export const BILLED_STATUSES = ['approved', 'paid', 'partially_paid'] as const;
 
 const MONTH_KEY = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Keys per call: a preview is one document. */
+export const MAX_REMAINING_KEYS = 200;
+/**
+ * The keys' months, first to last inclusive, span at most this many: one document hits one month
+ * (decision 8b), and the version scope walks every registry year between the first and last month.
+ */
+export const MAX_REMAINING_MONTH_SPAN = 12;
+
+const monthIndex = (m: string): number => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1;
+
+/**
+ * Why these keys cannot be answered (a sentence for a 400), or null: too many, a month that is not
+ * 'YYYY-MM' or outside YEAR_MIN..YEAR_MAX (trackingWindow's bounds), or a month span past
+ * MAX_REMAINING_MONTH_SPAN. Checked by the route before any read, and again by `remainingFor`.
+ */
+export function remainingKeysProblem(months: readonly string[]): string | null {
+  if (months.length === 0) return 'At least one line is required';
+  if (months.length > MAX_REMAINING_KEYS) return `At most ${MAX_REMAINING_KEYS} lines per preview`;
+  for (const m of months) {
+    if (!MONTH_KEY.test(m)) return `month must be 'YYYY-MM' (got ${m.slice(0, 20)})`;
+    const y = Number(m.slice(0, 4));
+    if (y < YEAR_MIN || y > YEAR_MAX) return `month must lie in ${YEAR_MIN}-${YEAR_MAX} (got ${m})`;
+  }
+  const idx = months.map(monthIndex);
+  const span = Math.max(...idx) - Math.min(...idx) + 1;
+  if (span > MAX_REMAINING_MONTH_SPAN) return `The lines' months span at most ${MAX_REMAINING_MONTH_SPAN} months (these span ${span})`;
+  return null;
+}
 const lower = (v: string | null | undefined): string | null => (v == null ? null : v.toLowerCase());
 const text = (v: unknown): string | null => (v == null ? null : String(v).toLowerCase());
 
 function normalise(k: RemainingKey): RemainingKey {
-  if (!MONTH_KEY.test(k.month)) throw new Error(`remainingFor: month must be 'YYYY-MM', got ${k.month}`);
   return { glAccountId: k.glAccountId.toLowerCase(), cc1Id: lower(k.cc1Id), cc2Id: lower(k.cc2Id), buId: lower(k.buId), month: k.month };
 }
 
@@ -127,6 +157,8 @@ export async function remainingFor(
   companyId: string, rawKeys: readonly RemainingKey[], opts: RemainingOptions = {},
 ): Promise<RemainingResult[]> {
   if (rawKeys.length === 0) return [];
+  const problem = remainingKeysProblem(rawKeys.map((k) => k.month));
+  if (problem) throw new TrackingError(400, problem);
   const keys = rawKeys.map(normalise);
   const months = [...new Set(keys.map((k) => k.month))].sort();
   const monthDates = months.map(monthKeyToDate);

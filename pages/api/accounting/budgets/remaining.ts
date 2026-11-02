@@ -6,8 +6,9 @@
  * maps onto, budget (null = "No budget"; a budgeted zero is 0), posted actual, open PO commitment
  * and remaining (null with no budget). `excludeInvoiceId` is the bill being approved (its own
  * PO-linked lines count as billed); `excludePoItemIds` leaves PO lines out of committed.
- * Write roles only (owner, admin, manager): it previews an approval. Reads nothing but this company's
- * rows. 120 previews a minute per user (429 with Retry-After).
+ * Bounds (400 before anything is read): at most 200 lines, months 'YYYY-MM' in 1900-2200, spanning at
+ * most 12 months first to last. Write roles only (owner, admin, manager): it previews an approval.
+ * Reads nothing but this company's rows. 120 previews a minute per user (429 with Retry-After).
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -19,10 +20,7 @@ import { UUID } from '@/lib/schemas/common';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { respondTrackingError } from '@/lib/budgetTrackingResponse';
 import { mapRegistryMiss } from '@/modules/accounting/services/budgets/tracking/trackingWindow';
-import { remainingFor } from '@/modules/accounting/services/budgets/remainingBudget';
-
-/** A document has at most a few hundred lines; a preview is one document. */
-export const MAX_REMAINING_LINES = 200;
+import { MAX_REMAINING_KEYS, remainingFor, remainingKeysProblem } from '@/modules/accounting/services/budgets/remainingBudget';
 
 const RemainingSchema = z.object({
   lines: z.array(z.object({
@@ -30,8 +28,8 @@ const RemainingSchema = z.object({
     cc1Id: UUID.nullable().default(null),
     cc2Id: UUID.nullable().default(null),
     buId: UUID.nullable().default(null),
-    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "month must be 'YYYY-MM'"),
-  })).min(1).max(MAX_REMAINING_LINES),
+    month: z.string().max(7),
+  })).max(MAX_REMAINING_KEYS),
   excludeInvoiceId: UUID.nullable().optional(),
   excludePoItemIds: z.array(UUID).max(1000).optional(),
 });
@@ -44,9 +42,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     res.setHeader('Retry-After', '60');
     return apiResponse.tooManyRequests(res, 'Too many budget previews; wait a minute and try again.');
   }
+  // The count first, before zod walks a long array (400, as every bound below).
+  const raw = (req.body as { lines?: unknown } | undefined)?.lines;
+  if (Array.isArray(raw) && raw.length > MAX_REMAINING_KEYS) {
+    return apiResponse.badRequest(res, `At most ${MAX_REMAINING_KEYS} lines per preview`);
+  }
   const parsed = RemainingSchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { lines, excludeInvoiceId, excludePoItemIds } = parsed.data;
+  // Month format, years YEAR_MIN..YEAR_MAX, at most MAX_REMAINING_MONTH_SPAN months: 400 before any read.
+  const problem = remainingKeysProblem(lines.map((l) => l.month));
+  if (problem) return apiResponse.badRequest(res, problem);
   try {
     const out = await mapRegistryMiss(() => remainingFor(companyId, lines, { excludeInvoiceId, excludePoItemIds }));
     return apiResponse.success(res, { lines: out });
