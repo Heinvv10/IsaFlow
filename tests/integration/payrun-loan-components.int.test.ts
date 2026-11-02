@@ -117,6 +117,8 @@ describe('a low-interest loan with no 3801 earning (Hein: a warning, not a block
     expect(warning.message).toContain('R-LOAN');
     expect(warning.message.replace(/\s/g, ' ')).toContain('R 7.08');
     expect(await blocker()).toBeNull();
+    const advisories = (await preview(state.nov)).body.data!.plan.advisories as Array<{ code: string; detail: string }>;
+    expect(advisories.find((x) => x.code === 'loan_fringe_not_recorded')?.detail).toContain('R-LOAN');
   });
 
   it('a 3801 earning coded with spaces is the 3801, and the loan is taken with its benefit', async () => {

@@ -41,8 +41,13 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 /** The plan's own figures: the net it pays, and its debits, which are all labour (gross + employer UIF + SDL − ETI used). */
 function paymentSummary(plan: Preview['plan']): string {
-  const people = `${plan.paidEmployeeCount} employee${plan.paidEmployeeCount === 1 ? '' : 's'}`;
-  return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${MONTHS[plan.periodMonth - 1]} ${plan.periodYear}. `
+  const nil = plan.employeeCount - plan.paidEmployeeCount;
+  // Against the journal's count ("for N employees" below): who is paid, and how many are due nil.
+  const people = nil > 0
+    ? `${plan.paidEmployeeCount} of the ${plan.employeeCount} employees`
+    : `${plan.employeeCount} employee${plan.employeeCount === 1 ? '' : 's'}`;
+  const nilNote = nil > 0 ? ` (${nil} ${nil === 1 ? 'is' : 'are'} due nil)` : '';
+  return `Paying ${people} ${formatCurrency(plan.totals.net)} net for ${MONTHS[plan.periodMonth - 1]} ${plan.periodYear}${nilNote}. `
     + `Cost to the company ${formatCurrency(plan.totalDebit)} (gross plus employer UIF and SDL, less ETI used).`;
 }
 
@@ -103,7 +108,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
     <Modal open={open} onClose={onClose} title={`Approve payroll — ${period}`} size="lg">
       <Modal.Body className="space-y-4 text-sm">
         {!preview && !loadError && (
-          <div className="flex items-center gap-2 text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading the journal…</div>
+          <div className="flex items-center gap-2 text-gray-500 dark:text-gray-300"><Loader2 className="h-4 w-4 animate-spin" /> Loading the journal…</div>
         )}
         {loadError && <p className="text-red-500">{loadError}</p>}
         {plan && shown && (
@@ -123,7 +128,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
             )}
             <table className="w-full">
               <thead>
-                <tr className="text-left text-xs text-gray-500">
+                <tr className="text-left text-xs text-gray-500 dark:text-gray-300">
                   <th className="py-1">{posted && !blocker ? 'Account (already posted)' : 'Account'}</th>
                   <th className="py-1 text-right">Debit</th><th className="py-1 text-right">Credit</th>
                 </tr>

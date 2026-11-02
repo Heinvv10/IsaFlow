@@ -252,8 +252,22 @@ describe('the approval summary', () => {
     });
     const dialog = await open();
     expect(await within(dialog).findByText(
-      'Paying 12 employees R 412 300.00 net for November 2026. Cost to the company R 498 120.00 (gross plus employer UIF and SDL, less ETI used).',
+      'Paying 12 of the 13 employees R 412 300.00 net for November 2026 (1 is due nil). Cost to the company R 498 120.00 (gross plus employer UIF and SDL, less ETI used).',
     )).toBeTruthy();
+  });
+
+  it('shows every advisory the gate sends, the unrecorded fringe benefit among them', async () => {
+    const detail = 'The low-interest fringe benefit of Z6-1 (loan QA-LOAN-B) is not on the payslip and was not taxed.';
+    serve(() => ok({}), { preview: planBody(null, { plan: { advisories: [{ code: 'loan_fringe_not_recorded', detail }] } }) });
+    const dialog = await open();
+    expect(await within(dialog).findByText(detail)).toBeTruthy();
+  });
+
+  it('the journal table headings read in dark mode (AA): not gray-500 alone', async () => {
+    serve(() => ok({}), { preview: planBody() });
+    const dialog = await open();
+    const head = (await within(dialog).findByText('Debit')).closest('tr')!;
+    expect(head.className).toContain('dark:text-gray-300');
   });
 
   it('one employee is singular', async () => {
@@ -270,7 +284,7 @@ describe('the approval summary', () => {
     await within(dialog).findByText('Deductions and tax exceed pay.');
     expect(within(dialog).queryByText(/do not block approval/)).toBeNull();
     expect(screen.queryByText(/do not block the run/)).toBeNull();
-    expect(screen.getByText(/Deductions above pay block approval/)).toBeTruthy();
+    expect(screen.getByText(/must be resolved before this run can be approved/)).toBeTruthy();
   });
 
   it('does not offer a payment approval will not make', async () => {
