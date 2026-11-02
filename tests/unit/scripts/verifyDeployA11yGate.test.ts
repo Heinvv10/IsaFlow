@@ -25,7 +25,12 @@ afterEach(() => new Promise<void>((resolve) => (server ? server.close(() => reso
 
 /** What verify-deploy.sh handed the golden step: its arguments and the one variable the config reads. */
 async function goldenStep(): Promise<{ code: number | null; args: string[]; skipA11y: string; out: string }> {
-  server = createServer((_req, res) => { res.statusCode = 200; res.end('ok'); });
+  // Answers step 1b as a healthy colour does: logged-out pages redirect to a relative /login.
+  server = createServer((req, res) => {
+    if (req.url !== '/api/health' && !req.headers.cookie) { res.statusCode = 307; res.setHeader('Location', '/login'); }
+    else res.statusCode = 200;
+    res.end('ok');
+  });
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
 
