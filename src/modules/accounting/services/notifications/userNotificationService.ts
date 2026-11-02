@@ -113,9 +113,12 @@ function fit(text: string, max: number): string {
  * read) skips those ids, logs them and returns them in `skipped`, rather than failing the producer
  * or raising a 23503 in the caller's transaction. Title and body are fitted to the table, so a long
  * generated text cannot fail the caller either; a blank title, a bad dedupe key or a link that is
- * not an in-app path is a plain Error. Returns nothing: rows written for OTHER users are not
- * readable here (no RETURNING, no count); a producer that must know whether it is new decides that
- * on its own row (e.g. the alert's insert).
+ * not an in-app path is a plain Error. Returns only the skipped ids: rows written for OTHER users
+ * are not readable here (no RETURNING, no count); a producer that must know whether it is new
+ * decides that on its own row (e.g. the alert's insert). A member removed between the check and the
+ * INSERT still raises 23503 from the trigger (a narrow window; the caller's transaction fails).
+ * In a request the sender must be an owner, admin or manager (trigger); budget holders are manager+
+ * by decision 9a, so a holder's submit can notify from its own request.
  */
 export async function notifyUsers(companyId: string, userIds: readonly string[], n: NewNotification): Promise<{ skipped: string[] }> {
   if (n.href !== null && !isInAppPath(n.href)) throw new Error(`notifyUsers: href must be an in-app path, got ${JSON.stringify(n.href)}`);
