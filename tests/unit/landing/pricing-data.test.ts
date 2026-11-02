@@ -122,10 +122,37 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
   });
 
   describe('Sage anchor comparison (pricingData)', () => {
-    it('shows the fully-added-up Sage stack (R1,140) against Business (R549)', () => {
+    const rand = (s: string): number => Number(s.replace(/[^0-9]/g, ''));
+
+    it('compares Sage Standard + Debtors Manager (R815) against Business (R549)', () => {
       const blob = JSON.stringify(SAGE_COMPARISON);
-      expect(blob).toMatch(/1[ ,]?140/);
+      expect(blob).toMatch(/R815/);
       expect(blob).toMatch(/549/);
+    });
+
+    it('Sage rows add up to the stated monthly total', () => {
+      const rows = SAGE_COMPARISON.rows;
+      const total = rows[rows.length - 1];
+      const parts = rows.slice(0, -1).reduce((sum, r) => sum + rand(r.sage), 0);
+      expect(parts).toBe(rand(total.sage));
+    });
+
+    it('cites the Sage source and the date the prices were checked', () => {
+      expect(SAGE_COMPARISON.source).toMatch(/sage\.com\/en-za/);
+      expect(SAGE_COMPARISON.checkedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  describe('Competitor claims stay sourced (CPA comparative advertising)', () => {
+    it('practice tiers and price-lock points make no competitor price claims', () => {
+      for (const line of [...PRICE_LOCK.points, ...BUREAU_SKUS.flatMap((t) => t.features)]) {
+        if (/QuickBooks|Xero|Cashbook/.test(line)) expect(line).not.toMatch(/R\d|\d+%|rais/i);
+      }
+    });
+
+    it('Sage rows are only add-ons IsaFlow Business has an equivalent for', () => {
+      const labels = SAGE_COMPARISON.rows.map((r) => r.label).join(' ');
+      expect(labels).not.toMatch(/Advanced inventory|Multi-currency/i);
     });
   });
 

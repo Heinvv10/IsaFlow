@@ -166,7 +166,7 @@ export const PRICING_TIERS: PricingTier[] = [
     name: 'Business',
     price: 'R 549',
     period: '/month',
-    desc: 'Everything Sage charges extra for, included. For growing businesses.',
+    desc: 'Debtors management, inventory and multi-currency included. For growing businesses.',
     features: [
       'Everything in Starter, plus:',
       'Debtors / AR management & dunning',
