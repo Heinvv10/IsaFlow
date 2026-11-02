@@ -1,0 +1,395 @@
+{
+ "before-light": {
+  "bank-transactions/new": {
+   "texts": 47,
+   "worst": 2.15,
+   "failing": [
+    {
+     "ratio": 2.15,
+     "text": "Spend Money",
+     "fg": "rgb(255,255,255)",
+     "bg": "rgb(245,158,11)",
+     "el": "button.px-4.py-1.5.text-xs"
+    },
+    {
+     "ratio": 4.41,
+     "text": "Spend",
+     "fg": "rgb(220,38,38)",
+     "bg": "rgb(254,242,242)",
+     "el": "span.text-xs.font-semibold.px-2"
+    }
+   ]
+  },
+  "batch-payments/new": {
+   "texts": 43,
+   "worst": 5.47,
+   "failing": []
+  },
+  "credit-notes": {
+   "texts": 390,
+   "worst": 4.57,
+   "failing": []
+  },
+  "credit-notes/new": {
+   "texts": 45,
+   "worst": 5.47,
+   "failing": []
+  },
+  "customer-payments/new": {
+   "texts": 44,
+   "worst": 5.47,
+   "failing": []
+  },
+  "delivery-notes/new": {
+   "texts": 43,
+   "worst": 5.47,
+   "failing": []
+  },
+  "goods-received/new": {
+   "texts": 40,
+   "worst": 5.47,
+   "failing": []
+  },
+  "items/new": {
+   "texts": 64,
+   "worst": 5.47,
+   "failing": []
+  },
+  "purchase-orders": {
+   "texts": 405,
+   "worst": 2.15,
+   "failing": [
+    {
+     "ratio": 2.15,
+     "text": "all",
+     "fg": "rgb(255,255,255)",
+     "bg": "rgb(245,158,11)",
+     "el": "button.px-3.py-1.5.text-xs"
+    }
+   ]
+  },
+  "purchase-orders/new": {
+   "texts": 55,
+   "worst": 5.47,
+   "failing": []
+  },
+  "recurring-invoices/new": {
+   "texts": 66,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-credit-notes": {
+   "texts": 297,
+   "worst": 2.15,
+   "failing": [
+    {
+     "ratio": 2.15,
+     "text": "all",
+     "fg": "rgb(255,255,255)",
+     "bg": "rgb(245,158,11)",
+     "el": "button.px-3.py-1.5.text-xs"
+    }
+   ]
+  },
+  "supplier-credit-notes/new": {
+   "texts": 55,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-invoices/new": {
+   "texts": 62,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-payments/new": {
+   "texts": 45,
+   "worst": 5.47,
+   "failing": []
+  }
+ },
+ "before-dark": {
+  "bank-transactions/new": {
+   "texts": 47,
+   "worst": 2.15,
+   "failing": [
+    {
+     "ratio": 2.15,
+     "text": "Spend Money",
+     "fg": "rgb(255,255,255)",
+     "bg": "rgb(245,158,11)",
+     "el": "button.px-4.py-1.5.text-xs"
+    }
+   ]
+  },
+  "batch-payments/new": {
+   "texts": 43,
+   "worst": 5.47,
+   "failing": []
+  },
+  "credit-notes": {
+   "texts": 390,
+   "worst": 5.47,
+   "failing": []
+  },
+  "credit-notes/new": {
+   "texts": 45,
+   "worst": 5.71,
+   "failing": []
+  },
+  "customer-payments/new": {
+   "texts": 44,
+   "worst": 5.47,
+   "failing": []
+  },
+  "delivery-notes/new": {
+   "texts": 43,
+   "worst": 5.47,
+   "failing": []
+  },
+  "goods-received/new": {
+   "texts": 40,
+   "worst": 5.71,
+   "failing": []
+  },
+  "items/new": {
+   "texts": 64,
+   "worst": 5.47,
+   "failing": []
+  },
+  "purchase-orders": {
+   "texts": 405,
+   "worst": 2.15,
+   "failing": [
+    {
+     "ratio": 2.15,
+     "text": "all",
+     "fg": "rgb(255,255,255)",
+     "bg": "rgb(245,158,11)",
+     "el": "button.px-3.py-1.5.text-xs"
+    }
+   ]
+  },
+  "purchase-orders/new": {
+   "texts": 55,
+   "worst": 5.47,
+   "failing": []
+  },
+  "recurring-invoices/new": {
+   "texts": 66,
+   "worst": 5.38,
+   "failing": []
+  },
+  "supplier-credit-notes": {
+   "texts": 297,
+   "worst": 2.15,
+   "failing": [
+    {
+     "ratio": 2.15,
+     "text": "all",
+     "fg": "rgb(255,255,255)",
+     "bg": "rgb(245,158,11)",
+     "el": "button.px-3.py-1.5.text-xs"
+    }
+   ]
+  },
+  "supplier-credit-notes/new": {
+   "texts": 55,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-invoices/new": {
+   "texts": 62,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-payments/new": {
+   "texts": 45,
+   "worst": 5.47,
+   "failing": []
+  }
+ },
+ "after-light": {
+  "bank-transactions/new": {
+   "texts": 47,
+   "worst": 5.47,
+   "failing": []
+  },
+  "batch-payments/new": {
+   "texts": 43,
+   "worst": 5.47,
+   "failing": []
+  },
+  "credit-notes": {
+   "texts": 389,
+   "worst": 4.57,
+   "failing": []
+  },
+  "credit-notes/new": {
+   "texts": 45,
+   "worst": 5.47,
+   "failing": []
+  },
+  "customer-payments/new": {
+   "texts": 44,
+   "worst": 5.47,
+   "failing": []
+  },
+  "delivery-notes/new": {
+   "texts": 43,
+   "worst": 5.47,
+   "failing": []
+  },
+  "goods-received/new": {
+   "texts": 40,
+   "worst": 5.47,
+   "failing": []
+  },
+  "items/new": {
+   "texts": 64,
+   "worst": 5.47,
+   "failing": []
+  },
+  "purchase-orders": {
+   "texts": 404,
+   "worst": 4.57,
+   "failing": []
+  },
+  "purchase-orders/new": {
+   "texts": 55,
+   "worst": 5.47,
+   "failing": []
+  },
+  "recurring-invoices/new": {
+   "texts": 66,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-credit-notes": {
+   "texts": 296,
+   "worst": 5.21,
+   "failing": []
+  },
+  "supplier-credit-notes/new": {
+   "texts": 55,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-invoices/new": {
+   "texts": 62,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-payments/new": {
+   "texts": 45,
+   "worst": 5.47,
+   "failing": []
+  },
+  "../payroll/leave": {
+   "texts": 147,
+   "worst": 5.47,
+   "failing": []
+  },
+  "reports/income-statement": {
+   "texts": 103,
+   "worst": 5.02,
+   "failing": []
+  },
+  "budgets": {
+   "texts": 35,
+   "worst": 5.65,
+   "failing": []
+  }
+ },
+ "after-dark": {
+  "bank-transactions/new": {
+   "texts": 47,
+   "worst": 5.47,
+   "failing": []
+  },
+  "batch-payments/new": {
+   "texts": 43,
+   "worst": 5.47,
+   "failing": []
+  },
+  "credit-notes": {
+   "texts": 389,
+   "worst": 5.47,
+   "failing": []
+  },
+  "credit-notes/new": {
+   "texts": 45,
+   "worst": 5.76,
+   "failing": []
+  },
+  "customer-payments/new": {
+   "texts": 44,
+   "worst": 5.47,
+   "failing": []
+  },
+  "delivery-notes/new": {
+   "texts": 43,
+   "worst": 5.47,
+   "failing": []
+  },
+  "goods-received/new": {
+   "texts": 40,
+   "worst": 5.76,
+   "failing": []
+  },
+  "items/new": {
+   "texts": 64,
+   "worst": 5.47,
+   "failing": []
+  },
+  "purchase-orders": {
+   "texts": 404,
+   "worst": 5.47,
+   "failing": []
+  },
+  "purchase-orders/new": {
+   "texts": 55,
+   "worst": 5.47,
+   "failing": []
+  },
+  "recurring-invoices/new": {
+   "texts": 66,
+   "worst": 5.38,
+   "failing": []
+  },
+  "supplier-credit-notes": {
+   "texts": 296,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-credit-notes/new": {
+   "texts": 55,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-invoices/new": {
+   "texts": 62,
+   "worst": 5.47,
+   "failing": []
+  },
+  "supplier-payments/new": {
+   "texts": 45,
+   "worst": 5.47,
+   "failing": []
+  },
+  "../payroll/leave": {
+   "texts": 147,
+   "worst": 4.86,
+   "failing": []
+  },
+  "reports/income-statement": {
+   "texts": 103,
+   "worst": 5.02,
+   "failing": []
+  },
+  "budgets": {
+   "texts": 35,
+   "worst": 6.92,
+   "failing": []
+  }
+ }
+}
