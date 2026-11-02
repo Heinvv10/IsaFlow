@@ -1,6 +1,6 @@
 /**
  * Uniform toast notifications for IsaFlow
- * Wraps react-hot-toast with consistent styling that matches the app's dark theme.
+ * Wraps react-hot-toast with consistent styling on the theme's surface tokens, so a toast follows light and dark.
  *
  * Usage:
  *   import { notify } from '@/utils/toast';
@@ -9,10 +9,12 @@
  *   notify.info('Exporting report...');
  *   notify.warning('Unsaved changes');
  *   notify.promise(fetchData(), { loading: 'Saving...', success: 'Done', error: 'Failed' });
+ *   notify.undoable('Transaction excluded', { onUndo: restore });
  */
 
 import toast from 'react-hot-toast';
 import { CheckCircle2, XCircle, AlertTriangle, Info, Loader2 } from 'lucide-react';
+import { UndoToast, type UndoOptions } from './UndoToast';
 
 function ToastBody({ icon, title, message, accent }: {
   icon: React.ReactNode;
@@ -24,9 +26,9 @@ function ToastBody({ icon, title, message, accent }: {
     <div className="flex items-start gap-3 min-w-0">
       <div className={`mt-0.5 shrink-0 ${accent}`}>{icon}</div>
       <div className="min-w-0">
-        <p className="text-sm font-medium text-gray-100 leading-tight">{title}</p>
+        <p className="text-sm font-medium text-[var(--ff-text-primary)] leading-tight">{title}</p>
         {message && (
-          <p className="text-xs text-gray-400 mt-0.5 leading-snug truncate max-w-[280px]">{message}</p>
+          <p className="text-xs text-[var(--ff-text-secondary)] mt-0.5 leading-snug truncate max-w-[280px]">{message}</p>
         )}
       </div>
     </div>
@@ -40,15 +42,15 @@ export const notify = {
         <div
           className={`${t.visible ? 'animate-slide-up' : 'opacity-0 translate-y-2'}
             pointer-events-auto flex w-full max-w-sm rounded-xl
-            bg-gray-900 border border-gray-700/60
-            shadow-lg shadow-black/20 ring-1 ring-white/5
+            bg-[var(--ff-surface-elevated)] border border-[var(--ff-border-primary)]
+            shadow-lg shadow-black/20 ring-1 ring-[var(--ff-border-subtle)]
             px-4 py-3 transition-all duration-300`}
         >
           <ToastBody
             icon={<CheckCircle2 className="w-5 h-5" />}
             title={title}
             message={message}
-            accent="text-emerald-400"
+            accent="text-emerald-600 dark:text-emerald-400"
           />
         </div>
       ),
@@ -62,7 +64,7 @@ export const notify = {
         <div
           className={`${t.visible ? 'animate-slide-up' : 'opacity-0 translate-y-2'}
             pointer-events-auto flex w-full max-w-sm rounded-xl
-            bg-gray-900 border border-red-500/30
+            bg-[var(--ff-surface-elevated)] border border-red-500/30
             shadow-lg shadow-black/20 ring-1 ring-red-500/10
             px-4 py-3 transition-all duration-300`}
         >
@@ -70,7 +72,7 @@ export const notify = {
             icon={<XCircle className="w-5 h-5" />}
             title={title}
             message={message}
-            accent="text-red-400"
+            accent="text-red-600 dark:text-red-400"
           />
         </div>
       ),
@@ -84,7 +86,7 @@ export const notify = {
         <div
           className={`${t.visible ? 'animate-slide-up' : 'opacity-0 translate-y-2'}
             pointer-events-auto flex w-full max-w-sm rounded-xl
-            bg-gray-900 border border-amber-500/30
+            bg-[var(--ff-surface-elevated)] border border-amber-500/30
             shadow-lg shadow-black/20 ring-1 ring-amber-500/10
             px-4 py-3 transition-all duration-300`}
         >
@@ -92,7 +94,7 @@ export const notify = {
             icon={<AlertTriangle className="w-5 h-5" />}
             title={title}
             message={message}
-            accent="text-amber-400"
+            accent="text-amber-600 dark:text-amber-400"
           />
         </div>
       ),
@@ -106,7 +108,7 @@ export const notify = {
         <div
           className={`${t.visible ? 'animate-slide-up' : 'opacity-0 translate-y-2'}
             pointer-events-auto flex w-full max-w-sm rounded-xl
-            bg-gray-900 border border-teal-500/30
+            bg-[var(--ff-surface-elevated)] border border-teal-500/30
             shadow-lg shadow-black/20 ring-1 ring-teal-500/10
             px-4 py-3 transition-all duration-300`}
         >
@@ -114,7 +116,7 @@ export const notify = {
             icon={<Info className="w-5 h-5" />}
             title={title}
             message={message}
-            accent="text-teal-400"
+            accent="text-teal-600 dark:text-teal-400"
           />
         </div>
       ),
@@ -128,19 +130,33 @@ export const notify = {
         <div
           className={`${t.visible ? 'animate-slide-up' : 'opacity-0 translate-y-2'}
             pointer-events-auto flex w-full max-w-sm rounded-xl
-            bg-gray-900 border border-gray-700/60
-            shadow-lg shadow-black/20 ring-1 ring-white/5
+            bg-[var(--ff-surface-elevated)] border border-[var(--ff-border-primary)]
+            shadow-lg shadow-black/20 ring-1 ring-[var(--ff-border-subtle)]
             px-4 py-3 transition-all duration-300`}
         >
           <ToastBody
             icon={<Loader2 className="w-5 h-5 animate-spin" />}
             title={title}
-            accent="text-teal-400"
+            accent="text-teal-600 dark:text-teal-400"
           />
         </div>
       ),
       { duration: Infinity }
     );
+  },
+
+  /**
+   * A success the user can take back: stays `durationMs`, longer while hovered or focused. `onUndo` runs at most
+   * once and owns its own failure: it reports the refusal itself, because the toast has gone by then.
+   */
+  undoable(title: string, opts: UndoOptions) {
+    let ran = false;
+    const undoOnce = () => {
+      if (ran) return;
+      ran = true;
+      void opts.onUndo();
+    };
+    return toast.custom((t) => <UndoToast t={t} title={title} opts={opts} undoOnce={undoOnce} />, { duration: Infinity });
   },
 
   /** Wrap a promise with loading/success/error toasts */
