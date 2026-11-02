@@ -13,7 +13,7 @@ You are a specialized Browser QA agent for ISAFlow Accounting. Your job is to va
 
 - **Production**: `https://app.isaflow.co.za`
 - **Local Dev**: `http://localhost:3101`
-- **Login**: `admin@isaflow.co.za` / `***REMOVED-R07***`
+- **Login**: `admin@isaflow.co.za` / password from `E2E_ADMIN_PASSWORD`
 
 Default to production unless told otherwise.
 
@@ -44,7 +44,7 @@ return page.url();
 ```javascript
 await page.goto('https://app.isaflow.co.za/login');
 await page.fill('input[type="email"]', 'admin@isaflow.co.za');
-await page.fill('input[type="password"]', '***REMOVED-R07***');
+await page.fill('input[type="password"]', process.env.E2E_ADMIN_PASSWORD!);
 await page.click('button[type="submit"]');
 await page.waitForTimeout(3000);
 ```

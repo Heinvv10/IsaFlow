@@ -325,7 +325,7 @@ const criticals = [
   {
     id: 'C2', title: 'Weak JWT Secret in Production',
     file: '.env.local', status: 'MANUAL',
-    before: 'JWT_SECRET was set to the predictable string "***REMOVED-R05***".',
+    before: 'JWT_SECRET was set to the predictable string ("[redacted]").',
     after: 'Added runtime validation: JWT_SECRET must be set and >= 32 characters or the server refuses to start. Operator must run: openssl rand -base64 32 and update .env.local.',
   },
   {
@@ -421,8 +421,8 @@ const highs = [
   { id: 'H8', title: 'Vulnerable Dependencies (xlsx)', file: 'package.json', status: 'FIXED',
     before: 'xlsx@0.18.5 has prototype pollution + ReDoS vulnerabilities.',
     after: 'Replaced xlsx with exceljs@4.4.0. Rewrote gl-import-template.ts and gl-import.tsx. Zero xlsx imports remain.' },
-  { id: 'H9', title: 'Default Admin Password ***REMOVED-R07***', file: 'run-migrations.mjs', status: 'FIXED',
-    before: 'Migration script fell back to ***REMOVED-R07*** if ADMIN_PASSWORD env var was not set.',
+  { id: 'H9', title: 'Default Admin Password [redacted]', file: 'run-migrations.mjs', status: 'FIXED',
+    before: 'Migration script fell back to [redacted] if ADMIN_PASSWORD env var was not set.',
     after: 'Removed fallback. Migration now throws Error if ADMIN_PASSWORD is not provided.' },
 ];
 
