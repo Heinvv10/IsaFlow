@@ -23,6 +23,7 @@ import {
   type RunLabourLine,
   type AllocationShare,
 } from './payrollJournalSplitBuilder';
+import type { LabourSourceBucket } from './payrollLabourComparison';
 
 type Row = DbRow;
 
@@ -158,6 +159,7 @@ export async function buildLabourLines(
       description: 'Labour costs — gross pay + statutory employer contributions − ETI',
     }],
     advisory: null,
+    bySource: [{ glAccountId: defaultAccountId, centreId: null, taggable: false, debit: labourDebit }],
   };
   if (labourDebit === 0 || totalGross === 0) return fallback;
 
@@ -223,23 +225,27 @@ export async function buildLabourLines(
   }))];
   const { taggable, advisory } = await taggableCentres(companyId, centres);
 
-  const lines = buildLabourDebitLines({
-    runLines: tied, employeeCostCentre, employeeAllocations, mappings, defaultAccountId, taggableCostCentres: taggable,
-  }).map((l) => ({ glAccountId: l.glAccountId, cc1Id: l.cc1Id, debit: l.debit, description: l.description }));
-  return { lines, advisory };
+  const split = { runLines: tied, employeeCostCentre, employeeAllocations, mappings, defaultAccountId };
+  const lines = buildLabourDebitLines({ ...split, taggableCostCentres: taggable })
+    .map((l) => ({ glAccountId: l.glAccountId, cc1Id: l.cc1Id, debit: l.debit, description: l.description }));
+  // The same split with every centre kept apart, for the approval gate's comparison (payrollLabourComparison).
+  const bySource = buildLabourDebitLines({ ...split, taggableCostCentres: new Set(centres) })
+    .map((l) => ({ glAccountId: l.glAccountId, centreId: l.cc1Id, taggable: l.cc1Id !== null && taggable.has(l.cc1Id), debit: l.debit }));
+  return { lines, advisory, bySource };
 }
 
 export interface LabourLines {
   lines: Array<{ glAccountId: string; cc1Id: string | null; debit: number; description: string }>;
   /** `labour_cost_centre_untagged`, when a centre carrying labour cannot be a CC1 tag. */
   advisory: { code: string; detail: string } | null;
+  /** The labour per (account, source centre), untaggable centres kept apart — the gate's comparison only. */
+  bySource: LabourSourceBucket[];
 }
 
 /**
  * Which of `ids` the GL accepts as a new CC1 tag — the rule of
  * `journalCostCentreValidation#assertJournalAnalysisDimensions`: this company's,
- * `cc_type = 'cc1'`, active — and an advisory naming the rest. The approval gate
- * asks it of a posted journal's CC1s too, so both sides compare by one rule.
+ * `cc_type = 'cc1'`, active — and an advisory naming the rest.
  *
  * FOR SHARE, as that GL check takes: inside approvePayrollRun the centres the
  * plan tags stay as judged until the journal is written. LOCK ORDER: approval
@@ -253,7 +259,7 @@ export interface LabourLines {
  * applyTaxDirective's journal names no CC1. A preview (GET journal-plan, MCP
  * dry run) holds them only for its own read-only request.
  */
-export async function taggableCentres(companyId: string, ids: string[]): Promise<{ taggable: Set<string>; advisory: LabourLines['advisory'] }> {
+async function taggableCentres(companyId: string, ids: string[]): Promise<{ taggable: Set<string>; advisory: LabourLines['advisory'] }> {
   if (ids.length === 0) return { taggable: new Set(), advisory: null };
   const rows = (await sql`
     SELECT cc.id, cc.code, cc.cc_type, cc.is_active FROM cost_centres cc

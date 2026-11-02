@@ -43,6 +43,7 @@ import {
   resolveAccountsById,
 } from './payrollJournalParts';
 import { splitRunTotals } from './payrollRunTotalsSplit';
+import type { LabourSourceBucket } from './payrollLabourComparison';
 
 type Row = DbRow;
 
@@ -102,6 +103,8 @@ export interface PayrollJournalPlan {
   };
   blockers: PayrollJournalNote[];
   advisories: PayrollJournalNote[];
+  /** INTERNAL to the approval gate (payrollLabourComparison): labour per source centre. Not posted, not hashed, not previewed. */
+  labourBySourceCentre?: LabourSourceBucket[];
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -189,10 +192,12 @@ export async function buildPayrollJournalPlan(
   };
 
   const built: PayrollJournalPlanLine[] = [];
+  let labourBySourceCentre: LabourSourceBucket[] | undefined;
   const labourAccountId = accounts.get('5200')?.id;
   if (labourAccountId) {
-    const { lines: labour, advisory: untagged } = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed);
+    const { lines: labour, advisory: untagged, bySource } = await buildLabourLines(companyId, runId, labourDebit, gross, labourAccountId, etiUsed);
     if (untagged) advisories.push(untagged);
+    labourBySourceCentre = bySource;
     // The split can route a share to a cost-centre account other than 5200;
     // each line carries its own account's code and active flag, and its CC1.
     const centres = await resolveAccountsById(
@@ -288,5 +293,6 @@ export async function buildPayrollJournalPlan(
     totals: { gross, paye, uif, sdl, eti, etiUsed, net, employerUif, otherDeductions },
     blockers,
     advisories,
+    labourBySourceCentre,
   };
 }
