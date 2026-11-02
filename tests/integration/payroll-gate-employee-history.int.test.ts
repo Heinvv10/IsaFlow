@@ -113,10 +113,15 @@ describe('3: end-date and termination writers wait for the company lock', () => 
 });
 
 describe('3 (L): a role that may not read the history gets null (the gate then refuses), not an error or "no change"', () => {
-  async function asRole(role: string): Promise<string[] | null> {
+  async function asRole(role: string, session?: { activeCompany: string }): Promise<string[] | null> {
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
+      if (session) {
+        // As withAuth sets them: the user's claims and the request's company.
+        await c.query("SELECT set_config('request.jwt.claims', $1, true), set_config('app.current_company_id', $2, true)",
+          [JSON.stringify({ sub: admin }), session.activeCompany]);
+      }
       await c.query(`SET LOCAL ROLE ${role}`);
       const run = String((await c.query('SELECT id FROM payroll_run_headers WHERE company_id=$1 LIMIT 1', [company]).catch(() => ({ rows: [{ id: crypto.randomUUID() }] }))).rows[0]?.id ?? crypto.randomUUID());
       return await als.run({ client: c, userId: admin, companyId: company, claims: {} } as never,
@@ -133,5 +138,10 @@ describe('3 (L): a role that may not read the history gets null (the gate then r
 
   it('app_user with no company member role (no session claims)', async () => {
     expect(await asRole('app_user')).toBeNull();
+  });
+
+  it('app_user as the owner in a request for this company reads it; in a request for another company, null', async () => {
+    expect(Array.isArray(await asRole('app_user', { activeCompany: company }))).toBe(true);
+    expect(await asRole('app_user', { activeCompany: crypto.randomUUID() })).toBeNull();
   });
 });
