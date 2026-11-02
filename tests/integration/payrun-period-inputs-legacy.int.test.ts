@@ -98,7 +98,7 @@ describe('a run from before the codes', () => {
   it('a line with a code is judged by its raw net, not the stored figures', async () => {
     await addRow(comp.union!, 30000, '2026-01-01', null, true);
     await recalculate(state.nov);
-    await tailOn('3601', 50000); // the stored breakdown now says the line was paid: the code still decides
+    await tailOn('UNION', -29000); // the stored breakdown now reads as R1 000 of dues: the code still decides
     expect((await judged()).blocker).toMatchObject({ code: 'deductions_exceed_pay' });
   });
 });
