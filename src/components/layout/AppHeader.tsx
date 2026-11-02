@@ -1,5 +1,5 @@
 /**
- * The app's header bar: hamburger, logo, company switcher, quick create, search, setup guide, settings, nav-mode
+ * The app's header bar: hamburger, logo, company switcher, quick create, search, setup guide, notifications, settings, nav-mode
  * and density toggles, theme, the user and log out. Below `lg` (where the hamburger drawer carries the nav) the
  * toggles, the user and Log out live in MobileHeaderMenu, so the bar fits at 768 and 1024; the user's name shows
  * from `xl`.
@@ -13,6 +13,7 @@ import { MobileHeaderMenu } from '@/components/layout/MobileHeaderMenu';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
+import { NotificationBell } from '@/components/layout/NotificationBell';
 import { TableDensityToggle } from '@/components/ui/TableDensityToggle';
 import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
 import { SHELL_HEIGHTS } from '@/components/layout/shellHeights';
@@ -89,6 +90,10 @@ export function AppHeader({ navMode, isAdminHost, mobileNavOpen, onToggleMobileN
           start so the search box beside it does not jump left when it appears. When the guide fails to load the slot
           stays as a blank 32px gap: a gap is the lesser evil next to a header that moves on every page load. */}
       {!isAdminHost && <div className="w-8 flex-shrink-0"><SetupGuideButton /></div>}
+
+      {/* Notifications bell (budgets P5; hidden on admin subdomain). Inline at every width, like the cog: its
+          unread badge must show on a phone too, so it is not folded into MobileHeaderMenu. */}
+      {!isAdminHost && <NotificationBell />}
 
       {/* Settings cog (hidden on admin subdomain) */}
       {!isAdminHost && <SettingsMenu />}
