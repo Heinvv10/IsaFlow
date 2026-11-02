@@ -9,9 +9,10 @@
  *
  * Labour lines carry the employee's cost centre (CC1), so one account can be
  * listed once per centre: each such row names its centre (code · name, from
- * the preview's company-scoped `costCentres`), and an untagged row on an
- * account that also has a tagged row says "No cost centre". The label follows
- * the CC1 alone, never the amounts.
+ * the preview's company-scoped `costCentres`), whatever its amount, and an
+ * untagged DEBIT row on an account that also has a tagged row says "No cost
+ * centre" — a labour row; a credit row there (a recovery, a reversal) is not
+ * labour and is never marked.
  *
  * The POST carries the planHash previewed; a run changed since answers 409.
  * Any 4xx is a refusal (nothing written), and the preview is refetched after
@@ -96,12 +97,12 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
   const shown = posted && !blocker ? posted : plan;
   const canApprove = !!preview && !blocker && !approving;
   const taggedAccounts = new Set(shown?.lines.filter((l) => l.cc1Id).map((l) => l.glAccountId));
-  const centreOf = (l: { glAccountId: string | null; cc1Id: string | null }): string | null => {
+  const centreOf = (l: { glAccountId: string | null; cc1Id: string | null; debit: number }): string | null => {
     if (l.cc1Id) {
       const c = preview?.costCentres[l.cc1Id];
       return c ? `${c.code} · ${c.name}` : l.cc1Id;
     }
-    return taggedAccounts.has(l.glAccountId) ? 'No cost centre' : null;
+    return l.debit !== 0 && taggedAccounts.has(l.glAccountId) ? 'No cost centre' : null;
   };
 
   return (

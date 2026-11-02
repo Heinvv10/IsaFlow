@@ -55,12 +55,14 @@ describe('approve dialog — the cost centre on each labour row', () => {
     expect(within(await rowOf('PAYE Payable')).queryByText(/cost centre|CC-/)).toBeNull();
   });
 
-  it('the label follows the CC1, not the amount: a tagged zero-debit row is labelled, an untagged one beside it marked', async () => {
-    const lines = [labour(0, CC_A), { ...labour(0, null), debit: 0, credit: 300 }, labour(75927.12, null, '5200', 'Salaries & Wages'), ...credits];
+  it('a tagged row is labelled whatever its amount; an untagged CREDIT row on that account is never marked', async () => {
+    const credit = { ...labour(0, null), accountName: 'Site labour recovery', credit: 300 };
+    const lines = [labour(0, CC_A), credit, labour(75927.12, null, '5200', 'Salaries & Wages'), ...credits];
     serve({ ...planBody(null, { plan: { lines } }), costCentres: LABELS });
     open();
     expect(await rowOf('CC-A · Atlantic')).toBeTruthy();
-    expect(within(await rowOf('No cost centre')).getByText('5210')).toBeTruthy();
+    expect(within(await rowOf('Site labour recovery')).queryByText('No cost centre')).toBeNull();
+    expect(screen.queryByText('No cost centre')).toBeNull();
   });
 
   it('labels the journal already posted when approval re-locks onto it', async () => {
