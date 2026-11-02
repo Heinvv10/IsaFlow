@@ -52,9 +52,11 @@ describe.each(['Africa/Johannesburg', 'UTC'] as const)('process in %s', (zone) =
     process.env.TZ = zone;
     await getEmployeeComponents('e-1', 'c-1', '2026-03-31');
     await getEmployeeComponents('e-1', 'c-1', '2026-02-28');
-    expect(bound).toEqual([
-      ['e-1', 'c-1', '2026-03-31', '2026-03-31'],
-      ['e-1', 'c-1', '2026-02-28', '2026-02-28'],
-    ]);
+    expect(bound).toHaveLength(2);
+    for (const [values, asOf] of [[bound[0]!, '2026-03-31'], [bound[1]!, '2026-02-28']] as const) {
+      expect(values.slice(0, 2)).toEqual(['e-1', 'c-1']);
+      expect(values.length).toBeGreaterThan(2);
+      expect(values.slice(2).every(v => v === asOf)).toBe(true);
+    }
   });
 });

@@ -97,6 +97,7 @@ describe(`the line flag (TZ=${process.env.TZ ?? 'unset'})`, () => {
     expect(l.flags[0]!.message).toContain('needs a manual pro-rata');
     expect(l.flags[0]!.message).toContain(edge === 'starts' ? 'is paid in full' : 'is not paid');
     expect(l.flags[0]!.message).toContain('Edit dates');
+    expect((l.flags[0] as { deepLink?: string }).deepLink).toBe(`/payroll/employees/${ids[num]}#pay-components`);
   });
 
   it('a row that starts and ends inside the band: both dates, and it is not paid', async () => {

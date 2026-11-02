@@ -2,7 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
-import { isUuidParam } from '@/lib/validation';
+import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
 
 type Row = DbRow;
@@ -128,6 +128,40 @@ export async function endEmployeeComponent(
   const rows = (await sql`
     UPDATE payroll_employee_components
     SET effective_to = ${effectiveToStr}
+    WHERE id = ${assignmentId}::uuid
+      AND employee_id IN (
+        SELECT id FROM payroll_employees
+        WHERE company_id = ${companyId}::uuid
+      )
+    RETURNING id
+  `) as Row[];
+  return rows.length > 0;
+}
+
+/**
+ * Change an assignment's dates: effective_from and effective_to ('YYYY-MM-DD'; null = open-ended), on an open or an
+ * ended row. Scoped through the employee's company like endEmployeeComponent, so a foreign or stale id changes nothing
+ * and returns false. This is how a recurring row flagged for a manual pro-rata (payrollRecurringProRata) is fixed,
+ * e.g. a salary moved to the 1st of next month with the part month assigned as a once-off. Refused (before any
+ * write) for a date that is not a calendar date or an end before the start.
+ */
+export async function updateEmployeeComponentDates(
+  companyId: string,
+  assignmentId: string,
+  effectiveFrom: string,
+  effectiveTo: string | null,
+): Promise<boolean> {
+  if (!isRealCalendarDate(effectiveFrom)) throw new EmployeeComponentRefused('effectiveFrom must be a real date (YYYY-MM-DD)');
+  if (effectiveTo !== null && !isRealCalendarDate(effectiveTo)) {
+    throw new EmployeeComponentRefused('effectiveTo must be a real date (YYYY-MM-DD), or empty for open-ended');
+  }
+  if (effectiveTo !== null && effectiveTo < effectiveFrom) throw new EmployeeComponentRefused('effectiveTo cannot be before effectiveFrom');
+  if (!isUuidParam(assignmentId)) return false;
+
+  log.info('Editing employee component dates', { companyId, assignmentId, effectiveFrom, effectiveTo }, 'payrollEmployeeComponentService');
+  const rows = (await sql`
+    UPDATE payroll_employee_components
+    SET effective_from = ${effectiveFrom}::date, effective_to = ${effectiveTo}::date
     WHERE id = ${assignmentId}::uuid
       AND employee_id IN (
         SELECT id FROM payroll_employees

@@ -2,6 +2,7 @@
  * Employee Component Assignment API
  * GET    /api/payroll/employees/:id/components          - List assignments
  * POST   /api/payroll/employees/:id/components          - Assign a component
+ * PATCH  /api/payroll/employees/:id/components?aid=...  - Edit an assignment's dates (open or ended)
  * DELETE /api/payroll/employees/:id/components?aid=...  - End an assignment
  */
 
@@ -19,6 +20,7 @@ import {
   EmployeeComponentRefused,
   endEmployeeComponent,
   listEmployeeComponentAssignments,
+  updateEmployeeComponentDates,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
@@ -71,6 +73,25 @@ async function handler(
     }
   }
 
+  // PATCH — edit an assignment's dates: { effectiveFrom, effectiveTo | null } (null or '' = open-ended)
+  if (req.method === 'PATCH') {
+    const { aid } = req.query;
+    const { effectiveFrom, effectiveTo } = (req.body ?? {}) as { effectiveFrom?: unknown; effectiveTo?: unknown };
+    if (typeof aid !== 'string') return apiResponse.badRequest(res, 'aid (assignment ID) query param is required');
+    if (typeof effectiveFrom !== 'string' || !effectiveFrom) return apiResponse.badRequest(res, 'effectiveFrom is required');
+    if (effectiveTo !== undefined && effectiveTo !== null && typeof effectiveTo !== 'string') {
+      return apiResponse.badRequest(res, 'effectiveTo must be a date or empty');
+    }
+    try {
+      const changed = await updateEmployeeComponentDates(companyId, aid, effectiveFrom, effectiveTo ? effectiveTo : null);
+      if (!changed) return apiResponse.notFound(res, 'Component assignment');
+      return apiResponse.success(res, { updated: aid });
+    } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
+  }
+
   // DELETE — end an assignment (set effective_to)
   if (req.method === 'DELETE') {
     const { aid } = req.query;
@@ -83,7 +104,7 @@ async function handler(
     return apiResponse.success(res, { ended: aid });
   }
 
-  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
+  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH', 'DELETE']);
 }
 
 // The URL names the employee, so a logged amount is what that person earns.

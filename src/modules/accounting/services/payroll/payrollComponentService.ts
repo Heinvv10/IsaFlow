@@ -27,8 +27,14 @@ export async function listComponents(companyId: string): Promise<PayrollComponen
 }
 
 /**
- * The employee's components in force on `asOf`, a calendar day 'YYYY-MM-DD', bound as given: no Date, so no zone can
- * move it. A pay run passes payrollRunReadDate(period), the last day of its period.
+ * The employee's components a run (or the termination base) reads on `asOf`, a calendar day 'YYYY-MM-DD', bound as
+ * given: no Date, so no zone can move it. A pay run passes payrollRunReadDate(period), the last day of its period.
+ *
+ * A row is read when its window covers `asOf`. A once-off (is_recurring false) is also read when its window starts in
+ * `asOf`'s month and ends before `asOf` (10-27 November, or the 28th alone), unless a supersede ended it: another row
+ * of the same component starts the day after it ends (payPackageService re-apply, a once-off replaced). A window that
+ * began in an earlier month and ends before `asOf` is not read again: it was paid in the month whose last day it
+ * covered. A voided row (ends before it starts) is never read.
  */
 export async function getEmployeeComponents(
   employeeId: string,
@@ -37,7 +43,7 @@ export async function getEmployeeComponents(
 ): Promise<EmployeeComponent[]> {
   const rows = (await sql`
     SELECT
-      pec.amount,
+      pec.amount, pec.is_recurring,
       pc.id, pc.name, pc.sars_source_code, pc.component_type,
       pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable
     FROM payroll_employee_components pec
@@ -46,7 +52,20 @@ export async function getEmployeeComponents(
     WHERE pec.employee_id = ${employeeId}::uuid
       AND pe.company_id = ${companyId}::uuid
       AND pec.effective_from <= ${asOf}::date
-      AND (pec.effective_to IS NULL OR pec.effective_to >= ${asOf}::date)
+      AND (pec.effective_to IS NULL OR pec.effective_to >= pec.effective_from)
+      AND (
+        pec.effective_to IS NULL OR pec.effective_to >= ${asOf}::date
+        OR (
+          pec.is_recurring = FALSE
+          AND pec.effective_from >= date_trunc('month', ${asOf}::date)::date
+          AND NOT EXISTS (
+            SELECT 1 FROM payroll_employee_components nxt
+            WHERE nxt.employee_id = pec.employee_id
+              AND nxt.component_id = pec.component_id
+              AND nxt.effective_from = pec.effective_to + 1
+          )
+        )
+      )
       AND pc.is_active = TRUE
     ORDER BY pc.component_type, pc.name
   `) as Row[];
@@ -54,6 +73,7 @@ export async function getEmployeeComponents(
   return rows.map(r => ({
     component: mapComponent(r),
     amount: Number(r.amount),
+    isRecurring: r.is_recurring !== false,
   }));
 }
 

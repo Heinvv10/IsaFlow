@@ -6,7 +6,10 @@
  *   - the approval gate refuses the run (`recurring_needs_pro_rata`, runProRataBlocker) while any of the run's
  *     employees has such a row now, or the run still carries the flag from its calculation (a row changed since,
  *     not yet recalculated: the run's figures are still the old ones).
- * IsaFlow has no per-employee hold, so the refusal is for the whole run, naming each employee.
+ * IsaFlow has no per-employee hold, so the refusal is for the whole run, naming each employee. Only lines that read
+ * components are judged: a severance-only leaver's line (payrollSeveranceDirective) reads none, so neither the
+ * calculation nor the gate looks at that leaver's rows. The fix is the profile's "Edit dates" (PATCH
+ * /api/payroll/employees/:id/components?aid=…), then a recalculation.
  * Rows that start or end on other days keep the behaviour they always had (paid in full / not paid) and are not
  * flagged. Once-offs are not flagged: each is paid once in its own month. A voided row (ends before it starts) is
  * never paid and is ignored.
@@ -15,6 +18,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { payrollRunReadDate } from './payrollRunReadDate';
+import { listPayrollRunEmployees } from './payrollEmployeeService';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 import type { PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -24,8 +28,17 @@ export interface ProRataRow {
   employeeId: string;
   employeeNumber: string;
   componentName: string;
-  edge: 'starts' | 'ends';
-  date: string;
+  /** starts after the 27th (paid in full) | ends from the 27th to the day before the last day (not paid) | both (not paid). */
+  edge: 'starts' | 'ends' | 'within';
+  from: string;
+  to: string | null;
+}
+
+/** "starts on 2026-03-28", "ends on 2026-03-30", "starts on 2026-03-28 and ends on 2026-03-29". */
+export function describeProRataRow(row: ProRataRow): string {
+  if (row.edge === 'starts') return `starts on ${row.from}`;
+  if (row.edge === 'ends') return `ends on ${row.to}`;
+  return `starts on ${row.from} and ends on ${row.to}`;
 }
 
 /** The recurring rows of these employees (in this company) that start or end inside the period's pro-rata band. */
@@ -39,7 +52,8 @@ export async function recurringRowsNeedingProRata(
   const day27 = `${last.slice(0, 8)}27`;
   const rows = (await sql`
     SELECT pec.employee_id, e.employee_number, pc.name, pec.effective_from, pec.effective_to,
-           pec.effective_from > ${day27}::date AS starts
+           pec.effective_from > ${day27}::date AS starts,
+           pec.effective_to >= ${day27}::date AND pec.effective_to < ${last}::date AS ends
     FROM payroll_employee_components pec
     JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
     JOIN payroll_components pc ON pc.id = pec.component_id AND pc.company_id = ${companyId}::uuid
@@ -57,8 +71,9 @@ export async function recurringRowsNeedingProRata(
     employeeId: String(r.employee_id),
     employeeNumber: String(r.employee_number),
     componentName: String(r.name),
-    edge: r.starts ? 'starts' : 'ends',
-    date: fmtDate(r.starts ? r.effective_from : r.effective_to),
+    edge: r.starts && r.ends ? 'within' : r.starts ? 'starts' : 'ends',
+    from: fmtDate(r.effective_from),
+    to: r.effective_to ? fmtDate(r.effective_to) : null,
   }));
 }
 
@@ -69,9 +84,10 @@ export function proRataValidation(row: ProRataRow): ValidationResult {
     code: PRO_RATA_CODE,
     severity: 'error',
     field: 'components',
-    message: `${row.componentName} ${row.edge} on ${row.date}: this recurring component ${effect} in this run and needs a manual `
-      + 'pro-rata. Change its dates (for example, start it on the 1st of next month and capture the part month as a '
-      + 'once-off), then recalculate. Approval is refused until then.',
+    message: `${row.componentName} ${describeProRataRow(row)}: this recurring component ${effect} in this run and needs a `
+      + 'manual pro-rata. Use Edit dates on the employee\'s Pay Components (for example, start it on the 1st of next month '
+      + 'and assign the part month as a once-off), then recalculate. Approval is refused until then.',
+    deepLink: `/payroll/employees/${row.employeeId}#pay-components`,
   };
 }
 
@@ -89,7 +105,11 @@ export async function runProRataBlocker(companyId: string, runId: string): Promi
   const head = lines[0];
   if (!head) return null;
   const period = { year: Number(head.period_year), month: Number(head.period_month) };
-  const live = await recurringRowsNeedingProRata(companyId, period, lines.map((l) => String(l.employee_id)));
+  // The lines that read components: the run's population, not its severance-only leavers (as calculatePayrollRun).
+  const reading = new Set((await listPayrollRunEmployees(companyId, period)).map((e) => e.id));
+  const live = await recurringRowsNeedingProRata(
+    companyId, period, lines.map((l) => String(l.employee_id)).filter((id) => reading.has(id)),
+  );
   const liveIds = new Set(live.map((r) => r.employeeId));
   const stale = lines.filter((l) => l.flagged && !liveIds.has(String(l.employee_id))).map((l) => String(l.employee_number));
   if (live.length === 0 && stale.length === 0) return null;
@@ -97,8 +117,8 @@ export async function runProRataBlocker(companyId: string, runId: string): Promi
   if (live.length > 0) {
     parts.push('Recurring components start after the 27th or end between the 27th and the last day of the month, so this '
       + 'run pays them in full or not at all; each needs a manual pro-rata: '
-      + live.map((r) => `${r.employeeNumber} ${r.componentName} ${r.edge} on ${r.date}`).join('; ')
-      + '. Change those rows\' dates, then recalculate.');
+      + live.map((r) => `${r.employeeNumber} ${r.componentName} ${describeProRataRow(r)}`).join('; ')
+      + '. Use Edit dates on each employee\'s Pay Components, then recalculate.');
   }
   if (stale.length > 0) {
     parts.push(`The run was calculated before the pro-rata was resolved for ${stale.join(', ')}: recalculate it.`);

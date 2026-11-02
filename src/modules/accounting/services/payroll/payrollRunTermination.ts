@@ -37,24 +37,35 @@ const rands = (n: number): string => `R ${n.toFixed(2)}`;
 const who = (e: PayrollEmployee): string => `${e.employeeNumber} (${e.firstName} ${e.lastName})`;
 
 /**
+ * The termination base (Hein 2026-11-02): the leaver's RECURRING earnings in force on `asOf`, their end date
+ * ('YYYY-MM-DD'). Leave pay-out, notice pay and the calculated severance are figured on it in the final run, in a
+ * later severance-only run and in the termination preview (GET /api/payroll/employees/:id/termination), so the three
+ * agree. A once-off in the leaving month is paid on the line but is not part of it.
+ */
+export async function terminationMonthlySalary(companyId: string, employeeId: string, asOf: string): Promise<number> {
+  const atExit = await getEmployeeComponents(employeeId, companyId, asOf);
+  return atExit
+    .filter((c) => c.isRecurring === true && c.component.componentType === 'earning')
+    .reduce((sum, c) => sum + c.amount, 0);
+}
+
+/**
  * Leave pay-out and notice pay for an employee leaving this period, and the
- * severance the termination flow calculates for them (paid only by directive).
- * Null when no termination reason is captured or there is no salary to base
- * them on.
+ * severance the termination flow calculates for them (paid only by directive),
+ * on the termination base. Null when no termination reason is captured or the
+ * base is nil.
  */
 async function terminationPayouts(
   companyId: string,
   employee: PayrollEmployee,
-  salaryComponents: EmployeeComponent[],
   leaveYear: number | null,
 ): Promise<{ payouts: EmployeeComponent[]; severance: number } | null> {
   const { endDate, startDate } = employee;
   if (!endDate) return null;
   const details = await getTerminationDetails(companyId, employee.id);
   if (!details || !details.reason) return null;
-  const monthlySalary = salaryComponents
-    .filter((c) => c.component.componentType === 'earning')
-    .reduce((sum, c) => sum + c.amount, 0);
+  // endDate is UTC midnight of the stored DATE (mapPayrollEmployeeRow), so its ISO day is that date.
+  const monthlySalary = await terminationMonthlySalary(companyId, employee.id, endDate.toISOString().slice(0, 10));
   if (monthlySalary <= 0) return null;
 
   const unusedLeaveDays = details.includeLeavePayout && leaveYear != null
@@ -180,7 +191,7 @@ export async function appendTerminationIfEndingThisPeriod(
         + 'so they are not paid again. If they were re-employed and have left again, the second pay-out must be captured by hand.',
     });
   } else {
-    const t = await terminationPayouts(companyId, employee, components, period.year);
+    const t = await terminationPayouts(companyId, employee, period.year);
     payouts = t?.payouts ?? [];
     calculated = t?.severance ?? 0;
   }
@@ -208,11 +219,7 @@ export async function severanceOnlyComponents(
   period: PayrollPeriod,
   warnings: ValidationResult[],
 ): Promise<EmployeeComponent[]> {
-  // endDate is UTC midnight of the stored DATE (mapPayrollEmployeeRow), so its ISO day is that date.
-  const salaryAtExit = employee.endDate
-    ? await getEmployeeComponents(employee.id, companyId, employee.endDate.toISOString().slice(0, 10))
-    : [];
-  const t = await terminationPayouts(companyId, employee, salaryAtExit, null);
+  const t = await terminationPayouts(companyId, employee, null);
   const line = await severanceByDirective(companyId, runId, employee, period, t?.severance ?? 0, warnings);
   // No line, so no line warning to carry it (the run skips the leaver): a run
   // has nowhere else to show why an approved directive was not paid, so log it.

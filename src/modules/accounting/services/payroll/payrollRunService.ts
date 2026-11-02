@@ -138,7 +138,9 @@ export async function calculatePayrollRun(
   getTaxYearConfig(taxYear);
   // Components are read as at the period's last day, a plain calendar string (payrollRunReadDate).
   const readDate = payrollRunReadDate(period);
-  // The ETI table check reads only the month of this, through local getters, so the local Date is safe there.
+  // Only for validateEti's ETI_TABLE_UNCONFIRMED warning, which reads its month through local getters. ETI itself
+  // (table, age, months employed) is worked out in calculatePayrollLine on its own local day-28 Date, not on this nor
+  // on readDate; getAge there compares days, so ETI age is still taken on the 28th.
   const periodDate = new Date(period.year, period.month - 1, 28);
 
   const employees = await listPayrollRunEmployees(companyId, period);

@@ -18,7 +18,7 @@ import {
   type TerminationReason,
   type TerminationDetailsInput,
 } from '@/modules/accounting/services/payroll/payrollTerminationService';
-import { getEmployeeComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
+import { terminationMonthlySalary } from '@/modules/accounting/services/payroll/payrollRunTermination';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function hasApprovedSeveranceDirective(companyId: string, employeeId: string, endDateIso: string | null): Promise<boolean> {
@@ -54,11 +54,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const balanceYear = employee.endDate?.getFullYear() ?? new Date().getFullYear();
     const leaveBalance = await getAnnualLeaveBalance(companyId, employeeId, balanceYear);
 
+    // The run's termination base (terminationMonthlySalary), on the end date; today until one is captured.
     const periodDate = employee.endDate ?? new Date();
-    const components = await getEmployeeComponents(employeeId, companyId, periodDate.toISOString().slice(0, 10));
-    const monthlySalary = components
-      .filter((c) => c.component.componentType === 'earning')
-      .reduce((s, c) => s + c.amount, 0);
+    const monthlySalary = await terminationMonthlySalary(companyId, employeeId, periodDate.toISOString().slice(0, 10));
 
     const preview = details?.reason && employee.endDate
       ? computeTerminationPreview({

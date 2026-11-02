@@ -32,7 +32,7 @@ const GROUP_LABEL: Record<string, string> = {
   DUPLICATE_TAX_NUMBER: 'Tax number already used by another employee',
   INVALID_ID_NUMBER: 'ID number must be 13 digits',
   MISSING_BANK_DETAILS: 'No bank details — EFT payment will fail',
-  RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata; approval is refused until its dates are changed',
+  RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata: use Edit dates on the employee\'s Pay Components, then recalculate; approval is refused until then',
 };
 
 interface Group {
