@@ -31,7 +31,7 @@ export interface WithheldLoan {
   /** Principal + interest of the one schedule row applyLoanToRun would take. */
   instalment: number;
   fringeBenefit: number;
-  /** Always the LOAN deduction; the 3801 earning too when that is also missing and the loan has a benefit. */
+  /** Withheld: always the LOAN deduction, the 3801 earning too when also missing and the loan has a benefit. */
   missing: Array<'deduction' | 'fringe'>;
 }
 
@@ -42,6 +42,12 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /** Null when the loan can be taken (or has nothing due); otherwise what it would take and what is missing. */
 export async function withholdingFor(loan: LoanInRun, present: LoanComponentsPresent, db: TxSql = sql): Promise<WithheldLoan | null> {
   if (present.deduction) return null;
+  const needs = await loanNeeds(loan, present, db);
+  return needs?.missing.includes('deduction') ? needs : null;
+}
+
+/** What the loan would take this period and which of its components are missing (none: null). */
+async function loanNeeds(loan: LoanInRun, present: LoanComponentsPresent, db: TxSql = sql): Promise<WithheldLoan | null> {
   const rows = (await db`
     WITH undone AS (
       SELECT p.schedule_row_id FROM payroll_loan_payments p
@@ -68,12 +74,15 @@ export async function withholdingFor(loan: LoanInRun, present: LoanComponentsPre
   const r = rows[0];
   if (!r) return null;
   const instalment = round2(Number(r.interest) + Number(r.principal));
-  if (instalment <= 0) return null;
   const fringeBenefit = fringeBenefitOf(loan.officialRate, Number(r.annual_interest_rate), Number(r.opening_balance));
+  const missing = [
+    ...(instalment > 0 && !present.deduction ? ['deduction' as const] : []),
+    ...(fringeBenefit > 0 && !present.fringe ? ['fringe' as const] : []),
+  ];
+  if (missing.length === 0) return null;
   return {
     loanId: String(r.id), loanNumber: String(r.loan_number), employeeId: String(r.employee_id),
-    employeeNumber: String(r.employee_number), instalment, fringeBenefit,
-    missing: fringeBenefit > 0 && !present.fringe ? ['deduction', 'fringe'] : ['deduction'],
+    employeeNumber: String(r.employee_number), instalment, fringeBenefit, missing,
   };
 }
 
@@ -115,23 +124,27 @@ export function fringeNotRecordedResults(applied: Map<string, ApplyLoanResult[]>
     if (missed.length === 0) continue;
     out.set(employeeId, {
       code: 'LOAN_FRINGE_NOT_RECORDED',
-      severity: 'warning',
+      severity: 'error',
       loans: missed.map((a) => a.loanNumber),
       message: `${missed.length > 1 ? 'Loans' : 'Loan'} ${listed(missed.map((a) => `${a.loanNumber} (fringe benefit ${formatMoney(a.fringeBenefit)})`))}: `
         + `the ${missed.length > 1 ? 'instalments were' : 'instalment was'} taken, but no active earning is coded 3801, so the low-interest fringe `
-        + `${missed.length > 1 ? 'benefits are' : 'benefit is'} not on the payslip and not taxed. Add one under Setup → Pay Components and recalculate.`,
+        + `${missed.length > 1 ? 'benefits are' : 'benefit is'} not on the payslip and not taxed, which blocks approval. `
+        + 'Add the 3801 earning under Setup → Pay Components, then recalculate.',
     });
   }
   return out;
 }
 
-/** What a calculation of this run would withhold, read only (MCP calculate_pay_run, live and dry). */
+/**
+ * The loans a calculation of this run would withhold (no LOAN deduction) or take while their fringe benefit
+ * has no 3801 earning to carry it; both block approval. Read only (MCP calculate_pay_run's dry run).
+ */
 export async function previewWithheldLoans(
   companyId: string, runId: string, period: { year: number; month: number }, officialRate: number,
 ): Promise<WithheldLoan[]> {
   const components = await loadLoanComponents(companyId);
   const present = { deduction: components.deduction != null, fringe: components.fringe != null };
-  if (present.deduction) return [];
+  if (present.deduction && present.fringe) return [];
   const employees = new Set((await listPayrollRunEmployees(companyId, period)).map((e) => e.id));
   const due = (await sql`
     SELECT DISTINCT l.id AS loan_id, l.employee_id
@@ -143,7 +156,7 @@ export async function previewWithheldLoans(
   const out: WithheldLoan[] = [];
   for (const row of due) {
     if (!employees.has(String(row.employee_id))) continue;
-    const held = await withholdingFor({ loanId: String(row.loan_id), companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate }, present);
+    const held = await loanNeeds({ loanId: String(row.loan_id), companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate }, present);
     if (held) out.push(held);
   }
   return out.sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber) || a.loanNumber.localeCompare(b.loanNumber));
@@ -157,6 +170,7 @@ export async function withheldLoansReport(companyId: string, run: { id: string; 
     loan_number: w.loanNumber,
     instalment: w.instalment,
     missing: w.missing.map((m) => (m === 'deduction' ? 'LOAN deduction' : '3801 earning')),
+    withheld: w.missing.includes('deduction'),
   }));
 }
 

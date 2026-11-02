@@ -102,7 +102,7 @@ describe('MCP calculate_pay_run says which instalments it did not take', () => {
     await withoutLoanDeduction();
     const loan = await addLoan(1000);
     const out = body(await tool(true) as never);
-    expect(out.withheld_loans).toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'] }]);
+    expect(out.withheld_loans).toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'], withheld: true }]);
     expect(await loanState(loan)).toEqual({ balance: 1000, paidFlags: [false], payments: 0 });
   });
 
@@ -111,14 +111,28 @@ describe('MCP calculate_pay_run says which instalments it did not take', () => {
     await recalculate(state.nov); // taken with the deduction: the schedule row is this run's
     await withoutLoanDeduction();
     expect(body(await tool(true) as never).withheld_loans)
-      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'] }]);
+      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'], withheld: true }]);
   });
 
   it('the live call reports what it withheld', async () => {
     await withoutLoanDeduction();
     await addLoan(1000);
     expect(body(await tool(false) as never).withheld_loans)
-      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'] }]);
+      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'], withheld: true }]);
+  });
+
+  it('a loan whose fringe benefit no 3801 earning carries: the dry run names it (taken, but blocking approval)', async () => {
+    const loan = await addLoan(1000);
+    await pool.query('UPDATE payroll_loans SET annual_interest_rate = 0 WHERE id = $1', [loan]);
+    expect(body(await tool(true) as never).withheld_loans)
+      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['3801 earning'], withheld: false }]);
+  });
+
+  it('the live call reports the approval blocker the costing leaves, or none', async () => {
+    await addLoan(1000);
+    expect(body(await tool(false) as never).approval_blocker).toBeNull();
+    await withoutLoanDeduction();
+    expect(body(await tool(false) as never).approval_blocker).toMatchObject({ code: 'loan_deduction_missing' });
   });
 
   it('a properly set-up company withholds nothing, live or dry', async () => {

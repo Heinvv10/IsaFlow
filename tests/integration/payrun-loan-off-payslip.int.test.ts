@@ -3,7 +3,7 @@
  * payslip, or show it on the wrong component: a LOAN-coded earning, a LOAN deduction taken off PAYE
  * income, a 3801 deduction. The gate refuses such a run until it is recalculated
  * (loan_payments_off_payslip). The item must be that component (by id), of that amount, of that
- * kind. A fringe benefit with no 3801 item at all is the warning case (Hein), not refused.
+ * kind. A fringe benefit no 3801 earning carries is its own blocker (loan_fringe_not_recorded).
  * Fixtures edit a fresh line into what the old code stored. Disposable fixture DB only.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -47,8 +47,7 @@ const refused = async () => {
   expect(b.detail).toContain('Recalculate this run');
   expect(b.detail).toContain('non-taxable LOAN deduction or a 3801 earning of that amount');
 };
-const fringeAdvisory = async () => ((await preview(state.nov)).body.data!.plan.advisories as Array<{ code: string; detail: string }>)
-  .find((a) => a.code === 'loan_fringe_not_recorded');
+
 
 describe('a LOAN payment', () => {
   it('a run as calculated now is not refused', async () => {
@@ -94,52 +93,50 @@ describe('a LOAN payment', () => {
   });
 });
 
+const fringeBlocked = async () => {
+  const b = await blocker();
+  expect(b).toMatchObject({ code: 'loan_fringe_not_recorded' });
+  expect(b.detail).toContain('W301-1');
+  expect(b.detail).toContain('R-LOAN');
+  expect(b.detail).toContain('3801');
+};
+
 describe('a fringe benefit', () => {
-  it('with no 3801 item at all: not refused; the approver is told the benefit was not recorded', async () => {
+  it('with no 3801 item at all: blocked until the 3801 earning carries it (Hein)', async () => {
     await addComponent(state.coA, 'Low-interest loan benefit', '3801', 'earning', true);
     await lowInterest();
     await recalculate(state.nov);
-    expect(await fringeAdvisory()).toBeUndefined();
-    await strip('3801');
     expect(await blocker()).toBeNull();
-    const advisory = await fringeAdvisory();
-    expect(advisory!.detail).toContain('W301-1');
-    expect(advisory!.detail).toContain('R-LOAN');
+    await strip('3801');
+    await fringeBlocked();
   });
 
-  it('on a 3801 deduction (the old code took any 3801): refused', async () => {
+  it('on a 3801 deduction (the old code took any 3801): refused as off the payslip', async () => {
     const benefit = await addComponent(state.coA, 'Low-interest loan benefit', '3801', 'earning', true);
     await lowInterest();
     await recalculate(state.nov);
     await pool.query(`UPDATE payroll_components SET component_type = 'deduction' WHERE id = $1`, [benefit]);
     await refused();
-    expect(await fringeAdvisory()).toBeUndefined(); // refused, so not also told the benefit was merely unrecorded
   });
 
-  it('on a 3801 item of another amount: that is not the benefit, so it was not recorded; advised, not refused', async () => {
+  it('on a 3801 item of another amount: not the benefit, so blocked as unrecorded', async () => {
     await addComponent(state.coA, 'Low-interest loan benefit', '3801', 'earning', true);
     await lowInterest();
     await recalculate(state.nov);
     await rewrite('3801', `jsonb_set(i, '{amount}', '1')`);
-    expect(await blocker()).toBeNull();
-    expect(await fringeAdvisory()).toBeDefined();
+    await fringeBlocked();
   });
 
-  it('an employee with a 3801 DEDUCTION assigned and no 3801 earning: warned, never refused, and approved', async () => {
-    const own = await addComponent(state.coA, 'Benefit recovery', '3801', 'deduction', false);
-    await addRow(own, 50, '2026-01-01', null, true);
-    await lowInterest();
-    await recalculate(state.nov);
-    expect(await blocker()).toBeNull();
-    const { planHash } = (await preview(state.nov)).body.data!;
-    expect((await fx.doApprove(state.nov, planHash)).statusCode).toBe(200);
-  });
-
-  it('the same with the deduction at exactly the benefit amount: the line\'s warning names the loan, so it is not refused', async () => {
+  it('an employee with a 3801 DEDUCTION assigned and no 3801 earning: blocked, and approved once the earning exists', async () => {
     const own = await addComponent(state.coA, 'Benefit recovery', '3801', 'deduction', false);
     await addRow(own, 7.08, '2026-01-01', null, true);
     await lowInterest();
     await recalculate(state.nov);
-    expect(await blocker()).toBeNull();
+    await fringeBlocked();
+    await addComponent(state.coA, 'Low-interest loan benefit', '3801', 'earning', true);
+    await recalculate(state.nov);
+    const { blocker: b, planHash } = (await preview(state.nov)).body.data!;
+    expect(b).toBeNull();
+    expect((await fx.doApprove(state.nov, planHash)).statusCode).toBe(200);
   });
 });

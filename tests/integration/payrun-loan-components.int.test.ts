@@ -102,8 +102,8 @@ describe('a LOAN component is never taxable', () => {
   });
 });
 
-describe('a low-interest loan with no 3801 earning (Hein: a warning, not a blocker)', () => {
-  it.each([['none', null], ['a 3801 deduction', 'deduction']])('%s: the loan is collected as before; the line warns, naming the loan and the benefit', async (_what, type) => {
+describe('a low-interest loan with no 3801 earning (Hein: collected, and blocks until the 3801 earning exists)', () => {
+  it.each([['none', null], ['a 3801 deduction', 'deduction']])('%s: the loan is collected as before; the line names the loan and the benefit; approval is blocked', async (_what, type) => {
     if (type) await fringe('3801', type);
     const plain = await line(state.nov);
     const loan = await lowInterest();
@@ -113,12 +113,13 @@ describe('a low-interest loan with no 3801 earning (Hein: a warning, not a block
     expect({ gross: l.gross, paye: l.paye }).toEqual({ gross: plain.gross, paye: plain.paye });
     expect(l.net).toBeCloseTo(plain.net - 1000, 2);
     const warning = (await results()).find((r) => r.code === 'LOAN_FRINGE_NOT_RECORDED')!;
-    expect(warning).toMatchObject({ severity: 'warning' });
+    expect(warning).toMatchObject({ severity: 'error' });
     expect(warning.message).toContain('R-LOAN');
     expect(warning.message.replace(/\s/g, ' ')).toContain('R 7.08');
-    expect(await blocker()).toBeNull();
-    const advisories = (await preview(state.nov)).body.data!.plan.advisories as Array<{ code: string; detail: string }>;
-    expect(advisories.find((x) => x.code === 'loan_fringe_not_recorded')?.detail).toContain('R-LOAN');
+    const b = await blocker();
+    expect(b).toMatchObject({ code: 'loan_fringe_not_recorded' });
+    expect(b.detail).toContain('R-LOAN');
+    expect(b.detail).toContain('Setup → Pay Components');
   });
 
   it('a 3801 earning coded with spaces is the 3801, and the loan is taken with its benefit', async () => {

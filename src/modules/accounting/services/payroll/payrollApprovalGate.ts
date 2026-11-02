@@ -23,10 +23,9 @@
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then
- *      a pre-code line that cannot be judged (`run_lines_unreadable`), an instalment no LOAN
- *      deduction could take (`loan_deduction_missing`), a line whose deductions and tax
- *      exceed its pay (`deductions_exceed_pay`; one the
- *      loan instalment alone causes is the advisory `loan_instalment_exceeds_pay`), then
+ *      the line refusals of payrollLineBlockers (`run_lines_unreadable`, `loan_payments_off_payslip`,
+ *      `loan_deduction_missing`, `loan_fringe_not_recorded`, `loan_instalment_exceeds_pay`,
+ *      `deductions_exceed_pay`), then
  *      every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
  *      'already_posted', which names the journal being replaced.
@@ -45,8 +44,8 @@ import { readJournalChain, runRecalculatedSince, type JournalChain } from './pay
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
-import { findLoanPaymentsOffPayslip, findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
-import { fringeAdvisory, lineBlocker, overdrawnNames } from './payrollLineBlockers';
+import { findFringeNotRecordedLines, findLoanPaymentsOffPayslip, findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
+import { lineBlocker } from './payrollLineBlockers';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -219,19 +218,10 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   // Leavers whose approved severance directive this run does not pay, and why (P3), and a paid later month
   // this run's change leaves stale (R1 limit (f)); neither is in the hash.
   const overdrawn = await findOverdrawnLines(companyId, runId);
-  const byLoan = overdrawn.filter((l) => l.fromLoan);
   const loanPayments = await findLoanPaymentsOffPayslip(companyId, runId);
   const plan = {
     ...dated,
-    advisories: [
-      ...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories,
-      ...(byLoan.length > 0 ? [{
-        code: 'loan_instalment_exceeds_pay',
-        detail: `The loan instalment exceeds pay for ${overdrawnNames(byLoan)}: net pay is nil, the loan still falls by the whole instalment, `
-          + 'and the deductions payable are understated by the amount over.',
-      }] : []),
-      ...fringeAdvisory(loanPayments.fringeNotRecorded),
-    ],
+    advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories],
   };
 
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
@@ -276,10 +266,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           + '. Recalculate this run first; it then leaves them out.',
       };
     }
-    // A shortfall the loan instalment alone causes stays out, as the advisory above: an instalment cannot be edited
-    // on a run, so a blocker would stop every employee's pay over one leaver. Owner decision, in the module's .claude.md.
-    // A shortfall the loan instalment alone causes is the advisory above, not a blocker (payrollLineBlockers).
-    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), loanPayments.offPayslip);
+    // Unreadable lines, loans off the payslip, withheld or above pay, an unrecorded fringe benefit, a shortfall (payrollLineBlockers).
+    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), loanPayments.offPayslip,
+      [...await findFringeNotRecordedLines(companyId, runId), ...loanPayments.fringeNotRecorded]);
     if (fromLines) return fromLines;
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();

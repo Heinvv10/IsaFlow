@@ -37,13 +37,13 @@ const judged = async () => {
 };
 
 describe('a run from before the codes', () => {
-  it('a loan instalment above pay is the owner-ruled advisory, naming the employee, not a blocker', async () => {
+  it('a loan instalment above pay blocks approval, naming the employee', async () => {
     await addLoan(30000);
     await recalculate(state.nov);
     await asBeforeTheCodes();
-    const { blocker, loan } = await judged();
-    expect(blocker).toBeNull();
-    expect(loan.detail).toContain('W301-1');
+    const { blocker } = await judged();
+    expect(blocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
+    expect(blocker.detail).toContain('W301-1');
   });
 
   it('reads LOAN off the line as the calculator does: a code changed in the catalogue since does not move it', async () => {
@@ -51,9 +51,7 @@ describe('a run from before the codes', () => {
     await recalculate(state.nov);
     await asBeforeTheCodes();
     await pool.query(`UPDATE payroll_components SET sars_source_code = 'XLOAN' WHERE id = $1`, [comp.loan]);
-    const { blocker, loan } = await judged();
-    expect(blocker).toBeNull();
-    expect(loan.detail).toContain('W301-1');
+    expect((await judged()).blocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
   });
 
   it('a deduction coded "loan" in lower case is not an instalment to the calculator, so it blocks', async () => {

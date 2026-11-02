@@ -45,18 +45,19 @@ describe('judged against a fresh calculation, not the stored line', () => {
 });
 
 describe('a loan instalment above pay', () => {
-  it('warns, names the employee, and approves as it does today: nothing in the figures moves', async () => {
+  it('blocks approval (Hein, until the loan cap ships), naming the employee, the loan, the shortfall and the ways out', async () => {
     await addLoan(30000);
     await recalculate(state.nov);
     const l = await line(state.nov);
     expect(l.net).toBe(0);
     expect(codes(l)).toEqual(['LOAN_INSTALMENT_EXCEEDS_PAY']);
     const { blocker, plan, planHash } = (await preview(state.nov)).body.data!;
-    expect(blocker).toBeNull();
-    const advisory = plan.advisories.find((a: { code: string }) => a.code === 'loan_instalment_exceeds_pay');
-    expect(advisory.detail).toContain('W301-1');
-    expect((await doApprove(state.nov, planHash)).statusCode).toBe(200);
-    expect(await header(state.nov)).toMatchObject({ status: 'approved' });
+    expect(blocker).toMatchObject({ code: 'loan_instalment_exceeds_pay' });
+    const detail = (blocker.detail as string).replace(/\s/g, ' ');
+    for (const part of ['W301-1', 'R-LOAN', 'R 11 916.12', 'defer', 'close the loan', 'final pay', 'cap']) expect(detail).toContain(part);
+    expect(plan.advisories.find((a: { code: string }) => a.code === 'loan_instalment_exceeds_pay')).toBeUndefined();
+    expect((await doApprove(state.nov, planHash)).statusCode).toBe(400);
+    expect(await header(state.nov)).toMatchObject({ status: 'calculated', journal_entry_id: null });
   });
 
   it('the grid still refuses an edit that makes it worse', async () => {

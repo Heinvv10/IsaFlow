@@ -133,7 +133,7 @@ export const calculatePayRunTool: McpTool = {
         ...(costed.totalEti > 0 && isEtiTableUnconfirmed(new Date(costed.periodYear, costed.periodMonth - 1, 28))
           ? { warnings: [ETI_TABLE_UNCONFIRMED_MESSAGE] }
           : {}),
-        withheld_loans: await withheldLoans(ctx.companyId, costed),
+        withheld_loans: await withheldLoans(ctx.companyId, costed), approval_blocker: (await previewPayrollApproval(ctx.companyId, runId))?.blocker ?? null,
         next_step: costed.employeeCount === 0
           ? 'No employees were costed — create_employee and assign_employee_component first.'
           : 'approve_pay_run posts this to the ledger.',

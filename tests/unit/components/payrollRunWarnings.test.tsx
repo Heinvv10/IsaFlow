@@ -58,7 +58,7 @@ describe('PayrollRunWarnings', () => {
     expect(screen.getByText(/must be resolved before this run can be approved/)).toBeTruthy();
   });
 
-  it.each(['DEDUCTIONS_EXCEED_PAY', 'LOAN_DEDUCTION_MISSING'])('%s is blocking', (code) => {
+  it.each(['DEDUCTIONS_EXCEED_PAY', 'LOAN_DEDUCTION_MISSING', 'LOAN_INSTALMENT_EXCEEDS_PAY', 'LOAN_FRINGE_NOT_RECORDED'])('%s is blocking', (code) => {
     render(<PayrollRunWarnings lines={[line('e1', 'Zanele Grid', [result(code, 'x', 'error')])]} />);
     expect(screen.getByRole('heading').textContent).toBe('1 issue blocks approval');
   });
@@ -95,7 +95,7 @@ describe('PayrollRunWarnings', () => {
 
   it('nothing blocking: the warnings do not block, and say so', () => {
     render(<PayrollRunWarnings lines={[
-      line('e1', 'Zanele Grid', [result('LOAN_FRINGE_NOT_RECORDED', LOAN_A), result('LOAN_INSTALMENT_EXCEEDS_PAY', 'over')]),
+      line('e1', 'Zanele Grid', [result('MISSING_TAX_NUMBER', 'No tax number'), result('ETI_INDETERMINATE', 'No ETI')]),
     ]} />);
     expect(screen.getByRole('heading').textContent).toBe('2 warnings on this run');
     expect(screen.getByText('These warnings do not block approval themselves.')).toBeTruthy();

@@ -61,6 +61,8 @@ export interface OverdrawnLine {
   shortfall: number;
   /** The shortfall would not exist without the loan instalment: LOAN_INSTALMENT_EXCEEDS_PAY. */
   fromLoan: boolean;
+  /** The loans this run took from the employee (loan numbers). */
+  loans?: string[];
   /** A line at nil from before the codes whose breakdown cannot be read: nothing can say whether it is overdrawn. */
   unreadable?: true;
 }
@@ -86,6 +88,8 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
   const rows = (await sql`
     WITH run_lines AS (
       SELECT prl.employee_id, pe.employee_number, prl.validation_results, prl.net_pay = 0 AS net_pay_nil,
+        (SELECT COALESCE(array_agg(l.loan_number ORDER BY l.loan_number), '{}') FROM payroll_loan_payments p
+           JOIN payroll_loans l ON l.id = p.loan_id WHERE p.run_id = prl.run_id AND l.employee_id = prl.employee_id) AS loans,
         (prl.validation_results @> '[{"code":"DEDUCTIONS_EXCEED_PAY"}]'::jsonb
           OR prl.validation_results @> '[{"code":"LOAN_INSTALMENT_EXCEEDS_PAY"}]'::jsonb) AS coded,
         -- CASE, not AND: jsonb_array_length raises on a non-array, and SQL does not promise to short-circuit.
@@ -109,7 +113,7 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
     WHERE coded OR (net_pay_nil AND (unreadable OR derived_raw_net < 0))
     ORDER BY employee_number
   `) as Row[];
-  return rows.flatMap((r) => {
+  return rows.flatMap((r): OverdrawnLine[] => {
     const flagged = r.coded === true
       ? parseValidationResults(r.validation_results).find((v) => OVERDRAWN_CODES.has(v.code))
       : undefined;
@@ -126,11 +130,30 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
       employeeNumber: String(r.employee_number),
       shortfall: -rawNet,
       fromLoan,
+      loans: Array.isArray(r.loans) ? r.loans.map(String) : [],
     }];
   });
 }
 
 export interface WithheldLoanLine { employeeNumber: string; loans: string[]; fringeToo: boolean }
+
+/** Lines carrying LOAN_FRINGE_NOT_RECORDED: a loan collected whose fringe benefit no 3801 earning carried. */
+export async function findFringeNotRecordedLines(companyId: string, runId: string): Promise<LoanPaymentOnPayslip[]> {
+  const rows = (await sql`
+    SELECT pe.employee_number, prl.validation_results
+    FROM payroll_run_lines prl
+    JOIN payroll_run_headers prh ON prh.id = prl.run_id
+    JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
+    WHERE prl.run_id = ${runId}::uuid
+      AND prh.company_id = ${companyId}::uuid
+      AND prl.validation_results @> '[{"code":"LOAN_FRINGE_NOT_RECORDED"}]'::jsonb
+    ORDER BY pe.employee_number
+  `) as Row[];
+  return rows.flatMap((r) => {
+    const flagged = parseValidationResults(r.validation_results).find((v) => v.code === 'LOAN_FRINGE_NOT_RECORDED');
+    return flagged ? (flagged.loans ?? ['']).map((loanNumber) => ({ employeeNumber: String(r.employee_number), loanNumber })) : [];
+  });
+}
 
 /** Lines whose loan was not taken for want of a LOAN deduction (payrollLoanWithholding). */
 export async function findWithheldLoanLines(companyId: string, runId: string): Promise<WithheldLoanLine[]> {
