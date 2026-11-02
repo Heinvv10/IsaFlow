@@ -69,6 +69,8 @@ beforeAll(async () => {
   await employee('superseded', '2020-01-01', '2026-03-28');
   await add('s1', 'superseded', salary, 21670, '2020-01-01', '2026-03-28', true, '2026-03-01T00:00:00Z');
   await add('s2', 'superseded', salary, 23000, '2026-03-29', null, true);
+  await employee('supersededAlone', '2020-01-01', '2026-03-28');
+  await add('sa', 'supersededAlone', salary, 21670, '2020-01-01', '2026-03-28', true, '2026-03-01T00:00:00Z');
   await employee('successor', '2020-01-01', '2026-03-28');
   await add('t1', 'successor', salary, 21670, '2020-01-01', '2026-03-28', true);
   await add('t2', 'successor', salary, 23000, '2026-03-29', null, true);
@@ -99,6 +101,10 @@ describe(`1-3: the leaver exemption is the band only (TZ=${process.env.TZ ?? 'un
   it('ending on the end date but superseded, or followed by a live row: one salary, not two', async () => {
     expect((await line(march, 'superseded')).paid).toEqual([['Basic Salary', 23000]]);
     expect((await line(march, 'successor')).paid).toEqual([['Basic Salary', 23000]]);
+  });
+
+  it('a superseded row ending on the end date with nothing after it is not paid by the leaver rule', async () => {
+    expect((await line(march, 'supersededAlone')).paid).toEqual([]);
   });
 
   it('starting on the 28th and ending on the end date: flagged as starting, paid in full', async () => {
@@ -133,5 +139,15 @@ describe('4-6', () => {
       { body: { effectiveFrom: '2020-01-01', effectiveTo: '2026-03-27' }, query: { aid: row.s1! } });
     expect(out.statusCode).toBe(400);
     expect(out.body.error?.message).toMatch(/replaced/i);
+  });
+});
+
+describe('1: the paid-month rule uses the band too', () => {
+  it('March paid: ending the 10-March leaver\'s salary a day earlier changes nothing March read, so it is allowed', async () => {
+    // As an approved March leaves it (the pro-rata flags above keep this fixture's run from approving through the gate).
+    await pool.query("UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1", [march]);
+    const out = await call(components as Route, 'DELETE', `/api/payroll/employees/${emp.end10}/components?aid=${row.end10Salary}`, emp.end10,
+      { body: { effectiveTo: '2026-03-09' }, query: { aid: row.end10Salary! } });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
   });
 });
