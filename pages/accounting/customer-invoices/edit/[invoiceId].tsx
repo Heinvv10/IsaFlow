@@ -26,7 +26,7 @@ import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/us
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
 import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
-import { takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
+import { stashApproveRefusal, takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
 // CC2 / BU are edited here; CC1 follows its CC2 (invoicePutBody re-sends it only while the CC2 is the one it loaded with).
 type LineItem = EditLine;
@@ -42,7 +42,7 @@ type InvoiceDetail = {
   client_id?: string | null; customer_id?: string | null;
   invoice_date: string; due_date?: string | null;
   billing_period_start?: string | null; billing_period_end?: string | null;
-  tax_rate: number | string; notes?: string | null;
+  tax_rate: number | string; notes?: string | null; total_amount?: number | string;
   currency_code?: string | null; exchange_rate?: number | string | null; project_id?: string | null;
   items?: InvoiceItemRow[];
 };
@@ -69,16 +69,24 @@ export default function EditCustomerInvoicePage() {
   // Which invoice the form holds, and which of its dates were stored (the server keeps one the body leaves out).
   const [loadedFor, setLoadedFor] = useState('');
   const [storedDates, setStoredDates] = useState<StoredDates>({});
-  const [errorStays, setErrorStays] = useState(false);
+  // The approval gate's 409 (APPROVAL_REQUIRED / PENDING / STALE) stays through saves: saving does not answer it, an
+  // approver does. A ref: read in the moment a save lands, not in a later render.
+  const errorStays = useRef(false);
+  const setErrorStays = (v: boolean) => { errorStays.current = v; };
+  // The total as stored: priced by older rules (a converted quote, WIP) it can differ from what the lines give now.
+  const [storedTotal, setStoredTotal] = useState<number | null>(null);
+  const [reloads, setReloads] = useState(0); // a STALE_VIEW refusal reloads what is stored
 
   useEffect(() => {
     if (!invoiceId) return;
     const id = String(invoiceId);
     setLoading(true); setInvoiceNumber(''); setError(''); setErrorStays(false); setApproved(false); // another invoice opened in place starts again
+    let gone = false; // another invoice opened (or a reload) since: this load's answer is not shown
     void invoiceSavesSettled(id).then(() => Promise.all([ // a save of this invoice still out (sent as a page closed) lands first
       apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }),
       apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`, { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load the invoice - try again'); return r.json(); }),
     ])).then(([curRes, invRes]) => {
+      if (gone) return;
       const curData = curRes.data || curRes; setCurrencies(Array.isArray(curData) ? curData : []);
       const invoice: InvoiceDetail = invRes.data || invRes;
       if (!invoice || !invoice.id) { setError('Invoice not found'); setLoading(false); return; }
@@ -89,6 +97,7 @@ export default function EditCustomerInvoicePage() {
       }
       setInvoiceNumber(invoice.invoice_number);
       setLoadedFor(id);
+      setStoredTotal(invoice.total_amount === undefined || invoice.total_amount === null ? null : Number(invoice.total_amount));
       setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
       const refusal = takeApproveRefusal(id); // Approve & email on the new page landed here: say why
       if (refusal) { setError(refusal.message); setErrorStays(refusal.status === 409); }
@@ -137,10 +146,12 @@ export default function EditCustomerInvoicePage() {
       }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: invoice.project_id ?? '' }]);
       setLoading(false);
     }).catch((err: unknown) => {
+      if (gone) return;
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
       setLoading(false);
     });
-  }, [invoiceId, clearDates]);
+    return () => { gone = true; };
+  }, [invoiceId, clearDates, reloads]);
 
   const updateLine = (key: string, field: keyof LineItem, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
@@ -161,14 +172,24 @@ export default function EditCustomerInvoicePage() {
   // Approve & email first: autosave waits while it runs (the form is disabled then too). Its save reads `autosave`
   // only when clicked, after this render has made it.
   const approve = useApproveAndEmail({
-    save: async () => (await saveDraft(false) ? { id, invoiceNumber } : null),
-    onRefused: (_id, message, status) => { setError(message); setErrorStays(status === 409); },
+    // A stored total the lines no longer give is re-saved first (unchanged body), so the server reprices it as shown.
+    save: async () => (await saveDraft(storedTotal !== null && Math.round(storedTotal * 100) !== Math.round(total * 100)) ? { id, invoiceNumber } : null),
+    onRefused: (_id, message, status, reason) => {
+      if (reason === 'STALE_VIEW') { stashApproveRefusal(id, message); setReloads(n => n + 1); return; } // show what is stored, and why
+      setError(message); setErrorStays(status === 409);
+    },
     onApproved: () => setApproved(true),
     bodyNow: () => autosave.currentBody(),
-    expectedTotal: total,
+    shown: { total, currencyCode: form.currencyCode, exchangeRate: form.exchangeRate },
   });
+  const dismissApprove = approve.dismiss;
+  useEffect(() => { dismissApprove(); }, [invoiceId, dismissApprove]); // another invoice opened in place: not this one's email form
   // A date the server has taken (loaded, or saved on this visit) is kept by it if the body leaves it out.
   const keepStoredDates = (json: string) => {
+    // A refusal on screen (a Save, an approval) is answered by this save, in the moment it lands: a refusal that comes
+    // after it (Approve & email's approval, just after its save) stays. Not the gate's sticky 409.
+    if (!errorStays.current) setError('');
+    setStoredTotal(null); // the server just priced this body itself
     const b = JSON.parse(json) as Partial<Record<keyof StoredDates, string>>;
     setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
   };
@@ -186,15 +207,6 @@ export default function EditCustomerInvoicePage() {
     if (!saved.ok) setError(saved.message);
     return saved.ok;
   };
-  // A refusal on screen (a Save or an approval) is answered by the next save the server takes.
-  // Not the approval gate's 409 (APPROVAL_REQUIRED / PENDING / STALE): saving does not answer that, an approver does.
-  // Only when a NEW save lands: a refusal set in the same moment the gate's sticky flag is let go stays on screen.
-  const answeredSave = useRef<number | null>(null);
-  useEffect(() => {
-    if (autosave.savedAt === null || autosave.savedAt === answeredSave.current) return;
-    answeredSave.current = autosave.savedAt;
-    if (!errorStays) setError('');
-  }, [autosave.savedAt, errorStays]);
 
   const handleSubmit = async () => {
     setSubmitting(true);

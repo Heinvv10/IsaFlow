@@ -55,7 +55,7 @@ describe('Approve on the invoice page', () => {
     await flush();
     await flush();
     const post = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')!;
-    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 1150 });
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 1150, expectedCurrency: 'ZAR', expectedExchangeRate: 1 });
     expect(screen.getByText(STALE)).toBeTruthy();
     expect(screen.getByText('Line at 1265')).toBeTruthy(); // reloaded: what is stored now
   });

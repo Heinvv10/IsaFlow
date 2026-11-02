@@ -116,7 +116,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!postParsed.success) {
       return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
     }
-    const { id, action, expectedTotal } = postParsed.data;
+    const { id, action, expectedTotal, expectedCurrency, expectedExchangeRate } = postParsed.data;
     const userId = (req as CompanyAuthedRequest).user?.id || 'system';
 
     // Cancel reverses the approval GL journal and zeroes the outstanding
@@ -154,7 +154,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'approve') {
       try {
         const result = await withJournalDateRefusal(res, () =>
-          approveCustomerInvoice(companyId, id, userId, expectedTotal === undefined ? undefined : { expectedTotal }));
+          approveCustomerInvoice(companyId, id, userId, { expectedTotal, expectedCurrency, expectedExchangeRate }));
         if (result === JOURNAL_DATE_REFUSED) return;
         log.info('Customer invoice action', { id, action, newStatus: result.status });
         return apiResponse.success(res, {

@@ -13,6 +13,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { ApiRequestError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { approvalShown, type ShownForApproval } from './approveShown';
 
 const APPROVE_FAILED = 'Could not approve the invoice - try again';
 const SEND_FAILED = 'Could not send the invoice email - try again';
@@ -25,14 +26,16 @@ export interface SavedInvoice { id: string; invoiceNumber: string }
 interface Options {
   /** The page's save; null when it refused (the page has shown why). */
   save: () => Promise<SavedInvoice | null>;
-  /** The approval was refused; the draft stays. */
-  /** `status`: the refusal's HTTP status (409 is the approval gate), when the server answered. */
-  onRefused: (invoiceId: string, message: string, status?: number) => void;
+  /**
+   * The approval was refused; the draft stays. `status`: its HTTP status (409: the approval gate, or STALE_VIEW);
+   * `reason`: the refusal's reason code, when the server gave one.
+   */
+  onRefused: (invoiceId: string, message: string, status?: number, reason?: string) => void;
   onApproved?: () => void;
   /** The form as it would be saved, now. Compared after the approval: a change that landed meanwhile is not on it. */
   bodyNow: () => string | null;
-  /** The total on screen when Approve & email is clicked: sent with the approval, which a different stored total refuses (409 STALE_VIEW). */
-  expectedTotal: number;
+  /** The invoice on screen when Approve & email is clicked: sent with the approval, which a different stored one refuses (409 STALE_VIEW). */
+  shown: ShownForApproval;
 }
 
 interface EmailForm {
@@ -40,6 +43,16 @@ interface EmailForm {
 }
 
 interface Detail { invoice_number?: string; client_email?: string | null; email_sent_at?: string | null; email_sent_to?: string | null }
+
+/** A refusal's reason code (`error.details.reason`), read from a copy so assertOk still reads the body. */
+async function refusalReason(res: Response): Promise<string | undefined> {
+  try {
+    const body = await res.clone().json() as { error?: { details?: { reason?: unknown } } };
+    return typeof body.error?.details?.reason === 'string' ? body.error.details.reason : undefined;
+  } catch {
+    return undefined; // not JSON: assertOk gives the fallback sentence, and there is no reason to act on
+  }
+}
 
 /** The approved invoice's number and the customer's address. Without them the form still opens, with the address empty. */
 async function readEmailForm(saved: SavedInvoice): Promise<EmailForm> {
@@ -62,7 +75,7 @@ async function readEmailForm(saved: SavedInvoice): Promise<EmailForm> {
   }
 }
 
-export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, expectedTotal }: Options) {
+export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, shown }: Options) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState<EmailForm | null>(null);
@@ -81,17 +94,19 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, expec
     setBusy(true);
     try {
       const approvedBody = bodyNow(); // before the save: a change typed while it is out is not on the approved invoice
-      const shownTotal = expectedTotal;
+      const shownNow = approvalShown(shown);
+      let reason: string | undefined;
       const saved = await save();
       if (!saved || !current()) return;
       try {
         const res = await apiFetch('/api/accounting/customer-invoices-detail', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: saved.id, action: 'approve', expectedTotal: shownTotal }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: saved.id, action: 'approve', ...shownNow }),
         });
+        if (!res.ok) reason = await refusalReason(res);
         await assertOk(res, APPROVE_FAILED);
       } catch (err) {
         if (!current()) return;
-        onRefused(saved.id, apiErrorMessage(err, APPROVE_FAILED), err instanceof ApiRequestError ? err.status : undefined);
+        onRefused(saved.id, apiErrorMessage(err, APPROVE_FAILED), err instanceof ApiRequestError ? err.status : undefined, reason);
         return;
       }
       if (!current()) return;
@@ -104,7 +119,7 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, expec
     } finally {
       if (current()) setBusy(false);
     }
-  }, [busy, save, onRefused, onApproved, bodyNow, expectedTotal]);
+  }, [busy, save, onRefused, onApproved, bodyNow, shown]);
 
   const send = useCallback(async () => {
     if (!email || !email.emailTo.trim() || sending || sent) return;

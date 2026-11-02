@@ -4,7 +4,7 @@
  * Actions grouped by workflow: Send / Collect / Accounting / More.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -27,6 +27,7 @@ import { InvoiceAdjacentNav, useAdjacentInvoices } from '@/components/invoices/I
 import { DocumentApprovalPanel } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
+import { approvalShown } from '@/components/accounting/customer-invoices/approveShown';
 
 export default function CustomerInvoiceDetailPage() {
   const router = useRouter();
@@ -50,7 +51,9 @@ export default function CustomerInvoiceDetailPage() {
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const { prevId, nextId, loadAdjacent, clear: clearAdjacent } = useAdjacentInvoices();
 
+  const loads = useRef(0); // only the newest load is shown: another invoice opened meanwhile wins
   const loadInvoice = useCallback(async () => {
+    const mine = ++loads.current;
     setLoading(true);
     setError('');
     try {
@@ -58,12 +61,13 @@ export default function CustomerInvoiceDetailPage() {
       const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
       await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
-      setInvoice(json.data || json);
+      if (mine === loads.current) setInvoice(json.data || json);
     } catch (err) {
+      if (mine !== loads.current) return;
       setInvoice(null); clearAdjacent();
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
-      setLoading(false);
+      if (mine === loads.current) setLoading(false);
     }
   }, [invoiceId, clearAdjacent]);
 
@@ -80,8 +84,11 @@ export default function CustomerInvoiceDetailPage() {
       const res = await apiFetch('/api/accounting/customer-invoices-detail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Approve carries the total on screen: a different stored total is refused (409 STALE_VIEW) and reloaded below.
-        body: JSON.stringify(action === 'approve' && invoice ? { id: invoiceId, action, expectedTotal: Number(invoice.total_amount) } : { id: invoiceId, action }),
+        // The invoice shown, never the URL's (another may be loading). Approve carries what is on screen: anything stored
+        // differently is refused (409 STALE_VIEW) and reloaded below.
+        body: JSON.stringify(action === 'approve'
+          ? { id: invoice?.id, action, ...approvalShown({ total: Number(invoice?.total_amount), currencyCode: invoice?.currency_code ?? 'ZAR', exchangeRate: Number(invoice?.exchange_rate ?? 1) }) }
+          : { id: invoice?.id, action }),
       });
       // R-035: 409 is the approval gate — reload so the page offers Submit for approval — or STALE_VIEW: show what is stored.
       if (res.status === 409) await loadInvoice();
@@ -92,7 +99,7 @@ export default function CustomerInvoiceDetailPage() {
     } finally {
       setActionLoading('');
     }
-  }, [invoiceId, invoice, loadInvoice]);
+  }, [invoice, loadInvoice]);
 
   const handleSendEmail = async () => {
     if (!emailTo.trim()) return;

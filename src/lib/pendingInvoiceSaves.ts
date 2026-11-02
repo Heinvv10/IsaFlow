@@ -20,14 +20,21 @@ export function trackInvoiceSave(invoiceId: string, save: Promise<unknown>): voi
   save.then(done, done);
 }
 
-/** Resolves once every save of `invoiceId` out now has answered, or after `maxMs`, whichever is first. */
+/**
+ * Resolves once every save of `invoiceId` out now has answered, or after `maxMs`, whichever is first. A save still
+ * unanswered by then is waited for no more: it is dropped from the map, so no later page waits on it again.
+ */
 export async function invoiceSavesSettled(invoiceId: string, maxMs = PENDING_SAVE_WAIT_MS): Promise<void> {
   const saves = [...(pending.get(invoiceId) ?? [])];
   if (saves.length === 0) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([
-    Promise.allSettled(saves),
-    new Promise<void>((resolve) => { timer = setTimeout(resolve, maxMs); }),
+  const timedOut = await Promise.race([
+    Promise.allSettled(saves).then(() => false),
+    new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(true), maxMs); }),
   ]);
   clearTimeout(timer);
+  if (!timedOut) return;
+  const set = pending.get(invoiceId);
+  for (const save of saves) set?.delete(save);
+  if (set && set.size === 0) pending.delete(invoiceId);
 }

@@ -196,20 +196,22 @@ export default function NewCustomerInvoicePage() {
   };
 
   // A refused approval leaves the created draft: its edit page says why.
+  const created = useRef<SavedInvoice | null>(null);
   const approve = useApproveAndEmail({
     save: async () => {
       const made = await createInvoice();
-      if (made) markDone();
+      if (made) { markDone(); created.current = made; }
       return made;
     },
     bodyNow: draft.current,
-    expectedTotal: total,
+    shown: { total, currencyCode: form.currencyCode, exchangeRate: form.exchangeRate },
     onRefused: (id, message, status) => {
       stashApproveRefusal(id, message, status);
       void (async () => {
         let opened = false;
         try { opened = (await router.push(`/accounting/customer-invoices/edit/${id}`)) === true; } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
-        if (!opened) setError(`${message} The invoice was created as a draft: open it from the invoice list to change it.`);
+        const which = created.current?.id === id && created.current.invoiceNumber ? `Invoice ${created.current.invoiceNumber}` : 'The invoice';
+        if (!opened) setError(`${message} ${which} was created as a draft: open it from the invoice list (Sales, Invoices) to change it.`);
       })();
     },
   });
@@ -220,7 +222,8 @@ export default function NewCustomerInvoicePage() {
   const events = router.events as typeof router.events | undefined;
   useEffect(() => {
     const onRouteDone = (url: string) => {
-      if (!doneNow.current || url.split(/[?#]/)[0] !== '/accounting/customer-invoices/new') return;
+      // Done, or left without its changes ("Leave without them" on a link back to /new): a blank form.
+      if ((!doneNow.current && !draft.leftWithout()) || url.split(/[?#]/)[0] !== '/accounting/customer-invoices/new') return;
       doneNow.current = false; setDone(false); approve.dismiss(); resetForm(); draft.clear(); setError('');
     };
     events?.on('routeChangeComplete', onRouteDone);

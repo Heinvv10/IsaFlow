@@ -48,7 +48,9 @@ export const PutBodySchema = z.object({
 export const PostBodySchema = z.object({
   id: UUID,
   action: z.enum(['approve', 'send', 'cancel']),
-  // approve only: the total the approver was shown. A different stored total is refused (409 STALE_VIEW), so an
-  // invoice is never approved at a total nobody saw. Optional for API clients with no screen.
+  // approve only: what the approver was shown. Anything stored differently is refused (409 STALE_VIEW), so an invoice
+  // is never approved at a total, in a currency or at a rate nobody saw. Optional for API clients with no screen.
   expectedTotal: z.number().finite().optional(),
+  expectedCurrency: z.string().min(1).max(8).optional(),
+  expectedExchangeRate: z.number().positive().finite().optional(),
 });

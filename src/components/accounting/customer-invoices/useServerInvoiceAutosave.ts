@@ -80,7 +80,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const [failure, setFailure] = useState<Failure | null>(null);
   const inFlight = useRef<Promise<SaveResult> | null>(null);
   const sending = useRef<string | null>(null); // the body of the PUT out now
-  const discarded = useRef(false);
+  const discarded = useRef<string | null>(null); // the body "Leave without them" was about: only that one is not sent
   // The last body this page showed with its invoice, kept past the render that drops it (another invoice opened in
   // place shows no body while it loads), so the change it held can still be sent.
   const lastShown = useRef<{ invoiceId: string | null; json: string; armed: boolean } | null>(null);
@@ -92,7 +92,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const failed = failure !== null && failure.json === json ? failure : null;
   const armed = Boolean(opts && json !== null && !opts.done && !opts.paused && !opts.problem && !failed);
 
-  // First: what the timers and the guard read. Then the body the page loaded with is what the server holds.
+  // What the timers, the guard and the leave-send read, in the commit itself.
   const invoiceId = opts?.invoiceId ?? null;
   useCommitEffect(() => {
     latest.current = { json, armed, done: Boolean(opts?.done) };
@@ -107,7 +107,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
    */
   const sendAsItLeaves = useCallback(() => {
     const shown = lastShown.current;
-    if (!shown || !shown.invoiceId || discarded.current || latest.current.done || !shown.armed) return;
+    if (!shown || !shown.invoiceId || shown.json === discarded.current || latest.current.done || !shown.armed) return;
     if (shown.json === lastSaved.current || shown.json === sending.current) return;
     const prior = inFlight.current;
     trackInvoiceSave(shown.invoiceId, (async () => {
@@ -202,7 +202,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     || (lastSaved.current !== null && latest.current.json !== lastSaved.current)), []);
 
   const currentBody = useCallback(() => latest.current.json, []);
-  const leaveWithout = useCallback(() => { discarded.current = true; }, []);
+  const leaveWithout = useCallback(() => { discarded.current = latest.current.json; }, []);
   const state: AutosaveState | null = !opts || json === null ? null
     : failed ? 'error'
       : saving ? 'saving'

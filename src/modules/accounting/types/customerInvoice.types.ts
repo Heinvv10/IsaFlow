@@ -36,6 +36,9 @@ export interface CustomerInvoiceItem {
 export interface CustomerInvoiceDetail {
   id: string;
   invoice_number: string;
+  /** The document currency and its rate to ZAR (FX PR0); Approve sends them back as shown (STALE_VIEW). */
+  currency_code?: string | null;
+  exchange_rate?: number | string | null;
   client_name: string;
   project_name: string;
   status: string;
