@@ -113,6 +113,7 @@ describe('a fringe benefit', () => {
     await recalculate(state.nov);
     await pool.query(`UPDATE payroll_components SET component_type = 'deduction' WHERE id = $1`, [benefit]);
     await refused();
+    expect(await fringeAdvisory()).toBeUndefined(); // refused, so not also told the benefit was merely unrecorded
   });
 
   it('on a 3801 item of another amount: that is not the benefit, so it was not recorded; advised, not refused', async () => {

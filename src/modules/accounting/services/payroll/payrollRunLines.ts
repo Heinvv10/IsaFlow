@@ -191,9 +191,10 @@ export async function findLoanPaymentsOffPayslip(
      GROUP BY p.id, pe.employee_number, l.loan_number, p.interest_charged, p.principal_paid, p.fringe_benefit
      ORDER BY pe.employee_number, l.loan_number
   `) as Row[];
-  const of = (flag: string) => rows.filter((r) => r[flag] === true)
+  const of = (keep: (r: Row) => boolean) => rows.filter(keep)
     .map((r) => ({ employeeNumber: String(r.employee_number), loanNumber: String(r.loan_number) }));
-  return { offPayslip: of('off_payslip'), fringeNotRecorded: of('fringe_missing') };
+  // A refused payment is told as a refusal only, not also as a benefit merely unrecorded.
+  return { offPayslip: of((r) => r.off_payslip === true), fringeNotRecorded: of((r) => r.fringe_missing === true && r.off_payslip !== true) };
 }
 
 export async function getPayrollRunLines(

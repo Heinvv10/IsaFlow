@@ -70,7 +70,8 @@ export async function assertComponentInCompany(componentId: string, companyId: s
  * and `toISOString()` reports it in UTC, which stored a local-midnight date one day early east of UTC.
  */
 function dayOf(value: string, field: string): string {
-  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  // A string only: RegExp.exec would read ['2026-03-01'] as its text, and the array would then be bound as the date.
+  const day = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
   let real = false;
   if (day && +day[1]! >= 1) {
     // setUTCFullYear, not Date.UTC: Date.UTC reads years 0-99 as 1900-1999. Same rule as isRealCalendarDate.

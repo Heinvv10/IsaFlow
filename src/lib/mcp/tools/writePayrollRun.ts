@@ -104,13 +104,12 @@ export const calculatePayRunTool: McpTool = {
     if (!run) return toolError(NOT_FOUND);
 
     if (args.dry_run === true) {
-      // dry_run runs the live path's row-state guards, in its order (a locked run first): without them a reopened
+      // dry_run runs the live path's row-state guards, in its order (locked, then tax year): without them a reopened
       // run whose GL journal is still posted was promised a recost that calculatePayrollRun then refuses.
-      const locked = isPayrollRunLocked(run.status) ? new PayrollRunLockedError(run.status).message : null;
-      const blocked = !locked && run.journalEntryId != null
+      const refusal = isPayrollRunLocked(run.status) ? new PayrollRunLockedError(run.status).message : unloadedTaxYearMessage(run.periodMonth, run.periodYear);
+      const blocked = !refusal && run.journalEntryId != null
         && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
-      const refusal = locked ?? unloadedTaxYearMessage(run.periodMonth, run.periodYear);
       return ok({
         dryRun: true,
         wroteNothing: true,

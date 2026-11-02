@@ -49,8 +49,9 @@ async function handler(
       return apiResponse.badRequest(res, "componentType must be 'earning' or 'deduction'");
     }
 
-    // The loan instalment is never a tax deduction (Hein): a taxable LOAN would lower PAYE by the repayment.
-    const loan = code === 'LOAN';
+    // The loan instalment is never a tax deduction (Hein): a taxable LOAN deduction would lower PAYE by the repayment.
+    // A LOAN-coded earning is not the loan deduction (loadLoanComponents) and keeps the usual default.
+    const loan = code === 'LOAN' && componentType === 'deduction';
     if (loan && isTaxable === true) {
       return apiResponse.badRequest(res, 'A LOAN component cannot be taxable: a loan repayment is not a tax deduction. Send isTaxable: false.');
     }

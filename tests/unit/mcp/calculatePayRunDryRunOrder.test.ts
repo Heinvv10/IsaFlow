@@ -36,3 +36,19 @@ describe('calculate_pay_run dry run on a locked run', () => {
     expect(payrollJournalInForce).not.toHaveBeenCalled();
   });
 });
+
+describe('calculate_pay_run dry run on a tax year with no tables', () => {
+  it('reports that refusal alone: the live call refuses it before any loan or journal work', async () => {
+    vi.mocked(payrollJournalInForce).mockClear();
+    vi.mocked(getPayrollRun).mockResolvedValue({
+      id: RUN, companyId: 'c', periodMonth: 3, periodYear: 2031, status: 'calculated', journalEntryId: 'j1',
+      totalGross: 0, totalPaye: 0, totalUif: 0, totalSdl: 0, totalEti: 0, totalNet: 0, employeeCount: 0,
+    } as never);
+    const r = await calculatePayRunTool.handler({ run_id: RUN, dry_run: true, idempotency_key: 'k' }, { companyId: 'c', userId: 'u' } as never);
+    const out = JSON.parse(r.content[0]!.text) as { skipped: string[]; effects: unknown[] };
+    expect(out.skipped).toHaveLength(1);
+    expect(out.skipped[0]).toContain('2032');
+    expect(out.effects).toEqual([]);
+    expect(payrollJournalInForce).not.toHaveBeenCalled();
+  });
+});

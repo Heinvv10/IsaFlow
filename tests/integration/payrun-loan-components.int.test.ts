@@ -74,6 +74,14 @@ describe('a LOAN component is never taxable', () => {
     expect(res.body.error?.message).toContain('LOAN');
   });
 
+  it('a LOAN-coded EARNING is not the loan deduction: it may be taxable, and is so by default', async () => {
+    for (const [name, body] of [['Loan earning A', { isTaxable: true }], ['Loan earning B', {}]] as const) {
+      const res = await create({ name, sarsSourceCode: 'LOAN', componentType: 'earning', ...body });
+      expect(res.statusCode, JSON.stringify(res.body)).toBe(201);
+      expect(res.body.data).toMatchObject({ isTaxable: true });
+    }
+  });
+
   it('with isTaxable false, or left out, it is created non-taxable', async () => {
     for (const [name, body] of [['Loan A', { isTaxable: false }], ['Loan B', {}]] as const) {
       const res = await create({ name, sarsSourceCode: 'LOAN', componentType: 'deduction', ...body });
