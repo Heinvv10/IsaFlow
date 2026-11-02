@@ -21,6 +21,10 @@ import { SCOPE_LABELS } from '@/lib/auth/consentScopeLabels';
 const MUST_MENTION: Partial<Record<string, string[]>> = {
   'write:invoices': ['invoice', 'credit note'],
   'read:invoices': ['invoice'],
+  'write:journals': [
+    'draft', 'tag', 'write:post', 'period', 'year-end', 'depreciation',
+    'balance', 'reclass', 'link', 'revers',
+  ],
   'write:post': ['journal', 'revers'],
   'write:bank-tx': ['bank'],
   'write:accounts': ['account'],
@@ -60,5 +64,17 @@ describe('scope copy — PAT page and OAuth consent screen agree', () => {
       const desc = PAT_SCOPE_META[scope]?.desc ?? '';
       expect(desc.length, `${scope} PAT desc is ${desc.length} chars`).toBeLessThanOrEqual(340);
     }
+  });
+
+  it('discloses every material power unlocked by write:journals with write:post', () => {
+    const consentCopy = SCOPE_LABELS['write:journals'];
+    const patCopy = PAT_SCOPE_META['write:journals'].desc;
+
+    expect(consentCopy).toBe(
+      'Drafts/bank tags; with write:post, manage periods/year-end, depreciation, balances, reclassify, link docs, reverse',
+    );
+    expect(patCopy).toBe(
+      'Create draft journals and update bank transaction tags. Combined with write:post, this also allows changing journal tags; closing/reopening fiscal periods; year-end close; depreciation runs; opening balances; reclassifications; journal-document links; and journal reversals.',
+    );
   });
 });
