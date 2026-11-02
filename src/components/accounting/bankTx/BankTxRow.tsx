@@ -113,7 +113,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
           onChange={() => onToggleSelect(tx.id)} className="accent-teal-500"
           aria-label={`Select ${label}`} />
       </td>
-      <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
+      <td className="py-2 px-2 font-id text-xs text-[var(--ff-text-secondary)]">
         {formatDisplayDate(tx.transactionDate)}
       </td>
       <td className="py-2 px-2 text-[var(--ff-text-primary)]">
@@ -129,7 +129,7 @@ export function BankTxRow({ tx, label, rowProps, table, dropdown }: Props) {
         )}
         {isPendingFeedRow(tx) && <PendingFeedBadge />}
         {tx.status === 'provisional' && (
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/40 text-amber-300 ml-1"
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 ml-1"
             title="Posted by AI — needs evidence">
             <Clock className="h-2.5 w-2.5" /> Provisional
           </span>

@@ -109,7 +109,7 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Props) 
                 <span className={`truncate ${active ? 'text-teal-700 dark:text-teal-400 font-semibold' : 'text-[var(--ff-text-primary)]'}`}>
                   {a.accountName}
                 </span>
-                <span className="text-xs font-mono text-[var(--ff-text-tertiary)] shrink-0">{a.accountCode}</span>
+                <span className="text-xs font-id text-[var(--ff-text-tertiary)] shrink-0">{a.accountCode}</span>
               </button>
               <span className={`tabular-nums text-xs shrink-0 ${amountClass(a.balance)}`}>{fmtCurrency(a.balance)}</span>
               <span data-testid="bank-group-row-open" title="Unallocated transactions"

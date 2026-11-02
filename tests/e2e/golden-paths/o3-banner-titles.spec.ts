@@ -89,6 +89,24 @@ test('customer-invoices-edit: a token header, with every text at AA in light and
   await expectPageReads(page, 'customer-invoices-edit', `/accounting/customer-invoices/edit/${draft!.id}`, draft!.invoice_number);
 });
 
+test('a provisional bank line: its badge reads at AA in light and dark', async ({ page }) => {
+  await page.route('**/api/accounting/bank-transactions?*', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json() as { data: { transactions: { status: string }[] } };
+    body.data.transactions[0]!.status = 'provisional';
+    await route.fulfill({ response, json: body });
+  });
+  for (const theme of THEMES) {
+    await seedTheme(page, theme);
+    await page.goto('/accounting/bank-transactions', { waitUntil: 'domcontentloaded' });
+    await settle(page);
+    await page.waitForSelector(`html[data-theme-applied="${theme}"]`);
+    await expect(page.getByTitle('Posted by AI — needs evidence'), `${theme}: the badge is on the row`).toBeVisible({ timeout: 30_000 });
+    const { failing } = await auditContrast(page);
+    expect(failing.filter((f) => f.text.includes('Provisional')), `${theme}: the badge`).toEqual([]);
+  }
+});
+
 test('font-id keeps the app face, with tabular figures and a zero that really is slashed', async ({ page }) => {
   await page.goto('/accounting/credit-notes', { waitUntil: 'domcontentloaded' });
   await settle(page);
