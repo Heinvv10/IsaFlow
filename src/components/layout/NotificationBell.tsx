@@ -14,16 +14,12 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { isInAppPath } from '@/lib/inAppPath';
 import { log } from '@/lib/logger';
 import { cn } from '@/utils/cn';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 import type { NotificationFeed, UserNotification } from '@/modules/accounting/services/notifications/userNotificationService';
 
 const FEED_URL = '/api/accounting/notifications';
 const READ_URL = '/api/accounting/notifications/read';
 const LOAD_FAILED = 'Could not load notifications - try again';
-
-function when(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' });
-}
 
 async function postRead(body: { ids: string[] } | { all: true }): Promise<void> {
   const res = await apiFetch(READ_URL, {
@@ -177,7 +173,7 @@ export function NotificationBell() {
                     <span className="min-w-0">
                       <span className={cn('block text-sm text-ink truncate', n.readAt === null && 'font-semibold')}>{n.title}</span>
                       {n.body && <span className="block text-xs text-ink-muted line-clamp-2">{n.body}</span>}
-                      <span className="block text-xs text-ink-muted">{when(n.createdAt)}</span>
+                      <span className="block text-xs text-ink-muted">{formatDisplayDateTime(n.createdAt, '')}</span>
                       {n.readAt === null && <span className="sr-only">Unread</span>}
                     </span>
                   </button>
