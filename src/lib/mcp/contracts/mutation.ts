@@ -60,6 +60,8 @@ export interface DryRunJournalLine {
   credit: number;
   /** The VAT treatment that would actually POST — not the code displayed in a UI. */
   vatTreatment?: string;
+  /** The CC1 cost centre the line would post with (null: untagged), for a tool whose lines carry one. */
+  cc1Id?: string | null;
 }
 
 export interface DryRunSkip {

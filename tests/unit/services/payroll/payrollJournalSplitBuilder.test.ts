@@ -22,6 +22,7 @@ describe('buildLabourDebitLines', () => {
       employeeAllocations: {},
       mappings: {},
       defaultAccountId: DEFAULT_ACCT,
+      taggableCostCentres: new Set(),
     });
     expect(lines).toHaveLength(1);
     expect(lines[0]!.glAccountId).toBe(DEFAULT_ACCT);
@@ -38,6 +39,7 @@ describe('buildLabourDebitLines', () => {
       employeeAllocations: {},
       mappings: { [CC_ADMIN]: ADMIN_ACCT, [CC_PROJ]: PROJ_ACCT },
       defaultAccountId: DEFAULT_ACCT,
+      taggableCostCentres: new Set(),
     });
     const byAcct = Object.fromEntries(lines.map(l => [l.glAccountId, l.debit]));
     expect(byAcct[ADMIN_ACCT]).toBe(10000);
@@ -55,6 +57,7 @@ describe('buildLabourDebitLines', () => {
       employeeAllocations: {},
       mappings: { [CC_ADMIN]: ADMIN_ACCT },
       defaultAccountId: DEFAULT_ACCT,
+      taggableCostCentres: new Set(),
     });
     const byAcct = Object.fromEntries(lines.map(l => [l.glAccountId, l.debit]));
     expect(byAcct[ADMIN_ACCT]).toBe(10000);
@@ -74,6 +77,7 @@ describe('buildLabourDebitLines', () => {
       },
       mappings: { [CC_ADMIN]: ADMIN_ACCT, [CC_PROJ]: PROJ_ACCT },
       defaultAccountId: DEFAULT_ACCT,
+      taggableCostCentres: new Set(),
     });
     const total = lines.reduce<number>((s, l) => s + l.debit, 0);
     expect(total).toBeCloseTo(100, 2);
@@ -93,6 +97,7 @@ describe('buildLabourDebitLines', () => {
       employeeAllocations: {},
       mappings: { [CC_ADMIN]: ADMIN_ACCT },
       defaultAccountId: DEFAULT_ACCT,
+      taggableCostCentres: new Set(),
     });
     expect(lines).toHaveLength(1);
     expect(lines[0]!.glAccountId).toBe(ADMIN_ACCT);
@@ -109,6 +114,7 @@ describe('buildLabourDebitLines', () => {
       employeeAllocations: {},
       mappings: { [CC_ADMIN]: ADMIN_ACCT },
       defaultAccountId: DEFAULT_ACCT,
+      taggableCostCentres: new Set(),
     });
     expect(lines[lines.length - 1]!.glAccountId).toBe(DEFAULT_ACCT);
   });
@@ -120,6 +126,7 @@ describe('buildLabourDebitLines', () => {
       employeeAllocations: {},
       mappings: {},
       defaultAccountId: DEFAULT_ACCT,
+      taggableCostCentres: new Set(),
     });
     expect(lines).toEqual([]);
   });

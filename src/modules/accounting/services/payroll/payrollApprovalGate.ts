@@ -28,8 +28,8 @@
  *      'already_posted', which names the journal being replaced.
  *
  * `planHash` fingerprints what approval would do: which run, the journal's
- * date and description, its lines and totals, and the journal it would
- * re-lock onto or replace. The caller sends the hash it previewed and
+ * date and description, its lines (account, CC1, amounts) and totals, and the
+ * journal it would re-lock onto or replace. The caller sends the hash it previewed and
  * approval refuses (409) when the run no longer hashes the same.
  */
 import { createHash } from 'crypto';
@@ -52,7 +52,7 @@ export interface PostedPayrollJournal {
   entryNumber: string;
   status: string;
   reversedAt: string | null;
-  lines: Array<{ glAccountId: string; accountCode: string; accountName: string; debit: number; credit: number }>;
+  lines: Array<{ glAccountId: string; accountCode: string; accountName: string; debit: number; credit: number; cc1Id: string | null }>;
   totalDebit: number;
   totalCredit: number;
 }
@@ -86,7 +86,7 @@ const cents = (n: number): number => Math.round(n * 100);
 async function readPostedJournal(companyId: string, journalId: string): Promise<PostedPayrollJournal | null> {
   const rows = (await sql`
     SELECT e.entry_number, e.status, e.reversed_at, l.gl_account_id, a.account_code, a.account_name,
-           l.debit::float8 AS debit, l.credit::float8 AS credit
+           l.debit::float8 AS debit, l.credit::float8 AS credit, l.cc1_id
     FROM gl_journal_entries e
     LEFT JOIN gl_journal_lines l ON l.journal_entry_id = e.id AND l.company_id = e.company_id
     LEFT JOIN gl_accounts a ON a.id = l.gl_account_id AND a.company_id = e.company_id
@@ -101,6 +101,7 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
     accountName: String(r.account_name ?? ''),
     debit: Number(r.debit) || 0,
     credit: Number(r.credit) || 0,
+    cc1Id: r.cc1_id == null ? null : String(r.cc1_id),
   }));
   return {
     journalEntryId: journalId,
@@ -129,15 +130,20 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
  * (`perAccount`). A recalculation can move pay between employees in different
  * cost centres and leave every header total as it was; the split is then the
  * only place the change shows, and it is a real figure on a real expense
- * account (breaker C4).
+ * account (breaker C4). Per account AND CC1 since labour lines carry the
+ * employee's cost centre (2026-11-02): pay moved between two centres mapped
+ * to one account is the same kind of change. A journal posted before then
+ * carries no CC1, so a recalculated run re-approved onto one is refused and
+ * re-posted (reverse, approve) with its tags — fail closed, never a silent
+ * re-lock onto lines that no longer describe the run.
  */
 function figures(
-  lines: Array<{ glAccountId: string | null; debit: number; credit: number }>,
+  lines: Array<{ glAccountId: string | null; debit: number; credit: number; cc1Id: string | null }>,
   perAccount: boolean,
 ): Map<string, number> {
   const m = new Map<string, number>();
   for (const l of lines) {
-    const k = cents(l.debit) !== 0 && !perAccount ? 'labour' : l.glAccountId ?? 'missing';
+    const k = cents(l.debit) !== 0 && !perAccount ? 'labour' : JSON.stringify([l.glAccountId ?? 'missing', l.cc1Id]);
     m.set(k, (m.get(k) ?? 0) + cents(l.debit) - cents(l.credit));
   }
   for (const [k, v] of m) if (v === 0) m.delete(k);
@@ -188,7 +194,8 @@ function hashOf(plan: PayrollJournalPlan, posted: PostedPayrollJournal | null, r
     description: plan.description,
     posted: posted?.journalEntryId ?? null,
     replaces: replaces?.journalEntryId ?? null,
-    lines: plan.lines.map((l) => [l.glAccountId, l.accountCode, cents(l.debit), cents(l.credit)]),
+    // CC1 is in it: it changes what posts, so a preview taken before a centre moved cannot approve the new split.
+    lines: plan.lines.map((l) => [l.glAccountId, l.accountCode, l.cc1Id, cents(l.debit), cents(l.credit)]),
     totals: Object.entries(plan.totals).map(([k, v]) => [k, cents(v)]),
   })).digest('hex');
 }
