@@ -22,6 +22,8 @@ const ROOT = join(__dirname, '../../..');
 const API = join(ROOT, 'pages/api');
 
 const EXEMPT: Record<string, string> = {
+  // A member's own state, not company data.
+  'pages/api/accounting/notifications/read.ts': 'marks only the caller\'s own notifications read (user_id = session user in the query and the 954 RLS policy); a viewer has a bell too',
   // Checks the role inline.
   'pages/api/accounting/audit-check-runs.ts': 'inline: mayTakeAudit (owner/admin) on POST',
   'pages/api/accounting/audit-snapshots.ts': 'inline: mayTakeAudit (owner/admin) in post()',
