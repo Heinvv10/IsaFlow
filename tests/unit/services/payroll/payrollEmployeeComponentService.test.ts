@@ -11,14 +11,19 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 
+// The wait on the company's payroll: tests/integration/payrun-period-inputs-loans.int.test.ts.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({ lockCompanyPayrollApprovals: vi.fn(async () => undefined) }));
+
 import {
   assignComponentToEmployee,
   EmployeeComponentRefused,
   endEmployeeComponent,
   listEmployeeComponentAssignments,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
+import { lockCompanyPayrollApprovals } from '@/modules/accounting/services/payroll/payrollRunLock';
 
 beforeEach(() => {
+  vi.clearAllMocks();
   sqlCalls.length = 0;
   mockImpl = () => Promise.resolve([]);
 });
@@ -169,12 +174,18 @@ describe('day strings', () => {
 });
 
 describe('endEmployeeComponent', () => {
-  it('issues UPDATE with the effective_to date and company-scope subquery', async () => {
-    mockImpl = () => Promise.resolve([]);
+  it('takes the company payroll lock before the company-scoped UPDATE', async () => {
+    mockImpl = (strings) => {
+      if (strings.join('?').includes('UPDATE payroll_employee_components')) {
+        expect(lockCompanyPayrollApprovals).toHaveBeenCalledWith(null, COMPANY_ID);
+      }
+      return Promise.resolve([]);
+    };
 
     await endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, '2025-12-31');
 
     expect(sqlCalls).toHaveLength(1);
+    expect(lockCompanyPayrollApprovals).toHaveBeenCalledWith(null, COMPANY_ID);
     const call = sqlCalls[0];
     expect(call).toBeDefined();
     expect(call!.sql).toContain('UPDATE payroll_employee_components');

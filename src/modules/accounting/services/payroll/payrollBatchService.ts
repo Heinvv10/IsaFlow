@@ -10,12 +10,13 @@
  * and 3703 (non-taxable) component rows on post.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { endOfMonthIso } from './leaveAccrualService';
 import { assertComponentInCompany } from './payrollEmployeeComponentService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { lockCompanyPayrollApprovals } from './payrollRunLock';
 
 type Row = DbRow;
 
@@ -405,6 +406,11 @@ export async function postBatch(
   userId: string,
 ): Promise<{ inserted: number }> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
+  return withTransaction(() => postBatchUnderLock(companyId, batchId, userId));
+}
+
+async function postBatchUnderLock(companyId: string, batchId: string, userId: string): Promise<{ inserted: number }> {
+  await lockCompanyPayrollApprovals(null, companyId);
   const batch = await loadBatchForCompany(companyId, batchId);
   if (batch.status === 'posted' || batch.status === 'cancelled') {
     throw new BatchNotEditableError(batch.status);
