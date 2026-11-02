@@ -1,0 +1,107 @@
+/**
+ * What setEmployeeBankDetails accepts, judged before anything is read or written (wave 3 K1): a 4xx commits the
+ * request's writes, so a refusal must come first. The database half is tests/integration/k1-employee-bank-details.int.test.ts.
+ */
+import { describe, expect, it } from 'vitest';
+import {
+  parseBankDetailsInput, PayrollBankDetailsRefusal,
+} from '@/modules/accounting/services/payroll/payrollBankDetailsService';
+
+const GOOD = { bankName: 'FNB', branchCode: '250655', accountNumber: '62000123456', accountType: 'cheque', accountHolder: 'W Test' };
+
+function refusedFields(raw: unknown): string[] {
+  try {
+    parseBankDetailsInput(raw);
+  } catch (err) {
+    expect(err).toBeInstanceOf(PayrollBankDetailsRefusal);
+    expect((err as PayrollBankDetailsRefusal).status).toBe(422);
+    return Object.keys((err as PayrollBankDetailsRefusal).fieldErrors ?? {});
+  }
+  return [];
+}
+
+describe('parseBankDetailsInput', () => {
+  it('accepts good details and strips spaces from the account number', () => {
+    expect(parseBankDetailsInput({ ...GOOD, accountNumber: ' 6200 0123 456 ', bankName: ' FNB ' })).toEqual({
+      bankName: 'FNB', branchCode: '250655', accountNumber: '62000123456', accountType: 'cheque', accountHolder: 'W Test',
+    });
+  });
+
+  it('holder is optional, and blank means none', () => {
+    const { accountHolder: _omitted, ...noHolder } = GOOD;
+    expect(parseBankDetailsInput(noHolder).accountHolder).toBeNull();
+    expect(parseBankDetailsInput({ ...GOOD, accountHolder: '   ' }).accountHolder).toBeNull();
+    expect(parseBankDetailsInput({ ...GOOD, accountHolder: null }).accountHolder).toBeNull();
+  });
+
+  it.each([
+    ['a blank bank name', { bankName: '   ' }, 'bankName'],
+    ['a missing bank name', { bankName: undefined }, 'bankName'],
+    ['a bank name over 100', { bankName: 'x'.repeat(101) }, 'bankName'],
+    ['a 5-digit branch code', { branchCode: '25065' }, 'branchCode'],
+    ['a 7-digit branch code', { branchCode: '2506550' }, 'branchCode'],
+    ['letters in a branch code', { branchCode: '25065a' }, 'branchCode'],
+    ['a 5-digit account', { accountNumber: '12345' }, 'accountNumber'],
+    ['a 17-digit account', { accountNumber: '1'.repeat(17) }, 'accountNumber'],
+    ['letters in an account', { accountNumber: '62000123A56' }, 'accountNumber'],
+    ['full-width digits in an account', { accountNumber: '１２３４５６７' }, 'accountNumber'],
+    ['an unknown account type', { accountType: 'current' }, 'accountType'],
+    ['a holder over 100', { accountHolder: 'x'.repeat(101) }, 'accountHolder'],
+  ])('refuses %s', (_name, change, field) => {
+    expect(refusedFields({ ...GOOD, ...change })).toEqual([field]);
+  });
+
+  it.each([
+    ['an array account number', { accountNumber: ['62000123456'] }, 'accountNumber'],
+    ['a numeric account number', { accountNumber: 62000123456 }, 'accountNumber'],
+    ['an object bank name', { bankName: { a: 1 } }, 'bankName'],
+  ])('refuses %s, never coercing it', (_name, change, field) => {
+    expect(refusedFields({ ...GOOD, ...change })).toEqual([field]);
+  });
+
+  it.each([
+    ['a NUL', 'FNB\u0000Bank'], ['a newline', 'FNB\nBank'], ['a tab', 'FNB\tBank'], ['a carriage return', 'FNB\rBank'],
+    ['DEL', 'FNB\u007f'], ['a C1 control', 'FNB\u0085Bank'], ['a right-to-left override', 'FNB\u202eknaB'], ['a zero-width space', 'F\u200bNB'],
+    ['a leading = (a spreadsheet formula)', '=HYPERLINK("x")'], ['a leading +', '+27821234567'], ['a leading @', '@SUM(A1)'], ['a leading -', '-A1'],
+    ['markup', '<script>alert(1)</script>'], ['a double quote', 'F"NB'], ['a backslash', 'FNB\\'], ['a semicolon', 'FNB;Bank'], ['a pipe', 'FNB|Bank'],
+  ])('refuses %s in the bank name and in the holder', (_name, value) => {
+    expect(refusedFields({ ...GOOD, bankName: value })).toEqual(['bankName']);
+    expect(refusedFields({ ...GOOD, accountHolder: value })).toEqual(['accountHolder']);
+  });
+
+  it('says what it refused without echoing the value', () => {
+    const value = 'FNB<secret>';
+    try {
+      parseBankDetailsInput({ ...GOOD, bankName: value });
+      expect.unreachable();
+    } catch (err) {
+      const { fieldErrors } = err as PayrollBankDetailsRefusal;
+      expect(fieldErrors?.bankName).toEqual(['Bank name may hold letters, digits, spaces and . , \' ’ & ( ) / - only']);
+      expect(JSON.stringify(fieldErrors)).not.toContain('secret');
+    }
+  });
+
+  it.each([
+    ['Standard Bank of South Africa'], ['African Bank Ltd.'], ['Absa (Pty) Ltd'], ['Nedbank/Old Mutual'], ['TymeBank'], ['Bank 2-Go'], ['Investec & Co'],
+    ['J.P. O\'Brien'], ['M. du Plessis-van der Merwe'], ['Sipho Ndlovu, Jnr'], ['André Müller'], ['Zoë Ñandú'], ['O’Neill'], ['Nomathemba Mkhize'],
+  ])('accepts %s as a bank name and as a holder', (value) => {
+    const parsed = parseBankDetailsInput({ ...GOOD, bankName: value, accountHolder: value });
+    expect([parsed.bankName, parsed.accountHolder]).toEqual([value, value]);
+  });
+
+  it('accepts the bounds: 100-character names, 6 and 16 digit accounts', () => {
+    expect(parseBankDetailsInput({ ...GOOD, bankName: 'x'.repeat(100), accountHolder: 'y'.repeat(100) }).bankName).toHaveLength(100);
+    expect(parseBankDetailsInput({ ...GOOD, accountNumber: '123456' }).accountNumber).toBe('123456');
+    expect(parseBankDetailsInput({ ...GOOD, accountNumber: '1'.repeat(16) }).accountNumber).toHaveLength(16);
+  });
+
+  it('refuses a body that is not an object, and never echoes the number in its message', () => {
+    expect(() => parseBankDetailsInput(null)).toThrow(PayrollBankDetailsRefusal);
+    expect(() => parseBankDetailsInput('x')).toThrow(PayrollBankDetailsRefusal);
+    try {
+      parseBankDetailsInput({ ...GOOD, accountNumber: '62000123A56' });
+    } catch (err) {
+      expect(JSON.stringify([(err as Error).message, (err as PayrollBankDetailsRefusal).fieldErrors])).not.toContain('62000123A56');
+    }
+  });
+});

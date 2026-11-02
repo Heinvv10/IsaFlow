@@ -27,7 +27,7 @@ export function request(jar: Record<string, string>, method: string, targetId?: 
   return { method, url: '/api/accounting/mfa-integration-fixture', cookies,
     query: targetId ? { id: targetId } : {},
     headers: { cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; '),
-      'x-csrf-token': csrf, 'x-admin-request': 'true' },
+      'x-csrf-token': csrf, 'x-admin-request': 'true', 'content-type': 'application/json' },
     socket: { remoteAddress: '127.0.0.79' },
   } as unknown as NextApiRequest;
 }

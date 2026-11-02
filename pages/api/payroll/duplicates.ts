@@ -2,17 +2,24 @@
  * GET /api/payroll/duplicates
  * Returns employees flagged as sharing ID number, tax number, passport,
  * bank account, or employee number. Excludes terminated employees unless
- * ?includeTerminated=1.
+ * ?includeTerminated=1. Bank account numbers are masked to their last four
+ * except for owner / admin in their own session: Login-as and tokens get them
+ * masked, whatever the role. A list with whole numbers in it is recorded in
+ * audit_log (`export`).
  */
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { getClientIp } from '@/lib/rateLimit';
 import {
   withAuth,
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
+import { isHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
+import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
+import { auditBankDuplicatesRead } from '@/modules/accounting/services/payroll/payrollBankReadAudit';
 import { findDuplicates } from '@/modules/accounting/services/payroll/payrollDuplicateDetectionService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
@@ -21,11 +28,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const includeTerminated =
     req.query.includeTerminated === '1' || req.query.includeTerminated === 'true';
 
-  const result = await findDuplicates(companyId, { includeTerminated });
+  const fullBankAccounts = isHistoryAdmin(companyRole) && (await isHumanSession());
+  const result = await findDuplicates(companyId, { includeTerminated, fullBankAccounts });
+  if (fullBankAccounts && result.bankAccount.length > 0) {
+    await auditBankDuplicatesRead(companyId, { userId: user.id, userEmail: user.email, ip: getClientIp(req), userAgent: req.headers['user-agent'] }, result.bankAccount);
+  }
   return apiResponse.success(res, result);
 }
 

@@ -11,7 +11,7 @@ import { redactShareToken, redactTokenParams } from '@/lib/observability/redactS
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { sanitizeRequestBody } from '@/lib/sanitizeRequestBody';
+import { loggableRequestBody, loggableUrl, maskedKeySet, sanitizeRequestBody } from '@/lib/sanitizeRequestBody';
 
 /**
  * Standard API error response
@@ -36,6 +36,8 @@ export interface ApiSuccessResponse<T = unknown> {
 export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
 
 export interface WithErrorHandlerOptions {
+  /** The body fields the request log may hold, for a route whose body is credentials: nothing else is logged. */
+  logBodyFields?: readonly string[];
   /** Body keys this route's request log must not show, at any depth: pay under a key too common to mask everywhere. */
   maskBodyKeys?: readonly string[];
 }
@@ -54,7 +56,7 @@ export function withErrorHandler(
   handler: (req: any, res: NextApiResponse<any>) => unknown,
   options: WithErrorHandlerOptions = {},
 ): NextApiHandler {
-  const maskedKeys = new Set(options.maskBodyKeys);
+  const maskedKeys = maskedKeySet(options.maskBodyKeys);
   return async (req: NextApiRequest, res: NextApiResponse) => {
     const requestId = generateRequestId();
     const startTime = Date.now();
@@ -68,7 +70,7 @@ export function withErrorHandler(
       }
 
       await runWithRequestContext(requestId, async () => {
-      const safeUrl = redactShareToken(req.url ?? '');
+      const safeUrl = loggableUrl(redactShareToken(req.url ?? ''));
       try {
         // CORS — single source of truth in src/lib/cors.ts (pentest M11).
         const origin = safeCorsOrigin(req.headers.origin);
@@ -89,8 +91,8 @@ export function withErrorHandler(
           type: 'request',
           method: req.method,
           url: safeUrl,
-          query: redactTokenParams(req.query),
-          body: req.method !== 'GET' ? sanitizeRequestBody(req.body, 0, maskedKeys) : undefined,
+          query: redactTokenParams(sanitizeRequestBody(req.query) as typeof req.query),
+          body: req.method !== 'GET' ? loggableRequestBody(req, options.logBodyFields, maskedKeys) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 
         // Execute the actual handler

@@ -22,7 +22,7 @@ vi.mock('@/lib/observability/requestLogger', () => ({ logRequestCompleted: vi.fn
 vi.mock('@/lib/sentry/tags', () => ({ setTenantTags: vi.fn(), sanitizeRoute: vi.fn((r: string) => r) }));
 vi.mock('@/lib/cors', () => ({ safeCorsOrigin: vi.fn(() => null) }));
 
-import { sanitizeRequestBody as sanitizeBody } from '@/lib/sanitizeRequestBody';
+import { loggableRequestBody, loggableUrl, sanitizeRequestBody as sanitizeBody } from '@/lib/sanitizeRequestBody';
 
 describe('sanitizeBody — pay', () => {
   it('a new employee\'s salary is not logged next to their name', () => {
@@ -84,6 +84,35 @@ describe('sanitizeBody — credential redaction', () => {
     }
   });
 
+  // Security review of K1: every non-GET body reaches journald through withErrorHandler's request log.
+  it.each(['accountNumber', 'account_number', 'bankAccountNumber', 'bank_account_number'])('redacts %s, at any depth', (key) => {
+    const account = '62000123456';
+    const out = sanitizeBody({ bankName: 'FNB', [key]: account, nested: { rows: [{ [key]: account }] } });
+    expect((out as Record<string, unknown>)[key]).toBe('[REDACTED]');
+    expect((out as Record<string, unknown>).bankName).toBe('FNB');
+    expect(JSON.stringify(out)).not.toContain(account);
+  });
+
+  // Review of K1: an exact key list misses a client's own spelling of the field.
+  it.each(['AccountNumber', 'ACCOUNT_NUMBER', 'account-number', 'account_no', 'accountNo', 'bank_account_no', 'employeeAccountNumber', 'account_number_2',
+    'Account Number', 'account.number', 'account no', '$accountNumber', 'employee_account_no', 'acc_no', 'acct-num', 'bankAccNo', 'ACCOUNTNO', 'account_nr'])(
+    'redacts %s, however it is cased or separated', (key) => {
+      const out = sanitizeBody({ [key]: '62000123456', nested: [{ [key]: '62000123456' }] });
+      expect((out as Record<string, unknown>)[key]).toBe('[REDACTED]');
+      expect(JSON.stringify(out)).not.toContain('62000123456');
+    });
+
+  it('matches every listed key and fragment normalised, and leaves near misses alone', () => {
+    const out = sanitizeBody({
+      'api-key': 'a', 'api key': 'd', 'api.key': 'e', Client_Secret: 'b', 'ACCESS-TOKEN': 'c',
+      account_id: 'keep', account_notes: 'keep', accountName: 'keep', accountNotes: 'keep', account_nominal: 'keep', accounting_no: 'keep',
+    }) as Record<string, unknown>;
+    expect(out).toEqual({
+      'api-key': '[REDACTED]', 'api key': '[REDACTED]', 'api.key': '[REDACTED]', Client_Secret: '[REDACTED]', 'ACCESS-TOKEN': '[REDACTED]',
+      account_id: 'keep', account_notes: 'keep', accountName: 'keep', accountNotes: 'keep', account_nominal: 'keep', accounting_no: 'keep',
+    });
+  });
+
   it('does NOT over-redact benign fields (incl. a bare single-use "code")', () => {
     const out = sanitizeBody({
       code: 'oac_singleuse', country_code: 'ZA', currency_code: 'ZAR', invoice_number: 'INV-1',
@@ -113,6 +142,10 @@ describe('sanitizeBody — file payloads and ID numbers (onboarding complete-set
     expect(out.rows).toEqual([{ id_number: '[omitted: 10 chars]', file_data: `[omitted: ${pdf.length} chars]` }]);
     expect(out.password).toBe('[REDACTED]');
     expect(JSON.stringify(out)).not.toMatch(/SYNTH-ID|AAAA/);
+  });
+  it.each(['IDNumber', 'id-number', 'ID Number', 'ID_NUMBER', 'FileData', 'logo-data'])('%s is replaced by a marker, however it is spelt', (key) => {
+    expect(sanitizeBody({ [key]: 'SYNTH-ID-9', nested: [{ [key]: 'SYNTH-ID-9' }] }))
+      .toEqual({ [key]: '[omitted: 10 chars]', nested: [{ [key]: '[omitted: 10 chars]' }] });
   });
   it('a short, non-file `data` is kept and walked (bulk rows, settings), not omitted', () => {
     const out = sanitizeBody({
@@ -196,3 +229,102 @@ describe('sanitizeBody — wide objects', () => {
   });
 });
 
+describe('loggableRequestBody — only a JSON object is logged', () => {
+  const account = '62000123456';
+  const json = { 'content-type': 'application/json' };
+
+  it.each(['application/json', 'application/json; charset=utf-8', 'APPLICATION/JSON'])('%s: scrubbed and logged', (type) => {
+    expect(loggableRequestBody({ headers: { 'content-type': type }, body: { bankName: 'FNB', accountNumber: account } }))
+      .toEqual({ bankName: 'FNB', accountNumber: '[REDACTED]' });
+  });
+
+  it.each([
+    ['text/plain', 'text/plain', JSON.stringify({ accountNumber: account })],
+    ['no content type', undefined, JSON.stringify({ accountNumber: account })],
+    ['a form body with the JSON as its key', 'application/x-www-form-urlencoded', { [JSON.stringify({ accountNumber: account })]: '' }],
+    ['a form body whose key is the bare number', 'application/x-www-form-urlencoded', { [account]: '' }],
+    ['a form body with ordinary fields', 'application/x-www-form-urlencoded', { note: account }],
+    ['an object with no JSON content type', undefined, { note: account }],
+    ['a JSON array', 'application/json', [account]],
+    ['a JSON string', 'application/json', account],
+    ['a JSON number', 'application/json', Number(account)],
+    ['application/ld+json', 'application/ld+json', { note: account }],
+  ])('%s: omitted outright', (_name, type, body) => {
+    const headers = type ? { 'content-type': type } : {};
+    expect(loggableRequestBody({ headers, body })).toBe('[omitted: not a JSON object]');
+  });
+
+  it.each([[undefined], [null], ['']])('no body at all (%s) logs as none', (body) => {
+    expect(loggableRequestBody({ headers: json, body })).toBeUndefined();
+    expect(loggableRequestBody({ headers: {}, body })).toBeUndefined();
+  });
+});
+
+describe('loggableRequestBody — a route that names what may be logged', () => {
+  const body = { grant_type: 'authorization_code', client_id: 'c1', code: 'oac_secret', client_secret: 'cls', resource: ['https://a'] };
+  const fields = ['grant_type', 'client_id', 'redirect_uri', 'resource'];
+
+  it.each(['application/json', 'application/x-www-form-urlencoded', undefined])('%s: those keys and no others', (type) => {
+    const headers = type ? { 'content-type': type } : {};
+    expect(loggableRequestBody({ headers, body }, fields)).toEqual({ grant_type: 'authorization_code', client_id: 'c1', resource: ['https://a'] });
+  });
+
+  it('a body that is not an object is still omitted', () => {
+    expect(loggableRequestBody({ headers: {}, body: 'code=oac_secret' }, fields)).toBe('[omitted: not a JSON object]');
+  });
+});
+
+describe('loggableUrl — a query string gets the body\'s checks', () => {
+  it.each([
+    ['/api/x?accountNumber=62000123456&page=2', '/api/x?accountNumber=[REDACTED]&page=2'],
+    ['/api/x?account_no=620&page=2', '/api/x?account_no=[REDACTED]&page=2'],
+    ['/api/x?idNumber=8001&page=2', '/api/x?idNumber=[REDACTED]&page=2'],
+    ['/api/x?password=hunter2', '/api/x?password=[REDACTED]'],
+    ['/api/x?62000123456&page=2', '/api/x?[omitted]&page=2'],
+    ['/api/x?62000123456=1&page=2', '/api/x?[omitted]&page=2'],
+    ['/api/x?account%5Fnumber=620', '/api/x?account%5Fnumber=[REDACTED]'],
+    ['/api/x?a=1&b=2', '/api/x?a=1&b=2'],
+    ['/api/x?share_token=[token]&page=2', '/api/x?share_token=[token]&page=2'],
+    ['/api/62000123456/x', '/api/62000123456/x'],
+    ['', ''],
+  ])('%s', (url, expected) => {
+    expect(loggableUrl(url)).toBe(expected);
+  });
+});
+
+describe('sanitizeBody — keys that may be the data itself', () => {
+  const body = JSON.stringify({ bankName: 'FNB', accountNumber: '62000123456' });
+
+  it('a top-level string is never logged, however short', () => {
+    expect(sanitizeBody(body)).toBe(`[omitted: ${body.length} chars]`);
+    expect(sanitizeBody('hello')).toBe('[omitted: 5 chars]');
+  });
+
+  it('a string under a key is still logged', () => {
+    expect(sanitizeBody({ note: 'hello', rows: ['a'] })).toEqual({ note: 'hello', rows: ['a'] });
+  });
+
+  it.each([
+    ['a whole JSON text as a key', { [body]: '' }],
+    ['a short one, under the length cap', { '{"accountNumber":"62000123456"}': '' }],
+    ['a bare number', { 62000123456: 'x' }],
+    ['a run of 6, the shortest account', { 620001: 'x' }],
+    ['digits split by spaces', { '6200 0123 456': 'x' }],
+    ['digits split by dashes', { '620-001-23456': 'x' }],
+    ['a run inside a name', { employee62000123456: 'x' }],
+    ['a sensitive key holding one, which would keep its key', { accountNumber62000123456: 'x' }],
+    ['full-width digits', { '６２００１２３': 'x' }],
+    ['a key of 65 characters', { [`x${'y'.repeat(64)}`]: 'v' }],
+    ['at depth', { rows: [{ 62000123456: '' }] }],
+  ])('%s: the key is not logged', (_name, input) => {
+    const out = JSON.stringify(sanitizeBody(input));
+    expect(out).not.toMatch(/\d{6}|６２００|yyyy/);
+    expect(out).toContain('[omitted keys]');
+  });
+
+  it('keeps an ordinary key of 64 characters and a short digit run, and counts what it left out', () => {
+    const key = 'k'.repeat(64);
+    expect(sanitizeBody({ [key]: 1, 'Account Name': 2, 'customer.name': 3, aging_bucket1_days: 4, code12345: 5, [`${key}k`]: 6, 123456: 7 }))
+      .toEqual({ [key]: 1, 'Account Name': 2, 'customer.name': 3, aging_bucket1_days: 4, code12345: 5, '[omitted keys]': 2 });
+  });
+});

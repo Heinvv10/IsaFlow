@@ -77,6 +77,8 @@ export function entityLabel(type: EntityType, row: Pick<EntityChangeRow, 'before
       return nameOf(p, 'email');
     case 'approval_enforcement':
       return nameOf(p, 'document_type');
+    case 'payroll_bank_detail':
+      return nameOf(p, 'bank_name');
     default:
       return nameOf(p, 'name');
   }

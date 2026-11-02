@@ -1,6 +1,6 @@
 /**
- * The request-body scrubber for error logs (api-error-handler). Credentials are
- * redacted; uploaded files, ID and tax numbers, birth dates, medical aid details
+ * The request-body scrubber for error logs (api-error-handler). Credentials and
+ * bank account numbers are redacted; uploaded files, ID and tax numbers, birth dates, medical aid details
  * and salaries are replaced by a marker at any depth, so a logged body never
  * carries a certificate, an ID scan, an ID number (onboarding complete-setup,
  * company-directors, company-documents) or what someone earns next to their
@@ -10,7 +10,13 @@
  * its item count, an object of more than MAX_LOGGED_KEYS as its key count, and a
  * string over LONG_STRING as its length, so a bulk body (a 20 000-cell budget
  * save, ~3.4 MB, or a 14 MB base64 upload) is never written to the request log
- * whole.
+ * whole. Only a JSON object can be read for what it holds, so loggableRequestBody
+ * logs nothing else: text, form-encoded bodies (whose keys may be the data) and
+ * anything without a JSON content type are omitted outright. In a JSON object, a
+ * key that may itself be data (over 64 characters, or holding six or more digits
+ * in a row, the shortest account number) is left out and counted. loggableUrl
+ * gives a query string the same checks, so a key or number moved to the URL
+ * fares no better.
  */
 
 const SENSITIVE_KEYS = new Set([
@@ -19,19 +25,34 @@ const SENSITIVE_KEYS = new Set([
   // /api/oauth/token was logging raw refresh tokens + client secrets to stdout.
   'client_secret', 'clientSecret', 'refresh_token', 'refreshToken',
   'access_token', 'accessToken', 'code_verifier', 'codeVerifier',
+  // Every non-GET body reaches journald: employee and supplier bank account numbers stay out of it.
+  'accountNumber', 'account_number', 'bankAccountNumber', 'bank_account_number',
 ]);
 
-// Substring fragments — redact any key containing these (case-insensitive), so
-// new/renamed credential fields (…_secret, …_token, …verifier) can't silently
-// leak. Kept narrow to avoid over-redacting benign fields ('code' alone, a
-// single-use auth code, is intentionally NOT a fragment — too broad).
-const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'apikey', 'verifier'];
+// Substring fragments — redact any key containing these, so new/renamed
+// credential fields (…_secret, …_token, …verifier) can't silently leak. Written
+// normalised (see normaliseKey). Kept narrow to avoid over-redacting benign
+// fields ('code' alone, a single-use auth code, is intentionally NOT a fragment
+// — too broad; 'accountno' would also match account_notes: see ACCOUNT_NUMBER_KEY).
+const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'apikey', 'verifier', 'accountnumber'];
+
+/** A client's spelling of a field does not matter: AccountNumber, account.number and `account number` are one key. */
+const normaliseKey = (key: string) => key.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const NORMALISED_SENSITIVE_KEYS = new Set([...SENSITIVE_KEYS].map(normaliseKey));
+
+/** acc_no, employee_account_no, bankAccNo, accountnr: whole words, so account_notes and accountNotes stay. */
+const ACCOUNT_NUMBER_KEY = /(?:^|[^a-z0-9])(?:acc|acct|account)[^a-z0-9]*(?:no|nr|num|number)(?:$|[^a-z0-9])/;
+const separateWords = (key: string) => key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
 
 function isSensitiveKey(key: string): boolean {
-  if (SENSITIVE_KEYS.has(key)) return true;
-  const k = key.toLowerCase();
-  return SENSITIVE_FRAGMENTS.some((f) => k.includes(f));
+  const k = normaliseKey(key);
+  return NORMALISED_SENSITIVE_KEYS.has(k) || SENSITIVE_FRAGMENTS.some((f) => k.includes(f))
+    || ACCOUNT_NUMBER_KEY.test(separateWords(key));
 }
+
+/** A key too long to be a field name, or with an account number's run of digits in it, even split up, may be the data itself. */
+const MAX_LOGGED_KEY_LENGTH = 64;
+export const keyMayBeData = (key: string) => key.length > MAX_LOGGED_KEY_LENGTH || /\p{Nd}{6}/u.test(normaliseKey(key));
 
 /** Always a file or a person's identity, health or pay details, whatever the value looks like. */
 const PAYLOAD_KEYS = new Set([
@@ -40,6 +61,7 @@ const PAYLOAD_KEYS = new Set([
   // Who is on medical aid and how many dependants they cover: POPIA treats health information as special.
   'medicalAidMainMember', 'medical_aid_main_member', 'medicalAidDependantsCount', 'medical_aid_dependants_count',
 ]);
+const NORMALISED_PAYLOAD_KEYS = new Set([...PAYLOAD_KEYS].map(normaliseKey));
 /** `data` is a common key (bulk rows, settings): omitted only when it is, or holds at any depth, a file (a data: URL or a long string). */
 const LONG_STRING = 1024;
 const isFileLike = (value: unknown) => typeof value === 'string' && (value.startsWith('data:') || value.length > LONG_STRING);
@@ -58,22 +80,68 @@ const present = (value: unknown) => value !== null && value !== undefined && val
 /** Longer arrays are logged as `[omitted: N items]`. */
 const MAX_LOGGED_ITEMS = 50;
 const NO_KEYS: ReadonlySet<string> = new Set();
+/** A route's maskBodyKeys, spelling-insensitive like every other key here. */
+export const maskedKeySet = (keys: readonly string[] | undefined): ReadonlySet<string> => new Set((keys ?? []).map(normaliseKey));
 
-/** `maskedKeys`: the calling route's own PAYLOAD_KEYS, for a key too common to mask everywhere. */
+/** `maskedKeys`: the calling route's own payload keys, already normalised (see maskedKeySet), for a key too common to mask everywhere. */
 export function sanitizeRequestBody(body: unknown, depth = 0, maskedKeys: ReadonlySet<string> = NO_KEYS): unknown {
   // Any long string, under any key: a 14 MB value would otherwise be logged and kept in the logger's buffer.
-  if (typeof body === 'string') return body.length > LONG_STRING ? omitted(body) : body;
+  if (typeof body === 'string') return depth === 0 || body.length > LONG_STRING ? omitted(body) : body;
   if (!body || typeof body !== 'object') return body;
   if (depth > 8) return '[omitted: nested too deep]';
   if (Array.isArray(body)) return body.length > MAX_LOGGED_ITEMS ? omitted(body) : body.map((v) => sanitizeRequestBody(v, depth + 1, maskedKeys));
   const entries = Object.entries(body as Record<string, unknown>);
   if (entries.length > MAX_LOGGED_KEYS) return `[omitted: ${entries.length} keys]`;
   const sanitized: Record<string, unknown> = {};
+  let omittedKeys = 0;
   for (const [key, value] of entries) {
-    if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';
-    else if ((PAYLOAD_KEYS.has(key) || maskedKeys.has(key)) && present(value)) sanitized[key] = omitted(value);
+    if (keyMayBeData(key)) omittedKeys += 1;
+    else if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';
+    else if ((NORMALISED_PAYLOAD_KEYS.has(normaliseKey(key)) || maskedKeys.has(normaliseKey(key))) && present(value)) sanitized[key] = omitted(value);
     else if (key === 'data' && holdsFiles(value)) sanitized[key] = omitted(value);
     else sanitized[key] = sanitizeRequestBody(value, depth + 1, maskedKeys);
   }
+  if (omittedKeys > 0) sanitized['[omitted keys]'] = omittedKeys;
   return sanitized;
+}
+
+/**
+ * What the request log may hold of a body: a JSON object, scrubbed, or that something else was sent.
+ * `fields`: a route whose every body holds credentials names what may be logged, in JSON or form-encoded.
+ */
+export function loggableRequestBody(
+  req: { headers: Record<string, string | string[] | undefined>; body?: unknown }, fields?: readonly string[],
+  maskedKeys: ReadonlySet<string> = NO_KEYS,
+): unknown {
+  const { body } = req;
+  if (!present(body)) return undefined;
+  const isObject = typeof body === 'object' && !Array.isArray(body);
+  if (fields && isObject) {
+    return sanitizeRequestBody(Object.fromEntries(Object.entries(body as object).filter(([key]) => fields.includes(key))), 0, maskedKeys);
+  }
+  const contentType = String(req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+  return contentType === 'application/json' && isObject ? sanitizeRequestBody(body, 0, maskedKeys) : '[omitted: not a JSON object]';
+}
+
+function decodedName(name: string): string {
+  try {
+    return decodeURIComponent(name.replace(/\+/g, ' '));
+  } catch {
+    return name; // not valid percent-encoding: judge it as it stands
+  }
+}
+
+/** A URL for the request log: a parameter whose name may be data goes whole, and a sensitive one loses its value. Masked token values stay. */
+export function loggableUrl(url: string): string {
+  const q = url.indexOf('?');
+  if (q === -1) return url;
+  const params = url.slice(q + 1).split('&').map((param) => {
+    const eq = param.indexOf('=');
+    const name = eq === -1 ? param : param.slice(0, eq);
+    const key = decodedName(name);
+    if (keyMayBeData(key)) return '[omitted]';
+    if (param.endsWith('=[token]')) return param;
+    return isSensitiveKey(key) || NORMALISED_PAYLOAD_KEYS.has(normaliseKey(key)) ? `${name}=[REDACTED]` : param;
+  });
+  return `${url.slice(0, q + 1)}${params.join('&')}`;
 }

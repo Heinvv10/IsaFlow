@@ -141,6 +141,10 @@ describe('findDuplicates', () => {
     const result = await findDuplicates(COMPANY_ID);
     expect(result.bankAccount).toHaveLength(1);
     expect(result.bankAccount[0]?.employees).toHaveLength(2);
+    // Masked unless the caller says otherwise; the other fields are untouched by that.
+    expect(result.bankAccount[0]?.value).toBe('…7890');
+    const full = await findDuplicates(COMPANY_ID, { fullBankAccounts: true });
+    expect(full.bankAccount[0]?.value).toBe('1234567890');
   });
 
   it('returns a summary totals.totalConflicts', async () => {
