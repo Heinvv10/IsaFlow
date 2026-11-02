@@ -26,7 +26,7 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
   const cancelPoll = useRef<(() => void) | null>(null);
   // A scan takes seconds and the page moves on while it reads: the answer goes to the page as it is now, not as it was.
   const onExtractedNow = useRef(onExtracted);
-  useEffect(() => { onExtractedNow.current = onExtracted; });
+  onExtractedNow.current = onExtracted;
 
   useEffect(() => () => cancelPoll.current?.(), []);
 
