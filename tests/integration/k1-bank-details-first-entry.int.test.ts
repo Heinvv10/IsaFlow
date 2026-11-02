@@ -146,38 +146,103 @@ describe('a manager\'s first entry that stays open', () => {
   });
 });
 
+/** A held transaction: `lock` takes it, `release` ends it. */
+async function holder(sqlText: string, params: unknown[] = []) {
+  const client = await pool.connect();
+  await client.query('BEGIN');
+  const pid = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+  await client.query(sqlText, params);
+  return { pid, client, release: async () => { await client.query('ROLLBACK'); client.release(); } };
+}
+const APPROVAL = 'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))';
+/** Waits until some backend is blocked by `pid`. */
+const blockedBy = (pid: number) => vi.waitFor(async () => {
+  const { rows } = await pool.query('SELECT 1 FROM pg_stat_activity WHERE pg_blocking_pids(pid) @> ARRAY[$1::int]', [pid]);
+  expect(rows).toHaveLength(1);
+}, { timeout: 8000, interval: 25 });
+
 describe('a manager\'s first entry racing payroll approval', () => {
   it('waits for the approval and then refuses the now-approved employee', async () => {
     const c = await company();
     const e = await employee(pool, c);
-    const approving = await pool.connect();
+    const approving = await holder(APPROVAL, [`payroll_approval:${c}`]);
+    let entering: ReturnType<typeof put> | undefined;
     try {
-      await approving.query('BEGIN');
-      await approving.query(
-        'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [`payroll_approval:${c}`]);
-
-      const entering = put(tokens[m]!, c, e, ROW);
-      await vi.waitFor(async () => {
-        const { rows } = await pool.query(`SELECT 1 FROM pg_stat_activity
-          WHERE wait_event_type = 'Lock' AND query ILIKE '%pg_advisory_xact_lock%'`);
-        expect(rows).toHaveLength(1);
-      }, { timeout: 3000, interval: 25 });
-
-      const runId = (await approving.query<{ id: string }>(
+      entering = put(tokens[m]!, c, e, ROW);
+      await blockedBy(approving.pid);
+      const runId = (await approving.client.query<{ id: string }>(
         `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, approved_at)
          VALUES ($1, 1, 2026, 'approved', clock_timestamp()) RETURNING id`, [c])).rows[0]!.id;
-      await approving.query(
-        'INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [runId, e]);
-      await approving.query('COMMIT');
-
+      await approving.client.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [runId, e]);
+      await approving.client.query('COMMIT');
       const res = await entering;
       expect([res.state.statusCode, reasonOf(res)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
       expect(await rowsOf(pool, e)).toEqual([]);
     } finally {
-      await approving.query('ROLLBACK');
-      approving.release();
+      await approving.client.query('ROLLBACK').catch(() => undefined);
+      approving.client.release();
+      await entering?.catch(() => undefined);
     }
   });
+
+  it('an owner\'s PUT does not take the approval lock (the first-entry rule is its only reader)', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const approving = await holder(APPROVAL, [`payroll_approval:${c}`]);
+    try {
+      expect((await put(tokens[o]!, c, e, ROW)).state.statusCode).toBe(200);
+    } finally { await approving.release(); }
+  });
+
+  it('a manager\'s PUT takes it, before the employee row: holding the row, the PUT already holds the approval lock', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const rowHolder = await holder('SELECT 1 FROM payroll_employees WHERE id = $1 FOR UPDATE', [e]);
+    let entering: ReturnType<typeof put> | undefined;
+    try {
+      entering = put(tokens[m]!, c, e, ROW);
+      await blockedBy(rowHolder.pid);
+      const probe = await pool.query('SELECT pg_try_advisory_lock(hashtextextended($1::text, 0)) AS got', [`payroll_approval:${c}`]);
+      expect(probe.rows[0]!.got, 'the PUT waits on the employee row without the approval lock').toBe(false);
+      await rowHolder.client.query('COMMIT');
+      expect((await entering).state.statusCode).toBe(200);
+    } finally {
+      await rowHolder.client.query('ROLLBACK').catch(() => undefined);
+      rowHolder.client.release();
+      await entering?.catch(() => undefined);
+    }
+  });
+
+  it('the approval-lock wait is a 503 naming payroll for the company', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const approving = await holder(APPROVAL, [`payroll_approval:${c}`]);
+    try {
+      const res = await put(tokens[m]!, c, e, ROW);
+      expect(res.state.statusCode).toBe(503);
+      expect(JSON.stringify(res.state.body)).toContain('Payroll for this company is being changed by another request');
+      expect(await rowsOf(pool, e)).toEqual([]);
+    } finally { await approving.release(); }
+  }, 15000);
+
+  it('the two waits share one 5s budget: 3s on the approval lock, then 3s on the row, is a 503 near 5s', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const approving = await holder(APPROVAL, [`payroll_approval:${c}`]);
+    const rowHolder = await holder('SELECT 1 FROM payroll_employees WHERE id = $1 FOR UPDATE', [e]);
+    const t0 = Date.now();
+    const entering = put(tokens[m]!, c, e, ROW);
+    try {
+      await new Promise((r) => setTimeout(r, 3000));
+      await approving.release();
+      const res = await entering;
+      expect(res.state.statusCode).toBe(503);
+      expect(Date.now() - t0).toBeLessThan(5900);
+    } finally {
+      await rowHolder.release();
+      await entering.catch(() => undefined);
+    }
+  }, 20000);
 });
 
 describe('the schema the migrations build', () => {
