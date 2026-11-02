@@ -138,7 +138,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
                   <tr key={`${l.accountCode}-${l.cc1Id ?? ''}-${i}`} className="border-t border-gray-200 dark:border-white/10">
                     <td className="py-1">
                       <span className="font-mono mr-2">{l.accountCode}</span>{l.accountName}
-                      {centre && <span className="block text-xs text-gray-500 dark:text-gray-400">{centre}</span>}
+                      {centre && <span className="block text-xs text-ink-muted">{centre}</span>}
                     </td>
                     <td className="py-1 text-right tabular-nums">{money(l.debit)}</td>
                     <td className="py-1 text-right tabular-nums">{money(l.credit)}</td>
