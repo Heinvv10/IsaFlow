@@ -109,7 +109,9 @@ it('valid dates from a client-side route change clear a refused date and load th
 
   await waitFor(() => expect(lastParams().get('period_end')).toBe('2026-05-31'));
   expect(lastParams().get('period_start')).toBe('2026-05-01');
-  expect(csv().disabled).toBe(false);
+  // The request is issued before its response lands, and Export CSV stays disabled until the report is back
+  // (disabled = !report || !datesOk). A slow runner made the bare read race the response (#1067).
+  await waitFor(() => expect(csv().disabled).toBe(false));
 });
 
 it.each([

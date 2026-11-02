@@ -3,7 +3,7 @@
  * Shared credential accessor for E2E tests and probe scripts.
  *
  * Pentest M5: fail loudly if the env vars are missing instead of falling back
- * to a hardcoded '***REMOVED-R07***'. Previously every test that logged in had the
+ * to a hardcoded default password. Previously every test that logged in had the
  * literal password in source — grepping CI artefacts surfaced it, and a CI
  * runner without the env var would attempt to log into prod with that value.
  *
