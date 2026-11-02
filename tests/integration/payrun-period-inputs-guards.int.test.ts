@@ -163,6 +163,16 @@ describe('deductions larger than pay', () => {
     expect(await header(state.nov)).toMatchObject({ status: 'calculated', journal_entry_id: null });
   });
 
+  it('a run calculated before the validation code existed is still refused from its stored figures', async () => {
+    await addRow(comp.union!, 30000, '2026-01-01', null, true);
+    await recalculate(state.nov);
+    await pool.query('UPDATE payroll_run_lines SET validation_results = $2::jsonb WHERE run_id = $1', [state.nov, '[]']);
+
+    const { blocker } = (await preview(state.nov)).body.data!;
+    expect(blocker).toMatchObject({ code: 'deductions_exceed_pay' });
+    expect(blocker.detail).toContain('W301-1');
+  });
+
   it('a normal run has no such blocker, and the plan counts only those it pays', async () => {
     await fx.addEmployee('W301-2'); // on no pay: a line with nil net
     await recalculate(state.nov);

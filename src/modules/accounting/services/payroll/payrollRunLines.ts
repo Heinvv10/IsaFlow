@@ -64,30 +64,52 @@ export interface OverdrawnLine {
 }
 
 /**
- * The run's lines the calculator flagged as overdrawn. Their net is floored at nil, so the residual
- * the journal credits to 2175 understates what was deducted. Only a line calculated since the codes
- * existed can carry one: a run calculated earlier shows nothing until it is recalculated.
+ * The run's overdrawn lines. New calculations carry an exact raw-net validation; for runs calculated
+ * before that validation existed, rebuild raw net from the stored figures and component breakdown.
+ * Net pay itself cannot prove the condition because negative values were always floored at nil.
  */
 export async function findOverdrawnLines(companyId: string, runId: string): Promise<OverdrawnLine[]> {
   const rows = (await sql`
-    SELECT prl.employee_id, pe.employee_number, prl.validation_results
-    FROM payroll_run_lines prl
-    JOIN payroll_run_headers prh ON prh.id = prl.run_id
-    JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
-    WHERE prl.run_id = ${runId}::uuid
-      AND prh.company_id = ${companyId}::uuid
-      AND (prl.validation_results @> '[{"code":"DEDUCTIONS_EXCEED_PAY"}]'::jsonb
-        OR prl.validation_results @> '[{"code":"LOAN_INSTALMENT_EXCEEDS_PAY"}]'::jsonb)
-    ORDER BY pe.employee_number
+    WITH run_lines AS (
+      SELECT prl.employee_id, pe.employee_number, prl.validation_results,
+        prl.gross_pay - prl.paye - prl.uif_employee - deductions.total AS derived_raw_net,
+        deductions.loan AS loan_deductions
+      FROM payroll_run_lines prl
+      JOIN payroll_run_headers prh ON prh.id = prl.run_id
+      JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE pc.component_type = 'deduction'), 0) AS total,
+          COALESCE(SUM((item->>'amount')::numeric) FILTER (
+            WHERE pc.component_type = 'deduction' AND UPPER(BTRIM(pc.sars_source_code)) = 'LOAN'
+          ), 0) AS loan
+        FROM jsonb_array_elements(COALESCE(prl.component_breakdown, '[]'::jsonb)) item
+        JOIN payroll_components pc
+          ON pc.id::text = item->>'componentId'
+         AND pc.company_id = ${companyId}::uuid
+      ) deductions ON true
+      WHERE prl.run_id = ${runId}::uuid
+        AND prh.company_id = ${companyId}::uuid
+    )
+    SELECT * FROM run_lines
+    WHERE validation_results @> '[{"code":"DEDUCTIONS_EXCEED_PAY"}]'::jsonb
+       OR validation_results @> '[{"code":"LOAN_INSTALMENT_EXCEEDS_PAY"}]'::jsonb
+       OR derived_raw_net < 0
+    ORDER BY employee_number
   `) as Row[];
   return rows.flatMap((r) => {
     const flagged = parseValidationResults(r.validation_results).find((v) => OVERDRAWN_CODES.has(v.code));
-    return flagged ? [{
+    const rawNet = typeof flagged?.rawNet === 'number' ? flagged.rawNet : Number(r.derived_raw_net);
+    if (!Number.isFinite(rawNet) || rawNet >= 0) return [];
+    const fromLoan = flagged
+      ? flagged.code === 'LOAN_INSTALMENT_EXCEEDS_PAY'
+      : Math.round((rawNet + Number(r.loan_deductions)) * 100) >= 0;
+    return [{
       employeeId: String(r.employee_id),
       employeeNumber: String(r.employee_number),
-      shortfall: -Number(flagged.rawNet),
-      fromLoan: flagged.code === 'LOAN_INSTALMENT_EXCEEDS_PAY',
-    }] : [];
+      shortfall: -rawNet,
+      fromLoan,
+    }];
   });
 }
 

@@ -124,6 +124,8 @@ export async function endEmployeeComponent(
   assignmentId: string,
   effectiveTo: Date,
 ): Promise<boolean> {
+  // Serialise with the review grid's read-calculate-write transaction so it cannot commit stale lines.
+  await lockCompanyPayrollApprovals(null, companyId);
   const effectiveToStr = fmtDate(effectiveTo);
 
   log.info('Ending employee component', { companyId, assignmentId, effectiveTo: effectiveToStr }, 'payrollEmployeeComponentService');
