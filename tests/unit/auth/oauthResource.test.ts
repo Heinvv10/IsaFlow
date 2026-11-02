@@ -170,4 +170,23 @@ describe('/oauth/authorize — resource and iss', () => {
       expect.stringContaining('https://cdn.partner.example'),
     );
   });
+
+  // The last header set is the one the response carries; only the invoice preview frames a blob:.
+  const finalFrameSrc = (setHeader: ReturnType<typeof vi.fn>) => String(setHeader.mock.calls.filter((c) => c[0] === 'Content-Security-Policy').at(-1)?.[1])
+    .split('; ').find((d) => d.startsWith('frame-src '));
+
+  it.each([
+    ['a consent page with a logo', {}, 'https://cdn.partner.example/assets/logo.png'],
+    ['a consent page with no logo', {}, null],
+    ['an error page', { response_type: 'token' }, null],
+  ])('frames no blob: on %s', async (_name, query, logoUrl) => {
+    vi.mocked(getOauthAppByClientId).mockResolvedValue({
+      id: 'app-1', name: 'Partner', description: null, logoUrl, homepageUrl: null,
+      redirectUris: ['https://client.example/cb'], clientId: 'client_abc',
+      isVerified: true, isFirstParty: false, isConfidential: false,
+    });
+    const setHeader = vi.fn();
+    await getServerSideProps(ctx(query, setHeader));
+    expect(finalFrameSrc(setHeader)).toBe("frame-src 'self' https://signum.brighttech.co.za");
+  });
 });
