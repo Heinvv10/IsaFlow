@@ -122,13 +122,14 @@ describe('remainingFor: committed PO spend', () => {
     await c.query(`INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, order_date, status) VALUES ($1, $2, 'PO-M', $3, '2026-05-02', 'approved')`,
       [ids.itemMay, a, ids.sup]);
     await item(crypto.randomUUID(), ids.itemMay, 7000);
-    const bill = (id: string, num: string, status: string) => c.query(
-      `INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date, subtotal, total_amount, created_by, status)
-       VALUES ($1, $2, $3, $4, '2026-04-25', 0, 0, $5, $6)`, [id, a, num, ids.sup, f.userA, status]);
-    await bill(ids.billApproved, 'B-APP', 'approved');
-    await bill(ids.billDraft, 'B-DRAFT', 'draft');
-    await bill(ids.billOver, 'B-OVER', 'paid');
-    await bill(ids.billOther, 'B-OTHER', 'cancelled');
+    // Net storage (line_total ex-VAT, subtotal = Σ lines, 15% VAT on top), one line each: approve posts the subtotal.
+    const bill = (id: string, num: string, status: string, net: number) => c.query(
+      `INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount, created_by, status)
+       VALUES ($1, $2, $3, $4, '2026-04-25', $7, 15, $7 * 0.15, $7 * 1.15, $5, $6)`, [id, a, num, ids.sup, f.userA, status, net]);
+    await bill(ids.billApproved, 'B-APP', 'approved', 400);
+    await bill(ids.billDraft, 'B-DRAFT', 'draft', 100);
+    await bill(ids.billOver, 'B-OVER', 'paid', 500);
+    await bill(ids.billOther, 'B-OTHER', 'cancelled', 50);
     const line = (billId: string, poItem: string, total: number) => c.query(
       `INSERT INTO supplier_invoice_items (supplier_invoice_id, po_item_id, description, quantity, unit_price, line_total, gl_account_id)
        VALUES ($1, $2, 'x', 1, $3, $3, $4)`, [billId, poItem, total, acc.opex]);
@@ -160,6 +161,31 @@ describe('remainingFor: committed PO spend', () => {
       const [excl] = await remainingFor(f.a, [key(f.acc.opex, '2026-04')], { excludePoItemIds: [ids.item1] });
       expect(excl!.committed).toBe(0);
     }, before);
+  });
+
+  it('nets a bill line at the ex-VAT amount approve posts, not its stored line_total (VAT-inclusive storage, census finding 3)', async () => {
+    // A bill stored gross: two lines of R575.00 incl. 15% VAT, total R1 150.00, subtotal R1 000.00. Approve posts
+    // R500.00 for each line (buildExpenseLines scales gross lines to the subtotal). One line is linked to a R2 000 PO line.
+    const vatBill = async (c: PoolClient) => {
+      const sup = crypto.randomUUID(), po = crypto.randomUUID(), item = crypto.randomUUID(), bill = crypto.randomUUID();
+      await c.query('SET LOCAL session_replication_role = replica');
+      await c.query('INSERT INTO suppliers (id, company_id, name) VALUES ($1, $2, $3)', [sup, f.a, 'P5 VAT supplier']);
+      await c.query(`INSERT INTO purchase_orders (id, company_id, po_number, supplier_id, order_date, status) VALUES ($1, $2, 'PO-VAT', $3, '2026-04-03', 'approved')`,
+        [po, f.a, sup]);
+      await c.query(`INSERT INTO po_items (id, purchase_order_id, description, quantity, unit_price, line_total, gl_account_id) VALUES ($1, $2, 'x', 1, 2000, 2000, $3)`,
+        [item, po, f.acc.opex]);
+      await c.query(`INSERT INTO supplier_invoices (id, company_id, invoice_number, supplier_id, invoice_date, subtotal, tax_rate, tax_amount, total_amount, created_by, status)
+                     VALUES ($1, $2, 'B-VAT', $3, '2026-04-25', 1000, 15, 150, 1150, $4, 'approved')`, [bill, f.a, sup, f.userA]);
+      for (const [poItem, desc] of [[item, 'a linked'], [null, 'b other']] as const) {
+        await c.query(`INSERT INTO supplier_invoice_items (supplier_invoice_id, po_item_id, description, quantity, unit_price, line_total, gl_account_id)
+                       VALUES ($1, $2, $3, 1, 575, 575, $4)`, [bill, poItem, desc, f.acc.opex]);
+      }
+      await c.query('SET LOCAL session_replication_role = origin');
+    };
+    await asA(async () => {
+      const [r] = await remainingFor(f.a, [key(f.acc.opex, '2026-04')]);
+      expect(r!.committed).toBe(1500);
+    }, vatBill);
   });
 
   it('PO lines map onto the account\'s grain like any other spend', async () => {

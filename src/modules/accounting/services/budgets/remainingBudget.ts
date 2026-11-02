@@ -9,11 +9,10 @@
  * - Actual: P3's one actuals read (`readTrackingActuals`), ONE call per grain level over the keys'
  *   window, as `priorActuals.ts` does, never a second formula. Invariant 1: equals the Budget vs
  *   Actual actual for the same account, slice and month.
- * - Committed: lines of POs with status approved / partially_received / received, in their
- *   order-date month, less the ex-VAT `line_total` of bill lines linked by `po_item_id` on bills that
- *   are approved / paid / partially_paid, per PO line, floored at 0 (derived from the bill linkage,
- *   never `quantity_invoiced`, which nothing writes). Only the REST bill create writes `po_item_id`,
- *   and there `line_total` is qty × unit price, ex-VAT (census finding 3/7).
+ * - Committed: `remainingCommitted.readCommitments` — open PO lines less the ex-VAT amount approve
+ *   posts for the bill lines linked to each (never the stored `line_total`, never
+ *   `quantity_invoiced`), per PO line, floored at 0. Only the REST bill create writes `po_item_id`
+ *   (census finding 7).
  *
  * `opts.excludeInvoiceId`: the bill being checked. Its own lines linked to a PO line count as billed
  *   whatever its status, so the part of a commitment the bill itself consumes is not counted twice
@@ -26,13 +25,13 @@ import type { DbRow } from '@/lib/neon';
 import { monthEnd, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { primaryVersionScopeAndYears } from './budgetVersionScope';
 import { readTrackingActuals } from './tracking/trackingActualRead';
+import { readCommitments, type CommittedOptions } from './remainingCommitted';
 import { TrackingError } from './tracking/trackingTypes';
 import { YEAR_MAX, YEAR_MIN } from './tracking/trackingWindow';
 import {
   computeRemaining,
   GRAIN_BY_DIM,
   type BudgetAmountRow,
-  type CommitmentRow,
   type GrainActualRow,
   type RemainingGrain,
   type RemainingKey,
@@ -41,14 +40,7 @@ import {
 
 export type { RemainingGrain, RemainingKey, RemainingResult } from './remainingBudgetCore';
 
-export interface RemainingOptions {
-  excludePoItemIds?: readonly string[];
-  excludeInvoiceId?: string | null;
-}
-
-/** PO statuses whose lines commit spend; bill statuses whose linked lines release it. */
-export const COMMITTING_PO_STATUSES = ['approved', 'partially_received', 'received'] as const;
-export const BILLED_STATUSES = ['approved', 'paid', 'partially_paid'] as const;
+export type RemainingOptions = CommittedOptions;
 
 const MONTH_KEY = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -114,37 +106,6 @@ async function readBudgets(companyId: string, versions: string[], accounts: stri
   return rows.map((r) => ({
     versionId: String(text(r.version_id)), glAccountId: String(text(r.gl_account_id)), month: String(r.month),
     cc1Id: text(r.cc1_id), cc2Id: text(r.cc2_id), buId: text(r.bu_id), amount: Number(r.amount),
-  }));
-}
-
-async function readCommitments(
-  companyId: string, accounts: string[], start: string, end: string, opts: RemainingOptions,
-): Promise<CommitmentRow[]> {
-  const exclude = (opts.excludePoItemIds ?? []).map((id) => id.toLowerCase());
-  const own = opts.excludeInvoiceId ? opts.excludeInvoiceId.toLowerCase() : null;
-  const rows = (await sql`
-    SELECT pi.id::TEXT AS po_item_id, pi.gl_account_id::TEXT AS gl_account_id, to_char(po.order_date, 'YYYY-MM') AS month,
-           pi.cc1_id::TEXT AS cc1_id, pi.cc2_id::TEXT AS cc2_id, pi.bu_id::TEXT AS bu_id, pi.line_total::TEXT AS line_total,
-           COALESCE((
-             SELECT SUM(sii.line_total)
-               FROM supplier_invoice_items sii
-               JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id
-              WHERE sii.po_item_id = pi.id
-                AND si.company_id = ${companyId}::UUID
-                AND (si.status = ANY(${[...BILLED_STATUSES]}::TEXT[]) OR si.id = ${own}::UUID)
-           ), 0)::TEXT AS billed
-      FROM po_items pi
-      JOIN purchase_orders po ON po.id = pi.purchase_order_id
-     WHERE po.company_id = ${companyId}::UUID
-       AND po.status = ANY(${[...COMMITTING_PO_STATUSES]}::TEXT[])
-       AND pi.gl_account_id = ANY(${accounts}::UUID[])
-       AND po.order_date >= ${start}::DATE AND po.order_date <= ${end}::DATE
-       AND NOT (pi.id = ANY(${exclude}::UUID[]))
-  `) as DbRow[];
-  return rows.map((r) => ({
-    poItemId: String(r.po_item_id), glAccountId: String(text(r.gl_account_id)), month: String(r.month),
-    cc1Id: text(r.cc1_id), cc2Id: text(r.cc2_id), buId: text(r.bu_id),
-    lineTotal: Number(r.line_total), billed: Number(r.billed),
   }));
 }
 
