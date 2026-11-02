@@ -40,7 +40,7 @@ const COMPANY = '22222222-2222-2222-2222-222222222222';
 function ctx(query: Record<string, string>) {
   return {
     req: { headers: { cookie: `${ACCESS_COOKIE}=tok` } },
-    res: {},
+    res: { setHeader: vi.fn() },
     query: {
       client_id: 'client_abc',
       redirect_uri: 'https://claude.ai/cb',
