@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { LandingNavbar } from '@/components/landing/LandingNavbar';
-import { LandingFooter } from '@/components/landing/LandingPricingTestimonialsFooter';
-import { APP_URL, BRAND, PRICING_TIERS } from '@/components/landing/landingData';
+import { LandingNavbar } from './LandingNavbar';
+import { LandingFooter } from './LandingPricingTestimonialsFooter';
+import { APP_URL, BRAND, PRICING_TIERS } from './landingData';
 import { PageHead } from '@/components/seo/PageHead';
 import { COMPARE_ENTRIES, type CompareEntry } from '@/lib/compare/compareData';
 import { buildFaqPage, jsonLdScriptText } from '@/lib/seo/faqSchema';
@@ -103,7 +103,7 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
                 </tbody>
               </table>
             </div>
-            <p className="mt-3 text-sm text-gray-500">
+            <p className="mt-3 text-sm text-ink-muted">
               We describe {entry.name} in general terms. Plans and features change, so check the
               vendor&apos;s own site for current details.
             </p>
@@ -145,11 +145,11 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
             <p className="text-gray-700 mb-4">No credit card needed.</p>
             <a
               href={`${APP_URL}/register`}
-              className="inline-block px-5 py-2.5 text-sm font-semibold text-white bg-teal-600 rounded-xl hover:bg-teal-700"
+              className="inline-block px-5 py-2.5 text-sm font-semibold text-white bg-brand-600 rounded-xl hover:bg-brand-700"
             >
               Start free trial
             </a>
-            <p className="mt-4 text-sm text-gray-600">
+            <p className="mt-4 text-sm text-ink-muted">
               Also compare:{' '}
               {others.map((o, i) => (
                 <span key={o.slug}>

@@ -42,6 +42,9 @@ export interface FAQItem {
 
 export const APP_URL = 'https://app.isaflow.co.za';
 
+/** Trial length as shown in copy; kept equal to TRIAL_DAYS by trialLengthCopy.test.ts. */
+export const TRIAL_LABEL = '30-day free trial';
+
 export const BRAND = {
   name: 'ISAFlow',
   legalName: 'ISAFlow',

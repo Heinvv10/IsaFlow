@@ -3,7 +3,7 @@
  * Static, unauthenticated, marketing host only (see middleware isMarketingOnlyPath).
  */
 import type { GetStaticPaths, GetStaticProps } from 'next';
-import { ComparePage } from '@/components/compare/ComparePage';
+import { ComparePage } from '@/components/landing/ComparePage';
 import { COMPARE_ENTRIES, getCompareEntry, type CompareEntry } from '@/lib/compare/compareData';
 
 interface Props {
