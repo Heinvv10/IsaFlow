@@ -146,7 +146,7 @@ export default function NewGRNPage() {
                     {loadingPOs ? (
                       <Loader2 className="h-4 w-4 animate-spin text-slate-500 dark:text-slate-400" />
                     ) : (
-                      <select name="selectedPO" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)} className={inp}>
+                      <select name="selectedPO" aria-label="Purchase Order" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)} className={inp}>
                         <option value="">Select a confirmed purchase order...</option>
                         {pos.map((po) => (
                           <option key={po.id} value={po.id}>{po.po_number} — {po.supplier_name}</option>
@@ -160,13 +160,13 @@ export default function NewGRNPage() {
                         onChange={dates.bind('receivedDate', setReceivedDate, receivedDate)} />
                     </div>
                     <div>
-                      <label className={lbl}>Delivery Note #</label>
-                      <input name="deliveryNote" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Supplier delivery note reference" className={inp} />
+                      <label htmlFor="goods-received-new-delivery-note" className={lbl}>Delivery Note #</label>
+                      <input id="goods-received-new-delivery-note" name="deliveryNote" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Supplier delivery note reference" className={inp} />
                     </div>
                   </div>
                   <div>
-                    <label className={lbl}>Notes</label>
-                    <input name="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" className={inp} />
+                    <label htmlFor="goods-received-new-notes" className={lbl}>Notes</label>
+                    <input id="goods-received-new-notes" name="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" className={inp} />
                   </div>
                 </div>
               </div>

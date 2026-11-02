@@ -214,8 +214,8 @@ export default function NewBankTransactionPage() {
                     </h3>
                     <div className="space-y-4">
                       <div>
-                        <label className={lbl}>Bank Account *</label>
-                        <select name="bankAccountId" value={form.bankAccountId} onChange={e => patch({ bankAccountId: e.target.value })} className={inp} required>
+                        <label htmlFor="bank-transactions-new-bank-account-id" className={lbl}>Bank Account *</label>
+                        <select id="bank-transactions-new-bank-account-id" name="bankAccountId" value={form.bankAccountId} onChange={e => patch({ bankAccountId: e.target.value })} className={inp} required>
                           <option value="">Select bank account…</option>
                           {bankAccounts.map(b => (
                             <option key={b.id} value={b.id}>
@@ -230,17 +230,17 @@ export default function NewBankTransactionPage() {
                             onChange={(iso, v) => patch({ date: v.valid ? iso ?? '' : '' })} />
                         </div>
                         <div>
-                          <label className={lbl}>Reference</label>
-                          <input type="text" name="reference" value={form.reference} onChange={e => patch({ reference: e.target.value })} placeholder="e.g. INV-001" className={inp} />
+                          <label htmlFor="bank-transactions-new-reference" className={lbl}>Reference</label>
+                          <input id="bank-transactions-new-reference" type="text" name="reference" value={form.reference} onChange={e => patch({ reference: e.target.value })} placeholder="e.g. INV-001" className={inp} />
                         </div>
                       </div>
                       <div>
-                        <label className={lbl}>Description</label>
-                        <input type="text" name="description" value={form.description} onChange={e => patch({ description: e.target.value })} placeholder="Transaction description…" className={inp} />
+                        <label htmlFor="bank-transactions-new-description" className={lbl}>Description</label>
+                        <input id="bank-transactions-new-description" type="text" name="description" value={form.description} onChange={e => patch({ description: e.target.value })} placeholder="Transaction description…" className={inp} />
                       </div>
                       <div>
-                        <label className={lbl}>Amount (ZAR) *</label>
-                        <input type="number" name="amount" min="0.01" step="0.01" value={form.amount} onChange={e => patch({ amount: e.target.value })} placeholder="0.00" className={inp} required />
+                        <label htmlFor="bank-transactions-new-amount" className={lbl}>Amount (ZAR) *</label>
+                        <input id="bank-transactions-new-amount" type="number" name="amount" min="0.01" step="0.01" value={form.amount} onChange={e => patch({ amount: e.target.value })} placeholder="0.00" className={inp} required />
                       </div>
                     </div>
                   </div>
@@ -264,8 +264,8 @@ export default function NewBankTransactionPage() {
                         </div>
                       </div>
                       <div className="relative">
-                        <label className={lbl}>{entityLabel}</label>
-                        <input type="text" name="search" value={entitySearch}
+                        <label htmlFor="bank-transactions-new-search" className={lbl}>{entityLabel}</label>
+                        <input id="bank-transactions-new-search" type="text" name="search" value={entitySearch}
                           onChange={e => {
                             setEntitySearch(e.target.value);
                             if (form.allocationType === 'account') patch({ contraAccountId: '' });
@@ -298,8 +298,8 @@ export default function NewBankTransactionPage() {
                         )}
                       </div>
                       <div>
-                        <label className={lbl}>VAT Code</label>
-                        <select name="vatCode" value={form.vatCode} onChange={e => patch({ vatCode: e.target.value as VatCode })} className={inp}>
+                        <label htmlFor="bank-transactions-new-vat-code" className={lbl}>VAT Code</label>
+                        <select id="bank-transactions-new-vat-code" name="vatCode" value={form.vatCode} onChange={e => patch({ vatCode: e.target.value as VatCode })} className={inp}>
                           {VAT_OPTIONS.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
                         </select>
                       </div>

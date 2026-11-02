@@ -6,8 +6,8 @@
  * held up by a rule in styles/themeContrast.css. They now use the token-based PageHeader and the rule is gone. In
  * both themes this spec requires of each page: the h1 is there and sits on no gradient (a rendered census of the
  * banner; tests/unit/ci/themeContrastBanner.test.ts is the source census), and the walker in
- * tests/e2e/helpers/themeContrast.ts finds no text below AA, the title included. It also proves `font-id` keeps
- * the app face. Demo data, so dev-only.
+ * tests/e2e/helpers/themeContrast.ts finds no text below AA, the title included, and axe finds nothing serious or
+ * critical. It also proves `font-id` keeps the app face. Demo data and axe, so dev-only.
  *
  * Evidence mode: BANNER_EVIDENCE_DIR=<dir> writes a screenshot per page and theme and title-contrast-<page>.json.
  * Read-only: writes no data.
@@ -15,6 +15,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { expectNoSeriousA11yViolations } from './helpers/axe';
 import { auditContrast } from '../helpers/themeContrast';
 import { THEMES, seedTheme, settle } from '../helpers/themeSpec';
 
@@ -69,6 +70,7 @@ async function expectPageReads(page: Page, slug: string, path: string, title: st
     }
     expect(report.total, `${slug} ${theme}: the page rendered text`).toBeGreaterThan(5);
     expect(report.failing, `${slug} ${theme}: text below AA`).toEqual([]);
+    await expectNoSeriousA11yViolations(page);
   }
 }
 

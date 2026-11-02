@@ -122,15 +122,15 @@ export default function NewBatchPaymentPage() {
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={lbl}>Payment Method</label>
-                    <select name="paymentMethod" value={method} onChange={e => setMethod(e.target.value)} className={inp}>
+                    <label htmlFor="batch-payments-new-payment-method" className={lbl}>Payment Method</label>
+                    <select id="batch-payments-new-payment-method" name="paymentMethod" value={method} onChange={e => setMethod(e.target.value)} className={inp}>
                       <option value="eft">EFT</option>
                       <option value="cheque">Cheque</option>
                     </select>
                   </div>
                   <div>
-                    <label className={lbl}>Notes</label>
-                    <input name="notes" value={notes} onChange={e => setNotes(e.target.value)} className={inp} placeholder="Optional batch notes" />
+                    <label htmlFor="batch-payments-new-notes" className={lbl}>Notes</label>
+                    <input id="batch-payments-new-notes" name="notes" value={notes} onChange={e => setNotes(e.target.value)} className={inp} placeholder="Optional batch notes" />
                   </div>
                 </div>
               </div>
@@ -167,7 +167,7 @@ export default function NewBatchPaymentPage() {
                               onChange={id => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: id, invoiceId: '' } : l))} />
                           </td>
                           <td className="px-3 py-2">
-                            <select name="invoiceId" value={line.invoiceId}
+                            <select name="invoiceId" aria-label="Invoice" value={line.invoiceId}
                               onChange={e => {
                                 const i = invoices.find(x => x.id === e.target.value);
                                 setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? available(i) : 0 } : l));

@@ -137,23 +137,23 @@ export default function NewRecurringInvoicePage() {
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className={lbl}>Template Name</label>
-                      <input name="templateName" className={inp} value={form.templateName} onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))} placeholder="e.g. Monthly Retainer — Acme Corp" />
+                      <label htmlFor="recurring-invoices-new-template-name" className={lbl}>Template Name</label>
+                      <input id="recurring-invoices-new-template-name" name="templateName" className={inp} value={form.templateName} onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))} placeholder="e.g. Monthly Retainer — Acme Corp" />
                     </div>
                     <div>
-                      <label className={lbl}>Customer *</label>
-                      <select name="clientId" className={inp} value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} required>
+                      <label htmlFor="recurring-invoices-new-client-id" className={lbl}>Customer *</label>
+                      <select id="recurring-invoices-new-client-id" name="clientId" className={inp} value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} required>
                         <option value="">Select customer…</option>
                         {customers.map(c => <option key={c.id} value={c.id}>{c.company_name ?? c.name}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className={lbl}>Description</label>
-                      <input name="description" className={inp} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Shown on generated invoices" />
+                      <label htmlFor="recurring-invoices-new-description" className={lbl}>Description</label>
+                      <input id="recurring-invoices-new-description" name="description" className={inp} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Shown on generated invoices" />
                     </div>
                     <div>
-                      <label className={lbl}>Payment Terms</label>
-                      <select name="paymentTerms" className={inp} value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}>
+                      <label htmlFor="recurring-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
+                      <select id="recurring-invoices-new-payment-terms" name="paymentTerms" className={inp} value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}>
                         <option value="7 days">7 days</option>
                         <option value="14 days">14 days</option>
                         <option value="30 days">30 days</option>
@@ -171,8 +171,8 @@ export default function NewRecurringInvoicePage() {
                   </h3>
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className={lbl}>Frequency *</label>
-                      <select name="frequency" className={inp} value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))} required>
+                      <label htmlFor="recurring-invoices-new-frequency" className={lbl}>Frequency *</label>
+                      <select id="recurring-invoices-new-frequency" name="frequency" className={inp} value={form.frequency} onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))} required>
                         {FREQ_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </div>
