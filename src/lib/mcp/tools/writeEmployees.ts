@@ -33,6 +33,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import {
   assignComponentToEmployee,
+  EmployeeComponentRefused,
   endEmployeeComponent,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { listComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
@@ -338,15 +339,21 @@ export const assignEmployeeComponentTool: McpTool = {
     if (!component) return toolError(NOT_FOUND);
 
     const effectiveTo = strArg(args, 'effective_to');
-    const assignment = await assignComponentToEmployee(
-      ctx.companyId,
-      employeeId,
-      componentId,
-      amount,
-      effectiveFrom,
-      effectiveTo,
-      args.is_recurring !== false,
-    );
+    let assignment: Awaited<ReturnType<typeof assignComponentToEmployee>>;
+    try {
+      assignment = await assignComponentToEmployee(
+        ctx.companyId,
+        employeeId,
+        componentId,
+        amount,
+        effectiveFrom,
+        effectiveTo,
+        args.is_recurring !== false,
+      );
+    } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return toolError(err.message);
+      throw err;
+    }
 
     return ok({
       id: assignment.id,

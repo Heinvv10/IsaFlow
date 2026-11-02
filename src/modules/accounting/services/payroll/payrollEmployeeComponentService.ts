@@ -70,7 +70,13 @@ export async function assertComponentInCompany(componentId: string, companyId: s
  */
 function dayOf(value: string, field: string): string {
   const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  const real = day && new Date(Date.UTC(+day[1]!, +day[2]! - 1, +day[3]!)).toISOString().slice(0, 10) === value;
+  let real = false;
+  if (day && +day[1]! >= 1) {
+    // setUTCFullYear, not Date.UTC: Date.UTC reads years 0-99 as 1900-1999. Same rule as isRealCalendarDate.
+    const dt = new Date(0);
+    dt.setUTCFullYear(+day[1]!, +day[2]! - 1, +day[3]!);
+    real = dt.getUTCFullYear() === +day[1]! && dt.getUTCMonth() === +day[2]! - 1 && dt.getUTCDate() === +day[3]!;
+  }
   if (!real) throw new EmployeeComponentRefused(`${field} must be a real date (YYYY-MM-DD)`);
   return value;
 }
