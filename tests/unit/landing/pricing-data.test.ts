@@ -11,6 +11,7 @@ import {
   VAT_INCLUSIVE,
   VAT_NOTE,
   PAYG_PLAN,
+  PRICE_LOCK_SOURCES,
 } from '@/components/landing/pricingData';
 
 /**
@@ -122,10 +123,38 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
   });
 
   describe('Sage anchor comparison (pricingData)', () => {
-    it('shows the fully-added-up Sage stack (R1,140) against Business (R549)', () => {
+    const rand = (s: string): number => Number(s.replace(/[^0-9]/g, ''));
+
+    it('shows the Sage stack (R1,465) against Business (R549)', () => {
       const blob = JSON.stringify(SAGE_COMPARISON);
-      expect(blob).toMatch(/1[ ,]?140/);
+      expect(blob).toMatch(/1[ ,]?465/);
       expect(blob).toMatch(/549/);
+    });
+
+    it('Sage rows add up to the stated monthly total', () => {
+      const rows = SAGE_COMPARISON.rows;
+      const total = rows[rows.length - 1];
+      const parts = rows.slice(0, -1).reduce((sum, r) => sum + rand(r.sage), 0);
+      expect(parts).toBe(rand(total.sage));
+    });
+
+    it('cites the Sage source and the date the prices were checked', () => {
+      expect(SAGE_COMPARISON.source).toMatch(/sage\.com\/en-za/);
+      expect(SAGE_COMPARISON.checkedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  describe('Competitor claims stay sourced (CPA comparative advertising)', () => {
+    it('no unsourced competitor figures in the practice tiers or price-lock points', () => {
+      const blob = JSON.stringify({ PRICE_LOCK, BUREAU_SKUS });
+      expect(blob).not.toMatch(/Cashbook \(R\d/);
+      expect(blob).not.toMatch(/15–25%/);
+      expect(blob).not.toMatch(/raises most years/);
+    });
+
+    it('every competitor statement in the price-lock points carries a source', () => {
+      expect(PRICE_LOCK_SOURCES.length).toBeGreaterThan(0);
+      for (const s of PRICE_LOCK_SOURCES) expect(s.url).toMatch(/^https:\/\//);
     });
   });
 

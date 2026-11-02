@@ -85,7 +85,7 @@ export const BUREAU_SKUS: BureauSku[] = [
       'Full books — invoicing, AR & AP',
       'Bank reconciliation & statement import (CSV, OFX, QFX, QIF, MT940, PDF)',
       'Payslip-ready payroll data',
-      'Undercuts Xero Cashbook (R259) — with far more included',
+      'One flat rate per client — full books included',
     ],
   },
 ];
@@ -147,11 +147,22 @@ export const PRICE_LOCK: PriceLock = {
   headline: "Your price won't jump. Ever.",
   body: 'While you stay on your plan, we will never raise your monthly price by more than South African headline CPI (inflation). No surprise double-digit hikes.',
   points: [
-    'QuickBooks raised prices 15–25% in 2026. Xero raises most years.',
+    'QuickBooks raised its US plan prices by up to 24% in August 2026. Xero raised its South African prices in November 2026.',
     'IsaFlow is capped at inflation — a promise, not a launch discount.',
     'Move from Sage, Xero or QuickBooks and keep your rate.',
   ],
 };
+
+export interface PriceSource {
+  claim: string;
+  url: string;
+}
+
+/** Where each competitor statement in PRICE_LOCK.points comes from (checked 2026-11-02). */
+export const PRICE_LOCK_SOURCES: PriceSource[] = [
+  { claim: 'QuickBooks US increase, 1 Aug 2026 (Essentials 13%, Plus 22%, Advanced 24%)', url: 'https://www.certumsolutions.com/library/quickbooks-price-increase-august-2026' },
+  { claim: 'Xero South Africa: Starter R450 → R485 incl. VAT from Nov 2026', url: 'https://www.xero.com/za/pricing-plans/' },
+];
 
 export interface SageComparisonRow {
   label: string;
@@ -160,16 +171,18 @@ export interface SageComparisonRow {
 }
 
 /**
- * The Sage anchor: a real books setup on Sage stacks add-ons to ~R1,140/mo;
- * IsaFlow Business delivers the same scope at R549.
+ * The Sage anchor: Sage Accounting Standard plus the add-ons that match
+ * IsaFlow Business, at Sage's published monthly incl-VAT prices.
  */
 export const SAGE_COMPARISON = {
-  note: 'A Sage customer who wants proper books pays Accounting R435 + Debtors R290 + Inventory R415 = R1,140/mo. IsaFlow Business includes all of it at R549.',
+  note: 'Sage Accounting Standard (R490) plus Debtors Manager (R325), Advanced Inventory (R465) and multi-currency payments (R185) comes to R1,465 a month. IsaFlow Business includes all of it at R549.',
+  source: 'https://www.sage.com/en-za/sage-business-cloud/accounting/pricing/',
+  checkedOn: '2026-11-02',
   rows: [
-    { label: 'Core accounting', sage: 'R435 / mo', isaflow: 'Included' },
-    { label: 'Debtors / AR management', sage: '+R290 / mo', isaflow: 'Included' },
-    { label: 'Inventory', sage: '+R415 / mo', isaflow: 'Included' },
-    { label: 'Multi-currency', sage: '+R165 / mo', isaflow: 'Included' },
-    { label: 'Monthly total', sage: 'R1,140 / mo', isaflow: 'R549 / mo' },
+    { label: 'Core accounting (Standard)', sage: 'R490 / mo', isaflow: 'Included' },
+    { label: 'Debtors / AR management', sage: '+R325 / mo', isaflow: 'Included' },
+    { label: 'Advanced inventory', sage: '+R465 / mo', isaflow: 'Included' },
+    { label: 'Multi-currency', sage: '+R185 / mo', isaflow: 'Included' },
+    { label: 'Monthly total', sage: 'R1,465 / mo', isaflow: 'R549 / mo' },
   ] as SageComparisonRow[],
 };
