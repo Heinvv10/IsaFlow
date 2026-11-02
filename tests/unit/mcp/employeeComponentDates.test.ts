@@ -3,17 +3,22 @@
  * captured. Runs under TZ=Africa/Johannesburg (set below, before any Date is built): a local-midnight Date
  * rendered through toISOString() is the previous day there, which stored every assigned component one day early.
  */
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 
-vi.hoisted(() => { process.env.TZ = 'Africa/Johannesburg'; });
+const ORIGINAL_TZ = vi.hoisted(() => {
+  const prior = process.env.TZ;
+  process.env.TZ = 'Africa/Johannesburg';
+  return prior;
+});
 
+let componentVisibleToSql = true;
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 vi.mock('@/lib/neon', () => ({
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
     sqlCalls.push({ sql: text, values });
     if (text.includes('FROM payroll_employees') && text.includes('SELECT id')) return Promise.resolve([{ id: 'x' }]);
-    if (text.includes('FROM payroll_components')) return Promise.resolve([{ id: 'x' }]);
+    if (text.includes('FROM payroll_components')) return Promise.resolve(componentVisibleToSql ? [{ id: 'x' }] : []);
     if (text.includes('INSERT INTO payroll_employee_components')) {
       return Promise.resolve([{ id: ASSIGNMENT, employee_id: EMPLOYEE, component_id: COMPONENT, amount: '1', is_recurring: true }]);
     }
@@ -52,7 +57,10 @@ beforeAll(() => {
   // Precondition: this process really is east of UTC, so the old code path is observable.
   expect(new Date(2026, 2, 1).toISOString().slice(0, 10)).toBe('2026-02-28');
 });
-beforeEach(() => { sqlCalls.length = 0; });
+afterAll(() => {
+  if (ORIGINAL_TZ === undefined) delete process.env.TZ; else process.env.TZ = ORIGINAL_TZ;
+});
+beforeEach(() => { sqlCalls.length = 0; componentVisibleToSql = true; });
 
 describe('assign_employee_component stores the date it was given (SAST)', () => {
   it('recurring from the 1st', async () => {
@@ -82,15 +90,25 @@ describe('assign_employee_component stores the date it was given (SAST)', () => 
   });
 });
 
-describe('the other MCP date writes agree', () => {
-  it('end_employee_component stores effective_to as given', async () => {
+// Regression pins: these already pass on master (fmtDate on a local Date is correct); they guard against drift.
+describe('assign_employee_component refusals', () => {
+  it('a service refusal (component not in this company) is its own message, not the generic failure', async () => {
+    componentVisibleToSql = false;
+    const r = await assign({ effective_from: '2026-03-01' });
+    expect(r.isError).toBe(true);
+    expect(JSON.stringify(r)).toContain('That pay component was not found in this company');
+  });
+});
+
+describe('the other MCP date writes agree (regression pins)', () => {
+  it('regression pin: end_employee_component stores effective_to as given', async () => {
     await endEmployeeComponentTool.handler(
       { assignment_id: ASSIGNMENT, effective_to: '2026-03-01', idempotency_key: 'k' }, ctx);
     const upd = sqlCalls.find((c) => c.sql.includes('UPDATE payroll_employee_components'))!;
     expect(upd.values).toContain('2026-03-01');
   });
 
-  it('create_employee stores start_date, end_date and date_of_birth as given', async () => {
+  it('regression pin: create_employee stores start_date, end_date and date_of_birth as given', async () => {
     const r = await createEmployeeTool.handler({
       employee_number: 'E1', first_name: 'A', last_name: 'B', employment_type: 'permanent',
       start_date: '2026-03-01', end_date: '2026-09-01', date_of_birth: '1990-01-01', idempotency_key: 'k',
@@ -99,4 +117,5 @@ describe('the other MCP date writes agree', () => {
     const ins = sqlCalls.find((c) => c.sql.includes('INSERT INTO payroll_employees'))!;
     expect(ins.values).toEqual(expect.arrayContaining(['2026-03-01', '2026-09-01', '1990-01-01']));
   });
+
 });
