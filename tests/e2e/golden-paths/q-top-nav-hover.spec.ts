@@ -40,7 +40,14 @@ for (const { tab, link, path } of T1) {
     }
     // The click lands on a route the dev server may not have compiled yet: warm it first, as openWithNav does.
     const href = (await target.getAttribute('href')) ?? '/accounting';
+    // Warm it with the pointer away from the nav. A cold compile of the route can take a minute on a fresh shard
+    // server, and a menu opened by hover is closed by anything that happens meanwhile under the still pointer (a
+    // late route change or layout shift): with the mouse not moving no pointerenter re-opens it, and click then waits
+    // for a link that is gone until the 90 s test timeout (#1071). So hover again right before the click.
+    await page.mouse.move(0, 0);
     await waitForRoute(page, href);
+    await tabOf(page, tab).hover();
+    await expect(target).toBeVisible();
     await target.click();
     await waitForClickNavigation(page, path, href);
     // The next page renders its own nav after its auth round trips.
