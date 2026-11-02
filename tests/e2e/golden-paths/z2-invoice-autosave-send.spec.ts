@@ -112,9 +112,13 @@ test('Back from the edit page with a change still unsaved: not refused, history 
   try {
     await page.goto(`/accounting/customer-invoices/${id}`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('link', { name: /^edit$/i })).toBeVisible({ timeout: 60_000 });
-    await settle(page); // hydrated: the Edit link navigates client-side, so Back is a popstate, not a page load
+    await settle(page);
+    // Hydrated (Next's router is up): the Edit link navigates client-side, so Back is a popstate, not a page load. A
+    // click before hydration is a full page load, and a full-load Back has no unmount (beforeunload covers that case).
+    await page.waitForFunction(() => Boolean((window as unknown as { next?: { router?: { isReady?: boolean } } }).next?.router?.isReady), undefined, { timeout: 60_000 });
     await page.getByRole('link', { name: /^edit$/i }).click();
     await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 60_000 });
+    await page.waitForFunction(() => Boolean((window as unknown as { next?: { router?: { isReady?: boolean } } }).next?.router?.isReady), undefined, { timeout: 60_000 });
     await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
     let asked = 0;
     page.on('dialog', async (d) => { asked++; await d.dismiss(); });
