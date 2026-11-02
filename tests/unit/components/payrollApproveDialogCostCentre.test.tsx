@@ -17,7 +17,8 @@ const CC_B = 'bbbbbbbb-0000-4000-8000-00000000000b';
 const labour = (debit: number, cc1Id: string | null, code = '5210', name = 'Site labour') =>
   ({ glAccountId: `gl-${code}`, accountCode: code, accountName: name, debit, credit: 0, description: name, inactiveAccount: false, cc1Id });
 const credits = PLAN_LINES.filter((l) => l.credit > 0).map((l) => ({ ...l, cc1Id: null }));
-const TAGGED = [labour(45000, CC_A), labour(20000, CC_B), labour(10927.12, null, '5200', 'Salaries & Wages'), ...credits];
+// 5210 carries CC-A, CC-B and an untagged share (an inactive centre's); 5200 only untagged labour.
+const TAGGED = [labour(40000, CC_A), labour(20000, CC_B), labour(5000, null), labour(10927.12, null, '5200', 'Salaries & Wages'), ...credits];
 const LABELS = { [CC_A]: { code: 'CC-A', name: 'Atlantic' }, [CC_B]: { code: 'CC-B', name: 'Boland' } };
 
 const fetchMock = vi.fn();
@@ -43,10 +44,23 @@ describe('approve dialog — the cost centre on each labour row', () => {
     const b = await rowOf('CC-B · Boland');
     expect(within(a).getByText('5210')).toBeTruthy();
     expect(within(b).getByText('5210')).toBeTruthy();
-    expect(within(a).getByText(/45[\s ]000\.00/)).toBeTruthy();
+    expect(within(a).getByText(/40[\s ]000\.00/)).toBeTruthy();
     expect(within(b).getByText(/20[\s ]000\.00/)).toBeTruthy();
-    expect(within(await rowOf('Salaries & Wages')).getByText('No cost centre')).toBeTruthy();
+    // The untagged row on 5210 — the account with tagged rows — is told apart from them.
+    const untagged = (await rowOf('No cost centre'));
+    expect(within(untagged).getByText('5210')).toBeTruthy();
+    expect(within(untagged).getByText(/5[\s ]000\.00/)).toBeTruthy();
+    // 5200 has no tagged row to be told apart from, and credits never carry a centre.
+    expect(within(await rowOf('Salaries & Wages')).queryByText(/cost centre|CC-/)).toBeNull();
     expect(within(await rowOf('PAYE Payable')).queryByText(/cost centre|CC-/)).toBeNull();
+  });
+
+  it('the label follows the CC1, not the amount: a tagged zero-debit row is labelled, an untagged one beside it marked', async () => {
+    const lines = [labour(0, CC_A), { ...labour(0, null), debit: 0, credit: 300 }, labour(75927.12, null, '5200', 'Salaries & Wages'), ...credits];
+    serve({ ...planBody(null, { plan: { lines } }), costCentres: LABELS });
+    open();
+    expect(await rowOf('CC-A · Atlantic')).toBeTruthy();
+    expect(within(await rowOf('No cost centre')).getByText('5210')).toBeTruthy();
   });
 
   it('labels the journal already posted when approval re-locks onto it', async () => {

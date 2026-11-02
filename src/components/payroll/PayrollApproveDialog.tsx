@@ -9,8 +9,9 @@
  *
  * Labour lines carry the employee's cost centre (CC1), so one account can be
  * listed once per centre: each such row names its centre (code · name, from
- * the preview's company-scoped `costCentres`), and once any row is tagged an
- * untagged labour row says "No cost centre".
+ * the preview's company-scoped `costCentres`), and an untagged row on an
+ * account that also has a tagged row says "No cost centre". The label follows
+ * the CC1 alone, never the amounts.
  *
  * The POST carries the planHash previewed; a run changed since answers 409.
  * Any 4xx is a refusal (nothing written), and the preview is refetched after
@@ -94,13 +95,13 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
   const blocker = preview?.blocker ?? null;
   const shown = posted && !blocker ? posted : plan;
   const canApprove = !!preview && !blocker && !approving;
-  const anyTagged = !!shown?.lines.some((l) => l.cc1Id);
-  const centreOf = (l: { debit: number; cc1Id: string | null }): string | null => {
+  const taggedAccounts = new Set(shown?.lines.filter((l) => l.cc1Id).map((l) => l.glAccountId));
+  const centreOf = (l: { glAccountId: string | null; cc1Id: string | null }): string | null => {
     if (l.cc1Id) {
       const c = preview?.costCentres[l.cc1Id];
       return c ? `${c.code} · ${c.name}` : l.cc1Id;
     }
-    return anyTagged && l.debit !== 0 ? 'No cost centre' : null;
+    return taggedAccounts.has(l.glAccountId) ? 'No cost centre' : null;
   };
 
   return (
@@ -135,14 +136,14 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
                 {shown.lines.map((l, i) => {
                   const centre = centreOf(l);
                   return (
-                  <tr key={`${l.accountCode}-${l.cc1Id ?? ''}-${i}`} className="border-t border-gray-200 dark:border-white/10">
-                    <td className="py-1">
-                      <span className="font-mono mr-2">{l.accountCode}</span>{l.accountName}
-                      {centre && <span className="block text-xs text-ink-muted">{centre}</span>}
-                    </td>
-                    <td className="py-1 text-right tabular-nums">{money(l.debit)}</td>
-                    <td className="py-1 text-right tabular-nums">{money(l.credit)}</td>
-                  </tr>
+                    <tr key={`${l.accountCode}-${l.cc1Id ?? ''}-${i}`} className="border-t border-gray-200 dark:border-white/10">
+                      <td className="py-1">
+                        <span className="font-mono mr-2">{l.accountCode}</span>{l.accountName}
+                        {centre && <span className="block text-xs text-ink-muted">{centre}</span>}
+                      </td>
+                      <td className="py-1 text-right tabular-nums">{money(l.debit)}</td>
+                      <td className="py-1 text-right tabular-nums">{money(l.credit)}</td>
+                    </tr>
                   );
                 })}
                 <tr className="border-t-2 border-gray-300 dark:border-white/20 font-semibold">
