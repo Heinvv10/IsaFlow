@@ -138,8 +138,9 @@ export async function resolveAccountsById(
  * `createJournalEntry` refuses a CC1 that is not an ACTIVE `cc_type = 'cc1'`
  * centre, so a centre that is inactive, a CC2, or unreadable posts UNTAGGED on
  * the account its mapping picks, and `advisory` names it — a dimension tag
- * never blocks payroll. A centre deactivated between this read and the post
- * is still refused by the GL (the same window an account deactivated then has).
+ * never blocks payroll. The read holds the centres FOR SHARE (see
+ * `taggableCentres`), so in approval a deactivation cannot commit between this
+ * plan and the GL's own check.
  */
 export async function buildLabourLines(
   companyId: string,
@@ -237,13 +238,27 @@ export interface LabourLines {
 /**
  * Which of `ids` the GL accepts as a new CC1 tag — the rule of
  * `journalCostCentreValidation#assertJournalAnalysisDimensions`: this company's,
- * `cc_type = 'cc1'`, active — and an advisory naming the rest.
+ * `cc_type = 'cc1'`, active — and an advisory naming the rest. The approval gate
+ * asks it of a posted journal's CC1s too, so both sides compare by one rule.
+ *
+ * FOR SHARE, as that GL check takes: inside approvePayrollRun the centres the
+ * plan tags stay as judged until the journal is written. LOCK ORDER: approval
+ * holds the company approval lock, the run header and its journal chain, then
+ * these rows, then (claimRunSeveranceDirectives) the directive rows; the GL's
+ * own FOR SHARE on the same rows comes later and is already held. On master the
+ * GL took these share locks after the directive claim, so the one new pair is
+ * cost_centres before directives. Nothing takes them the other way round: the
+ * only cost_centres writer, the dimension master edit (dimensionMasterEdit,
+ * advisory lock, then the row), locks no directive, run header or journal, and
+ * applyTaxDirective's journal names no CC1. A preview (GET journal-plan, MCP
+ * dry run) holds them only for its own read-only request.
  */
-async function taggableCentres(companyId: string, ids: string[]): Promise<{ taggable: Set<string>; advisory: LabourLines['advisory'] }> {
+export async function taggableCentres(companyId: string, ids: string[]): Promise<{ taggable: Set<string>; advisory: LabourLines['advisory'] }> {
   if (ids.length === 0) return { taggable: new Set(), advisory: null };
   const rows = (await sql`
     SELECT cc.id, cc.code, cc.cc_type, cc.is_active FROM cost_centres cc
      WHERE cc.company_id = ${companyId}::uuid AND cc.id = ANY(${ids}::uuid[])
+     FOR SHARE OF cc
   `) as Row[];
   const byId = new Map(rows.map((r) => [String(r.id), r]));
   const taggable = new Set<string>();
