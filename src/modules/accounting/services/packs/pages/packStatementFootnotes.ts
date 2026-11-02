@@ -180,9 +180,11 @@ export function budgetColumnFootnote(budget: PackBudgetFigures | null, number: n
   const nil = n === 0 ? ''
     : n === 1 ? ' One account with actuals in the period has no budget, so its budget counts as nil.'
       : ` ${n} accounts with actuals in the period have no budget, so their budget counts as nil.`;
-  return [{
-    number,
-    text: `The budget column is the ${budget.version.name} budget (${budget.version.status}) for these months; `
-      + `variance is the actual less the budget.${nil}`,
-  }];
+  // Fixed words only (the version's kind and status), never its user-typed name: the prose gate refuses
+  // some spellings, and a pack refused for what a user called a budget is a pack nobody gets. A window over
+  // two financial years reads each year's primary, so no one version can be named.
+  const which = budget.version === null
+    ? 'each financial year\'s primary budget for the months in it'
+    : `the ${budget.version.kind} budget (${budget.version.status}) for these months`;
+  return [{ number, text: `The budget column is ${which}; variance is the actual less the budget.${nil}` }];
 }

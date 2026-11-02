@@ -73,10 +73,17 @@ describe('page 6 Budget and Variance', () => {
     const note = table.columnNotes?.find((n) => n.column === 'budget');
     expect(note).toBeDefined();
     const text = page.footnotes?.find((f) => f.number === note!.footnote)?.text;
-    expect(text).toBe('The budget column is the Original budget (approved) for these months; variance is the actual '
+    expect(text).toBe('The budget column is the original budget (approved) for these months; variance is the actual '
       + 'less the budget. 2 accounts with actuals in the period have no budget, so their budget counts as nil.');
     const numbers = (page.footnotes ?? []).map((f) => f.number);
     expect(new Set(numbers).size).toBe(numbers.length);
+  });
+
+  it('say each financial year\'s primary budget when the window spans years, and print no user-typed version name', () => {
+    const { page, table } = incomePage(buildBoardPackPages(withBudget({ version: null })));
+    const number = table.columnNotes!.find((n) => n.column === 'budget')!.footnote;
+    expect(page.footnotes!.find((f) => f.number === number)!.text).toBe(
+      'The budget column is each financial year\'s primary budget for the months in it; variance is the actual less the budget.');
   });
 });
 
@@ -99,6 +106,11 @@ describe('the gate on budget cells', () => {
   it('refuses a budget worked out on the page rather than copied from the engine', () => {
     const failures = checkColumns(tamper(demoTable(), 'is.grossProfit', 'budget', { source: 'packStatementTables.budget.is.grossProfit' }), 'Page 6 table');
     expect(failures).toEqual([expect.stringContaining('which is not the budget engine\'s figure')]);
+  });
+
+  it('refuses a row printing another line\'s engine budget', () => {
+    const failures = checkColumns(tamper(demoTable(), 'is.grossProfit', 'budget', { source: 'budgetVariance.net_profit.budget' }), 'Page 6 table');
+    expect(failures).toEqual([expect.stringContaining("('budgetVariance.gross_profit.budget')")]);
   });
 
   it('refuses a variance printed against a budget the pack does not state', () => {

@@ -197,7 +197,7 @@ export const demoSet: PackFigureSet = {
   priorWindow: { start: '2025-09-01', end: '2026-02-28' },
   budget: {
     fiscalYear: 2026,
-    version: { name: 'Original', status: 'approved' },
+    version: { kind: 'original', status: 'approved' },
     // The engine's band budgets and profit totals (GP = T − COS; OP = GP + OI − Opex; NP = OP − OE).
     bands: {
       'is.revenue': 4_000_000,
