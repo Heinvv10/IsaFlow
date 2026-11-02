@@ -16,6 +16,7 @@ import { getBudgetVariance } from '@/modules/accounting/services/reports/budgetV
 import { buildEnvelope, figureBasis, isDetailLevel } from '../contracts';
 import type { DetailLevel, ExcludedRow } from '../contracts';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { filteredBudgetVariance, type BudgetVarianceFilter } from './budgetVarianceFiltered';
 
 const NO_LEDGER_ROWS = '1970-01-01T00:00:00.000Z';
 
@@ -36,7 +37,12 @@ export const budgetVarianceTool: McpTool = {
     'Each row carries two signed differences. variance is signed so positive is favourable: revenue actual less budget, expense budget less actual. movement is actual less budget for every account type, the figure the Budget vs Actual screen and CSV print; favourable (true/false) says whether it is good news. variance_pct and movement_pct are percentages of the absolute budget, and variance_pct is null where the budget is zero or absent: there is nothing to be a percentage of. ' +
     'There is no totals field: net profit is sections.net_profit. sections carries revenue, expense and net_profit (revenue less expenses), each with budget, actual, variance, movement, variance_pct, movement_pct and favourable, and they cover EVERY account in the range, budgeted or not: they do not foot to the rows, and excludedRows carry an actual amount, not a variance. Read sections, not a sum of rows, for the whole picture. ' +
     'Budgets are stored per calendar month (budget_month_amounts), not per fiscal year: the budget for a range is the sum of the budgeted months from the month of period_start to the month of period_end, a month counted whole, across as many financial years as the range spans. A financial year can be 1-15 months long (a 14-month transition year after a change of year end), and any window sums exactly its months. fiscal_year is the financial year holding period_start and months_covered lists the YYYY-MM months summed, so the match can be re-derived rather than assumed. ' +
-    'detail: "summary" returns sections with no rows; "standard" and "full" return the account lines.',
+    'detail: "summary" returns sections with no rows; "standard" and "full" return the account lines. ' +
+    'VERSION AND DIMENSIONS (optional; with none of them, everything above holds exactly). Without version_id each financial year is read on its primary budget version; version_id reads that version instead (any status), and the whole range must lie in its financial year. ' +
+    'cc1_id, cc2_id and bu_id filter by EXPLICIT dimension level, ANDed: an actual counts when its journal line carries that cost centre at that level (cc1_id = CC1, cc2_id = CC2) and that business unit; untagged lines fall outside a filter that names the dimension. ' +
+    'A budget counts under a filter when it was set at the filter or below it (a CC2 budget counts under its CC1). A budget set ABOVE the filter (at company level, or at CC1 when filtering by a CC2) is never split or apportioned: it is reported as unallocated_budget (income and expense separately) and its account appears in excludedRows with reason budget_above_filter. ' +
+    'With any of these four arguments the range is read in WHOLE MONTHS: a range that cuts a budget month (period_start not the 1st, or period_end not a month end) has no budget at all (splits_budget_month true), and so does one reaching a financial year with no budget (budget_absent_years) or whose budget is all at other members of the filter (budget_outside_filter_years). An account budgeted for only part of the range is excluded with reason budget_partial. ' +
+    'Those responses add version (id, name, kind, status, isPrimary), dimension_filter, unallocated_budget (with a dimension), budget_absent_years, budget_outside_filter_years and splits_budget_month; a section budget is null where any account under it is above the filter or partial.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -45,12 +51,16 @@ export const budgetVarianceTool: McpTool = {
       period_start: { type: 'string', format: 'date', description: 'Inclusive YYYY-MM-DD.' },
       period_end: { type: 'string', format: 'date', description: 'Inclusive YYYY-MM-DD.' },
       detail: { type: 'string', enum: ['summary', 'standard', 'full'] },
+      version_id: { type: 'string', format: 'uuid', description: 'A budget version of the range\'s financial year; default each year\'s primary.' },
+      cc1_id: { type: 'string', format: 'uuid', description: 'Filter: a CC1 cost centre (explicit level).' },
+      cc2_id: { type: 'string', format: 'uuid', description: 'Filter: a CC2 cost centre (explicit level).' },
+      bu_id: { type: 'string', format: 'uuid', description: 'Filter: a business unit.' },
     },
     required: ['period_start', 'period_end'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const guard = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
+    const guard = guardCastableArgs(args, { date: ['period_start', 'period_end'], uuid: ['version_id', 'cc1_id', 'cc2_id', 'bu_id'] });
     if (guard) return guard;
     const start = strArg(args, 'period_start');
     const end = strArg(args, 'period_end');
@@ -58,6 +68,15 @@ export const budgetVarianceTool: McpTool = {
     if (end < start) return toolError('period_end must not precede period_start');
 
     const detail = detailOf(args);
+    // Only arguments actually given: an absent one is never defaulted into the call, so with none the
+    // default path below runs exactly as it did before they existed.
+    const filter: BudgetVarianceFilter = {};
+    for (const [arg, key] of [['version_id', 'versionId'], ['cc1_id', 'cc1Id'], ['cc2_id', 'cc2Id'], ['bu_id', 'buId']] as const) {
+      const value = strArg(args, arg);
+      if (value !== undefined) filter[key] = value;
+    }
+    if (Object.keys(filter).length > 0) return filteredBudgetVariance(ctx.companyId, start, end, detail, filter);
+
     const result = await getBudgetVariance(ctx.companyId, start, end);
 
     const excludedRows: ExcludedRow[] = result.unbudgeted
