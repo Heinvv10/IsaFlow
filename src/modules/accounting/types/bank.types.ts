@@ -71,6 +71,8 @@ export interface BankTransaction {
   status: BankTxStatus;
   feedState: FeedState;
   matchedJournalLineId?: string;
+  /** The journal that line belongs to, on rows read through TX_SELECT. */
+  matchedJournalEntryId?: string;
   reconciliationId?: string;
   importBatchId?: string;
   /** Contextual reason recorded when this transaction was excluded */
