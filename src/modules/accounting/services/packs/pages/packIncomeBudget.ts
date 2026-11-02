@@ -45,13 +45,16 @@ export function incomeSheetWithBudget(
   if (budgetNotes.length === 0) return buildIncomeStatementSheet(income, set, scale, panels, statementNotes);
   const sheet = buildIncomeStatementSheet(
     anchorColumn(income, 'budget', budgetNotes[0]!.number), set, scale, panels, [...statementNotes, ...budgetNotes]);
+  let diagnostic: string;
   try {
-    fitPageToBox(sheet);
-    return sheet;
+    const fitted = fitPageToBox(sheet);
+    if (fitted.footnotes.some((note) => note.number === budgetNotes[0]!.number)) return fitted;
+    diagnostic = 'fitPageToBox removed the footnote that explains the Budget and Variance columns';
   } catch (err) {
     if (!(err instanceof PackRefusal)) throw err;
-    log.warn('board pack: page 6 cannot fit the Budget and Variance columns at these figures; printed without them',
-      { period: set.currentWindow, diagnostic: err.message }, 'packs');
-    return buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes);
+    diagnostic = err.message;
   }
+  log.warn('board pack: page 6 cannot fit the Budget and Variance columns at these figures; printed without them',
+    { period: set.currentWindow, diagnostic }, 'packs');
+  return buildIncomeStatementSheet(withoutBudget(income), set, scale, panels, statementNotes);
 }
