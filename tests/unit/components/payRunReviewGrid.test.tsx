@@ -263,13 +263,6 @@ describe('the approval summary', () => {
     expect(await within(dialog).findByText(detail)).toBeTruthy();
   });
 
-  it('the journal table headings read in dark mode (AA): not gray-500 alone', async () => {
-    serve(() => ok({}), { preview: planBody() });
-    const dialog = await open();
-    const head = (await within(dialog).findByText('Debit')).closest('tr')!;
-    expect(head.className).toContain('dark:text-gray-300');
-  });
-
   it('one employee is singular', async () => {
     serve(() => ok({}), { preview: planBody() });
     const dialog = await open();

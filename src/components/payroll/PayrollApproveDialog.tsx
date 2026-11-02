@@ -110,7 +110,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
         {!preview && !loadError && (
           <div className="flex items-center gap-2 text-gray-500 dark:text-gray-300"><Loader2 className="h-4 w-4 animate-spin" /> Loading the journal…</div>
         )}
-        {loadError && <p className="text-red-500">{loadError}</p>}
+        {loadError && <p className="text-red-600 dark:text-red-400">{loadError}</p>}
         {plan && shown && (
           <>
             {!blocker && !posted && <p className="font-medium text-gray-900 dark:text-white">{paymentSummary(plan)}</p>}
@@ -158,11 +158,11 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
               </p>
             )}
             {blocker && (
-              <p className="flex gap-2 text-red-500"><AlertCircle className="h-4 w-4 shrink-0" />{blocker.detail}</p>
+              <p className="flex gap-2 text-red-600 dark:text-red-400"><AlertCircle className="h-4 w-4 shrink-0" />{blocker.detail}</p>
             )}
           </>
         )}
-        {approveError && <p role="alert" className="flex gap-2 text-red-500"><AlertCircle className="h-4 w-4 shrink-0" />{approveError}</p>}
+        {approveError && <p role="alert" className="flex gap-2 text-red-600 dark:text-red-400"><AlertCircle className="h-4 w-4 shrink-0" />{approveError}</p>}
       </Modal.Body>
       <Modal.Footer>
         <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-white/20 text-sm">Cancel</button>
