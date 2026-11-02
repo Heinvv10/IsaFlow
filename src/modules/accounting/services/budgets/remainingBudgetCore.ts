@@ -116,15 +116,16 @@ export function computeRemaining(keys: readonly RemainingKey[], inputs: Remainin
   const actuals = new Map<string, number>();
   for (const a of inputs.actuals) add(actuals, `${a.grain}|${cell(a.accountId, a.month, a.memberId)}`, toCents(a.amount));
 
-  const committedAt = (grain: RemainingGrain, account: string, month: string, member: string | null): number => {
-    let cents = 0;
-    for (const c of inputs.commitments) {
-      if (c.glAccountId !== account || c.month !== month) continue;
-      if (memberOnGrain(c, grain).member !== member) continue;
-      cents += Math.max(0, toCents(c.lineTotal) - toCents(c.billed));
-    }
-    return cents;
-  };
+  // Committed cents per grain|account|month|member, each PO line mapped onto each grain once (not per key).
+  const committedBy = new Map<string, number>();
+  const grainsUsed = new Set<RemainingGrain>(['company', ...inputs.grains.values()]);
+  for (const c of inputs.commitments) {
+    const cents = Math.max(0, toCents(c.lineTotal) - toCents(c.billed));
+    if (cents === 0) continue;
+    for (const g of grainsUsed) add(committedBy, `${g}|${cell(c.glAccountId, c.month, memberOnGrain(c, g).member)}`, cents);
+  }
+  const committedAt = (grain: RemainingGrain, account: string, month: string, member: string | null): number =>
+    committedBy.get(`${grain}|${cell(account, month, member)}`) ?? 0;
 
   return keys.map((key) => {
     const versionId = inputs.versionOf(key.month);
