@@ -34,7 +34,7 @@ import {
   previewPayrollApproval,
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
 import { PayrollApprovalRefusedError } from '@/modules/accounting/services/payroll/payrollApprovalRefusal';
-import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { isPayrollRunLocked, PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
   PayrollLoanLockTimeoutError,
   PayrollRunJournalPostedError,
@@ -110,7 +110,7 @@ export const calculatePayRunTool: McpTool = {
       const blocked = run.journalEntryId != null
         && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
-      const taxYearMissing = unloadedTaxYearMessage(run.periodMonth, run.periodYear);
+      const taxYearMissing = isPayrollRunLocked(run.status) ? new PayrollRunLockedError(run.status).message : unloadedTaxYearMessage(run.periodMonth, run.periodYear);
       return ok({
         dryRun: true,
         wroteNothing: true,

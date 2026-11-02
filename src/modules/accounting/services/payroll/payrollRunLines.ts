@@ -130,10 +130,9 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
   });
 }
 
-export interface WithheldLoanLine { employeeNumber: string; loans: string[]; missing: 'deduction' | 'fringe' }
-const WITHHELD: Record<string, WithheldLoanLine['missing']> = { LOAN_DEDUCTION_MISSING: 'deduction', LOAN_FRINGE_COMPONENT_MISSING: 'fringe' };
+export interface WithheldLoanLine { employeeNumber: string; loans: string[] }
 
-/** Lines whose loan was not taken for want of a LOAN deduction or a 3801 earning (payrollLoanWithholding). */
+/** Lines whose loan was not taken for want of a LOAN deduction (payrollLoanWithholding). */
 export async function findWithheldLoanLines(companyId: string, runId: string): Promise<WithheldLoanLine[]> {
   const rows = (await sql`
     SELECT pe.employee_number, prl.validation_results
@@ -142,20 +141,23 @@ export async function findWithheldLoanLines(companyId: string, runId: string): P
     JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
     WHERE prl.run_id = ${runId}::uuid
       AND prh.company_id = ${companyId}::uuid
-      AND (prl.validation_results @> '[{"code":"LOAN_DEDUCTION_MISSING"}]'::jsonb
-        OR prl.validation_results @> '[{"code":"LOAN_FRINGE_COMPONENT_MISSING"}]'::jsonb)
+      AND prl.validation_results @> '[{"code":"LOAN_DEDUCTION_MISSING"}]'::jsonb
     ORDER BY pe.employee_number
   `) as Row[];
-  return rows.flatMap((r) => parseValidationResults(r.validation_results)
-    .filter((v) => WITHHELD[v.code])
-    .map((v) => ({ employeeNumber: String(r.employee_number), loans: v.loans ?? [], missing: WITHHELD[v.code]! })));
+  return rows.flatMap((r) => {
+    const withheld = parseValidationResults(r.validation_results).find((v) => v.code === 'LOAN_DEDUCTION_MISSING');
+    return withheld ? [{ employeeNumber: String(r.employee_number), loans: withheld.loans ?? [] }] : [];
+  });
 }
 
 /**
- * Loan payments this run recorded that its payslips do not show: a repayment with no LOAN item of
- * that amount on the employee's line, or a fringe benefit with no 3801 item of that amount. A run
- * calculated before loans failed closed took the payment and skipped the payslip when the
- * component was missing; recalculating it now withholds the loan instead. Zero amounts need no item.
+ * Loan payments this run recorded that its payslips do not show as they must. A repayment needs an
+ * item on the employee's line coded LOAN (as the line stored it) whose component (by componentId) is
+ * a deduction, costed as not taxable (the item's own isTaxable), of that amount. A fringe benefit with a
+ * 3801 item needs it to be an earning of that amount; with no 3801 item at all it is the warning case
+ * (Hein). A run calculated before loans failed closed could break each of these: it took the payment
+ * with nothing on the payslip, put it on a LOAN-coded earning or a 3801 deduction, or took a taxable
+ * LOAN off PAYE income. Recalculating fixes it. Zero amounts need no item.
  */
 export async function findLoanPaymentsOffPayslip(companyId: string, runId: string): Promise<Array<{ employeeNumber: string; loanNumber: string }>> {
   const rows = (await sql`
@@ -165,15 +167,18 @@ export async function findLoanPaymentsOffPayslip(companyId: string, runId: strin
       JOIN payroll_employees pe ON pe.id = l.employee_id
       LEFT JOIN payroll_run_lines prl ON prl.run_id = p.run_id AND prl.employee_id = l.employee_id
       LEFT JOIN LATERAL (
-        SELECT BTRIM(i->>'sarsSourceCode', E' \t\r\n') AS code, ROUND((i->>'amount')::numeric, 2) AS amount
+        SELECT BTRIM(i->>'sarsSourceCode', E' \t\r\n') AS code, pc.component_type AS type,
+               (i->>'isTaxable') = 'true' AS taxed, ROUND((i->>'amount')::numeric, 2) AS amount
           FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) i
+          JOIN payroll_components pc ON pc.id::text = i->>'componentId' AND pc.company_id = ${companyId}::uuid
       ) item ON true
      WHERE p.run_id = ${runId}::uuid
      GROUP BY p.id, pe.employee_number, l.loan_number, p.interest_charged, p.principal_paid, p.fringe_benefit
     HAVING (p.interest_charged + p.principal_paid > 0
-            AND NOT COALESCE(bool_or(item.code = 'LOAN' AND item.amount = ROUND(p.interest_charged + p.principal_paid, 2)), false))
-        OR (p.fringe_benefit > 0
-            AND NOT COALESCE(bool_or(item.code = '3801' AND item.amount = ROUND(p.fringe_benefit, 2)), false))
+            AND NOT COALESCE(bool_or(item.code = 'LOAN' AND item.type = 'deduction' AND NOT item.taxed
+              AND item.amount = ROUND(p.interest_charged + p.principal_paid, 2)), false))
+        OR (p.fringe_benefit > 0 AND COALESCE(bool_or(item.code = '3801'), false)
+            AND NOT COALESCE(bool_or(item.code = '3801' AND item.type = 'earning' AND item.amount = ROUND(p.fringe_benefit, 2)), false))
      ORDER BY pe.employee_number, l.loan_number
   `) as Row[];
   return rows.map((r) => ({ employeeNumber: String(r.employee_number), loanNumber: String(r.loan_number) }));

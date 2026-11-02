@@ -38,7 +38,7 @@ describe('appendLoanComponents', () => {
     expect(() => appendLoanComponents([], [applied({})], { deduction: null, fringe })).toThrow(/R-LOAN/);
   });
 
-  it('a benefit with no 3801 earning is refused, naming the loan', () => {
-    expect(() => appendLoanComponents([], [applied({ fringeBenefit: 7.08 })], { deduction, fringe: null })).toThrow(/R-LOAN/);
+  it('a benefit with no 3801 earning is left off (Hein: a warning on the line, not a refusal)', () => {
+    expect(appendLoanComponents([], [applied({ fringeBenefit: 7.08 })], { deduction, fringe: null })).toEqual([{ component: deduction, amount: 1000 }]);
   });
 });

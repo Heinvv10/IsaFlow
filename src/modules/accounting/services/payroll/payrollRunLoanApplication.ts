@@ -275,7 +275,7 @@ export async function applyRunLoans(
     if (notReapplied.length > 0) {
       const why = (loanId: string) => {
         const held = withheld.get(loanId);
-        return held ? (held.missing === 'deduction' ? 'no LOAN deduction' : 'no 3801 earning') : 'loan no longer active for this period';
+        return held ? 'no LOAN deduction' : 'loan no longer active for this period';
       };
       log.warn(
         'Loan payments reversed without re-application',

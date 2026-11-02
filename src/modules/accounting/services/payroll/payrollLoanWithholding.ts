@@ -1,18 +1,24 @@
 /**
- * A loan instalment the run cannot show is not taken (fail closed). applyLoanToRun takes the first
- * unpaid schedule row due in the period and its fringe benefit; when the payslip has no component
- * for either (payrollRunLoanComponents.loadLoanComponents), the loan is withheld instead: no payment
- * row, no schedule flag, no balance change, and the line says so. A zero instalment with no benefit
- * needs neither component and is taken as before. The same reading answers the MCP dry run, which
- * also counts the schedule row (and the loan it settled) this run itself took, since a recalculation
- * would reverse that first.
+ * A loan instalment the payslip has no LOAN deduction for is not taken (fail closed). applyLoanToRun
+ * takes the first unpaid schedule row due in the period; when the run has no active deduction coded
+ * LOAN (payrollRunLoanComponents.loadLoanComponents), the loan is withheld instead: no payment row,
+ * no schedule flag, no balance change, and the line says so (LOAN_DEDUCTION_MISSING, a blocker).
+ * A missing 3801 earning does NOT withhold (Hein, 2026-11-02): the loan is collected as before and
+ * the line warns that its fringe benefit was not recorded (LOAN_FRINGE_NOT_RECORDED). A zero
+ * instalment is taken without a LOAN deduction, as before.
+ *
+ * The MCP dry run asks the same question before a recalculation would have undone this run's own
+ * loan work, so it reads the loan as that reversal would leave it (payrollLoanReversal): a payment
+ * this run made, or one stranded by a deleted run for this period (run_id NULL), is undone, which
+ * unflags its schedule row (every row of the period for a pre-622 payment with no row recorded)
+ * and turns a loan it settled active again. A cancelled or written-off loan stays out, as there.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { fringeBenefitOf } from './payrollLoanService';
+import { fringeBenefitOf, type ApplyLoanResult } from './payrollLoanService';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
-import { loadLoanComponents } from './payrollRunLoanComponents';
+import { loadLoanComponents, type LoanComponents } from './payrollRunLoanComponents';
 import type { ValidationResult } from './payrollTypes';
 
 export interface LoanComponentsPresent { deduction: boolean; fringe: boolean }
@@ -25,7 +31,8 @@ export interface WithheldLoan {
   /** Principal + interest of the one schedule row applyLoanToRun would take. */
   instalment: number;
   fringeBenefit: number;
-  missing: 'deduction' | 'fringe';
+  /** Always the LOAN deduction; the 3801 earning too when that is also missing and the loan has a benefit. */
+  missing: Array<'deduction' | 'fringe'>;
 }
 
 export interface LoanInRun { loanId: string; companyId: string; runId: string; periodYear: number; periodMonth: number; officialRate: number }
@@ -34,7 +41,14 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Null when the loan can be taken (or has nothing due); otherwise what it would take and what is missing. */
 export async function withholdingFor(loan: LoanInRun, present: LoanComponentsPresent, db: TxSql = sql): Promise<WithheldLoan | null> {
+  if (present.deduction) return null;
   const rows = (await db`
+    WITH undone AS (
+      SELECT p.schedule_row_id FROM payroll_loan_payments p
+       WHERE p.loan_id = ${loan.loanId}::uuid
+         AND (p.run_id = ${loan.runId}::uuid
+           OR (p.run_id IS NULL AND p.period_year = ${loan.periodYear} AND p.period_month = ${loan.periodMonth}))
+    )
     SELECT l.id, l.loan_number, l.employee_id, pe.employee_number, l.annual_interest_rate,
            s.interest, s.principal, s.opening_balance
       FROM payroll_loans l
@@ -44,48 +58,63 @@ export async function withholdingFor(loan: LoanInRun, present: LoanComponentsPre
           FROM payroll_loan_schedule s
          WHERE s.loan_id = l.id
            AND s.due_period_year = ${loan.periodYear} AND s.due_period_month = ${loan.periodMonth}
-           AND (s.paid_flag = false OR EXISTS (
-             SELECT 1 FROM payroll_loan_payments p WHERE p.schedule_row_id = s.id AND p.run_id = ${loan.runId}::uuid))
+           AND (s.paid_flag = false OR EXISTS (SELECT 1 FROM undone u WHERE u.schedule_row_id = s.id OR u.schedule_row_id IS NULL))
          ORDER BY s.sequence
          LIMIT 1
       ) s ON true
      WHERE l.id = ${loan.loanId}::uuid AND l.company_id = ${loan.companyId}::uuid
-       AND (l.status = 'active' OR EXISTS (
-         SELECT 1 FROM payroll_loan_payments p WHERE p.loan_id = l.id AND p.run_id = ${loan.runId}::uuid))
+       AND (l.status = 'active' OR (l.status = 'settled' AND EXISTS (SELECT 1 FROM undone)))
   `) as DbRow[];
   const r = rows[0];
   if (!r) return null;
   const instalment = round2(Number(r.interest) + Number(r.principal));
+  if (instalment <= 0) return null;
   const fringeBenefit = fringeBenefitOf(loan.officialRate, Number(r.annual_interest_rate), Number(r.opening_balance));
-  const missing = instalment > 0 && !present.deduction ? 'deduction' : fringeBenefit > 0 && !present.fringe ? 'fringe' : null;
-  if (!missing) return null;
   return {
     loanId: String(r.id), loanNumber: String(r.loan_number), employeeId: String(r.employee_id),
-    employeeNumber: String(r.employee_number), instalment, fringeBenefit, missing,
+    employeeNumber: String(r.employee_number), instalment, fringeBenefit,
+    missing: fringeBenefit > 0 && !present.fringe ? ['deduction', 'fringe'] : ['deduction'],
   };
 }
 
-const KIND = {
-  deduction: { code: 'LOAN_DEDUCTION_MISSING', component: 'deduction coded LOAN', amount: (w: WithheldLoan) => w.instalment },
-  fringe: { code: 'LOAN_FRINGE_COMPONENT_MISSING', component: 'earning coded 3801 for the low-interest fringe benefit', amount: (w: WithheldLoan) => w.fringeBenefit },
-} as const;
+const groupBy = <T>(items: T[], key: (t: T) => string) => {
+  const out = new Map<string, T[]>();
+  for (const item of items) out.set(key(item), [...(out.get(key(item)) ?? []), item]);
+  return out;
+};
 
-/** One blocking line result per employee and missing component, naming the loans (read by the approval gate). */
+/** One blocking line result per employee, naming each withheld loan at what it would take and every missing component. */
 export function withheldLineResults(withheld: WithheldLoan[]): Map<string, ValidationResult[]> {
-  const out = new Map<string, ValidationResult[]>();
-  for (const missing of ['deduction', 'fringe'] as const) {
-    const kind = KIND[missing];
-    const byEmployee = new Map<string, WithheldLoan[]>();
-    for (const w of withheld.filter((x) => x.missing === missing)) byEmployee.set(w.employeeId, [...(byEmployee.get(w.employeeId) ?? []), w]);
-    for (const [employeeId, loans] of byEmployee) {
-      out.set(employeeId, [...(out.get(employeeId) ?? []), {
-        code: kind.code,
-        severity: 'error',
-        loans: loans.map((w) => w.loanNumber),
-        message: `Loan ${loans.map((w) => `${w.loanNumber} (${formatMoney(kind.amount(w))})`).join(', ')}: no active ${kind.component}, `
-          + 'so the instalment was not taken and the loan is unchanged. Add it under Setup → Pay Components, then recalculate.',
-      }]);
-    }
+  return new Map([...groupBy(withheld, (w) => w.employeeId)].map(([employeeId, loans]) => {
+    const fringe = loans.some((w) => w.missing.includes('fringe'));
+    const missing = `no active deduction coded LOAN${fringe ? ' and no active earning coded 3801 for the low-interest fringe benefit' : ''}`;
+    const each = loans.map((w) => `${w.loanNumber} (instalment ${formatMoney(w.instalment)}`
+      + `${w.missing.includes('fringe') ? `, fringe benefit ${formatMoney(w.fringeBenefit)}` : ''})`);
+    return [employeeId, [{
+      code: 'LOAN_DEDUCTION_MISSING',
+      severity: 'error',
+      loans: loans.map((w) => w.loanNumber),
+      message: `Loan ${each.join(', ')}: ${missing}, so the instalment was not taken and the loan is unchanged. `
+        + 'Add the missing component under Setup → Pay Components, then recalculate.',
+    } satisfies ValidationResult]];
+  }));
+}
+
+/** A loan collected with a fringe benefit no 3801 earning carries: a warning naming the loan (Hein). */
+export function fringeNotRecordedResults(applied: Map<string, ApplyLoanResult[]>, components: LoanComponents): Map<string, ValidationResult> {
+  const out = new Map<string, ValidationResult>();
+  if (components.fringe) return out;
+  for (const [employeeId, apps] of applied) {
+    const missed = apps.filter((a) => a.fringeBenefit > 0);
+    if (missed.length === 0) continue;
+    out.set(employeeId, {
+      code: 'LOAN_FRINGE_NOT_RECORDED',
+      severity: 'warning',
+      loans: missed.map((a) => a.loanNumber),
+      message: `Loan ${missed.map((a) => `${a.loanNumber} (fringe benefit ${formatMoney(a.fringeBenefit)})`).join(', ')}: `
+        + 'the instalment was taken, but no active earning is coded 3801, so the low-interest fringe benefit is not on the payslip '
+        + 'and was not taxed. Add it under Setup → Pay Components and recalculate to record it.',
+    });
   }
   return out;
 }
@@ -96,35 +125,32 @@ export async function previewWithheldLoans(
 ): Promise<WithheldLoan[]> {
   const components = await loadLoanComponents(companyId);
   const present = { deduction: components.deduction != null, fringe: components.fringe != null };
-  if (present.deduction && present.fringe) return [];
+  if (present.deduction) return [];
   const employees = new Set((await listPayrollRunEmployees(companyId, period)).map((e) => e.id));
-  const out: WithheldLoan[] = [];
-  // Active, or settled by this run's own payment: a recalculation would reverse it and reactivate the loan first.
   const due = (await sql`
     SELECT DISTINCT l.id AS loan_id, l.employee_id
       FROM payroll_loans l
       JOIN payroll_loan_schedule s ON s.loan_id = l.id
      WHERE l.company_id = ${companyId}::uuid
        AND s.due_period_year = ${period.year} AND s.due_period_month = ${period.month}
-       AND (l.status = 'active' OR EXISTS (
-         SELECT 1 FROM payroll_loan_payments p WHERE p.loan_id = l.id AND p.run_id = ${runId}::uuid))
   `) as DbRow[];
-  for (const row of due.map((r) => ({ loanId: String(r.loan_id), employeeId: String(r.employee_id) }))) {
-    if (!employees.has(row.employeeId)) continue;
-    const held = await withholdingFor({ loanId: row.loanId, companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate }, present);
+  const out: WithheldLoan[] = [];
+  for (const row of due) {
+    if (!employees.has(String(row.employee_id))) continue;
+    const held = await withholdingFor({ loanId: String(row.loan_id), companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate }, present);
     if (held) out.push(held);
   }
   return out.sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber) || a.loanNumber.localeCompare(b.loanNumber));
 }
 
-/** The loans a calculation of this run does not take, as the MCP calculate_pay_run reports them (live and dry). */
+/** The loans a calculation of this run does not take, as the MCP calculate_pay_run reports them. */
 export async function withheldLoansReport(companyId: string, run: { id: string; periodYear: number; periodMonth: number }) {
   const held = await previewWithheldLoans(companyId, run.id, { year: run.periodYear, month: run.periodMonth }, runOfficialRate());
   return held.map((w) => ({
     employee_number: w.employeeNumber,
     loan_number: w.loanNumber,
     instalment: w.instalment,
-    missing: w.missing === 'deduction' ? 'LOAN deduction' : '3801 earning',
+    missing: w.missing.map((m) => (m === 'deduction' ? 'LOAN deduction' : '3801 earning')),
   }));
 }
 

@@ -9,6 +9,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
 import { calculatePayRunTool } from '../../src/lib/mcp/tools/writePayrollRun';
+import { listPayrollComponentsTool } from '../../src/lib/mcp/tools/payrollComponents';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -101,7 +102,7 @@ describe('MCP calculate_pay_run says which instalments it did not take', () => {
     await withoutLoanDeduction();
     const loan = await addLoan(1000);
     const out = body(await tool(true) as never);
-    expect(out.withheld_loans).toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: 'LOAN deduction' }]);
+    expect(out.withheld_loans).toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'] }]);
     expect(await loanState(loan)).toEqual({ balance: 1000, paidFlags: [false], payments: 0 });
   });
 
@@ -110,20 +111,66 @@ describe('MCP calculate_pay_run says which instalments it did not take', () => {
     await recalculate(state.nov); // taken with the deduction: the schedule row is this run's
     await withoutLoanDeduction();
     expect(body(await tool(true) as never).withheld_loans)
-      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: 'LOAN deduction' }]);
+      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'] }]);
   });
 
   it('the live call reports what it withheld', async () => {
     await withoutLoanDeduction();
     await addLoan(1000);
     expect(body(await tool(false) as never).withheld_loans)
-      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: 'LOAN deduction' }]);
+      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: ['LOAN deduction'] }]);
   });
 
   it('a properly set-up company withholds nothing, live or dry', async () => {
     await addLoan(1000);
     expect(body(await tool(true) as never).withheld_loans).toEqual([]);
     expect(body(await tool(false) as never).withheld_loans).toEqual([]);
+  });
+
+  const withheldDry = async () => body(await tool(true) as never).withheld_loans;
+
+  it('the dry run, as the live call: a loan this run paid that is cancelled since is not offered again', async () => {
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+    await pool.query(`UPDATE payroll_loans SET status = 'cancelled' WHERE id = $1`, [loan]);
+    await withoutLoanDeduction();
+    expect(await withheldDry()).toEqual([]);
+    await recalculate(state.nov);
+    expect(codes(await line(state.nov))).not.toContain('LOAN_DEDUCTION_MISSING');
+  });
+
+  it('the dry run counts a payment stranded by a deleted run (run_id NULL), which recosting reclaims', async () => {
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+    await pool.query('UPDATE payroll_loan_payments SET run_id = NULL WHERE loan_id = $1', [loan]);
+    await withoutLoanDeduction();
+    expect(await withheldDry()).toHaveLength(1);
+  });
+
+  it('the dry run counts a pre-622 payment, which recorded no schedule row', async () => {
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+    await pool.query('UPDATE payroll_loan_payments SET schedule_row_id = NULL WHERE loan_id = $1', [loan]);
+    await withoutLoanDeduction();
+    expect(await withheldDry()).toHaveLength(1);
+  });
+
+  it('a locked run: the dry run promises no recost and reports nothing withheld', async () => {
+    await withoutLoanDeduction();
+    await addLoan(1000);
+    await pool.query(`UPDATE payroll_run_headers SET status = 'approved' WHERE id = $1`, [state.nov]);
+    const out = body(await tool(true) as never);
+    expect(out.effects).toEqual([]);
+    expect(JSON.stringify(out.skipped)).toContain('locked');
+    expect(out.withheld_loans).toEqual([]);
+  });
+
+  it('list_payroll_components reports a LOAN component flagged taxable as non-taxable for payroll', async () => {
+    await pool.query('UPDATE payroll_components SET is_taxable = true WHERE id = $1', [comp.loan]);
+    const listed = body(await listPayrollComponentsTool.handler({}, { companyId: state.coA, userId: fx.admin } as never) as never)
+      .components as Array<{ id: string; is_taxable: boolean; note?: string }>;
+    expect(listed.find((c) => c.id === comp.loan)).toMatchObject({ is_taxable: false });
+    expect(listed.find((c) => c.id === comp.loan)!.note).toContain('not a tax deduction');
   });
 });
 

@@ -15,7 +15,7 @@ import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResul
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 import { appendLoanComponents, loadLoanComponents } from './payrollRunLoanComponents';
-import { runOfficialRate, withheldLineResults, type WithheldLoan } from './payrollLoanWithholding';
+import { fringeNotRecordedResults, runOfficialRate, withheldLineResults, type WithheldLoan } from './payrollLoanWithholding';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
@@ -171,6 +171,7 @@ export async function calculatePayrollRun(
     onWithheld: (w) => withheld.push(w),
   });
   const withheldResults = withheldLineResults(withheld);
+  const fringeWarnings = fringeNotRecordedResults(loansByEmployee, loanComponents);
 
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
@@ -236,7 +237,7 @@ export async function calculatePayrollRun(
       componentBreakdown: JSON.stringify(line.componentBreakdown),
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
-        ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []),
+        ...line.validationResults, ...terminationWarnings, ...(withheldResults.get(employee.id) ?? []), ...(fringeWarnings.has(employee.id) ? [fringeWarnings.get(employee.id)!] : []),
         // Only a line taxed from the tables feeds the later months' cumulative PAYE.
         ...((line.periodicTaxable > 0 || line.annualTaxable > 0) && laterApproved.has(employee.id) ? [laterApproved.get(employee.id)!] : []),
       ]),

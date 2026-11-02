@@ -23,9 +23,9 @@ export interface LoanComponents {
  * The components a payslip shows a loan with: the instalment (principal + interest) on an active
  * DEDUCTION coded LOAN, the low-interest fringe benefit on an active EARNING coded 3801, each the
  * first made (`ORDER BY created_at, id`), codes compared after the calculator's trim
- * (normaliseSarsCode). A LOAN-coded earning would add the instalment to gross pay. With either
- * missing, a loan that needs it is not taken at all (payrollLoanWithholding); it used to be
- * recorded on the loan with nothing on the payslip. Setup → Pay Components creates both
+ * (normaliseSarsCode). A LOAN-coded earning would add the instalment to gross pay. With no LOAN
+ * deduction a loan is not taken at all (payrollLoanWithholding); it used to be recorded on the
+ * loan with nothing on the payslip. With no 3801 earning it is taken and the line warns. Setup → Pay Components creates both
  * (POST /api/payroll/loans/setup-components).
  */
 export async function loadLoanComponents(companyId: string): Promise<LoanComponents> {
@@ -59,9 +59,10 @@ export async function loadLoanComponents(companyId: string): Promise<LoanCompone
 }
 
 /**
- * The applied loans on the payslip. Refuses, never skips, a repayment or benefit with no component
- * to carry it: the loan has already moved, so a payslip without it would put the subledger and the
- * GL apart. The run withholds such a loan before applying it, so this is the backstop.
+ * The applied loans on the payslip. Refuses, never skips, a repayment with no LOAN deduction to carry
+ * it: the loan has already moved, so a payslip without it would put the subledger and the GL apart.
+ * The run withholds such a loan before applying it, so this is the backstop. A fringe benefit with
+ * no 3801 earning is left off and warned about (Hein).
  */
 export function appendLoanComponents(
   components: EmployeeComponent[],
@@ -75,8 +76,8 @@ export function appendLoanComponents(
       if (!loanComponents.deduction) throw new Error(`Loan ${app.loanNumber} was applied with no active deduction coded LOAN to show it on`);
       injected.push({ component: loanComponents.deduction, amount: repayment });
     }
-    if (app.fringeBenefit > 0) {
-      if (!loanComponents.fringe) throw new Error(`Loan ${app.loanNumber} was applied with no active earning coded 3801 for its fringe benefit`);
+    // No 3801 earning: the loan is collected and the line warns (fringeNotRecordedResults, Hein).
+    if (app.fringeBenefit > 0 && loanComponents.fringe) {
       injected.push({ component: loanComponents.fringe, amount: app.fringeBenefit });
     }
   }

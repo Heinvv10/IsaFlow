@@ -101,6 +101,7 @@ describe('a LOAN deduction is never a tax deduction (Hein: a taxable LOAN is ref
     expect(r.taxableIncome).toBe(plain.taxableIncome);
     expect(r.uif).toEqual(plain.uif);
     expect(r.netPay).toBe(Math.round((plain.netPay - 1000) * 100) / 100);
+    expect(r.componentBreakdown.find((b) => b.componentId === 'loan')).toMatchObject({ isTaxable: false });
   });
 
   it('any other taxable deduction still comes off PAYE income', () => {

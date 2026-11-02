@@ -1,8 +1,8 @@
 /**
  * The approval gate's refusals read off a run's stored lines (payrollApprovalGate step 3), in order:
- * a pre-code line that cannot be judged, a loan payment its payslip does not show, a loan withheld
- * for want of a LOAN deduction or a 3801 earning, then a shortfall the loan instalment alone does
- * not cause. A shortfall it does cause is only an advisory
+ * a pre-code line that cannot be judged, a loan payment its payslip does not show as it must, a loan
+ * withheld for want of a LOAN deduction, then a shortfall the loan instalment alone does not cause.
+ * A fringe benefit no 3801 earning carries is a line warning, not a refusal (Hein). A shortfall it does cause is only an advisory
  * (owner decision, the module's .claude.md).
  */
 import { formatMoney } from '@/lib/money/formatMoney';
@@ -32,16 +32,11 @@ export function lineBlocker(
         + 'it was calculated when a missing loan component was skipped. Recalculate this run.',
     };
   }
-  for (const [missing, code, component] of [
-    ['deduction', 'loan_deduction_missing', 'deduction is coded LOAN'],
-    ['fringe', 'loan_fringe_component_missing', 'earning is coded 3801 for the low-interest fringe benefit'],
-  ] as const) {
-    const lines = withheld.filter((w) => w.missing === missing);
-    if (lines.length === 0) continue;
+  if (withheld.length > 0) {
     return {
-      code,
-      detail: `Loan instalments were not taken for ${lines.map((w) => `${w.employeeNumber} (loan ${w.loans.join(', ')})`).join('; ')}: `
-        + `no active ${component}, so nothing was deducted and the loans are unchanged. `
+      code: 'loan_deduction_missing',
+      detail: `Loan instalments were not taken for ${withheld.map((w) => `${w.employeeNumber} (loan ${w.loans.join(', ')})`).join('; ')}: `
+        + 'no active deduction is coded LOAN, so nothing was deducted and the loans are unchanged. '
         + 'Add it under Setup → Pay Components, then recalculate.',
     };
   }

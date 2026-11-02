@@ -53,7 +53,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       componentName: component.name,
       sarsSourceCode: component.sarsSourceCode,
       amount,
-      isTaxable: component.isTaxable,
+      // As the line was costed: a LOAN deduction is never taxable (below), whatever the catalogue says.
+      isTaxable: component.isTaxable && normaliseSarsCode(component.sarsSourceCode) !== 'LOAN',
       isUifApplicable: component.isUifApplicable,
       ...(directive ? { directive } : {}),
     });
