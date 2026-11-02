@@ -88,11 +88,12 @@ const FALLBACK_COMPANY_DETAILS: CompanyDetails = {
   invoiceLayout: 'classic', quoteLayout: 'classic', statementLayout: 'classic',
 };
 
-async function getCompanyDetailsFromSettings(): Promise<CompanyDetails> {
+async function getCompanyDetailsFromSettings(companyId: string): Promise<CompanyDetails> {
   try {
     const rows = await withSavepoint('pdf_company_settings', () => sql`
       SELECT key, value FROM app_settings
-      WHERE key = ANY(${COMPANY_SETTINGS_KEYS as unknown as string[]})
+      WHERE company_id = ${companyId}::UUID
+        AND key = ANY(${COMPANY_SETTINGS_KEYS as unknown as string[]})
     `);
     const settings: Record<string, string> = {};
     for (const row of rows) {
@@ -137,11 +138,11 @@ export async function getCompanyDetailsFromCompany(companyId: string): Promise<C
       { companyId, error: err instanceof Error ? err.message : String(err) },
       'pdfShared',
     );
-    return getCompanyDetailsFromSettings();
+    return getCompanyDetailsFromSettings(companyId);
   }
 
   if (rows.length === 0) {
-    return getCompanyDetailsFromSettings();
+    return getCompanyDetailsFromSettings(companyId);
   }
 
   const c = rows[0] as DbRow;

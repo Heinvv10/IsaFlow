@@ -11,6 +11,9 @@ function directive(csp: string, name: string): string {
   return hit ?? '';
 }
 
+/** The site policy as the two public pages start from it. Only the main policy frames blob: (the invoice preview). */
+const sitePolicyWithoutBlobFrames = (): string => buildCsp('production').replace("frame-src 'self' blob: ", "frame-src 'self' ");
+
 describe('securityHeaders — production CSP', () => {
   const csp = buildCsp('production');
 
@@ -54,6 +57,20 @@ describe('securityHeaders — production CSP', () => {
     expect(directive(csp, 'base-uri')).toBe("base-uri 'self'");
   });
 
+  // The invoice PDF preview frames a blob: URL (decision 13). blob: goes on
+  // frame-src alone: framing IsaFlow itself stays refused.
+  it.each(['production', 'development'])('frame-src allows self, blob: and the Signum host, nothing broader (%s)', (env) => {
+    const tokens = directive(buildCsp(env), 'frame-src').split(' ').slice(1);
+    expect([...tokens].sort()).toEqual(["'self'", 'blob:', 'https://signum.brighttech.co.za']);
+  });
+
+  it('adds blob: to no other directive and keeps framing of IsaFlow refused', () => {
+    const blobDirectives = csp.split('; ').filter((d) => d.split(' ').includes('blob:')).map((d) => d.split(' ')[0]);
+    expect(blobDirectives.sort()).toEqual(['frame-src', 'img-src']);
+    const headers = securityHeaders('production') as { key: string; value: string }[];
+    expect(headers.find((h) => h.key === 'X-Frame-Options')?.value).toBe('DENY');
+  });
+
   // Task 12 fix round 1: `upgrade-insecure-requests` must be prod-only. Applied
   // unconditionally, it made Gotenberg's Chromium upgrade dev's plain-HTTP
   // subresources to HTTPS, which the dev server can't answer — the page never
@@ -94,8 +111,17 @@ describe('buildOauthAuthorizeCsp — verified app logo', () => {
   });
 
   it('does not widen img-src for an invalid or non-HTTPS URL', () => {
-    expect(buildOauthAuthorizeCsp('production', 'http://cdn.partner.example/logo.png')).toBe(buildCsp('production'));
-    expect(buildOauthAuthorizeCsp('production', 'not a URL')).toBe(buildCsp('production'));
+    expect(buildOauthAuthorizeCsp('production', 'http://cdn.partner.example/logo.png')).toBe(sitePolicyWithoutBlobFrames());
+    expect(buildOauthAuthorizeCsp('production', 'not a URL')).toBe(sitePolicyWithoutBlobFrames());
+  });
+
+  it.each([
+    ['no logo', null], ['a bad logo URL', 'not a URL'], ['a logo', 'https://cdn.partner.example/logo.png'],
+  ])('frames no blob: with %s, and keeps blob: images', (_name, logo) => {
+    expect(directive(buildCsp('production'), 'frame-src')).toContain('blob:');
+    const csp = buildOauthAuthorizeCsp('production', logo);
+    expect(directive(csp, 'frame-src')).toBe("frame-src 'self' https://signum.brighttech.co.za");
+    expect(directive(csp, 'img-src')).toContain('blob:');
   });
 });
 
@@ -137,10 +163,18 @@ describe('buildSharePageCsp — the public share page', () => {
     expect(directive(dev, 'connect-src')).not.toContain('cloudflareinsights.com');
   });
 
-  it('is the site policy MINUS those two hosts, and nothing else', () => {
+  it('frames no blob: (that is the invoice preview, which this page has not got), and keeps blob: images', () => {
+    expect(directive(buildCsp('production'), 'frame-src')).toContain('blob:');
+    for (const csp of [prod, dev]) {
+      expect(directive(csp, 'frame-src')).toBe("frame-src 'self' https://signum.brighttech.co.za");
+      expect(directive(csp, 'img-src')).toContain('blob:');
+    }
+  });
+
+  it('is the site policy MINUS those two hosts and blob: frames, and nothing else', () => {
     // Derived by subtraction on purpose: the share page must never quietly
     // fall behind a tightening made to the policy every other route gets.
-    const expected = buildCsp('production')
+    const expected = sitePolicyWithoutBlobFrames()
       .replaceAll(' https://static.cloudflareinsights.com', '')
       .replaceAll(' https://cloudflareinsights.com', '');
     expect(prod).toBe(expected);
