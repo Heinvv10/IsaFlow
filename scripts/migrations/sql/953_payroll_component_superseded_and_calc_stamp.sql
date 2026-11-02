@@ -12,17 +12,43 @@
 -- No backfill: a package supersede leaves no record of its own (no application
 -- history; the old row's effective_to is the apply date minus one day), so a
 -- superseded row cannot be told apart from an assignment ended by hand on the
--- same day. Existing rows stay NULL.
+-- same day. Existing rows keep superseded_at NULL. Instead every row that
+-- exists when this migration first runs is marked supersede_inferred = TRUE,
+-- and for those rows only the reader keeps the old rule: a once-off counts as
+-- superseded when another such row of the same employee and component starts
+-- the day after it ends. Rows created later default to FALSE and use
+-- superseded_at alone. The marking runs only in the run that adds the column,
+-- so a re-run never marks newer rows. It is deliberately across every tenant:
+-- it records "existed before 953", not a decision about any company's data.
 --
 -- payroll_run_headers.calculated_at / calculation_version: written by every
 -- calculation (payrollRunLock.saveCalculatedRunTotals). The approval gate
 -- refuses a run calculated by older code (NULL or a lower version) and a run
 -- whose employees' component dates changed (audit_log) after calculated_at.
 --
--- Additive, nullable, no default, no rewrite; safe to re-run.
+-- Additive. One UPDATE of every payroll_employee_components row (the marker),
+-- in the run that adds the column only; no trigger or policy on that table.
+-- Safe to re-run.
 
 ALTER TABLE payroll_employee_components
   ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'payroll_employee_components'
+       AND column_name = 'supersede_inferred'
+  ) THEN
+    ALTER TABLE public.payroll_employee_components
+      ADD COLUMN supersede_inferred BOOLEAN NOT NULL DEFAULT FALSE;
+    UPDATE public.payroll_employee_components SET supersede_inferred = TRUE;
+  END IF;
+END $$;
+
+COMMENT ON COLUMN payroll_employee_components.supersede_inferred IS
+  'TRUE: the row existed before migration 953, and the reader infers a supersede from a neighbouring pre-953 row (the old rule). FALSE: superseded_at alone decides.';
 
 COMMENT ON COLUMN payroll_employee_components.superseded_at IS
   'When a pay-package apply shortened or cancelled this assignment (payPackageService). A once-off ending before its month end is paid only while this is NULL.';
