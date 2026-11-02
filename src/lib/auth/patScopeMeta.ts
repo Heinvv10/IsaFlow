@@ -60,7 +60,7 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
   },
   'write:journals': {
     label: 'Write journals',
-    desc: 'Post General Ledger journal entries',
+    desc: 'Create draft journals and update bank transaction tags. Combined with write:post, this also allows changing journal tags; closing/reopening fiscal periods; year-end close; depreciation runs; opening balances; reclassifications; journal-document links; and journal reversals.',
   },
   'read:contacts': {
     label: 'Read contacts',

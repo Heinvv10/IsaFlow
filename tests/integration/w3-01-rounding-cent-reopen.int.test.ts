@@ -132,7 +132,9 @@ describe('a reopened run and the labour split\'s rounding cent (W3-01 round 3)',
     // journal's — so it re-locks onto the journal as posted, old split and all.
     await pool.query('DELETE FROM cost_centre_gl_mappings WHERE company_id = $1', [company]);
     const whole = await preview(id);
-    const labour = (lines: Array<Line & { accountCode: string }>) => lines.filter((l) => l.debit > 0).map((l) => [l.accountCode, Math.round(l.debit * 100)]);
+    // Per account: since 2026-11-02 each centre's share is its own line (an unmapped centre keeps its CC1 on 5200).
+    const labour = (lines: Array<Line & { accountCode: string }>) => Object.entries(lines.filter((l) => l.debit > 0)
+      .reduce<Record<string, number>>((m, l) => ({ ...m, [l.accountCode]: (m[l.accountCode] ?? 0) + Math.round(l.debit * 100) }), {}));
     expect(labour(whole.body.data!.plan.lines)).toEqual([['5200', 2017713]]);
     expect(labour(whole.body.data!.posted.lines).map(([code]) => code).sort()).toEqual(['5210', '5220']);
     expect(whole.body.data!.blocker).toBeNull();
