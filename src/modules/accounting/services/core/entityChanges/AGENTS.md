@@ -17,6 +17,9 @@ capture to call and none to forget.
   they may see. Newest first; `nextCursor` is the last change's id (never the platform-wide `seq`).
 - `revealEntityChange(companyId, changeId, actor)` — owner / admin only (the ROUTE checks the role and a human
   session); writes `audit_log` (`export`, `entity_change`) in the same transaction when anything masked is revealed.
+- `employeesWithEndDateChangedSince(companyId, employeeIds, since)` — for the payroll approval gate
+  (`payrollRunRecalcGate`): employees whose `end_date` changed after a run was calculated. Same RLS (owner / admin /
+  manager read payroll_employee changes, the roles that may approve).
 - `entityChangeTypes.ts` states 888's rules once (types, channels, who reads what); `entityChangeTypes.test.ts`
   binds it to the migration's SQL.
 

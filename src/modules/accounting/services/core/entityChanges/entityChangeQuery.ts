@@ -144,3 +144,23 @@ export async function listEntityChanges(companyId: string, opts: ListEntityChang
     nextCursor: rows.length > limit ? page[page.length - 1]!.id : null,
   };
 }
+
+/**
+ * The employees among `employeeIds` whose end_date changed after `since` (the payroll approval gate,
+ * payrollRunRecalcGate: an end date moved after a run was calculated). recorded_at is the capture's
+ * clock_timestamp(). Runs as the request's app_user: RLS lets owner / admin / manager read payroll_employee
+ * changes, the roles that may approve a run.
+ */
+export async function employeesWithEndDateChangedSince(
+  companyId: string, employeeIds: string[], since: Date | string,
+): Promise<string[]> {
+  if (employeeIds.length === 0) return [];
+  const rows = (await sql`
+    SELECT DISTINCT entity_id FROM entity_changes
+    WHERE company_id = ${companyId}::uuid AND entity_type = 'payroll_employee'
+      AND entity_id = ANY(${employeeIds}::uuid[])
+      AND 'end_date' = ANY(changed)
+      AND recorded_at > ${since}::timestamptz
+  `) as Array<{ entity_id: string }>;
+  return rows.map((r) => String(r.entity_id));
+}

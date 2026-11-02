@@ -15,6 +15,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
+import { employeesWithEndDateChangedSince } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 
 export const TERMINATION_BASE_MISSING = 'TERMINATION_BASE_MISSING';
@@ -36,7 +37,7 @@ export async function recalculateRequiredRefusal(companyId: string, runId: strin
 /** Component dates changed after calculation, or a leaver with no termination base. Null when neither. */
 export async function runLinesRefusal(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const head = ((await sql`
-    SELECT period_year, period_month FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+    SELECT period_year, period_month, calculated_at FROM payroll_run_headers WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
   `) as DbRow[])[0];
   if (!head) return null;
   // The run's lines AND everyone the run would pay now: a hire with pay added after calculation has no line yet.
@@ -53,23 +54,20 @@ export async function runLinesRefusal(companyId: string, runId: string): Promise
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
       AND pec.employee_id = ANY(${ids}::uuid[])
       AND a.created_at > h.calculated_at
-    UNION
-    -- An end date changed after calculation (the entity history trigger, 888, stamps clock_timestamp()): it moves
-    -- who the run pays and what the termination base and the leaver rule read. Readable by every role that may approve.
-    SELECT e.employee_number
-    FROM payroll_run_headers h
-    JOIN entity_changes c ON c.company_id = h.company_id AND c.entity_type = 'payroll_employee'
-    JOIN payroll_employees e ON e.id = c.entity_id AND e.company_id = h.company_id
-    WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-      AND c.entity_id = ANY(${ids}::uuid[])
-      AND 'end_date' = ANY(c.changed)
-      AND c.recorded_at > h.calculated_at
     ORDER BY 1
   `) as DbRow[];
+  // An end date changed after calculation (the 888 entity history): it moves who the run pays and what the termination
+  // base and the leaver rule read.
+  const movedEnd = head.calculated_at == null ? [] : await employeesWithEndDateChangedSince(companyId, ids, head.calculated_at as Date);
+  if (movedEnd.length > 0) {
+    changed.push(...((await sql`
+      SELECT employee_number FROM payroll_employees WHERE company_id = ${companyId}::uuid AND id = ANY(${movedEnd}::uuid[])
+    `) as DbRow[]));
+  }
   if (changed.length > 0) {
     return {
       code: 'components_changed_after_calculation',
-      detail: `Pay component dates or an end date changed after this run was calculated for ${changed.map((r) => String(r.employee_number)).join(', ')}: `
+      detail: `Pay component dates or an end date changed after this run was calculated for ${[...new Set(changed.map((r) => String(r.employee_number)))].sort().join(', ')}: `
         + 'the run still holds the old figures. Recalculate this run, then approve it.',
     };
   }
