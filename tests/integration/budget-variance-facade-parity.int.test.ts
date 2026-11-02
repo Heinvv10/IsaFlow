@@ -289,6 +289,6 @@ describe("partialWindow: 'absent' = the Budget vs Actual report for the same win
     expect(absent.budgetAbsentYears).toEqual(report.notices.noVersionYears);
     expect(absent.partialBudgetCount).toBe(report.notices.partialBudget?.count ?? 0);
     expect(absent.unallocatedBudget).toEqual(report.notices.unallocatedBudget);
-    expect(absent.bands).toEqual(report.bands.map((b) => ({ key: b.key, budget: b.budget })));
+    expect(absent.bands).toEqual(report.bands.map((b) => ({ key: b.key, budget: b.budget, actual: b.actual })));
   });
 });
