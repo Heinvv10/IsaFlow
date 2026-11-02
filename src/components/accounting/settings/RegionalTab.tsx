@@ -86,8 +86,8 @@ export function RegionalTab({ company, onChange }: Props) {
         <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-4">Date &amp; Number Format</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className={LABEL_CLS}>Date Format</label>
-            <select
+            <label htmlFor="regional-tab-date-format" className={LABEL_CLS}>Date Format</label>
+            <select id="regional-tab-date-format"
               className={INPUT_CLS}
               value={company.dateFormat}
               onChange={e => onChange('dateFormat', e.target.value)}
@@ -98,8 +98,8 @@ export function RegionalTab({ company, onChange }: Props) {
             </select>
           </div>
           <div>
-            <label className={LABEL_CLS}>Decimal Separator</label>
-            <select
+            <label htmlFor="regional-tab-decimal-separator" className={LABEL_CLS}>Decimal Separator</label>
+            <select id="regional-tab-decimal-separator"
               className={INPUT_CLS}
               value={company.decimalSeparator}
               onChange={e => onChange('decimalSeparator', e.target.value)}
@@ -110,8 +110,8 @@ export function RegionalTab({ company, onChange }: Props) {
             </select>
           </div>
           <div>
-            <label className={LABEL_CLS}>Thousands Separator</label>
-            <select
+            <label htmlFor="regional-tab-thousands-separator" className={LABEL_CLS}>Thousands Separator</label>
+            <select id="regional-tab-thousands-separator"
               className={INPUT_CLS}
               value={company.thousandsSeparator}
               onChange={e => onChange('thousandsSeparator', e.target.value)}
@@ -122,8 +122,8 @@ export function RegionalTab({ company, onChange }: Props) {
             </select>
           </div>
           <div>
-            <label className={LABEL_CLS}>Decimal Places (amounts)</label>
-            <input
+            <label htmlFor="regional-tab-decimal-places-amounts" className={LABEL_CLS}>Decimal Places (amounts)</label>
+            <input id="regional-tab-decimal-places-amounts"
               type="number"
               min={0}
               max={4}

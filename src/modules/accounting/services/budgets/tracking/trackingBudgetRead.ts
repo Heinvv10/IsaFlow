@@ -6,7 +6,7 @@
  * Versions (contract: "readers use the primary"): with no `versionId` each
  * financial year the read covers contributes its PRIMARY version's months (a
  * year with none contributes nothing), the rule of
- * `budgets/budgetVersionScope.primaryVersionScope`, applied to the years the
+ * `budgets/budgetVersionScope.primaryVersionScopeAndYears`, applied to the years the
  * window already resolved. A named version must belong to the company (else 404,
  * through `versionYear`), and every month of the window must lie in that
  * version's year, else 400 "version X is FY2027; the window reaches FY2028".
@@ -45,7 +45,7 @@ export interface TrackingVersions {
   noVersionYears: number[];
 }
 
-async function versionHeads(companyId: string, ids: string[]): Promise<Map<string, TrackingVersionRef>> {
+export async function versionHeads(companyId: string, ids: string[]): Promise<Map<string, TrackingVersionRef>> {
   if (ids.length === 0) return new Map();
   const rows = (await sql`
     SELECT id::TEXT AS id, name, kind, status, is_primary
@@ -72,31 +72,73 @@ function scopeYears(window: TrackingWindow): Array<{ fiscalYear: number; first: 
   return out;
 }
 
+type ClassedMonth = { month: string; cls: 'included' | 'coarser' | 'other' };
+type AbsentWindow = { years: readonly WindowYear[]; fy: { fiscalYear: number; startDate: string; endDate: string } };
+
+/** Every year the budget is judged over: the window's, and FY* when it lies outside (judged over its whole year, as the projection reads it). */
+function judgedYears(window: AbsentWindow): WindowYear[] {
+  return window.years.some((y) => y.fiscalYear === window.fy.fiscalYear)
+    ? [...window.years]
+    : [...window.years, { fiscalYear: window.fy.fiscalYear, months: budgetMonthKeysInWindow(window.fy.startDate, window.fy.endDate) }];
+}
+
 /**
- * Pure (review r3 R9, r4 E1-E3): the years the WINDOW has no budget for. A year is budget-absent
+ * Pure (review r3 R9, r4 E1-E3, r2 R8): the years the WINDOW has no budget for. A year is budget-absent
  * when it has no version, or when its version contributes no row to the scoped budget read
  * (`readTrackingBudgets`: income-statement accounts, the version's own months) within that year's
- * window months, counting only rows the filter classes included or coarser. An "any row" check would be fooled by a row outside the window, on a
- * balance-sheet account, or dated in another year's month. FY* outside the window (a year to date
- * that has not started) is judged over its whole year, as the projection reads it.
+ * window months. An "any row" check would be fooled by a row outside the window, on a balance-sheet
+ * account, or dated in another year's month. It is judged BEFORE the dimension filter: a row the
+ * filter classes as other or coarser still means the year HAS a budget (not at this filter, which
+ * `budgetOutsideFilterYears` says), so "no budget for FY2027" is never printed for a year whose budget
+ * is simply set at another cost centre.
  */
 export function budgetAbsentYears(
-  window: { years: readonly WindowYear[]; fy: { fiscalYear: number; startDate: string; endDate: string } },
+  window: AbsentWindow,
   scope: readonly VersionScope[],
-  rows: ReadonlyArray<{ month: string; cls: 'included' | 'coarser' | 'other' }>,
+  rows: ReadonlyArray<ClassedMonth>,
 ): number[] {
-  // Under a filter (review r5 G1): rows the filter classes as other never budget a year; coarser rows
-  // do (they are the year's unallocated footer), included ones of course.
-  const budgeted = new Set(rows.filter((r) => r.cls !== 'other').map((r) => r.month));
-  const judged = window.years.some((y) => y.fiscalYear === window.fy.fiscalYear)
-    ? window.years
-    : [...window.years, { fiscalYear: window.fy.fiscalYear, months: budgetMonthKeysInWindow(window.fy.startDate, window.fy.endDate) }];
-  return judged
+  const budgeted = new Set(rows.map((r) => r.month));
+  return judgedYears(window)
     .filter((y) => {
       const version = scope.find((sc) => sc.fiscalYear === y.fiscalYear)?.versionId ?? null;
       return version === null || !y.months.some((m) => budgeted.has(m));
     })
     .map((y) => y.fiscalYear);
+}
+
+/**
+ * Pure (review r2, R8): the years that HAVE a budget in the window, none of which is at the filter:
+ * every row of the year's window months is another dimension's (class other). A row set above the
+ * filter (coarser) is the unallocated footer's to say, and an included row is the budget itself.
+ */
+export function budgetOutsideFilterYears(
+  window: AbsentWindow,
+  scope: readonly VersionScope[],
+  rows: ReadonlyArray<ClassedMonth>,
+): number[] {
+  const absent = new Set(budgetAbsentYears(window, scope, rows));
+  const atFilter = new Set(rows.filter((r) => r.cls !== 'other').map((r) => r.month));
+  return judgedYears(window)
+    .filter((y) => !absent.has(y.fiscalYear) && !y.months.some((m) => atFilter.has(m)))
+    .map((y) => y.fiscalYear);
+}
+
+/**
+ * A named version's scope over the window's years: the version must be the company's (404 through
+ * `versionYear`) and every year the window reaches must be its own (400 "version X is FY2027; the
+ * window reaches FY2028"). The Budget vs Actual report and the date-range entry point both use it.
+ */
+export async function namedVersionScopeOf(
+  companyId: string,
+  versionId: string,
+  years: ReadonlyArray<{ fiscalYear: number; first: string; last: string }>,
+): Promise<VersionScope[]> {
+  const year = await mapRegistryMiss(() => versionYear(companyId, versionId));
+  const reaches = years.map((y) => y.fiscalYear).filter((y) => y !== year.fiscalYear);
+  if (reaches.length > 0) {
+    throw new TrackingError(400, `version ${versionId} is FY${year.fiscalYear}; the window reaches FY${reaches[0]}`);
+  }
+  return years.map((y) => ({ ...y, versionId }));
 }
 
 /** The versions a window reads; `versionId` is looked up under the company (404 when it is not its own). */
@@ -105,13 +147,8 @@ export async function resolveTrackingVersions(companyId: string, window: Trackin
   const years = scopeYears(window);
   let scope: VersionScope[];
   if (versionId) {
-    const year = await mapRegistryMiss(() => versionYear(companyId, versionId));
-    const reaches = years.map((y) => y.fiscalYear).filter((y) => y !== year.fiscalYear);
-    if (reaches.length > 0) {
-      throw new TrackingError(400, `version ${versionId} is FY${year.fiscalYear}; the window reaches FY${reaches[0]}`);
-    }
     // The window lies inside the version's year, so FY* is that year: one scope entry, the whole year.
-    scope = years.map((y) => ({ ...y, versionId }));
+    scope = await namedVersionScopeOf(companyId, versionId, years);
   } else {
     const prim = (await sql`
       SELECT id::TEXT AS id, fiscal_year FROM budget_versions

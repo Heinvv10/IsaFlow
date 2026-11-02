@@ -20,7 +20,11 @@ const authToken='disposable-whatsapp-signature-fixture';
 const origin='http://localhost:3200';
 const url='/api/accounting/capture/inbound/whatsapp';
 // 618 grants app_user every privilege on the claims (and is re-run here): put back what 937 took (S-07d).
-const restore937=()=>pool.query(readFileSync('scripts/migrations/sql/937_credential_tables_off_app_pools.sql','utf8'));
+// 937 also replaces app_pool_reach_violations() with its own, older body, and this database is shared with
+// the suites that run after this one (s07e-breaker-cron-and-deploy asserts 945's rules): 945 and 946, which
+// redefine it last, are re-applied after it so the function is left as the migrations leave it.
+const restore937=async()=>{for(const m of ['937_credential_tables_off_app_pools','945_billing_and_temp_off_app_pools','946_routes_off_app_pools'])
+  await pool.query(readFileSync(`scripts/migrations/sql/${m}.sql`,'utf8'));};
 beforeAll(async()=>{
   await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore937();
   vi.stubEnv('TWILIO_AUTH_TOKEN',authToken);

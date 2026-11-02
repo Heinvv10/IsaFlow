@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { ValidationStep, ImportStep } from '@/components/accounting/gl-import/GlImportWizardSteps';
 import type { ImportRow, ValidationSummary } from '@/modules/accounting/services/gl/glImportService';
+import { buildImportRows } from '@/components/accounting/gl-import/buildImportRows';
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -167,24 +168,7 @@ export default function GlImportPage() {
     reader.readAsArrayBuffer(file);
   }, []);
 
-  const buildImportRows = useCallback((): ImportRow[] => {
-    return rawRows.map(row => {
-      const get = (field: string) => {
-        const entry = Object.entries(mapping).find(([, v]) => v === field);
-        return entry ? (row[Number(entry[0])] ?? '') : '';
-      };
-      return {
-        date: get('date'),
-        accountCode: get('accountCode'),
-        description: get('description'),
-        reference: get('reference') || undefined,
-        debit: parseFloat(get('debit').replace(/,/g, '')) || 0,
-        credit: parseFloat(get('credit').replace(/,/g, '')) || 0,
-        vatCode: get('vatCode') || undefined,
-        costCentre: get('costCentre') || undefined,
-      };
-    });
-  }, [rawRows, mapping]);
+  const buildRows = useCallback((): ImportRow[] => buildImportRows(rawRows, mapping), [rawRows, mapping]);
 
   const isMappingComplete = REQUIRED_FIELDS.every(f => Object.values(mapping).includes(f));
 
@@ -193,7 +177,7 @@ export default function GlImportPage() {
     setValidateError('');
     setSummary(null);
     try {
-      const rows = buildImportRows();
+      const rows = buildRows();
       const res = await apiFetch('/api/accounting/gl-import-validate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }),
       });
@@ -208,7 +192,7 @@ export default function GlImportPage() {
     } finally {
       setValidating(false);
     }
-  }, [buildImportRows]);
+  }, [buildRows]);
 
   const handleImport = useCallback(async () => {
     setImporting(true);

@@ -14,26 +14,62 @@
  * already means "no budget was captured". Rendering a network failure as
  * either one states something about the ledger that nobody checked.
  *
+ * The budget column follows the statement's dimension filter (budgets P3 PR-C):
+ * `costCentreId` (either level) and `businessUnitId` go to the comparator, as
+ * the statement sends them. Period and filter changes are COALESCED: the fetch
+ * waits BUDGET_COALESCE_MS after the last change, so typing a date or stepping
+ * through periods costs the company's report limit one request, not one per
+ * keystroke. A refusal (429) is its own state with the wait and a retry,
+ * never "failed" and never "none".
+ *
  * Nothing is derived here. `applyTrend` and `applyBudgetComparator` own the
  * mapping, and they COPY figures — see `statementRows/comparators.ts`.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { apiJson } from '@/lib/apiFetch';
+import { ApiRequestError, apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import type { ByPolarity } from '@/modules/accounting/services/budgets/tracking/trackingTypes';
+import type { BudgetVarianceTracked, TrackedLine } from '@/modules/accounting/services/reports/budgetVarianceTracked';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import {
   applyBudgetComparator, applyTrend, hasBudgetData,
 } from '@/modules/accounting/services/reports/statementRows/comparators';
+import { applyBudgetBands, withBudgetedLines } from '@/modules/accounting/services/reports/statementRows/budgetComparatorBands';
 
 /** What the budget fetch has established so far. `unknown` covers both "not
- *  asked for" and "still in flight"; `failed` must never be shown as `none`. */
-export type BudgetState = 'unknown' | 'failed' | 'none' | 'available';
+ *  asked for" and "still in flight"; `failed` must never be shown as `none`;
+ *  `limited` is a refusal by the report limiter, which a retry can answer;
+ *  `refused` is the server saying the window itself is not acceptable (a 400), with its reason. */
+export type BudgetState = 'unknown' | 'failed' | 'limited' | 'refused' | 'none' | 'available';
+
+/** What the budget fetch said about the window beyond its lines. */
+export interface BudgetInfo {
+  /** Years of the window with no budget in it. */
+  budgetAbsentYears: number[];
+  /** Years that have a budget, none of it at the dimension filter. */
+  budgetOutsideFilterYears: number[];
+  /** Budget set above the dimension filter, per polarity; null when the window budget is absent. */
+  unallocatedBudget: ByPolarity | null;
+  /** Accounts budgeted for only part of the window, whose Budget is blank. */
+  partialBudgetCount: number;
+  /** The window cuts a budget month: no window budget (budgets are set by whole month). */
+  splitsMonth: boolean;
+  /** The limiter's wait, when `budgetState` is `limited` and the server named one. */
+  retryAfterSecs: number | null;
+  /** The server's reason, when `budgetState` is `refused`. */
+  rejection: string | null;
+}
+
+/** How long the budget fetch waits after the last period or filter change. */
+export const BUDGET_COALESCE_MS = 350;
 
 export interface StatementComparators {
   apply: (rows: StatementRow[]) => StatementRow[];
   budgetState: BudgetState;
+  budgetInfo: BudgetInfo;
+  /** Asks for the budget again (after a refusal or a failure). */
+  retryBudget: () => void;
   trendFailed: boolean;
   trendLoading: boolean;
   budgetLoading: boolean;
@@ -55,18 +91,43 @@ export interface StatementComparatorOptions {
   /** Required when `budget` is on; the budget fetch's window. */
   periodStart?: string;
   periodEnd?: string;
+  /** The statement's dimension filter, as it sends it ('' = none). */
+  costCentreId?: string;
+  businessUnitId?: string;
 }
 
-interface BudgetData { lines: BudgetVsActualLine[]; budgetedCount: number }
+interface BudgetData {
+  lines: TrackedLine[];
+  budgetedCount: number;
+  budgetAbsentYears: number[];
+  budgetOutsideFilterYears: number[];
+  unallocatedBudget: ByPolarity | null;
+  partialBudgetCount: number;
+  splitsMonth: boolean;
+  bands: BudgetVarianceTracked['bands'];
+}
+
+/** A refusal by a report limiter: the route's own (with Retry-After) or withAuth's shared one (without). */
+function refusal(err: unknown): { retryAfterSecs: number | null } | null {
+  const e = err as { status?: unknown; retryAfterSecs?: unknown } | null;
+  if (e?.status === 429) return { retryAfterSecs: typeof e.retryAfterSecs === 'number' ? e.retryAfterSecs : null };
+  // Any other failure is the caller's to report (it logs it and shows BUDGET_FAILED).
+  return null;
+}
 
 export function useStatementComparators(opts: StatementComparatorOptions): StatementComparators {
-  const { trend, budget = false, asOf, basis, periodStart = '', periodEnd = '' } = opts;
+  const {
+    trend, budget = false, asOf, basis, periodStart = '', periodEnd = '', costCentreId = '', businessUnitId = '',
+  } = opts;
   const [trends, setTrends] = useState<AccountTrends | null>(null);
   const [trendFailed, setTrendFailed] = useState(false);
   const [trendLoading, setTrendLoading] = useState(false);
   const [budgetData, setBudgetData] = useState<BudgetData | null>(null);
   const [budgetFailed, setBudgetFailed] = useState(false);
   const [budgetLoading, setBudgetLoading] = useState(false);
+  const [budgetLimited, setBudgetLimited] = useState<{ retryAfterSecs: number | null } | null>(null);
+  const [budgetRefused, setBudgetRefused] = useState<string | null>(null);
+  const [budgetAttempt, setBudgetAttempt] = useState(0);
 
   useEffect(() => {
     // Clear FIRST. The cancellation flag stops an out-of-order write; it does
@@ -90,20 +151,45 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
   useEffect(() => {
     setBudgetData(null);
     setBudgetFailed(false);
-    if (!budget || !periodStart || !periodEnd) return;
+    setBudgetLimited(null);
+    setBudgetRefused(null);
+    if (!budget || !periodStart || !periodEnd) {
+      setBudgetLoading(false);
+      return;
+    }
     let cancelled = false;
     setBudgetLoading(true);
-    apiJson(`/api/accounting/reports-budget-comparator?period_start=${periodStart}&period_end=${periodEnd}`, undefined, 'Could not load the budget comparison - try again')
-      .then((data) => {
-        if (!cancelled) setBudgetData({ lines: data.lines, budgetedCount: data.budgetedCount });
-      })
-      .catch((err) => {
-        log.warn('Failed to load budget comparator', { error: err }, 'useStatementComparators');
-        if (!cancelled) setBudgetFailed(true);
-      })
-      .finally(() => { if (!cancelled) setBudgetLoading(false); });
-    return () => { cancelled = true; };
-  }, [budget, periodStart, periodEnd]);
+    const q = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
+    if (costCentreId) q.set('cost_centre_id', costCentreId);
+    if (businessUnitId) q.set('business_unit_id', businessUnitId);
+    const timer = setTimeout(() => {
+      apiJson(`/api/accounting/reports-budget-comparator?${q.toString()}`, undefined, 'Could not load the budget comparison - try again')
+        .then((data) => {
+          if (!cancelled) {
+            setBudgetData({
+              lines: data.lines, budgetedCount: data.budgetedCount, budgetAbsentYears: data.budgetAbsentYears,
+              budgetOutsideFilterYears: data.budgetOutsideFilterYears, unallocatedBudget: data.unallocatedBudget, partialBudgetCount: data.partialBudgetCount,
+              splitsMonth: data.splitsMonth, bands: data.bands,
+            });
+          }
+        })
+        .catch((err) => {
+          log.warn('Failed to load budget comparator', { error: err }, 'useStatementComparators');
+          if (cancelled) return;
+          const limited = refusal(err);
+          // A 400 is the server refusing the window itself: its reason is shown, and reloading cannot help.
+          const reason = err instanceof ApiRequestError && err.status === 400
+            ? apiErrorMessage(err, 'The budget window was not accepted') : '';
+          if (limited) setBudgetLimited(limited);
+          else if (reason !== '') setBudgetRefused(reason);
+          else setBudgetFailed(true);
+        })
+        .finally(() => { if (!cancelled) setBudgetLoading(false); });
+    }, BUDGET_COALESCE_MS);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [budget, periodStart, periodEnd, costCentreId, businessUnitId, budgetAttempt]);
+
+  const retryBudget = useCallback(() => setBudgetAttempt((n) => n + 1), []);
 
   const apply = useCallback((rows: StatementRow[]): StatementRow[] => {
     let out = rows;
@@ -111,9 +197,12 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     // No budget captured means every account's budget is zero, and applying
     // the comparator then prints a variance equal to the whole actual against
     // a target nobody set — a large red bar that is an artefact, not a
-    // finding. The column stays empty and the page says why.
-    if (budget && budgetData && hasBudgetData(budgetData.budgetedCount)) {
-      out = applyBudgetComparator(out, budgetData.lines);
+    // finding. The comparator's lines carry the engine's verdicts instead
+    // (budgets P3 PR-C), so a window with no budget prints "—" on every row,
+    // never a zero, and the page says why.
+    if (budget && budgetData) {
+      // Unspent budgets get their rows, every line its budget or "—", every band the engine's budget.
+      out = applyBudgetBands(applyBudgetComparator(withBudgetedLines(out, budgetData.lines), budgetData.lines), budgetData.bands);
     }
     return out;
   }, [trend, budget, trends, budgetData]);
@@ -122,13 +211,29 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     ? 'unknown'
     : budgetFailed
       ? 'failed'
-      : budgetData === null
-        ? 'unknown'
-        : hasBudgetData(budgetData.budgetedCount) ? 'available' : 'none';
+      : budgetLimited
+        ? 'limited'
+        : budgetRefused !== null
+          ? 'refused'
+          : budgetData === null
+          ? 'unknown'
+          : hasBudgetData(budgetData.budgetedCount) ? 'available' : 'none';
+
+  const budgetInfo: BudgetInfo = {
+    budgetAbsentYears: budgetData?.budgetAbsentYears ?? [],
+    budgetOutsideFilterYears: budgetData?.budgetOutsideFilterYears ?? [],
+    unallocatedBudget: budgetData?.unallocatedBudget ?? null,
+    partialBudgetCount: budgetData?.partialBudgetCount ?? 0,
+    splitsMonth: budgetData?.splitsMonth ?? false,
+    retryAfterSecs: budgetLimited?.retryAfterSecs ?? null,
+    rejection: budgetRefused,
+  };
 
   return {
     apply,
     budgetState,
+    budgetInfo,
+    retryBudget,
     trendFailed: trend && trendFailed,
     trendLoading,
     budgetLoading,

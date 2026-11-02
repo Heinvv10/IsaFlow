@@ -128,12 +128,27 @@ export interface TrackingLine extends TrackingFigures {
   band: TrackingBandKey;
   /** The account's only budget in the window is set above this filter ("budget set above this filter"). */
   budgetAboveFilter: boolean;
+  /** Some of the account's budget in FY* sits above this filter (any FY month, the window or not): the FY budget of its band
+   *  and of the profit totals above it is absent (R11). Equal to `budgetAboveFilter` on a date range, whose FY* is the window. */
+  fyBudgetAboveFilter: boolean;
   /** The account's budget covers PART of the window (a cross-year window budgeted in some years only,
    *  or a grain change between versions): the window Budget / Var R / Var % are absent, and so are the
    *  profit totals above it. Not "unbudgeted". */
   partialBudget: boolean;
+  /** The engine's ONE verdict on the line's window budget; every reader copies it, none re-derives it. */
+  budgetVerdict: BudgetVerdict;
   monthly: TrackingMonth[];
 }
+
+/**
+ * - `budgeted`: an included budget for the window (a zero counts).
+ * - `absent`: the WINDOW budget is absent (a year in it with no budget, or a range that splits a budget
+ *   month): nothing is called unbudgeted, nothing partial.
+ * - `partial`: budgeted for part of the window only (`partialBudget`).
+ * - `above-filter`: its only budget is set above the filter (`budgetAboveFilter`, unallocated).
+ * - `unbudgeted`: no budget for it in the window at all.
+ */
+export type BudgetVerdict = 'budgeted' | 'absent' | 'partial' | 'above-filter' | 'unbudgeted';
 
 export interface TrackingBand extends TrackingFigures {
   key: TrackingBandKey | TrackingTotalKey;
@@ -188,6 +203,8 @@ export interface TrackingNotices {
   /** Every year with NO BUDGET IN THIS WINDOW: no version, or a version contributing no income-statement
    *  row in that year's window months (it may hold budget outside the window). Name kept for the wire. */
   noVersionYears: number[];
+  /** Years WITH a budget in the window, none of it at this filter (every row is another dimension's): "FY2027 has a budget, but none of it is at this filter". */
+  noBudgetAtFilterYears: number[];
 }
 
 export interface TrackingProjectionInfo {

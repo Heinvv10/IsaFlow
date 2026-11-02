@@ -36,6 +36,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { UNKNOWN_SUPPLIER } from '@/modules/accounting/services/ap/apAgingInvoices';
 import {
   applySupplierPaymentPlan,
   planSupplierPaymentApplication,
@@ -63,11 +64,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
-            s.company_name AS supplier_name
+            COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
-          JOIN suppliers s ON s.id = sp.supplier_id
+          LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
           WHERE spa.payment_id = ${paymentId}
             AND sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
@@ -76,11 +77,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
-            s.company_name AS supplier_name
+            COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
-          JOIN suppliers s ON s.id = sp.supplier_id
+          LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
           WHERE sp.supplier_id = ${supplierId}
             AND sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
@@ -90,11 +91,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         rows = await sql`
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
-            s.company_name AS supplier_name
+            COALESCE(NULLIF(s.company_name, ''), s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name
           FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
-          JOIN suppliers s ON s.id = sp.supplier_id
+          LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
           WHERE sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
           LIMIT 200

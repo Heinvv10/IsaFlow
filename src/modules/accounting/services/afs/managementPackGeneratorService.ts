@@ -8,6 +8,10 @@ import { createAfsSection, updateAfsSection } from './afsSectionService';
 import { fetchBalanceSnapshot, getKpiScorecard } from './afsKpiService';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
+import {
+  budgetBandBlocks, budgetLineBlocks, budgetSnapshot, comparisonPlan, incomeStatementContent, isBudgetSection,
+  loadPackBudget, narrativePrior, samePeriodLastYear, type ComparisonPlan, type PackBudget,
+} from './managementPackComparison';
 import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
@@ -39,6 +43,10 @@ interface PackData {
   income: Record<string, unknown>;
   balance: Record<string, unknown>;
   priorIncome: Record<string, unknown>;
+  priorYearIncome: Record<string, unknown> | null;
+  plan: ComparisonPlan;
+  budget: PackBudget | null;
+  enabledSections: string[];
 }
 
 // ── Section renderers ────────────────────────────────────────────────────────
@@ -55,9 +63,13 @@ function renderSection(sectionType: string, data: PackData): NoteContent {
         }],
       };
     case 'income_statement':
-      return { title: 'Income Statement', blocks: [{ type: 'paragraph', text: JSON.stringify(data.income) }] };
+      return incomeStatementContent(data, data.plan, data.budget, data.enabledSections.includes('income_vs_budget'));
     case 'balance_sheet':
       return { title: 'Balance Sheet', blocks: [{ type: 'paragraph', text: JSON.stringify(data.balance) }] };
+    case 'income_vs_budget':
+      return { title: 'Income vs Budget', blocks: data.budget ? budgetBandBlocks(data.budget) : [] };
+    case 'budget_variance':
+      return { title: 'Budget Variance', blocks: data.budget ? budgetLineBlocks(data.budget) : [] };
     default:
       return { title: sectionType, blocks: [] };
   }
@@ -150,6 +162,14 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     throw new DuplicatePackError(`Management pack already generated for period ${period}`);
   }
 
+  const enabledSections = Object.entries(config.sectionsEnabled)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+
+  const plan = comparisonPlan(config.comparisonMode);
+  // Before the document: a fault here must not leave a half-made pack that blocks the month's re-run.
+  const budget = plan.budget || enabledSections.some(isBudgetSection) ? await loadPackBudget(companyId, period) : null;
+
   const doc = await createAfsDocument({
     companyId, period, documentType: 'management_pack', reportingFramework: 'ifrs_smes',
   });
@@ -157,10 +177,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const { start, end } = periodBounds(period);
   const prior = priorPeriod(period);
   const { start: priorStart, end: priorEnd } = periodBounds(prior);
-
-  const enabledSections = Object.entries(config.sectionsEnabled)
-    .filter(([, v]) => v)
-    .map(([k]) => k);
+  const { start: yearAgoStart, end: yearAgoEnd } = periodBounds(samePeriodLastYear(period));
 
   const sectionRows = await Promise.all(
     enabledSections.map((sectionType, idx) =>
@@ -173,23 +190,28 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     ),
   );
 
-  const [income, balance, priorIncome, kpiScorecard, companyName, topRevenue, topExpense] =
+  const [income, balance, priorIncome, priorYearIncome, kpiScorecard, companyName, topRevenue, topExpense] =
     await Promise.all([
       fetchIncomeAgg(companyId, start, end),
       fetchBalanceSnapshot(companyId, end),
       fetchIncomeAgg(companyId, priorStart, priorEnd),
+      plan.priorYear ? fetchIncomeAgg(companyId, yearAgoStart, yearAgoEnd) : null,
       getKpiScorecard(companyId, period),
       fetchCompanyName(companyId),
       fetchTopMover(companyId, start, end, 'revenue'),
       fetchTopMover(companyId, start, end, 'expense'),
     ]);
 
-  const packData: PackData = { kpis: kpiScorecard.kpis, income, balance, priorIncome };
+  const packData: PackData = {
+    kpis: kpiScorecard.kpis, income, balance, priorIncome, priorYearIncome, plan, budget, enabledSections,
+  };
+  const narrative = narrativePrior(packData, plan);
 
   for (const section of sectionRows) {
     const content = renderSection(section.sectionType, packData);
     await updateAfsSection(section.id, doc.id, companyId, {
-      dataSnapshot: income, content, status: 'auto_generated',
+      dataSnapshot: budget && isBudgetSection(section.sectionType) ? budgetSnapshot(budget) : income,
+      content, status: 'auto_generated',
     });
   }
 
@@ -199,7 +221,8 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   const aiSummary = await generateExecutiveSummary({
     companyName, period,
     revenue: Number(income.revenue ?? 0),
-    priorRevenue: Number(priorIncome.revenue ?? 0),
+    priorRevenue: narrative.revenue,
+    priorLabel: narrative.label,
     grossMarginPct: grossKpi?.value ?? 0,
     priorGrossMarginPct: grossKpi?.priorValue ?? null,
     ebitda: 0, closingCash: 0, cashChange: 0,
@@ -212,10 +235,10 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   });
 
   const commentaryResults = await Promise.allSettled(
-    sectionRows.map(section =>
+    sectionRows.filter(section => !isBudgetSection(section.sectionType)).map(section =>
       generateSectionCommentary({
         sectionType: section.sectionType, sectionData: income,
-        companyName, period, priorData: priorIncome,
+        companyName, period, priorData: narrative.priorData,
       }).then(commentary => ({ sectionId: section.id, docId: doc.id, commentary })),
     ),
   );

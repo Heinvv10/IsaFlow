@@ -86,8 +86,13 @@ const workItem = {
   createdAt: 'now', updatedAt: 'now',
 };
 
+// A date inside the backdating window (this month, the 1st) whatever today
+// is: a fixed date fell behind the floor when the month rolled over.
+const NOW = new Date();
+const IN_WINDOW = `${NOW.getUTCFullYear()}-${String(NOW.getUTCMonth() + 1).padStart(2, '0')}-01`;
+
 const entry = {
-  id: ENTRY, companyId: COMPANY, userId: ME, entryDate: '2026-09-01', hours: 2,
+  id: ENTRY, companyId: COMPANY, userId: ME, entryDate: IN_WINDOW, hours: 2,
   practiceClientId: CLIENT, jobCategoryId: CAT, workItemId: ITEM,
   taskDescription: 'VAT201', notes: null, billable: true, appliedRate: 850,
   lineTotal: 1700, origin: 'assisted' as const, status: 'draft' as const,
@@ -298,8 +303,12 @@ describe('create_work_item', () => {
 // ─────────────────────────────────────────────────────────── time writes ──
 
 describe('log_time_entry', () => {
+  const today = new Date();
+  const firstOfThisMonth = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  const twoMonthsBack = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 2, 15))
+    .toISOString().slice(0, 10);
   const base = {
-    entry_date: '2026-09-01', hours: 2, practice_client_id: CLIENT,
+    entry_date: IN_WINDOW, hours: 2, practice_client_id: CLIENT,
     job_category_id: CAT, work_item_id: ITEM, task_description: 'VAT201', ...KEY,
   };
 
@@ -348,11 +357,6 @@ describe('log_time_entry', () => {
   // The floor is the first day of the PREVIOUS calendar month, so these are
   // computed from today rather than hard-coded — a fixed date would start
   // failing the moment the month rolled over.
-  const today = new Date();
-  const firstOfThisMonth = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-01`;
-  const twoMonthsBack = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 2, 15))
-    .toISOString().slice(0, 10);
-
   it('refuses a month older than the previous one, naming both the floor and the way through', async () => {
     const r = await logTimeEntryTool.handler({ ...base, entry_date: twoMonthsBack }, ctx);
     expect(r.isError).toBe(true);

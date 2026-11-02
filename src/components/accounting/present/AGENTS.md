@@ -68,6 +68,12 @@ backspace go back; Home and End jump; Escape exits.
   comparator is applied only when a real budget was captured, never against
   an implicit budget of zero. `[pack].tsx` fetches it from
   `reports-budget-comparator`'s `budgetedCount` alongside `lines`.
+  `budgetedCount: 0` is not "no budget captured": the comparator withholds a
+  budget that exists (a window ending mid-month, `splitsMonth`; a year with
+  none; partial or above-filter budgets). `[pack].tsx` passes those fields as
+  `budgetInfo`, and the budget (ratios) slide prints `comparatorNotices`'
+  sentences for them (the statement page's own); "No budget was captured for
+  this period." only when none applies.
   Three states, never two. `trendsLoading` / `budgetLoading` /
   `incomeLoading` mean the request is IN FLIGHT, `trendsFailed` /
   `budgetFailed` mean it rejected, and neither of those is "no data was

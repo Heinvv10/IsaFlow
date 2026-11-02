@@ -6,11 +6,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, PackageCheck, Loader2, Receipt } from 'lucide-react';
+import { PackageCheck, Loader2, Receipt } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 
 interface PurchaseOrder {
@@ -117,20 +117,12 @@ export default function NewGRNPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/goods-received" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Goods Received
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">New Goods Received Note</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={PackageCheck}
+          title="New Goods Received Note"
+          breadcrumb={[{ label: 'Goods Received', href: '/accounting/goods-received' }, { label: 'New note' }]}
+          className="mb-0"
+        />
 
         <div className="p-6 xl:p-8">
           <div className="max-w-6xl mx-auto flex gap-6 items-start">
@@ -150,11 +142,11 @@ export default function NewGRNPage() {
                 </h3>
                 <div className="space-y-4">
                   <div>
-                    <label className={lbl}>Purchase Order *</label>
+                    <label htmlFor="goods-received-new-purchase-order" className={lbl}>Purchase Order *</label>
                     {loadingPOs ? (
                       <Loader2 className="h-4 w-4 animate-spin text-slate-500 dark:text-slate-400" />
                     ) : (
-                      <select name="selectedPO" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)} className={inp}>
+                      <select id="goods-received-new-purchase-order" name="selectedPO" value={selectedPO} onChange={(e) => setSelectedPO(e.target.value)} className={inp}>
                         <option value="">Select a confirmed purchase order...</option>
                         {pos.map((po) => (
                           <option key={po.id} value={po.id}>{po.po_number} — {po.supplier_name}</option>
@@ -168,13 +160,13 @@ export default function NewGRNPage() {
                         onChange={dates.bind('receivedDate', setReceivedDate, receivedDate)} />
                     </div>
                     <div>
-                      <label className={lbl}>Delivery Note #</label>
-                      <input name="deliveryNote" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Supplier delivery note reference" className={inp} />
+                      <label htmlFor="goods-received-new-delivery-note" className={lbl}>Delivery Note #</label>
+                      <input id="goods-received-new-delivery-note" name="deliveryNote" value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Supplier delivery note reference" className={inp} />
                     </div>
                   </div>
                   <div>
-                    <label className={lbl}>Notes</label>
-                    <input name="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" className={inp} />
+                    <label htmlFor="goods-received-new-notes" className={lbl}>Notes</label>
+                    <input id="goods-received-new-notes" name="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" className={inp} />
                   </div>
                 </div>
               </div>
@@ -247,11 +239,11 @@ export default function NewGRNPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Total Items</span>
-                      <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{totalItems}</span>
+                      <span className="tabular-nums font-semibold text-slate-900 dark:text-slate-100">{totalItems}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Date</span>
-                      <span className="font-mono text-xs text-slate-700 dark:text-slate-300">{receivedDate || '—'}</span>
+                      <span className="tabular-nums text-xs text-slate-700 dark:text-slate-300">{receivedDate || '—'}</span>
                     </div>
                   </div>
                   <button

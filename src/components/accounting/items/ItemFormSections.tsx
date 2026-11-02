@@ -39,20 +39,20 @@ export function ItemDetailsSection({ code, description, category_id, item_type, 
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Item Details</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">
+          <label htmlFor="item-form-sections-code-auto-generated-if-blank" className="block text-sm text-[var(--ff-text-secondary)] mb-1">
             Code <span className="text-[var(--ff-text-tertiary)]">(auto-generated if blank)</span>
           </label>
-          <input type="text" value={code} onChange={e => onChange('code', e.target.value)} className="ff-input w-full" placeholder="ITEM-0001" />
+          <input id="item-form-sections-code-auto-generated-if-blank" type="text" value={code} onChange={e => onChange('code', e.target.value)} className="ff-input w-full" placeholder="ITEM-0001" />
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Description *</label>
-          <input type="text" required value={description} onChange={e => onChange('description', e.target.value)} className="ff-input w-full" />
+          <label htmlFor="item-form-sections-description" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Description *</label>
+          <input id="item-form-sections-description" type="text" required value={description} onChange={e => onChange('description', e.target.value)} className="ff-input w-full" />
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Category</label>
-          <select value={category_id} onChange={e => onChange('category_id', e.target.value)} className="ff-select w-full">
+          <label htmlFor="item-form-sections-category" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Category</label>
+          <select id="item-form-sections-category" value={category_id} onChange={e => onChange('category_id', e.target.value)} className="ff-select w-full">
             <option value="">No category</option>
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
@@ -69,8 +69,8 @@ export function ItemDetailsSection({ code, description, category_id, item_type, 
           </div>
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Unit</label>
-          <input type="text" value={unit} onChange={e => onChange('unit', e.target.value)} className="ff-input w-full" placeholder="each" />
+          <label htmlFor="item-form-sections-unit" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Unit</label>
+          <input id="item-form-sections-unit" type="text" value={unit} onChange={e => onChange('unit', e.target.value)} className="ff-input w-full" placeholder="each" />
         </div>
       </div>
       <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)] cursor-pointer">
@@ -97,20 +97,20 @@ export function PricingSection({ cost_price, selling_price_excl, selling_price_i
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Pricing</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Price (ZAR)</label>
-          <input type="number" step="0.01" min="0" value={cost_price} onChange={e => onChange('cost_price', e.target.value)} className="ff-input w-full" />
+          <label htmlFor="item-form-sections-cost-price-zar" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Price (ZAR)</label>
+          <input id="item-form-sections-cost-price-zar" type="number" step="0.01" min="0" value={cost_price} onChange={e => onChange('cost_price', e.target.value)} className="ff-input w-full" />
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Exclusive Selling Price (ZAR)</label>
-          <input type="number" step="0.01" min="0" value={selling_price_excl} onChange={e => onChange('selling_price_excl', e.target.value)} className="ff-input w-full" />
+          <label htmlFor="item-form-sections-exclusive-selling-price-zar" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Exclusive Selling Price (ZAR)</label>
+          <input id="item-form-sections-exclusive-selling-price-zar" type="number" step="0.01" min="0" value={selling_price_excl} onChange={e => onChange('selling_price_excl', e.target.value)} className="ff-input w-full" />
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Inclusive Selling Price (ZAR)</label>
-          <input type="number" step="0.01" min="0" value={selling_price_incl} onChange={e => onChange('selling_price_incl', e.target.value)} className="ff-input w-full" />
+          <label htmlFor="item-form-sections-inclusive-selling-price-zar" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Inclusive Selling Price (ZAR)</label>
+          <input id="item-form-sections-inclusive-selling-price-zar" type="number" step="0.01" min="0" value={selling_price_incl} onChange={e => onChange('selling_price_incl', e.target.value)} className="ff-input w-full" />
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">GP %</label>
-          <input type="number" step="0.01" value={gp_percent} onChange={e => onChange('gp_percent', e.target.value)} className="ff-input w-full" readOnly />
+          <label htmlFor="item-form-sections-gp" className="block text-sm text-[var(--ff-text-secondary)] mb-1">GP %</label>
+          <input id="item-form-sections-gp" type="number" step="0.01" value={gp_percent} onChange={e => onChange('gp_percent', e.target.value)} className="ff-input w-full" readOnly />
         </div>
       </div>
     </div>
@@ -135,27 +135,27 @@ export function VatAccountsSection({ vat_on_sales, vat_on_purchases, sales_accou
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">VAT & Accounts</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">VAT on Sales</label>
-          <select value={vat_on_sales} onChange={e => onChange('vat_on_sales', e.target.value)} className="ff-select w-full">
+          <label htmlFor="item-form-sections-vat-on-sales" className="block text-sm text-[var(--ff-text-secondary)] mb-1">VAT on Sales</label>
+          <select id="item-form-sections-vat-on-sales" value={vat_on_sales} onChange={e => onChange('vat_on_sales', e.target.value)} className="ff-select w-full">
             {VAT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">VAT on Purchases</label>
-          <select value={vat_on_purchases} onChange={e => onChange('vat_on_purchases', e.target.value)} className="ff-select w-full">
+          <label htmlFor="item-form-sections-vat-on-purchases" className="block text-sm text-[var(--ff-text-secondary)] mb-1">VAT on Purchases</label>
+          <select id="item-form-sections-vat-on-purchases" value={vat_on_purchases} onChange={e => onChange('vat_on_purchases', e.target.value)} className="ff-select w-full">
             {VAT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Sales Account</label>
-          <select value={sales_account_id} onChange={e => onChange('sales_account_id', e.target.value)} className="ff-select w-full">
+          <label htmlFor="item-form-sections-sales-account" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Sales Account</label>
+          <select id="item-form-sections-sales-account" value={sales_account_id} onChange={e => onChange('sales_account_id', e.target.value)} className="ff-select w-full">
             <option value="">Select account...</option>
             {salesAccounts.map(a => <option key={a.id} value={a.id}>{a.account_number} - {a.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Purchases Account</label>
-          <select value={purchases_account_id} onChange={e => onChange('purchases_account_id', e.target.value)} className="ff-select w-full">
+          <label htmlFor="item-form-sections-purchases-account" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Purchases Account</label>
+          <select id="item-form-sections-purchases-account" value={purchases_account_id} onChange={e => onChange('purchases_account_id', e.target.value)} className="ff-select w-full">
             <option value="">Select account...</option>
             {purchaseAccounts.map(a => <option key={a.id} value={a.id}>{a.account_number} - {a.name}</option>)}
           </select>
@@ -181,12 +181,12 @@ export function OpeningBalancesSection({ opening_qty, opening_cost, opening_date
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Opening Balances</h2>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Opening Qty</label>
-          <input type="number" step="1" min="0" value={opening_qty} onChange={e => onChange('opening_qty', e.target.value)} className="ff-input w-full" />
+          <label htmlFor="item-form-sections-opening-qty" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Opening Qty</label>
+          <input id="item-form-sections-opening-qty" type="number" step="1" min="0" value={opening_qty} onChange={e => onChange('opening_qty', e.target.value)} className="ff-input w-full" />
         </div>
         <div>
-          <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Opening Cost (ZAR)</label>
-          <input type="number" step="0.01" min="0" value={opening_cost} onChange={e => onChange('opening_cost', e.target.value)} className="ff-input w-full" />
+          <label htmlFor="item-form-sections-opening-cost-zar" className="block text-sm text-[var(--ff-text-secondary)] mb-1">Opening Cost (ZAR)</label>
+          <input id="item-form-sections-opening-cost-zar" type="number" step="0.01" min="0" value={opening_cost} onChange={e => onChange('opening_cost', e.target.value)} className="ff-input w-full" />
         </div>
         <div>
           <DateField label="Opening Date" name="opening_date" value={opening_date || null} onChange={dates.bind('opening_date', (iso) => onChange('opening_date', iso), opening_date)} />

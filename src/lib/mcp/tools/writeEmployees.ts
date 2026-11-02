@@ -33,6 +33,7 @@ import {
 } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import {
   assignComponentToEmployee,
+  EmployeeComponentRefused,
   endEmployeeComponent,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { listComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
@@ -330,7 +331,7 @@ export const assignEmployeeComponentTool: McpTool = {
     }
 
     // Ownership before the write. `assignComponentToEmployee` checks the
-    // employee itself and throws, but a throw after the registry's savepoint
+    // employee and the component itself and throws, but a throw after the registry's savepoint
     // opened is a worse answer than a refusal before it.
     if (!(await getPayrollEmployee(employeeId, ctx.companyId))) return toolError(NOT_FOUND);
     const components = await listComponents(ctx.companyId);
@@ -338,15 +339,21 @@ export const assignEmployeeComponentTool: McpTool = {
     if (!component) return toolError(NOT_FOUND);
 
     const effectiveTo = strArg(args, 'effective_to');
-    const assignment = await assignComponentToEmployee(
-      ctx.companyId,
-      employeeId,
-      componentId,
-      amount,
-      asDate(effectiveFrom),
-      effectiveTo === undefined ? undefined : asDate(effectiveTo),
-      args.is_recurring !== false,
-    );
+    let assignment: Awaited<ReturnType<typeof assignComponentToEmployee>>;
+    try {
+      assignment = await assignComponentToEmployee(
+        ctx.companyId,
+        employeeId,
+        componentId,
+        amount,
+        effectiveFrom,
+        effectiveTo,
+        args.is_recurring !== false,
+      );
+    } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return toolError(err.message);
+      throw err;
+    }
 
     return ok({
       id: assignment.id,
@@ -394,7 +401,7 @@ export const endEmployeeComponentTool: McpTool = {
     // matches nothing and the statement succeeds having changed nothing —
     // answering `ended: true` there would tell an agent an old salary was
     // stopped while it stayed live, and the next costed run would pay it.
-    const ended = await endEmployeeComponent(ctx.companyId, assignmentId, asDate(effectiveTo));
+    const ended = await endEmployeeComponent(ctx.companyId, assignmentId, effectiveTo);
     if (!ended) return toolError(NOT_FOUND);
     return ok({ assignment_id: assignmentId, effective_to: effectiveTo, ended: true });
   },

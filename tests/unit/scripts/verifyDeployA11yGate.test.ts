@@ -25,7 +25,12 @@ afterEach(() => new Promise<void>((resolve) => (server ? server.close(() => reso
 
 /** What verify-deploy.sh handed the golden step: its arguments and the one variable the config reads. */
 async function goldenStep(): Promise<{ code: number | null; args: string[]; skipA11y: string; out: string }> {
-  server = createServer((_req, res) => { res.statusCode = 200; res.end('ok'); });
+  // Answers step 1b as a healthy colour does: logged-out pages redirect to a relative /login.
+  server = createServer((req, res) => {
+    if (req.url !== '/api/health' && !req.headers.cookie) { res.statusCode = 307; res.setHeader('Location', '/login'); }
+    else res.statusCode = 200;
+    res.end('ok');
+  });
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
 
@@ -68,7 +73,7 @@ describe('verify-deploy.sh and the a11y gate', () => {
     expect(r.code).toBe(0);
     expect(r.skipA11y).toBe('1');
     const tests = listTests({ GOLDEN_SKIP_A11Y: r.skipA11y }, r.args); // throws if the spec were loaded
-    expect(EXCLUDED.length).toBeGreaterThanOrEqual(12); // floor: master's 12; wave-2 specs add more
+    expect(EXCLUDED.length).toBe(23);
     expect(tests.filter((l) => EXCLUDED.some((n) => l.includes(`${n}.spec.ts`)))).toEqual([]);
     expect(tests.length).toBeGreaterThanOrEqual(10); // one file left out, not the suite
     for (const p of PREFIX) expect(tests.some((l) => l.includes(p))).toBe(true);

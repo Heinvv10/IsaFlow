@@ -3,8 +3,8 @@
  * Phase 3: GL account drill-down with running balance
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { useState, useEffect, useCallback } from 'react';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
@@ -16,6 +16,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { AccountPicker } from '@/components/ui';
 import { REPORT_FILTER_LABEL_CLASS } from '@/components/reports/reportFilterLabel';
+import { useGatedReportLoad, type ReportLoad } from '@/components/reports/useGatedReportLoad';
 
 interface Txn {
   date: string;
@@ -50,6 +51,7 @@ export default function AccountTransactionsPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
   const [accountCode, setAccountCode] = useState('1110');
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreFilter, setCostCentreFilter] = useState('');
@@ -65,34 +67,31 @@ export default function AccountTransactionsPage() {
     }).catch(err => setError(apiErrorMessage(err, ccFailure)));
   }, []);
 
-  const requestRef = useRef(0);
+  const params = new URLSearchParams({
+    account_code: accountCode, period_start: periodStart, period_end: periodEnd,
+  });
+  if (costCentreFilter) params.set('cost_centre_id', costCentreFilter);
+  const query = periodStart && periodEnd && accountCode ? params.toString() : '';
 
-  const load = useCallback(async () => {
-    if (!periodStart || !periodEnd || !accountCode) {
+  const load = useCallback<ReportLoad>(async (latest) => {
+    if (!query) {
       // Clearing an input invalidates in-flight requests and clears data and loading.
-      requestRef.current += 1;
       setReport(null); setError(''); setLoading(false);
-      return;
+      return true;
     }
-    // Only the latest request may set state (same pattern as the account detail page).
-    const requestId = ++requestRef.current;
-    const latest = () => requestId === requestRef.current;
     const failure = 'Could not load the account transactions - try again';
     setLoading(true);
     setError('');
     setReport(null);
     try {
-      const params = new URLSearchParams({
-        account_code: accountCode, period_start: periodStart, period_end: periodEnd,
-      });
-      if (costCentreFilter) params.set('cost_centre_id', costCentreFilter);
-      const result = await apiJson(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' }, failure);
+      const result = await apiJson(`/api/accounting/reports-account-transactions?${query}`, { credentials: 'include' }, failure);
       if (latest()) setReport(result);
-    } catch (err) { if (latest()) setError(apiErrorMessage(err, failure)); }
+      return true;
+    } catch (err) { if (latest()) setError(apiErrorMessage(err, failure)); return false; }
     finally { if (latest()) setLoading(false); }
-  }, [periodStart, periodEnd, accountCode, costCentreFilter]);
+  }, [query]);
 
-  useEffect(() => { void load(); }, [load]);
+  const stale = useGatedReportLoad(query, dates, load);
 
   function handleExport() {
     const params = new URLSearchParams();
@@ -118,7 +117,7 @@ export default function AccountTransactionsPage() {
               <div className="p-2 rounded-lg bg-violet-500/10"><BookOpen className="h-6 w-6 text-violet-500" /></div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Account Transactions</h1>
             </div>
-            <button onClick={handleExport} disabled={!report || !accountCode}
+            <button onClick={handleExport} disabled={!report || !accountCode || dates.blocked}
               className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm font-medium disabled:opacity-50">
               <Download className="h-4 w-4" /> Export CSV
             </button>
@@ -130,10 +129,10 @@ export default function AccountTransactionsPage() {
             <AccountPicker label="Account" valueKey="code" refine={postableAccounts} value={accountCode} onChange={code => setAccountCode(code ?? '')}
               className="w-72" labelClassName={REPORT_FILTER_LABEL_CLASS} />
             <div>
-              <DateField label="From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="from" label="From" value={periodStart || null} onValue={setPeriodStart} />
             </div>
             <div>
-              <DateField label="To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+              <GatedDateField gate={dates} gateKey="to" label="To" value={periodEnd || null} onValue={setPeriodEnd} />
             </div>
             {costCentres.length > 0 && (
               <div>
@@ -146,9 +145,10 @@ export default function AccountTransactionsPage() {
             )}
           </div>
 
+          <FixDateNotice gate={dates} hidden={stale} />
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
-          {loading ? (
+          {stale ? null : loading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-violet-500" /></div>
           ) : report ? (
             <>

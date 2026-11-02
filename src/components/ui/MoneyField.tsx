@@ -13,6 +13,9 @@ import { useParsedField, type FieldValidity, type ParseOutcome } from './usePars
 import { formatCents } from '@/lib/money/formatMoney';
 import { parseSaAmount } from '@/lib/money/saAmountParser';
 
+/** Why MoneyField refused the text (FieldValidity.code). */
+export type MoneyFieldCode = 'empty' | 'unreadable' | 'negative' | 'below-min' | 'above-max';
+
 export interface MoneyFieldProps {
   label: string;
   /** Integer cents, or null when empty / not understood. */
@@ -21,7 +24,7 @@ export interface MoneyFieldProps {
    * Fires on blur / Enter when the value or its validity changed. `validity.valid` is false when the text
    * was refused: the value is then null but the field is NOT empty, so block submit on it.
    */
-  onChange: (cents: number | null, validity: FieldValidity) => void;
+  onChange: (cents: number | null, validity: FieldValidity<MoneyFieldCode>) => void;
   id?: string;
   /** Names a hidden input that posts the canonical value (integer cents) in a native form submit. */
   name?: string;
@@ -64,17 +67,17 @@ export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(fu
   const echoOf = (cents: number): string =>
     currency === 'ZAR' ? formatCents(cents) : `${currency} ${formatCents(cents, { symbol: false })}`;
 
-  const parse = (text: string): ParseOutcome<number> => {
-    if (text.trim() === '') return required ? { ok: false, reason: 'Enter an amount.' } : { ok: true, value: null };
+  const parse = (text: string): ParseOutcome<number, MoneyFieldCode> => {
+    if (text.trim() === '') return required ? { ok: false, code: 'empty', reason: 'Enter an amount.' } : { ok: true, value: null };
     const r = parseSaAmount(text, { currency });
-    if (!r.ok) return { ok: false, reason: r.reason };
-    if (r.cents < 0 && !allowNegative) return { ok: false, reason: 'A negative amount is not allowed here.' };
-    if (min !== undefined && r.cents < min) return { ok: false, reason: `The amount must be at least ${echoOf(min)}.` };
-    if (max !== undefined && r.cents > max) return { ok: false, reason: `The amount must be at most ${echoOf(max)}.` };
+    if (!r.ok) return { ok: false, code: 'unreadable', reason: r.reason };
+    if (r.cents < 0 && !allowNegative) return { ok: false, code: 'negative', reason: 'A negative amount is not allowed here.' };
+    if (min !== undefined && r.cents < min) return { ok: false, code: 'below-min', reason: `The amount must be at least ${echoOf(min)}.` };
+    if (max !== undefined && r.cents > max) return { ok: false, code: 'above-max', reason: `The amount must be at most ${echoOf(max)}.` };
     return { ok: true, value: r.cents };
   };
 
-  const field = useParsedField<number>({
+  const field = useParsedField<number, MoneyFieldCode>({
     value, format: (cents) => formatCents(cents, { symbol: false }), parse, onChange, resetKey,
   });
   const error = externalError ?? field.error;

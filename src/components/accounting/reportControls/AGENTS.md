@@ -19,14 +19,20 @@ changed an amount would make two screens disagree about the same period.
   ONCE it has resolved and never after the user has touched a checkbox — the
   server preference lands on a later tick and re-seeding then would undo a
   column the user had just switched on.
-- `useStatementComparators({ trend, budget, asOf, basis, periodStart, periodEnd })`
-  → `{ apply, budgetState, trendFailed, trendLoading, budgetLoading }`.
+- `useStatementComparators({ trend, budget, asOf, basis, periodStart, periodEnd, costCentreId?, businessUnitId? })`
+  → `{ apply, budgetState, budgetInfo, retryBudget, trendFailed, trendLoading, budgetLoading }`.
   `apply` decorates `StatementRow[]`. `budgetState` is
-  `unknown | failed | none | available` — `failed` must never be shown as
-  `none`. The two loading flags are per fetch; one shared flag would report
-  the budget as loaded because the trend finished.
-- `<ComparatorNotices budgetState trendFailed />` and the pure
-  `comparatorNotices(...)` behind it — what the columns could not tell you.
+  `unknown | failed | limited | refused | none | available` — `failed` must never be
+  shown as `none`, and `limited` (a 429) and `refused` (a 400) are neither. `budgetInfo` carries the
+  window's `budgetAbsentYears`, `budgetOutsideFilterYears`, `unallocatedBudget`,
+  `partialBudgetCount`, `splitsMonth`, a 429's `retryAfterSecs` and a 400's
+  `rejection` (state `refused`: the server's reason, no reload advice); `retryBudget()` asks again (nothing retries on
+  its own). Optional `costCentreId` / `businessUnitId` are the statement's
+  filter, sent with the budget fetch. The two loading flags are per fetch; one
+  shared flag would report the budget as loaded because the trend finished.
+- `<ComparatorNotices budgetState trendFailed budget? onRetryBudget? />` and
+  the pure `comparatorNotices(...)` behind it — what the columns could not
+  tell you.
 - `useDensity()` → `{ density, setDensity, loading, error }` /
   `<DensityToggle density onChange />` — `owner` | `accountant`, persisted to
   `reports_density` on `/api/auth/preferences` and mirrored into
@@ -44,14 +50,35 @@ changed an amount would make two screens disagree about the same period.
   the page holds the single instance and threads it wherever it is needed.
 - **The trend column is independent of any comparator** — it is the account's
   own twelve months, not a comparison.
-- **The trend and the budget are COMPANY-WIDE, and a selected cost centre
-  withholds them.** `trendRowsService` applies no cost-centre filter and
-  `getBudgetVariance` takes no cost centre, while both statement pages do pass
-  `cost_centre_id` to the statement fetch. Drawn together, a company-wide
-  sparkline sits in the same row as a departmental figure. With a cost centre
-  selected both checkboxes are disabled (`companyWideUnavailable`), the
-  comparators are NOT fetched, and `ComparatorNotices` says why. The reader's
-  own checkbox state is kept untouched so clearing the filter restores it.
+- **The trend is COMPANY-WIDE, and a selected dimension withholds it.**
+  `trendRowsService` applies no cost-centre filter, while both statement pages
+  pass `cost_centre_id` to the statement fetch. Drawn together, a company-wide
+  sparkline sits in the same row as a departmental figure. With a dimension
+  selected the trend checkbox is disabled (`companyWideUnavailable`), it is NOT
+  fetched, and `ComparatorNotices` says why. The reader's own checkbox state is
+  kept untouched so clearing the filter restores it.
+- **The budget follows the filter** (budgets P3 PR-C): the comparator is sent
+  the statement's `cost_centre_id` (either level, as the statement filters its
+  actuals) and `business_unit_id`. Budget set above the filter is never in the
+  column; the notice gives it per polarity, never summed. A year with no budget
+  in the window says so ("No budget for FY2026 in this window", the sentence
+  Budget vs Actual uses), not "no budget captured"; a year whose budget is all
+  at other dimensions says "FY2027 has a budget, but none of it is at this
+  filter". Period and filter changes are coalesced (`BUDGET_COALESCE_MS`,
+  350 ms after the last) so a run of edits costs the company's report limit
+  one request; a 429 names its wait and offers Retry. `apply` adds an unspent
+  budgeted account's row, marks each line's budget absent with the engine's
+  reason, and puts the engine's band budgets on the band rows
+  (`statementRows/budgetComparatorBands`); the income statement's grid prints
+  them under `budgetCells` (zero 0.00, absent "—", Var % of a zero "—"). It
+  applies whenever the budget fetch has answered: with the engine's verdicts a
+  window with no budget prints "—" on every row, never a zero. A window that
+  splits a budget month has no budget: "Budgets are set by whole
+  month. Choose a window from the 1st to a month end to compare."
+- **No `version_id` from the page (spec §6 deviation).** The route accepts `version_id`, but the statement has no version picker, so the hook sends none and each year's primary version is read. Add it with the picker.
+- **The dimension gate is derived from the filter ids** passed to
+  `useStatementComparatorState` (`costCentreId`, `businessUnitId`), so the
+  trend gate and the budget fetch read one source.
 - **`basis` is not a preference.** `movement` for P&L accounts, `balance` for
   balance-sheet accounts. The wrong one draws a shape about a different number
   than the one printed beside it.
@@ -85,7 +112,7 @@ changed an amount would make two screens disagree about the same period.
 ## Files
 - `useStatementComparatorState.ts` — **the entry point for a statement page.**
   One call returns the gated `columns`, `setColumns`, `companyWideUnavailable`,
-  `apply`, `budgetState`, `trendFailed` and the page's single density
+  `apply`, `budgetState`, `budgetInfo`, `retryBudget`, `trendFailed` and the page's single density
   instance. A page assembling the pieces below itself will drift from the
   other page; that is exactly what happened before this hook existed.
 - `ComparatorControls.tsx` — the four checkboxes.
@@ -95,3 +122,4 @@ changed an amount would make two screens disagree about the same period.
 - `ComparatorNotices.tsx` — the sentences for a missing or unloadable
   comparator. `comparatorNotices` is exported and pure.
 - `useDensity.ts`, `DensityToggle.tsx` — the reading-density preference.
+- 2026-10-29 (PR-C review r3): the absent-year and "budget, none at this filter" notices are `trackingNoticeText`'s, one per year, word for word those of Budget vs Actual. A refused window reads "The Budget column is empty. <reason>." The route answers a bad id with a sentence per dimension ("That cost centre is not valid."). The IS report's own "Could not load income statement - try again" for a malformed start is the IS route's pre-existing behaviour (`reports-income-statement`), not this column's.

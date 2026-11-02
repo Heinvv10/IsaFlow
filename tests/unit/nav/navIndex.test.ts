@@ -89,7 +89,7 @@ describe('trailForPath', () => {
   it('the Compliance Calendar owns /accounting/sars only, not its sub-pages', () => {
     expect(trailForPath('/accounting/sars', idx)?.label).toBe('Compliance Calendar');
     expect(trailForPath('/accounting/sars/not-a-page', idx)).toBeNull();
-    expect(trailForPath('/accounting/sars/submissions', idx)?.label).toBe('Submission History');
+    expect(trailForPath('/accounting/sars/submissions', idx)?.label).toBe('Filing History');
   });
 
   it('a dashboard sub-view selected with ?tab= is not the Dashboard', () => {

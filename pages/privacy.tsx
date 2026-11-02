@@ -22,7 +22,8 @@ export default function PrivacyPage() {
       <p>
         IsaFlow is operated by <strong>{LEGAL_ENTITY.name}</strong>, registration number{' '}
         {LEGAL_ENTITY.registrationNumber}, with its registered office at{' '}
-        {LEGAL_ENTITY.registeredAddress} (&quot;Brightsphere&quot;, &quot;we&quot;, &quot;us&quot;).
+        {LEGAL_ENTITY.registeredAddress} and its head office in {LEGAL_ENTITY.headOffice}{' '}
+        (&quot;Brightsphere&quot;, &quot;we&quot;, &quot;us&quot;).
       </p>
       <p>
         Our Information Officer is {LEGAL_ENTITY.informationOfficer}. Contact:{' '}

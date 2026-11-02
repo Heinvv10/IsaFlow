@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney as fmt } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { numberLines } from '@/lib/lineNumbers';
 import { useDateGate } from '@/hooks/useDateGate';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
@@ -35,7 +36,7 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
     try {
       const res = await apiFetch('/api/accounting/customer-quotes', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: lines.filter(l => l.desc).map(l => ({ description: l.desc, quantity: l.qty, unitPrice: l.price, taxRate: 15 })) }),
+        body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: numberLines(lines, l => !!l.desc).map(l => ({ description: l.desc, quantity: l.qty, unitPrice: l.price, taxRate: 15, lineNo: l.lineNo })) }),
       });
       await assertOk(res, 'Could not create the quote - try again');
       onCreated();
@@ -114,7 +115,7 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
         )}
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-          <button onClick={handleCreate} disabled={saving || !form.clientId || lines.every(l => !l.desc)} className="px-5 py-2 text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
+          <button onClick={handleCreate} disabled={saving || dates.blocked || !form.clientId || lines.every(l => !l.desc)} className="px-5 py-2 text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
             {saving ? 'Creating…' : 'Create Quote'}
           </button>

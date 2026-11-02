@@ -23,6 +23,8 @@ export interface ImportRow {
   credit: number;
   vatCode?: string;
   costCentre?: string;
+  /** The row the preview shows this one on (header = 1); the page sends only valid rows, so the array position is not it. */
+  sheetRow?: number;
 }
 
 export interface ValidationResult {

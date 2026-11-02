@@ -1,7 +1,7 @@
 /**
  * The Xero / QuickBooks / Pastel import page sends a Sage move to the
- * file-upload Migration Wizard's Sage opener — CSV / Excel exported from Sage,
- * not a sign-in to Sage — and the page it links to exists.
+ * file-upload Migration Wizard's Sage opener (CSV files exported from Sage,
+ * not a sign-in to Sage) and the page it links to exists.
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,7 +28,9 @@ describe('external migration page: Moving from Sage?', () => {
   it('describes exporting files from Sage, not connecting or signing in', () => {
     render(<ExternalMigrationPage />);
     const note = screen.getByText(/Moving from Sage\?/);
-    expect(note.textContent).toMatch(/CSV or Excel/);
+    expect(note.textContent).toMatch(/as CSV files/);
+    expect(note.textContent).toMatch(/save it as CSV UTF-8 first/);
+    expect(note.textContent).not.toMatch(/CSV or Excel/);
     expect(note.textContent).not.toMatch(/sign in|sign-in|password|connect/i);
   });
 });

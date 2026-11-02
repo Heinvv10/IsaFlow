@@ -4,9 +4,11 @@
  * the scoped budget read returns them (so a row outside the window, on a balance-sheet account or
  * dated in another year's month never makes a year "budgeted"). FY* outside the window (a year to
  * date that has not started) is judged over its whole year, as the projection reads it.
+ * Review r2 (R8): that is judged BEFORE the dimension filter. A year whose budget sits wholly at other
+ * dimensions is budgeted, just not at this filter (`budgetOutsideFilterYears`).
  */
 import { describe, expect, it } from 'vitest';
-import { budgetAbsentYears } from '@/modules/accounting/services/budgets/tracking/trackingBudgetRead';
+import { budgetAbsentYears, budgetOutsideFilterYears } from '@/modules/accounting/services/budgets/tracking/trackingBudgetRead';
 
 const window = {
   years: [{ fiscalYear: 2026, months: ['2026-01', '2026-02'] }, { fiscalYear: 2027, months: ['2026-03', '2026-04'] }],
@@ -41,9 +43,29 @@ describe('budgetAbsentYears', () => {
   });
 });
 
-describe('budgetAbsentYears under a filter (review r5 G1)', () => {
-  it("rows the filter classes as other never budget a year; coarser rows keep it present (its unallocated footer)", () => {
-    expect(budgetAbsentYears(window, scope, [{ month: '2026-01', cls: 'other' }, { month: '2026-03', cls: 'included' }])).toEqual([2026]);
+describe('budgetAbsentYears under a filter (review r2, R8: judged BEFORE the filter)', () => {
+  it('a budget row the filter classes as other or coarser still budgets its year; only a version with no row at all is absent', () => {
+    expect(budgetAbsentYears(window, scope, [{ month: '2026-01', cls: 'other' }, { month: '2026-03', cls: 'included' }])).toEqual([]);
     expect(budgetAbsentYears(window, scope, [{ month: '2026-01', cls: 'coarser' }, { month: '2026-03', cls: 'included' }])).toEqual([]);
+    expect(budgetAbsentYears(window, scope, [{ month: '2026-01', cls: 'other' }, { month: '2026-03', cls: 'other' }])).toEqual([]);
+    expect(budgetAbsentYears(window, scope, [{ month: '2026-03', cls: 'other' }])).toEqual([2026]);
+  });
+});
+
+describe('budgetOutsideFilterYears (review r2, R8)', () => {
+  it('a year with a budget of which none is at the filter (every row other) is named; coarser rows are the footer\'s, included rows are the budget', () => {
+    const rowsOf = (...r: Array<[string, 'included' | 'coarser' | 'other']>) => r.map(([month, cls]) => ({ month, cls }));
+    expect(budgetOutsideFilterYears(window, scope, rowsOf(['2026-01', 'other'], ['2026-03', 'other']))).toEqual([2026, 2027]);
+    expect(budgetOutsideFilterYears(window, scope, rowsOf(['2026-01', 'other'], ['2026-03', 'included']))).toEqual([2026]);
+    expect(budgetOutsideFilterYears(window, scope, rowsOf(['2026-01', 'coarser'], ['2026-03', 'included']))).toEqual([]);
+  });
+
+  it('an absent year (no row at all, or no version) is not named: it has no budget, not a budget elsewhere', () => {
+    expect(budgetOutsideFilterYears(window, scope, [{ month: '2026-03', cls: 'other' }])).toEqual([2027]);
+    expect(budgetOutsideFilterYears(window, [scope[1]!, { ...scope[0]!, versionId: null }], [{ month: '2026-01', cls: 'other' }, { month: '2026-03', cls: 'other' }])).toEqual([2027]);
+  });
+
+  it('no filter, no year outside it', () => {
+    expect(budgetOutsideFilterYears(window, scope, [{ month: '2026-01', cls: 'included' }, { month: '2026-03', cls: 'included' }])).toEqual([]);
   });
 });

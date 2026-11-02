@@ -113,4 +113,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.badRequest(res, 'Method not allowed');
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+// The body names the employee, so what it says about the payment (and any notes on why) is about that person.
+const MASKED_KEYS = ['amount', 'tax_rate', 'notes'];
+
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: MASKED_KEYS }));

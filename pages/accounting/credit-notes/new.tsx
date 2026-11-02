@@ -4,14 +4,13 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, Receipt } from 'lucide-react';
+import { FileText, Loader2, Receipt } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { localISODate } from '@/lib/dateUtils';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 
 interface Client { id: string; company_name: string }
@@ -79,19 +78,12 @@ export default function NewCreditNotePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/credit-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Credit Notes
-            </Link>
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">New Credit Note</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={FileText}
+          title="New Credit Note"
+          breadcrumb={[{ label: 'Credit Notes', href: '/accounting/credit-notes' }, { label: 'New credit note' }]}
+          className="mb-0"
+        />
 
         <form onSubmit={handleSubmit} className="p-6 xl:p-8">
           <div className="max-w-6xl mx-auto flex gap-6 items-start">
@@ -105,8 +97,8 @@ export default function NewCreditNotePage() {
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={lbl}>Type *</label>
-                    <select name="type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as 'customer' | 'supplier', clientId: '', supplierId: '' }))} className={inp}>
+                    <label htmlFor="credit-notes-new-type" className={lbl}>Type *</label>
+                    <select id="credit-notes-new-type" name="type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value as 'customer' | 'supplier', clientId: '', supplierId: '' }))} className={inp}>
                       <option value="customer">Customer Credit Note</option>
                       <option value="supplier">Supplier Credit Note</option>
                     </select>
@@ -114,8 +106,8 @@ export default function NewCreditNotePage() {
 
                   {form.type === 'customer' ? (
                     <div>
-                      <label className={lbl}>Client *</label>
-                      <select name="clientId" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
+                      <label htmlFor="credit-notes-new-client-id" className={lbl}>Client *</label>
+                      <select id="credit-notes-new-client-id" name="clientId" value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} className={inp} required>
                         <option value="">Select client…</option>
                         {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
                       </select>
@@ -132,8 +124,8 @@ export default function NewCreditNotePage() {
                       onChange={dates.bind('creditDate', iso => setForm(f => ({ ...f, creditDate: iso })), form.creditDate)} />
                   </div>
                   <div>
-                    <label className={lbl}>Reason</label>
-                    <input type="text" name="reason" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for credit note" className={inp} />
+                    <label htmlFor="credit-notes-new-reason" className={lbl}>Reason</label>
+                    <input id="credit-notes-new-reason" type="text" name="reason" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for credit note" className={inp} />
                   </div>
                 </div>
               </div>
@@ -145,12 +137,12 @@ export default function NewCreditNotePage() {
                 </h3>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className={lbl}>Subtotal (excl. VAT) *</label>
-                    <input type="number" name="subtotal" step="0.01" min="0" value={form.subtotal || ''} onChange={e => setForm(f => ({ ...f, subtotal: Number(e.target.value) }))} className={inp} required />
+                    <label htmlFor="credit-notes-new-subtotal" className={lbl}>Subtotal (excl. VAT) *</label>
+                    <input id="credit-notes-new-subtotal" type="number" name="subtotal" step="0.01" min="0" value={form.subtotal || ''} onChange={e => setForm(f => ({ ...f, subtotal: Number(e.target.value) }))} className={inp} required />
                   </div>
                   <div>
-                    <label className={lbl}>VAT Rate (%)</label>
-                    <input type="number" name="taxRate" step="0.01" min="0" value={form.taxRate} onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))} className={inp} />
+                    <label htmlFor="credit-notes-new-tax-rate" className={lbl}>VAT Rate (%)</label>
+                    <input id="credit-notes-new-tax-rate" type="number" name="taxRate" step="0.01" min="0" value={form.taxRate} onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))} className={inp} />
                   </div>
                   <div>
                     <label className={lbl}>VAT Amount</label>

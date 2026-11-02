@@ -34,7 +34,7 @@ interface Props {
 }
 
 const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
-const label = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
+const label = 'mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300'; // as FieldFrame's, beside the DateFields
 
 export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Props) {
   // A refused date reaches onChange as null, which would save as "cleared": Save waits until it is fixed.
@@ -57,23 +57,23 @@ export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Prop
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className={label}>First name</label>
-          <input className={field} value={employee.firstName}
+          <label htmlFor="employee-first-name" className={label}>First name</label>
+          <input id="employee-first-name" className={field} value={employee.firstName}
             onChange={e => onChange({ ...employee, firstName: e.target.value })} />
         </div>
         <div>
-          <label className={label}>Last name</label>
-          <input className={field} value={employee.lastName}
+          <label htmlFor="employee-last-name" className={label}>Last name</label>
+          <input id="employee-last-name" className={field} value={employee.lastName}
             onChange={e => onChange({ ...employee, lastName: e.target.value })} />
         </div>
         <div>
-          <label className={label}>Tax number</label>
-          <input className={field} value={employee.taxNumber ?? ''}
+          <label htmlFor="employee-tax-number" className={label}>Tax number</label>
+          <input id="employee-tax-number" className={field} value={employee.taxNumber ?? ''}
             onChange={e => onChange({ ...employee, taxNumber: e.target.value })} />
         </div>
         <div>
-          <label className={label}>ID number</label>
-          <input className={field} value={employee.idNumber ?? ''}
+          <label htmlFor="employee-id-number" className={label}>ID number</label>
+          <input id="employee-id-number" className={field} value={employee.idNumber ?? ''}
             onChange={e => onChange({ ...employee, idNumber: e.target.value })} />
         </div>
         <DateField label="Date of birth" value={employee.dateOfBirth?.slice(0, 10) || null} maxDate={todayInSast()}
@@ -92,8 +92,8 @@ export function EmployeeProfileCard({ employee, onChange, onSave, saving }: Prop
           Medical aid main member
         </label>
         <div>
-          <label className={label}>Medical aid dependants</label>
-          <input type="number" min="0" className={field} value={employee.medicalAidDependantsCount}
+          <label htmlFor="employee-dependants" className={label}>Medical aid dependants</label>
+          <input id="employee-dependants" type="number" min="0" className={field} value={employee.medicalAidDependantsCount}
             onChange={e => onChange({ ...employee, medicalAidDependantsCount: Number(e.target.value) || 0 })} />
         </div>
       </div>

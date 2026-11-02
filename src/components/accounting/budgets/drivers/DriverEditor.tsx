@@ -4,7 +4,8 @@
  * preview of every version month (12, or 14 in a transition year) computed in the browser with
  * the pure engine, and the loop error inline with its path, from the preview or a 400
  * DRIVER_CYCLE. Save PUTs the line, Delete removes it (its cells keep their values as manual).
- * Focus is trapped while open; Escape and the backdrop close it.
+ * Focus is trapped while open; Escape and the backdrop close it. A reader's per_head line has no rate
+ * (perHeadAccess): the drawer shows its kind and months with a note, no rate field and no preview.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
@@ -12,7 +13,8 @@ import { useFocusTrap } from '@/components/ui/useFocusTrap';
 import { monthLabel } from '@/components/accounting/budgets/budgetClient';
 import { formatCents, formatMoney } from '@/lib/money/formatMoney';
 import { ROUNDING_UNITS } from '@/modules/accounting/services/budgets/grid/cents';
-import type { DriverGrain, DriverLine, StoredDriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import type { DriverGrain, DriverLine } from '@/modules/accounting/services/budgets/drivers/driverLine';
+import { isRestrictedPerHead, PER_HEAD_RESTRICTED_NOTE, type VisibleDriverLine } from '@/modules/accounting/services/budgets/drivers/perHeadAccess';
 import type { DriverKind, RowKey } from '@/modules/accounting/services/budgets/drivers/driverTypes';
 import { checkDraft, draftFrom, KIND_LABEL, type DriverDraft } from './driverDraft';
 import { DriverKindFields, Field, INPUT, type RowOption, type ScopeOption } from './DriverKindFields';
@@ -24,7 +26,7 @@ export interface DriverEditorProps {
   /** The driven row and its label ("5000 Cost of sales (Alpha)"). */
   grain: DriverGrain;
   label: string;
-  existing: StoredDriverLine | null;
+  existing: VisibleDriverLine | null;
   months: readonly string[];
   rows: readonly RowOption[];
   costCentres: readonly ScopeOption[];
@@ -72,7 +74,8 @@ function PreviewTable({ months, result }: { months: readonly string[]; result: E
 
 export function DriverEditor(props: DriverEditorProps) {
   const { grain, label, existing, months, rows, costCentres, readOnly, preview, onNeedHeadcount, headcountTick, headcountError, pathLabel, onSave, onDelete, onClose } = props;
-  const [draft, setDraft] = useState<DriverDraft>(() => draftFrom(existing, months));
+  const restricted = existing !== null && isRestrictedPerHead(existing);
+  const [draft, setDraft] = useState<DriverDraft>(() => draftFrom(existing && isRestrictedPerHead(existing) ? { ...existing, amount: null } : existing, months));
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<EditorFailure | null>(null);
   const [tried, setTried] = useState(false);
@@ -83,11 +86,11 @@ export function DriverEditor(props: DriverEditorProps) {
   const patch = (p: Partial<DriverDraft>) => { setDraft((d) => ({ ...d, ...p })); setFailure(null); };
 
   const check = useMemo(() => checkDraft(draft, grain, months), [draft, grain, months]);
-  const scope = draft.kind === 'per_head' ? (draft.headcountScope === '' ? null : draft.headcountScope) : undefined;
+  const scope = draft.kind === 'per_head' && !restricted ? (draft.headcountScope === '' ? null : draft.headcountScope) : undefined;
   useEffect(() => { if (scope !== undefined) onNeedHeadcount(scope); }, [scope, onNeedHeadcount]);
   // headcountTick: a headcount read arrived, so the same draft previews again.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const result = useMemo(() => (check.ok ? preview(check.line) : null), [check, preview, headcountTick]);
+  const result = useMemo(() => (check.ok && !restricted ? preview(check.line) : null), [check, preview, headcountTick, restricted]);
   const errors = tried && !check.ok ? check.errors : {};
   const loop = result && !result.ok && result.kind === 'cycle' ? pathLabel(result.path) : null;
 
@@ -158,22 +161,28 @@ export function DriverEditor(props: DriverEditorProps) {
               </select>
             )}
           </Field>
-          <DriverKindFields draft={draft} errors={errors} onChange={patch} months={months} rows={rows} costCentres={costCentres} disabled={readOnly} />
-          <section aria-labelledby={`${titleId}-preview`} className="rounded-lg border border-[var(--ff-border-light)] p-3">
-            <h3 id={`${titleId}-preview`} className="mb-2 text-xs font-semibold text-[var(--ff-text-secondary)]">Preview</h3>
-            {loop && <p role="alert" data-testid="driver-cycle" className="text-xs text-error-700 dark:text-error-400">This driver makes a loop: {loop}</p>}
-            {result && !result.ok && result.kind === 'invalid' && <p className="text-xs text-error-700 dark:text-error-400">{result.message}</p>}
-            {!check.ok && <p className="text-xs text-[var(--ff-text-tertiary)]">Fill in the driver to see its months.</p>}
-            {result?.ok && (
-              <>
-                {result.headcountMissing && (headcountError(scope ?? null)
-                  ? <p role="alert" className="mb-1 text-xs text-error-700 dark:text-error-400">The headcount could not be read: {headcountError(scope ?? null)} The months below count 0 heads.</p>
-                  : <p className="mb-1 text-xs text-[var(--ff-text-tertiary)]">Reading the headcount…</p>)}
-                {result.warnings.map((w) => <p key={w} className="mb-1 text-xs text-[var(--ff-unfav)]">{w}</p>)}
-                <PreviewTable months={months} result={result} />
-              </>
-            )}
-          </section>
+          {restricted ? (
+            <p data-testid="per-head-restricted" className="text-xs text-[var(--ff-text-tertiary)]">{PER_HEAD_RESTRICTED_NOTE}</p>
+          ) : (
+            <>
+              <DriverKindFields draft={draft} errors={errors} onChange={patch} months={months} rows={rows} costCentres={costCentres} disabled={readOnly} />
+              <section aria-labelledby={`${titleId}-preview`} className="rounded-lg border border-[var(--ff-border-light)] p-3">
+                <h3 id={`${titleId}-preview`} className="mb-2 text-xs font-semibold text-[var(--ff-text-secondary)]">Preview</h3>
+                {loop && <p role="alert" data-testid="driver-cycle" className="text-xs text-error-700 dark:text-error-400">This driver makes a loop: {loop}</p>}
+                {result && !result.ok && result.kind === 'invalid' && <p className="text-xs text-error-700 dark:text-error-400">{result.message}</p>}
+                {!check.ok && <p className="text-xs text-[var(--ff-text-tertiary)]">Fill in the driver to see its months.</p>}
+                {result?.ok && (
+                  <>
+                    {result.headcountMissing && (headcountError(scope ?? null)
+                      ? <p role="alert" className="mb-1 text-xs text-error-700 dark:text-error-400">The headcount could not be read: {headcountError(scope ?? null)} The months below count 0 heads.</p>
+                      : <p className="mb-1 text-xs text-[var(--ff-text-tertiary)]">Reading the headcount…</p>)}
+                    {result.warnings.map((w) => <p key={w} className="mb-1 text-xs text-[var(--ff-unfav)]">{w}</p>)}
+                    <PreviewTable months={months} result={result} />
+                  </>
+                )}
+              </section>
+            </>
+          )}
           {failure && (
             <p role="alert" data-testid="driver-editor-error" className="text-sm text-error-700 dark:text-error-400">
               {failure.path ? `This driver makes a loop: ${pathLabel(failure.path)}` : failure.message}

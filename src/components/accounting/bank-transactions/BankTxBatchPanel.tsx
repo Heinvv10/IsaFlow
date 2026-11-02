@@ -81,7 +81,7 @@ export function BankTxBatchPanel({
                   onClick={() => onApplyBatchEdit(o.id, o.code ? `${o.code} ${o.name}` : o.name)}
                   className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] text-xs flex items-center gap-2"
                 >
-                  {o.code && <span className="font-mono text-[var(--ff-text-tertiary)]">{o.code}</span>}
+                  {o.code && <span className="font-id text-[var(--ff-text-tertiary)]">{o.code}</span>}
                   <span className="text-[var(--ff-text-primary)]">{o.name}</span>
                 </button>
               ))}

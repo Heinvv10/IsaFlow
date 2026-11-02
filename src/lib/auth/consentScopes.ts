@@ -1,18 +1,21 @@
 /**
- * Consent / PAT-mint scope gating — ZERO runtime imports (client-bundle safe).
+ * Consent scope gating. Its only runtime dependency is the client-safe OAuth
+ * vocabulary, so this module remains safe to import from the consent page.
  *
- * The Hein decision (2026-07-18, settled): posting scopes are opt-in. Even
- * when a client requests `write:post` in its authorize URL, the consent
- * screen must present it UNCHECKED and grant it only when the user actively
- * ticks it. Read + draft-write scopes are auto-granted as before.
+ * Every write scope is opt-in. Even when a client requests one in its
+ * authorize URL, the consent screen presents it unchecked and grants it only
+ * when the user ticks it. Read scopes and offline_access stay automatic.
  */
+import { OAUTH_SCOPES, type OAuthScope } from './oauthScopes';
 
-/** Scopes that require an explicit, unchecked-by-default user opt-in. */
-export const OPT_IN_SCOPES = ['write:post'] as const;
-export type OptInScope = (typeof OPT_IN_SCOPES)[number];
+/** Every write scope in the canonical OAuth vocabulary, including future ones. */
+export type OptInScope = Extract<OAuthScope, `write:${string}`>;
+export const OPT_IN_SCOPES: readonly OptInScope[] = OAUTH_SCOPES.filter(
+  (scope): scope is OptInScope => scope.startsWith('write:'),
+);
 
 export function isOptInScope(scope: string): boolean {
-  return (OPT_IN_SCOPES as readonly string[]).includes(scope);
+  return OPT_IN_SCOPES.includes(scope as OptInScope);
 }
 
 /** Split the client's requested scopes into auto-granted and opt-in sets,

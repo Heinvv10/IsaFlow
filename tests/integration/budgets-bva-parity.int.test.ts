@@ -226,9 +226,10 @@ describe('budgets P0 parity on real Postgres', () => {
     const r = await full();
     const c = await cmp.call(u, 'GET', undefined, { period_start: windowOf(r).start, period_end: windowOf(r).end });
     expect(c.status, JSON.stringify(c.body).slice(0, 300)).toBe(200);
-    const d = c.body.data as unknown as { budgetedCount: number; lines: Line[] };
+    const d = c.body.data as unknown as { budgetedCount: number; lines: Array<Line & { budget_verdict: string }> };
     expect(d.budgetedCount).toBe(4);
-    expect(d.lines.slice(0, 4).map((l) => l.account_code).sort()).toEqual(['P-4000', 'P-6000', 'P-6100', 'P-6200']);
+    // Since budgets P3 PR-C every line carries the engine's verdict (the lines are no longer budgeted-first).
+    expect(d.lines.filter((l) => l.budget_verdict === 'budgeted').map((l) => l.account_code).sort()).toEqual(['P-4000', 'P-6000', 'P-6100', 'P-6200']);
   });
 
   it('Σ report actuals per type = Σ posted lines per type in the window (independent SQL)', async () => {

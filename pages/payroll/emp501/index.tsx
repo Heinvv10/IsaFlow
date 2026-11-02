@@ -138,7 +138,7 @@ export default function Emp501Page() {
             <>
               {allBalanced && summary.rows.some(r => r.status === 'balanced') && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm font-medium">
-                  <CheckCircle className="h-4 w-4" /> All periods reconcile — ready to submit EMP501
+                  <CheckCircle className="h-4 w-4" /> All periods reconcile. Ready for filing through e@syFile
                 </div>
               )}
 

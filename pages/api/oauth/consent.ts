@@ -72,11 +72,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
   if (scopes.length === 0) return apiResponse.badRequest(res, 'At least one scope must be requested');
 
-  // Server-authoritative opt-in gate for posting scopes (the Hein decision):
-  // write:post is NOT granted merely because it appears in the requested set —
-  // it requires an explicit, per-scope confirmation in optInConfirmed. This
-  // makes the "granted only when actively ticked" invariant hold regardless of
-  // the front-end (a UI regression or a hand-crafted POST cannot smuggle it in).
+  // Server-authoritative opt-in gate for every write scope. Requested writes
+  // require an explicit per-scope confirmation in optInConfirmed. A UI bug or
+  // hand-crafted POST therefore cannot grant an unticked or unrequested scope.
   const optInConfirmed = Array.isArray(body.optInConfirmed)
     ? body.optInConfirmed.filter((s): s is string => typeof s === 'string')
     : [];

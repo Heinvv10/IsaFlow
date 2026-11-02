@@ -153,7 +153,9 @@ async function assertDriverCells(companyId: string, versionId: string, batch: Va
   const touched = await clearedDriverCells(companyId, versionId, batch.deletes);
   if (touched.length === 0) return { reset: 0, resetRows: new Set<string>() };
   // "Skipped" as the recompute decides it (unplaced, out of its months, or in a stored loop): read only when a clear touches a driver row.
-  const skipped = skippedRows(await loadVersionModel(companyId, versionId, months, await listDriverLines(companyId, versionId)));
+  const skipped = skippedRows(await loadVersionModel(
+    companyId, versionId, months, await listDriverLines(companyId, versionId), 'recompute',
+  ));
   const live = touched.filter((c) => !skipped.has(c.row));
   const computed = live.find((c) => c.source === 'driver');
   if (computed) {

@@ -15,6 +15,7 @@
  * is released before printing; the job also checks its dev server is alive.
  */
 import { createServer } from 'node:net';
+import { cleanupSlotOrphans } from './golden/killSlotOrphans';
 
 // Next.js refuses fetch-spec "bad ports"; 3659 (apple-sasl) is the only one in
 // this range and failed a boot on 2026-10-28.
@@ -43,6 +44,15 @@ export async function pickFreePort(
   return null;
 }
 
+type Cleanup = (lo: number, hi: number, workspace: string, options?: { say: (line: string) => void }) => Promise<void>;
+
+/** CI repeats cleanup here because this command is not masked by the workflow's legacy `|| true`. */
+export async function prepareSlotWindow(
+  lo: number, hi: number, githubActions: boolean, workspace: string, cleanup: Cleanup = cleanupSlotOrphans,
+): Promise<void> {
+  if (githubActions) await cleanup(lo, hi, workspace, { say: (line) => process.stderr.write(`${line}\n`) });
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const [lo, hi] = args.map((a) => (/^\d+$/.test(a) ? Number(a) : NaN));
@@ -51,6 +61,7 @@ async function main(): Promise<void> {
     process.stderr.write('usage: golden-free-port.ts <lo> <hi>  (1-65535, lo <= hi)\n');
     process.exit(2);
   }
+  await prepareSlotWindow(lo, hi, process.env.GITHUB_ACTIONS === 'true', process.env.GITHUB_WORKSPACE ?? '');
   const port = await pickFreePort(lo, hi);
   if (port === null) {
     process.stderr.write(`no free port in ${lo}-${hi}\n`);
