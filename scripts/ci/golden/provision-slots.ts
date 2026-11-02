@@ -27,16 +27,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import pg from 'pg';
 import { rollbackFailed } from '../../../src/lib/rollbackFailed';
 import {
-  GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertConnectedToDev, assertDevDatabaseUrl, assertFreshSlotSeeds, assertResetSeeds, assertSlotCompanyId, assertGoTrueUrl, generationOf, parseEnvFile,
-  slotCompanyId, slotEmail, slotEnvKeys, upsertEnvKeys,
+  GOLDEN_SLOTS, SOURCE_COMPANY_ID, assertConnectedToDev, assertDevDatabaseUrl, assertFreshSlotSeeds, assertResetSeeds, assertGoTrueUrl, generationOf, parseEnvFile,
+  slotEmail, slotEnvKeys, upsertEnvKeys,
 } from './slotConfig';
 import { seedSlotViaApp } from './seedSlotClient';
 import { writeEnvFileAtomic } from './slotEnvFile';
-import { ensureCompany, ensureGoTrueUser, ensureUser, publishSlotLogin, retireSlotCompany } from './slotProvision';
+import { ensureCompany, ensureGoTrueUser, ensureUser, publishSlotLogin, resolveSlotCompanyId, retireSlotCompany } from './slotProvision';
 import { formatSlotReport, readSlotReport, seedProblems, slotProblems, slotWarnings } from './slotVerify';
 
 const DEFAULT_ENV_FILE = '/home/hein/isaflow-ci.env';
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const say = (line: string): void => { process.stdout.write(`${line}\n`); };
 
 function flag(name: string): boolean { return process.argv.includes(name); }
@@ -69,14 +68,6 @@ async function main(): Promise<void> {
     if (!v && !verifyOnly && !dryRun) throw new Error(`${k} is not set`);
     if (v) process.env[k] = v;
   }
-  /** The slot's current company: the env file's (a reset moves it to a new id), else the first generation's. */
-  const currentId = (n: number): string => {
-    const fromEnv = get(slotEnvKeys(n).companyId);
-    const id = fromEnv && UUID.test(fromEnv) ? fromEnv : slotCompanyId(n);
-    assertSlotCompanyId(n, id);
-    return id;
-  };
-
   const db = new pg.Client({ connectionString: dbUrl });
   await db.connect();
   try {
@@ -87,7 +78,7 @@ async function main(): Promise<void> {
       say(formatSlotReport('demo  ', await readSlotReport(db, SOURCE_COMPANY_ID)).replace(/, members \d+(?=, seed:)/, ''));
       let failing = 0;
       for (const n of GOLDEN_SLOTS) {
-        const report = await readSlotReport(db, currentId(n));
+        const report = await readSlotReport(db, await resolveSlotCompanyId(db, n, get(slotEnvKeys(n).companyId)));
         say(formatSlotReport(`slot ${n}`, report));
         for (const p of [...slotProblems(report, false), ...seedProblems(report)]) { say(`slot ${n}: PROBLEM: ${p}`); failing++; }
       }
@@ -104,7 +95,7 @@ async function main(): Promise<void> {
 
       await db.query('BEGIN');
       let committed = false;
-      let companyId = currentId(n);
+      let companyId = await resolveSlotCompanyId(db, n, get(keys.companyId));
       try {
         if (resetSlot !== undefined) companyId = (await retireSlotCompany(db, n, companyId)).id;
         const fresh = await ensureCompany(db, n, companyId, generationOf(companyId));
