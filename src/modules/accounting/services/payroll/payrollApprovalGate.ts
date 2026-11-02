@@ -36,7 +36,7 @@ import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
-import { closedPeriodBlocker } from './payrollJournalParts';
+import { closedPeriodBlocker, taggableCentres } from './payrollJournalParts';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
@@ -132,13 +132,12 @@ async function readPostedJournal(companyId: string, journalId: string): Promise<
  * only place the change shows, and it is a real figure on a real expense
  * account (breaker C4). Per account AND CC1 since labour lines carry the
  * employee's cost centre (2026-11-02): pay moved between two centres mapped
- * to one account is the same kind of change. A journal posted before then
- * carries no CC1, so a recalculated run re-approved onto one is refused and
- * re-posted (reverse, approve) with its tags — fail closed, never a silent
- * re-lock onto lines that no longer describe the run.
+ * to one account is the same kind of change. `comparableLines` first makes
+ * the two sides speak of CC1 alike (a journal from before CC1, a centre no
+ * longer taggable).
  */
 function figures(
-  lines: Array<{ glAccountId: string | null; debit: number; credit: number; cc1Id: string | null }>,
+  lines: FigureLine[],
   perAccount: boolean,
 ): Map<string, number> {
   const m = new Map<string, number>();
@@ -150,10 +149,32 @@ function figures(
   return m;
 }
 
-function sameFigures(plan: PayrollJournalPlan, posted: PostedPayrollJournal, perAccount: boolean): boolean {
-  const a = figures(plan.lines, perAccount);
-  const b = figures(posted.lines, perAccount);
+type FigureLine = { glAccountId: string | null; debit: number; credit: number; cc1Id: string | null };
+
+function sameFigures(lines: { plan: FigureLine[]; posted: FigureLine[] }, perAccount: boolean): boolean {
+  const a = figures(lines.plan, perAccount);
+  const b = figures(lines.posted, perAccount);
   return a.size === b.size && [...a].every(([k, v]) => b.get(k) === v);
+}
+
+/**
+ * The plan's and the posted journal's lines, with CC1 as the per-account
+ * comparison should read it (PR #1065 review):
+ *  - a journal posted before labour lines carried CC1 has none on any labour
+ *    line: CC1 is dropped from BOTH sides, so it is compared per account as it
+ *    was — no backfill, the run stays on its untagged journal;
+ *  - a posted CC1 that is no longer taggable (deactivated since, or no longer
+ *    a CC1 — `taggableCentres`, the plan's own rule) reads as untagged, as
+ *    today's plan books that centre, so it equals the plan's untagged line.
+ */
+async function comparableLines(companyId: string, plan: PayrollJournalPlan, posted: PostedPayrollJournal): Promise<{ plan: FigureLine[]; posted: FigureLine[] }> {
+  const tagged = [...new Set(posted.lines.filter((l) => cents(l.debit) !== 0 && l.cc1Id).map((l) => l.cc1Id!))];
+  if (tagged.length === 0) {
+    const untag = <T extends { cc1Id: string | null }>(l: T): T => ({ ...l, cc1Id: null });
+    return { plan: plan.lines.map(untag), posted: posted.lines.map(untag) };
+  }
+  const { taggable } = await taggableCentres(companyId, tagged);
+  return { plan: plan.lines, posted: posted.lines.map((l) => (l.cc1Id && !taggable.has(l.cc1Id) ? { ...l, cc1Id: null } : l)) };
 }
 
 /**
@@ -246,7 +267,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
       }
       // In force. The journal to reverse is the LAST of the chain: the run's own, or the one that re-booked it.
       const inForce = chain.journals[chain.journals.length - 1]!;
-      if (!sameFigures(plan, linked, await runRecalculatedSince(companyId, runId, linkedId))) {
+      const perAccount = await runRecalculatedSince(companyId, runId, linkedId);
+      const compared = perAccount ? await comparableLines(companyId, plan, linked) : { plan: plan.lines, posted: linked.lines };
+      if (!sameFigures(compared, perAccount)) {
         return {
           code: 'recalculated_after_posting',
           detail: `This run's figures no longer match the journal it posted (${numbers}) — it was recalculated, or its pay moved between `
