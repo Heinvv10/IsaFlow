@@ -70,7 +70,8 @@ export async function getEmployeeComponents(
           AND NOT EXISTS (
             SELECT 1 FROM payroll_employee_components nxt
             WHERE nxt.id <> pec.id AND nxt.employee_id = pec.employee_id AND nxt.component_id = pec.component_id
-              AND (nxt.is_recurring OR pec.superseded_at IS NOT NULL)
+              -- Pre-953 rows (supersede_inferred) keep the old neighbour rule, as the once-off rule above does.
+              AND (nxt.is_recurring OR pec.superseded_at IS NOT NULL OR (pec.supersede_inferred AND nxt.supersede_inferred))
               AND nxt.effective_from = pec.effective_to + 1
               AND (nxt.effective_to IS NULL OR nxt.effective_to >= nxt.effective_from)
           )

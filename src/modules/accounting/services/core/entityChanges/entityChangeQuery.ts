@@ -157,7 +157,8 @@ const PAYROLL_TERMS = [
  * clock_timestamp() against the run's calculated_at). An end-date change counts only when the earlier of the old and
  * the new date (empty = no end) is on or before the run's last day; a termination-detail change only for an employee
  * whose end date is on or before it. NULL when this caller may not read the history: without SELECT on the columns
- * read (migration_admin has none), or neither bypassing RLS nor an owner / admin / manager of the request's company.
+ * read (migration_admin has none), or neither bypassing RLS nor app_user (a member of it) acting as an owner / admin /
+ * manager of the request's company.
  * The gate then fails closed rather than read "no change".
  */
 export async function payrollTermsChangedSinceCalculation(
@@ -177,8 +178,12 @@ export async function payrollTermsChangedSinceCalculation(
       AND has_column_privilege(current_user, 'public.entity_changes', 'recorded_at', 'SELECT')
     ) AND (
       COALESCE((SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = current_user), false)
-      OR (COALESCE(public.company_member_actor_role(${companyId}::uuid) IN ('owner', 'admin', 'manager'), false)
-          AND ${companyId}::uuid IS NOT DISTINCT FROM app.current_company_id())
+      -- The 888 policy is written for app_user: any other role fails closed (CASE, so the role lookup is not even
+      -- run for a role that could not read company_users).
+      OR CASE WHEN pg_has_role(current_user, 'app_user', 'MEMBER')
+        THEN COALESCE(public.company_member_actor_role(${companyId}::uuid) IN ('owner', 'admin', 'manager'), false)
+             AND ${companyId}::uuid IS NOT DISTINCT FROM app.current_company_id()
+        ELSE false END
     ) AS can_read
   `) as Array<{ can_read: boolean }>;
   if (access[0]?.can_read !== true) return null;
