@@ -164,7 +164,7 @@ export default function LeaveIndexPage() {
                     <tr key={r.id} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
                       <td className="py-3 px-4">
                         <span className="font-medium text-[var(--ff-text-primary)]">{r.employeeName}</span>
-                        <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-mono">{r.employeeNumber}</span>
+                        <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-id">{r.employeeNumber}</span>
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.leaveTypeName}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.startDate)}</td>

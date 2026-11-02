@@ -209,7 +209,7 @@ export default {
           'sans-serif',
         ],
         serif: ['Georgia', 'serif'],
-        mono: ['Monaco', 'Consolas', 'monospace'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-in-out',
