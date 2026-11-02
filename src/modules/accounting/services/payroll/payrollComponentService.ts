@@ -32,7 +32,8 @@ export async function listComponents(companyId: string): Promise<PayrollComponen
  *
  * A row is read when its window covers `asOf`. A once-off (is_recurring false) is also read when its window starts in
  * `asOf`'s month and ends before `asOf` (10-27 November, or the 28th alone), unless a supersede ended it: another row
- * of the same component starts the day after it ends (payPackageService re-apply, a once-off replaced). A window that
+ * of the same, non-voided component row starts the day after it ends (payPackageService re-apply, a once-off
+ * replaced). End on a once-off no run has paid voids it (endEmployeeComponent), so it is not read. A window that
  * began in an earlier month and ends before `asOf` is not read again: it was paid in the month whose last day it
  * covered. A voided row (ends before it starts) is never read.
  */
@@ -60,9 +61,11 @@ export async function getEmployeeComponents(
           AND pec.effective_from >= date_trunc('month', ${asOf}::date)::date
           AND NOT EXISTS (
             SELECT 1 FROM payroll_employee_components nxt
-            WHERE nxt.employee_id = pec.employee_id
+            WHERE nxt.id <> pec.id
+              AND nxt.employee_id = pec.employee_id
               AND nxt.component_id = pec.component_id
               AND nxt.effective_from = pec.effective_to + 1
+              AND (nxt.effective_to IS NULL OR nxt.effective_to >= nxt.effective_from)
           )
         )
       )

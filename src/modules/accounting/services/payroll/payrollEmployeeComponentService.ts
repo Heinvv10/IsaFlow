@@ -1,9 +1,10 @@
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
-import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
+import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
+import { assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidPeriodsOf, windowOf } from './payrollComponentPaidMonths';
 
 type Row = DbRow;
 
@@ -110,11 +111,18 @@ export async function assignComponentToEmployee(
 /**
  * Close an assignment. Returns whether a row was actually closed.
  *
- * The boolean is not decoration. The UPDATE is scoped through the employee's
+ * The boolean is not decoration. The row is found inside the employee's
  * company, so a stale, mistyped-but-well-formed, or foreign `assignmentId`
- * matches NOTHING and the statement succeeds having changed nothing. A caller
- * that reported success on that would tell an agent an old salary had been
- * ended while it stayed live — and the next costed run would pay it.
+ * matches NOTHING and nothing changes. A caller that reported success on that
+ * would tell an agent an old salary had been ended while it stayed live — and
+ * the next costed run would pay it.
+ *
+ * A once-off no run has paid is CANCELLED, whatever end date was sent: voided
+ * (effective_to the day before effective_from), the shape the run reader never
+ * pays. Shortening it would not cancel it, because a once-off is paid in the
+ * month its window starts (getEmployeeComponents). A once-off a run has paid,
+ * and a recurring row, get the end date sent. Under the company's payroll
+ * approval lock and the row lock, so no approval decides "paid" under it.
  */
 export async function endEmployeeComponent(
   companyId: string,
@@ -122,54 +130,33 @@ export async function endEmployeeComponent(
   effectiveTo: Date,
 ): Promise<boolean> {
   const effectiveToStr = fmtDate(effectiveTo);
-
-  log.info('Ending employee component', { companyId, assignmentId, effectiveTo: effectiveToStr }, 'payrollEmployeeComponentService');
-
-  const rows = (await sql`
-    UPDATE payroll_employee_components
-    SET effective_to = ${effectiveToStr}
-    WHERE id = ${assignmentId}::uuid
-      AND employee_id IN (
-        SELECT id FROM payroll_employees
-        WHERE company_id = ${companyId}::uuid
-      )
-    RETURNING id
-  `) as Row[];
-  return rows.length > 0;
-}
-
-/**
- * Change an assignment's dates: effective_from and effective_to ('YYYY-MM-DD'; null = open-ended), on an open or an
- * ended row. Scoped through the employee's company like endEmployeeComponent, so a foreign or stale id changes nothing
- * and returns false. This is how a recurring row flagged for a manual pro-rata (payrollRecurringProRata) is fixed,
- * e.g. a salary moved to the 1st of next month with the part month assigned as a once-off. Refused (before any
- * write) for a date that is not a calendar date or an end before the start.
- */
-export async function updateEmployeeComponentDates(
-  companyId: string,
-  assignmentId: string,
-  effectiveFrom: string,
-  effectiveTo: string | null,
-): Promise<boolean> {
-  if (!isRealCalendarDate(effectiveFrom)) throw new EmployeeComponentRefused('effectiveFrom must be a real date (YYYY-MM-DD)');
-  if (effectiveTo !== null && !isRealCalendarDate(effectiveTo)) {
-    throw new EmployeeComponentRefused('effectiveTo must be a real date (YYYY-MM-DD), or empty for open-ended');
-  }
-  if (effectiveTo !== null && effectiveTo < effectiveFrom) throw new EmployeeComponentRefused('effectiveTo cannot be before effectiveFrom');
   if (!isUuidParam(assignmentId)) return false;
 
-  log.info('Editing employee component dates', { companyId, assignmentId, effectiveFrom, effectiveTo }, 'payrollEmployeeComponentService');
-  const rows = (await sql`
-    UPDATE payroll_employee_components
-    SET effective_from = ${effectiveFrom}::date, effective_to = ${effectiveTo}::date
-    WHERE id = ${assignmentId}::uuid
-      AND employee_id IN (
-        SELECT id FROM payroll_employees
-        WHERE company_id = ${companyId}::uuid
-      )
-    RETURNING id
-  `) as Row[];
-  return rows.length > 0;
+  return withTransaction(async (tx) => {
+    await lockCompanyPayrollForComponentChange(tx, companyId);
+    const rows = (await tx`
+      SELECT pec.id, pec.employee_id, pec.effective_from, pec.effective_to, pec.is_recurring
+      FROM payroll_employee_components pec
+      JOIN payroll_employees e ON e.id = pec.employee_id AND e.company_id = ${companyId}::uuid
+      WHERE pec.id = ${assignmentId}::uuid
+      FOR UPDATE OF pec
+    `) as Row[];
+    const row = rows[0];
+    if (!row) return false;
+    const window = windowOf(row);
+    const unpaidOnceOff = !window.recurring
+      && !(await paidPeriodsOf(tx, companyId, String(row.employee_id))).some((p) => assignmentReadInPeriod(window, p));
+
+    log.info('Ending employee component', {
+      companyId, assignmentId, effectiveTo: effectiveToStr, cancelled: unpaidOnceOff,
+    }, 'payrollEmployeeComponentService');
+    if (unpaidOnceOff) {
+      await tx`UPDATE payroll_employee_components SET effective_to = effective_from - 1 WHERE id = ${assignmentId}::uuid`;
+    } else {
+      await tx`UPDATE payroll_employee_components SET effective_to = ${effectiveToStr}::date WHERE id = ${assignmentId}::uuid`;
+    }
+    return true;
+  });
 }
 
 export async function listEmployeeComponentAssignments(

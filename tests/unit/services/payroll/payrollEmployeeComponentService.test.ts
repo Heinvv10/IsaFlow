@@ -156,17 +156,11 @@ describe('assignComponentToEmployee', () => {
 });
 
 describe('endEmployeeComponent', () => {
-  it('issues UPDATE with the effective_to date and company-scope subquery', async () => {
-    mockImpl = () => Promise.resolve([]);
-
-    await endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, new Date('2025-12-31'));
-
-    expect(sqlCalls).toHaveLength(1);
-    const call = sqlCalls[0];
-    expect(call).toBeDefined();
-    expect(call!.sql).toContain('UPDATE payroll_employee_components');
-    expect(call!.sql).toContain('effective_to');
-    expect(call!.sql).toContain('SELECT id FROM payroll_employees');
+  // What End does to a row (cancel an unpaid once-off, end the rest, refuse foreign ids) runs against a real
+  // database: tests/integration/payroll-component-edit-dates-guards.int.test.ts, payroll-run-once-off-window.int.test.ts.
+  it('an id that is not a uuid changes nothing and touches no table', async () => {
+    expect(await endEmployeeComponent(COMPANY_ID, 'not-a-uuid', new Date('2025-12-31'))).toBe(false);
+    expect(sqlCalls).toHaveLength(0);
   });
 });
 

@@ -20,8 +20,9 @@ import {
   EmployeeComponentRefused,
   endEmployeeComponent,
   listEmployeeComponentAssignments,
-  updateEmployeeComponentDates,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
+import { updateEmployeeComponentDates } from '@/modules/accounting/services/payroll/payrollComponentDateEdit';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 async function handler(
@@ -83,11 +84,14 @@ async function handler(
       return apiResponse.badRequest(res, 'effectiveTo must be a date or empty');
     }
     try {
-      const changed = await updateEmployeeComponentDates(companyId, aid, effectiveFrom, effectiveTo ? effectiveTo : null);
+      const changed = await updateEmployeeComponentDates(
+        companyId, aid, effectiveFrom, effectiveTo ? effectiveTo : null, { userId: req.user.id, userEmail: req.user.email },
+      );
       if (!changed) return apiResponse.notFound(res, 'Component assignment');
       return apiResponse.success(res, { updated: aid });
     } catch (err) {
       if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      if (respondIfLockTimeout(res, err)) return;
       throw err;
     }
   }
@@ -100,7 +104,12 @@ async function handler(
     if (typeof aid !== 'string') return apiResponse.badRequest(res, 'aid (assignment ID) query param is required');
     if (!effectiveTo) return apiResponse.badRequest(res, 'effectiveTo is required');
 
-    await endEmployeeComponent(companyId, aid, new Date(effectiveTo));
+    try {
+      await endEmployeeComponent(companyId, aid, new Date(effectiveTo));
+    } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
+      throw err;
+    }
     return apiResponse.success(res, { ended: aid });
   }
 
