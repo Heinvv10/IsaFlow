@@ -37,9 +37,13 @@
 --      stores the account number in full (a reveal needs it); the API masks it
 --      (SENSITIVE_FIELDS). app_service's SELECT mirror on entity_changes is
 --      USING (true), so with no claims at all the service pool would read every
---      tenant's numbers there. A RESTRICTIVE policy hides payroll_bank_detail
---      rows from any app_service session; nothing on that pool reads the history
---      (every reader, the route, MCP and the audit snapshots, runs as app_user).
+--      tenant's numbers there. entity_changes joins 915's exclusion list (step
+--      4): app_service gets no mirror on it, and the sync drops the one it had.
+--      A per-row check could not do it: a mirror's USING (true) is fixed when a
+--      query is planned, so a cursor fetched, or a scan run, after SET ROLE
+--      app_user would pass it. Every reader of the history (the routes, MCP,
+--      audit snapshots and comparisons, runAuditTx) switches to app_user with
+--      the caller's claims first and reads through entity_changes_read.
 --      The capture function is unchanged, so 930's definer registry is too:
 --      entity_change_projection already keeps every column but id and created_at.
 --
@@ -159,7 +163,7 @@ END $$;
 GRANT SELECT, INSERT ON payroll_bank_details TO app_user;
 GRANT UPDATE (is_active) ON payroll_bank_details TO app_user;
 
--- 915's function, with this table beside impersonation_sessions: no service path reads it.
+-- 915's function, with this table and entity_changes beside impersonation_sessions: no service path reads them.
 CREATE OR REPLACE FUNCTION public.app_service_wanted_policies()
 RETURNS TABLE (tbl regclass, cmd text)
 LANGUAGE sql
@@ -174,7 +178,7 @@ AS $$
       JOIN pg_class c ON c.oid = p.polrelid
       JOIN pg_namespace ns ON ns.oid = c.relnamespace
      WHERE ns.nspname = 'public'
-       AND c.relname NOT IN ('impersonation_sessions', 'payroll_bank_details')
+       AND c.relname NOT IN ('impersonation_sessions', 'payroll_bank_details', 'entity_changes')
        AND p.polpermissive
        AND p.polname NOT LIKE 'app\_service\_%'
        AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
@@ -210,13 +214,8 @@ CREATE POLICY entity_changes_read ON entity_changes
       ELSE COALESCE(public.company_member_actor_role(company_id) IN ('owner', 'admin'), false)
     END);
 
--- Restrictive, so it narrows whatever else admits a row. TO app_user, which
--- app_service inherits, not TO app_service: 915's sync and drift check judge
--- only policies naming app_service, so a re-run of 915 neither drops it nor
--- reports it. It binds only a session that is (a member of) app_service.
+-- The restrictive policy an earlier build of this file made: replaced by the exclusion in step 4.
 DROP POLICY IF EXISTS bank_history_off_service_pool ON entity_changes;
-CREATE POLICY bank_history_off_service_pool ON entity_changes AS RESTRICTIVE FOR SELECT TO app_user
-  USING (entity_type <> 'payroll_bank_detail' OR NOT pg_catalog.pg_has_role('app_service', 'MEMBER'));
 
 -- After step 3, so the migration's own deactivations are not recorded as anyone's change.
 DROP TRIGGER IF EXISTS entity_change_capture ON payroll_bank_details;
@@ -254,16 +253,14 @@ BEGIN
   LOOP
     RAISE EXCEPTION 'migration 952: app_user may update %, not only is_active', r.attname;
   END LOOP;
-  IF EXISTS (
-    SELECT 1 FROM pg_catalog.pg_policy p WHERE p.polrelid = v_table AND 'app_service'::pg_catalog.regrole = ANY (p.polroles)
-  ) THEN
-    RAISE EXCEPTION 'migration 952: app_service has a policy on payroll_bank_details';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy p WHERE p.polrelid = 'public.entity_changes'::pg_catalog.regclass
-                   AND p.polname = 'bank_history_off_service_pool' AND NOT p.polpermissive AND p.polcmd = 'r'
-                   AND p.polroles = ARRAY['app_user'::pg_catalog.regrole::pg_catalog.oid]) THEN
-    RAISE EXCEPTION 'migration 952: app_service may read payroll_bank_detail history';
-  END IF;
+  -- No mirror, nor any other policy naming app_service, on either table holding whole account numbers.
+  FOR r IN
+    SELECT c.relname FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+    WHERE p.polrelid IN (v_table, 'public.entity_changes'::pg_catalog.regclass)
+      AND 'app_service'::pg_catalog.regrole = ANY (p.polroles)
+  LOOP
+    RAISE EXCEPTION 'migration 952: app_service has a policy on %', r.relname;
+  END LOOP;
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_class c
     WHERE c.oid = 'public.payroll_bank_details'::pg_catalog.regclass AND c.relrowsecurity AND c.relforcerowsecurity

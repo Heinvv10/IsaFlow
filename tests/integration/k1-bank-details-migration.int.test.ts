@@ -200,12 +200,9 @@ describe('952 refuses to ship any other way', () => {
       .toContain('migration 952: app_service has a policy');
   });
 
-  it('the service pool able to read bank history', async () => {
-    expect(await refusal('DROP POLICY bank_history_off_service_pool ON entity_changes'))
-      .toContain('migration 952: app_service may read payroll_bank_detail history');
-    expect(await refusal(`DROP POLICY bank_history_off_service_pool ON entity_changes;
-      CREATE POLICY bank_history_off_service_pool ON entity_changes FOR SELECT TO app_user USING (entity_type <> 'payroll_bank_detail')`))
-      .toContain('migration 952: app_service may read payroll_bank_detail history');
+  it('a policy that lets app_service read the history', async () => {
+    expect(await refusal('CREATE POLICY app_service_select ON entity_changes FOR SELECT TO app_service USING (true)'))
+      .toContain('migration 952: app_service has a policy on entity_changes');
   });
 
   it('migration_admin and the owner keep what they hold', async () => {

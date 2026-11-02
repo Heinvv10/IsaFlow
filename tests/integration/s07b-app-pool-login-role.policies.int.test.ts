@@ -51,7 +51,6 @@ const REVIEWED: Record<string, string> = {
   'payroll_bank_details.payroll_detail_read': 'the role test is the caller\'s company role, which forged claims of an owner satisfy; 915\'s list excludes the table, so app_service has no mirror to widen it',
   'payroll_bank_details.payroll_detail_insert': 'as payroll_detail_read, and the WITH CHECK\'s employee is in the row\'s own company, which forged claims of an owner satisfy',
   'payroll_bank_details.payroll_detail_update': 'as payroll_detail_read, for owner and admin; only is_active is updatable',
-  'entity_changes.bank_history_off_service_pool': 'RESTRICTIVE, SELECT only (952): it only narrows; it hides payroll_bank_detail history from an app_service session, which a forger reaches with no claims at all',
   'bureaus.bureaus_owner_member_read': 'SELECT only (932); membership is a bureau_users row with user_id = auth.uid(), which forged claims of a member satisfy; the service pool reads every bureau, as the bureau routes do',
 };
 
@@ -91,7 +90,7 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
       gl_journal_entries: 'adrw',
       flow_bundles: 'r',              // bundles_no_tenant_writes is `false`
       impersonation_sessions: '',     // excluded: no service path reads it
-      entity_changes: 'r',            // the forensic log: app_user only reads it
+      entity_changes: '',             // 952: excluded; it holds whole bank account numbers, and every reader switches to app_user
       audit_snapshots: 'r',           // written by the definer only
       company_invitations: 'dr',      // 930: written on the migration_admin pool; a cancel deletes
       approval_requests: 'r',         // 872: writes only through the definer functions
