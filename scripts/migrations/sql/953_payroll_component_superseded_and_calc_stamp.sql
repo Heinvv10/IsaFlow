@@ -12,43 +12,42 @@
 -- No backfill: a package supersede leaves no record of its own (no application
 -- history; the old row's effective_to is the apply date minus one day), so a
 -- superseded row cannot be told apart from an assignment ended by hand on the
--- same day. Existing rows keep superseded_at NULL. Instead every row that
--- exists when this migration first runs is marked supersede_inferred = TRUE,
--- and for those rows only the reader keeps the old rule: a once-off counts as
--- superseded when another such row of the same employee and component starts
--- the day after it ends. Rows created later default to FALSE and use
--- superseded_at alone. The marking runs only in the run that adds the column,
--- so a re-run never marks newer rows. It is deliberately across every tenant:
--- it records "existed before 953", not a decision about any company's data.
+-- same day. Existing rows keep superseded_at NULL. Instead they carry
+-- supersede_inferred = TRUE, and for those rows only the reader keeps the old
+-- rule: a once-off counts as superseded when another such row of the same
+-- employee and component starts the day after it ends.
+--
+-- supersede_inferred is added NOT NULL DEFAULT TRUE: on PG11+ that stores the
+-- default in the catalogue and rewrites no row, and every existing row reads
+-- TRUE. The default STAYS TRUE: a row inserted by code from before this
+-- release (during the deploy window, or after a code-only rollback) does not
+-- name the column and so is read with the old rule too, and that code does
+-- not set superseded_at, so the new rule would pay a once-off it replaced
+-- twice. Every writer in this release names the column and writes FALSE
+-- (assign, package apply, batch post; onboarding and MCP assign through
+-- assign). Applies to every tenant by construction: it records "written by
+-- code from before 953", not a decision about any company's data.
 --
 -- payroll_run_headers.calculated_at / calculation_version: written by every
 -- calculation (payrollRunLock.saveCalculatedRunTotals). The approval gate
 -- refuses a run calculated by older code (NULL or a lower version) and a run
 -- whose employees' component dates changed (audit_log) after calculated_at.
 --
--- Additive. One UPDATE of every payroll_employee_components row (the marker),
--- in the run that adds the column only; no trigger or policy on that table.
--- Safe to re-run.
+-- Additive, catalogue-only (no row rewrite, no UPDATE); no trigger or policy on
+-- either table. Safe to re-run. Waits at most 5s for each table's lock, as 718
+-- and 925 do, so a busy payroll table fails the deploy instead of queueing
+-- every request behind it.
+
+SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE payroll_employee_components
   ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ NULL;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_schema = 'public'
-       AND table_name = 'payroll_employee_components'
-       AND column_name = 'supersede_inferred'
-  ) THEN
-    ALTER TABLE public.payroll_employee_components
-      ADD COLUMN supersede_inferred BOOLEAN NOT NULL DEFAULT FALSE;
-    UPDATE public.payroll_employee_components SET supersede_inferred = TRUE;
-  END IF;
-END $$;
+ALTER TABLE payroll_employee_components
+  ADD COLUMN IF NOT EXISTS supersede_inferred BOOLEAN NOT NULL DEFAULT TRUE;
 
 COMMENT ON COLUMN payroll_employee_components.supersede_inferred IS
-  'TRUE: the row existed before migration 953, and the reader infers a supersede from a neighbouring pre-953 row (the old rule). FALSE: superseded_at alone decides.';
+  'TRUE (the default): written by code from before migration 953, and the reader infers a supersede from a neighbouring such row (the old rule). FALSE (every writer since 953 writes it): superseded_at alone decides.';
 
 COMMENT ON COLUMN payroll_employee_components.superseded_at IS
   'When a pay-package apply shortened or cancelled this assignment (payPackageService). A once-off ending before its month end is paid only while this is NULL.';

@@ -10,6 +10,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { paidPeriodChanged, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
+import { legacyFlips, type Sibling } from './payrollComponentLegacySupersede';
 
 const isoDate = (v: unknown): string => fmtDate(v);
 
@@ -29,6 +30,23 @@ export interface SupersedeInput {
   actor: ComponentChangeActor;
 }
 
+/**
+ * A pre-953 once-off that a cut row superseded under the old neighbour rule (A 1-14 replaced by B 15-30, B now cut)
+ * would be paid again once B is gone: record its supersede (superseded_at) in the same transaction, as a package
+ * apply does for the rows it cuts itself (953 review).
+ */
+async function recordRevivedLegacyOnceOffs(
+  tx: TxSql, all: DbRow[], cutIds: Set<string>, cutTo: string, companyId: string, actor: ComponentChangeActor,
+): Promise<void> {
+  const before: Sibling[] = all.map((row) => ({ ...windowOf(row), id: String(row.id) }));
+  const after = before.map((r) => (cutIds.has(r.id) ? { ...r, to: cutTo, supersededAt: Date.now() } : r));
+  for (const { row, paidAgain } of legacyFlips(before, after)) {
+    if (!paidAgain) continue;
+    await tx`UPDATE payroll_employee_components SET superseded_at = now() WHERE id = ${row.id}::uuid AND superseded_at IS NULL`;
+    await auditComponentChange(tx, companyId, row.id, row, row, 'package_supersede', actor);
+  }
+}
+
 /** The number of assignments cut. */
 export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Promise<number> {
   const { companyId, packageId, employeeId, componentId, effectiveFrom, paid, actor } = input;
@@ -38,14 +56,14 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   // `effective_to IS NULL` predicate would step over the previous apply's
   // row and leave two overlapping windows — getEmployeeComponents returns
   // both and the run pays the component twice.
-  const toCut = (await tx`
+  const all = (await tx`
     SELECT id, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred
       FROM payroll_employee_components
      WHERE employee_id = ${employeeId}::uuid
        AND component_id = ${componentId}::uuid
-       AND (effective_to IS NULL OR effective_to >= ${effectiveFrom}::date)
      ORDER BY id FOR UPDATE
   `) as DbRow[];
+  const toCut = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
   // Never cut what a paid run read: that run would no longer agree with the rows (security review, 2026-11-02).
   for (const row of toCut) {
     const changed = paidPeriodChanged(paid, windowOf(row), { ...windowOf(row), to: cutTo });
@@ -66,6 +84,7 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   for (const row of toCut) {
     await auditComponentChange(tx, companyId, String(row.id), windowOf(row), { ...windowOf(row), to: cutTo }, 'package_supersede', actor);
   }
+  await recordRevivedLegacyOnceOffs(tx, all, new Set(toCut.map((row) => String(row.id))), cutTo, companyId, actor);
 
   // A row starting on or after effectiveFrom is not shortened by the
   // supersede, it is cancelled outright: the new effective_to lands before

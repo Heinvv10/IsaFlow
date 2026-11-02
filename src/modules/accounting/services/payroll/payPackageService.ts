@@ -285,9 +285,9 @@ export async function applyPackageToEmployee(
       const effectiveTo = isRecurring ? null : endOfMonthIso(startYear, startMonth);
       const inserted = (await tx`
         INSERT INTO payroll_employee_components
-          (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
+          (employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred)
         VALUES
-          (${employeeId}::uuid, ${componentId}::uuid, ${Number(r.amount)}, ${effectiveFrom}::date, ${effectiveTo}, ${isRecurring})
+          (${employeeId}::uuid, ${componentId}::uuid, ${Number(r.amount)}, ${effectiveFrom}::date, ${effectiveTo}, ${isRecurring}, FALSE)
         RETURNING id
       `) as DbRow[];
       await auditComponentChange(tx, companyId, String(inserted[0]!.id), null,

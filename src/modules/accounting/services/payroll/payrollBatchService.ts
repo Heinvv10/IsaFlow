@@ -538,14 +538,15 @@ async function insertAssignment(tx: TxSql, companyId: string, actor: ComponentCh
   const to = opts.effectiveTo ? toIso(opts.effectiveTo) : null;
   const rows = (await tx`
     INSERT INTO payroll_employee_components (
-      employee_id, component_id, amount, effective_from, effective_to, is_recurring
+      employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred
     ) VALUES (
       ${opts.employeeId}::uuid,
       ${opts.componentId}::uuid,
       ${opts.amount},
       ${from},
       ${to},
-      ${opts.isRecurring}
+      ${opts.isRecurring},
+      FALSE -- written by this release: superseded_at decides (migration 953)
     )
     RETURNING id
   `) as Row[];

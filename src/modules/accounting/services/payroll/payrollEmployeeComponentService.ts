@@ -113,14 +113,15 @@ export async function assignComponentToEmployee(
 
     const rows = (await tx`
       INSERT INTO payroll_employee_components (
-        employee_id, component_id, amount, effective_from, effective_to, is_recurring
+        employee_id, component_id, amount, effective_from, effective_to, is_recurring, supersede_inferred
       ) VALUES (
         ${employeeId}::uuid,
         ${componentId}::uuid,
         ${amount},
         ${effectiveFromStr},
         ${effectiveToStr},
-        ${isRecurring}
+        ${isRecurring},
+        FALSE -- written by this release: superseded_at decides (migration 953)
       )
       RETURNING *
     `) as Row[];

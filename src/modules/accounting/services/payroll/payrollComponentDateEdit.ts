@@ -31,7 +31,7 @@ import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import type { PayrollPeriod } from './payrollTypes';
-import { payrollRunReadDate } from './payrollRunReadDate';
+import { legacyFlips, live, shiftDay, type Sibling } from './payrollComponentLegacySupersede';
 import {
   assignmentReadInPeriod, lockCompanyPayrollForComponentChange, paidPeriodChanged, paidPeriodsOf, periodLabel, windowOf,
   type AssignmentWindow,
@@ -40,35 +40,8 @@ import {
 export type { ComponentChangeActor } from './payrollComponentAudit';
 export type DateChange = { kind: 'edit'; from: string; to: string | null } | { kind: 'end'; to: string; cancel?: boolean };
 
-type Sibling = AssignmentWindow & { id: string };
-
-const live = (w: AssignmentWindow) => w.to === null || w.to >= w.from;
 /** The window alone: what may be logged or audited. Never the amount (an employee's pay). */
 const windowOnly = (w: AssignmentWindow): AssignmentWindow => ({ from: w.from, to: w.to, recurring: w.recurring, supersededAt: w.supersededAt, legacy: w.legacy });
-const shiftDayFwd = (iso: string) => shiftDay(iso, 1);
-
-/** The reader's pre-953 rule (getEmployeeComponents): a live pre-953 sibling starts the day after `x` ends. */
-function inferredSuperseded(x: Sibling, rows: Sibling[]): boolean {
-  return x.legacy === true && x.to !== null && rows.some((y) => y.id !== x.id && y.legacy === true && live(y) && y.from === shiftDayFwd(x.to!));
-}
-
-/** A pre-953 once-off whose inferred supersede this change flips, where that decides whether it is paid. */
-function flippedLegacyOnceOff(before: Sibling[], after: Sibling[]): { row: Sibling; paidAgain: boolean } | null {
-  for (const x of before) {
-    const y = after.find((r) => r.id === x.id)!;
-    if (x.recurring || !x.legacy || x.supersededAt != null || !live(x) || !live(y) || x.to === null || y.to === null) continue;
-    // A once-off covering its month's last day is paid whether superseded or not.
-    if (y.to >= payrollRunReadDate({ year: Number(y.to.slice(0, 4)), month: Number(y.to.slice(5, 7)) })) continue;
-    const was = inferredSuperseded(x, before);
-    const is = inferredSuperseded(y, after);
-    if (was !== is) return { row: x, paidAgain: was && !is };
-  }
-  return null;
-}
-const shiftDay = (iso: string, days: number): string => {
-  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-};
 
 function refuse(message: string): never {
   throw new EmployeeComponentRefused(message);
@@ -148,7 +121,7 @@ export async function changeAssignmentDates(
       refuse(`${periodLabel(changed)} is already paid (approved run) and this changes what it paid. `
         + 'Reopen that run first, or capture the correction in an open period.');
     }
-    const flip = flippedLegacyOnceOff(siblings, siblings.map((r) => (r.id === self.id ? { ...r, ...after } : r)));
+    const [flip] = legacyFlips(siblings, siblings.map((r) => (r.id === self.id ? { ...r, ...after } : r)));
     if (flip) {
       refuse(`This would make the once-off ${flip.row.from} to ${flip.row.to} ${flip.paidAgain ? 'be paid again' : 'stop being paid'}: `
         + 'before this release it was replaced by an assignment starting the day after it ends. Cancel or change that once-off first.');

@@ -178,12 +178,11 @@ describe('applyPackageToEmployee', () => {
     expect(inserts[1]!.values).toContain('2026-05-31');  // once-off closes at month end
     // The supersede must reach the already-closed once-off row too, or a second
     // apply in the same month leaves two overlapping windows and pays it twice.
-    // The rows to cut are chosen (and locked) first, then cut by id (payPackageSupersede).
-    const supersedes = sqlCalls.filter(c => c.sql.includes('FOR UPDATE') && c.sql.includes('FROM payroll_employee_components'));
-    expect(supersedes).toHaveLength(2);
-    for (const call of supersedes) {
-      expect(call.sql).toContain('effective_to IS NULL OR effective_to >=');
-    }
+    // The component's rows are locked first and the ones the apply overlaps (open, or ending on or after the apply
+    // date) are cut by id (payPackageSupersede); which ones, against real rows: payroll-component-superseded.int.
+    const locked = sqlCalls.filter(c => c.sql.includes('FOR UPDATE') && c.sql.includes('FROM payroll_employee_components'));
+    expect(locked).toHaveLength(2);
+    expect(sqlCalls.filter(c => c.sql.includes('UPDATE payroll_employee_components')).length).toBe(2);
   });
 
   it('warns, naming the rows, when the apply cancels an assignment it fully overlaps', async () => {

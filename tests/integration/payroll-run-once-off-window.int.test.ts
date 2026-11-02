@@ -33,8 +33,9 @@ async function employee(key: string, rows: Array<[string, number, string, string
      VALUES($1,$2,$3,'Once','Off','2020-01-01','active',false)`, [id, company, `OW-${key}`]);
   for (const [component, amount, from, to, recurring] of [['salary', SALARY, '2020-01-01', null, true] as const, ...rows]) {
     await pool.query(
-      `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring)
-       VALUES($1,$2,$3,$4::date,$5::date,$6)`, [id, comp[component as keyof typeof comp], amount, from, to, recurring]);
+      // As this release writes rows (supersede_inferred FALSE, migration 953); pre-953 rows: payroll-component-legacy-*.int.
+      `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring,supersede_inferred)
+       VALUES($1,$2,$3,$4::date,$5::date,$6,FALSE)`, [id, comp[component as keyof typeof comp], amount, from, to, recurring]);
   }
 }
 
