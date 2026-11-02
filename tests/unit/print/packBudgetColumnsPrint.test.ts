@@ -80,6 +80,17 @@ function scaled(k: number, negative: boolean, loss: boolean): BoardPackInput {
 }
 
 describe('page 6 with a budget at the figures that spilled it', () => {
+  it('drops the budget columns when fitting them would remove their basis footnote', () => {
+    const document = buildBoardPackPages(scaled(1220, true, false));
+    const page = document.pages.find((p) => p.navLabel === 'Income statement')!;
+    const income = page.blocks
+      .flatMap((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? [b.table] : []))[0]!;
+    expect(income.columns).not.toContain('budget');
+    expect(income.columns).not.toContain('variance');
+    expect(income.columnNotes?.some((note) => note.column === 'budget')).toBe(false);
+    expect(page.footnotes.some((footnote) => footnote.text.startsWith('The budget column'))).toBe(false);
+  });
+
   it.each([
     ['a loss at about R12.6bn of revenue', 3000, false, true],
     ['a net-debit revenue of about R840m', 200, true, false],
