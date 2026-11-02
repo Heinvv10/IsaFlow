@@ -12,7 +12,9 @@
  *   - End: an end before the start of a row a paid run read, or later than the current end (End only shortens;
  *     Edit dates extends); a cancel of a row a paid run read;
  *   - a window overlapping another live sibling (both would be paid);
- *   - a change to what a paid run paid (payrollComponentPaidMonths).
+ *   - a change to what a paid run paid (payrollComponentPaidMonths);
+ *   - Edit: a once-off dated in a month any approved run of the company read, or a recurring row gaining such a month
+ *     (judged company-wide, not only on the employee's own lines: that run will never pay it).
  * End CANCELS (voids: effective_to = effective_from - 1, the shape the reader never pays) an assignment no paid run
  * read when it is a once-off, when the end date is before its start, or when the caller asks to cancel (MCP `cancel`).
  * Since migration 953 a supersede is recorded (superseded_at) instead of inferred from a neighbour, so moving or ending
@@ -30,6 +32,7 @@ import { log } from '@/lib/logger';
 import { isRealCalendarDate, isUuidParam } from '@/lib/validation';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
+import { refuseOnceOffInPaidMonth } from './payrollOnceOffGuard';
 import type { PayrollPeriod } from './payrollTypes';
 import { legacyFlips, live, shiftDay, type Sibling } from './payrollComponentLegacySupersede';
 import {
@@ -117,6 +120,18 @@ export async function changeAssignmentDates(
     const paid = await paidPeriodsOf(tx, companyId, String(target.employee_id));
     const { after, kind } = nextWindow(self, change, paid.find((p) => assignmentReadInPeriod(self, p)) ?? null);
 
+    if (kind === 'edit') {
+      // Company-wide, as assign, batch and package judge: a run the employee is not on will never pay a row moved into
+      // its month. A once-off may not be dated in a paid month; a recurring row may not gain one.
+      if (!after.recurring) await refuseOnceOffInPaidMonth(tx, companyId, after.from, after.to);
+      if (after.recurring) {
+        const added = (await paidPeriodsOf(tx, companyId, null)).find((p) => assignmentReadInPeriod(after, p) && !assignmentReadInPeriod(self, p));
+        if (added) {
+          refuse(`${periodLabel(added)} is already paid (approved run): this would add that month to the row, and that run will never pay it. `
+            + 'Reopen that run first, or capture the correction in an open period.');
+        }
+      }
+    }
     if (kind !== 'cancel') {
       const clash = siblings.find((y) => y.id !== self.id && live(y) && y.from <= (after.to ?? '9999-12-31') && (y.to === null || y.to >= after.from));
       if (clash) {
