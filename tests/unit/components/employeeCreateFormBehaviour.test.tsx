@@ -56,14 +56,18 @@ describe('firstMonthNotes', () => {
     expect(firstMonthNotes('2026-11-01', TODAY)).toEqual([]);
     expect(firstMonthNotes('2027-01-01', TODAY)).toEqual([]);
   });
-  // The run reads components as at the period's last day, so a start on the 28th or later is paid in full too.
-  it.each([['2026-11-02'], ['2026-11-15'], ['2026-11-27'], ['2026-11-28'], ['2026-11-30'], ['2027-02-28']])(
-    '%s: paid in full, not a part month', (start) => {
-      const notes = firstMonthNotes(start, TODAY);
-      expect(notes).toHaveLength(1);
-      expect(notes[0]).toMatch(/full monthly salary/i);
-    },
-  );
+  it.each([['2026-11-02'], ['2026-11-15'], ['2026-11-27']])('%s: paid in full, not a part month', (start) => {
+    const notes = firstMonthNotes(start, TODAY);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/full monthly salary/i);
+  });
+  // The run flags a recurring row starting after the 27th and refuses approval until it is pro-rated by hand.
+  it.each([['2026-11-28'], ['2026-11-30'], ['2027-02-28']])("%s: needs a pro-rata in that month's run", (start) => {
+    const notes = firstMonthNotes(start, TODAY);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/after the 27th needs a manual pro-rata in that month's run/i);
+    expect(notes[0]).not.toMatch(/full monthly salary/i);
+  });
   it('an earlier month says so, alone on the 1st and beside the other note otherwise', () => {
     expect(firstMonthNotes('2026-10-01', TODAY)).toEqual([expect.stringMatching(/earlier month/i)]);
     expect(firstMonthNotes('2026-10-15', TODAY)).toEqual([expect.stringMatching(/full monthly salary/i), expect.stringMatching(/earlier month/i)]);
@@ -87,7 +91,7 @@ describe('the first month, on the form', () => {
     render(<Page />);
     await payReady();
     expect(screen.queryByText(/salary starts on the start date/i)).toBeNull();
-    expect(screen.getByText(/any day of the month is paid the full month/i)).toBeTruthy();
+    expect(screen.getByText(/on or before the 27th.*a later one needs a manual pro-rata in that month's run/i)).toBeTruthy();
   });
 });
 

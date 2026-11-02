@@ -81,8 +81,8 @@ async function november(employeeId: string) {
   const id = String(made.body.data!.id);
   const done = await call(calculate as Route, 'POST', `/api/payroll/runs/${id}/calculate`, id);
   expect(done.statusCode, JSON.stringify(done.body)).toBe(200);
-  const line = (await pool.query<{ gross_pay: string }>(
-    'SELECT gross_pay FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [id, employeeId])).rows;
+  const line = (await pool.query<{ gross_pay: string; validation_results: Array<{ code: string }> }>(
+    'SELECT gross_pay, validation_results FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [id, employeeId])).rows;
   await pool.query('DELETE FROM payroll_run_lines WHERE run_id = $1', [id]);
   await pool.query('DELETE FROM payroll_run_headers WHERE id = $1', [id]);
   return line;
@@ -184,18 +184,20 @@ describe('POST /api/payroll/employees with a salary', () => {
 });
 
 describe('the first run (PINNED, not endorsed: components read as at the period\'s last day)', () => {
+  // After the 27th the whole month is still paid, but the line is flagged for a manual pro-rata and approval refused.
   it.each([
-    ['1 Nov, the whole month', 'WP-8', '2026-11-01', SALARY_RANDS],
-    ['15 Nov, still the whole month: no part-month reduction', 'WP-14', '2026-11-15', SALARY_RANDS],
-    ['27 Nov, the whole month', 'WP-15', '2026-11-27', SALARY_RANDS],
-    ['28 Nov, the whole month (was gross 0 while the run read as at the 27th)', 'WP-16', '2026-11-28', SALARY_RANDS],
-    ['30 Nov, the last day of the month: the whole month', 'WP-9', '2026-11-30', SALARY_RANDS],
-  ])("start %s", async (_n, number, startDate, gross) => {
+    ['1 Nov, the whole month', 'WP-8', '2026-11-01', SALARY_RANDS, false],
+    ['15 Nov, still the whole month: no part-month reduction', 'WP-14', '2026-11-15', SALARY_RANDS, false],
+    ['27 Nov, the whole month', 'WP-15', '2026-11-27', SALARY_RANDS, false],
+    ['28 Nov, the whole month, flagged for a pro-rata', 'WP-16', '2026-11-28', SALARY_RANDS, true],
+    ['30 Nov, the last day of the month: the whole month, flagged for a pro-rata', 'WP-9', '2026-11-30', SALARY_RANDS, true],
+  ])("start %s", async (_n, number, startDate, gross, flagged) => {
     const out = await post(body(number, startDate, { componentId: basic, amountCents: SALARY_CENTS }));
     expect(out.statusCode, JSON.stringify(out.body)).toBe(201);
     const [row] = await employeeRows(number);
     const line = await november(row!.id);
     expect(line).toHaveLength(1);
     expect(Number(line[0]!.gross_pay)).toBe(gross);
+    expect(line[0]!.validation_results.some(v => v.code === 'RECURRING_NEEDS_PRO_RATA')).toBe(flagged);
   });
 });
