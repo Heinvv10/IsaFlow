@@ -43,8 +43,8 @@ function requiredText(body: Body, key: string, maxLength: number): string {
 }
 
 /**
- * UTC midnight, as `new Date('YYYY-MM-DD')` gives: createPayrollEmployee reads it through fmtDate (local getters) and
- * assignComponentToEmployee through toISOString, and on this UTC+2 host only UTC midnight is the same day in both.
+ * UTC midnight, as `new Date('YYYY-MM-DD')` gives: createPayrollEmployee reads it through fmtDate (local getters), and on this UTC+2 host
+ * UTC midnight is the same day there. The salary assignment takes the original YYYY-MM-DD string, not this Date.
  */
 function dateOf(value: unknown, key: string): Date {
   if (typeof value !== 'string' || !isRealCalendarDate(value)) throw new EmployeeOnboardingRefused(`${key} must be a real date (YYYY-MM-DD)`);
@@ -206,7 +206,7 @@ export async function createEmployeeWithPay(companyId: string, userId: string, b
 
   const employee = await insertEmployee(companyId, fields);
   if (salary) {
-    await assignComponentToEmployee(companyId, employee.id, salary.componentId, salary.cents / 100, fields.startDate, undefined, true);
+    await assignComponentToEmployee(companyId, employee.id, salary.componentId, salary.cents / 100, String(body.startDate), undefined, true);
   }
   log.info('Employee onboarded', { companyId, employeeId: employee.id, userId, withSalary: salary !== null }, 'payrollEmployeeOnboarding');
   return employee;
