@@ -24,6 +24,23 @@ function inferredSuperseded(x: Sibling, rows: Sibling[]): boolean {
     && rows.some((y) => y.id !== x.id && y.legacy === true && live(y) && y.from === shiftDay(x.to!, 1));
 }
 
+/**
+ * Every pre-953 leaver row (recurring, ending on the employee's end date between the 27th and the month end) that has
+ * a live pre-953 same-component successor from the next day in `before` and none in `after`. The reader's leaver rule
+ * skips such a row only while that successor stands (getEmployeeComponents); a package that cuts or voids the
+ * successor must record the supersede on the leaver row (superseded_at), or the row would be paid in full beside the
+ * package's own once-off.
+ */
+export function legacyLeaverSuccessorLost(before: Sibling[], after: Sibling[]): Sibling[] {
+  const successor = (x: Sibling, rows: Sibling[]) =>
+    rows.some((y) => y.id !== x.id && y.legacy === true && live(y) && y.from === shiftDay(x.to!, 1));
+  return before.filter((x) => {
+    if (!x.recurring || !x.legacy || x.supersededAt != null || x.to === null || x.to !== x.employeeEnd || !live(x)) return false;
+    if (x.to.slice(8, 10) < '27') return false;
+    return successor(x, before) && !successor(x, after);
+  });
+}
+
 /** Every pre-953 once-off whose inferred supersede the change from `before` to `after` flips, where that decides pay. */
 export function legacyFlips(before: Sibling[], after: Sibling[]): Array<{ row: Sibling; paidAgain: boolean }> {
   const out: Array<{ row: Sibling; paidAgain: boolean }> = [];

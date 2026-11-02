@@ -37,7 +37,9 @@ export async function listComponents(companyId: string): Promise<PayrollComponen
  * a live pre-953 row of the same component starting the day after a pre-953 once-off ends supersedes it. End on a never-paid once-off voids it (payrollComponentDateEdit). A window that began in
  * an earlier month and ends before `asOf` is not read again: it was paid in the month whose last day it covered. A
  * leaver's recurring row ending on their end date between the 27th and the month end is read in that month (the last
- * month pays in full, Hein), unless a live recurring row of the same component follows it the next day. A
+ * month pays in full, Hein), unless a live row of the same component follows it the next day that is recurring, or
+ * any such row when a package cut the leaver row (superseded_at) or both rows are pre-953 (supersede_inferred: the old
+ * neighbour rule; a package apply that later removes that successor records superseded_at on the leaver row). A
  * voided row (ends before it starts) is never read.
  */
 export async function getEmployeeComponents(
@@ -62,7 +64,9 @@ export async function getEmployeeComponents(
         -- A leaver's recurring row ending on their end date INSIDE the band (the 27th to the month end) pays the whole
         -- last month, as before this release (Hein 2026-11-02), unless a live row of the same component replaces it
         -- from the next day: a recurring one, or any one when a package cut this row (superseded_at: the package's
-        -- once-off is the replacement). A hand-entered once-off, a cancelled replacement or another component does not.
+        -- once-off is the replacement), or any one when both rows are pre-953 (the old neighbour rule; payPackageSupersede
+        -- sets superseded_at here when it removes that successor). A hand-entered once-off after 953, a cancelled
+        -- replacement or another component does not.
         -- A row this skips is flagged as ending by the pro-rata guard, which asks this reader what it paid.
         OR (
           pec.is_recurring AND pec.effective_to = pe.end_date

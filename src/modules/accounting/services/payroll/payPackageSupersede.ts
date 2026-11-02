@@ -10,7 +10,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
 import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { paidPeriodChanged, periodLabel, windowOf, type PaidPeriod } from './payrollComponentPaidMonths';
-import { legacyFlips, type Sibling } from './payrollComponentLegacySupersede';
+import { legacyFlips, legacyLeaverSuccessorLost, type Sibling } from './payrollComponentLegacySupersede';
 
 const isoDate = (v: unknown): string => fmtDate(v);
 
@@ -32,16 +32,19 @@ export interface SupersedeInput {
 
 /**
  * A pre-953 once-off that a cut row superseded under the old neighbour rule (A 1-14 replaced by B 15-30, B now cut)
- * would be paid again once B is gone: record its supersede (superseded_at) in the same transaction, as a package
- * apply does for the rows it cuts itself (953 review).
+ * would be paid again once B is gone, and a pre-953 leaver row whose pre-953 successor the cut removed would be paid
+ * in full beside the package's once-off: record their supersede (superseded_at) in the same transaction, as a package
+ * apply does for the rows it cuts itself (953 review, review of 485fc14f2).
  */
 async function recordRevivedLegacyOnceOffs(
   tx: TxSql, all: DbRow[], cutIds: Set<string>, cutTo: string, companyId: string, actor: ComponentChangeActor,
 ): Promise<void> {
   const before: Sibling[] = all.map((row) => ({ ...windowOf(row), id: String(row.id) }));
   const after = before.map((r) => (cutIds.has(r.id) ? { ...r, to: cutTo, supersededAt: Date.now() } : r));
-  for (const { row, paidAgain } of legacyFlips(before, after)) {
-    if (!paidAgain) continue;
+  const revived = legacyFlips(before, after).filter((f) => f.paidAgain).map((f) => f.row);
+  // And a pre-953 leaver row whose pre-953 successor this cut or voided (S to the 29th, O from the 30th, the package
+  // re-applied from the 30th): recorded, the leaver rule takes the package's own row as its successor (review 485fc14f2).
+  for (const row of [...revived, ...legacyLeaverSuccessorLost(before, after)]) {
     await tx`UPDATE payroll_employee_components SET superseded_at = clock_timestamp() WHERE id = ${row.id}::uuid AND superseded_at IS NULL`;
     await auditComponentChange(tx, companyId, row.id, row, row, 'package_supersede', actor);
   }

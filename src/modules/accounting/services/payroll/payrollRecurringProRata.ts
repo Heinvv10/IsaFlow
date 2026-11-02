@@ -111,9 +111,10 @@ export function proRataValidation(row: ProRataRow): ValidationResult {
         + 'employee\'s Pay Components to end it before the 27th; then recalculate. Approval is refused until then.'
       : `${what}: this recurring component is not paid at all in this run, though it ran for part of the month, and needs `
         + 'a manual pro-rata. Assign the days it ran as a once-off and use Edit dates on the employee\'s Pay Components to '
-        + 'end it before the 27th, or run it to the month end if the whole month is due; then recalculate. Approval is '
-        + 'refused until then. (A leaver\'s row ending on their end date is not flagged when their last month pays in '
-        + 'full; pro-rate it by hand if due.)';
+        + 'end it before the 27th, or run it to the month end if the whole month is due; then recalculate. If a once-off '
+        + 'of the same component starts the day after it ends, Edit dates cannot run it over that once-off: move that '
+        + 'once-off by a day, or end it. Approval is refused until then. (A leaver\'s row ending on their end date is not '
+        + 'flagged when their last month pays in full; pro-rate it by hand if due.)';
   return {
     code: PRO_RATA_CODE,
     severity: 'error',

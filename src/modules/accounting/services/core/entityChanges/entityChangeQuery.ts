@@ -178,8 +178,10 @@ export async function payrollTermsChangedSinceCalculation(
       AND has_column_privilege(current_user, 'public.entity_changes', 'recorded_at', 'SELECT')
     ) AND (
       COALESCE((SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = current_user), false)
-      -- The 888 policy is written for app_user: any other role fails closed (CASE, so the role lookup is not even
-      -- run for a role that could not read company_users).
+      -- The 888 policy is written for app_user: any other role fails closed. The CASE only guarantees the company-role
+      -- lookup is not EVALUATED for a non-member; Postgres still checks permissions on everything the statement names
+      -- while planning it, so a role without USAGE on schema app (or EXECUTE on the functions) gets permission denied:
+      -- an error, which refuses the approval too, not null.
       OR CASE WHEN pg_has_role(current_user, 'app_user', 'MEMBER')
         THEN COALESCE(public.company_member_actor_role(${companyId}::uuid) IN ('owner', 'admin', 'manager'), false)
              AND ${companyId}::uuid IS NOT DISTINCT FROM app.current_company_id()
