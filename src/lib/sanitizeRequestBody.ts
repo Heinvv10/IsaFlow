@@ -131,8 +131,8 @@ function decodedName(name: string): string {
   }
 }
 
-/** A URL for the request log: a parameter whose name may be data goes whole, and a sensitive one loses its value. Masked token values stay. */
-export function loggableUrl(url: string): string {
+/** A URL for the request log: a parameter whose name may be data goes whole, and a sensitive one, or one of the route's `maskedKeys`, loses its value. Masked token values stay. */
+export function loggableUrl(url: string, maskedKeys: ReadonlySet<string> = NO_KEYS): string {
   const q = url.indexOf('?');
   if (q === -1) return url;
   const params = url.slice(q + 1).split('&').map((param) => {
@@ -141,7 +141,8 @@ export function loggableUrl(url: string): string {
     const key = decodedName(name);
     if (keyMayBeData(key)) return '[omitted]';
     if (param.endsWith('=[token]')) return param;
-    return isSensitiveKey(key) || NORMALISED_PAYLOAD_KEYS.has(normaliseKey(key)) ? `${name}=[REDACTED]` : param;
+    const masked = NORMALISED_PAYLOAD_KEYS.has(normaliseKey(key)) || maskedKeys.has(normaliseKey(key));
+    return isSensitiveKey(key) || masked ? `${name}=[REDACTED]` : param;
   });
   return `${url.slice(0, q + 1)}${params.join('&')}`;
 }

@@ -70,7 +70,7 @@ export function withErrorHandler(
       }
 
       await runWithRequestContext(requestId, async () => {
-      const safeUrl = loggableUrl(redactShareToken(req.url ?? ''));
+      const safeUrl = loggableUrl(redactShareToken(req.url ?? ''), maskedKeys);
       try {
         // CORS — single source of truth in src/lib/cors.ts (pentest M11).
         const origin = safeCorsOrigin(req.headers.origin);
@@ -91,7 +91,7 @@ export function withErrorHandler(
           type: 'request',
           method: req.method,
           url: safeUrl,
-          query: redactTokenParams(sanitizeRequestBody(req.query) as typeof req.query),
+          query: redactTokenParams(sanitizeRequestBody(req.query, 0, maskedKeys) as typeof req.query),
           body: req.method !== 'GET' ? loggableRequestBody(req, options.logBodyFields, maskedKeys) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 

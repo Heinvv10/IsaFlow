@@ -20,15 +20,19 @@ vi.mock('@/lib/observability/requestLogger', () => ({ logRequestCompleted: vi.fn
 vi.mock('@/lib/sentry/tags', () => ({ setTenantTags: vi.fn(), sanitizeRoute: vi.fn((r: string) => r) }));
 vi.mock('@/lib/cors', () => ({ safeCorsOrigin: vi.fn(() => null) }));
 
-import { withErrorHandler, type ErrorHandlerOptions } from '@/lib/api-error-handler';
+import { withErrorHandler, type WithErrorHandlerOptions } from '@/lib/api-error-handler';
 
-async function loggedBody(options: ErrorHandlerOptions, body: Record<string, unknown>, type = 'application/json'): Promise<unknown> {
-  const req = { method: 'POST', url: '/api/x', query: {}, headers: { 'content-type': type }, body } as unknown as NextApiRequest;
+interface RequestLine { type?: string; body?: unknown; query?: unknown; url?: string }
+
+async function loggedLine(options: WithErrorHandlerOptions, body: Record<string, unknown> | undefined, type = 'application/json',
+  url = '/api/x', query: Record<string, string> = {}): Promise<RequestLine | undefined> {
+  const req = { method: body ? 'POST' : 'GET', url, query, headers: { 'content-type': type }, body } as unknown as NextApiRequest;
   const res = { statusCode: 200, headersSent: false, setHeader: vi.fn(), status: vi.fn().mockReturnThis(), json: vi.fn(), end: vi.fn() };
   await withErrorHandler(async () => {}, options)(req, res as unknown as NextApiResponse);
-  const line = apiLoggerInfo.mock.calls.map(([entry]) => entry as { type?: string; body?: unknown }).find((e) => e.type === 'request');
-  return line?.body;
+  return apiLoggerInfo.mock.calls.map(([entry]) => entry as RequestLine).find((e) => e.type === 'request');
 }
+const loggedBody = async (options: WithErrorHandlerOptions, body: Record<string, unknown>, type?: string) =>
+  (await loggedLine(options, body, type))?.body;
 
 beforeEach(() => apiLoggerInfo.mockReset());
 
@@ -54,8 +58,23 @@ describe('maskBodyKeys with logBodyFields', () => {
     expect(await loggedBody(options, { client_id: 'c1', amount: 45000, code: 'oac_LOGGED' }, type)).toEqual({ client_id: 'c1', amount: '[omitted]' });
   });
 
-  it('a masked key the allow-list leaves out stays out', async () => {
+  it('logBodyFields alone: a key the allow-list leaves out stays out, masked or not', async () => {
     const out = await loggedBody({ logBodyFields: ['client_id'], maskBodyKeys: ['amount'] }, { client_id: 'c1', amount: 45000 });
     expect(out).toEqual({ client_id: 'c1' });
+  });
+});
+
+describe('maskBodyKeys in the query string', () => {
+  it.each(['amount', 'Amount', 'a_mount'])('masks %s in the logged query and url, as the route named it', async (key) => {
+    const line = await loggedLine({ maskBodyKeys: ['amount'] }, undefined, 'application/json',
+      `/api/x?${key}=45000&page=2`, { [key]: '45000', page: '2' });
+    expect(line?.query).toEqual({ [key]: '[omitted: 5 chars]', page: '2' });
+    expect(line?.url).toBe(`/api/x?${key}=[REDACTED]&page=2`);
+    expect(JSON.stringify(line)).not.toContain('45000');
+  });
+
+  it('leaves them on a route that did not name the key', async () => {
+    const line = await loggedLine({}, undefined, 'application/json', '/api/x?amount=45000', { amount: '45000' });
+    expect([line?.query, line?.url]).toEqual([{ amount: '45000' }, '/api/x?amount=45000']);
   });
 });
