@@ -61,9 +61,24 @@ describe('compare pages', () => {
 
   it('declares no dangling @id references', () => {
     const { container } = render(<ComparePage entry={COMPARE_ENTRIES[0]!} />);
-    const json = container.querySelector('script[type="application/ld+json"]')?.textContent ?? '';
-    const ids = new Set([...json.matchAll(/"@id":"([^"]+)"/g)].map((m) => m[1]));
-    for (const m of json.matchAll(/\{"@id":"([^"]+)"\}/g)) expect(ids.has(m[1]!), m[1]).toBe(true);
+    const root = JSON.parse(container.querySelector('script[type="application/ld+json"]')?.textContent ?? '') as unknown;
+    const defined = new Set<string>();
+    const refs: string[] = [];
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (n && typeof n === 'object') {
+        const o = n as Record<string, unknown>;
+        const id = o['@id'];
+        if (typeof id === 'string') {
+          if (Object.keys(o).length === 1) refs.push(id);
+          else defined.add(id);
+        }
+        Object.values(o).forEach(walk);
+      }
+    };
+    walk(root);
+    expect(refs.length + defined.size).toBeGreaterThan(0);
+    for (const r of refs) expect(defined.has(r), r).toBe(true);
   });
 
   it('uses no text-ink-muted (1.4:1 on the white page)', () => {
