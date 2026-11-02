@@ -156,6 +156,29 @@ describe("the writers wait for the company's payroll-approval lock", () => {
 });
 
 describe('migration 953', () => {
+  it('gives up after 5s when a long transaction holds the payroll table, instead of queueing every request', async () => {
+    const text = readFileSync('scripts/migrations/sql/953_payroll_component_superseded_and_calc_stamp.sql', 'utf8');
+    const holder = await pool.connect();
+    const runner = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('LOCK TABLE payroll_employee_components IN ACCESS SHARE MODE');
+      await runner.query('BEGIN');
+      const started = Date.now();
+      const outcome = await Promise.race([
+        runner.query(text).then(() => 'applied', (e: { code?: string }) => e.code ?? 'error'),
+        new Promise<string>(r => setTimeout(() => r('still waiting'), 9000)),
+      ]);
+      expect(outcome).toBe('55P03');
+      expect(Date.now() - started).toBeLessThan(8000);
+    } finally {
+      await runner.query('ROLLBACK').catch(() => undefined);
+      await holder.query('ROLLBACK');
+      runner.release();
+      holder.release();
+    }
+  }, 15000);
+
   it('re-runs cleanly (IF NOT EXISTS throughout)', async () => {
     const text = readFileSync('scripts/migrations/sql/953_payroll_component_superseded_and_calc_stamp.sql', 'utf8');
     await pool.query(text);
