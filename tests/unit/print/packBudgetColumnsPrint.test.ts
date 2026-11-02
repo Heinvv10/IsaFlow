@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Browser } from 'playwright';
 import { chromium } from 'playwright';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import { formatStatementFigure, MONEY_SCALES } from '@/lib/format/money';
 import { demoInput, demoSet } from '../services/packs/fixtures/boardPackInputs';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/packBoardPackInput';
@@ -86,6 +87,18 @@ describe('page 6 with a budget at the figures that spilled it', () => {
     const document = buildBoardPackPages(scaled(k, negative, loss));
     const out = await printBoardPack(document, browser);
     expect(out.overflow).toEqual([]);
+    expect(out.sheets).toBe(document.pages.length);
+  }, 180_000);
+
+  it('a net-debit revenue of about R12.6bn, which no bridge rung can fit with the columns, prints without them rather than refusing the pack', async () => {
+    const document = buildBoardPackPages(scaled(3000, true, false));
+    expect(() => assertPackIntegrity(document)).not.toThrow();
+    const income = document.pages.flatMap((p) => p.blocks)
+      .flatMap((b) => (b.kind === 'table' && b.table.rows.some((r) => r.key === 'is.revenue') ? [b.table] : []))[0]!;
+    expect(income.columns).not.toContain('budget');
+    expect(income.columns).not.toContain('variance');
+    expect(document.pages.flatMap((p) => p.footnotes ?? []).some((f) => f.text.startsWith('The budget column'))).toBe(false);
+    const out = await printBoardPack(document, browser);
     expect(out.sheets).toBe(document.pages.length);
   }, 180_000);
 });
