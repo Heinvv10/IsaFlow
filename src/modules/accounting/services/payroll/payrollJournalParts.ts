@@ -24,6 +24,7 @@ import {
   type AllocationShare,
 } from './payrollJournalSplitBuilder';
 import type { LabourSourceBucket } from './payrollLabourComparison';
+import { taggableCentres, type LabourTagAdvisory } from './payrollCostCentreTags';
 
 type Row = DbRow;
 
@@ -139,9 +140,9 @@ export async function resolveAccountsById(
  * `createJournalEntry` refuses a CC1 that is not an ACTIVE `cc_type = 'cc1'`
  * centre, so a centre that is inactive, a CC2, or unreadable posts UNTAGGED on
  * the account its mapping picks, and `advisory` names it — a dimension tag
- * never blocks payroll. The read holds the centres FOR SHARE (see
- * `taggableCentres`), so in approval a deactivation cannot commit between this
- * plan and the GL's own check.
+ * never blocks payroll. The read holds the centres FOR SHARE (lock order:
+ * `payrollCostCentreTags`), so in approval a deactivation cannot commit
+ * between this plan and the GL's own check.
  */
 export async function buildLabourLines(
   companyId: string,
@@ -237,50 +238,7 @@ export async function buildLabourLines(
 export interface LabourLines {
   lines: Array<{ glAccountId: string; cc1Id: string | null; debit: number; description: string }>;
   /** `labour_cost_centre_untagged`, when a centre carrying labour cannot be a CC1 tag. */
-  advisory: { code: string; detail: string } | null;
+  advisory: LabourTagAdvisory;
   /** The labour per (account, source centre), untaggable centres kept apart — the gate's comparison only. */
   bySource: LabourSourceBucket[];
 }
-
-/**
- * Which of `ids` the GL accepts as a new CC1 tag — the rule of
- * `journalCostCentreValidation#assertJournalAnalysisDimensions`: this company's,
- * `cc_type = 'cc1'`, active — and an advisory naming the rest.
- *
- * FOR SHARE, as that GL check takes: inside approvePayrollRun the centres the
- * plan tags stay as judged until the journal is written. LOCK ORDER: approval
- * holds the company approval lock, the run header and its journal chain, then
- * these rows, then (claimRunSeveranceDirectives) the directive rows; the GL's
- * own FOR SHARE on the same rows comes later and is already held. On master the
- * GL took these share locks after the directive claim, so the one new pair is
- * cost_centres before directives. Nothing takes them the other way round: the
- * only cost_centres writer, the dimension master edit (dimensionMasterEdit,
- * advisory lock, then the row), locks no directive, run header or journal, and
- * applyTaxDirective's journal names no CC1. A preview (GET journal-plan, MCP
- * dry run) holds them only for its own read-only request.
- */
-async function taggableCentres(companyId: string, ids: string[]): Promise<{ taggable: Set<string>; advisory: LabourLines['advisory'] }> {
-  if (ids.length === 0) return { taggable: new Set(), advisory: null };
-  const rows = (await sql`
-    SELECT cc.id, cc.code, cc.cc_type, cc.is_active FROM cost_centres cc
-     WHERE cc.company_id = ${companyId}::uuid AND cc.id = ANY(${ids}::uuid[])
-     FOR SHARE OF cc
-  `) as Row[];
-  const byId = new Map(rows.map((r) => [String(r.id), r]));
-  const taggable = new Set<string>();
-  const refused: string[] = [];
-  for (const id of [...ids].sort()) {
-    const r = byId.get(id);
-    if (r && String(r.cc_type) === 'cc1' && r.is_active === true) taggable.add(id);
-    else refused.push(!r ? `${id} (not found)` : r.is_active !== true ? `${String(r.code)} (inactive)` : `${String(r.code)} (a ${String(r.cc_type).toUpperCase()}, not a CC1)`);
-  }
-  return {
-    taggable,
-    advisory: refused.length === 0 ? null : {
-      code: 'labour_cost_centre_untagged',
-      detail: `Labour for cost centre${refused.length > 1 ? 's' : ''} ${refused.join(', ')} posts WITHOUT a CC1 tag, on the same account: `
-        + 'the ledger tags a line only with an active CC1 cost centre. Budgets by CC1 will not see this cost.',
-    },
-  };
-}
-
