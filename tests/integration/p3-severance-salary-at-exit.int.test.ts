@@ -3,12 +3,14 @@
  * against the severance calculated on the pay they left on: the salary in force on their END DATE, not on the run's
  * read date or the day either side of it. The salary here is different the day before, on, and after the exit day, so
  * reading any other day calculates a different severance and raises SEVERANCE_DIRECTIVE_MISMATCH.
+ * The pro-rata guard (payrollRecurringProRata) judges only lines that read components, so a severance-only line is
+ * neither flagged nor refused at approval for a recurring row in the band.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
-  approvedDirective, calculatedSeverance, calculateRun, cleanSeveranceFixtures, codes, createRunFor, runLine,
+  approvedDirective, calculatedSeverance, calculateRun, cleanSeveranceFixtures, codes, createRunFor, previewRun, runLine,
   seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
 
@@ -47,5 +49,17 @@ describe('severance-only line: the salary at exit is read on the end date', () =
     expect((line.component_breakdown as Array<{ sarsSourceCode: string }>).map(c => c.sarsSourceCode)).toEqual(['3901']);
     expect(line.gross).toBeCloseTo(severance, 2);
     expect(codes(line.validation_results)).not.toContain('SEVERANCE_DIRECTIVE_MISMATCH');
+  });
+
+  it('the pro-rata guard ignores the severance-only line, which reads no components: no flag, no refusal', async () => {
+    // A recurring row of the leaver's ending inside May's band: a line that read components would be flagged.
+    await pool.query("UPDATE payroll_employee_components SET effective_to = '2026-05-28' WHERE employee_id = $1 AND amount = 25000", [f.employee]);
+    const may = String((await pool.query('SELECT id FROM payroll_run_headers WHERE company_id=$1 AND period_month=5', [f.company])).rows[0]!.id);
+    await calculateRun(f, may);
+    const line = await runLine(pool, may, f.employee);
+    expect(codes(line.validation_results)).not.toContain('RECURRING_NEEDS_PRO_RATA');
+    const preview = await previewRun(f, may);
+    expect(preview.statusCode, JSON.stringify(preview.body)).toBe(200);
+    expect((preview.body.data as { blocker: { code: string } | null }).blocker?.code ?? null).not.toBe('recurring_needs_pro_rata');
   });
 });
