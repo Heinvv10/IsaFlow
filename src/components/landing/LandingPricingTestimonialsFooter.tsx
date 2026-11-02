@@ -90,7 +90,9 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
             <div key={i} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
               <button
                 onClick={() => onToggle(i)}
+                id={`faq-q-${i}`}
                 aria-expanded={openFaq === i}
+                aria-controls={`faq-a-${i}`}
                 className="w-full flex items-center justify-between px-6 py-5 text-left"
               >
                 <span className="font-semibold text-gray-900 text-sm">{item.q}</span>
@@ -99,7 +101,7 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
                 />
               </button>
               {/* Always in the DOM (hidden when closed) so the answer text is crawlable. */}
-              <div className="px-6 pb-5" hidden={openFaq !== i}>
+              <div className="px-6 pb-5" id={`faq-a-${i}`} role="region" aria-labelledby={`faq-q-${i}`} hidden={openFaq !== i}>
                 <p className="text-sm text-gray-600 leading-relaxed">{item.a}</p>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import Script from 'next/script';
 import { BRAND, BRAND_SAME_AS, FAQ_ITEMS } from '@/components/landing/landingData';
-import { buildFaqPage } from '@/lib/seo/faqSchema';
+import { buildFaqPage, jsonLdScriptText } from '@/lib/seo/faqSchema';
 
 const ORG_ID = `${BRAND.url}#organization`;
 const APP_ID = `${BRAND.url}#software`;
@@ -40,7 +40,7 @@ function buildGraph() {
       offers: {
         '@type': 'Offer',
         category: 'Free trial',
-        description: `${BRAND.freeTrialDays}-day free trial — no credit card required.`,
+        description: `${BRAND.freeTrialLabel}, no credit card required.`,
       },
       featureList: [
         'Invoicing & quotes',
@@ -48,8 +48,9 @@ function buildGraph() {
         'VAT201 preparation for SARS',
         'Payroll: PAYE, UIF, SDL, EMP201 and IRP5 data',
         'Fixed assets and budgets',
-        'Financial reports and annual financial statements',
-        'AI document capture',
+        'Financial reports',
+        'Annual financial statements (Premium plan)',
+        'AI document capture (Business plan and above)',
         'Bank statement imports (CSV, PDF, OFX, QIF)',
         'Migration from Sage, Xero, QuickBooks, Pastel',
         'Two-factor authentication (TOTP)',
@@ -68,7 +69,7 @@ function buildGraph() {
 export function LandingJsonLd() {
   return (
     <Script id="isaflow-landing-jsonld" type="application/ld+json" strategy="beforeInteractive">
-      {JSON.stringify(buildGraph())}
+      {jsonLdScriptText(buildGraph())}
     </Script>
   );
 }

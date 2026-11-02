@@ -19,8 +19,13 @@ function buildJsonLd(entry: CompareEntry): Record<string, unknown> {
         name: entry.title,
         description: entry.description,
         inLanguage: 'en-ZA',
-        isPartOf: { '@type': 'WebSite', name: BRAND.name, url: BRAND.url },
-        about: { '@id': `${BRAND.url}#software` },
+        isPartOf: { '@type': 'WebSite', '@id': `${BRAND.url}#website`, name: BRAND.name, url: BRAND.url },
+        about: {
+          '@type': 'SoftwareApplication',
+          name: BRAND.name,
+          url: BRAND.url,
+          applicationCategory: BRAND.applicationCategory,
+        },
       },
       {
         '@type': 'BreadcrumbList',
@@ -84,8 +89,8 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
           <section>
             <h2 className="text-2xl font-bold mb-4">At a glance</h2>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[32rem] border-collapse text-sm">
-                <thead>
+              <table className="w-full border-collapse text-sm">
+                <thead className="hidden sm:table-header-group">
                   <tr className="border-b border-gray-200 text-left">
                     <th className="py-3 pr-4 font-semibold">Topic</th>
                     <th className="py-3 px-4 font-semibold text-teal-700">ISAFlow</th>
@@ -94,16 +99,20 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
                 </thead>
                 <tbody>
                   {entry.rows.map((row) => (
-                    <tr key={row.topic} className="border-b border-gray-100 align-top">
-                      <th scope="row" className="py-3 pr-4 text-left font-medium">{row.topic}</th>
-                      <td className="py-3 px-4 text-gray-700">{row.isaflow}</td>
-                      <td className="py-3 pl-4 text-gray-700">{row.other}</td>
+                    <tr key={row.topic} className="block sm:table-row border-b border-gray-100 py-3 sm:py-0 align-top">
+                      <th scope="row" className="block sm:table-cell sm:py-3 sm:pr-4 text-left font-semibold sm:font-medium">{row.topic}</th>
+                      <td className="block sm:table-cell sm:py-3 sm:px-4 pt-1 text-gray-700">
+                        <span className="sm:hidden font-semibold text-teal-700">ISAFlow: </span>{row.isaflow}
+                      </td>
+                      <td className="block sm:table-cell sm:py-3 sm:pl-4 pt-1 text-gray-700">
+                        <span className="sm:hidden font-semibold">{entry.name}: </span>{row.other}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <p className="mt-3 text-sm text-ink-muted">
+            <p className="mt-3 text-sm text-gray-700">
               We describe {entry.name} in general terms. Plans and features change, so check the
               vendor&apos;s own site for current details.
             </p>
@@ -149,7 +158,7 @@ export function ComparePage({ entry }: { entry: CompareEntry }) {
             >
               Start free trial
             </a>
-            <p className="mt-4 text-sm text-ink-muted">
+            <p className="mt-4 text-sm text-gray-700">
               Also compare:{' '}
               {others.map((o, i) => (
                 <span key={o.slug}>

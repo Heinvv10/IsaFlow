@@ -7,7 +7,7 @@ import type { FAQItem } from './landingData';
 export const FAQ_ITEMS: FAQItem[] = [
   {
     q: 'What is ISAFlow?',
-    a: 'ISAFlow is cloud accounting software for South African businesses. It covers invoicing and quotes, bank reconciliation, VAT201 and other SARS compliance, payroll, fixed assets, budgets, financial reports and AI document capture. It runs in your browser and is built around South African VAT, payroll tax and reporting rules.',
+    a: 'ISAFlow is cloud accounting software for South African businesses. It covers invoicing and quotes, bank reconciliation, VAT201 and other SARS compliance, payroll, fixed assets, budgets and financial reports. Higher plans add AI document capture and annual financial statements. It runs in your browser and is built around South African VAT, payroll tax and reporting rules.',
   },
   {
     q: 'Can I try ISAFlow for free?',
@@ -39,7 +39,7 @@ export const FAQ_ITEMS: FAQItem[] = [
   },
   {
     q: 'Is my data secure?',
-    a: 'ISAFlow supports two-factor authentication (TOTP with backup codes), permissions by module, masking of sensitive fields, encrypted connections (SSL/TLS), hashed passwords and a field-level audit trail on financial records.',
+    a: 'ISAFlow supports two-factor authentication (TOTP), permissions by module, masked bank account numbers on screen, encrypted connections (SSL/TLS), hashed passwords and a field-level audit trail on financial records.',
   },
   {
     q: 'How does ISAFlow compare with Sage, Xero and QuickBooks?',
