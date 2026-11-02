@@ -13,6 +13,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
+import { endEmployeeComponent } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -69,7 +70,15 @@ beforeAll(async () => {
   await employee('replaced', [['allowance', 400, '2026-11-05', '2026-11-19', false], ['allowance', 650, '2026-11-20', null, true]]);
   await employee('tail', [['bonus', 900, '2026-10-15', '2026-11-10', false]]);
   await employee('voided', [['bonus', 999, '2026-11-20', '2026-11-19', false]]);
+  // Voided by a package applied on the 15th to a row starting on the 25th: the end is days before the start.
+  await employee('voidedFar', [['bonus', 888, '2026-11-25', '2026-11-14', false]]);
   await employee('legacyOpen', [['bonus', 300, '2026-09-01', null, false]]);
+  // Ended (End on the profile, the DELETE route, the MCP tool) before November is paid: cancelled, not shortened.
+  await employee('ended', [['bonus', 450, '2026-11-05', '2026-11-30', false]]);
+  const endedRow = String((await pool.query('SELECT id FROM payroll_employee_components WHERE employee_id=$1 AND NOT is_recurring', [emp.ended])).rows[0]!.id);
+  expect(await endEmployeeComponent(company, endedRow, new Date('2026-11-20'))).toBe(true);
+  // A voided row of the same component starting the day after a short once-off does not supersede it.
+  await employee('voidedNext', [['bonus', 1500, '2026-11-10', '2026-11-27', false], ['bonus', 610, '2026-11-28', '2026-11-27', false]]);
 
   for (const [id, month] of [[runs.oct, 10], [runs.nov, 11], [runs.dec, 12]] as const) {
     await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,$3,2026,'draft')", [id, company, month]);
@@ -121,7 +130,21 @@ describe('no double pay', () => {
   });
 
   it('a voided once-off is never paid', async () => {
-    for (const run of Object.values(runs)) expect(await paid(run, 'voided')).toEqual([['Basic salary', SALARY]]);
+    for (const run of Object.values(runs)) {
+      expect(await paid(run, 'voided')).toEqual([['Basic salary', SALARY]]);
+      expect(await paid(run, 'voidedFar')).toEqual([['Basic salary', SALARY]]);
+    }
+  });
+
+  it('a once-off ended before its month is paid is cancelled: voided, never paid', async () => {
+    const { rows } = await pool.query(
+      "SELECT effective_to < effective_from AS voided FROM payroll_employee_components WHERE employee_id=$1 AND NOT is_recurring", [emp.ended]);
+    expect(rows).toEqual([{ voided: true }]);
+    for (const run of Object.values(runs)) expect(await paid(run, 'ended')).toEqual([['Basic salary', SALARY]]);
+  });
+
+  it('a voided same-component row starting the next day does not cancel the R1 500 once-off', async () => {
+    expect(await paid(runs.nov, 'voidedNext')).toEqual([['Basic salary', SALARY], ['Bonus', 1500]]);
   });
 
   it('a legacy open-ended once-off keeps paying every month, as before', async () => {

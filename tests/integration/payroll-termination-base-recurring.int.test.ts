@@ -6,6 +6,9 @@
  *
  * R21 670 a month / 21.67 working days = R1 000 a day: 10 unused leave days = R10 000, 20 unserved notice days = R20 000.
  * With the R2 167 bonus in the base (before) the day was R1 100: R11 000 and R22 000.
+ * The base is read on the END DATE, not the run's read date: a recurring allowance starting after the exit (16 March)
+ * is paid on the March line (the run reads on the 31st) but is not in the base. Before, the run's base was every
+ * earning on the 31st and the preview's every earning on the end date, so the two disagreed.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -21,13 +24,13 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const MONTHLY = 21_670;
 const EXIT = '2026-03-15';
-const fixtures: Record<'plain' | 'bonus', SeveranceFixture> = {} as never;
+const fixtures: Record<'plain' | 'bonus' | 'laterAllowance', SeveranceFixture> = {} as never;
 const severanceOn = (monthly: number) => computeTerminationPreview({
   monthlySalary: monthly, unusedLeaveDays: 0, noticePeriodDays: 0, servedNoticeDays: 0, severanceWeeksPerYear: 1,
   yearsOfService: yearsOfService('2020-01-01', EXIT), includeLeavePayout: false, reason: 'retrenchment',
 }).severancePay;
 
-async function seed(name: string, bonus: boolean): Promise<SeveranceFixture> {
+async function seed(name: string, bonus: boolean, laterAllowance = false): Promise<SeveranceFixture> {
   const f = await seedRetrenchedEmployee(pool, EXIT, name, MONTHLY);
   await setTerminationDetails(f.company, f.employee, {
     reason: 'retrenchment', noticePeriodDays: 30, servedNoticeDays: 10, severanceWeeksPerYear: 1, includeLeavePayout: true,
@@ -44,6 +47,13 @@ async function seed(name: string, bonus: boolean): Promise<SeveranceFixture> {
       `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring)
        VALUES($1,$2,2167,'2026-03-05','2026-03-31',false)`, [f.employee, comp]);
   }
+  if (laterAllowance) {
+    const comp = crypto.randomUUID();
+    await pool.query("INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type) VALUES($1,$2,'Allowance','3713','earning')", [comp, f.company]);
+    await pool.query(
+      `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring)
+       VALUES($1,$2,5000,'2026-03-16',NULL,true)`, [f.employee, comp]);
+  }
   return f;
 }
 
@@ -53,6 +63,7 @@ const paidAs = (line: { component_breakdown: unknown }, name: string) =>
 beforeAll(async () => {
   fixtures.plain = await seed('Termination base, no once-off', false);
   fixtures.bonus = await seed('Termination base, once-off bonus', true);
+  fixtures.laterAllowance = await seed('Termination base, allowance from after the exit', false, true);
 });
 
 afterAll(async () => {
@@ -64,7 +75,7 @@ afterAll(async () => {
   } finally { await pool.end(); }
 });
 
-describe.each([['plain', 0], ['bonus', 2167]] as const)('leaver %s (once-off R%d in March)', (key, bonus) => {
+describe.each([['plain', 0, 0], ['bonus', 2167, 0], ['laterAllowance', 0, 5000]] as const)('leaver %s (once-off R%d, later allowance R%d)', (key, bonus, later) => {
   it('the final run: leave pay-out and notice pay on the recurring salary; the bonus is paid but not in the base', async () => {
     const f = fixtures[key];
     const march = await createRunFor(f, 3);
@@ -73,7 +84,8 @@ describe.each([['plain', 0], ['bonus', 2167]] as const)('leaver %s (once-off R%d
     expect(paidAs(line, 'Leave Pay-Out (Termination)')).toBe(10_000);
     expect(paidAs(line, 'Notice Pay (Termination)')).toBe(20_000);
     expect(paidAs(line, 'Bonus')).toBe(bonus || undefined);
-    expect(line.gross).toBeCloseTo(MONTHLY + bonus + 30_000, 2);
+    expect(paidAs(line, 'Allowance')).toBe(later || undefined);
+    expect(line.gross).toBeCloseTo(MONTHLY + bonus + later + 30_000, 2);
     const awaiting = (line.validation_results as Array<{ code: string; message: string }>).find(v => v.code === 'SEVERANCE_AWAITING_DIRECTIVE');
     expect(awaiting?.message).toContain(severanceOn(MONTHLY).toFixed(2));
   });
