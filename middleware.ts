@@ -2,7 +2,7 @@
  * Next.js Edge Middleware
  * - admin.isaflow.co.za: serve /admin/* pages with super_admin auth verification
  * - app.isaflow.co.za: redirect / to /accounting (app domain — no landing page)
- * - isaflow.co.za: show landing page at /, plus public help, blog and sitemap pages
+ * - isaflow.co.za: show landing page at /, plus public help, blog, compare and sitemap pages
  * - app.isaflow.co.za: help, blog and sitemap paths redirect to the marketing origin
  * - Redirects /admin/* on non-admin hosts to admin.isaflow.co.za
  * - Redirects unauthenticated /accounting/* and /payroll/* requests to /login
@@ -59,6 +59,7 @@ export function isMarketingOnlyPath(pathname: string): boolean {
     || pathname.startsWith('/blog/')
     || pathname === '/help'
     || pathname.startsWith('/help/')
+    || pathname.startsWith('/compare/')
     || pathname === '/sitemap.xml';
 }
 

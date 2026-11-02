@@ -19,6 +19,7 @@ const FILES = [
   'src/components/landing/LandingHero.tsx',
   'src/components/landing/LandingPricingTestimonialsFooter.tsx',
   'src/components/landing/landingData.ts',
+  'src/components/landing/faqData.ts',
   'pages/pricing.tsx',
 ];
 const read = (f: string) => readFileSync(join(process.cwd(), f), 'utf8');
@@ -33,6 +34,14 @@ describe('trial length copy', () => {
     const stated = [...src.matchAll(/(\d+)-day (?:free )?trial/g)].map((m) => Number(m[1]));
     expect(stated.length).toBeGreaterThan(0);
     for (const days of stated) expect(days).toBe(TRIAL_DAYS);
+    expect(src).not.toMatch(/14[- ]day|fourteen[- ]day/i);
+  });
+});
+
+describe('trial length copy on the compare pages', () => {
+  it.each(['src/lib/compare/compareData.ts', 'src/components/landing/ComparePage.tsx'])('%s never states another trial length', (f) => {
+    const src = read(f);
+    for (const m of src.matchAll(/(\d+)-day (?:free )?trial/g)) expect(Number(m[1])).toBe(TRIAL_DAYS);
     expect(src).not.toMatch(/14[- ]day|fourteen[- ]day/i);
   });
 });
