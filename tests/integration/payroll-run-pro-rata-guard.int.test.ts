@@ -95,7 +95,9 @@ describe(`the line flag (TZ=${process.env.TZ ?? 'unset'})`, () => {
     expect(l.flags[0]!.message).toContain('Basic Salary');
     expect(l.flags[0]!.message).toContain(`${edge} on ${date}`);
     expect(l.flags[0]!.message).toContain('needs a manual pro-rata');
-    expect(l.flags[0]!.message).toContain(edge === 'starts' ? 'is paid in full' : 'is not paid');
+    expect(l.flags[0]!.message).toContain(edge === 'starts' ? 'is paid in full' : 'is not paid at all in this run');
+    // A row ending in the band is fixed differently from one starting there (Hein, M2 wording).
+    expect(l.flags[0]!.message).toContain(edge === 'starts' ? 'start it on the 1st of next month' : 'Assign the days it ran as a once-off');
     expect(l.flags[0]!.message).toContain('Edit dates');
     expect((l.flags[0] as { deepLink?: string }).deepLink).toBe(`/payroll/employees/${ids[num]}#pay-components`);
   });

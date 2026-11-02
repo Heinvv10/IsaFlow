@@ -3,8 +3,8 @@
  * reaches the period's last day: a once-off from 10 to 27 November, or one dated the 28th alone, is paid in November.
  *
  * Rule for non-recurring rows (payrollComponentService.getEmployeeComponents): paid when the window covers the
- * read date (the period's last day, as before) OR starts inside the period, unless a supersede ended it (another row
- * of the same component starts the day after it ends: payPackageService re-apply, or a once-off replaced). A window
+ * read date (the period's last day, as before) OR starts inside the period, unless a supersede ended it (superseded_at,
+ * set by payPackageService; migration 953). A window
  * that started in an earlier month and ends before this month's last day is not paid again in this month: it was
  * paid in the month whose last day it covered. Voided rows (ending before they start) are never paid.
  */
@@ -66,8 +66,12 @@ beforeAll(async () => {
   await employee('reapply', []);
   await applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-01', user);
   await applyPackageToEmployee(company, pkg, emp.reapply!, '2026-11-15', user);
-  // A once-off replaced by a standing allowance of the same component from the 20th.
+  // A once-off replaced by a standing allowance of the same component from the 20th, as a package apply leaves it
+  // (superseded_at set, migration 953).
   await employee('replaced', [['allowance', 400, '2026-11-05', '2026-11-19', false], ['allowance', 650, '2026-11-20', null, true]]);
+  await pool.query('UPDATE payroll_employee_components SET superseded_at = now() WHERE employee_id=$1 AND amount=400', [emp.replaced]);
+  // The same shape entered by hand (no supersede recorded): both are paid, like weekly once-offs.
+  await employee('handPair', [['allowance', 400, '2026-11-05', '2026-11-19', false], ['allowance', 650, '2026-11-20', null, true]]);
   await employee('tail', [['bonus', 900, '2026-10-15', '2026-11-10', false]]);
   await employee('voided', [['bonus', 999, '2026-11-20', '2026-11-19', false]]);
   // Voided by a package applied on the 15th to a row starting on the 25th: the end is days before the start.
@@ -122,6 +126,7 @@ describe('no double pay', () => {
 
   it('a once-off ended by a same-component row starting the next day is not paid beside it', async () => {
     expect(await paid(runs.nov, 'replaced')).toEqual([['Allowance', 650], ['Basic salary', SALARY]]);
+    expect(await paid(runs.nov, 'handPair')).toEqual([['Allowance', 400], ['Allowance', 650], ['Basic salary', SALARY]]);
   });
 
   it('a window from 15 October to 10 November is paid in October only', async () => {

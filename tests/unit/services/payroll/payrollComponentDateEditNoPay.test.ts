@@ -10,6 +10,7 @@ const SIBLING_AMOUNT = 4_321.09;
 const bound: unknown[][] = [];
 let selfRow: Record<string, unknown> = {};
 let siblingRow: Record<string, unknown> | null = null;
+let paidMonths: Array<Record<string, unknown>> = [];
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/neon', () => {
@@ -18,6 +19,7 @@ vi.mock('@/lib/neon', () => {
     bound.push(values);
     if (text.includes('JOIN payroll_employees e')) return [{ id: selfRow.id, employee_id: 'e-1', component_id: 'c-1' }];
     if (text.includes('effective_from, effective_to, is_recurring FROM payroll_employee_components')) return [selfRow, ...(siblingRow ? [siblingRow] : [])];
+    if (text.includes('FROM payroll_run_headers h')) return paidMonths;
     return [];
   };
   return { sql: tx, withTransaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx) };
@@ -48,6 +50,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   bound.length = 0;
   siblingRow = null;
+  paidMonths = [];
 });
 
 describe('no pay in logs, audit rows or refusals', () => {
@@ -70,12 +73,12 @@ describe('no pay in logs, audit rows or refusals', () => {
     expect(payTravelled()).toEqual([]);
   });
 
-  it('a refusal naming a replaced once-off says its dates, not its pay', async () => {
-    selfRow = { id: ID, amount: AMOUNT, effective_from: '2026-07-15', effective_to: '2026-07-31', is_recurring: false };
-    siblingRow = { id: '22222222-2222-4222-8222-222222222222', amount: SIBLING_AMOUNT, effective_from: '2026-07-01', effective_to: '2026-07-14', is_recurring: false };
-    const refused = await changeAssignmentDates('co-1', ID, { kind: 'end', to: '2026-07-20' }, actor).catch((e: Error) => e.message);
-    expect(refused).toMatch(/2026-07-01 to 2026-07-14.*paid again/);
-    expect(String(refused)).not.toContain(String(SIBLING_AMOUNT));
+  it('a refusal for a paid month names the month, not the pay', async () => {
+    selfRow = { id: ID, amount: AMOUNT, effective_from: '2026-01-01', effective_to: null, is_recurring: true, superseded_at: null };
+    paidMonths = [{ period_year: 2026, period_month: 3, status: 'approved', journal_entry_id: null }];
+    const refused = await changeAssignmentDates('co-1', ID, { kind: 'end', to: '2026-03-15' }, actor).catch((e: Error) => e.message);
+    expect(refused).toMatch(/2026-03 .*already paid/);
+    expect(String(refused)).not.toContain(String(AMOUNT));
     expect(payTravelled()).toEqual([]);
   });
 });

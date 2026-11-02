@@ -1,10 +1,10 @@
 /**
  * End (DELETE /api/payroll/employees/:id/components?aid=…, MCP end_employee_component) runs the same guards as Edit
  * dates, in one shared function (security review round 2, 2026-11-02): refused for a voided row, an end before the
- * start, an end LATER than the row's current end (End only shortens), a change to what a paid run paid; and, for both
- * End and Edit dates, a change that flips whether another once-off of the same component counts as superseded (the
- * reader infers a supersede from a neighbouring row: ending or moving that neighbour would make a replaced once-off
- * be paid again). Every accepted End or cancel is in audit_log with the actor: the route's user, the MCP caller.
+ * start, an end LATER than the row's current end (End only shortens), a change to what a paid run paid. Since
+ * migration 953 a supersede is recorded (superseded_at) rather than inferred from a neighbour, so ending or moving a
+ * neighbour cannot make a replaced once-off payable again and is not refused (payroll-component-superseded.int).
+ * Every accepted End or cancel is in audit_log with the actor: the route's user, the MCP caller.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -88,7 +88,6 @@ const REFUSED: Array<[string, string, string, RegExp]> = [
   ['an end before the start', 'futureTravel', '2026-05-15', /before (its|the) start/i],
   ['an end that takes a paid month out', 'salary', '2026-01-31', /2026-02 .*already paid/i],
   ['a voided row', 'voided', '2026-08-25', /cancelled/i],
-  ['cancelling a once-off that replaced another (it would be paid again)', 'replacement', '2026-07-20', /2026-07-01 to 2026-07-14.*paid again/i],
 ];
 
 describe.each([['REST', 'rest'], ['MCP', 'mcp']] as const)('End through %s refuses, nothing written', (_n, path) => {
@@ -103,19 +102,6 @@ describe.each([['REST', 'rest'], ['MCP', 'mcp']] as const)('End through %s refus
       expect(out.isError).toBe(true);
       expect(out.text).toMatch(message);
     }
-    expect(await datesOf(row[key]!)).toEqual(before);
-  });
-});
-
-describe('Edit dates refuses a change that resurrects a replaced once-off', () => {
-  it.each([
-    ["moving the replacement's start", 'replacement', { effectiveFrom: '2026-07-16', effectiveTo: '2026-07-31' }],
-    ["moving the replaced once-off's end", 'replaced', { effectiveFrom: '2026-07-01', effectiveTo: '2026-07-13' }],
-  ])('%s', async (_n, key, body) => {
-    const before = await datesOf(row[key]!);
-    const out = await patch(row[key]!, body);
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
-    expect(out.body.error?.message).toMatch(/paid again/i);
     expect(await datesOf(row[key]!)).toEqual(before);
   });
 });

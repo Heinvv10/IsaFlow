@@ -16,7 +16,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import termination from '../../pages/api/payroll/employees/[id]/termination';
 import type { Route } from './w3-01-payroll.helpers';
 import {
-  calculateRun, cleanSeveranceFixtures, createRunFor, runLine, seedRetrenchedEmployee, type SeveranceFixture,
+  calculateRun, cleanSeveranceFixtures, codes, createRunFor, previewRun, runLine, seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
 import { computeTerminationPreview, setTerminationDetails, yearsOfService } from '@/modules/accounting/services/payroll/payrollTerminationService';
 
@@ -24,7 +24,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const MONTHLY = 21_670;
 const EXIT = '2026-03-15';
-const fixtures: Record<'plain' | 'bonus' | 'laterAllowance', SeveranceFixture> = {} as never;
+const fixtures: Record<'plain' | 'bonus' | 'laterAllowance' | 'noBase', SeveranceFixture> = {} as never;
 const severanceOn = (monthly: number) => computeTerminationPreview({
   monthlySalary: monthly, unusedLeaveDays: 0, noticePeriodDays: 0, servedNoticeDays: 0, severanceWeeksPerYear: 1,
   yearsOfService: yearsOfService('2020-01-01', EXIT), includeLeavePayout: false, reason: 'retrenchment',
@@ -64,6 +64,9 @@ beforeAll(async () => {
   fixtures.plain = await seed('Termination base, no once-off', false);
   fixtures.bonus = await seed('Termination base, once-off bonus', true);
   fixtures.laterAllowance = await seed('Termination base, allowance from after the exit', false, true);
+  // Salary ended before the end date: no recurring earnings on it, so no base for leave, notice or severance.
+  fixtures.noBase = await seed('Termination base, none on the end date', false);
+  await pool.query("UPDATE payroll_employee_components SET effective_to = '2026-03-10' WHERE employee_id = $1", [fixtures.noBase.employee]);
 });
 
 afterAll(async () => {
@@ -97,5 +100,24 @@ describe.each([['plain', 0, 0], ['bonus', 2167, 0], ['laterAllowance', 0, 5000]]
     const data = out.body.data as { context: { monthlySalary: number }; preview: { leavePayout: number; noticePay: number; severancePay: number } };
     expect(data.context.monthlySalary).toBe(MONTHLY);
     expect(data.preview).toMatchObject({ leavePayout: 10_000, noticePay: 20_000, severancePay: severanceOn(MONTHLY) });
+  });
+});
+
+describe('M2: a leaver with a termination reason and no recurring earnings on the end date (Hein)', () => {
+  it('the line carries a blocking flag, the severance still awaits its directive, and approval is refused', async () => {
+    const f = fixtures.noBase;
+    const march = await createRunFor(f, 3);
+    await calculateRun(f, march);
+    const line = await runLine(pool, march, f.employee);
+    const results = line.validation_results as Array<{ code: string; severity: string; message: string }>;
+    const missing = results.find(v => v.code === 'TERMINATION_BASE_MISSING');
+    expect(missing?.severity).toBe('error');
+    expect(missing?.message).toMatch(/no recurring earnings on the end date; leave and notice pay need a base/);
+    expect(codes(line.validation_results)).toContain('SEVERANCE_AWAITING_DIRECTIVE');
+    expect(paidAs(line, 'Leave Pay-Out (Termination)')).toBeUndefined();
+    const preview = await previewRun(f, march);
+    expect((preview.body.data as { blocker: { code: string; detail: string } | null }).blocker).toMatchObject({
+      code: 'termination_base_missing', detail: expect.stringContaining('W301-1'),
+    });
   });
 });
