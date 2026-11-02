@@ -9,10 +9,15 @@
  * about to leave: it shows the skeleton, never "No new transactions". Any
  * other empty page says empty, so nothing can leave the skeleton stuck. A failed load also
  * has no rows and a zero total, but usePageClamp skips it: it shows the error, never the skeleton.
+ * The bank line drawer lives here, outside BankTxTable's keydown container: a key pressed in the drawer must never
+ * reach the grid's hotkeys, which post.
  */
 
 import type { ReactNode } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import { Drawer } from '@/components/ui/Drawer';
+import type { BankTx } from '@/components/accounting/BankTxTable';
+import { BankLineDrawerBody } from './BankLineDrawerBody';
 import type { BankTxTab } from './BankTxTabs';
 import { BankTxLoading, BankTxEmpty, BANK_TX_FRAME_MIN_PX } from './BankTxListStates';
 
@@ -27,10 +32,13 @@ interface Props {
   /** bankTxPastEnd(page, total, pageSize), from the same load as `empty`. */
   pastEnd: boolean;
   tab: BankTxTab;
+  /** The line whose drawer is open; undefined once it is off the list. */
+  detailTx?: BankTx;
+  onDetailClose: () => void;
   children: ReactNode;
 }
 
-export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, pastEnd, tab, children }: Props) {
+export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, empty, pastEnd, tab, detailTx, onDetailClose, children }: Props) {
   const loading = isLoading || (!error && empty && pastEnd);
   return (
     <>
@@ -53,6 +61,9 @@ export function BankTxListFrame({ relinkFailed, aiPolling, isLoading, error, emp
           <BankTxEmpty tab={tab} />
         ) : children}
       </div>
+      <Drawer open={detailTx !== undefined} onClose={onDetailClose} title="Bank line">
+        {detailTx && <BankLineDrawerBody key={detailTx.id} tx={detailTx} />}
+      </Drawer>
     </>
   );
 }
