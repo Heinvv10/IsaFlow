@@ -35,6 +35,8 @@ interface RunShape {
   taxedUnknown?: boolean;
   /** The employee's start date, moved after the run's period once the run was approved. */
   startedAfter?: boolean;
+  /** The employee's start date, set after the run is written. */
+  started?: string;
 }
 
 /** A run of `company` holding `emp`, in the shape given, written as the table owner. */
@@ -53,7 +55,8 @@ async function run(c: string, emp: string, shape: RunShape): Promise<void> {
      RETURNING id`,
     [c, shape.month ?? 1, shape.year ?? 2026, shape.status, shape.approvedAt === true, shape.history === true, journal,
       shape.taxed === true, emp, shape.reopened === true, shape.taxedUnknown === true]);
-  if (shape.startedAfter) await pool.query("UPDATE payroll_employees SET start_date = DATE '2027-01-01' WHERE id = $1", [emp]);
+  const started = shape.startedAfter ? '2027-01-01' : shape.started;
+  if (started) await pool.query('UPDATE payroll_employees SET start_date = $2::date WHERE id = $1', [emp, started]);
   if (shape.line !== false) await pool.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [rows[0]!.id, emp]);
 }
 
@@ -77,6 +80,7 @@ describe('a manager\'s first entry for an employee already paid through a run', 
     ['a run reopened, its history lost, reopened_at kept', { status: 'calculated', reopened: true }],
     ['a run approved, reopened, and the employee since taken off it', { status: 'calculated', history: true, line: false }],
     ['the same, paid with nothing taxable, so not in the taxed set', { status: 'calculated', reopened: true, line: false }],
+    ['the same, the employee having started within that run\'s month', { status: 'calculated', history: true, line: false, started: '2026-01-31' }],
     ['the same, the run\'s taxed set unknown (NULL)', { status: 'calculated', history: true, taxedUnknown: true, line: false }],
     ['taken off a reopened run, taxed by it, start date since moved past it', { status: 'calculated', history: true, taxed: true, line: false, startedAfter: true }],
     ['a run approved, reopened and cancelled', { status: 'cancelled', history: true }],
@@ -115,6 +119,7 @@ describe('a manager\'s first entry that stays open', () => {
     ['a run cancelled before approval', { status: 'cancelled' }],
     ['a reopened run of a period before the employee started', { status: 'calculated', history: true, reopened: true, line: false, startedAfter: true }],
     ['an approved run the employee was never on', { status: 'approved', approvedAt: true, line: false }],
+    ['a reopened run of the month before the employee started', { status: 'calculated', history: true, line: false, started: '2026-02-01' }],
   ])('%s: the entry lands', async (_name, shape) => {
     const c = await company();
     const e = await employee(pool, c);
