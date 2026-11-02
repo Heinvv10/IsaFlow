@@ -76,5 +76,11 @@
     "kind": "g",
     "line": "if (!res.ok) {",
     "reason": "Public unauthenticated reset form: every non-2xx (the route's 400 is just 'email required', the 5xx and proxy pages carry nothing a person can use) deliberately gets one fixed sentence, and the 2xx screen is identical whether or not the account exists."
+  },
+  {
+    "file": "src/components/layout/NotificationBell.tsx",
+    "kind": "f",
+    "line": "setFeed(json.data);",
+    "reason": "Deliberate (PR #1066 review): a failed bell refresh keeps the last good list and unread badge beside the error sentence, so a 503 never wipes the count; a company switch clears the feed separately."
   }
 ]

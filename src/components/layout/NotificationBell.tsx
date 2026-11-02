@@ -4,11 +4,16 @@
  * follow its in-app link) or all read. Not the setup guide (SetupGuideButton, a checklist count):
  * different icon (bell), label ("Notifications") and badge colour.
  *
- * The feed loads on mount and again each time the dropdown opens. Every call's status is checked
- * before its body is trusted; a failure is a sentence, never an empty list or a cleared badge.
+ * The feed loads on mount (only with an active company: withAuth answers 400 without one) and again
+ * each time the panel opens. Every call's status is checked before its body is trusted; a failed
+ * load is a sentence beside the last good list and badge, never a cleared badge. Responses carry a
+ * sequence number: an older one that lands after a newer load (or after a mark-read) is dropped.
+ * The panel is a non-modal dialog: opening moves focus into it, Escape closes it and returns focus
+ * to the bell.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
+import { useCompany } from '@/contexts/CompanyContext';
 import { Bell } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { isInAppPath } from '@/lib/inAppPath';
@@ -30,36 +35,58 @@ async function postRead(body: { ids: string[] } | { all: true }): Promise<void> 
 
 export function NotificationBell() {
   const router = useRouter();
+  const companyId = useCompany().activeCompany?.id ?? null;
+  const panelId = useId();
   const [open, setOpen] = useState(false);
   const [feed, setFeed] = useState<NotificationFeed | null>(null);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
   const root = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  // Bumped by every load and every successful mark-read: a response whose number is not the latest is dropped.
+  const seq = useRef(0);
 
   const load = useCallback(async () => {
+    if (companyId === null) return;
+    const mine = ++seq.current;
     try {
       const res = await apiFetch(FEED_URL);
       await assertOk(res, LOAD_FAILED);
       const json = (await res.json()) as { data?: NotificationFeed };
       if (!json.data || !Array.isArray(json.data.items)) throw new Error('notification feed: not the feed envelope');
+      if (mine !== seq.current) return;
       setFeed(json.data);
       setLoadError('');
     } catch (err) {
+      if (mine !== seq.current) return;
       log.warn('notification feed load failed', { err });
-      // Never a stale list or badge under the error.
-      setFeed(null);
+      // The last good list and badge stay, beside the error.
       setLoadError(apiErrorMessage(err, LOAD_FAILED));
     }
-  }, []);
+  }, [companyId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // A company switch starts from nothing: another company's feed is never shown under this one.
+  useEffect(() => {
+    seq.current += 1;
+    setFeed(null);
+    setLoadError('');
+    setOpen(false);
+    void load();
+  }, [load]);
+
+  useEffect(() => { if (open) panel.current?.focus(); }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
       if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      button.current?.focus();
+    };
     document.addEventListener('mousedown', onPointer);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -90,6 +117,7 @@ export function NotificationBell() {
         setActionError(apiErrorMessage(err, 'Could not mark that read - try again'));
         return;
       }
+      seq.current += 1;
       const readAt = new Date().toISOString();
       setFeed((f) => f && {
         items: f.items.map((x) => (x.id === n.id ? { ...x, readAt } : x)),
@@ -107,18 +135,22 @@ export function NotificationBell() {
       setActionError(apiErrorMessage(err, 'Could not mark them read - try again'));
       return;
     }
+    seq.current += 1;
     const readAt = new Date().toISOString();
     setFeed((f) => f && { items: f.items.map((x) => (x.readAt === null ? { ...x, readAt } : x)), unread: 0 });
   };
 
+  if (companyId === null) return null;
   const unread = feed?.unread ?? 0;
   return (
     <div ref={root} className="relative">
       <button
+        ref={button}
         type="button"
         onClick={toggle}
         aria-label="Notifications"
-        aria-haspopup="true"
+        aria-haspopup="dialog"
+        aria-controls={open ? panelId : undefined}
         aria-expanded={open}
         aria-describedby={unread > 0 ? 'notification-unread' : undefined}
         title="Notifications"
@@ -142,9 +174,13 @@ export function NotificationBell() {
 
       {open && (
         <div
-          role="group"
+          ref={panel}
+          id={panelId}
+          role="dialog"
+          aria-modal="false"
           aria-label="Notifications"
-          className="fixed right-2 left-2 top-14 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 z-50 rounded-xl border border-line bg-surface-raised shadow-xl"
+          tabIndex={-1}
+          className="outline-none fixed right-2 left-2 top-14 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 z-50 rounded-xl border border-line bg-surface-raised shadow-xl"
         >
           <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-line">
             <span className="text-sm font-medium text-ink">Notifications</span>
