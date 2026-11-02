@@ -340,6 +340,12 @@
 }
 
 @layer utilities {
+  /* An ID (invoice, journal or employee number) in the app face: font-mono is for code alone. */
+  .font-id {
+    font-family: inherit;
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
   /* Thin scrollbar */
   .scrollbar-thin::-webkit-scrollbar {
     width: 8px;
