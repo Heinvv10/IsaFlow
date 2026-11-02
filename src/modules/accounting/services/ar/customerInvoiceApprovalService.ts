@@ -11,6 +11,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
@@ -63,7 +64,7 @@ export { CustomerInvoiceLockTimeoutError };
  */
 export class InvoiceStaleViewError extends Error {
   constructor(storedTotal: number) {
-    super(`This invoice changed after it was shown: its total is now R${storedTotal.toFixed(2)}. Check it, then approve again.`);
+    super(`This invoice changed after it was shown: its total is now ${formatMoney(storedTotal)}. Check it, then approve again.`);
     this.name = 'InvoiceStaleViewError';
   }
 }

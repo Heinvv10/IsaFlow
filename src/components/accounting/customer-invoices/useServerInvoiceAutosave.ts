@@ -153,10 +153,12 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     setSaving(true);
     sending.current = sent;
     try {
-      const put = apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent });
+      const put = (async () => {
+        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent });
+        await assertOk(res, SAVE_FAILED);
+      })();
       if (shownFor.current) trackInvoiceSave(shownFor.current, put);
-      const res = await put;
-      await assertOk(res, SAVE_FAILED);
+      await put;
       if (mine !== seq.current) return { ok: true };
       lastSaved.current = sent; // what this reply carried, never the newer body typed while it was out
       setSavedJson(sent);

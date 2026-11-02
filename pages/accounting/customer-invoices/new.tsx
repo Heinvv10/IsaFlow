@@ -91,10 +91,11 @@ export default function NewCustomerInvoicePage() {
   async function matchScannedClient(name: string, seq: number) {
     setScanLookup(seq);
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     try {
       const res = await Promise.race([
         apiFetch('/api/accounting/customers', { credentials: 'include' }),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(SCAN_LOOKUP_TIMEOUT)), 15_000); }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => { timedOut = true; reject(new Error('scan lookup timed out')); }, 15_000); }),
       ]);
       await assertOk(res, 'Could not load clients - try again');
       const json = await res.json();
@@ -104,7 +105,7 @@ export default function NewCustomerInvoicePage() {
       const match = fuzzyMatchClient(name, clients);
       const hit = match ? clients.find(c => String(c.id) === String(match.id)) : undefined;
       if (hit) { setForm(f => ({ ...f, clientId: String(hit.id) })); setScanned({ id: String(hit.id), name: hit.name }); }
-    } catch (err) { if (lookupSeq.current === seq) setError(err instanceof Error && err.message === SCAN_LOOKUP_TIMEOUT ? err.message : apiErrorMessage(err, 'Could not load clients - try again')); }
+    } catch (err) { if (lookupSeq.current === seq) setError(timedOut ? SCAN_LOOKUP_TIMEOUT : apiErrorMessage(err, 'Could not load clients - try again')); }
     finally { clearTimeout(timer); setScanLookup(s => (s === seq ? null : s)); }
   }
 

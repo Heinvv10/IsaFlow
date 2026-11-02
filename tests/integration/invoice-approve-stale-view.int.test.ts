@@ -44,7 +44,7 @@ describe('approve and the total the approver saw', () => {
     const res = await approve({ id: inv.id, expectedTotal: 1035 });
     expect(res.state.statusCode).toBe(409);
     expect(reasonOf(res)).toBe('STALE_VIEW');
-    expect(messageOf(res)).toMatch(/changed after it was shown: its total is now R ?1[ , ]?150\.00/);
+    expect(messageOf(res)).toMatch(/changed after it was shown: its total is now R\s?1\s?150\.00\./);
     const state = await invoiceState(pool, inv.id);
     expect(state).toMatchObject({ status: 'draft', gl_journal_entry_id: null, journals: 0 });
     expect((await pool.query('SELECT * FROM customer_invoices WHERE id = $1', [inv.id])).rows[0]).toEqual(before);
