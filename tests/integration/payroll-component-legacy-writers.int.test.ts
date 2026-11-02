@@ -18,6 +18,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const company = crypto.randomUUID();
 const user = crypto.randomUUID();
 const run = crypto.randomUUID();
+const decRun = crypto.randomUUID();
 const salary = crypto.randomUUID();
 const bonus = crypto.randomUUID();
 const pkg = crypto.randomUUID();
@@ -38,9 +39,9 @@ async function oldInsert(name: string, key: string, from: string, to: string) {
      VALUES($1,$2,1200,$3::date,$4::date,false) RETURNING id`, [emp[key], bonus, from, to])).rows[0]!.id);
 }
 const flag = async (id: string) => (await pool.query('SELECT supersede_inferred, superseded_at FROM payroll_employee_components WHERE id=$1', [id])).rows[0];
-async function bonuses(key: string): Promise<number[]> {
-  await calculatePayrollRun(run, company);
-  const { rows } = await pool.query('SELECT component_breakdown FROM payroll_run_lines WHERE run_id=$1 AND employee_id=$2', [run, emp[key]]);
+async function bonuses(key: string, runId = run): Promise<number[]> {
+  await calculatePayrollRun(runId, company);
+  const { rows } = await pool.query('SELECT component_breakdown FROM payroll_run_lines WHERE run_id=$1 AND employee_id=$2', [runId, emp[key]]);
   return (rows[0]?.component_breakdown as Array<{ componentName: string; amount: number }> ?? [])
     .filter(c => c.componentName === 'Bonus').map(c => Number(c.amount));
 }
@@ -64,14 +65,22 @@ beforeAll(async () => {
   await oldInsert('reA', 'reapply', '2026-11-01', '2026-11-14');
   await oldInsert('reB', 'reapply', '2026-11-15', '2026-11-30');
   await employee('writers');
-  await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,11,2026,'draft')", [run, company]);
+  // Deploy window: code from before this release re-applies a package over its own December once-off. It cuts the
+  // old row without superseded_at and inserts the new one without naming supersede_inferred.
+  await employee('window');
+  await oldInsert('winOld', 'window', '2026-12-01', '2026-12-31');
+  await pool.query("UPDATE payroll_employee_components SET effective_to = '2026-12-14' WHERE id=$1", [row.winOld]);
+  await oldInsert('winNew', 'window', '2026-12-15', '2026-12-31');
+  for (const [id, month] of [[run, 11], [decRun, 12]] as const) {
+    await pool.query("INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status) VALUES($1,$2,$3,2026,'draft')", [id, company, month]);
+  }
 });
 
 afterAll(async () => {
   vi.useRealTimers();
   try {
     await pool.query('DELETE FROM audit_log WHERE company_id=$1', [company]);
-    await pool.query('DELETE FROM payroll_run_lines WHERE run_id=$1', [run]);
+    await pool.query('DELETE FROM payroll_run_lines WHERE run_id=ANY($1::uuid[])', [[run, decRun]]);
     await pool.query('DELETE FROM payroll_run_headers WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM payroll_employee_components WHERE employee_id=ANY($1::uuid[])', [Object.values(emp)]);
     await pool.query('DELETE FROM payroll_batch_lines WHERE batch_id IN (SELECT id FROM payroll_batches WHERE company_id=$1)', [company]);
@@ -92,6 +101,12 @@ describe(`rows inserted by old code read with the old rule (TZ=${process.env.TZ 
 
   it('an old-code replaced pair (1-14, 15-30) pays its once-off once', async () => {
     expect(await bonuses('oldPair')).toEqual([1200]);
+  });
+});
+
+describe('M4: a package re-applied by old code during the deploy window', () => {
+  it('pays its once-off once (both rows default to the old rule)', async () => {
+    expect(await bonuses('window', decRun)).toEqual([1200]);
   });
 });
 
