@@ -8,6 +8,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { Api, PAYROLL_SANDBOX_MONTH } from './_api';
+import { describeGoldenCompany } from './helpers/goldenSlot';
 
 test('payroll run: create → calculate → approve posts a GL journal', async ({ baseURL }) => {
   const api = await Api.login(baseURL!);
@@ -39,8 +40,8 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
       expect(
         slot,
         `the sandbox payroll run for ${PAYROLL_SANDBOX_MONTH} is '${slot?.status}', not reusable. `
-          + 'A previous run failed its cleanup: reopen it (POST /api/payroll/runs/<id>/reopen) in the Demo '
-          + 'company, or use a real run you no longer need. Do not move the spec to another month.',
+          + `A previous run failed its cleanup: reopen it (POST /api/payroll/runs/<id>/reopen) in ${describeGoldenCompany(process.env)}, `
+          + 'or use a real run you no longer need. Do not move the spec to another month.',
       ).toBeUndefined();
       const run = await api.post<any>('/api/payroll/runs', { month: sandboxMonth, year: sandboxYear });
       expect(run.id).toBeTruthy();

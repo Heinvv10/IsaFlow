@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process';
 import { createServer, type Server } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BAD_PORTS, canBind, pickFreePort } from '../../../scripts/ci/golden-free-port';
+import { BAD_PORTS, canBind, pickFreePort, prepareSlotWindow } from '../../../scripts/ci/golden-free-port';
 
 const held: Server[] = [];
 afterEach(async () => {
@@ -58,6 +58,20 @@ describe('pickFreePort', () => {
   it('returns null when every port in the range is taken', async () => {
     const port = await hold('127.0.0.1');
     expect(await pickFreePort(port, port)).toBeNull();
+  });
+});
+
+describe('prepareSlotWindow', () => {
+  it('propagates cleanup failure on GitHub so the caller cannot select another port', async () => {
+    await expect(prepareSlotWindow(3300, 3465, true, '/w/IsaFlow/IsaFlow', async () => {
+      throw new Error('orphan survived');
+    })).rejects.toThrow(/orphan survived/);
+  });
+
+  it('does not run runner cleanup for a local free-port probe', async () => {
+    let called = false;
+    await prepareSlotWindow(3300, 3465, false, '', async () => { called = true; });
+    expect(called).toBe(false);
   });
 });
 
