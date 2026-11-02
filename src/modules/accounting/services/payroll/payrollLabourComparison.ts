@@ -1,0 +1,98 @@
+/**
+ * Pure: what must agree between a run's plan and the journal in force, for the
+ * approval gate's `recalculated_after_posting` check (payrollApprovalGate).
+ * Split out of the gate to keep it under the 300-line cap.
+ *
+ * `figures` keys every line, in cents: each credit by GL account (PAYE, UIF,
+ * SDL, deductions, net pay — each a header total), and the labour debit.
+ *
+ * Labour is ONE total for a run that has not been recalculated since the
+ * journal posted. Its split across cost-centre accounts then follows today's
+ * cost centres, mappings and allocations (and, before the split's reads were
+ * ordered, the heap's order for its rounding cent) — none of which is the run
+ * changing, and a journal is not wrong for carrying the split of its day
+ * (breaker B, C).
+ *
+ * Labour is PER (ACCOUNT, CC1) once the run HAS been recalculated since
+ * (`perAccount`). A recalculation can move pay between employees in different
+ * cost centres and leave every header total as it was; the split is then the
+ * only place the change shows (breaker C4), and since labour lines carry the
+ * employee's centre (2026-11-02) a move between two centres mapped to one
+ * account is the same kind of change. `comparableLines` decides how each side
+ * names its CC1 first.
+ */
+
+export type FigureLine = { glAccountId: string | null; debit: number; credit: number; cc1Id: string | null };
+
+/** The plan's labour per (account, SOURCE centre) — before untaggable centres were merged into untagged. */
+export interface LabourSourceBucket {
+  glAccountId: string;
+  /** The employee's centre (allocation or own), or null when they have none. */
+  centreId: string | null;
+  /** Whether the plan tags this centre (active, cc_type 'cc1'). */
+  taggable: boolean;
+  debit: number;
+}
+
+const cents = (n: number): number => Math.round(n * 100);
+
+export function figures(lines: FigureLine[], perAccount: boolean): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const l of lines) {
+    const k = cents(l.debit) !== 0 && !perAccount ? 'labour' : JSON.stringify([l.glAccountId ?? 'missing', l.cc1Id]);
+    m.set(k, (m.get(k) ?? 0) + cents(l.debit) - cents(l.credit));
+  }
+  for (const [k, v] of m) if (v === 0) m.delete(k);
+  return m;
+}
+
+export function sameFigures(lines: { plan: FigureLine[]; posted: FigureLine[] }, perAccount: boolean): boolean {
+  const a = figures(lines.plan, perAccount);
+  const b = figures(lines.posted, perAccount);
+  return a.size === b.size && [...a].every(([k, v]) => b.get(k) === v);
+}
+
+/**
+ * The two sides of the per-(account, CC1) comparison (PR #1065 review rounds
+ * 1–2). `posted` is the journal AS POSTED: a CC1 the tag tool changed since is
+ * read back from its first `dimension_tag_batch_lines.old_cc1_id`
+ * (payrollApprovalGate#readPostedJournal), because re-tagging the ledger is
+ * not the run changing.
+ *
+ *  - No labour line carried a CC1 as posted: a journal from before labour
+ *    lines carried CC1 (or one whose centres were all untaggable). Compared per
+ *    account only, CC1 stripped from both sides — no backfill, the run stays on
+ *    its untagged journal. KNOWN LIMIT: in that journal a centre assigned after
+ *    posting is not seen, as before 2026-11-02.
+ *  - Otherwise the plan's labour is taken per SOURCE centre (`bySource`), so
+ *    centres the plan cannot tag today stay apart: a centre the journal
+ *    carries on that account keeps its id (deactivated since posting, it still
+ *    equals its posted line; a move between two such centres still differs);
+ *    any other centre keeps its id when the plan tags it, else reads as
+ *    untagged (it was untaggable at posting too, so it sits in the journal's
+ *    untagged line). A centre taggable now that the journal does not carry is a
+ *    difference — fail closed, even for one reactivated since posting.
+ *
+ * `bySource` is absent only when the plan had no labour account to split onto;
+ * the plan's own lines are used then.
+ */
+export function comparableLines(
+  planLines: FigureLine[],
+  bySource: LabourSourceBucket[] | undefined,
+  posted: FigureLine[],
+): { plan: FigureLine[]; posted: FigureLine[] } {
+  const key = (account: string | null, centre: string) => JSON.stringify([account, centre]);
+  const carried = new Set(posted.filter((l) => cents(l.debit) !== 0 && l.cc1Id).map((l) => key(l.glAccountId, l.cc1Id!)));
+  if (carried.size === 0) {
+    const untag = (l: FigureLine): FigureLine => ({ ...l, cc1Id: null });
+    return { plan: planLines.map(untag), posted: posted.map(untag) };
+  }
+  if (!bySource) return { plan: planLines, posted };
+  const labour = bySource.map((b): FigureLine => ({
+    glAccountId: b.glAccountId,
+    debit: b.debit,
+    credit: 0,
+    cc1Id: b.centreId !== null && (carried.has(key(b.glAccountId, b.centreId)) || b.taggable) ? b.centreId : null,
+  }));
+  return { plan: [...planLines.filter((l) => cents(l.debit) === 0), ...labour], posted };
+}
