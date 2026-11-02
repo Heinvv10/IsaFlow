@@ -44,6 +44,7 @@ describe('PayrollRunWarnings', () => {
     const pieter = screen.getByText('Pieter Grid').closest('li')!;
     expect(pieter.textContent).toContain('About Pieter: R 20');
     expect(pieter.textContent).not.toContain('About Zanele');
+    expect(screen.getAllByText(/About Zanele/)).toHaveLength(1); // her own row, not the heading too
   });
 
   it('a blocking result: the panel says it blocks approval, and does not count it as a warning', () => {
