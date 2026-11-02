@@ -248,7 +248,7 @@ export default function NewCustomerPaymentPage() {
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Allocations</span>
-                      <span className="font-id text-slate-900 dark:text-slate-100">{allocations.filter(a => a.invoiceId && a.amount > 0).length}</span>
+                      <span className="tabular-nums text-slate-900 dark:text-slate-100">{allocations.filter(a => a.invoiceId && a.amount > 0).length}</span>
                     </div>
                     <div className="h-px bg-slate-100 dark:bg-slate-800" />
                     <div className="flex justify-between">
