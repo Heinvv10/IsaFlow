@@ -7,6 +7,7 @@
  * a pack table has no colour. `null` from the engine prints "—"; a budgeted zero prints R 0.00, which
  * is why these tables use `formatMoney`, not `formatStatementFigure` (it prints a zero as a dash).
  */
+import * as Sentry from '@sentry/nextjs';
 import { formatPct } from '@/lib/format/money';
 import { log } from '@/lib/logger';
 import { withSavepoint } from '@/lib/neon';
@@ -70,7 +71,17 @@ export async function loadPackBudget(companyId: string, period: string, now?: Da
     const refusal = err instanceof TrackingError || err instanceof BudgetVersionError;
     const fields = { companyId, period, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
     if (refusal) log.warn('management pack: the budget engine refused the pack month', fields, 'managementPackComparison');
-    else log.error('management pack: the budget engine failed; budget sections print the unavailable sentence', fields, 'managementPackComparison');
+    else {
+      log.error('management pack: the budget engine failed; budget sections print the unavailable sentence', fields, 'managementPackComparison');
+      // The pack still goes out, so a bug here would otherwise only be a log line: report it (as deferredEnd does).
+      if (process.env.SENTRY_ENABLED === 'true') {
+        try {
+          Sentry.captureException(err, { tags: { company_id: companyId, route: 'management-pack' } });
+        } catch (sentryErr) {
+          log.warn('management pack: Sentry capture failed', { error: sentryErr instanceof Error ? sentryErr.message : String(sentryErr) }, 'managementPackComparison');
+        }
+      }
+    }
     return { kind: 'unavailable', reason: BUDGET_UNAVAILABLE };
   }
 }

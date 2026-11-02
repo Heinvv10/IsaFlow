@@ -16,12 +16,14 @@ const m = vi.hoisted(() => ({
   updateSection: vi.fn(),
   commentary: vi.fn(),
   summary: vi.fn(),
+  capture: vi.fn(),
   withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock('@/lib/neon', () => ({ sql: m.sql, withSavepoint: m.withSavepoint }));
 vi.mock('@/lib/logger', () => ({ log: m.log }));
+vi.mock('@sentry/nextjs', () => ({ captureException: m.capture }));
 vi.mock('@/modules/accounting/services/budgets/tracking/budgetTrackingService', () => ({ buildBudgetTrackingReport: m.buildReport }));
 vi.mock('@/modules/accounting/services/afs/afsDocumentService', () => ({ createAfsDocument: vi.fn(async () => ({ id: 'doc-1' })) }));
 vi.mock('@/modules/accounting/services/afs/afsSectionService', () => ({ createAfsSection: m.createSection, updateAfsSection: m.updateSection }));
@@ -245,6 +247,23 @@ describe('the budget sections', () => {
     expect(m.log[level]).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ error: err.message }), 'managementPackComparison');
     const snap = (m.updateSection.mock.calls as [string, string, string, { dataSnapshot?: unknown }][]).find((c) => c[0] === 'budget_variance')?.[3].dataSnapshot;
     expect(snap).toEqual({ unavailable: 'Budget figures are unavailable for this month.' });
+  });
+
+  it('reports a non-refusal engine fault to Bugsink when Sentry is on, and never a refusal', async () => {
+    vi.stubEnv('SENTRY_ENABLED', 'true');
+    try {
+      const fault = new Error('boom');
+      m.buildReport.mockRejectedValueOnce(fault);
+      await generate('budget', ['income_vs_budget']);
+      expect(m.capture).toHaveBeenCalledWith(fault, { tags: { company_id: 'co', route: 'management-pack' } });
+      m.capture.mockClear();
+      m.updateSection.mockClear();
+      m.buildReport.mockRejectedValueOnce(new TrackingError(409, 'not calendar months'));
+      await generate('budget', ['income_vs_budget']);
+      expect(m.capture).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('reads the budget inside a savepoint, so a failed query cannot abort the request transaction the pack is written in', async () => {
