@@ -92,6 +92,7 @@ describe('the component a payslip shows the instalment on', () => {
   it('a LOAN-coded earning is never it: the instalment stays a deduction', async () => {
     const plain = await line(state.nov);
     const earning = await fx.addComponent(state.coA, 'Loan earning', 'LOAN', 'earning', true);
+    await pool.query(`UPDATE payroll_components SET created_at = '2000-01-01' WHERE id = $1`, [earning]); // made before the deduction
     await addLoan(1000);
     await recalculate(state.nov);
     const l = await line(state.nov);
