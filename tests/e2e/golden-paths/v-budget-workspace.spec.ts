@@ -176,7 +176,7 @@ test('budget workspace: PY+10% scenario → paste a year → save → approve �
     await openWorkspace(page, { fiscalYear: plan.fiscalYear });
 
     // 2. Wizard: prior-year actuals +10%, R1000, scenario, not primary.
-    await page.getByTestId('version-actions').getByRole('button', { name: 'New reforecast' }).click();
+    await page.getByTestId('version-actions').getByRole('button', { name: 'New reforecast', exact: true }).click();
     const wizard = page.getByRole('dialog', { name: 'New budget version' });
     await wizard.getByLabel('Name').fill(runName);
     await expect(wizard.getByLabel('Kind')).toBeEnabled();
