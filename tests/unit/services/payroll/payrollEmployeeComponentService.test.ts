@@ -59,7 +59,7 @@ describe('assignComponentToEmployee', () => {
       EMPLOYEE_ID,
       COMPONENT_ID,
       5000,
-      new Date('2025-01-01'),
+      '2025-01-01',
     );
 
     expect(result).toEqual({
@@ -96,7 +96,7 @@ describe('assignComponentToEmployee', () => {
     };
 
     await assignComponentToEmployee(
-      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, new Date('2025-03-01'), undefined, false,
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01', undefined, false,
     );
 
     const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
@@ -116,7 +116,7 @@ describe('assignComponentToEmployee', () => {
     };
 
     await assignComponentToEmployee(
-      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, new Date('2025-03-01'),
+      COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-03-01',
     );
 
     const insertCall = sqlCalls.find(c => c.sql.includes('INSERT INTO payroll_employee_components'));
@@ -126,7 +126,7 @@ describe('assignComponentToEmployee', () => {
   it("refuses another company's component before the insert, reading it by this company", async () => {
     mockImpl = (strings) => Promise.resolve(strings.join('?').includes('FROM payroll_employees') ? [{ id: EMPLOYEE_ID }] : []);
     await expect(
-      assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, new Date('2025-01-01')),
+      assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 5000, '2025-01-01'),
     ).rejects.toBeInstanceOf(EmployeeComponentRefused);
     expect(sqlCalls.find(c => c.sql.includes('INSERT'))).toBeUndefined();
     const lookup = sqlCalls.find(c => c.sql.includes('FROM payroll_components'));
@@ -149,9 +149,22 @@ describe('assignComponentToEmployee', () => {
         EMPLOYEE_ID,
         COMPONENT_ID,
         5000,
-        new Date('2025-01-01'),
+        '2025-01-01',
       ),
     ).rejects.toThrow(`Payroll employee ${EMPLOYEE_ID} not found in company`);
+  });
+});
+
+describe('day strings', () => {
+  it('refuses a date that is not a real YYYY-MM-DD before any write', async () => {
+    mockImpl = (strings) => Promise.resolve(strings.join('?').includes('FROM') ? [{ id: 'x' }] : []);
+    for (const bad of ['2025-02-30', '2025-3-1', 'tomorrow', '2025-03-01T00:00:00Z']) {
+      await expect(assignComponentToEmployee(COMPANY_ID, EMPLOYEE_ID, COMPONENT_ID, 1, bad))
+        .rejects.toBeInstanceOf(EmployeeComponentRefused);
+    }
+    await expect(endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, '2025-02-30'))
+      .rejects.toBeInstanceOf(EmployeeComponentRefused);
+    expect(sqlCalls.some((c) => c.sql.includes('INSERT') || c.sql.includes('UPDATE'))).toBe(false);
   });
 });
 
@@ -159,7 +172,7 @@ describe('endEmployeeComponent', () => {
   it('issues UPDATE with the effective_to date and company-scope subquery', async () => {
     mockImpl = () => Promise.resolve([]);
 
-    await endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, new Date('2025-12-31'));
+    await endEmployeeComponent(COMPANY_ID, ASSIGNMENT_ID, '2025-12-31');
 
     expect(sqlCalls).toHaveLength(1);
     const call = sqlCalls[0];
