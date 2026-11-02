@@ -85,7 +85,7 @@ export const BUREAU_SKUS: BureauSku[] = [
       'Full books — invoicing, AR & AP',
       'Bank reconciliation & statement import (CSV, OFX, QFX, QIF, MT940, PDF)',
       'Payslip-ready payroll data',
-      'Undercuts Xero Cashbook (R259) — with far more included',
+      'One flat rate per client — full books included',
     ],
   },
 ];
@@ -147,7 +147,6 @@ export const PRICE_LOCK: PriceLock = {
   headline: "Your price won't jump. Ever.",
   body: 'While you stay on your plan, we will never raise your monthly price by more than South African headline CPI (inflation). No surprise double-digit hikes.',
   points: [
-    'QuickBooks raised prices 15–25% in 2026. Xero raises most years.',
     'IsaFlow is capped at inflation — a promise, not a launch discount.',
     'Move from Sage, Xero or QuickBooks and keep your rate.',
   ],
@@ -160,16 +159,19 @@ export interface SageComparisonRow {
 }
 
 /**
- * The Sage anchor: a real books setup on Sage stacks add-ons to ~R1,140/mo;
- * IsaFlow Business delivers the same scope at R549.
+ * The Sage anchor, like for like only: Sage Accounting Standard plus Debtors
+ * Manager (IsaFlow Business includes AR management and dunning), at Sage's
+ * published monthly incl-VAT prices. Advanced Inventory (warehouses,
+ * assemblies) and multi-currency payments are left out: IsaFlow has no exact
+ * equivalent, so they are not compared.
  */
 export const SAGE_COMPARISON = {
-  note: 'A Sage customer who wants proper books pays Accounting R435 + Debtors R290 + Inventory R415 = R1,140/mo. IsaFlow Business includes all of it at R549.',
+  note: 'Sage Accounting Standard (R490) plus the Debtors Manager add-on (R325) comes to R815 a month. IsaFlow Business includes debtors management at R549.',
+  source: 'https://www.sage.com/en-za/sage-business-cloud/accounting/pricing/',
+  checkedOn: '2026-11-02',
   rows: [
-    { label: 'Core accounting', sage: 'R435 / mo', isaflow: 'Included' },
-    { label: 'Debtors / AR management', sage: '+R290 / mo', isaflow: 'Included' },
-    { label: 'Inventory', sage: '+R415 / mo', isaflow: 'Included' },
-    { label: 'Multi-currency', sage: '+R165 / mo', isaflow: 'Included' },
-    { label: 'Monthly total', sage: 'R1,140 / mo', isaflow: 'R549 / mo' },
+    { label: 'Core accounting (Standard)', sage: 'R490 / mo', isaflow: 'Included' },
+    { label: 'Debtors management (Sage Debtors Manager add-on)', sage: '+R325 / mo', isaflow: 'Included' },
+    { label: 'Monthly total', sage: 'R815 / mo', isaflow: 'R549 / mo' },
   ] as SageComparisonRow[],
 };

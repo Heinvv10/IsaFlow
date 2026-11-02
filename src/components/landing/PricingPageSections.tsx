@@ -24,7 +24,7 @@ export function PricingHero() {
       <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <p className="text-sm font-semibold text-teal-400 tracking-widest uppercase mb-4">Pricing</p>
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.05] mb-6">
-          Everything Sage charges<br className="hidden sm:block" /> extra for — included.
+          Your books, VAT and payroll<br className="hidden sm:block" /> in one place.
         </h1>
         <p className="text-lg lg:text-xl text-white/70 max-w-2xl mx-auto mb-8">
           One platform for your books, VAT and payroll. And a price that won&apos;t
@@ -121,7 +121,7 @@ export function SageComparison() {
             The maths
           </p>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 mb-4">
-            Half the price of a real Sage setup
+            A third less than Sage, debtors management included
           </h2>
           <p className="text-lg text-gray-500">{SAGE_COMPARISON.note}</p>
         </div>
@@ -163,7 +163,8 @@ export function SageComparison() {
           </table>
         </div>
         <p className="flex items-center justify-center gap-2 text-sm text-gray-500 mt-6">
-          <TrendingDown className="w-4 h-4 text-teal-500" /> All prices include 15% VAT. Sage add-on prices amortised monthly.
+          <TrendingDown className="w-4 h-4 text-teal-500" /> All prices include 15% VAT. Sage prices from{' '}
+          <a href={SAGE_COMPARISON.source} className="underline" rel="nofollow noopener noreferrer" target="_blank">sage.com</a>, monthly, checked {SAGE_COMPARISON.checkedOn}.
         </p>
       </div>
     </section>
