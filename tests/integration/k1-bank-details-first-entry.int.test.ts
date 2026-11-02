@@ -9,6 +9,8 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { reasonOf } from './r035-approval.helpers';
 import { changesOf, cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
 import { employee, put, ROW, rowsOf } from './k1-employee-bank-details.helpers';
+import { als } from '../../src/lib/als';
+import { parseBankDetailsInput, setEmployeeBankDetails } from '../../src/modules/accounting/services/payroll/payrollBankDetailsService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -28,7 +30,11 @@ const company = () => newCompany(pool, [[o, 'owner'], [a, 'admin'], [m, 'manager
 
 interface RunShape {
   status: string; month?: number; year?: number; approvedAt?: boolean; history?: boolean; journal?: boolean;
-  taxed?: boolean; line?: boolean;
+  taxed?: boolean; line?: boolean; reopened?: boolean;
+  /** approved_taxed_employees written as NULL (unknown), not left out: only with `history` or `reopened`. */
+  taxedUnknown?: boolean;
+  /** The employee's start date, moved after the run's period once the run was approved. */
+  startedAfter?: boolean;
 }
 
 /** A run of `company` holding `emp`, in the shape given, written as the table owner. */
@@ -39,13 +45,15 @@ async function run(c: string, emp: string, shape: RunShape): Promise<void> {
     [c, `K1-${crypto.randomUUID().slice(0, 8)}`, o])).rows[0]!.id : null;
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, approved_at, approval_history,
-       journal_entry_id, approved_taxed_employees)
+       journal_entry_id, approved_taxed_employees, reopened_at)
      VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN now() END,
        CASE WHEN $6 THEN tstzmultirange(tstzrange(now() - interval '1 day', now(), '[)')) END, $7,
-       CASE WHEN $8 THEN ARRAY[$9::uuid] END)
+       CASE WHEN $8 THEN ARRAY[$9::uuid] WHEN $11 THEN NULL WHEN $6 OR $10 THEN '{}'::uuid[] END,
+       CASE WHEN $10 THEN now() END)
      RETURNING id`,
     [c, shape.month ?? 1, shape.year ?? 2026, shape.status, shape.approvedAt === true, shape.history === true, journal,
-      shape.taxed === true, emp]);
+      shape.taxed === true, emp, shape.reopened === true, shape.taxedUnknown === true]);
+  if (shape.startedAfter) await pool.query("UPDATE payroll_employees SET start_date = DATE '2027-01-01' WHERE id = $1", [emp]);
   if (shape.line !== false) await pool.query('INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [rows[0]!.id, emp]);
 }
 
@@ -63,8 +71,14 @@ describe('a manager\'s first entry for an employee already paid through a run', 
     ['an approved run from before 718 stamped approved_at', { status: 'approved' }],
     ['a paid run from before 718', { status: 'paid' }],
     ['a posted run, its journal linked, whatever its status', { status: 'calculated', journal: true }],
+    // The app clears approved_at only with a reopen; a run moved off 'approved' by an older path or by hand keeps it.
+    ['a run cancelled by hand while approved, approved_at kept', { status: 'cancelled', approvedAt: true }],
     ['a run approved, then reopened', { status: 'calculated', history: true }],
-    ['a run approved, reopened, and the employee since taken off it', { status: 'calculated', history: true, taxed: true, line: false }],
+    ['a run reopened, its history lost, reopened_at kept', { status: 'calculated', reopened: true }],
+    ['a run approved, reopened, and the employee since taken off it', { status: 'calculated', history: true, line: false }],
+    ['the same, paid with nothing taxable, so not in the taxed set', { status: 'calculated', reopened: true, line: false }],
+    ['the same, the run\'s taxed set unknown (NULL)', { status: 'calculated', history: true, taxedUnknown: true, line: false }],
+    ['taken off a reopened run, taxed by it, start date since moved past it', { status: 'calculated', history: true, taxed: true, line: false, startedAfter: true }],
     ['a run approved, reopened and cancelled', { status: 'cancelled', history: true }],
     ['an approved run of an earlier year', { status: 'paid', approvedAt: true, month: 2, year: 2021 }],
   ])('%s: 403 FIRST_ENTRY_REQUIRES_ADMIN, and nothing is written', async (_name, shape) => {
@@ -99,7 +113,8 @@ describe('a manager\'s first entry that stays open', () => {
     ['a draft run', { status: 'draft' }],
     ['a calculated run, never approved', { status: 'calculated' }],
     ['a run cancelled before approval', { status: 'cancelled' }],
-    ['a reopened run the employee was never on, nor taxed in', { status: 'calculated', history: true, line: false }],
+    ['a reopened run of a period before the employee started', { status: 'calculated', history: true, reopened: true, line: false, startedAfter: true }],
+    ['an approved run the employee was never on', { status: 'approved', approvedAt: true, line: false }],
   ])('%s: the entry lands', async (_name, shape) => {
     const c = await company();
     const e = await employee(pool, c);
@@ -123,5 +138,23 @@ describe('a manager\'s first entry that stays open', () => {
     const elsewhere = await company();
     await run(elsewhere, e, { status: 'paid', approvedAt: true });
     expect((await put(tokens[m]!, c, e, ROW)).state.statusCode).toBe(200);
+  });
+});
+
+describe('the schema the migrations build', () => {
+  // payroll_run_headers.posted_journal_entry_id is in dev's schema (and so the CI baseline) but no migration makes it.
+  it('the rule reads no column a migration does not create', async () => {
+    const { c, e } = await inRun({ status: 'calculated', journal: true });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('ALTER TABLE payroll_run_headers DROP COLUMN IF EXISTS posted_journal_entry_id CASCADE');
+      const refused = als.run({ client, companyId: c, claims: {}, afterCommit: [] } as never,
+        () => setEmployeeBankDetails(c, e, parseBankDetailsInput(ROW), 'manager'));
+      await expect(refused).rejects.toMatchObject({ code: 'FIRST_ENTRY_REQUIRES_ADMIN' });
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
   });
 });

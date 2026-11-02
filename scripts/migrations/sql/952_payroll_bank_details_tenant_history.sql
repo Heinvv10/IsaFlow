@@ -17,12 +17,14 @@
 --      forced RLS). A manager's INSERT stays open for a first entry; that it is
 --      only a first entry, and (Hein's ruling on D1, 2026-11-02) only for an
 --      employee never in an approved, posted or paid run, are the service's
---      rules, under the employee row lock (FIRST_ENTRY_REQUIRES_ADMIN). RLS
---      could state the run rule in this INSERT policy's WITH CHECK, but it would
---      bind no one the service does not: the only writer that bypasses the
---      service is injected SQL, whose forged claims name an owner, and a policy
---      cannot take the employee lock, so a run approved between its check and
---      the insert would pass it. It is not added here.
+--      rules (FIRST_ENTRY_REQUIRES_ADMIN). They are decided under the employee
+--      row lock, which serialises bank details writes for one employee (two
+--      first entries cannot both find none); run approval takes no employee
+--      lock, so an approval committing during an entry is ordered after it.
+--      RLS could state the run rule in this INSERT policy's WITH CHECK, but it
+--      would bind no one the service does not: the only writer that bypasses
+--      the service is injected SQL, whose forged claims name an owner. It is
+--      not added here.
 --      Nothing in the app reaches the table but those two request routes, so
 --      platform_admin holds nothing on it, and app_service has no mirror (915's
 --      list, as impersonation_sessions): it inherits app_user's grants, so a

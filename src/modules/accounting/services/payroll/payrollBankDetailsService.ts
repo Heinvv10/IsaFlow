@@ -8,7 +8,10 @@
  * decision 14), but a manager only for an employee never in an approved run
  * (Hein's ruling on D1, 2026-11-02: FIRST_ENTRY_REQUIRES_ADMIN); a change to
  * existing details is owner / admin only. Both are decided here under the
- * employee row lock, so two people cannot both find "no details yet". The details sent again unchanged write nothing, and that is
+ * employee row lock, which serialises bank details writes for the employee, so
+ * two people cannot both find "no details yet". It does not serialise run
+ * approval, which takes no employee lock: an approval committing while an entry
+ * is made is ordered after it, as if the entry came first. The details sent again unchanged write nothing, and that is
  * decided after the role, so a manager's PUT cannot test a guessed number. That
  * is this route only: /api/payroll/duplicates groups on the whole number, so a
  * first entry with the guess confirms it there.
@@ -114,20 +117,27 @@ const sameDetails = (row: BankRow, input: BankDetailsInput) => row.bank_name ===
   && row.branch_code === input.branchCode && row.account_holder === input.accountHolder;
 
 /**
- * Whether one of this company's runs holding the employee was ever approved, posted or paid, in any period: approved
- * or paid now, approved before a reopen (approved_at, 925's approval_history), or with a journal linked. An employee
- * since taken off a reopened run counts if that approval taxed them (approved_taxed_employees). Fails closed: a run
- * approved, reopened and then given the employee counts too. A journal posted, reversed and unlinked from a run never
- * approved leaves no mark here, as before 925 a reopen left none.
+ * Whether the employee has been paid through one of this company's runs that is or ever was approved, posted or paid,
+ * in any period. Ever approved: status approved or paid, approved_at (kept by a run moved off 'approved' by an older
+ * path or by hand; the app clears it only with a reopen), a reopen (reopened_at, 925's approval_history), or a linked
+ * journal (journal_entry_id, payrollJournalPostingService). Paid through it: a line on it now, or for a reopened run,
+ * whose lines may since have changed, in its taxed set (approved_taxed_employees) or employed in its period at all, so
+ * an employee taken off it with nothing taxable, or under an unknown (NULL) set, still counts. Fails closed: an
+ * employee employed then but never on the run counts too. Not seen: a journal posted, reversed and unlinked on a run
+ * never approved.
  */
 async function paidThroughApprovedRun(companyId: string, employeeId: string): Promise<boolean> {
   const rows = await sql`
-    SELECT 1 FROM payroll_run_headers h
+    SELECT 1
+    FROM payroll_run_headers h
+    JOIN payroll_employees e ON e.company_id = h.company_id AND e.id = ${employeeId}::uuid
     WHERE h.company_id = ${companyId}::uuid
-      AND (h.status IN ('approved', 'paid') OR h.approved_at IS NOT NULL OR NOT isempty(COALESCE(h.approval_history, '{}'))
-           OR h.journal_entry_id IS NOT NULL OR h.posted_journal_entry_id IS NOT NULL)
-      AND (EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = h.id AND l.employee_id = ${employeeId}::uuid)
-           OR ${employeeId}::uuid = ANY (COALESCE(h.approved_taxed_employees, '{}')))
+      AND (h.status IN ('approved', 'paid') OR h.approved_at IS NOT NULL OR h.journal_entry_id IS NOT NULL
+           OR h.reopened_at IS NOT NULL OR NOT isempty(COALESCE(h.approval_history, '{}')))
+      AND (EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = h.id AND l.employee_id = e.id)
+           OR ((h.reopened_at IS NOT NULL OR NOT isempty(COALESCE(h.approval_history, '{}')))
+               AND (e.id = ANY (COALESCE(h.approved_taxed_employees, '{}'))
+                    OR e.start_date < pg_catalog.make_date(h.period_year, h.period_month, 1) + interval '1 month')))
     LIMIT 1
   `;
   return rows.length > 0;
