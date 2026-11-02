@@ -60,7 +60,7 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
   },
   'write:journals': {
     label: 'Write journals',
-    desc: 'Create draft GL journals and rewrite dimension fields on up to 2,000 allocated bank transactions, including clearing existing fields. With read:reports, take append-only audit snapshots. Posting, reversals, period changes, journal tagging, and other ledger changes also need write:post.',
+    desc: 'Create draft journals and update bank transaction tags. Posting them needs the separate posting permission (write:post).',
   },
   'read:contacts': {
     label: 'Read contacts',
