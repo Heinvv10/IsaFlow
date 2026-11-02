@@ -147,22 +147,10 @@ export const PRICE_LOCK: PriceLock = {
   headline: "Your price won't jump. Ever.",
   body: 'While you stay on your plan, we will never raise your monthly price by more than South African headline CPI (inflation). No surprise double-digit hikes.',
   points: [
-    'QuickBooks raised its US plan prices by up to 24% in August 2026. Xero raised its South African prices in November 2026.',
     'IsaFlow is capped at inflation — a promise, not a launch discount.',
     'Move from Sage, Xero or QuickBooks and keep your rate.',
   ],
 };
-
-export interface PriceSource {
-  claim: string;
-  url: string;
-}
-
-/** Where each competitor statement in PRICE_LOCK.points comes from (checked 2026-11-02). */
-export const PRICE_LOCK_SOURCES: PriceSource[] = [
-  { claim: 'QuickBooks US increase, 1 Aug 2026 (Essentials 13%, Plus 22%, Advanced 24%)', url: 'https://www.certumsolutions.com/library/quickbooks-price-increase-august-2026' },
-  { claim: 'Xero South Africa: Starter R450 → R485 incl. VAT from Nov 2026', url: 'https://www.xero.com/za/pricing-plans/' },
-];
 
 export interface SageComparisonRow {
   label: string;
@@ -171,18 +159,19 @@ export interface SageComparisonRow {
 }
 
 /**
- * The Sage anchor: Sage Accounting Standard plus the add-ons that match
- * IsaFlow Business, at Sage's published monthly incl-VAT prices.
+ * The Sage anchor, like for like only: Sage Accounting Standard plus Debtors
+ * Manager (IsaFlow Business includes AR management and dunning), at Sage's
+ * published monthly incl-VAT prices. Advanced Inventory (warehouses,
+ * assemblies) and multi-currency payments are left out: IsaFlow has no exact
+ * equivalent, so they are not compared.
  */
 export const SAGE_COMPARISON = {
-  note: 'Sage Accounting Standard (R490) plus Debtors Manager (R325), Advanced Inventory (R465) and multi-currency payments (R185) comes to R1,465 a month. IsaFlow Business includes all of it at R549.',
+  note: 'Sage Accounting Standard (R490) plus the Debtors Manager add-on (R325) comes to R815 a month. IsaFlow Business includes debtors management at R549.',
   source: 'https://www.sage.com/en-za/sage-business-cloud/accounting/pricing/',
   checkedOn: '2026-11-02',
   rows: [
     { label: 'Core accounting (Standard)', sage: 'R490 / mo', isaflow: 'Included' },
-    { label: 'Debtors / AR management', sage: '+R325 / mo', isaflow: 'Included' },
-    { label: 'Advanced inventory', sage: '+R465 / mo', isaflow: 'Included' },
-    { label: 'Multi-currency', sage: '+R185 / mo', isaflow: 'Included' },
-    { label: 'Monthly total', sage: 'R1,465 / mo', isaflow: 'R549 / mo' },
+    { label: 'Debtors management (Sage Debtors Manager add-on)', sage: '+R325 / mo', isaflow: 'Included' },
+    { label: 'Monthly total', sage: 'R815 / mo', isaflow: 'R549 / mo' },
   ] as SageComparisonRow[],
 };

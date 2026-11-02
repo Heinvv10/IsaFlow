@@ -11,7 +11,6 @@ import {
   VAT_INCLUSIVE,
   VAT_NOTE,
   PAYG_PLAN,
-  PRICE_LOCK_SOURCES,
 } from '@/components/landing/pricingData';
 
 /**
@@ -125,9 +124,9 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
   describe('Sage anchor comparison (pricingData)', () => {
     const rand = (s: string): number => Number(s.replace(/[^0-9]/g, ''));
 
-    it('shows the Sage stack (R1,465) against Business (R549)', () => {
+    it('compares Sage Standard + Debtors Manager (R815) against Business (R549)', () => {
       const blob = JSON.stringify(SAGE_COMPARISON);
-      expect(blob).toMatch(/1[ ,]?465/);
+      expect(blob).toMatch(/R815/);
       expect(blob).toMatch(/549/);
     });
 
@@ -145,16 +144,15 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
   });
 
   describe('Competitor claims stay sourced (CPA comparative advertising)', () => {
-    it('no unsourced competitor figures in the practice tiers or price-lock points', () => {
-      const blob = JSON.stringify({ PRICE_LOCK, BUREAU_SKUS });
-      expect(blob).not.toMatch(/Cashbook \(R\d/);
-      expect(blob).not.toMatch(/15–25%/);
-      expect(blob).not.toMatch(/raises most years/);
+    it('practice tiers and price-lock points make no competitor price claims', () => {
+      for (const line of [...PRICE_LOCK.points, ...BUREAU_SKUS.flatMap((t) => t.features)]) {
+        if (/QuickBooks|Xero|Cashbook/.test(line)) expect(line).not.toMatch(/R\d|\d+%|rais/i);
+      }
     });
 
-    it('every competitor statement in the price-lock points carries a source', () => {
-      expect(PRICE_LOCK_SOURCES.length).toBeGreaterThan(0);
-      for (const s of PRICE_LOCK_SOURCES) expect(s.url).toMatch(/^https:\/\//);
+    it('Sage rows are only add-ons IsaFlow Business has an equivalent for', () => {
+      const labels = SAGE_COMPARISON.rows.map((r) => r.label).join(' ');
+      expect(labels).not.toMatch(/Advanced inventory|Multi-currency/i);
     });
   });
 
