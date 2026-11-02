@@ -12,7 +12,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { advance, calls, description, ok, pick, puts, refused, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 
-const h = vi.hoisted(() => ({ push: vi.fn(), query: {} as Record<string, string>, events: null as null | ReturnType<typeof import('../helpers/invoiceAutosaveHarness').routerEvents> }));
+const h = vi.hoisted(() => ({ push: vi.fn(), scanCustomer: null as string | null, query: {} as Record<string, string>, events: null as null | ReturnType<typeof import('../helpers/invoiceAutosaveHarness').routerEvents> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
@@ -21,7 +21,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/components/accounting/customer-invoices/InvoicePdfPreview', () => ({ InvoicePdfPreview: () => null }));
 vi.mock('@/components/accounting/ScanAndFillButton', () => ({
   ScanAndFillButton: ({ onExtracted }: { onExtracted: (d: unknown) => void }) => (
-    <button type="button" onClick={() => onExtracted({ date: null, dueDate: null, vatRate: null, customerName: null, confidence: 0.9,
+    <button type="button" onClick={() => onExtracted({ date: null, dueDate: null, vatRate: null, customerName: h.scanCustomer, confidence: 0.9,
       lineItems: [{ description: 'Scanned over it', quantity: 1, unitPrice: 999 }] })}>scan stub</button>
   ),
 }));
@@ -30,7 +30,7 @@ import NewPage from '../../../pages/accounting/customer-invoices/new';
 import EditPage from '../../../pages/accounting/customer-invoices/edit/[invoiceId]';
 
 useApiJsonOverMock();
-beforeEach(() => { vi.useFakeTimers(); h.events = routerEvents(); sessionStorage.clear(); });
+beforeEach(() => { vi.useFakeTimers(); h.events = routerEvents(); h.scanCustomer = null; sessionStorage.clear(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); h.push.mockReset(); vi.mocked(apiFetch).mockReset(); sessionStorage.clear(); });
 
 const settle = async () => { for (let i = 0; i < 8; i++) await advance(0); };
@@ -91,6 +91,38 @@ describe('/new: a scan while Approve & email runs', () => {
   });
 });
 
+describe('/new: a scan\'s customer lookup', () => {
+  it('holds Create and Approve & email while it is out, so it cannot land on a created invoice', async () => {
+    let answer: (r: Response) => void = () => undefined;
+    serveInvoice((u) => (u.endsWith('/api/accounting/customers') ? new Promise<Response>((r) => { answer = r; }) : undefined));
+    h.scanCustomer = 'Client';
+    await openNew();
+    fireEvent.click(screen.getByText('scan stub'));
+    await settle();
+    expect(button(/^create invoice$/i)).toBeDisabled();
+    expect(button(/approve & email/i)).toBeDisabled();
+    answer(ok([{ id: 'c-1', name: 'Client' }]));
+    await settle();
+    expect(button(/^create invoice$/i)).not.toBeDisabled();
+  });
+});
+
+describe('/new opened again in place after Approve & email', () => {
+  it('starts a fresh form: not inert, empty, the email form gone', async () => {
+    serveInvoice();
+    await openNew();
+    fireEvent.click(button(/approve & email/i));
+    await settle();
+    expect(screen.getByRole('heading', { name: 'Email Invoice' })).toBeTruthy();
+    h.events!.emit('routeChangeComplete', '/accounting/customer-invoices/new');
+    await settle();
+    expect(screen.queryByRole('heading', { name: 'Email Invoice' })).toBeNull();
+    expect(description().value).toBe('');
+    expect(description()).not.toBeDisabled();
+    expect(button(/approve & email/i)).not.toBeDisabled();
+  });
+});
+
 describe('edit: the approval baseline', () => {
   it('is taken before the save: a change typed while the save is out is reported with the email form', async () => {
     let release: (r: Response) => void = () => undefined;
@@ -123,5 +155,20 @@ describe('closing the email form', () => {
     expect(h.push).toHaveBeenCalledWith('/accounting/customer-invoices/inv-1');
     expect(screen.getByRole('heading', { name: 'Email Invoice' })).toBeTruthy();
     expect(screen.getByText(/Could not open the invoice/)).toBeTruthy();
+  });
+
+  it('after a send, a failed navigation keeps saying it was sent, and Send stays off', async () => {
+    serveInvoice((u) => (u.includes('invoice-email') ? ok({ sent: true }) : undefined));
+    h.push.mockResolvedValue(false);
+    await openNew();
+    fireEvent.click(button(/approve & email/i));
+    await settle();
+    fireEvent.click(button(/send email/i));
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await settle();
+    expect(screen.getByText(/Invoice emailed successfully!.*Could not open the invoice/)).toBeTruthy();
+    expect(button(/send email/i)).toBeDisabled();
+    expect(calls('invoice-email')).toHaveLength(1);
   });
 });

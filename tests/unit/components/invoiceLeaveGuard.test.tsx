@@ -1,14 +1,14 @@
 /**
  * PR S review (breaker): refusing to leave never surfaces as an error. A push or replace the guard cancels resolves
- * false (no unhandled rejection, so no Sentry event and no dev overlay); back and forward go through beforePopState,
- * whose `false` keeps the page, and the URL is put back. A leave the user confirmed is not asked twice. And the edit
+ * false (no unhandled rejection, so no Sentry event and no dev overlay). Back and forward are never refused: a refusal
+ * cannot leave history intact, so the page goes, and the change being typed is saved as it goes. And the edit
  * page opened on another invoice in place starts again: no PUT for the second invoice's load.
  */
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { advance, description, puts, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
+import { advance, bodyOf, description, puts, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 
 type PopState = (s: { url: string; as: string; options: object }) => boolean;
 const h = vi.hoisted(() => ({
@@ -59,32 +59,32 @@ describe('leaving with a change unsaved', () => {
     expect(confirm).toHaveBeenCalledTimes(2);
   });
 
-  it('back or forward refused: beforePopState answers false and the URL is put back without a new history entry', async () => {
+  it('back or forward is never refused (history stays intact): unasked, nothing written to history, and its route change goes through', async () => {
     const pushState = vi.spyOn(window.history, 'pushState');
     const replaceState = vi.spyOn(window.history, 'replaceState');
     await openDirty();
-    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(false);
-    expect(pushState).not.toHaveBeenCalled();
-    expect(replaceState).toHaveBeenCalledTimes(1);
-    expect(String(replaceState.mock.calls[0]![2])).toBe(window.location.href);
-  });
-
-  it('a confirmed back/forward that turns out to be a hash change does not let the next leave through unasked', async () => {
-    await openDirty();
-    confirm.mockReturnValue(true);
-    expect(h.pop!({ url: '/x#a', as: '/x#a', options: {} })).toBe(true);
-    h.router!.events.emit('hashChangeStart', '/x#a');
-    confirm.mockReturnValue(false);
-    expect(() => h.router!.events.emit('routeChangeStart', '/elsewhere')).toThrow(/unsaved/i);
-    expect(confirm).toHaveBeenCalledTimes(2);
-  });
-
-  it('back or forward confirmed: allowed, and the route change it starts is not asked about again', async () => {
-    await openDirty();
-    confirm.mockReturnValue(true);
     expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
     expect(() => h.router!.events.emit('routeChangeStart', '/x')).not.toThrow();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(pushState).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it('the pass a back/forward gets is for its own route change only: a hash change drops it, and the next push asks', async () => {
+    await openDirty();
+    expect(h.pop!({ url: '/x#a', as: '/x#a', options: {} })).toBe(true);
+    h.router!.events.emit('hashChangeStart', '/x#a');
+    expect(() => h.router!.events.emit('routeChangeStart', '/elsewhere')).toThrow(/unsaved/i);
     expect(confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('the change being typed when Back is pressed is saved as the page goes (autosave keeps the work)', async () => {
+    await openDirty();
+    expect(h.pop!({ url: '/x', as: '/x', options: {} })).toBe(true);
+    cleanup(); // Next unmounts the page
+    await advance(0);
+    expect(puts()).toHaveLength(1);
+    expect(bodyOf(puts()[0]!).items[0]!.description).toBe('Unsaved');
   });
 
   it('nothing unsaved: back is allowed unasked', async () => {

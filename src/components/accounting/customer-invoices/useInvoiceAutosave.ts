@@ -6,12 +6,13 @@
  *
  * While a change is unsaved, or a save is out, leaving asks first, and refusing is never an error:
  *   - closing or reloading the tab: `beforeunload`;
- *   - back and forward: `beforePopState`, whose false keeps the page; the URL the browser already moved is put back
- *     with replaceState (no new history entry; the entry it moved to now holds this page);
+ *   - back and forward are never refused: by then the browser has moved, and no refusal leaves history intact
+ *     (replaceState overwrites the entry Back was going to; pushState adds one). The page goes, and the work is kept
+ *     as it goes: the edit page PUTs the change being typed, the new page writes its draft (each hook, on unmount);
  *   - a push or replace (a link, a button): `routeChangeStart` throws, Next's only way to cancel one, and the router's
  *     push and replace are wrapped for this page's life so the cancellation resolves false instead of rejecting (no
- *     unhandled rejection: no Sentry event, no dev overlay). A leave confirmed on back/forward is not asked again; if
- *     it was a hash change (no route change follows), the pass is dropped.
+ *     unhandled rejection: no Sentry event, no dev overlay). The route change a back/forward starts goes through
+ *     unasked; if it was a hash change (no route change follows), that pass is dropped.
  * The question is asked of the moment it is needed, so the page's own navigation just after a save goes through unasked.
  */
 import { useEffect, useRef } from 'react';
@@ -53,9 +54,7 @@ function useLeaveGuard(unsaved: () => boolean): void {
     if (!router) return undefined;
     // A router stub without events (unit tests of other behaviour) gets no route guard; Next's router always has them.
     const events = router.events as NextRouter['events'] | undefined;
-    let confirmed = false; // a back/forward the user agreed to: its route change goes through unasked
-    // This page's history entry, to put the URL back when a back/forward is refused (the browser has already moved).
-    const entry = { state: window.history.state as unknown, url: window.location.href };
+    let popping = false; // a back/forward under way: its route change goes through unasked
     const ask = () => !check.current() || window.confirm(LEAVE_MESSAGE);
 
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -63,20 +62,15 @@ function useLeaveGuard(unsaved: () => boolean): void {
       e.preventDefault();
       e.returnValue = '';
     };
-    const onHashChange = () => { confirmed = false; };
+    const onHashChange = () => { popping = false; };
     const onRouteChange = () => {
-      if (confirmed) { confirmed = false; return; }
+      if (popping) { popping = false; return; }
       if (ask()) return;
       events?.emit('routeChangeError');
       throw new NavigationCancelled();
     };
     const restoreNavigation = quietCancellations(router);
-    router.beforePopState?.(() => {
-      if (!check.current()) return true;
-      if (window.confirm(LEAVE_MESSAGE)) { confirmed = true; return true; }
-      window.history.replaceState(entry.state, '', entry.url);
-      return false;
-    });
+    router.beforePopState?.(() => { popping = true; return true; });
     window.addEventListener('beforeunload', onBeforeUnload);
     events?.on('routeChangeStart', onRouteChange);
     events?.on('hashChangeStart', onHashChange);

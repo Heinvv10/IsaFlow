@@ -68,6 +68,7 @@ export default function EditCustomerInvoicePage() {
   // Which invoice the form holds, and which of its dates were stored (the server keeps one the body leaves out).
   const [loadedFor, setLoadedFor] = useState('');
   const [storedDates, setStoredDates] = useState<StoredDates>({});
+  const [errorStays, setErrorStays] = useState(false);
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -160,7 +161,7 @@ export default function EditCustomerInvoicePage() {
   // only when clicked, after this render has made it.
   const approve = useApproveAndEmail({
     save: async () => (await saveDraft(false) ? { id, invoiceNumber } : null),
-    onRefused: (_id, message) => setError(message),
+    onRefused: (_id, message, status) => { setError(message); setErrorStays(status === 409); },
     onApproved: () => setApproved(true),
     bodyNow: () => autosave.currentBody(),
   });
@@ -175,6 +176,7 @@ export default function EditCustomerInvoicePage() {
   });
 
   const saveDraft = async (always: boolean): Promise<boolean> => {
+    setErrorStays(false);
     const problem = saveProblem(draft, dates.refused, storedDates);
     if (problem) { setError(problem); return false; }
     setError('');
@@ -183,7 +185,8 @@ export default function EditCustomerInvoicePage() {
     return saved.ok;
   };
   // A refusal on screen (a Save or an approval) is answered by the next save the server takes.
-  useEffect(() => { if (autosave.savedAt !== null) setError(''); }, [autosave.savedAt]);
+  // Not the approval gate's 409 (APPROVAL_REQUIRED / PENDING / STALE): saving does not answer that, an approver does.
+  useEffect(() => { if (autosave.savedAt !== null && !errorStays) setError(''); }, [autosave.savedAt, errorStays]);
 
   const handleSubmit = async () => {
     setSubmitting(true);

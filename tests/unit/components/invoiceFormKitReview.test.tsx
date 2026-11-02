@@ -191,7 +191,7 @@ describe('a slow scan lookup cannot overwrite what the user did meanwhile', () =
     expect(sentBody('POST')).toMatchObject({ clientId: 'c-2' });
   });
 
-  it('a lookup that lands after Save & New does not refill the cleared form', async () => {
+  it('Save & New waits for a scan\'s lookup, so it cannot land on the created invoice or refill the cleared form (PR S)', async () => {
     const g = gate();
     serve({ listGate: g.promise });
     scan.current = { date: '2026-08-01', dueDate: null, customerName: 'Acme' };
@@ -199,12 +199,14 @@ describe('a slow scan lookup cannot overwrite what the user did meanwhile', () =
     await pickOption('Client', 'Beta');
     fireEvent.change(screen.getByPlaceholderText('Item description'), { target: { value: 'Work' } });
     fireEvent.change(screen.getByLabelText('Unit price'), { target: { value: '50' } });
-    scanNow(); // the lookup starts after the last pick, so only the reset can invalidate it
+    scanNow();
+    await waitFor(() => expect((screen.getByRole('button', { name: /save & new/i }) as HTMLButtonElement).disabled).toBe(true));
+    expect(calls('POST')).toBe(0);
+    g.release();
+    await waitFor(() => expect(clientListCalls()).toBe(1));
     await clickWhenEnabled(/save & new/i);
     await waitFor(() => expect(calls('POST')).toBe(1));
     await waitFor(() => expect(clientBox()).toContain('Select client'));
-    g.release();
-    await waitFor(() => expect(clientListCalls()).toBe(1));
     await new Promise((r) => setTimeout(r, 50));
     expect(clientBox()).toContain('Select client');
   });

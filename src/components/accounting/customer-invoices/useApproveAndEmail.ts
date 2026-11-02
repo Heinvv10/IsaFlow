@@ -9,9 +9,9 @@
  * 409s APPROVAL_REQUIRED / APPROVAL_PENDING / APPROVAL_STALE, a journal-date or coding 400, a lock-timeout 503) goes to
  * `onRefused` with the server's sentence; the draft stays a draft. Nothing is ever retried by itself.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ApiRequestError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 const APPROVE_FAILED = 'Could not approve the invoice - try again';
@@ -26,7 +26,8 @@ interface Options {
   /** The page's save; null when it refused (the page has shown why). */
   save: () => Promise<SavedInvoice | null>;
   /** The approval was refused; the draft stays. */
-  onRefused: (invoiceId: string, message: string) => void;
+  /** `status`: the refusal's HTTP status (409 is the approval gate), when the server answered. */
+  onRefused: (invoiceId: string, message: string, status?: number) => void;
   onApproved?: () => void;
   /** The form as it would be saved, now. Compared after the approval: a change that landed meanwhile is not on it. */
   bodyNow: () => string | null;
@@ -66,6 +67,8 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Opt
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState('');
   const [sent, setSent] = useState(false);
+  const sentNow = useRef(false); // read when a navigation fails, after the render that knew about the send
+  const markSent = (v: boolean) => { sentNow.current = v; setSent(v); };
   const [drifted, setDrifted] = useState(false);
 
   const start = useCallback(async () => {
@@ -81,13 +84,13 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Opt
         });
         await assertOk(res, APPROVE_FAILED);
       } catch (err) {
-        onRefused(saved.id, apiErrorMessage(err, APPROVE_FAILED));
+        onRefused(saved.id, apiErrorMessage(err, APPROVE_FAILED), err instanceof ApiRequestError ? err.status : undefined);
         return;
       }
       onApproved?.();
       setDrifted(bodyNow() !== approvedBody);
       setResult('');
-      setSent(false);
+      markSent(false);
       setEmail(await readEmailForm(saved));
     } finally {
       setBusy(false);
@@ -105,7 +108,7 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Opt
       });
       await assertOk(res, SEND_FAILED);
       const json = await res.json() as { data?: { sent?: boolean }; message?: string };
-      setSent(Boolean(json.data?.sent));
+      markSent(Boolean(json.data?.sent));
       setResult(json.data?.sent ? 'Invoice emailed successfully!' : (json.message || 'Email could not be sent.'));
     } catch (err) {
       setResult(apiErrorMessage(err, SEND_FAILED));
@@ -122,12 +125,16 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Opt
       let opened = false;
       try { opened = (await router.push(`/accounting/customer-invoices/${id}`)) === true; } catch (e) { log.warn('navigation failed', { error: e }, 'useApproveAndEmail'); }
       if (opened) setEmail(null);
-      else setResult((r) => (sent ? `${r} ${OPEN_FAILED}` : OPEN_FAILED)); // once sent, Send stays off
+      else setResult((r) => (sentNow.current ? `${r} ${OPEN_FAILED}` : OPEN_FAILED)); // once sent, it still says so
     })();
-  }, [email, sending, sent, router]);
+  }, [email, sending, router]);
+
+  /** Drops the email form without navigating (the page was opened again in place). */
+  const dismiss = useCallback(() => { setEmail(null); setResult(''); sentNow.current = false; setSent(false); }, []);
 
   return {
     busy,
+    dismiss,
     start: () => { void start(); },
     /** InvoiceEmailModal's props while it is open, else null. */
     modal: email ? {

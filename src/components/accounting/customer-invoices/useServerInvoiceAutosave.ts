@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { AutosaveState } from '@/components/ui/AutosaveStatus';
 import type { InvoicePutBody } from './invoicePutBody';
 
@@ -103,7 +104,23 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     lastSaved.current = json;
     setSavedJson(json);
   }, [json]);
-  useEffect(() => () => { seq.current++; }, []); // unmounted: every reply still out is stale
+  // Unmounted (Back, Forward, a link): a change still waiting for its 1.5 s goes now, after any PUT still out, so the
+  // older body never lands last. Its reply has no page to update: every reply still out is stale from here.
+  useEffect(() => () => {
+    seq.current++;
+    const { json: last, armed: sendable } = latest.current;
+    if (!sendable || last === null || last === lastSaved.current) return;
+    const prior = inFlight.current;
+    void (async () => {
+      try {
+        if (prior) await prior;
+        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: last });
+        await assertOk(res, SAVE_FAILED);
+      } catch (err) {
+        log.warn('The change typed as the invoice page closed was not saved', { err }, 'useServerInvoiceAutosave');
+      }
+    })();
+  }, []);
 
   // 'auto': the timer's, only while armed; 'changed': a button's, if the body moved; 'always': the Save button's.
   const send = useCallback(async (how: Send): Promise<SaveResult> => {

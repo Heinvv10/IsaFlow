@@ -7,7 +7,9 @@
  * - A kept draft is offered on the next visit; nothing overwrites it until the user restores or discards it. An invoice
  *   created meanwhile leaves it kept and still offered (after Save & New too), and this page writes nothing over it
  *   until the user answers; the page says so beside the offer.
- * - A clear (sign-out, a company switch) ends this page's writing: a timer still pending writes nothing back.
+ * - A clear (sign-out, a company switch) ends this page's writing: a timer still pending writes nothing back. A clear
+ *   in ANOTHER tab says so on this page ("no longer kept"), and leaving still asks: what is on screen is the only copy.
+ * - Left before the 800 ms are up (Back, a link), the page writes what was typed as it goes.
  * - Never while `paused` (a VAT rate edit under way), as on the edit page.
  * - A storage that throws is shown, never raised; the next change tries again.
  * - `clear` after a successful create; sign-out and a company switch clear every draft (AuthContext, CompanyContext).
@@ -16,7 +18,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AuthContext } from '@/contexts/AuthContext';
 import { CompanyContext } from '@/contexts/CompanyContext';
 import type { AutosaveState } from '@/components/ui/AutosaveStatus';
-import { invoiceDraftGeneration, invoiceDraftKey, readInvoiceDraft, removeInvoiceDraft, writeInvoiceDraft, type StoredDraft } from '@/lib/invoiceDrafts';
+import { INVOICE_DRAFT_GENERATION_KEY, invoiceDraftGeneration, invoiceDraftsClearedSince, invoiceDraftKey, readInvoiceDraft, removeInvoiceDraft, writeInvoiceDraft, type StoredDraft } from '@/lib/invoiceDrafts';
 import type { InvoiceHeaderForm } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
 import type { TaxMode } from './taxMode';
@@ -65,6 +67,7 @@ export function useInvoiceDraftOwner(): { companyId: string | null; userId: stri
 }
 
 const FAILED = 'Could not keep this draft on this device';
+const CLEARED_ELSEWHERE = 'This draft is no longer kept: signed out or company switched in another tab';
 
 export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft {
   const key = opts?.companyId && opts.userId ? invoiceDraftKey(opts.companyId, opts.userId) : null;
@@ -75,7 +78,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const rebase = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const since = useRef(invoiceDraftGeneration());
-  const sealed = () => since.current !== invoiceDraftGeneration();
+  const [clearedElsewhere, setClearedElsewhere] = useState(false);
   const [offer, setOffer] = useState<StoredDraft<LocalDraftData> | null>(null);
   const [writtenJson, setWrittenJson] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -92,23 +95,40 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
 
   useEffect(() => { setOffer(key ? readInvoiceDraft(key, isLocalDraftData) : null); }, [key]);
 
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === INVOICE_DRAFT_GENERATION_KEY && invoiceDraftsClearedSince(since.current) === 'elsewhere') setClearedElsewhere(true);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   const armed = Boolean(key && !offer && !opts?.paused);
+  const writer = useRef({ key, armed });
+  useCommitEffect(() => { writer.current = { key, armed }; });
+  /** Keeps the form now. Never past a clear; back to how the page opened, there is nothing to keep. */
+  const writeNow = useCallback(() => {
+    const now = latest.current;
+    const { key: k } = writer.current;
+    if (!k || now.json === null || now.data === null) return;
+    const cleared = invoiceDraftsClearedSince(since.current);
+    if (cleared !== 'none') { if (cleared === 'elsewhere') setClearedElsewhere(true); return; }
+    const kept = now.json === baseline.current ? removeInvoiceDraft(k) : writeInvoiceDraft(k, { data: now.data, savedAt: Date.now() }, since.current);
+    setFailed(!kept);
+    if (!kept) return;
+    written.current = now.json;
+    setWrittenJson(now.json);
+    setSavedAt(now.json === baseline.current ? null : Date.now());
+  }, []);
+  // Declared before the timer's effect, so on unmount it runs first and still sees a write waiting.
+  useEffect(() => () => {
+    if (timer.current && writer.current.armed) writeNow();
+  }, [writeNow]);
   useEffect(() => {
     if (!armed || !key || json === written.current) return undefined;
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      const now = latest.current;
-      if (now.json === null || now.data === null || sealed()) return;
-      // Back to how the page opened: there is nothing to keep.
-      const kept = now.json === baseline.current ? removeInvoiceDraft(key) : writeInvoiceDraft(key, { data: now.data, savedAt: Date.now() }, since.current);
-      setFailed(!kept);
-      if (!kept) return;
-      written.current = now.json;
-      setWrittenJson(now.json);
-      setSavedAt(now.json === baseline.current ? null : Date.now());
-    }, LOCAL_DEBOUNCE_MS);
+    timer.current = setTimeout(() => { timer.current = null; writeNow(); }, LOCAL_DEBOUNCE_MS);
     return () => { if (timer.current) clearTimeout(timer.current); timer.current = null; };
-  }, [armed, json, key]);
+  }, [armed, json, key, writeNow]);
 
   const onRestore = opts?.onRestore;
   const restore = useCallback(() => {
@@ -128,12 +148,17 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     setSavedAt(null);
     setFailed(false);
   }, [key, offer]);
-  const unsaved = useCallback(() => Boolean(key) && !sealed() && latest.current.json !== written.current, [key]);
+  const unsaved = useCallback(() => {
+    if (!key) return false;
+    const cleared = invoiceDraftsClearedSince(since.current);
+    // Cleared here: this tab is signing out or switching, and leaving is the point. Elsewhere: the screen is the only copy.
+    return cleared === 'elsewhere' || (cleared === 'none' && latest.current.json !== written.current);
+  }, [key]);
   const current = useCallback(() => latest.current.json, []);
 
   const state: AutosaveState | null = !key ? null
-    : failed ? 'error'
+    : failed || clearedElsewhere ? 'error'
       : writtenJson !== null && json !== writtenJson ? 'dirty'
         : savedAt !== null ? 'saved' : null;
-  return { state, savedAt, error: failed ? FAILED : null, offer: offer ? { savedAt: offer.savedAt } : null, restore, discard, clear, unsaved, current };
+  return { state, savedAt, error: clearedElsewhere ? CLEARED_ELSEWHERE : failed ? FAILED : null, offer: offer ? { savedAt: offer.savedAt } : null, restore, discard, clear, unsaved, current };
 }

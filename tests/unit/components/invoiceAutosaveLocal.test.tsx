@@ -153,6 +153,37 @@ describe('new invoice: the draft on this device', () => {
     expect(stored()!.data.lines[0]).toMatchObject({ description: 'New page' });
   });
 
+  it('a page left before the 800 ms are up (Back, a link) keeps what was typed', async () => {
+    await open();
+    type(description(), 'Typed just before Back');
+    await advance(200);
+    cleanup();
+    expect(stored()!.data.lines[0]).toMatchObject({ description: 'Typed just before Back' });
+  });
+
+  it('a clear in another tab says this draft is no longer kept, and leaving still asks', async () => {
+    await open();
+    const generation = Number(localStorage.getItem('isaflow:invoice-drafts-generation') ?? '0');
+    localStorage.setItem('isaflow:invoice-drafts-generation', String(generation + 1));
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: 'isaflow:invoice-drafts-generation' })); });
+    type(description(), 'Typed after the other tab signed out');
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(screen.getByText(/no longer kept: signed out or company switched in another tab/)).toBeTruthy();
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+  });
+
+  it('a clear in this tab (its own sign-out) does not make leaving ask', async () => {
+    await open();
+    type(description(), 'Signing out here');
+    act(() => { clearInvoiceDrafts(); });
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(false);
+  });
+
   it('a clear in another tab (sign-out there) stops this tab writing too', async () => {
     await open();
     type(description(), 'Racing another tab');

@@ -29,6 +29,19 @@ function storedGeneration(): number {
 /** The generation a draft writer begins in; pass it to every write. */
 export const invoiceDraftGeneration = (): string => `${storedGeneration()}:${localGeneration}`;
 
+/** The key other tabs' clears are announced under (a `storage` event). */
+export const INVOICE_DRAFT_GENERATION_KEY = GENERATION_KEY;
+
+/**
+ * Whether drafts were cleared since `since`: 'here' (this tab: its own sign-out or switch, which is leaving anyway),
+ * 'elsewhere' (another tab of this browser), or 'none'.
+ */
+export function invoiceDraftsClearedSince(since: string): 'none' | 'here' | 'elsewhere' {
+  const [stored, local] = since.split(':').map(Number);
+  if (local !== localGeneration) return 'here';
+  return stored !== storedGeneration() ? 'elsewhere' : 'none';
+}
+
 export const INVOICE_DRAFT_PREFIX = 'isaflow:invoice-draft:';
 
 export const invoiceDraftKey = (companyId: string, userId: string): string =>

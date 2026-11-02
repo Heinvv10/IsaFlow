@@ -87,6 +87,20 @@ describe('after Approve & email', () => {
     expect(description()).toBeDisabled();
   });
 
+  it.each(['APPROVAL_REQUIRED', 'APPROVAL_PENDING'])('an approval-gate refusal (%s) stays after autosave saves: saving does not answer it', async (reason) => {
+    const message = `Customer invoice INV-AUTO: ${reason}`;
+    serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'POST' ? refused(409, message, { reason }) : undefined));
+    render(<EditPage />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /approve & email/i }));
+    await settle();
+    type(description(), 'Edited after the refusal');
+    await advance(1_500);
+    await settle();
+    expect(statusText()).toMatch(/Saved/);
+    expect(screen.getByText(message)).toBeTruthy();
+  });
+
   it('a refusal on screen goes once autosave reports Saved', async () => {
     serveInvoice((u, init) => (u.includes('customer-invoices-detail') && init?.method === 'POST' ? refused(400, 'The invoice date falls in a closed period') : undefined));
     render(<EditPage />);

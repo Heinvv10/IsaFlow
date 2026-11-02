@@ -84,7 +84,10 @@ export default function NewCustomerInvoicePage() {
   // The picker searches for itself; the full list is only needed here, to match a scanned name, so it is fetched on demand.
   // Bumped by every scan, every client the user picks and every form reset: a lookup answers only if none of them happened since.
   const lookupSeq = useRef(0);
+  // Create and Approve & email wait for a scan's lookup: it must not land on a created invoice's form (or the next one).
+  const [scanLookups, setScanLookups] = useState(0);
   async function matchScannedClient(name: string, seq: number) {
+    setScanLookups(n => n + 1);
     try {
       const res = await apiFetch('/api/accounting/customers', { credentials: 'include' });
       await assertOk(res, 'Could not load clients - try again');
@@ -96,6 +99,7 @@ export default function NewCustomerInvoicePage() {
       const hit = match ? clients.find(c => String(c.id) === String(match.id)) : undefined;
       if (hit) { setForm(f => ({ ...f, clientId: String(hit.id) })); setScanned({ id: String(hit.id), name: hit.name }); }
     } catch (err) { if (lookupSeq.current === seq) setError(apiErrorMessage(err, 'Could not load clients - try again')); }
+    finally { setScanLookups(n => n - 1); }
   }
 
   const [rateEditing, setRateEditing] = useState(false);
@@ -160,18 +164,23 @@ export default function NewCustomerInvoicePage() {
     } catch (e) { setError(apiErrorMessage(e, 'Could not create the invoice - try again')); return null; }
   };
 
+  const resetForm = () => {
+    const today = localISODate();
+    setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
+    setLines([{ key: '1', ...BLANK_LINE }]);
+    setTaxMode('exclusive'); contact.reset();
+    dates.clear(); setResetKey(k => k + 1); lookupSeq.current++;
+  };
+
   const handleSubmit = async (andNew = false) => {
     setSaveAndNew(andNew);
     setSubmitting(true);
     try {
       const made = await createInvoice();
       if (!made) return;
+      lookupSeq.current++; // nothing still out lands on the created invoice's form
       if (andNew) {
-        const today = localISODate();
-        setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
-        setLines([{ key: '1', ...BLANK_LINE }]);
-        setTaxMode('exclusive'); contact.reset();
-        dates.clear(); setResetKey(k => k + 1); lookupSeq.current++;
+        resetForm();
         try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       } else {
         try { await router.push(`/accounting/customer-invoices/${made.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
@@ -183,7 +192,7 @@ export default function NewCustomerInvoicePage() {
   const approve = useApproveAndEmail({
     save: async () => {
       const made = await createInvoice();
-      if (made) { doneNow.current = true; setDone(true); }
+      if (made) { doneNow.current = true; setDone(true); lookupSeq.current++; }
       return made;
     },
     bodyNow: draft.current,
@@ -197,7 +206,18 @@ export default function NewCustomerInvoicePage() {
     },
   });
   const inert = submitting || approve.busy || done;
-  const busy = inert || contact.pending;
+  const busy = inert || contact.pending || scanLookups > 0;
+
+  // /new opened again on this page (a link, a shortcut) after Approve & email: a fresh invoice, not the done one.
+  const events = router.events as typeof router.events | undefined;
+  useEffect(() => {
+    const onRouteDone = (url: string) => {
+      if (!doneNow.current || url.split(/[?#]/)[0] !== '/accounting/customer-invoices/new') return;
+      doneNow.current = false; setDone(false); approve.dismiss(); resetForm(); draft.clear(); setError('');
+    };
+    events?.on('routeChangeComplete', onRouteDone);
+    return () => events?.off('routeChangeComplete', onRouteDone);
+  });
 
   return (
     <AppLayout>
