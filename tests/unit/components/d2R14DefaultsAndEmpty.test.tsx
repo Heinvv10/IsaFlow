@@ -60,13 +60,14 @@ describe('income statement default dates', () => {
     if (!from || !to) throw new Error('missing period inputs');
     typeDate(from, 'not a date');
     typeDate(to, 'not a date');
-    expect(screen.getByRole('status').textContent).toBe('Fix the date to run the report.');
+    // The loading spinner is a status too, until the refused report's answer lands.
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Fix the date to run the report.'));
 
     route.query = {};
     view.rerender(<IncomeStatementPage />);
 
     await waitFor(() => expect(dates()).toEqual([shownDate('2026-10-01'), shownDate(today())]));
-    expect(screen.getByRole('status').textContent).toBe('');
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe(''));
   });
 });
 
