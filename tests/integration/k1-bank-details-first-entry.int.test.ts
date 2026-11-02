@@ -3,7 +3,7 @@
  * has never been in an approved run (approved, posted or paid, in any period, approved and later reopened too);
  * otherwise only owner or admin may (403 FIRST_ENTRY_REQUIRES_ADMIN, written before anything is). Through the real route.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { reasonOf } from './r035-approval.helpers';
@@ -143,6 +143,40 @@ describe('a manager\'s first entry that stays open', () => {
     const elsewhere = await company();
     await run(elsewhere, e, { status: 'paid', approvedAt: true });
     expect((await put(tokens[m]!, c, e, ROW)).state.statusCode).toBe(200);
+  });
+});
+
+describe('a manager\'s first entry racing payroll approval', () => {
+  it('waits for the approval and then refuses the now-approved employee', async () => {
+    const c = await company();
+    const e = await employee(pool, c);
+    const approving = await pool.connect();
+    try {
+      await approving.query('BEGIN');
+      await approving.query(
+        'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [`payroll_approval:${c}`]);
+
+      const entering = put(tokens[m]!, c, e, ROW);
+      await vi.waitFor(async () => {
+        const { rows } = await pool.query(`SELECT 1 FROM pg_stat_activity
+          WHERE wait_event_type = 'Lock' AND query ILIKE '%pg_advisory_xact_lock%'`);
+        expect(rows).toHaveLength(1);
+      }, { timeout: 3000, interval: 25 });
+
+      const runId = (await approving.query<{ id: string }>(
+        `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, approved_at)
+         VALUES ($1, 1, 2026, 'approved', clock_timestamp()) RETURNING id`, [c])).rows[0]!.id;
+      await approving.query(
+        'INSERT INTO payroll_run_lines (run_id, employee_id) VALUES ($1, $2)', [runId, e]);
+      await approving.query('COMMIT');
+
+      const res = await entering;
+      expect([res.state.statusCode, reasonOf(res)]).toEqual([403, 'FIRST_ENTRY_REQUIRES_ADMIN']);
+      expect(await rowsOf(pool, e)).toEqual([]);
+    } finally {
+      await approving.query('ROLLBACK');
+      approving.release();
+    }
   });
 });
 

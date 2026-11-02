@@ -8,10 +8,9 @@
  * decision 14), but a manager only for an employee never in an approved run
  * (Hein's ruling on D1, 2026-11-02: FIRST_ENTRY_REQUIRES_ADMIN); a change to
  * existing details is owner / admin only. Both are decided here under the
- * employee row lock, which serialises bank details writes for the employee, so
- * two people cannot both find "no details yet". It does not serialise run
- * approval, which takes no employee lock: an approval committing while an entry
- * is made is ordered after it, as if the entry came first. The details sent again unchanged write nothing, and that is
+ * company payroll-approval lock and then the employee row lock. The company
+ * lock makes the manager's first-entry verdict and payroll approval one order;
+ * the employee lock makes bank-detail writes for one employee one order. The details sent again unchanged write nothing, and that is
  * decided after the role, so a manager's PUT cannot test a guessed number. That
  * is this route only: /api/payroll/duplicates groups on the whole number, so a
  * first entry with the guess confirms it there.
@@ -28,6 +27,7 @@ import { todayInSast } from '@/lib/saDateParser';
 import { maskValue } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 import { isHistoryAdmin } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
+import { payrollApprovalLockScope } from './payrollRunLock';
 
 export const ACCOUNT_TYPES = ['cheque', 'savings', 'transmission'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -167,12 +167,18 @@ export async function getEmployeeBankDetails(
 /**
  * Enter or change the employee's details, from `parseBankDetailsInput`'s output.
  * Details identical to the active row come back as they are, with no new row.
- * Lock order: the employee row, then this table; nothing after it.
+ * Lock order: the company payroll-approval lock, the employee row, then this table; nothing after it.
  */
 export async function setEmployeeBankDetails(
   companyId: string, employeeId: string, input: BankDetailsInput, role: string | undefined,
 ): Promise<EmployeeBankDetails> {
   const row = await underFlowLockBudget('This employee', async () => {
+    // Approval takes this before its run header. Taking the same lock before
+    // reading the ever-approved predicate prevents an approval from committing
+    // between that read and this insert.
+    await sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(${payrollApprovalLockScope(companyId)}, 0))
+    `;
     const employee = await sql`
       SELECT id FROM payroll_employees
       WHERE company_id = ${companyId}::uuid AND id = ${employeeId}::uuid
