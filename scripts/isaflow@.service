@@ -17,7 +17,11 @@ Environment=NODE_ENV=production
 # PORT and HOSTNAME on the command line: a PORT= or HOSTNAME= line in the env
 # file must never move a colour. Loopback only: everything reaches a colour
 # through nginx, or the deploy's own verification on localhost.
-ExecStart=/usr/bin/env PORT=%i HOSTNAME=127.0.0.1 /usr/bin/node /home/velo/isaflow-%i/server.js
+# HOSTNAME=localhost, not 127.0.0.1: Next 15 names the server "localhost" in
+# middleware URLs but HOSTNAME in its router, and a mismatch turns every
+# middleware rewrite (admin / -> /admin) into a failed proxy (2026-11-02).
+# localhost resolves to 127.0.0.1 here, so the bind is unchanged.
+ExecStart=/usr/bin/env PORT=%i HOSTNAME=localhost /usr/bin/node /home/velo/isaflow-%i/server.js
 Restart=on-failure
 RestartSec=5
 
