@@ -30,6 +30,19 @@ it('onboarding redirect stays on the public host', async () => {
     .toBe('https://app.isaflow.co.za/onboarding');
 });
 
+it('marketing host: logged-out redirect stays on isaflow.co.za', async () => {
+  expect(await locationOf('/accounting', 'isaflow.co.za'))
+    .toBe('https://isaflow.co.za/login?returnTo=%2Faccounting');
+});
+
+it('Host is matched case-insensitively', async () => {
+  expect(await locationOf('/accounting', 'App.IsaFlow.co.za'))
+    .toBe('https://app.isaflow.co.za/login?returnTo=%2Faccounting');
+});
+
+// An unlisted Host never becomes a redirect origin: middleware keeps request.url,
+// and Next's router (HOSTNAME=localhost, scripts/isaflow@.service) sends that
+// same-origin Location as a relative /login. verify-deploy.sh step 1b checks it live.
 it('an unknown Host is not trusted as a redirect origin', async () => {
   expect(await locationOf('/accounting', 'evil.example')).toBe('https://localhost:3112/login?returnTo=%2Faccounting');
 });
