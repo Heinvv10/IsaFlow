@@ -299,31 +299,30 @@ jobs:
     # per-test times in a green run's log; keep this at >= 2x. Cost: a hung
     # run holds its golden-paths group up to 60 min.
     timeout-minutes: 60
-    # The suite writes to the SHARED isaflow_dev Demo company; the workflow's
-    # ci-${{ github.ref }} group only serialises same-ref runs, so two branches
-    # could otherwise interleave money flows (e.g. both claiming the same
-    # payroll sandbox period). Serialise across ALL refs, never cancel. With
-    # three runners (2026-10-21) runs of different refs do overlap, so this
-    # group is what keeps them apart. GitHub keeps one PENDING job per group
-    # and cancels the older pending one, so every ordinary PR push used to
-    # cancel the merge queue's pending run, and the queue ejected the PR after
-    # two re-runs (#938, 2026-10-29). Runs the queue waits on (golden-lane)
-    # therefore take their own -queue group, which PR pushes cannot cancel.
-    # The cost: one queue run can overlap one PR run on the Demo company
-    # until per-runner slots land (#916). A master push that skips (the step
-    # below) still enters the group, but holds it for seconds. It cannot take
-    # a per-sha group instead: the group is fixed before the step decides, and
-    # a push that falls back to the full suite must stay serialised against
-    # PR runs on the Demo company. !cancelled(): a failed golden-lane still
-    # runs the suite, in the ordinary group.
+    # Velo (CI_HOSTED=off): each runner owns one Golden Paths slot, a company of
+    # its own on isaflow_dev with its own golden user (the step below maps
+    # $RUNNER_NAME to GOLDEN_SLOT_n in /home/hein/isaflow-ci.env;
+    # scripts/ci/golden/provision-slots.ts creates them). A runner runs one job
+    # at a time, so a slot is exclusive without any lock, and runs of different
+    # refs overlap on different runners. Before the slots every run wrote to the
+    # ONE Demo company, which is why this was a single group for all refs.
+    # The velo group is per ref and never cancels. It is NOT what keeps slots
+    # apart (runner exclusivity does that): it only stops two golden runs of
+    # one ref from running at once. GitHub keeps one running and one PENDING
+    # job per group and cancels an older pending one, so a PR push used to
+    # cancel the merge queue's pending run, and the queue ejected the PR (#938,
+    # 2026-10-29). Runs the queue waits on (golden-lane) therefore take their
+    # own -queue group, which an ordinary run cannot cancel. A master push that
+    # skips (the step below) still enters its ref's group, but holds it for
+    # seconds. !cancelled(): a failed golden-lane still runs the suite, in the
+    # ordinary group.
     # Hosted, every run has its own database and nothing is shared, so the
-    # group is the run's own id and runs never wait for each other (a
-    # per-ref group would cancel nothing and queue nothing either). Only velo
-    # (CI_HOSTED=off) takes the shared groups above.
+    # group is the run's own id and runs never wait for each other, and no
+    # slot is used (the suite logs in as the generated E2E admin).
     needs: golden-lane
     if: ${{ !cancelled() }}
     concurrency:
-      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-dev-demo{0}', needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}
+      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}
       cancel-in-progress: false
     # Read-only; for the merge check below (as in quality).
     permissions:
@@ -419,14 +418,50 @@ jobs:
               echo "::error::/home/hein/isaflow-ci.env missing on runner — golden paths cannot run (blocking gate, refusing to pass silently)"
               exit 1
             fi
-            cp /home/hein/isaflow-ci.env .env.local
+            # One golden slot per runner. An unknown runner must FAIL: falling
+            # back to the shared Demo company would let two runs interleave
+            # money flows there again.
+            case "$RUNNER_NAME" in
+              velo-server-u) slot=1 ;;
+              velo-isaflow-u2) slot=2 ;;
+              velo-isaflow-u3) slot=3 ;;
+              *)
+                echo "::error::runner '$RUNNER_NAME' has no golden slot; add it to the case in the golden-paths job and provision a slot (scripts/ci/golden/provision-slots.ts)"
+                exit 1
+                ;;
+            esac
+            # Read the slot's keys with grep, not `source`: the file has values
+            # that are not valid shell (SMTP_FROM).
+            slot_value() { grep -m1 "^GOLDEN_SLOT_${slot}_$1=" /home/hein/isaflow-ci.env | cut -d= -f2-; }
+            GOLDEN_COMPANY_ID=$(slot_value COMPANY_ID)
+            GOLDEN_USER_EMAIL=$(slot_value EMAIL)
+            GOLDEN_USER_PASSWORD=$(slot_value PASSWORD)
+            if [ -z "$GOLDEN_COMPANY_ID" ] || [ -z "$GOLDEN_USER_EMAIL" ] || [ -z "$GOLDEN_USER_PASSWORD" ]; then
+              echo "::error::GOLDEN_SLOT_${slot}_{COMPANY_ID,EMAIL,PASSWORD} missing from /home/hein/isaflow-ci.env; run scripts/ci/golden/provision-slots.ts"
+              exit 1
+            fi
+            GOLDEN_SLOT_NUMBER=$slot
+            # GitHub redacts only registered secrets; this one is runner-local.
+            echo "::add-mask::$GOLDEN_USER_PASSWORD"
+            echo "GOLDEN SLOT $slot (company $GOLDEN_COMPANY_ID, user $GOLDEN_USER_EMAIL) on runner $RUNNER_NAME"
+            # The app and the dev server get the shared env file WITHOUT the slots'
+            # keys: only the Playwright command below sees one slot's password.
+            grep -v '^GOLDEN_SLOT_' /home/hein/isaflow-ci.env > .env.local
           fi
           bunx playwright install chromium
-          # Ephemeral port that nothing listens on: a stale next dev from an
-          # earlier cancelled run, or one of velo's docker apps in 3300-3799,
-          # would answer the health check (and the login) in place of this
-          # job's server. Skips Next.js's bad ports too.
-          GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts 3300 3799)
+          if [ "$HOSTED" = true ]; then
+            # A hosted VM runs only this job: any free port in the window.
+            GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts 3300 3799)
+          else
+            # Each slot has a disjoint port window, so runners cannot race for
+            # the same port after the free-port probe releases it. Stop only a
+            # server this runner's workspace left in its own window, then choose
+            # an actually bindable port there (also skipping Next.js bad ports).
+            slot_lo=$((3300 + (slot - 1) * 166))
+            slot_hi=$((slot_lo + 165))
+            bun scripts/ci/golden/killSlotOrphans.ts "$slot_lo" "$slot_hi" || true
+            GOLDEN_PORT=$(bun scripts/ci/golden-free-port.ts "$slot_lo" "$slot_hi")
+          fi
           [ -n "$GOLDEN_PORT" ] || { echo "::error::golden-free-port printed no port"; exit 1; }
           # Hosted: the app's own URL is this server (velo's file names one).
           if [ "$HOSTED" = true ]; then export NEXT_PUBLIC_APP_URL="http://localhost:$GOLDEN_PORT"; fi
@@ -504,8 +539,14 @@ jobs:
               SHARD="--shard=$k/$CHUNKS"
               if [ "$k" -gt 1 ]; then stop_dev; boot_dev; fi
             fi
-            # shellcheck disable=SC2086
-            BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden $SHARD || rc=$?
+            if [ "$HOSTED" = true ]; then
+              # shellcheck disable=SC2086
+              BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden $SHARD || rc=$?
+            else
+              # Only this command sees the slot's login, in its own subshell.
+              # shellcheck disable=SC2086
+              ( export GOLDEN_SLOT_NUMBER GOLDEN_COMPANY_ID GOLDEN_USER_EMAIL GOLDEN_USER_PASSWORD; BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden $SHARD ) || rc=$?
+            fi
           done
           if [ "$HOSTED" = true ]; then
             cat golden-dev.log >> golden-dev.all.log
