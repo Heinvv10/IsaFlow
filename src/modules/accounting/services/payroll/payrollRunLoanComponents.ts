@@ -7,7 +7,9 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { EmployeeComponent, PayrollComponent } from './payrollTypes';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { normaliseSarsCode } from './payeAnnualPayment';
+import type { EmployeeComponent, PayrollComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 
 type Row = DbRow;
@@ -18,10 +20,10 @@ type Row = DbRow;
  *   - code 'LOAN'  : earner-facing deduction for principal + interest.
  *   - code '3801'  : taxable fringe benefit (low-interest loan).
  * Only a deduction can carry the instalment: a LOAN-coded earning would add it to gross pay.
- * Callers pre-seed these components under Setup → Pay Components. Loans
- * silently skip the row if the component doesn't exist (the payment is
- * still recorded on payroll_loan_payments, just not shown on payslip
- * until the admin adds the component).
+ * LOAN is matched after the calculator's trim (normaliseSarsCode). Callers pre-seed these
+ * components under Setup → Pay Components. With no LOAN deduction the run takes no
+ * instalment at all (hasLoanDeduction, applyRunLoans) and the line says so
+ * (withheldLoanInstalments); it used to record the payment with nothing on the payslip.
  */
 async function loadLoanComponents(companyId: string): Promise<{
   deduction: PayrollComponent | null;
@@ -33,7 +35,7 @@ async function loadLoanComponents(companyId: string): Promise<{
       FROM payroll_components
      WHERE company_id = ${companyId}::uuid
        AND is_active = true
-       AND ((sars_source_code = 'LOAN' AND component_type = 'deduction') OR sars_source_code = '3801')
+       AND ((BTRIM(sars_source_code, E' \t\r\n') = 'LOAN' AND component_type = 'deduction') OR sars_source_code = '3801')
      ORDER BY created_at, id
   `) as Row[];
 
@@ -50,10 +52,54 @@ async function loadLoanComponents(companyId: string): Promise<{
       isSdlApplicable: r.is_sdl_applicable === true,
     };
     // The first made of each, so the same one is used on every calculation.
-    if (component.sarsSourceCode === 'LOAN') deduction ??= component;
+    if (normaliseSarsCode(component.sarsSourceCode) === 'LOAN') deduction ??= component;
     if (component.sarsSourceCode === '3801') fringe ??= component;
   }
   return { deduction, fringe };
+}
+
+/** Whether a run can put a loan instalment on a payslip. Asked before any loan is applied. */
+export async function hasLoanDeduction(companyId: string): Promise<boolean> {
+  return (await loadLoanComponents(companyId)).deduction != null;
+}
+
+/**
+ * The instalments a run did not take for want of a LOAN deduction, as one blocking line result per
+ * employee (LOAN_DEDUCTION_MISSING, read by the approval gate). Call after applyRunLoans, whose
+ * reversal has unflagged this run's own schedule rows.
+ */
+export async function withheldLoanInstalments(
+  companyId: string,
+  period: PayrollPeriod,
+  employeeIds: string[],
+): Promise<Map<string, ValidationResult>> {
+  const rows = (await sql`
+    SELECT l.employee_id, l.loan_number, SUM(s.installment)::float8 AS due
+      FROM payroll_loans l
+      JOIN payroll_loan_schedule s ON s.loan_id = l.id
+     WHERE l.company_id = ${companyId}::uuid
+       AND l.status = 'active'
+       AND l.employee_id = ANY(${employeeIds}::uuid[])
+       AND s.due_period_year = ${period.year}
+       AND s.due_period_month = ${period.month}
+       AND s.paid_flag = false
+       AND s.installment > 0
+     GROUP BY l.employee_id, l.loan_number
+     ORDER BY l.loan_number
+  `) as Row[];
+  const byEmployee = new Map<string, Array<{ loan: string; due: number }>>();
+  for (const r of rows) {
+    const list = byEmployee.get(String(r.employee_id)) ?? [];
+    list.push({ loan: String(r.loan_number), due: Number(r.due) });
+    byEmployee.set(String(r.employee_id), list);
+  }
+  return new Map([...byEmployee].map(([employeeId, due]) => [employeeId, {
+    code: 'LOAN_DEDUCTION_MISSING',
+    severity: 'error',
+    loans: due.map((d) => d.loan),
+    message: `Loan ${due.map((d) => `${d.loan} (${formatMoney(d.due)})`).join(', ')} is due, but no active deduction is coded LOAN to take it on, `
+      + 'so nothing was taken and the loan is unchanged. Add one under Setup → Pay Components, then recalculate.',
+  }]));
 }
 
 export async function appendLoanComponents(

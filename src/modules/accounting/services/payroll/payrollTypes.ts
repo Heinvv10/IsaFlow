@@ -122,6 +122,8 @@ export interface ValidationResult {
   periods?: string[];
   /** DEDUCTIONS_EXCEED_PAY only: net pay before the floor at nil, negative. */
   rawNet?: number;
+  /** LOAN_DEDUCTION_MISSING only: the loan numbers whose instalment was not taken. */
+  loans?: string[];
 }
 
 export interface PayrollLineInput {

@@ -144,6 +144,8 @@ export interface RunLoanInput {
   journalEntryId: string | null;
   /** The run's employees. A due instalment of anyone else is not taken. */
   employeeIds: ReadonlySet<string>;
+  /** False when no LOAN deduction can put an instalment on a payslip: this run's earlier ones are still undone, none is taken. */
+  takeInstalments: boolean;
 }
 
 /**
@@ -222,9 +224,9 @@ export async function applyRunLoans(
 
     await reverseLoanApplicationsForRun(input.companyId, input.runId, work.reversible, tx);
 
-    const active = await listActiveLoansForRun(
-      input.companyId, input.periodYear, input.periodMonth, tx,
-    );
+    const active = input.takeInstalments
+      ? await listActiveLoansForRun(input.companyId, input.periodYear, input.periodMonth, tx)
+      : [];
 
     const byEmployee = new Map<string, ApplyLoanResult[]>();
     for (const row of active) {

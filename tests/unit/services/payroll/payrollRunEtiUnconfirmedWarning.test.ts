@@ -6,6 +6,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const inserts: unknown[][] = [];
 // The year-to-date for cumulative PAYE (PAYE 4a follow-ups G4) has its own tests (p4fu-cumulative-paye).
+// A LOAN deduction exists and no instalment is withheld: the fail-closed path has its own integration suite.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
+  appendLoanComponents: async (_companyId: string, components: unknown[]) => components,
+  hasLoanDeduction: async () => true,
+  withheldLoanInstalments: async () => new Map(),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollYearToDate', () => ({
   loadPayeYearToDate: vi.fn(async () => new Map()),
   laterPeriodsWarnings: vi.fn(async () => new Map()),

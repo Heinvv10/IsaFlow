@@ -23,7 +23,9 @@
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
  *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then
- *      a line whose deductions and tax exceed its pay (`deductions_exceed_pay`; one the
+ *      a pre-code line that cannot be judged (`run_lines_unreadable`), an instalment no LOAN
+ *      deduction could take (`loan_deduction_missing`), a line whose deductions and tax
+ *      exceed its pay (`deductions_exceed_pay`; one the
  *      loan instalment alone causes is the advisory `loan_instalment_exceeds_pay`), then
  *      every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
@@ -36,7 +38,6 @@
  */
 import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
-import { formatMoney } from '@/lib/money/formatMoney';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
@@ -44,7 +45,8 @@ import { readJournalChain, runRecalculatedSince, type JournalChain } from './pay
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
-import { findOverdrawnLines, type OverdrawnLine } from './payrollRunLines';
+import { findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
+import { lineBlocker, overdrawnNames } from './payrollLineBlockers';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -87,7 +89,6 @@ export function toJournalPlanPreview(gate: PayrollApprovalGate): JournalPlanPrev
 
 const cents = (n: number): number => Math.round(n * 100);
 
-const overdrawnNames = (lines: OverdrawnLine[]) => lines.map((l) => `${l.employeeNumber} (${formatMoney(l.shortfall)} over)`).join(', ');
 
 async function readPostedJournal(companyId: string, journalId: string): Promise<PostedPayrollJournal | null> {
   const rows = (await sql`
@@ -275,22 +276,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     }
     // A shortfall the loan instalment alone causes stays out, as the advisory above: an instalment cannot be edited
     // on a run, so a blocker would stop every employee's pay over one leaver. Owner decision, in the module's .claude.md.
-    const unreadable = overdrawn.filter((l) => l.unreadable);
-    if (unreadable.length > 0) {
-      return {
-        code: 'run_lines_unreadable',
-        detail: `The stored lines of ${unreadable.map((l) => l.employeeNumber).join(', ')} pay nil and their breakdown cannot be read, `
-          + 'so nothing shows whether their deductions exceed their pay. Recalculate this run.',
-      };
-    }
-    const blocked = overdrawn.filter((l) => !l.fromLoan);
-    if (blocked.length > 0) {
-      return {
-        code: 'deductions_exceed_pay',
-        detail: `Deductions and tax exceed pay for ${overdrawnNames(blocked)}: net pay would be nil and the deductions payable understated. `
-          + 'Reduce or end those deductions on the employee page, or add to the pay, then recalculate.',
-      };
-    }
+    // A shortfall the loan instalment alone causes is the advisory above, not a blocker (payrollLineBlockers).
+    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId));
+    if (fromLines) return fromLines;
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();
 

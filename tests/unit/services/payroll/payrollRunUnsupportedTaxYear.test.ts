@@ -9,6 +9,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// A LOAN deduction exists and no instalment is withheld: the fail-closed path has its own integration suite.
+vi.mock('@/modules/accounting/services/payroll/payrollRunLoanComponents', () => ({
+  appendLoanComponents: async (_companyId: string, components: unknown[]) => components,
+  hasLoanDeduction: async () => true,
+  withheldLoanInstalments: async () => new Map(),
+}));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({

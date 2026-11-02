@@ -1,0 +1,90 @@
+/**
+ * The loan instalment is taken only on a DEDUCTION coded LOAN. With none active, a run must not
+ * reduce the loan, flag its schedule row or record a payment it put on no payslip: it takes nothing,
+ * says so on the line, and approval is refused until the deduction exists. A proper LOAN deduction
+ * behaves as before. Disposable fixture DB only.
+ */
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { inputsFixture } from './payrun-period-inputs.helpers';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+const fx = inputsFixture(pool);
+const { state, line, header, preview, doApprove, recalculate, addLoan, addComponent } = fx;
+const comp = state.comp;
+
+beforeAll(fx.setUp);
+beforeEach(fx.freshCompany);
+afterEach(fx.dropCompany);
+afterAll(fx.tearDown);
+
+const loanState = async (loan: string) => ({
+  balance: Number((await pool.query('SELECT outstanding_balance FROM payroll_loans WHERE id = $1', [loan])).rows[0]!.outstanding_balance),
+  paidFlags: (await pool.query('SELECT paid_flag FROM payroll_loan_schedule WHERE loan_id = $1', [loan])).rows.map((r) => r.paid_flag),
+  payments: Number((await pool.query('SELECT count(*) FROM payroll_loan_payments WHERE loan_id = $1', [loan])).rows[0]!.count),
+});
+const codes = (l: { validation_results: Array<{ code: string }> }) => l.validation_results.map((v) => v.code);
+const withoutLoanDeduction = () => pool.query('UPDATE payroll_components SET is_active = false WHERE id = $1', [comp.loan]);
+
+describe('no active LOAN deduction', () => {
+  it.each([
+    ['only a LOAN-coded earning', true],
+    ['no LOAN component at all', false],
+  ])('%s: nothing is taken, the loan is untouched, the line says so and approval is refused', async (_what, earning) => {
+    const plain = await line(state.nov);
+    await withoutLoanDeduction();
+    if (earning) await addComponent(state.coA, 'Loan earning', 'LOAN', 'earning', true);
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+
+    const l = await line(state.nov);
+    expect({ gross: l.gross, net: l.net, paye: l.paye }).toEqual({ gross: plain.gross, net: plain.net, paye: plain.paye });
+    expect(codes(l)).toContain('LOAN_DEDUCTION_MISSING');
+    expect(await loanState(loan)).toEqual({ balance: 1000, paidFlags: [false], payments: 0 });
+
+    const { blocker, planHash } = (await preview(state.nov)).body.data!;
+    expect(blocker).toMatchObject({ code: 'loan_deduction_missing' });
+    expect(blocker.detail).toContain('W301-1');
+    expect(blocker.detail).toContain('R-LOAN');
+    const res = await doApprove(state.nov, planHash);
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(res.statusCode).toBeLessThan(500);
+    expect(await header(state.nov)).toMatchObject({ status: 'calculated', journal_entry_id: null });
+  });
+
+  it('adding the deduction and recalculating takes the instalment once', async () => {
+    await withoutLoanDeduction();
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+    await pool.query('UPDATE payroll_components SET is_active = true WHERE id = $1', [comp.loan]);
+    await recalculate(state.nov);
+    expect(codes(await line(state.nov))).not.toContain('LOAN_DEDUCTION_MISSING');
+    expect(await loanState(loan)).toEqual({ balance: 0, paidFlags: [true], payments: 1 });
+    expect((await preview(state.nov)).body.data!.blocker).toBeNull();
+  });
+
+  it('a LOAN deduction coded with spaces round it is the calculator\'s LOAN, and takes the instalment', async () => {
+    await withoutLoanDeduction();
+    await addComponent(state.coA, 'Spaced loan', ' LOAN\t', 'deduction', false);
+    const plain = await line(state.nov);
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+    expect((await line(state.nov)).net).toBeCloseTo(plain.net - 1000, 2);
+    expect(await loanState(loan)).toEqual({ balance: 0, paidFlags: [true], payments: 1 });
+  });
+});
+
+describe('a proper LOAN deduction', () => {
+  it('takes the instalment as before: the payslip, the balance, the schedule and the payment agree', async () => {
+    const plain = await line(state.nov);
+    const loan = await addLoan(1000);
+    await recalculate(state.nov);
+    const l = await line(state.nov);
+    expect(l.net).toBeCloseTo(plain.net - 1000, 2);
+    expect(l.paye).toBe(plain.paye);
+    expect(codes(l)).toEqual([]);
+    expect(await loanState(loan)).toEqual({ balance: 0, paidFlags: [true], payments: 1 });
+  });
+});

@@ -14,7 +14,7 @@ import { journalInForceOrNull } from './payrollJournalChain';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
-import { appendLoanComponents } from './payrollRunLoanComponents';
+import { appendLoanComponents, hasLoanDeduction, withheldLoanInstalments } from './payrollRunLoanComponents';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
@@ -151,7 +151,8 @@ export async function calculatePayrollRun(
   // Undo the loan deductions THIS run already applied, then re-apply the
   // instalments due — one locked transaction, so a recalculation reproduces
   // the same payslip instead of dropping the deduction while keeping the
-  // reduced balance. See payrollRunLoanApplication.ts.
+  // reduced balance. See payrollRunLoanApplication.ts. With no LOAN deduction to show it on, none is taken.
+  const takeInstalments = await hasLoanDeduction(companyId);
   const loansByEmployee = await applyRunLoans({
     companyId,
     runId,
@@ -163,7 +164,9 @@ export async function calculatePayrollRun(
     // Only the run's own employees: an instalment taken from someone with no
     // line here would reduce the loan with no deduction on any payslip.
     employeeIds: new Set(employees.map(e => e.id)),
+    takeInstalments,
   });
+  const withheld = takeInstalments ? new Map<string, ValidationResult>() : await withheldLoanInstalments(companyId, period, employees.map(e => e.id));
 
   // Leavers from earlier periods whose severance directive this run may pay:
   // the severance line alone, no salary, recurring components or loans, and so
@@ -229,7 +232,7 @@ export async function calculatePayrollRun(
       componentBreakdown: JSON.stringify(line.componentBreakdown),
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
-        ...line.validationResults, ...terminationWarnings,
+        ...line.validationResults, ...terminationWarnings, ...(withheld.has(employee.id) ? [withheld.get(employee.id)!] : []),
         // Only a line taxed from the tables feeds the later months' cumulative PAYE.
         ...((line.periodicTaxable > 0 || line.annualTaxable > 0) && laterApproved.has(employee.id) ? [laterApproved.get(employee.id)!] : []),
       ]),

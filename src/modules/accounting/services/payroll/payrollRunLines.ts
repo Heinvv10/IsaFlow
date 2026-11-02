@@ -130,6 +130,24 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
   });
 }
 
+/** Lines whose loan instalment was not taken for want of a LOAN deduction (LOAN_DEDUCTION_MISSING). */
+export async function findWithheldLoanLines(companyId: string, runId: string): Promise<Array<{ employeeNumber: string; loans: string[] }>> {
+  const rows = (await sql`
+    SELECT pe.employee_number, prl.validation_results
+    FROM payroll_run_lines prl
+    JOIN payroll_run_headers prh ON prh.id = prl.run_id
+    JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
+    WHERE prl.run_id = ${runId}::uuid
+      AND prh.company_id = ${companyId}::uuid
+      AND prl.validation_results @> '[{"code":"LOAN_DEDUCTION_MISSING"}]'::jsonb
+    ORDER BY pe.employee_number
+  `) as Row[];
+  return rows.flatMap((r) => {
+    const withheld = parseValidationResults(r.validation_results).find((v) => v.code === 'LOAN_DEDUCTION_MISSING');
+    return withheld ? [{ employeeNumber: String(r.employee_number), loans: withheld.loans ?? [] }] : [];
+  });
+}
+
 export async function getPayrollRunLines(
   runId: string,
   companyId: string,
