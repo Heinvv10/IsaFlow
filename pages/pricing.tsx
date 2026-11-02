@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Head from 'next/head';
+import { PageHead } from '@/components/seo/PageHead';
 import { LandingNavbar } from '@/components/landing/LandingNavbar';
 import {
   LandingPricing,
@@ -34,15 +34,11 @@ export default function PricingPage() {
 
   return (
     <>
-      <Head>
-        <title>Pricing — ISAFlow | Cloud accounting for South African business</title>
-        <meta
-          name="description"
-          content="Simple, honest pricing for books, VAT and payroll — everything Sage charges extra for, included. Your rate is capped at inflation, guaranteed. 30-day free trial."
-        />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
+      <PageHead
+        path="/pricing"
+        title="ISAFlow Pricing: Accounting, VAT and Payroll Plans for South Africa"
+        description="Simple monthly pricing in rand for South African businesses. Books, VAT201 and bank reconciliation in every plan, payroll as an add-on. 30-day free trial."
+      />
 
       <div className="min-h-screen bg-white text-gray-900">
         <LandingNavbar

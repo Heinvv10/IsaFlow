@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { GetStaticProps } from 'next';
-import Head from 'next/head';
+import { PageHead } from '@/components/seo/PageHead';
 import { LandingJsonLd } from '@/components/seo/LandingJsonLd';
 import { LandingNavbar } from '@/components/landing/LandingNavbar';
 import { LandingHero } from '@/components/landing/LandingHero';
@@ -38,15 +38,11 @@ export default function LandingPage({ stats }: Props) {
 
   return (
     <>
-      <Head>
-        <title>ISAFlow — Accounting Software for Modern Business</title>
-        <meta
-          name="description"
-          content="Invoicing, bank reconciliation, tax compliance and payroll — everything your business needs in one powerful platform."
-        />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
+      <PageHead
+        path="/"
+        title="ISAFlow: Cloud Accounting Software for South African Businesses"
+        description="Cloud accounting for South Africa: invoicing, bank reconciliation, VAT201 and SARS compliance, and payroll with PAYE, UIF and SDL. Try it free for 30 days."
+      />
 
       <LandingJsonLd />
 
