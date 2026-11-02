@@ -43,6 +43,7 @@ import {
 import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
 import { ETI_TABLE_UNCONFIRMED_MESSAGE, isEtiTableUnconfirmed } from '@/modules/accounting/services/payroll/etiTables';
 import { UnsupportedTaxYearError, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
+import { withheldLoansReport as withheldLoans } from '@/modules/accounting/services/payroll/payrollLoanWithholding';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -121,6 +122,7 @@ export const calculatePayRunTool: McpTool = {
           ...(blocked ? [new PayrollRunJournalPostedError(runId).message] : []),
           ...(taxYearMissing ? [taxYearMissing] : []),
         ],
+        withheld_loans: blocked || taxYearMissing ? [] : await withheldLoans(ctx.companyId, run),
         current: runPayload(run),
       });
     }
@@ -132,6 +134,7 @@ export const calculatePayRunTool: McpTool = {
         ...(costed.totalEti > 0 && isEtiTableUnconfirmed(new Date(costed.periodYear, costed.periodMonth - 1, 28))
           ? { warnings: [ETI_TABLE_UNCONFIRMED_MESSAGE] }
           : {}),
+        withheld_loans: await withheldLoans(ctx.companyId, costed),
         next_step: costed.employeeCount === 0
           ? 'No employees were costed — create_employee and assign_employee_component first.'
           : 'approve_pay_run posts this to the ledger.',

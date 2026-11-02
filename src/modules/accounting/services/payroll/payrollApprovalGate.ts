@@ -45,7 +45,7 @@ import { readJournalChain, runRecalculatedSince, type JournalChain } from './pay
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
-import { findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
+import { findLoanPaymentsOffPayslip, findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
 import { lineBlocker, overdrawnNames } from './payrollLineBlockers';
 import {
   buildPayrollJournalPlan,
@@ -277,7 +277,7 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     // A shortfall the loan instalment alone causes stays out, as the advisory above: an instalment cannot be edited
     // on a run, so a blocker would stop every employee's pay over one leaver. Owner decision, in the module's .claude.md.
     // A shortfall the loan instalment alone causes is the advisory above, not a blocker (payrollLineBlockers).
-    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId));
+    const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), await findLoanPaymentsOffPayslip(companyId, runId));
     if (fromLines) return fromLines;
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();

@@ -13,9 +13,10 @@
  * retryable refusal):
  *   1. the company approval lock (lockCompanyPayrollApprovals): approve,
  *      calculate, reopen and the pay-run grid. assignComponentToEmployee,
- *      postBatch and applyPackageToEmployee take it alone, so a row cannot land
- *      between a grid edit's read and its write;
- *   2. the run's header row (lockPayrollRunHeader): the same three;
+ *      endEmployeeComponent, postBatch and applyPackageToEmployee take it
+ *      alone, so a row cannot change between a grid edit's read and its write;
+ *   2. the run's header row (lockPayrollRunHeader): approve, calculate, reopen
+ *      and the grid;
  *   3. approval only: the linked journal and its reversal chain
  *      (lockRunJournalForApproval, payrollJournalChain), then the severance
  *      directive rows (FOR SHARE) and their payment row (payrollRunDirectiveClaim).

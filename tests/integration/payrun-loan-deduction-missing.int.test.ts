@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
+import { calculatePayRunTool } from '../../src/lib/mcp/tools/writePayrollRun';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -88,3 +89,33 @@ describe('a proper LOAN deduction', () => {
     expect(await loanState(loan)).toEqual({ balance: 0, paidFlags: [true], payments: 1 });
   });
 });
+
+describe('MCP calculate_pay_run says which instalments it did not take', () => {
+  const tool = (dry: boolean) => calculatePayRunTool.handler(
+    { run_id: state.nov, idempotency_key: crypto.randomUUID(), ...(dry ? { dry_run: true } : {}) },
+    { companyId: state.coA, userId: fx.admin } as never,
+  );
+  const body = (r: { content: Array<{ text: string }> }) => JSON.parse(r.content[0]!.text) as Record<string, unknown>;
+
+  it('the dry run names the loan it would withhold, and writes nothing', async () => {
+    await withoutLoanDeduction();
+    const loan = await addLoan(1000);
+    const out = body(await tool(true) as never);
+    expect(out.withheld_loans).toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: 'LOAN deduction' }]);
+    expect(await loanState(loan)).toEqual({ balance: 1000, paidFlags: [false], payments: 0 });
+  });
+
+  it('the live call reports what it withheld', async () => {
+    await withoutLoanDeduction();
+    await addLoan(1000);
+    expect(body(await tool(false) as never).withheld_loans)
+      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: 'LOAN deduction' }]);
+  });
+
+  it('a properly set-up company withholds nothing, live or dry', async () => {
+    await addLoan(1000);
+    expect(body(await tool(true) as never).withheld_loans).toEqual([]);
+    expect(body(await tool(false) as never).withheld_loans).toEqual([]);
+  });
+});
+

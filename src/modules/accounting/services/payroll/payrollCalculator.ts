@@ -83,7 +83,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       }
     } else if (component.componentType === 'deduction') {
       totalDeductions += amount;
-      if (component.isTaxable) taxableDeductions += amount;
+      // A loan instalment is never a tax deduction, whatever the component says (Hein: a taxable LOAN is refused).
+      if (component.isTaxable && normaliseSarsCode(component.sarsSourceCode) !== 'LOAN') taxableDeductions += amount;
       if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
       if (normaliseSarsCode(component.sarsSourceCode) === 'LOAN') loanInstalments += amount;
     }

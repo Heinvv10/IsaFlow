@@ -49,12 +49,18 @@ async function handler(
       return apiResponse.badRequest(res, "componentType must be 'earning' or 'deduction'");
     }
 
+    // The loan instalment is never a tax deduction (Hein): a taxable LOAN would lower PAYE by the repayment.
+    const loan = code === 'LOAN';
+    if (loan && isTaxable === true) {
+      return apiResponse.badRequest(res, 'A LOAN component cannot be taxable: a loan repayment is not a tax deduction. Send isTaxable: false.');
+    }
+
     const data: Parameters<typeof createComponent>[1] = {
       name: String(name),
       // Normalised as PAYE classifies it (normaliseSarsCode), so the stored code is the one every reader sees.
       sarsSourceCode: code,
       componentType,
-      isTaxable: isTaxable !== false,
+      isTaxable: loan ? false : isTaxable !== false,
       isUifApplicable: isUifApplicable !== false,
       isSdlApplicable: isSdlApplicable !== false,
     };

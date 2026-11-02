@@ -91,3 +91,21 @@ describe('DEDUCTIONS_EXCEED_PAY', () => {
     expect(warning.message.replace(/\s/g, ' ')).toContain('R 11 916.12');
   });
 });
+
+describe('a LOAN deduction is never a tax deduction (Hein: a taxable LOAN is refused)', () => {
+  it('flagged taxable, it leaves PAYE, UIF and SDL as they are and only lowers net', () => {
+    const taxed = { ...instalment(1000), component: { ...instalment(1000).component, isTaxable: true } };
+    const plain = run([salary]);
+    const r = run([salary, taxed]);
+    expect(r.paye).toEqual(plain.paye);
+    expect(r.taxableIncome).toBe(plain.taxableIncome);
+    expect(r.uif).toEqual(plain.uif);
+    expect(r.netPay).toBe(Math.round((plain.netPay - 1000) * 100) / 100);
+  });
+
+  it('any other taxable deduction still comes off PAYE income', () => {
+    const sacrifice = { ...dues(1000), component: { ...dues(1000).component, sarsSourceCode: 'SACR', isTaxable: true } };
+    expect(run([salary, sacrifice]).paye.monthlyPaye).toBeLessThan(run([salary]).paye.monthlyPaye);
+  });
+});
+
