@@ -1,0 +1,190 @@
+/**
+ * What `comparison_mode` puts in a generated management pack (budgets P3 PR-D, spec §4 Packs), and
+ * the `income_vs_budget` / `budget_variance` sections.
+ *
+ * Budget figures are the tracking engine's for the pack month and the primary version; nothing here
+ * computes one. Printed: Var R = actual − budget, with Favourable / Unfavourable beside it, because
+ * a pack table has no colour. `null` from the engine prints "—"; a budgeted zero prints R 0.00, which
+ * is why these tables use `formatMoney`, not `formatStatementFigure` (it prints a zero as a dash).
+ */
+import { formatPct } from '@/lib/format/money';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { BudgetVersionError } from '../budgets/budgetVersionTypes';
+import { buildBudgetTrackingReport } from '../budgets/tracking/budgetTrackingService';
+import { TrackingError, type BudgetTrackingReport, type TrackingFigures, type TrackingLine } from '../budgets/tracking/trackingTypes';
+import type { ManagementPackConfig, NoteContent, NoteContentBlock, NoteContentTable } from './afsTypes';
+
+export interface ComparisonPlan {
+  priorMonth: boolean;
+  priorYear: boolean;
+  budget: boolean;
+}
+
+export type PackBudget =
+  | { kind: 'report'; report: BudgetTrackingReport }
+  | { kind: 'unavailable'; reason: string };
+
+type IncomeAgg = Record<string, unknown>;
+
+const TOP_LINES = 10;
+const DASH = '—';
+const FIGURE_HEADERS = ['Actual', 'Budget', 'Var R', 'Var %', 'Position'];
+
+export function comparisonPlan(mode: ManagementPackConfig['comparisonMode']): ComparisonPlan {
+  return {
+    priorMonth: mode !== 'prior_year',
+    priorYear: mode === 'prior_year' || mode === 'all_three',
+    budget: mode === 'budget' || mode === 'all_three',
+  };
+}
+
+/** The sections that print budget figures; they take no AI commentary, whose prompt forbids budgets. */
+export function isBudgetSection(sectionType: string): boolean {
+  return sectionType === 'income_vs_budget' || sectionType === 'budget_variance';
+}
+
+/** The month a year earlier, 'YYYY-MM'. */
+export function samePeriodLastYear(period: string): string {
+  const [year = '2000', month = '01'] = period.split('-');
+  return `${Number(year) - 1}-${month}`;
+}
+
+/** A refusal (a year not on calendar months, a month outside the registry) is the section's to say; a fault stops the pack. */
+export async function loadPackBudget(companyId: string, period: string, now?: Date): Promise<PackBudget> {
+  try {
+    return { kind: 'report', report: await buildBudgetTrackingReport(companyId, { period: 'month', month: period }, now) };
+  } catch (err) {
+    if (err instanceof TrackingError || err instanceof BudgetVersionError) return { kind: 'unavailable', reason: err.message };
+    throw err;
+  }
+}
+
+const money = (n: unknown): string => formatMoney(Number(n ?? 0));
+const orDash = (n: number | null): string => (n === null ? DASH : formatMoney(n));
+
+function position(favourable: boolean | null): string {
+  if (favourable === null) return DASH;
+  return favourable ? 'Favourable' : 'Unfavourable';
+}
+
+const figureCells = (f: TrackingFigures): string[] => [
+  formatMoney(f.actual), orDash(f.budget), orDash(f.variance),
+  f.variancePct === null ? DASH : formatPct(f.variancePct), position(f.favourable),
+];
+
+const versionName = (r: BudgetTrackingReport): string | null => (r.version ? `${r.version.name} · ${r.version.status}` : null);
+
+function budgetNotes(r: BudgetTrackingReport): NoteContentBlock[] {
+  const notes: string[] = [];
+  const version = versionName(r);
+  if (version) notes.push(`Budget version: ${version}.`);
+  if (r.window.inProgress) {
+    const { month, actualsTo } = r.window.inProgress;
+    notes.push(actualsTo ? `${month} is in progress; actuals posted through ${actualsTo}.` : `${month} is in progress; no actuals posted yet.`);
+  }
+  const { unbudgetedCount: count, unbudgetedActual: { income, expense } } = r.notices;
+  if (count > 0) {
+    const parts = [income !== 0 ? `income ${formatMoney(income)}` : '', expense !== 0 ? `expenses ${formatMoney(expense)}` : ''].filter(Boolean);
+    notes.push(`${count === 1 ? '1 account carries' : `${count} accounts carry`} actuals but no budget: ${parts.join(', ')}.`);
+  }
+  return notes.map((text) => ({ type: 'paragraph', text }));
+}
+
+/** The sentence that stands in for a budget table, or null when there is one to print. */
+function noBudgetSentence(budget: PackBudget): string | null {
+  if (budget.kind === 'unavailable') return `Budget figures are unavailable: ${budget.reason}`;
+  return budget.report.notices.noVersion ? `No budget for FY${budget.report.window.fiscalYear} in this pack's month.` : null;
+}
+
+export function budgetBandBlocks(budget: PackBudget): NoteContentBlock[] {
+  const sentence = noBudgetSentence(budget);
+  if (sentence !== null || budget.kind !== 'report') return [{ type: 'paragraph', text: sentence ?? '' }];
+  const table: NoteContentTable = {
+    type: 'table',
+    headers: ['', ...FIGURE_HEADERS],
+    rows: budget.report.bands.map((b) => [b.label, ...figureCells(b)]),
+  };
+  return [table, ...budgetNotes(budget.report)];
+}
+
+/** The budgeted lines off budget, largest |variance| first, at most ten. */
+export function topVarianceLines(lines: readonly TrackingLine[]): TrackingLine[] {
+  return lines
+    .filter((l) => l.variance !== null && l.variance !== 0)
+    .sort((a, b) => Math.abs(b.variance ?? 0) - Math.abs(a.variance ?? 0) || a.accountCode.localeCompare(b.accountCode))
+    .slice(0, TOP_LINES);
+}
+
+export function budgetLineBlocks(budget: PackBudget): NoteContentBlock[] {
+  const sentence = noBudgetSentence(budget);
+  if (sentence !== null || budget.kind !== 'report') return [{ type: 'paragraph', text: sentence ?? '' }];
+  const top = topVarianceLines(budget.report.lines);
+  if (top.length === 0) return [{ type: 'paragraph', text: 'No budgeted account is off budget this month.' }, ...budgetNotes(budget.report)];
+  const table: NoteContentTable = {
+    type: 'table',
+    headers: ['Account', ...FIGURE_HEADERS],
+    rows: top.map((l) => [`${l.accountCode} ${l.accountName}`, ...figureCells(l)]),
+  };
+  return [table, ...budgetNotes(budget.report)];
+}
+
+/** What the section's `data_snapshot` keeps: the engine's figures as printed. */
+export function budgetSnapshot(budget: PackBudget): Record<string, unknown> {
+  if (budget.kind === 'unavailable') return { unavailable: budget.reason };
+  const r = budget.report;
+  return {
+    version: versionName(r),
+    noVersion: r.notices.noVersion,
+    month: r.window.months[0] ?? null,
+    bands: r.bands.map(({ key, actual, budget: b, variance, favourable }) => ({ key, actual, budget: b, variance, favourable })),
+  };
+}
+
+export interface IncomeComparison {
+  income: IncomeAgg;
+  priorIncome: IncomeAgg;
+  priorYearIncome: IncomeAgg | null;
+}
+
+function priorYearTable({ income, priorIncome, priorYearIncome }: IncomeComparison, plan: ComparisonPlan): NoteContentTable {
+  const lastYear = priorYearIncome ?? {};
+  const row = (label: string, key: string): string[] => [
+    label, money(income[key]),
+    ...(plan.priorMonth ? [money(priorIncome[key])] : []),
+    money(lastYear[key]), formatMoney(Number(income[key] ?? 0) - Number(lastYear[key] ?? 0)),
+  ];
+  return {
+    type: 'table',
+    headers: ['', 'This month', ...(plan.priorMonth ? ['Prior month'] : []), 'Same month last year', 'Change on last year'],
+    rows: [row('Revenue', 'revenue'), row('Cost of sales', 'cogs'), row('Net profit', 'net_profit')],
+  };
+}
+
+/** The section's blocks: today's aggregate unless a prior year is asked for, then the band table unless `income_vs_budget` prints it. */
+export function incomeStatementContent(
+  data: IncomeComparison,
+  plan: ComparisonPlan,
+  budget: PackBudget | null,
+  bandsPrintedElsewhere: boolean,
+): NoteContent {
+  const blocks: NoteContentBlock[] = [
+    plan.priorYear ? priorYearTable(data, plan) : { type: 'paragraph', text: JSON.stringify(data.income) },
+  ];
+  if (plan.budget && budget && !bandsPrintedElsewhere) blocks.push(...budgetBandBlocks(budget));
+  return { title: 'Income Statement', blocks };
+}
+
+/** What the AI is told the prior period was. Prior month alone stays the bare aggregate it has always received. */
+export function narrativePrior(data: IncomeComparison, plan: ComparisonPlan): { label: string; revenue: number; priorData: IncomeAgg } {
+  const { priorIncome, priorYearIncome } = data;
+  if (plan.priorYear && priorYearIncome) {
+    return {
+      label: plan.priorMonth ? 'prior month' : 'the same month last year',
+      revenue: Number((plan.priorMonth ? priorIncome : priorYearIncome).revenue ?? 0),
+      priorData: plan.priorMonth
+        ? { prior_month: priorIncome, same_month_last_year: priorYearIncome }
+        : { same_month_last_year: priorYearIncome },
+    };
+  }
+  return { label: 'prior month', revenue: Number(priorIncome.revenue ?? 0), priorData: priorIncome };
+}
