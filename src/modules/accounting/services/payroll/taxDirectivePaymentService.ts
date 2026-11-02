@@ -22,11 +22,12 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
-import { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
+import { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
 import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
-import { employeeLabourLines, readEmployeeLabourSplit, type EmployeeLabourSplit } from './payrollCostCentreTags';
+import { employeeLabourLines } from './payrollCostCentreTags';
+import { lockDirectiveLabour, refreshDirectiveLabour } from './taxDirectiveLabour';
 
-export { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError };
+export { TaxDirectiveNotApprovedError, TaxDirectiveSplitChangedError, TaxDirectiveWithoutEmployeeError };
 
 type Row = DbRow;
 
@@ -44,7 +45,7 @@ export interface ApplyDirectiveResult {
   paye: number;
   net: number;
   status: 'applied';
-  /** `labour_cost_centre_untagged` when a centre of the employee's cannot be a CC1 tag (it posts untagged). */
+  /** `labour_cost_centre_untagged` (a centre that cannot be a CC1 tag posts untagged), `labour_account_inactive` (to 5200). */
   advisories: Array<{ code: string; detail: string }>;
 }
 
@@ -124,12 +125,8 @@ export async function applyTaxDirective(
 ): Promise<ApplyDirectiveResult> {
   log.info('applyTaxDirective start', { companyId, directiveId }, 'taxDirective');
 
-  // 0. The employee's centres, share-locked BEFORE the directive row as approval takes them (payrollCostCentreTags);
-  // employee_id is never updated, so it is read without a lock. A directive with none is refused below.
-  const who = (await sql`
-    SELECT employee_id FROM tax_directives WHERE company_id = ${companyId} AND id = ${directiveId}
-  `) as Row[];
-  const split: EmployeeLabourSplit | null = who[0]?.employee_id == null ? null : await readEmployeeLabourSplit(companyId, String(who[0].employee_id));
+  // 0. The cheap refusals, then the employee's centres share-locked BEFORE the directive row (taxDirectiveLabour).
+  const first = await lockDirectiveLabour(companyId, directiveId);
 
   // 1. Load and lock the directive — scoped by company_id. FOR SHARE, held to
   // the end of the request: a concurrent cancel (updateTaxDirective, FOR
@@ -151,6 +148,7 @@ export async function applyTaxDirective(
     SELECT 1 FROM payroll_employees WHERE company_id = ${companyId} AND id = ${dir.employee_id}
   `) as Row[];
   if (employee.length === 0) throw new TaxDirectiveWithoutEmployeeError(directiveId);
+  const split = await refreshDirectiveLabour(companyId, directiveId, first); // the split as it stands now; before any write
   await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 2. Compute amounts
@@ -201,8 +199,7 @@ export async function applyTaxDirective(
   const narrative = `SARS directive ${directiveNum} — ${employeeName}`;
 
   const lines: JournalLineInput[] = [
-    ...(split ? employeeLabourLines(split, gross, labourAccountId, `${narrative} — gross lump sum`)
-      : [{ glAccountId: labourAccountId, debit: gross, credit: 0, description: `${narrative} — gross lump sum` }]),
+    ...employeeLabourLines(split, gross, labourAccountId, `${narrative} — gross lump sum`),
     {
       glAccountId: payeAccountId,
       debit: 0,
@@ -273,7 +270,7 @@ export async function applyTaxDirective(
     companyId, directiveId, paymentId, journalEntryId: entry.id, gross, paye, net,
   }, 'taxDirective');
 
-  return { paymentId, journalEntryId: entry.id, gross, paye, net, status: 'applied', advisories: split?.advisory ? [split.advisory] : [] };
+  return { paymentId, journalEntryId: entry.id, gross, paye, net, status: 'applied', advisories: split.advisories };
 }
 
 // ─── listTaxDirectivePayments ─────────────────────────────────────────────────

@@ -21,3 +21,17 @@ export class TaxDirectiveWithoutEmployeeError extends Error {
     this.name = 'TaxDirectiveWithoutEmployeeError';
   }
 }
+
+/**
+ * The employee's cost-centre split changed while the payment waited for the directive row, and now names a
+ * centre the payment did not lock first (taxDirectiveLabour). Raised before anything is written; retrying
+ * reads the new split.
+ */
+export class TaxDirectiveSplitChangedError extends Error {
+  readonly code = 'TAX_DIRECTIVE_SPLIT_CHANGED';
+  readonly retryable = true;
+  constructor(readonly directiveId: string) {
+    super(`The employee's cost-centre split changed while directive ${directiveId} was being paid. Nothing was written — try again.`);
+    this.name = 'TaxDirectiveSplitChangedError';
+  }
+}
