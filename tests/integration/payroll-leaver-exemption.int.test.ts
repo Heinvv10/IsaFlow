@@ -83,6 +83,15 @@ beforeAll(async () => {
   await employee('pkgOnceOff', '2020-01-01', '2026-03-28');
   await add('po1', 'pkgOnceOff', salary, 21670, '2020-01-01', '2026-03-28', true, '2026-03-01T00:00:00Z');
   await add('po2', 'pkgOnceOff', salary, 2000, '2026-03-29', '2026-03-31', false);
+  // Before 953: leaving 29 March, an old-code package cut the salary to the 29th (no superseded_at) with a once-off
+  // Basic Salary from the 30th. Both rows are pre-953 (supersede_inferred), so the old neighbour rule makes O the
+  // successor: O paid, the salary skipped and flagged.
+  await employee('legacyPkg', '2020-01-01', '2026-03-29');
+  for (const [name, amount, from, to, recurring] of [['lpS', 21670, '2020-01-01', '2026-03-29', true], ['lpO', 2500, '2026-03-30', '2026-03-31', false]] as const) {
+    row[name] = String((await pool.query(
+      `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring,supersede_inferred)
+       VALUES($1,$2,$3,$4::date,$5::date,$6,TRUE) RETURNING id`, [emp.legacyPkg, salary, amount, from, to, recurring])).rows[0]!.id);
+  }
   // Leaving 27 March: a package applied on the 28th cut the salary to the 27th, and its replacement was cancelled.
   await employee('voidedReplacement', '2020-01-01', '2026-03-27');
   await add('vr1', 'voidedReplacement', salary, 21670, '2020-01-01', '2026-03-27', true, '2026-03-01T00:00:00Z');
@@ -137,6 +146,12 @@ describe(`1-3: the leaver exemption is the band only (TZ=${process.env.TZ ?? 'un
     const l = await line(march, 'pkgOnceOff');
     expect(l.paid).toEqual([['Basic Salary', 2000]]);
     expect(flaggedEnding(l, '2026-03-28')).toBe(true);
+  });
+
+  it('before 953, an old-code package once-off replaces the cut salary: the once-off is paid, the salary flagged', async () => {
+    const l = await line(march, 'legacyPkg');
+    expect(l.paid).toEqual([['Basic Salary', 2500]]);
+    expect(flaggedEnding(l, '2026-03-29')).toBe(true);
   });
 
   it('a replacement that was cancelled is not a successor: the 27 March leaver is paid in full, not flagged', async () => {

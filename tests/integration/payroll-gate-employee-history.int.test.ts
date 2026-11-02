@@ -11,6 +11,7 @@ import { SignJWT } from 'jose';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatedRun, cleanPayrollCompanies, routeCaller, seedPayrollCompany, type Route } from './w3-01-payroll.helpers';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
+import employeeRoute from '../../pages/api/payroll/employees/[id]';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { setTerminationDetails } from '@/modules/accounting/services/payroll/payrollTerminationService';
 import { payrollTermsChangedSinceCalculation } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
@@ -113,7 +114,7 @@ describe('3: end-date and termination writers wait for the company lock', () => 
 });
 
 describe('3 (L): a role that may not read the history gets null (the gate then refuses), not an error or "no change"', () => {
-  async function asRole(role: string, session?: { activeCompany: string }): Promise<string[] | null> {
+  async function asRole(role: string, session?: { activeCompany: string }, scope?: { runId: string; ids: string[] }): Promise<string[] | null> {
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
@@ -123,9 +124,9 @@ describe('3 (L): a role that may not read the history gets null (the gate then r
           [JSON.stringify({ sub: admin }), session.activeCompany]);
       }
       await c.query(`SET LOCAL ROLE ${role}`);
-      const run = String((await c.query('SELECT id FROM payroll_run_headers WHERE company_id=$1 LIMIT 1', [company]).catch(() => ({ rows: [{ id: crypto.randomUUID() }] }))).rows[0]?.id ?? crypto.randomUUID());
+      const run = scope?.runId ?? crypto.randomUUID();
       return await als.run({ client: c, userId: admin, companyId: company, claims: {} } as never,
-        () => payrollTermsChangedSinceCalculation(company, run, [leaver]));
+        () => payrollTermsChangedSinceCalculation(company, run, scope?.ids ?? [leaver]));
     } finally {
       await c.query('ROLLBACK').catch(() => undefined);
       c.release();
@@ -140,8 +141,31 @@ describe('3 (L): a role that may not read the history gets null (the gate then r
     expect(await asRole('app_user')).toBeNull();
   });
 
-  it('app_user as the owner in a request for this company reads it; in a request for another company, null', async () => {
-    expect(Array.isArray(await asRole('app_user', { activeCompany: company }))).toBe(true);
-    expect(await asRole('app_user', { activeCompany: crypto.randomUUID() })).toBeNull();
+  it('app_user as the owner: a leaver whose end date was changed (through the route) after calculation is named; '
+    + 'in a request for another company, null', async () => {
+    const julyLeaver = await employee('GH-JULY', '2026-07-15');
+    const july = await calculatedRun(call, 7);
+    const changed = await call(employeeRoute as Route, 'PATCH', `/api/payroll/employees/${julyLeaver}`, julyLeaver,
+      { body: { endDate: '2026-07-20' } });
+    expect(changed.statusCode, JSON.stringify(changed.body)).toBe(200);
+    expect(await asRole('app_user', { activeCompany: company }, { runId: july, ids: [julyLeaver, open] })).toEqual([julyLeaver]);
+    expect(await asRole('app_user', { activeCompany: crypto.randomUUID() }, { runId: july, ids: [julyLeaver] })).toBeNull();
+  });
+
+  it('a role outside app_user (column privileges, owner claims, this company, no RLS bypass): null', async () => {
+    const role = `gh_reader_${Math.floor(Math.random() * 1e9)}`;
+    await pool.query(`CREATE ROLE ${role} NOLOGIN`);
+    try {
+      await pool.query(`GRANT ${role} TO current_user`);
+      await pool.query(`GRANT SELECT (company_id, entity_type, entity_id, changed, before, after, recorded_at) ON entity_changes TO ${role}`);
+      await pool.query(`GRANT SELECT ON payroll_run_headers TO ${role}`);
+      await pool.query(`GRANT USAGE ON SCHEMA app, auth TO ${role}`);
+      expect(await asRole(role, { activeCompany: company })).toBeNull();
+    } finally {
+      await pool.query(`REVOKE ALL ON entity_changes FROM ${role}`).catch(() => undefined);
+      await pool.query(`REVOKE ALL ON payroll_run_headers FROM ${role}`).catch(() => undefined);
+      await pool.query(`REVOKE USAGE ON SCHEMA app, auth FROM ${role}`).catch(() => undefined);
+      await pool.query(`DROP ROLE ${role}`).catch(() => undefined);
+    }
   });
 });
