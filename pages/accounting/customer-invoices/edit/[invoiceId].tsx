@@ -3,7 +3,7 @@
  * Mirrors the new.tsx layout but loads the existing invoice and submits PUT. Autosaves the draft (PR S: the same PUT,
  * never create), asks before leaving with a change unsaved, previews the stored draft's PDF, and offers Approve & email.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -25,6 +25,7 @@ import { autosaveProblem, invoicePutBody, saveProblem, type EditLine, type Store
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
+import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
 import { takeApproveRefusal, useApproveAndEmail } from '@/components/accounting/customer-invoices/useApproveAndEmail';
 
 // CC2 / BU are edited here; CC1 follows its CC2 (invoicePutBody re-sends it only while the CC2 is the one it loaded with).
@@ -73,11 +74,11 @@ export default function EditCustomerInvoicePage() {
   useEffect(() => {
     if (!invoiceId) return;
     const id = String(invoiceId);
-    setLoading(true); setInvoiceNumber(''); setError(''); setApproved(false); // another invoice opened in place starts again
-    void Promise.all([
+    setLoading(true); setInvoiceNumber(''); setError(''); setErrorStays(false); setApproved(false); // another invoice opened in place starts again
+    void invoiceSavesSettled(id).then(() => Promise.all([ // a save of this invoice still out (sent as a page closed) lands first
       apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }),
       apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`, { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load the invoice - try again'); return r.json(); }),
-    ]).then(([curRes, invRes]) => {
+    ])).then(([curRes, invRes]) => {
       const curData = curRes.data || curRes; setCurrencies(Array.isArray(curData) ? curData : []);
       const invoice: InvoiceDetail = invRes.data || invRes;
       if (!invoice || !invoice.id) { setError('Invoice not found'); setLoading(false); return; }
@@ -90,7 +91,7 @@ export default function EditCustomerInvoicePage() {
       setLoadedFor(id);
       setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
       const refusal = takeApproveRefusal(id); // Approve & email on the new page landed here: say why
-      if (refusal) setError(refusal);
+      if (refusal) { setError(refusal.message); setErrorStays(refusal.status === 409); }
       // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
       // standard rate behind it, as the new page does, so leaving No VAT does not leave a rate of 0.
       const storedRate = Number(invoice.tax_rate ?? 15);
@@ -164,6 +165,7 @@ export default function EditCustomerInvoicePage() {
     onRefused: (_id, message, status) => { setError(message); setErrorStays(status === 409); },
     onApproved: () => setApproved(true),
     bodyNow: () => autosave.currentBody(),
+    expectedTotal: total,
   });
   // A date the server has taken (loaded, or saved on this visit) is kept by it if the body leaves it out.
   const keepStoredDates = (json: string) => {
@@ -186,7 +188,13 @@ export default function EditCustomerInvoicePage() {
   };
   // A refusal on screen (a Save or an approval) is answered by the next save the server takes.
   // Not the approval gate's 409 (APPROVAL_REQUIRED / PENDING / STALE): saving does not answer that, an approver does.
-  useEffect(() => { if (autosave.savedAt !== null && !errorStays) setError(''); }, [autosave.savedAt, errorStays]);
+  // Only when a NEW save lands: a refusal set in the same moment the gate's sticky flag is let go stays on screen.
+  const answeredSave = useRef<number | null>(null);
+  useEffect(() => {
+    if (autosave.savedAt === null || autosave.savedAt === answeredSave.current) return;
+    answeredSave.current = autosave.savedAt;
+    if (!errorStays) setError('');
+  }, [autosave.savedAt, errorStays]);
 
   const handleSubmit = async () => {
     setSubmitting(true);

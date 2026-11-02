@@ -31,6 +31,8 @@ interface Options {
   onApproved?: () => void;
   /** The form as it would be saved, now. Compared after the approval: a change that landed meanwhile is not on it. */
   bodyNow: () => string | null;
+  /** The total on screen when Approve & email is clicked: sent with the approval, which a different stored total refuses (409 STALE_VIEW). */
+  expectedTotal: number;
 }
 
 interface EmailForm {
@@ -60,42 +62,49 @@ async function readEmailForm(saved: SavedInvoice): Promise<EmailForm> {
   }
 }
 
-export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Options) {
+export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, expectedTotal }: Options) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState<EmailForm | null>(null);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState('');
   const [sent, setSent] = useState(false);
-  const sentNow = useRef(false); // read when a navigation fails, after the render that knew about the send
+  const sentNow = useRef(false);
+  const run = useRef(0); // each Approve & email; a dismissal moves it on, so an answer for the old one is ignored // read when a navigation fails, after the render that knew about the send
   const markSent = (v: boolean) => { sentNow.current = v; setSent(v); };
   const [drifted, setDrifted] = useState(false);
 
   const start = useCallback(async () => {
     if (busy) return;
+    const mine = ++run.current;
+    const current = () => mine === run.current;
     setBusy(true);
     try {
       const approvedBody = bodyNow(); // before the save: a change typed while it is out is not on the approved invoice
+      const shownTotal = expectedTotal;
       const saved = await save();
-      if (!saved) return;
+      if (!saved || !current()) return;
       try {
         const res = await apiFetch('/api/accounting/customer-invoices-detail', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: saved.id, action: 'approve' }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: saved.id, action: 'approve', expectedTotal: shownTotal }),
         });
         await assertOk(res, APPROVE_FAILED);
       } catch (err) {
+        if (!current()) return;
         onRefused(saved.id, apiErrorMessage(err, APPROVE_FAILED), err instanceof ApiRequestError ? err.status : undefined);
         return;
       }
+      if (!current()) return;
       onApproved?.();
       setDrifted(bodyNow() !== approvedBody);
       setResult('');
       markSent(false);
-      setEmail(await readEmailForm(saved));
+      const form = await readEmailForm(saved);
+      if (current()) setEmail(form);
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
-  }, [busy, save, onRefused, onApproved, bodyNow]);
+  }, [busy, save, onRefused, onApproved, bodyNow, expectedTotal]);
 
   const send = useCallback(async () => {
     if (!email || !email.emailTo.trim() || sending || sent) return;
@@ -130,7 +139,10 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Opt
   }, [email, sending, router]);
 
   /** Drops the email form without navigating (the page was opened again in place). */
-  const dismiss = useCallback(() => { setEmail(null); setResult(''); sentNow.current = false; setSent(false); }, []);
+  const dismiss = useCallback(() => {
+    run.current++;
+    setBusy(false); setEmail(null); setResult(''); sentNow.current = false; setSent(false);
+  }, []);
 
   return {
     busy,
@@ -151,19 +163,22 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Opt
 const refusalKey = (invoiceId: string) => `isaflow:invoice-approve-refused:${invoiceId}`;
 
 /** Carries a refused approval's sentence from the new page to the draft's edit page (never in the URL, where a link could forge it). */
-export function stashApproveRefusal(invoiceId: string, message: string): void {
+export function stashApproveRefusal(invoiceId: string, message: string, status?: number): void {
   try {
-    sessionStorage.setItem(refusalKey(invoiceId), message);
+    sessionStorage.setItem(refusalKey(invoiceId), JSON.stringify({ message, status: status ?? null }));
   } catch (err) {
     log.warn('Could not carry the approval refusal to the edit page', { invoiceId, err }, 'useApproveAndEmail');
   }
 }
 
-export function takeApproveRefusal(invoiceId: string): string | null {
+/** The refusal carried from the new page, with its HTTP status (409: the approval gate, which stays on screen). */
+export function takeApproveRefusal(invoiceId: string): { message: string; status: number | null } | null {
   try {
-    const message = sessionStorage.getItem(refusalKey(invoiceId));
-    if (message !== null) sessionStorage.removeItem(refusalKey(invoiceId));
-    return message;
+    const raw = sessionStorage.getItem(refusalKey(invoiceId));
+    if (raw === null) return null;
+    sessionStorage.removeItem(refusalKey(invoiceId));
+    const { message, status } = JSON.parse(raw) as { message?: unknown; status?: unknown };
+    return typeof message === 'string' ? { message, status: typeof status === 'number' ? status : null } : null;
   } catch (err) {
     log.warn('Could not read the approval refusal', { invoiceId, err }, 'useApproveAndEmail');
     return null;

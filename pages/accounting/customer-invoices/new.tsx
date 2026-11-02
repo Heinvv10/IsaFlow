@@ -34,6 +34,7 @@ import { stashApproveRefusal, useApproveAndEmail, type SavedInvoice } from '@/co
 
 interface Client { id: string; name: string }
 type LineItem = InvoiceLine;
+const SCAN_LOOKUP_TIMEOUT = 'Could not find the scanned customer in time - pick the client yourself';
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 const BLANK_LINE = { description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, discountFromDefault: true, ...UNCODED };
 
@@ -84,12 +85,17 @@ export default function NewCustomerInvoicePage() {
   // The picker searches for itself; the full list is only needed here, to match a scanned name, so it is fetched on demand.
   // Bumped by every scan, every client the user picks and every form reset: a lookup answers only if none of them happened since.
   const lookupSeq = useRef(0);
-  // Create and Approve & email wait for a scan's lookup: it must not land on a created invoice's form (or the next one).
-  const [scanLookups, setScanLookups] = useState(0);
+  // Create and Approve & email wait for a scan's lookup (it must not land on a created invoice's form, or the next one),
+  // saying so, for 15 s at most, and not once the user picked a customer themselves (which also voids the lookup).
+  const [scanLookup, setScanLookup] = useState<number | null>(null);
   async function matchScannedClient(name: string, seq: number) {
-    setScanLookups(n => n + 1);
+    setScanLookup(seq);
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const res = await apiFetch('/api/accounting/customers', { credentials: 'include' });
+      const res = await Promise.race([
+        apiFetch('/api/accounting/customers', { credentials: 'include' }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(SCAN_LOOKUP_TIMEOUT)), 15_000); }),
+      ]);
       await assertOk(res, 'Could not load clients - try again');
       const json = await res.json();
       if (lookupSeq.current !== seq) return;
@@ -98,8 +104,8 @@ export default function NewCustomerInvoicePage() {
       const match = fuzzyMatchClient(name, clients);
       const hit = match ? clients.find(c => String(c.id) === String(match.id)) : undefined;
       if (hit) { setForm(f => ({ ...f, clientId: String(hit.id) })); setScanned({ id: String(hit.id), name: hit.name }); }
-    } catch (err) { if (lookupSeq.current === seq) setError(apiErrorMessage(err, 'Could not load clients - try again')); }
-    finally { setScanLookups(n => n - 1); }
+    } catch (err) { if (lookupSeq.current === seq) setError(err instanceof Error && err.message === SCAN_LOOKUP_TIMEOUT ? err.message : apiErrorMessage(err, 'Could not load clients - try again')); }
+    finally { clearTimeout(timer); setScanLookup(s => (s === seq ? null : s)); }
   }
 
   const [rateEditing, setRateEditing] = useState(false);
@@ -133,12 +139,15 @@ export default function NewCustomerInvoicePage() {
     setScanBanner(`Auto-filled (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
   }
 
-  // Created by Approve & email, the form is done whatever the approval answers: the page stays inert (behind the email
-  // form, or while the draft's edit page opens), so no key or click creates a second invoice (a number burnt, a wallet
-  // charge). The ref holds from the moment of the create, before the next render.
+  /**
+   * Creates the draft (the page shows any refusal); the device's copy goes once the server has it. Once created
+   * (Create, or Approve & email whatever the approval answers) the page is done: inert until it is left or reset, so no
+   * key, click, or Cancel on a leave question creates a second invoice (a number burnt, a wallet charge). The ref holds
+   * from the moment of the create, before the next render. Save & New resets the form instead.
+   */
   const [done, setDone] = useState(false);
   const doneNow = useRef(false);
-  /** Creates the draft (the page shows any refusal); the device's copy goes once the server has it. */
+  const markDone = () => { doneNow.current = true; setDone(true); lookupSeq.current++; };
   const createInvoice = async (): Promise<SavedInvoice | null> => {
     if (doneNow.current) return null;
     if (!form.clientId) { setError('Select a client'); return null; }
@@ -179,12 +188,9 @@ export default function NewCustomerInvoicePage() {
       const made = await createInvoice();
       if (!made) return;
       lookupSeq.current++; // nothing still out lands on the created invoice's form
-      if (andNew) {
-        resetForm();
-        try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
-      } else {
-        try { await router.push(`/accounting/customer-invoices/${made.id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
-      }
+      if (andNew) resetForm(); else markDone();
+      const next = andNew ? '/accounting/customer-invoices/new' : `/accounting/customer-invoices/${made.id}`;
+      try { await router.push(next); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
     } finally { setSubmitting(false); }
   };
 
@@ -192,12 +198,13 @@ export default function NewCustomerInvoicePage() {
   const approve = useApproveAndEmail({
     save: async () => {
       const made = await createInvoice();
-      if (made) { doneNow.current = true; setDone(true); lookupSeq.current++; }
+      if (made) markDone();
       return made;
     },
     bodyNow: draft.current,
-    onRefused: (id, message) => {
-      stashApproveRefusal(id, message);
+    expectedTotal: total,
+    onRefused: (id, message, status) => {
+      stashApproveRefusal(id, message, status);
       void (async () => {
         let opened = false;
         try { opened = (await router.push(`/accounting/customer-invoices/edit/${id}`)) === true; } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
@@ -206,7 +213,7 @@ export default function NewCustomerInvoicePage() {
     },
   });
   const inert = submitting || approve.busy || done;
-  const busy = inert || contact.pending || scanLookups > 0;
+  const busy = inert || contact.pending || scanLookup !== null;
 
   // /new opened again on this page (a link, a shortcut) after Approve & email: a fresh invoice, not the done one.
   const events = router.events as typeof router.events | undefined;
@@ -245,7 +252,7 @@ export default function NewCustomerInvoicePage() {
 
               <fieldset disabled={inert} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
-                onChange={patch => { if ('clientId' in patch) lookupSeq.current++; if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
+                onChange={patch => { if ('clientId' in patch) { lookupSeq.current++; setScanLookup(null); } if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}
                 taxMode={taxMode} onTaxModeChange={pickTaxMode} hints={contact.hints} vatWarning={vatTypeWarning(contact.vatType, taxRate)} onDueDateEdited={() => contact.touch('dueDate')} onRateEditing={setRateEditing} />
 
@@ -264,6 +271,7 @@ export default function NewCustomerInvoicePage() {
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode}
                 fx={isFx ? { zarTotal, rate: form.exchangeRate } : undefined} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
                 <InvoiceAutosaveStatus where="device" state={draft.state} savedAt={draft.savedAt} error={draft.error} />
+                {scanLookup !== null && <p role="status" className="mt-3 text-xs text-slate-600 dark:text-slate-400">Finding the scanned customer…</p>}
                 <NewInvoiceActions busy={busy} submitting={submitting} saveAndNew={saveAndNew} approving={approve.busy}
                   onCreate={() => { void handleSubmit(false); }} onSaveAndNew={() => { void handleSubmit(true); }} onApprove={approve.start} />
               </InvoiceSummaryCard>

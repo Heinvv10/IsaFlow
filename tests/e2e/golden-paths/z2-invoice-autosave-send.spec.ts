@@ -123,8 +123,9 @@ test('Back from the edit page with a change still unsaved: not refused, history 
     await page.goBack(); // inside the 1.5 s autosave wait
     await page.waitForURL(new RegExp(`/accounting/customer-invoices/${id}$`), { timeout: 30_000 });
     expect(asked, 'Back is not refused').toBe(0);
-    await expect.poll(async () => (await api.get<{ items: { description: string }[] }>(`/api/accounting/customer-invoices-detail?id=${id}`)).items[0]!.description,
-      { timeout: 15_000 }).toBe(changed);
+    // The invoice page waits for the save sent as the edit page went, then shows it: no polling.
+    await expect(page.getByText(changed)).toBeVisible({ timeout: 30_000 });
+    expect((await api.get<{ items: { description: string }[] }>(`/api/accounting/customer-invoices-detail?id=${id}`)).items[0]!.description).toBe(changed);
     await page.goForward(); // the edit page's entry is still there
     await page.waitForURL(new RegExp(`/edit/${id}$`), { timeout: 30_000 });
     await page.goBack();

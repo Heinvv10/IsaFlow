@@ -22,6 +22,7 @@ import {
 import {
   approveCustomerInvoice,
   InvoiceNotApprovableError,
+  InvoiceStaleViewError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
@@ -115,7 +116,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!postParsed.success) {
       return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
     }
-    const { id, action } = postParsed.data;
+    const { id, action, expectedTotal } = postParsed.data;
     const userId = (req as CompanyAuthedRequest).user?.id || 'system';
 
     // Cancel reverses the approval GL journal and zeroes the outstanding
@@ -152,7 +153,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (action === 'approve') {
       try {
-        const result = await withJournalDateRefusal(res, () => approveCustomerInvoice(companyId, id, userId));
+        const result = await withJournalDateRefusal(res, () =>
+          approveCustomerInvoice(companyId, id, userId, expectedTotal === undefined ? undefined : { expectedTotal }));
         if (result === JOURNAL_DATE_REFUSED) return;
         log.info('Customer invoice action', { id, action, newStatus: result.status });
         return apiResponse.success(res, {
@@ -160,6 +162,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           evidenceDocumentId: result.evidenceDocumentId,
         });
       } catch (err) {
+        // Under the row lock, before any write: what the approver saw is not what is stored. Nothing was approved.
+        if (err instanceof InvoiceStaleViewError) return apiResponse.conflict(res, err.message, { reason: 'STALE_VIEW' });
         if (err instanceof InvoiceNotApprovableError) {
           return err.notFound ? apiResponse.notFound(res, 'Invoice', id) : apiResponse.badRequest(res, err.message);
         }

@@ -45,17 +45,17 @@ function quietCancellations(router: NextRouter): () => void {
   return () => { router.push = push; router.replace = replace; };
 }
 
-function useLeaveGuard(unsaved: () => boolean): void {
+function useLeaveGuard(unsaved: () => boolean, leaveWithout: () => void): void {
   const router = useRouter() as NextRouter | null;
   const check = useRef(unsaved);
-  useEffect(() => { check.current = unsaved; });
+  const giveUp = useRef(leaveWithout);
+  useEffect(() => { check.current = unsaved; giveUp.current = leaveWithout; });
 
   useEffect(() => {
     if (!router) return undefined;
     // A router stub without events (unit tests of other behaviour) gets no route guard; Next's router always has them.
     const events = router.events as NextRouter['events'] | undefined;
     let popping = false; // a back/forward under way: its route change goes through unasked
-    const ask = () => !check.current() || window.confirm(LEAVE_MESSAGE);
 
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!check.current()) return;
@@ -65,7 +65,8 @@ function useLeaveGuard(unsaved: () => boolean): void {
     const onHashChange = () => { popping = false; };
     const onRouteChange = () => {
       if (popping) { popping = false; return; }
-      if (ask()) return;
+      if (!check.current()) return;
+      if (window.confirm(LEAVE_MESSAGE)) { giveUp.current(); return; } // "Leave without them": nothing is kept as it goes
       events?.emit('routeChangeError');
       throw new NavigationCancelled();
     };
@@ -91,6 +92,6 @@ export function useInvoiceAutosave(opts: LocalDraftOptions | ServerAutosaveOptio
   const local = useLocalInvoiceDraft(opts.mode === 'local' ? opts : null);
   const server = useServerInvoiceAutosave(opts.mode === 'server' ? opts : null);
   const current = opts.mode === 'local' ? local : server;
-  useLeaveGuard(current.unsaved);
+  useLeaveGuard(current.unsaved, current.leaveWithout);
   return current;
 }

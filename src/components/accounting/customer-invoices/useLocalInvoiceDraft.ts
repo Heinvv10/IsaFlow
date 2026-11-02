@@ -9,7 +9,8 @@
  *   until the user answers; the page says so beside the offer.
  * - A clear (sign-out, a company switch) ends this page's writing: a timer still pending writes nothing back. A clear
  *   in ANOTHER tab says so on this page ("no longer kept"), and leaving still asks: what is on screen is the only copy.
- * - Left before the 800 ms are up (Back, a link), the page writes what was typed as it goes.
+ * - Left before the 800 ms are up (Back, a link), the page writes what was typed as it goes, even while a VAT rate is
+ *   being typed; not while a kept draft is unanswered, and not after the user chose "Leave without them".
  * - Never while `paused` (a VAT rate edit under way), as on the edit page.
  * - A storage that throws is shown, never raised; the next change tries again.
  * - `clear` after a successful create; sign-out and a company switch clear every draft (AuthContext, CompanyContext).
@@ -52,12 +53,18 @@ export interface LocalDraft {
   unsaved: () => boolean;
   /** The form as it would be kept, at the moment of asking. */
   current: () => string | null;
+  /** The user chose to leave without the change: nothing is written as the page goes. */
+  leaveWithout: () => void;
 }
 
 const MODES: readonly string[] = ['exclusive', 'inclusive', 'none'];
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 export const isLocalDraftData = (v: unknown): v is LocalDraftData =>
   isRecord(v) && isRecord(v.form) && Array.isArray(v.lines) && v.lines.every(isRecord) && typeof v.taxMode === 'string' && MODES.includes(v.taxMode);
+
+/** Nothing typed that would be lost: no client, no notes, no line with a description or a price. */
+const isBlank = (d: LocalDraftData | null): boolean =>
+  !d || (!d.form.clientId && !d.form.notes && d.lines.every((l) => !l.description && !l.unitPrice));
 
 /** The signed-in user and the active company, or nulls outside their providers. */
 export function useInvoiceDraftOwner(): { companyId: string | null; userId: string | null } {
@@ -79,6 +86,7 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const since = useRef(invoiceDraftGeneration());
   const [clearedElsewhere, setClearedElsewhere] = useState(false);
+  const discarded = useRef(false);
   const [offer, setOffer] = useState<StoredDraft<LocalDraftData> | null>(null);
   const [writtenJson, setWrittenJson] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -104,8 +112,8 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   }, []);
 
   const armed = Boolean(key && !offer && !opts?.paused);
-  const writer = useRef({ key, armed });
-  useCommitEffect(() => { writer.current = { key, armed }; });
+  const writer = useRef({ key, armed, offered: Boolean(offer) });
+  useCommitEffect(() => { writer.current = { key, armed, offered: Boolean(offer) }; });
   /** Keeps the form now. Never past a clear; back to how the page opened, there is nothing to keep. */
   const writeNow = useCallback(() => {
     const now = latest.current;
@@ -113,16 +121,19 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     if (!k || now.json === null || now.data === null) return;
     const cleared = invoiceDraftsClearedSince(since.current);
     if (cleared !== 'none') { if (cleared === 'elsewhere') setClearedElsewhere(true); return; }
-    const kept = now.json === baseline.current ? removeInvoiceDraft(k) : writeInvoiceDraft(k, { data: now.data, savedAt: Date.now() }, since.current);
+    const blank = now.json === baseline.current || isBlank(now.data);
+    const kept = blank ? removeInvoiceDraft(k) : writeInvoiceDraft(k, { data: now.data, savedAt: Date.now() }, since.current);
     setFailed(!kept);
     if (!kept) return;
     written.current = now.json;
     setWrittenJson(now.json);
-    setSavedAt(now.json === baseline.current ? null : Date.now());
+    setSavedAt(blank ? null : Date.now());
   }, []);
-  // Declared before the timer's effect, so on unmount it runs first and still sees a write waiting.
+  // Declared before the timer's effect, so on unmount it runs first. Unarmed by a VAT rate being typed still writes:
+  // the draft keeps the typed values, so it restores what was on screen.
   useEffect(() => () => {
-    if (timer.current && writer.current.armed) writeNow();
+    const { key: k, offered } = writer.current;
+    if (k && !offered && !discarded.current && latest.current.json !== written.current) writeNow();
   }, [writeNow]);
   useEffect(() => {
     if (!armed || !key || json === written.current) return undefined;
@@ -145,20 +156,26 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     if (!offer && key) removeInvoiceDraft(key); // an unanswered kept draft is not this invoice: it stays, still offered
     written.current = latest.current.json; // nothing unsaved now; the next render's form is the new start
     rebase.current = true;
+    since.current = invoiceDraftGeneration(); // the next form starts after any clear already seen
+    setClearedElsewhere(false);
     setSavedAt(null);
     setFailed(false);
   }, [key, offer]);
   const unsaved = useCallback(() => {
     if (!key) return false;
     const cleared = invoiceDraftsClearedSince(since.current);
-    // Cleared here: this tab is signing out or switching, and leaving is the point. Elsewhere: the screen is the only copy.
-    return cleared === 'elsewhere' || (cleared === 'none' && latest.current.json !== written.current);
+    // Cleared here: this tab is signing out or switching, and leaving is the point. Elsewhere: the screen is the only
+    // copy. A form back to how the page opened has nothing to lose.
+    const json = latest.current.json;
+    if (json === baseline.current || isBlank(latest.current.data)) return false;
+    return cleared === 'elsewhere' || (cleared === 'none' && json !== written.current);
   }, [key]);
   const current = useCallback(() => latest.current.json, []);
+  const leaveWithout = useCallback(() => { discarded.current = true; }, []);
 
   const state: AutosaveState | null = !key ? null
     : failed || clearedElsewhere ? 'error'
       : writtenJson !== null && json !== writtenJson ? 'dirty'
         : savedAt !== null ? 'saved' : null;
-  return { state, savedAt, error: clearedElsewhere ? CLEARED_ELSEWHERE : failed ? FAILED : null, offer: offer ? { savedAt: offer.savedAt } : null, restore, discard, clear, unsaved, current };
+  return { state, savedAt, error: clearedElsewhere ? CLEARED_ELSEWHERE : failed ? FAILED : null, offer: offer ? { savedAt: offer.savedAt } : null, restore, discard, clear, unsaved, current, leaveWithout };
 }

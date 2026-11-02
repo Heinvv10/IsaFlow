@@ -26,6 +26,7 @@ import { CUSTOMER_INVOICE_STATUS_COLORS } from '@/modules/accounting/types/custo
 import { InvoiceAdjacentNav, useAdjacentInvoices } from '@/components/invoices/InvoiceAdjacentNav';
 import { DocumentApprovalPanel } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
+import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
 
 export default function CustomerInvoiceDetailPage() {
   const router = useRouter();
@@ -53,6 +54,7 @@ export default function CustomerInvoiceDetailPage() {
     setLoading(true);
     setError('');
     try {
+      await invoiceSavesSettled(String(invoiceId)); // an edit page's last save, sent as it closed, lands first
       const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
       await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
@@ -78,9 +80,10 @@ export default function CustomerInvoiceDetailPage() {
       const res = await apiFetch('/api/accounting/customer-invoices-detail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: invoiceId, action }),
+        // Approve carries the total on screen: a different stored total is refused (409 STALE_VIEW) and reloaded below.
+        body: JSON.stringify(action === 'approve' && invoice ? { id: invoiceId, action, expectedTotal: Number(invoice.total_amount) } : { id: invoiceId, action }),
       });
-      // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
+      // R-035: 409 is the approval gate — reload so the page offers Submit for approval — or STALE_VIEW: show what is stored.
       if (res.status === 409) await loadInvoice();
       await assertOk(res, 'Could not complete that action - try again');
       await loadInvoice();
@@ -89,7 +92,7 @@ export default function CustomerInvoiceDetailPage() {
     } finally {
       setActionLoading('');
     }
-  }, [invoiceId, loadInvoice]);
+  }, [invoiceId, invoice, loadInvoice]);
 
   const handleSendEmail = async () => {
     if (!emailTo.trim()) return;

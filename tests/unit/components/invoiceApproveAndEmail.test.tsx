@@ -59,7 +59,7 @@ describe('Approve & email on a new invoice', () => {
     await openNew();
     await approveAndEmail();
     expect(urlsInOrder()).toEqual(['POST /api/accounting/customer-invoices-create', 'POST /api/accounting/customer-invoices-detail']);
-    expect(bodyOf(approves()[0]!)).toEqual({ id: 'inv-1', action: 'approve' });
+    expect(bodyOf(approves()[0]!)).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 115 }); // the total on screen
     expect(dialog()).toBeTruthy();
     expect((screen.getByPlaceholderText('client@example.com') as HTMLInputElement).value).toBe('billing@client.example');
     await advance(30_000);
@@ -131,6 +131,7 @@ describe('Approve & email on the edit page', () => {
     await approveAndEmail();
     expect(puts()).toHaveLength(0);
     expect(urlsInOrder()).toEqual(['POST /api/accounting/customer-invoices-detail']);
+    expect(bodyOf(approves()[0]!)).toEqual({ id: 'inv-1', action: 'approve', expectedTotal: 115 });
     expect(dialog()).toBeTruthy();
     cleanup();
     vi.mocked(apiFetch).mockClear();

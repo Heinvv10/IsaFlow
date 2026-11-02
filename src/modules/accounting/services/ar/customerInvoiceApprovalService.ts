@@ -57,6 +57,17 @@ import { CustomerInvoiceLockTimeoutError } from './customerInvoiceLock';
 
 export { CustomerInvoiceLockTimeoutError };
 
+/**
+ * The approver was shown another total than the one stored (a save landed after the page read it). Raised under the
+ * row lock, before any write: the route answers 409 STALE_VIEW and the 4xx COMMIT has nothing of the approval in it.
+ */
+export class InvoiceStaleViewError extends Error {
+  constructor(storedTotal: number) {
+    super(`This invoice changed after it was shown: its total is now R${storedTotal.toFixed(2)}. Check it, then approve again.`);
+    this.name = 'InvoiceStaleViewError';
+  }
+}
+
 export class InvoiceNotApprovableError extends Error {
   public readonly notFound: boolean;
 
@@ -101,13 +112,16 @@ export interface ApproveCustomerInvoiceResult {
  *   and last-positional: the HTTP route (a human clicking Approve) omits it
  *   and keeps `human:<userId>`; the MCP finalize_invoice tool passes its own
  *   stamp so agent-approved invoices show up in list_agent_postings.
+ * @param opts.expectedTotal The total the approver was shown (the HTTP route, from a screen). A different stored total
+ *   throws InvoiceStaleViewError under the lock, before any write. MCP and the recurring run have no screen and omit it.
  */
 export async function approveCustomerInvoice(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: PostingActorOpts,
+  opts?: PostingActorOpts & { expectedTotal?: number },
 ): Promise<ApproveCustomerInvoiceResult> {
+  const { expectedTotal, ...actor } = opts ?? {};
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // A COMPARE-AND-SWAP IS STRONGER THAN A LOCK AGAINST DOUBLE-POSTING, AND
   // WEAKER AGAINST HANGING. The guarded UPDATE below means two callers cannot
@@ -158,6 +172,10 @@ export async function approveCustomerInvoice(
     throw err;
   }
   if (locked[0]) {
+    const storedTotal = Number(locked[0].total_amount ?? 0);
+    if (expectedTotal !== undefined && Math.round(storedTotal * 100) !== Math.round(expectedTotal * 100)) {
+      throw new InvoiceStaleViewError(storedTotal);
+    }
     await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
     // FX PR0: under the lock and before the status write, like the approval check.
     await assertDocumentPostable(companyId, [locked[0].currency_code], 'invoice');
@@ -219,7 +237,7 @@ export async function approveCustomerInvoice(
   // check above — projects and cost centres are not locked) must not reach a
   // route as the pre-write 400 it maps InvoiceLineCodingRefusal to.
   const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId,
-    { ...opts, approvingFromStatus: String(locked[0]?.status) }).catch((err: unknown) => {
+    { ...actor, approvingFromStatus: String(locked[0]?.status) }).catch((err: unknown) => {
     if (err instanceof InvoiceLineCodingRefusal) throw new ArPostingAfterWriteError(err.message, { cause: err });
     throw err;
   });

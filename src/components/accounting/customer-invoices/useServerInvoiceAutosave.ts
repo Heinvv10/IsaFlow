@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { trackInvoiceSave } from '@/lib/pendingInvoiceSaves';
 import type { AutosaveState } from '@/components/ui/AutosaveStatus';
 import type { InvoicePutBody } from './invoicePutBody';
 
@@ -61,6 +62,8 @@ export interface ServerAutosave {
   held: string | null;
   /** The newest body as sent, at the moment of asking (Approve & email compares it before and after). */
   currentBody: () => string | null;
+  /** The user chose to leave without the change: nothing is sent as the page closes. */
+  leaveWithout: () => void;
 }
 
 interface Failure { json: string; message: string }
@@ -76,6 +79,11 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const inFlight = useRef<Promise<SaveResult> | null>(null);
+  const sending = useRef<string | null>(null); // the body of the PUT out now
+  const discarded = useRef(false);
+  // The last body this page showed with its invoice, kept past the render that drops it (another invoice opened in
+  // place shows no body while it loads), so the change it held can still be sent.
+  const lastShown = useRef<{ invoiceId: string | null; json: string; armed: boolean } | null>(null);
   const again = useRef(false);
   const seq = useRef(0);
 
@@ -85,12 +93,41 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const armed = Boolean(opts && json !== null && !opts.done && !opts.paused && !opts.problem && !failed);
 
   // First: what the timers and the guard read. Then the body the page loaded with is what the server holds.
-  useCommitEffect(() => { latest.current = { json, armed, done: Boolean(opts?.done) }; });
-  // Another invoice opened in place: nothing it shows has been saved by this page yet, and a reply for the old one is stale.
   const invoiceId = opts?.invoiceId ?? null;
+  useCommitEffect(() => {
+    latest.current = { json, armed, done: Boolean(opts?.done) };
+    if (json !== null) lastShown.current = { invoiceId, json, armed };
+  });
+
+  /**
+   * Sends the change still waiting (its 1.5 s not up) as the invoice leaves the page: unmounted (Back, a link) or
+   * another invoice opened in place. After any PUT still out, so the older body never lands last; never one the user
+   * chose to leave without, a body held back or already saved or out. Its reply has no page to update; the next page
+   * to read the invoice waits for it (pendingInvoiceSaves).
+   */
+  const sendAsItLeaves = useCallback(() => {
+    const shown = lastShown.current;
+    if (!shown || !shown.invoiceId || discarded.current || latest.current.done || !shown.armed) return;
+    if (shown.json === lastSaved.current || shown.json === sending.current) return;
+    const prior = inFlight.current;
+    trackInvoiceSave(shown.invoiceId, (async () => {
+      try {
+        if (prior) await prior;
+        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: shown.json });
+        await assertOk(res, SAVE_FAILED);
+      } catch (err) {
+        log.warn('The change typed as the invoice left the page was not saved', { err }, 'useServerInvoiceAutosave');
+      }
+    })());
+  }, []);
+
+  // Another invoice opened in place: the old one's waiting change goes first; then nothing the new one shows has been
+  // saved by this page yet, and a reply for the old one is stale.
   const shownFor = useRef(invoiceId);
   useCommitEffect(() => {
     if (shownFor.current === invoiceId) return;
+    sendAsItLeaves();
+    lastShown.current = null;
     shownFor.current = invoiceId;
     seq.current++;
     lastSaved.current = null;
@@ -104,23 +141,8 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     lastSaved.current = json;
     setSavedJson(json);
   }, [json]);
-  // Unmounted (Back, Forward, a link): a change still waiting for its 1.5 s goes now, after any PUT still out, so the
-  // older body never lands last. Its reply has no page to update: every reply still out is stale from here.
-  useEffect(() => () => {
-    seq.current++;
-    const { json: last, armed: sendable } = latest.current;
-    if (!sendable || last === null || last === lastSaved.current) return;
-    const prior = inFlight.current;
-    void (async () => {
-      try {
-        if (prior) await prior;
-        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: last });
-        await assertOk(res, SAVE_FAILED);
-      } catch (err) {
-        log.warn('The change typed as the invoice page closed was not saved', { err }, 'useServerInvoiceAutosave');
-      }
-    })();
-  }, []);
+  // Unmounted: every reply still out is stale from here.
+  useEffect(() => () => { seq.current++; sendAsItLeaves(); }, [sendAsItLeaves]);
 
   // 'auto': the timer's, only while armed; 'changed': a button's, if the body moved; 'always': the Save button's.
   const send = useCallback(async (how: Send): Promise<SaveResult> => {
@@ -129,8 +151,11 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     if (latest.current.done || (how !== 'always' && sent === lastSaved.current) || (how === 'auto' && !latest.current.armed)) return { ok: true };
     const mine = ++seq.current;
     setSaving(true);
+    sending.current = sent;
     try {
-      const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent });
+      const put = apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: sent });
+      if (shownFor.current) trackInvoiceSave(shownFor.current, put);
+      const res = await put;
       await assertOk(res, SAVE_FAILED);
       if (mine !== seq.current) return { ok: true };
       lastSaved.current = sent; // what this reply carried, never the newer body typed while it was out
@@ -145,6 +170,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
       if (mine === seq.current) setFailure({ json: sent, message });
       return { ok: false, message };
     } finally {
+      if (sending.current === sent) sending.current = null;
       if (mine === seq.current) setSaving(false);
     }
   }, []);
@@ -174,11 +200,12 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     || (lastSaved.current !== null && latest.current.json !== lastSaved.current)), []);
 
   const currentBody = useCallback(() => latest.current.json, []);
+  const leaveWithout = useCallback(() => { discarded.current = true; }, []);
   const state: AutosaveState | null = !opts || json === null ? null
     : failed ? 'error'
       : saving ? 'saving'
         : savedJson !== null && json !== savedJson ? 'dirty'
           : savedAt !== null ? 'saved' : null;
   const held = state === 'dirty' && opts?.problem && !opts.paused ? opts.problem : null;
-  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody };
+  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody, leaveWithout };
 }
