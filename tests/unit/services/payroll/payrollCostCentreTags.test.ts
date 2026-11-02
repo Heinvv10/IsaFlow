@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { employeeLabourLines, type EmployeeLabourSplit } from '@/modules/accounting/services/payroll/payrollCostCentreTags';
 
 const split = (over: Partial<EmployeeLabourSplit>): EmployeeLabourSplit => ({
-  employeeId: 'e1', costCentreId: null, allocations: [], mappings: {}, taggable: new Set(), advisory: null, ...over,
+  employeeId: 'e1', costCentreId: null, allocations: [], mappings: {}, centres: new Set(), taggable: new Set(), advisories: [], ...over,
 });
 const view = (s: EmployeeLabourSplit, amount: number) =>
   employeeLabourLines(s, amount, 'acct-5200', 'SARS directive 1 — W — gross lump sum').map((l) => [l.glAccountId, l.cc1Id ?? null, l.debit, l.credit]);
@@ -32,6 +32,11 @@ describe('employeeLabourLines', () => {
     const lines = view(s, 100.01);
     expect(lines).toEqual([['acct-5210', 'A', 33.33, 0], ['acct-5210', null, 33.35, 0], ['acct-5200', 'B', 33.33, 0]]);
     expect(lines.reduce((t, l) => t + Math.round(Number(l[2]) * 100), 0)).toBe(10001);
+  });
+
+  it('a zero amount gives the one zero default line the unsplit journal had (the GL refuses it the same way)', () => {
+    expect(view(split({ allocations: [{ costCentreId: 'A', percentage: 100 }], mappings: { A: 'acct-5210' }, taggable: new Set(['A']) }), 0))
+      .toEqual([['acct-5200', null, 0, 0]]);
   });
 
   it('an untagged line carries no cc1Id key at all (JournalLineInput.cc1Id is optional)', () => {
