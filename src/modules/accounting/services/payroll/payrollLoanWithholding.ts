@@ -4,12 +4,13 @@
  * for either (payrollRunLoanComponents.loadLoanComponents), the loan is withheld instead: no payment
  * row, no schedule flag, no balance change, and the line says so. A zero instalment with no benefit
  * needs neither component and is taken as before. The same reading answers the MCP dry run, which
- * also counts the schedule row this run itself flagged, since a recalculation would unflag it first.
+ * also counts the schedule row (and the loan it settled) this run itself took, since a recalculation
+ * would reverse that first.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { fringeBenefitOf, listLoansWithInstalmentDue } from './payrollLoanService';
+import { fringeBenefitOf } from './payrollLoanService';
 import { listPayrollRunEmployees } from './payrollEmployeeService';
 import { loadLoanComponents } from './payrollRunLoanComponents';
 import type { ValidationResult } from './payrollTypes';
@@ -48,7 +49,9 @@ export async function withholdingFor(loan: LoanInRun, present: LoanComponentsPre
          ORDER BY s.sequence
          LIMIT 1
       ) s ON true
-     WHERE l.id = ${loan.loanId}::uuid AND l.company_id = ${loan.companyId}::uuid AND l.status = 'active'
+     WHERE l.id = ${loan.loanId}::uuid AND l.company_id = ${loan.companyId}::uuid
+       AND (l.status = 'active' OR EXISTS (
+         SELECT 1 FROM payroll_loan_payments p WHERE p.loan_id = l.id AND p.run_id = ${loan.runId}::uuid))
   `) as DbRow[];
   const r = rows[0];
   if (!r) return null;
@@ -96,9 +99,19 @@ export async function previewWithheldLoans(
   if (present.deduction && present.fringe) return [];
   const employees = new Set((await listPayrollRunEmployees(companyId, period)).map((e) => e.id));
   const out: WithheldLoan[] = [];
-  for (const due of await listLoansWithInstalmentDue(companyId, period.year, period.month)) {
-    if (!employees.has(due.employeeId)) continue;
-    const held = await withholdingFor({ loanId: due.loanId, companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate }, present);
+  // Active, or settled by this run's own payment: a recalculation would reverse it and reactivate the loan first.
+  const due = (await sql`
+    SELECT DISTINCT l.id AS loan_id, l.employee_id
+      FROM payroll_loans l
+      JOIN payroll_loan_schedule s ON s.loan_id = l.id
+     WHERE l.company_id = ${companyId}::uuid
+       AND s.due_period_year = ${period.year} AND s.due_period_month = ${period.month}
+       AND (l.status = 'active' OR EXISTS (
+         SELECT 1 FROM payroll_loan_payments p WHERE p.loan_id = l.id AND p.run_id = ${runId}::uuid))
+  `) as DbRow[];
+  for (const row of due.map((r) => ({ loanId: String(r.loan_id), employeeId: String(r.employee_id) }))) {
+    if (!employees.has(row.employeeId)) continue;
+    const held = await withholdingFor({ loanId: row.loanId, companyId, runId, periodYear: period.year, periodMonth: period.month, officialRate }, present);
     if (held) out.push(held);
   }
   return out.sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber) || a.loanNumber.localeCompare(b.loanNumber));
