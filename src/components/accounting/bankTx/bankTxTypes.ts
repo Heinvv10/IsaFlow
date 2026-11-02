@@ -51,6 +51,8 @@ export interface BankTx {
   buCode?: string;
   dimensionSource?: 'bank' | 'journal' | 'split';
   buName?: string;
+  /** The journal matched_journal_line_id belongs to. Not always this line's own bank leg (a hand match). */
+  matchedJournalEntryId?: string;
   /** Allocation tracking — populated for matched/reconciled transactions */
   allocationType?: AllocType;
   /** Resolved from the posted journal: "<code> <account name>". */
@@ -137,4 +139,6 @@ export interface BankTxTableProps {
   onCreateEntity?: (txId: string, type: AllocType) => void;
   /** Open the asset / fuel / service link picker for a row. */
   onLink?: (tx: BankTx) => void;
+  /** Open the row's drawer. */
+  onOpenDetails?: (txId: string) => void;
 }
