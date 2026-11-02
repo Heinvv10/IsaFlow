@@ -69,7 +69,7 @@ function HintRow({ hint, mayMove, roleKnown, busy, onMove }: {
         <div className="mt-2 border-t border-amber-500/30 pt-2">
           <p className="text-xs text-[var(--ff-text-secondary)]">These accounts will be moved into {hint.groupName}:</p>
           <ul className="my-1.5 max-h-40 list-disc overflow-y-auto pl-5 text-xs text-[var(--ff-text-primary)]" data-testid="ungrouped-hint-accounts">
-            {hint.accounts.map(a => <li key={a.id}>{a.accountName} <span className="font-mono text-[var(--ff-text-tertiary)]">{a.accountCode}</span></li>)}
+            {hint.accounts.map(a => <li key={a.id}>{a.accountName} <span className="font-id text-[var(--ff-text-tertiary)]">{a.accountCode}</span></li>)}
           </ul>
           <div className="flex gap-2">
             <button type="button" onClick={onMove} disabled={busy} data-testid="ungrouped-hint-move"

@@ -44,6 +44,24 @@ export interface PageHeaderProps {
   className?: string;
 }
 
+/** The h1; its full text is the tooltip only while `truncate` is hiding some of it. */
+function PageTitle({ title }: { title: string }) {
+  const ref = React.useRef<HTMLHeadingElement>(null);
+  const [clipped, setClipped] = React.useState(false);
+  React.useEffect(() => {
+    const measure = () => {
+      const el = ref.current;
+      if (el) setClipped(el.scrollWidth > el.clientWidth);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [title]);
+  return (
+    <h1 ref={ref} className="text-xl font-semibold text-ink truncate" title={clipped ? title : undefined}>{title}</h1>
+  );
+}
+
 export function PageHeader({
   icon: Icon,
   title,
@@ -71,7 +89,7 @@ export function PageHeader({
                 ← {backLink.label}
               </a>
             )}
-            <h1 className="text-xl font-semibold text-ink truncate">{title}</h1>
+            <PageTitle title={title} />
             {subtitle && <p className="text-sm text-ink-muted mt-0.5">{subtitle}</p>}
           </div>
         </div>

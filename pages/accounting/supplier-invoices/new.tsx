@@ -6,8 +6,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { ArrowLeft, Info } from 'lucide-react';
+import { Info, FileText } from 'lucide-react';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { useVendorSupplierMatch } from '@/components/accounting/supplier-invoices/matchVendorSupplier';
@@ -23,7 +22,7 @@ import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/Su
 import { localISODate } from '@/lib/dateUtils';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { useSupplierDimensionDefaults } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -191,16 +190,13 @@ export default function NewSupplierInvoicePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="relative z-10">
-            <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors"><ArrowLeft className="h-3.5 w-3.5" /> Back to Supplier Invoices</Link>
-            <div className="flex items-center justify-between">
-              <div><p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p><h1 className="text-xl font-bold text-white">Supplier Invoice</h1></div>
-              <ScanAndFillButton onExtracted={handleExtracted} label="Scan Invoice" />
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={FileText}
+          title="Supplier Invoice"
+          breadcrumb={[{ label: 'Supplier Invoices', href: '/accounting/supplier-invoices' }, { label: 'New invoice' }]}
+          className="mb-0"
+          actions={<ScanAndFillButton onExtracted={handleExtracted} label="Scan Invoice" />}
+        />
 
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 xl:p-8">
           <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
@@ -234,12 +230,12 @@ export default function NewSupplierInvoicePage() {
                   <DateField label="Invoice Date" name="invoiceDate" required value={form.invoiceDate || null} resetKey={dates.resetKey('invoiceDate')} onChange={dates.bind('invoiceDate', iso => setForm(f => ({ ...f, invoiceDate: iso })), form.invoiceDate)} />
                   <DateField label="Due Date" name="dueDate" value={form.dueDate || null} resetKey={dates.resetKey('dueDate')} onChange={dates.bind('dueDate', iso => setForm(f => ({ ...f, dueDate: iso })), form.dueDate)} />
                   <div>
-                    <label className={lbl}>Payment Terms</label>
-                    <select value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
+                    <label htmlFor="supplier-invoices-new-payment-terms" className={lbl}>Payment Terms</label>
+                    <select id="supplier-invoices-new-payment-terms" value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))} className={inp}>
                       <option value="">None</option><option value="immediate">Immediate</option><option value="net30">Net 30</option><option value="net60">Net 60</option><option value="net90">Net 90</option>
                     </select>
                   </div>
-                  <div><label className={lbl}>Reference</label><input type="text" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Free-text ref or delivery note" /></div>
+                  <div><label htmlFor="supplier-invoices-new-reference" className={lbl}>Reference</label><input id="supplier-invoices-new-reference" type="text" value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className={inp} placeholder="Free-text ref or delivery note" /></div>
                 </div>
 
                 {/* 3-Way match — PO + GRN selectors */}
@@ -273,8 +269,8 @@ export default function NewSupplierInvoicePage() {
                   Notes
                 </h3>
                 <div>
-                  <label className={lbl}>VAT Rate (%)</label>
-                  <input type="number" step="0.01" value={form.taxRate}
+                  <label htmlFor="supplier-invoices-new-vat-rate" className={lbl}>VAT Rate (%)</label>
+                  <input id="supplier-invoices-new-vat-rate" type="number" step="0.01" value={form.taxRate}
                     onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))}
                     className={`${inp} w-32 mb-4`} />
                 </div>

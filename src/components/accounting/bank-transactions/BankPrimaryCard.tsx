@@ -23,7 +23,7 @@ export function BankPrimaryCard({ b, active, onSelect }: { b: BankAcct; active: 
           {b.accountName}
         </p>
         <div className="mt-1 flex items-baseline justify-between gap-2">
-          <span className="truncate text-xs text-[var(--ff-text-tertiary)] font-mono">
+          <span className="truncate text-xs text-[var(--ff-text-tertiary)] font-id">
             {b.accountCode}{b.bankAccountNumber && ` | ****${b.bankAccountNumber.slice(-4)}`}
           </span>
           <span className={`shrink-0 text-sm font-bold tabular-nums ${b.balance >= 0 ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-300'}`}>

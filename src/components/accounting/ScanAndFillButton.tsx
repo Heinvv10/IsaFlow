@@ -102,7 +102,7 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
     : '';
 
   return (
-    <div className={`inline-flex items-center gap-2 ${className}`}>
+    <div className={`relative inline-flex items-center gap-2 ${className}`}>
       <input
         ref={fileRef}
         type="file"

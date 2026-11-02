@@ -78,7 +78,7 @@ export function CustomerInvoiceTable({ invoices, page, limit, total, onPage, onO
             return (
               <tr key={inv.id} onClick={(e) => onRowClick(e, inv.id)} onAuxClick={(e) => onRowAuxClick(e, inv.id)}
                 className="cursor-pointer border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
-                <td className="py-3 px-4 font-mono">
+                <td className="py-3 px-4 font-id">
                   <Link href={invoicePath(inv.id)} onClick={(e) => { if (!withModifier(e)) e.preventDefault(); }}
                     className="text-blue-400 hover:text-blue-300">{inv.invoice_number}</Link>
                 </td>

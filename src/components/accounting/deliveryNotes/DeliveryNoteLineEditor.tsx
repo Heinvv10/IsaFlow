@@ -51,6 +51,7 @@ export function DeliveryNoteLineEditor({ lines, onChange }: Props) {
           />
           <input
             type="number"
+            aria-label={`Line ${i + 1} quantity`}
             min="0"
             step="any"
             value={line.quantity}
@@ -64,6 +65,7 @@ export function DeliveryNoteLineEditor({ lines, onChange }: Props) {
             className="ff-input text-sm col-span-2"
           />
           <button
+            aria-label={`Remove line ${i + 1}`}
             onClick={() => remove(i)}
             disabled={lines.length === 1}
             className="col-span-1 p-1.5 rounded hover:bg-red-500/10 text-red-400 disabled:opacity-30 justify-self-center"

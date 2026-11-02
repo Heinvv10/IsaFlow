@@ -135,7 +135,7 @@ function RowLabel({ row, expanded, onToggle }: {
 }) {
   const code = row.accountCode;
   const toggles = row.kind === 'line' && onToggle !== undefined && code !== undefined;
-  const codeTag = <span className="font-mono text-xs text-[var(--ff-text-tertiary)] mr-2">{code}</span>;
+  const codeTag = <span className="font-id text-xs text-[var(--ff-text-tertiary)] mr-2">{code}</span>;
 
   if (row.href !== undefined && code !== undefined) {
     return (
