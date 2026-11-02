@@ -18,7 +18,13 @@ const css = readFileSync(join(ROOT, 'styles/themeContrast.css'), 'utf8');
 /** A gradient that is dark in both themes. A `dark:` variant does not count: that one follows the theme. */
 const DARK_GRADIENT = /(?<![\w:-])from-(?:(?:slate|gray)-(?:800|900|950)|black)(?:\/\d+)?(?![\w-])/;
 
-/** Not app screens, and their text is white or slate-300 by its own class. Shrink-only. */
+/**
+ * Dark-only surfaces whose text is set light by its own class, so a dark gradient behind it is not the always-dark
+ * banner. `pages/oauth/authorize.tsx` is a signed-in consent screen, not a landing page: it is dark in both themes on
+ * purpose (page bg-slate-950, text-slate-100/300). `LandingFeatures.tsx` carries a `display:none` screenshot
+ * placeholder (shown only if the image fails to load), whose text was gray-500 and is slate-300. `PricingPageSections.tsx`
+ * has dark sections with white text. Shrink-only.
+ */
 const KEEPS_ITS_OWN_LIGHT_TEXT = [
   'pages/oauth/authorize.tsx',
   'src/components/landing/LandingFeatures.tsx',

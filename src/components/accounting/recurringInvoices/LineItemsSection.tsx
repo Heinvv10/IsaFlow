@@ -52,11 +52,12 @@ export function LineItemsSection({
         <div className="col-span-1" />
       </div>
 
-      {lines.map(line => (
+      {lines.map((line, index) => (
         <div key={line.key} className="grid grid-cols-12 gap-2 items-center">
           <div className="col-span-5">
             <input
               className={inputCls}
+              aria-label={`Line ${index + 1} description`}
               value={line.description}
               onChange={e => onUpdateLine(line.key, 'description', e.target.value)}
               placeholder="Description *"
@@ -66,7 +67,7 @@ export function LineItemsSection({
           <div className="col-span-2">
             <input
               type="number"
-              aria-label="Quantity"
+              aria-label={`Line ${index + 1} quantity`}
               className={inputCls}
               value={line.quantity}
               min={0.01}
@@ -78,7 +79,7 @@ export function LineItemsSection({
           <div className="col-span-2">
             <input
               type="number"
-              aria-label="Unit price"
+              aria-label={`Line ${index + 1} unit price`}
               className={inputCls}
               value={line.unitPrice}
               min={0}
@@ -93,7 +94,7 @@ export function LineItemsSection({
           <div className="col-span-1 flex justify-end">
             <button
               type="button"
-              aria-label="Remove line"
+              aria-label={`Remove line ${index + 1}`}
               onClick={() => onRemoveLine(line.key)}
               disabled={lines.length === 1}
               className="p-1 text-red-400 hover:text-red-300 disabled:opacity-30 transition-colors"

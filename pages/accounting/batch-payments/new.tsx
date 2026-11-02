@@ -156,7 +156,7 @@ export default function NewBatchPaymentPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {lines.map(line => {
+                    {lines.map((line, index) => {
                       const supplierInvoices = invoices.filter(i => !line.supplierId || String(i.supplierId) === line.supplierId);
                       const inv = invoices.find(i => i.id === line.invoiceId);
                       const balance = inv ? available(inv) : 0;
@@ -167,7 +167,7 @@ export default function NewBatchPaymentPage() {
                               onChange={id => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: id, invoiceId: '' } : l))} />
                           </td>
                           <td className="px-3 py-2">
-                            <select name="invoiceId" aria-label="Invoice" value={line.invoiceId}
+                            <select name="invoiceId" aria-label={`Line ${index + 1} invoice`} value={line.invoiceId}
                               onChange={e => {
                                 const i = invoices.find(x => x.id === e.target.value);
                                 setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? available(i) : 0 } : l));
@@ -210,7 +210,7 @@ export default function NewBatchPaymentPage() {
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Lines</span>
-                      <span className="font-id text-slate-900 dark:text-slate-100">{lines.length}</span>
+                      <span className="tabular-nums text-slate-900 dark:text-slate-100">{lines.length}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Method</span>

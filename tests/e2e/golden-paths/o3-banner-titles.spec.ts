@@ -93,7 +93,9 @@ test('a provisional bank line: its badge reads at AA in light and dark', async (
   await page.route('**/api/accounting/bank-transactions?*', async (route) => {
     const response = await route.fetch();
     const body = await response.json() as { data: { transactions: { status: string }[] } };
-    body.data.transactions[0]!.status = 'provisional';
+    const first = body.data.transactions[0];
+    expect(first, 'the company has no bank transaction to mark provisional; seed one in the dev company').toBeDefined();
+    first!.status = 'provisional';
     await route.fulfill({ response, json: body });
   });
   for (const theme of THEMES) {
@@ -107,25 +109,51 @@ test('a provisional bank line: its badge reads at AA in light and dark', async (
   }
 });
 
-test('font-id keeps the app face, with tabular figures and a zero that really is slashed', async ({ page }) => {
+test('font-id keeps the app face, with tabular figures', async ({ page }) => {
   await page.goto('/accounting/credit-notes', { waitUntil: 'domcontentloaded' });
   await settle(page);
-  const seen = await page.evaluate(async () => {
+  const seen = await page.evaluate(() => {
     const main = document.querySelector('main')!;
-    const box = document.createElement('div');
-    box.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:#fff;color:#000;font-size:48px;width:400px;';
-    box.innerHTML = '<span id="o3-id" class="font-id">0</span> <span id="o3-plain">0</span>';
-    main.appendChild(box);
-    await document.fonts.ready;
-    const style = getComputedStyle(document.getElementById('o3-id')!);
+    const id = document.createElement('span');
+    id.className = 'font-id';
+    main.appendChild(id);
+    const style = getComputedStyle(id);
     return { font: style.fontFamily, numeric: style.fontVariantNumeric, app: getComputedStyle(main).fontFamily };
   });
   expect(seen.font).toBe(seen.app);
   expect(seen.font).not.toMatch(/mono/i);
   expect(seen.numeric).toContain('tabular-nums');
   expect(seen.numeric).toContain('slashed-zero');
-  // A computed style proves the request, not the glyph: a face without the `zero` feature paints the plain zero.
-  const painted = await page.locator('#o3-id').screenshot();
-  const plain = await page.locator('#o3-plain').screenshot();
-  expect(painted.equals(plain), 'the figures face must carry the slashed zero').toBe(false);
 });
+
+/**
+ * A computed style proves the request, not the glyph: a face cut without the `zero` feature computes slashed-zero and
+ * paints the plain zero. So paint the figures face's zero twice in two separate boxes at the same integer coordinates,
+ * once with font-id and once without, for each of the three cut weights, and require the pixels to differ. A control
+ * paints the plain zero twice and requires the pixels to match, so a difference can only come from the glyph.
+ * Fails against the pre-re-cut subset: scripts/fonts/cut-figures.sh --no-zero rebuilds it.
+ */
+const BOX_LEFT: Record<string, number> = { 'o3-a': 0, 'o3-b': 100, 'o3-c': 200 };
+for (const weight of [400, 500, 600]) {
+  test(`font-id paints a slashed zero at weight ${weight}`, async ({ page }) => {
+    await page.goto('/accounting/credit-notes', { waitUntil: 'domcontentloaded' });
+    await settle(page);
+    await page.evaluate(async (w) => {
+      const boxes: [string, string, number][] = [['o3-a', 'font-id', 0], ['o3-b', '', 100], ['o3-c', '', 200]];
+      for (const [id, cls, left] of boxes) {
+        const box = document.createElement('div');
+        box.id = id;
+        box.style.cssText = `position:fixed;top:300px;left:${left}px;width:100px;height:100px;z-index:2147483647;background:#fff;color:#000;`
+          + `font-size:64px;line-height:100px;text-align:center;font-weight:${w};`;
+        box.innerHTML = `<span class="${cls}">0</span>`;
+        document.body.appendChild(box);
+      }
+      await document.fonts.load(`${w} 64px "IsaFlow Figures"`, '0');
+      await document.fonts.ready;
+    }, weight);
+    const shot = (id: string) => page.screenshot({ clip: { x: BOX_LEFT[id]!, y: 300, width: 100, height: 100 } });
+    const [withId, plain, plainAgain] = [await shot('o3-a'), await shot('o3-b'), await shot('o3-c')];
+    expect(plain.equals(plainAgain), `weight ${weight}: two plain zeros paint the same, so the boxes are comparable`).toBe(true);
+    expect(withId.equals(plain), `weight ${weight}: the figures face must carry the slashed zero`).toBe(false);
+  });
+}
