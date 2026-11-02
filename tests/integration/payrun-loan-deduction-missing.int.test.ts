@@ -105,6 +105,14 @@ describe('MCP calculate_pay_run says which instalments it did not take', () => {
     expect(await loanState(loan)).toEqual({ balance: 1000, paidFlags: [false], payments: 0 });
   });
 
+  it('the dry run counts the row this run itself took, since recosting would undo it first', async () => {
+    await addLoan(1000);
+    await recalculate(state.nov); // taken with the deduction: the schedule row is this run's
+    await withoutLoanDeduction();
+    expect(body(await tool(true) as never).withheld_loans)
+      .toEqual([{ employee_number: 'W301-1', loan_number: 'R-LOAN', instalment: 1000, missing: 'LOAN deduction' }]);
+  });
+
   it('the live call reports what it withheld', async () => {
     await withoutLoanDeduction();
     await addLoan(1000);
