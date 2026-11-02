@@ -8,14 +8,17 @@ import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/api
 import { notify } from '@/utils/toast';
 import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
-import type { AllocType, VatCode, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
+import type { AllocType, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 import type { RulePrompt } from './BankTxBatchPanel';
 import { actionableIds } from './pendingFeedRow';
+import { buildBankTxSelectionActions } from './bankTxSelectionActions';
+import { isUndoableAllocation, offerAllocationUndo, offerExcludeUndo } from './bankTxUndo';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 
 interface ActionDeps {
   transactions: BankTx[];
   glAccounts: SelectOption[];
+  bankAccounts: { id: string }[];
   selectedBank: string;
   selectedIds: Set<string>;
   rowSelections: Record<string, RowSelection>;
@@ -31,15 +34,17 @@ interface ActionDeps {
   setExcludingTxId: (v: string | null) => void;
   loadTransactions: () => void;
   refreshBankAccounts: () => void;
+  /** For a toast's Undo, which runs long after this render: reloads the view on screen by then. */
+  reloadCurrentView: () => void;
   onLlmResidual?: (n: number) => void;
 }
 
 export function buildBankTxActions(deps: ActionDeps) {
   const {
-    transactions, glAccounts, selectedBank, selectedIds, rowSelections, batchType,
-    excludingTxId, createEntityTxId,
-    setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
-    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, onLlmResidual,
+    transactions, bankAccounts, selectedBank, selectedIds, rowSelections,
+    excludingTxId,
+    setSmartRunning, setRowSelections, setTransactions, setSelectedIds,
+    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, reloadCurrentView, onLlmResidual,
   } = deps;
 
   const callAction = async (body: Record<string, string>) => {
@@ -86,7 +91,12 @@ export function buildBankTxActions(deps: ActionDeps) {
         if (sel.buId) body.buId = sel.buId;
       }
       const allocated = await callAction(body);
-      notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
+      const journalEntryId: unknown = allocated?.data?.journalEntryId;
+      if (typeof journalEntryId === 'string' && isUndoableAllocation(sel, bankAccounts)) {
+        offerAllocationUndo(txId, journalEntryId, sel.type === 'account', { callAction, reloadCurrentView });
+      } else {
+        notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
+      }
       notifyLateClaims(allocated); // VAT claimed in a later period (s16(3))
       loadTransactions(); refreshBankAccounts();
       if (sel.type === 'account' && sel.entityId) {
@@ -117,8 +127,10 @@ export function buildBankTxActions(deps: ActionDeps) {
     const txId = excludingTxId;
     setExcludingTxId(null);
     try {
-      await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
-      notify.success('Transaction excluded'); loadTransactions(); refreshBankAccounts();
+      const excluded = await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
+      if (excluded?.data?.priorStatus === 'imported') offerExcludeUndo(txId, { callAction, reloadCurrentView });
+      else notify.success('Transaction excluded');
+      loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not exclude - try again')); }
   };
   const handleUnmatch = async (txId: string) => {
@@ -259,68 +271,11 @@ export function buildBankTxActions(deps: ActionDeps) {
       notify.success('Report downloaded');
     } catch (e) { notify.error(apiErrorMessage(e, 'Could not build the reconciliation report - try again')); }
   };
-  const handleApplyBatchEdit = (entityId: string, label: string) => {
-    const updates: Record<string, RowSelection> = { ...rowSelections };
-    const acct = batchType === 'account' ? glAccounts.find(g => g.id === entityId) : null;
-    const autoVat = acct?.defaultVatCode && acct.defaultVatCode !== 'none' ? acct.defaultVatCode as VatCode : undefined;
-    selectedIds.forEach(id => {
-      updates[id] = { type: batchType, entityId, label, vatCode: autoVat ?? (updates[id]?.vatCode || 'none') as VatCode };
-    });
-    setRowSelections(() => updates);
-    setShowBatchEdit(false);
-    notify.success(`Applied ${batchType} "${label}" to ${selectedIds.size} rows`);
-  };
-  // ---- Row-level selection handlers (also persist to DB) ----
-  const handleRowTypeChange = (txId: string, type: AllocType) => {
-    const vatCode: VatCode = type === 'account' ? (rowSelections[txId]?.vatCode || 'none') : 'none';
-    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode } })); saveSelection(txId, type, '', vatCode);
-  };
-  const handleRowEntityChange = (txId: string, entityId: string, label: string) => {
-    const type = rowSelections[txId]?.type || 'account';
-    const acct = type === 'account' && entityId ? glAccounts.find(g => g.id === entityId) : null;
-    // An account flagged vat_input_denied still only DEFAULTS to none — the
-    // table warns and the user may override. Its default_vat_code is what
-    // decides the starting value, exactly as for any other account.
-    const vatCode = (acct?.defaultVatCode === 'none' ? 'none'
-      : acct?.defaultVatCode ? acct.defaultVatCode
-      : (rowSelections[txId]?.vatCode || 'none')) as VatCode;
-    setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type, entityId, label, vatCode } }));
-    saveSelection(txId, type as AllocType, entityId, vatCode);
-  };
-  const handleRowVatChange = (txId: string, vatCode: VatCode) => {
-    setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type: prev[txId]?.type || 'account', entityId: prev[txId]?.entityId || '', label: prev[txId]?.label || '', vatCode } }));
-    const sel = rowSelections[txId];
-    if (sel?.entityId) saveSelection(txId, sel.type, sel.entityId, vatCode);
-  };
-  const handleRowDimensionChange = (txId: string, cc1Id: string, cc2Id: string, buId: string) => {
-    setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type: prev[txId]?.type || 'account', entityId: prev[txId]?.entityId || '', label: prev[txId]?.label || '', vatCode: prev[txId]?.vatCode || 'none', cc1Id: cc1Id || undefined, cc2Id: cc2Id || undefined, buId: buId || undefined } }));
-    saveDimensions(txId, cc1Id, cc2Id, buId);
-  };
-  const handleCreateEntityDone = (
-    entity: { id: string; name: string; code?: string },
-    type: AllocType,
-    setGlAccounts: (fn: (prev: SelectOption[]) => SelectOption[]) => void,
-    setSuppliers: (fn: (prev: SelectOption[]) => SelectOption[]) => void,
-    setCustomers: (fn: (prev: SelectOption[]) => SelectOption[]) => void,
-  ) => {
-    const label = entity.code ? `${entity.code} ${entity.name}` : entity.name;
-    const option: SelectOption = { id: entity.id, code: entity.code, name: entity.name };
-    if (type === 'account') setGlAccounts(prev => [...prev, option].sort((a, b) => (a.code || '').localeCompare(b.code || '')));
-    else if (type === 'supplier') setSuppliers(prev => [...prev, option]);
-    else setCustomers(prev => [...prev, option]);
-    const vatCode = (type === 'account' && entity.id)
-      ? (glAccounts.find(g => g.id === entity.id)?.defaultVatCode as VatCode || 'none')
-      : 'none';
-    if (createEntityTxId) {
-      setRowSelections(prev => ({ ...prev, [createEntityTxId]: { type, entityId: entity.id, label, vatCode: prev[createEntityTxId]?.vatCode || vatCode } }));
-      saveSelection(createEntityTxId, type as AllocType, entity.id, vatCode);
-    }
-  };
   return {
     saveSelection, saveDimensions,
     handleAccept, handleExclude, handleExcludeConfirm, handleUnmatch, handleUpdateNotes,
     handleBatchAccept, handleBatchDelete, handleBulkAccept, handleApplyRules, handleReverse,
-    handleDownloadReport, handleCreateEntityDone, handleApplyBatchEdit,
-    handleRowTypeChange, handleRowEntityChange, handleRowVatChange, handleRowDimensionChange,
+    handleDownloadReport,
+    ...buildBankTxSelectionActions(deps, saveSelection, saveDimensions),
   };
 }
