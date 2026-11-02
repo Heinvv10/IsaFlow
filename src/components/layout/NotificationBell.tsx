@@ -140,10 +140,11 @@ export function NotificationBell() {
     setFeed((f) => f && { items: f.items.map((x) => (x.readAt === null ? { ...x, readAt } : x)), unread: 0 });
   };
 
-  if (companyId === null) return null;
+  // No company yet: keep the 32px slot (as AppHeader keeps the setup guide's) so the cog beside it does not move.
+  if (companyId === null) return <div data-testid="notification-bell-slot" aria-hidden="true" className="w-8 h-8 flex-shrink-0" />;
   const unread = feed?.unread ?? 0;
   return (
-    <div ref={root} className="relative">
+    <div ref={root} className="relative w-8 flex-shrink-0">
       <button
         ref={button}
         type="button"
