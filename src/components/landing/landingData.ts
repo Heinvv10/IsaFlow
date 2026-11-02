@@ -50,6 +50,9 @@ export const BRAND = {
   description:
     'Cloud accounting software for South African businesses — invoicing, bank reconciliation, VAT and payroll compliance, and payroll, in one platform.',
   countryCode: 'ZA',
+  // City and province only: the street address is deliberately not published.
+  addressLocality: 'Pretoria',
+  addressRegion: 'Gauteng',
   applicationCategory: 'FinanceApplication',
   operatingSystem: 'Web',
   freeTrialDays: 30,
@@ -195,25 +198,4 @@ export const PRICING_TIERS: PricingTier[] = [
   },
 ];
 
-export const FAQ_ITEMS: FAQItem[] = [
-  {
-    q: 'Can I try ISAFlow for free?',
-    a: 'Yes. Every plan comes with a 30-day free trial — no credit card required. You get full access to all features in your selected tier so you can evaluate ISAFlow with your real data before committing.',
-  },
-  {
-    q: 'Can I import data from other software?',
-    a: 'Absolutely. ISAFlow includes dedicated migration wizards for Sage, Xero, QuickBooks, and Pastel. Import your chart of accounts, customers, suppliers, and opening balances with automatic account mapping and balance verification.',
-  },
-  {
-    q: 'Which banks are supported for statement import?',
-    a: 'ISAFlow supports statement imports from major banks in CSV and PDF formats, plus OFX and QIF for others. For ABSA, the browser import extension lets you import from your signed-in bank session yourself, without exporting a file. Our AI auto-detects the bank format.',
-  },
-  {
-    q: 'Is my data secure?',
-    a: 'Enterprise-grade security: two-factor authentication (TOTP + backup codes), granular module-level permissions, field masking for sensitive data, SSL/TLS encryption, bcrypt password hashing, and signed JWT sessions.',
-  },
-  {
-    q: 'Does it handle tax compliance?',
-    a: 'Yes. ISAFlow supports VAT calculations on every transaction, generates VAT returns, handles payroll tax submissions, and maintains a field-level audit trail on every financial record. Full compliance out of the box.',
-  },
-];
+export { FAQ_ITEMS } from './faqData';
