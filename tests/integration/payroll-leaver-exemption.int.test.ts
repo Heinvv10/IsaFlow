@@ -74,6 +74,14 @@ beforeAll(async () => {
   await employee('successor', '2020-01-01', '2026-03-28');
   await add('t1', 'successor', salary, 21670, '2020-01-01', '2026-03-28', true);
   await add('t2', 'successor', salary, 23000, '2026-03-29', null, true);
+  // Leaving 30 March, with a once-off arrears payment of the same component on the 31st (not a successor).
+  await employee('arrears', '2020-01-01', '2026-03-30');
+  await add('ar1', 'arrears', salary, 21670, '2020-01-01', '2026-03-30', true);
+  await add('ar2', 'arrears', salary, 1500, '2026-03-31', '2026-03-31', false);
+  // Leaving 27 March: a package applied on the 28th cut the salary to the 27th, and its replacement was cancelled.
+  await employee('voidedReplacement', '2020-01-01', '2026-03-27');
+  await add('vr1', 'voidedReplacement', salary, 21670, '2020-01-01', '2026-03-27', true, '2026-03-01T00:00:00Z');
+  await add('vr2', 'voidedReplacement', salary, 23000, '2026-03-28', '2026-03-27', true, '2026-03-02T00:00:00Z');
   await employee('startEnd', '2026-03-28', '2026-03-30');
   await add('se', 'startEnd', salary, 21670, '2026-03-28', '2026-03-30', true);
   march = await calculatedRun(call, 3);
@@ -98,13 +106,38 @@ describe(`1-3: the leaver exemption is the band only (TZ=${process.env.TZ ?? 'un
     expect(l.flags.map(f => f.code)).not.toContain('RECURRING_NEEDS_PRO_RATA');
   });
 
-  it('ending on the end date but superseded, or followed by a live row: one salary, not two', async () => {
-    expect((await line(march, 'superseded')).paid).toEqual([['Basic Salary', 23000]]);
-    expect((await line(march, 'successor')).paid).toEqual([['Basic Salary', 23000]]);
+  // Every recurring row ending in the band is either paid by the leaver rule or flagged as ending: never neither.
+  const flaggedEnding = (l: Awaited<ReturnType<typeof line>>, date: string) =>
+    l.flags.some(f => f.code === 'RECURRING_NEEDS_PRO_RATA' && f.message.includes(`ends on ${date}`));
+
+  it('ending on the end date but followed by a live recurring row: one salary, and the skipped row is flagged', async () => {
+    const superseded = await line(march, 'superseded');
+    expect(superseded.paid).toEqual([['Basic Salary', 23000]]);
+    expect(flaggedEnding(superseded, '2026-03-28')).toBe(true);
+    // A superseded row cannot be edited (Edit dates refuses it): the flag says to use End.
+    expect(superseded.flags.find(f => f.code === 'RECURRING_NEEDS_PRO_RATA')?.message).toMatch(/\bEnd\b/);
+    expect(superseded.flags.find(f => f.code === 'RECURRING_NEEDS_PRO_RATA')?.message).not.toMatch(/Edit dates/);
+    const successor = await line(march, 'successor');
+    expect(successor.paid).toEqual([['Basic Salary', 23000]]);
+    expect(flaggedEnding(successor, '2026-03-28')).toBe(true);
   });
 
-  it('a superseded row ending on the end date with nothing after it is not paid by the leaver rule', async () => {
-    expect((await line(march, 'supersededAlone')).paid).toEqual([]);
+  it('a once-off on the 31st is not a successor: the 30 March leaver is paid in full plus the arrears, not flagged', async () => {
+    const l = await line(march, 'arrears');
+    expect(l.paid).toEqual([['Basic Salary', 1500], ['Basic Salary', 21670]]);
+    expect(flaggedEnding(l, '2026-03-30')).toBe(false);
+  });
+
+  it('a replacement that was cancelled is not a successor: the 27 March leaver is paid in full, not flagged', async () => {
+    const l = await line(march, 'voidedReplacement');
+    expect(l.paid).toEqual([['Basic Salary', 21670]]);
+    expect(flaggedEnding(l, '2026-03-27')).toBe(false);
+  });
+
+  it('a superseded row ending on the end date with nothing live after it is paid by the leaver rule, not flagged', async () => {
+    const l = await line(march, 'supersededAlone');
+    expect(l.paid).toEqual([['Basic Salary', 21670]]);
+    expect(flaggedEnding(l, '2026-03-28')).toBe(false);
   });
 
   it('starting on the 28th and ending on the end date: flagged as starting, paid in full', async () => {
