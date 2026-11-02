@@ -8,6 +8,8 @@
  * is why these tables use `formatMoney`, not `formatStatementFigure` (it prints a zero as a dash).
  */
 import { formatPct } from '@/lib/format/money';
+import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { BudgetVersionError } from '../budgets/budgetVersionTypes';
 import { buildBudgetTrackingReport } from '../budgets/tracking/budgetTrackingService';
@@ -49,13 +51,27 @@ export function samePeriodLastYear(period: string): string {
   return `${Number(year) - 1}-${month}`;
 }
 
-/** A refusal (a year not on calendar months, a month outside the registry) is the section's to say; a fault stops the pack. */
+/** What a budget section prints when the engine gives no report. Fixed text: a pack goes to external
+ *  recipients, and engine messages can carry database text. The real error is logged. */
+export const BUDGET_UNAVAILABLE = 'Budget figures are unavailable for this month.';
+
+/**
+ * The engine's report for the pack month, or `unavailable`. Budget sections are on by default, so a
+ * company that never set up a budget must still get its pack: no failure here stops it. The read
+ * runs in a savepoint, so a failed query does not abort the request's transaction (inside withAuth)
+ * that the pack is then written in; outside a request (the cron) the savepoint is a plain call.
+ */
 export async function loadPackBudget(companyId: string, period: string, now?: Date): Promise<PackBudget> {
   try {
-    return { kind: 'report', report: await buildBudgetTrackingReport(companyId, { period: 'month', month: period }, now) };
+    const report = await withSavepoint('mgmt_pack_budget', () =>
+      buildBudgetTrackingReport(companyId, { period: 'month', month: period }, now));
+    return { kind: 'report', report };
   } catch (err) {
-    if (err instanceof TrackingError || err instanceof BudgetVersionError) return { kind: 'unavailable', reason: err.message };
-    throw err;
+    const refusal = err instanceof TrackingError || err instanceof BudgetVersionError;
+    const fields = { companyId, period, errorClass: err instanceof Error ? err.name : typeof err, error: err instanceof Error ? err.message : String(err) };
+    if (refusal) log.warn('management pack: the budget engine refused the pack month', fields, 'managementPackComparison');
+    else log.error('management pack: the budget engine failed; budget sections print the unavailable sentence', fields, 'managementPackComparison');
+    return { kind: 'unavailable', reason: BUDGET_UNAVAILABLE };
   }
 }
 
@@ -92,7 +108,7 @@ function budgetNotes(r: BudgetTrackingReport): NoteContentBlock[] {
 
 /** The sentence that stands in for a budget table, or null when there is one to print. */
 function noBudgetSentence(budget: PackBudget): string | null {
-  if (budget.kind === 'unavailable') return `Budget figures are unavailable: ${budget.reason}`;
+  if (budget.kind === 'unavailable') return budget.reason;
   return budget.report.notices.noVersion ? `No budget for FY${budget.report.window.fiscalYear} in this pack's month.` : null;
 }
 
