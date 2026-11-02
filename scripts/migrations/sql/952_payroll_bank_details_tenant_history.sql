@@ -261,6 +261,14 @@ BEGIN
   LOOP
     RAISE EXCEPTION 'migration 952: app_service has a policy on %', r.relname;
   END LOOP;
+  -- Nor any other permissive policy, whatever role it names (a USING (true) TO PUBLIC or isaflow_service).
+  FOR r IN
+    SELECT c.relname, p.polname FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+    WHERE p.polrelid IN (v_table, 'public.entity_changes'::pg_catalog.regclass) AND p.polpermissive
+      AND p.polname NOT IN ('entity_changes_read', 'payroll_detail_read', 'payroll_detail_insert', 'payroll_detail_update')
+  LOOP
+    RAISE EXCEPTION 'migration 952: % has a permissive policy % it did not write', r.relname, r.polname;
+  END LOOP;
   IF NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_class c
     WHERE c.oid = 'public.payroll_bank_details'::pg_catalog.regclass AND c.relrowsecurity AND c.relforcerowsecurity

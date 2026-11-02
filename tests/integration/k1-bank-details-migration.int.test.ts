@@ -14,6 +14,9 @@ import { employee, ROW, rowsOf, put } from './k1-employee-bank-details.helpers';
 
 assertDisposable();
 const SQL = readFileSync(path.resolve(__dirname, '../../scripts/migrations/sql/952_payroll_bank_details_tenant_history.sql'), 'utf8');
+/** 915's app_service_wanted_policies(), which knows only impersonation_sessions, as every database had it before 952. */
+const WANTED_915 = readFileSync(path.resolve(__dirname, '../../scripts/migrations/sql/915_app_pool_login_roles.sql'), 'utf8')
+  .match(/CREATE OR REPLACE FUNCTION public\.app_service_wanted_policies\(\)[\s\S]*?\n\$\$;/)![0];
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
@@ -26,8 +29,11 @@ beforeAll(async () => {
 });
 afterAll(() => cleanupEntityChanges(pool, companies, [o]));
 
-/** payroll_bank_details as 380 left it (the column drops also take 952's FK and indexes on them). */
+/** payroll_bank_details as 380 left it (column drops take 952's FK and indexes), and 915's wanted list with its live mirror. */
 const UNDO_952 = `
+  ${WANTED_915}
+  DROP POLICY IF EXISTS app_service_select ON entity_changes;
+  CREATE POLICY app_service_select ON entity_changes FOR SELECT TO app_service USING (true);
   DROP TRIGGER entity_change_capture ON payroll_bank_details;
   DROP POLICY payroll_detail_read ON payroll_bank_details;
   DROP POLICY payroll_detail_insert ON payroll_bank_details;
@@ -102,6 +108,18 @@ describe('952 on legacy rows, as the non-superuser deploy role', () => {
       const col = await db.query(`SELECT is_nullable FROM information_schema.columns
         WHERE table_name = 'payroll_bank_details' AND column_name = 'company_id'`);
       expect(col.rows).toEqual([{ is_nullable: 'NO' }]);
+    });
+  });
+});
+
+describe('952 takes app_service off the history', () => {
+  it('a replay starts with the live mirror and leaves no app_service policy on entity_changes', async () => {
+    const appService = (db: PoolClient) => db.query(
+      "SELECT polname FROM pg_policy WHERE polrelid = 'entity_changes'::regclass AND 'app_service'::regrole = ANY (polroles)");
+    await replay(async (db) => {
+      expect((await appService(db)).rows).toEqual([{ polname: 'app_service_select' }]);
+      await db.query(SQL);
+      expect((await appService(db)).rows).toEqual([]);
     });
   });
 });
@@ -200,6 +218,18 @@ describe('952 refuses to ship any other way', () => {
       .toContain('migration 952: app_service has a policy');
   });
 
+  it.each([
+    ['entity_changes, for every role', 'CREATE POLICY k1_open ON entity_changes FOR SELECT USING (true)', 'entity_changes', 'k1_open'],
+    ['entity_changes, TO isaflow_service', 'CREATE POLICY k1_svc ON entity_changes FOR SELECT TO isaflow_service USING (true)', 'entity_changes', 'k1_svc'],
+    ['payroll_bank_details, TO isaflow_service', 'CREATE POLICY k1_svc ON payroll_bank_details FOR SELECT TO isaflow_service USING (true)', 'payroll_bank_details', 'k1_svc'],
+    ['payroll_bank_details, FOR ALL to app_user', 'CREATE POLICY k1_all ON payroll_bank_details TO app_user USING (true)', 'payroll_bank_details', 'k1_all'],
+  ])('a permissive policy it did not write: %s', async (_name, statement, table, policy) => {
+    expect(await refusal(statement)).toContain(`migration 952: ${table} has a permissive policy ${policy} it did not write`);
+  });
+
+  it('a restrictive policy only narrows, and passes', () => replay((db) =>
+    db.query(withBefore('CREATE POLICY k1_narrow ON entity_changes AS RESTRICTIVE FOR SELECT TO app_user USING (true)')).then(() => undefined)));
+
   it('a policy that lets app_service read the history', async () => {
     expect(await refusal('CREATE POLICY app_service_select ON entity_changes FOR SELECT TO app_service USING (true)'))
       .toContain('migration 952: app_service has a policy on entity_changes');
@@ -218,12 +248,16 @@ describe('952 gives up rather than queue behind a long transaction', () => {
     try {
       await peer.query('BEGIN');
       await peer.query('LOCK TABLE entity_changes IN ACCESS SHARE MODE');
-      let out = '';
-      await replay(async (db) => {
+      // On the migrated schema (952 runs twice, above): a replay's undo would wait on the peer with no limit set.
+      const db = await pool.connect();
+      try {
+        await db.query('BEGIN');
         await db.query("SET LOCAL statement_timeout = '9s'"); // without 952's own limit this ends as 57014, not a hung suite
-        out = await outcome(db.query(SQL));
-      });
-      expect(out).toMatch(/^55P03/);
+        expect(await outcome(db.query(SQL))).toMatch(/^55P03/);
+      } finally {
+        await db.query('ROLLBACK');
+        db.release();
+      }
     } finally {
       await peer.query('ROLLBACK');
       peer.release();
