@@ -5,6 +5,7 @@
  *
  * - control: one create debits the wallet `invoice.create`'s cost, so metering is live for this company;
  * - ten draft PUTs (each a real change, as autosave sends) leave the balance and the flow ledger as they were;
+ * - notes sent as '' clear them (the edit page sends the notes on screen, so Saved is true when they are cleared);
  * - a PUT on an approved invoice is a 400 that changes no row: autosave after an approval writes nothing.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -87,6 +88,14 @@ describe('autosave is not metered', () => {
     expect(await ledger()).toEqual(before.ledger);
     const { rows } = await pool.query('SELECT description FROM customer_invoice_items WHERE invoice_id = $1', [inv.id]);
     expect(rows).toEqual([{ description: 'Autosave edit 10' }]); // the PUTs were real edits, not refusals
+  });
+
+  it('notes sent as an empty string clear them (the edit page sends what is on screen)', async () => {
+    const inv = await plantInvoice(pool, company, owner);
+    expect((await put({ ...editBody(inv.id, 'Noted'), notes: 'Pay by EFT' })).state.statusCode).toBe(200);
+    expect((await put({ ...editBody(inv.id, 'Noted'), notes: '' })).state.statusCode).toBe(200);
+    const { rows } = await pool.query('SELECT notes FROM customer_invoices WHERE id = $1', [inv.id]);
+    expect(rows).toEqual([{ notes: '' }]);
   });
 
   it('a PUT on an approved invoice is a 400 and changes no row', async () => {

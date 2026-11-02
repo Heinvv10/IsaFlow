@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { clearInvoiceDrafts, invoiceDraftKey } from '@/lib/invoiceDrafts';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 const authState = vi.hoisted(() => ({ value: null as unknown }));
@@ -41,6 +42,7 @@ describe('clearInvoiceDrafts', () => {
     const key = vi.spyOn(localStorage, 'key').mockImplementation(() => { throw new DOMException('denied', 'SecurityError'); });
     plant();
     expect(clearInvoiceDrafts()).toBe(false);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/could not clear the invoice drafts/i), expect.anything(), 'invoiceDrafts');
     key.mockRestore();
   });
 });

@@ -195,7 +195,7 @@ describe('InvoicePdfPreview', () => {
     view.rerender(<InvoicePdfPreview invoiceId={A} version={2} />);
     await advance(3000);
     expect(screen.getByRole('alert').textContent).toMatch(/out of date/i);
-    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry PDF preview' })).toBeTruthy();
     expect(frame()?.getAttribute('src')).toBe('blob:preview-1');
   });
 

@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { AuthContext } from '@/contexts/AuthContext';
 import { CompanyContext } from '@/contexts/CompanyContext';
+import { clearInvoiceDrafts } from '@/lib/invoiceDrafts';
+import { act } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { advance, calls, description, pick, puts, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 
@@ -112,6 +114,41 @@ describe('new invoice: the draft on this device', () => {
     await advance(0);
     expect(h.push).toHaveBeenCalledWith('/accounting/customer-invoices/inv-1');
     expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  const OLD = JSON.stringify({ savedAt: Date.now(), data: { form: { clientId: '', invoiceDate: '2026-09-01', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: 'old', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' }, lines: [{ key: '1', description: 'Old', quantity: 1, unitPrice: 5, discount: 0, glAccountId: '', projectId: '', cc2Id: '', buId: '' }], taxMode: 'exclusive' } });
+  it('an unanswered kept draft survives a create; after Save & New its offer goes, and nothing typed then overwrites it', async () => {
+    localStorage.setItem(KEY, OLD);
+    await open();
+    expect(screen.getByRole('button', { name: 'Restore' })).toBeTruthy();
+    await pick('Client', /Client/);
+    type(description(), 'Something else');
+    type(price(), '100');
+    fireEvent.click(screen.getByRole('button', { name: /save & new/i }));
+    for (let i = 0; i < 4; i++) await advance(0);
+    expect(calls('customer-invoices-create')).toHaveLength(1);
+    expect(localStorage.getItem(KEY)).toBe(OLD);
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+    type(description(), 'Typed after Save & New');
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBe(OLD);
+  });
+
+  it('after a sign-out or company switch clears the drafts, a timer still pending on this page writes nothing back', async () => {
+    await open();
+    type(description(), 'Racing the sign-out');
+    await advance(400);
+    act(() => { clearInvoiceDrafts(); });
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    type(description(), 'Still on the old page');
+    await advance(2_000);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    cleanup();
+    await open(); // a page opened after the clear keeps its draft again
+    type(description(), 'New page');
+    await advance(800);
+    expect(stored()!.data.lines[0]).toMatchObject({ description: 'New page' });
   });
 
   it('a draft kept under another company, or by another user, is never offered here', async () => {

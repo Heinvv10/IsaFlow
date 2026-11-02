@@ -5,7 +5,17 @@
  *
  * Every call is best-effort: storage throws in private mode, over quota, or when the browser blocks it, and a draft
  * that cannot be kept must never break the form. Each function says whether it worked.
+ *
+ * A clear (sign-out, an expired session, a company switch) starts a new generation. A writer holds the generation it
+ * began in and can never write past a clear: a draft timer still pending on the page being left cannot put the draft
+ * back. A page opened after the clear (the next sign-in, in the same tab) begins in the new one and writes as normal.
  */
+import { log } from '@/lib/logger';
+
+let generation = 0;
+
+/** The generation a draft writer begins in; pass it to every write. */
+export const invoiceDraftGeneration = (): number => generation;
 
 export const INVOICE_DRAFT_PREFIX = 'isaflow:invoice-draft:';
 
@@ -27,8 +37,9 @@ export function readInvoiceDraft<T>(key: string, isData: (v: unknown) => v is T)
   }
 }
 
-/** False when the browser refused the write. */
-export function writeInvoiceDraft<T>(key: string, draft: StoredDraft<T>): boolean {
+/** False when the browser refused the write, or a clear came after `since` (invoiceDraftGeneration). */
+export function writeInvoiceDraft<T>(key: string, draft: StoredDraft<T>, since: number): boolean {
+  if (since !== generation) return false;
   try {
     window.localStorage.setItem(key, JSON.stringify(draft));
     return true;
@@ -49,6 +60,7 @@ export function removeInvoiceDraft(key: string): boolean {
 /** Every invoice draft on this device, whoever's: on sign-out and on a company switch. */
 export function clearInvoiceDrafts(): boolean {
   if (typeof window === 'undefined') return true;
+  generation++;
   try {
     const keys: string[] = [];
     for (let i = 0; i < window.localStorage.length; i++) {
@@ -57,7 +69,8 @@ export function clearInvoiceDrafts(): boolean {
     }
     for (const k of keys) window.localStorage.removeItem(k);
     return true;
-  } catch {
+  } catch (err) {
+    log.warn('Could not clear the invoice drafts from this browser', { err }, 'invoiceDrafts');
     return false;
   }
 }

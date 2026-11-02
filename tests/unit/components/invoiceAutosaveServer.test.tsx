@@ -160,7 +160,7 @@ describe('edit page autosave', () => {
     type(screen.getAllByLabelText('Quantity')[0]!, '');
     await advance(5_000);
     expect(puts()).toHaveLength(0);
-    expect(status()).toBe('Unsaved changes');
+    expect(screen.getByText('Not saved: "Consulting" needs a quantity above 0')).toBeTruthy();
     type(screen.getAllByLabelText('Quantity')[0]!, '2');
     await advance(1_500);
     expect(puts()).toHaveLength(1);

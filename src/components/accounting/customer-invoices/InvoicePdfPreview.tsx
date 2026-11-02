@@ -110,7 +110,7 @@ export function InvoicePdfPreview({ invoiceId, version }: Props) {
           {failed && (
             <div role="alert" className="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">
               {doc ? 'Could not update the preview. What is shown may be out of date.' : 'Could not load the preview.'}
-              <button type="button" onClick={retry} className="underline">Retry</button>
+              <button type="button" onClick={retry} aria-label="Retry PDF preview" className="underline">Retry</button>
             </div>
           )}
           <p role="status" className="text-xs text-[var(--ff-text-tertiary)]">

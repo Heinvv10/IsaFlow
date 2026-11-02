@@ -25,7 +25,12 @@ export interface InvoicePutBody {
 
 interface Draft { form: InvoiceHeaderForm; lines: readonly EditLine[]; taxMode: TaxMode }
 
-const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.description && l.unitPrice >= 0 && l.quantity > 0);
+/**
+ * Every line with something in it. A line that cannot be stored (droppedLineProblem) stays in the body, so the body
+ * differs from the server's and autosave says why it holds; such a body is never sent, since every send first refuses
+ * on saveProblem or autosaveProblem, and without one this is exactly the lines the server stores.
+ */
+const savedLines = (lines: readonly EditLine[]) => lines.filter((l) => l.description || l.unitPrice);
 
 export function invoicePutBody(id: string, { form, lines, taxMode }: Draft): InvoicePutBody {
   const taxRate = effectiveTaxRate(taxMode, form.taxRate);
@@ -37,7 +42,7 @@ export function invoicePutBody(id: string, { form, lines, taxMode }: Draft): Inv
     billingPeriodStart: form.billingPeriodStart || undefined,
     billingPeriodEnd: form.billingPeriodEnd || undefined,
     taxRate,
-    notes: form.notes || undefined,
+    notes: form.notes, // '' clears them; left out, the server would keep the old notes and Saved would be untrue
     currencyCode: form.currencyCode,
     exchangeRate: form.exchangeRate,
     projectId: form.projectId || null,
@@ -54,30 +59,56 @@ export function invoicePutBody(id: string, { form, lines, taxMode }: Draft): Inv
   };
 }
 
-/** Why the Save button refuses this draft, or null. Shown on screen. */
-export function saveProblem({ form, lines, taxMode }: Draft, refused: Refused): string | null {
+const finite = (...ns: number[]) => ns.every((n) => Number.isFinite(n));
+
+/**
+ * Why a line on screen would not reach the invoice, or null. The screen's total counts every line, so a body that
+ * dropped one would store, and approve, a different invoice from the one shown. A line with nothing in it (no
+ * description, no price) is left out quietly: it adds nothing. `zeroPriceKept`: the edit page stores a described line
+ * at R0; the new page does not.
+ */
+export function droppedLineProblem(lines: readonly Pick<EditLine, 'description' | 'unitPrice' | 'quantity'>[], zeroPriceKept: boolean): string | null {
+  for (const l of lines) {
+    if (!l.description && !l.unitPrice) continue;
+    const name = l.description ? `"${l.description}"` : 'A line';
+    if (!finite(l.unitPrice) || l.unitPrice < 0) return `${name} has a negative price: enter a discount as a Disc. % on the line instead, or remove it`;
+    if (!l.description) return `A line of ${l.unitPrice.toFixed(2)} has no description: add one, or remove the line`;
+    if (!finite(l.quantity) || l.quantity <= 0) return `${name} needs a quantity above 0`;
+    if (!zeroPriceKept && l.unitPrice <= 0) return `${name} needs a price above 0`;
+  }
+  return null;
+}
+
+export type StoredDates = Partial<Record<'dueDate' | 'billingPeriodStart' | 'billingPeriodEnd', boolean>>;
+const DATE_NAMES: [keyof StoredDates, string][] = [['dueDate', 'due date'], ['billingPeriodStart', 'period start'], ['billingPeriodEnd', 'period end']];
+
+/** The server keeps a date the body leaves out, so a stored one cleared here would read Saved and stay: refuse it. */
+function clearedDateProblem(form: InvoiceHeaderForm, stored: StoredDates): string | null {
+  const cleared = DATE_NAMES.find(([key]) => stored[key] && !form[key]);
+  return cleared ? `The ${cleared[1]} cannot be cleared here: enter a date` : null;
+}
+
+/** Why the Save button (and Approve & email) refuses this draft, or null. Shown on screen. */
+export function saveProblem({ form, lines, taxMode }: Draft, refused: Refused, stored: StoredDates = {}): string | null {
   if (!form.clientId) return 'Select a client';
   const rate = effectiveTaxRate(taxMode, form.taxRate);
   const tooSmall = lines.find((l) => l.description && pricesToNothing(taxMode, l.unitPrice, rate));
   if (tooSmall) return pricesToNothingMessage(tooSmall.description);
-  if (savedLines(lines).length === 0) return 'Add at least one line item';
-  return invoiceDateProblem(form, refused);
+  const dropped = droppedLineProblem(lines, true);
+  if (dropped) return dropped;
+  if (!lines.some((l) => l.description)) return 'Add at least one line item';
+  return invoiceDateProblem(form, refused) ?? clearedDateProblem(form, stored);
 }
 
-const finite = (...ns: number[]) => ns.every((n) => Number.isFinite(n));
-
 /**
- * Why autosave holds this draft back, or null. Stricter than Save: a line half-typed (a description with no quantity,
- * a price with no description) would be dropped from the body, so the stored draft would lose it mid-edit; a rate or
- * exchange rate the server refuses would stop autosave on a 400 for a value still being typed.
+ * Why autosave holds this draft back, or null: Save's refusals, plus no priced line yet, and a rate or exchange rate
+ * the server would refuse (a 400 would stop autosave for a value still being typed).
  */
-export function autosaveProblem(draft: Draft, refused: Refused): string | null {
-  const refusal = saveProblem(draft, refused);
+export function autosaveProblem(draft: Draft, refused: Refused, stored: StoredDates = {}): string | null {
+  const refusal = saveProblem(draft, refused, stored);
   if (refusal) return refusal;
   const { form, lines } = draft;
   if (!lines.some((l) => l.description && l.unitPrice > 0 && l.quantity > 0)) return 'Add a priced line';
-  const halfTyped = lines.some((l) => (l.description || l.unitPrice) && !(l.description && finite(l.unitPrice, l.quantity) && l.unitPrice >= 0 && l.quantity > 0));
-  if (halfTyped) return 'Finish or remove the incomplete line';
   if (!finite(form.taxRate, form.exchangeRate) || form.taxRate < 0 || form.taxRate > 100 || form.exchangeRate <= 0) return 'Check the VAT and exchange rates';
   return null;
 }

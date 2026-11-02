@@ -4,7 +4,10 @@
  * taken together from one render, go to localStorage under the company and user (src/lib/invoiceDrafts.ts).
  *
  * - Nothing is written until the form differs from how the page opened, and nothing without a company and a user.
- * - A kept draft is offered on the next visit; nothing overwrites it until the user restores or discards it.
+ * - A kept draft is offered on the next visit; nothing overwrites it until the user restores or discards it. An invoice
+ *   created meanwhile leaves it kept, unanswered, for the next visit (the offer leaves this page: it was for the form
+ *   that was just saved, and this page writes nothing over it).
+ * - A clear (sign-out, a company switch) ends this page's writing: a timer still pending writes nothing back.
  * - Never while `paused` (a VAT rate edit under way), as on the edit page.
  * - A storage that throws is shown, never raised; the next change tries again.
  * - `clear` after a successful create; sign-out and a company switch clear every draft (AuthContext, CompanyContext).
@@ -13,7 +16,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AuthContext } from '@/contexts/AuthContext';
 import { CompanyContext } from '@/contexts/CompanyContext';
 import type { AutosaveState } from '@/components/ui/AutosaveStatus';
-import { invoiceDraftKey, readInvoiceDraft, removeInvoiceDraft, writeInvoiceDraft, type StoredDraft } from '@/lib/invoiceDrafts';
+import { invoiceDraftGeneration, invoiceDraftKey, readInvoiceDraft, removeInvoiceDraft, writeInvoiceDraft, type StoredDraft } from '@/lib/invoiceDrafts';
 import type { InvoiceHeaderForm } from './invoiceHeaderForm';
 import type { InvoiceLine } from './InvoiceLineItemsTable';
 import type { TaxMode } from './taxMode';
@@ -45,6 +48,8 @@ export interface LocalDraft {
   /** The invoice was created: forget the draft, and start again from the form as it is next. */
   clear: () => void;
   unsaved: () => boolean;
+  /** The form as it would be kept, at the moment of asking. */
+  current: () => string | null;
 }
 
 const MODES: readonly string[] = ['exclusive', 'inclusive', 'none'];
@@ -69,7 +74,10 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const written = useRef<string | null>(null);
   const rebase = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const since = useRef(invoiceDraftGeneration());
+  const sealed = () => since.current !== invoiceDraftGeneration();
   const [offer, setOffer] = useState<StoredDraft<LocalDraftData> | null>(null);
+  const [offerHidden, setOfferHidden] = useState(false);
   const [writtenJson, setWrittenJson] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
@@ -91,9 +99,9 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
     timer.current = setTimeout(() => {
       timer.current = null;
       const now = latest.current;
-      if (now.json === null || now.data === null) return;
+      if (now.json === null || now.data === null || sealed()) return;
       // Back to how the page opened: there is nothing to keep.
-      const kept = now.json === baseline.current ? removeInvoiceDraft(key) : writeInvoiceDraft(key, { data: now.data, savedAt: Date.now() });
+      const kept = now.json === baseline.current ? removeInvoiceDraft(key) : writeInvoiceDraft(key, { data: now.data, savedAt: Date.now() }, since.current);
       setFailed(!kept);
       if (!kept) return;
       written.current = now.json;
@@ -115,17 +123,19 @@ export function useLocalInvoiceDraft(opts: LocalDraftOptions | null): LocalDraft
   const clear = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-    if (key) removeInvoiceDraft(key);
+    if (offer) setOfferHidden(true); // an unanswered kept draft is not this invoice: it stays for the next visit
+    else if (key) removeInvoiceDraft(key);
     written.current = latest.current.json; // nothing unsaved now; the next render's form is the new start
     rebase.current = true;
     setSavedAt(null);
     setFailed(false);
-  }, [key]);
-  const unsaved = useCallback(() => Boolean(key) && latest.current.json !== written.current, [key]);
+  }, [key, offer]);
+  const unsaved = useCallback(() => Boolean(key) && !sealed() && latest.current.json !== written.current, [key]);
+  const current = useCallback(() => latest.current.json, []);
 
   const state: AutosaveState | null = !key ? null
     : failed ? 'error'
       : writtenJson !== null && json !== writtenJson ? 'dirty'
         : savedAt !== null ? 'saved' : null;
-  return { state, savedAt, error: failed ? FAILED : null, offer: offer ? { savedAt: offer.savedAt } : null, restore, discard, clear, unsaved };
+  return { state, savedAt, error: failed ? FAILED : null, offer: offer && !offerHidden ? { savedAt: offer.savedAt } : null, restore, discard, clear, unsaved, current };
 }

@@ -27,6 +27,7 @@ import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-in
 import { editedLine, useContactDefaults } from '@/components/accounting/customer-invoices/useContactDefaults';
 import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, pricesToNothing, pricesToNothingMessage, storedUnitPrice, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
+import { droppedLineProblem } from '@/components/accounting/customer-invoices/invoicePutBody';
 import { useInvoiceDraftOwner, type LocalDraftData } from '@/components/accounting/customer-invoices/useLocalInvoiceDraft';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { stashApproveRefusal, useApproveAndEmail, type SavedInvoice } from '@/components/accounting/customer-invoices/useApproveAndEmail';
@@ -131,6 +132,9 @@ export default function NewCustomerInvoicePage() {
     if (!form.clientId) { setError('Select a client'); return null; }
     const tooSmall = lines.find(l => l.description && pricesToNothing(taxMode, l.unitPrice, taxRate));
     if (tooSmall) { setError(pricesToNothingMessage(tooSmall.description)); return null; }
+    // Every line on screen counts in the total: one the body would drop is refused, never left out quietly.
+    const dropped = droppedLineProblem(lines, false);
+    if (dropped) { setError(dropped); return null; }
     const validLines = lines.map(({ discountFromDefault: _fromDefault, ...l }) => ({ ...l, unitPrice: storedUnitPrice(taxMode, l.unitPrice, taxRate) })).filter(l => l.description && l.unitPrice > 0);
     if (validLines.length === 0) { setError('Add at least one line item'); return null; }
     const dateProblem = invoiceDateProblem(form, dates.refused);
@@ -170,6 +174,7 @@ export default function NewCustomerInvoicePage() {
   // A refused approval leaves the created draft: its edit page says why.
   const approve = useApproveAndEmail({
     save: createInvoice,
+    bodyNow: draft.current,
     onRefused: (id, message) => {
       stashApproveRefusal(id, message);
       void (async () => {
@@ -211,6 +216,7 @@ export default function NewCustomerInvoicePage() {
               )}
               {(error || contact.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error || contact.error}</div>}
 
+              <fieldset disabled={submitting || approve.busy} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} currencies={currencies} options={codingOptions}
                 onChange={patch => { if ('clientId' in patch) lookupSeq.current++; if ('taxRate' in patch) contact.touch('taxMode'); setForm(p => ({ ...p, ...patch })); }}
                 onProjectChange={pickProject} onDateValidity={dates.report} refused={dates.refused} resetKey={resetKey} clientLabel={scanned?.id === form.clientId ? scanned.name : undefined}
@@ -223,6 +229,7 @@ export default function NewCustomerInvoicePage() {
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Add any notes or payment instructions…" />
+              </fieldset>
               <p className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 py-3 text-sm text-[var(--ff-text-secondary)]">Save the draft to preview the PDF.</p>
             </div>
 

@@ -16,6 +16,8 @@ import { log } from '@/lib/logger';
 
 const APPROVE_FAILED = 'Could not approve the invoice - try again';
 const SEND_FAILED = 'Could not send the invoice email - try again';
+const APPROVED = 'Approved. Nothing is sent until you click Send Email.';
+const DRIFTED = 'The invoice changed while it was being approved: that change was not saved and is not on the approved invoice.';
 
 export interface SavedInvoice { id: string; invoiceNumber: string }
 
@@ -25,6 +27,8 @@ interface Options {
   /** The approval was refused; the draft stays. */
   onRefused: (invoiceId: string, message: string) => void;
   onApproved?: () => void;
+  /** The form as it would be saved, now. Compared after the approval: a change that landed meanwhile is not on it. */
+  bodyNow: () => string | null;
 }
 
 interface EmailForm {
@@ -54,12 +58,14 @@ async function readEmailForm(saved: SavedInvoice): Promise<EmailForm> {
   }
 }
 
-export function useApproveAndEmail({ save, onRefused, onApproved }: Options) {
+export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow }: Options) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState<EmailForm | null>(null);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState('');
+  const [sent, setSent] = useState(false);
+  const [drifted, setDrifted] = useState(false);
 
   const start = useCallback(async () => {
     if (busy) return;
@@ -67,6 +73,7 @@ export function useApproveAndEmail({ save, onRefused, onApproved }: Options) {
     try {
       const saved = await save();
       if (!saved) return;
+      const approvedBody = bodyNow();
       try {
         const res = await apiFetch('/api/accounting/customer-invoices-detail', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: saved.id, action: 'approve' }),
@@ -77,15 +84,17 @@ export function useApproveAndEmail({ save, onRefused, onApproved }: Options) {
         return;
       }
       onApproved?.();
+      setDrifted(bodyNow() !== approvedBody);
       setResult('');
+      setSent(false);
       setEmail(await readEmailForm(saved));
     } finally {
       setBusy(false);
     }
-  }, [busy, save, onRefused, onApproved]);
+  }, [busy, save, onRefused, onApproved, bodyNow]);
 
   const send = useCallback(async () => {
-    if (!email || !email.emailTo.trim() || sending) return;
+    if (!email || !email.emailTo.trim() || sending || sent) return;
     setSending(true);
     setResult('');
     try {
@@ -95,22 +104,23 @@ export function useApproveAndEmail({ save, onRefused, onApproved }: Options) {
       });
       await assertOk(res, SEND_FAILED);
       const json = await res.json() as { data?: { sent?: boolean }; message?: string };
+      setSent(Boolean(json.data?.sent));
       setResult(json.data?.sent ? 'Invoice emailed successfully!' : (json.message || 'Email could not be sent.'));
     } catch (err) {
       setResult(apiErrorMessage(err, SEND_FAILED));
     } finally {
       setSending(false);
     }
-  }, [email, sending]);
+  }, [email, sending, sent]);
 
   const close = useCallback(() => {
-    if (!email) return;
+    if (!email || sending) return;
     const id = email.invoiceId;
     setEmail(null);
     void (async () => {
       try { await router.push(`/accounting/customer-invoices/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'useApproveAndEmail'); }
     })();
-  }, [email, router]);
+  }, [email, sending, router]);
 
   return {
     busy,
@@ -119,7 +129,7 @@ export function useApproveAndEmail({ save, onRefused, onApproved }: Options) {
     modal: email ? {
       open: true, invoiceNumber: email.invoiceNumber, emailTo: email.emailTo, emailSending: sending, emailSuccess: result,
       ...(email.sentAt ? { emailSentAt: email.sentAt } : {}), ...(email.sentTo ? { emailSentTo: email.sentTo } : {}),
-      notice: 'Approved. Nothing is sent until you click Send Email.',
+      notice: drifted ? `${APPROVED} ${DRIFTED}` : APPROVED,
       onEmailToChange: (v: string) => setEmail((f) => (f ? { ...f, emailTo: v } : f)),
       onSend: () => { void send(); },
       onClose: close,

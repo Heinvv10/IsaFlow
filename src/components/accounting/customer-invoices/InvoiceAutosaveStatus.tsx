@@ -11,6 +11,8 @@ interface Props {
   state: AutosaveState | null;
   savedAt: number | null;
   error: string | null;
+  /** Why a change is not being saved (the edit page's autosave hold), shown instead of "Unsaved changes". */
+  held?: string | null;
 }
 
 function useSecondTick(active: boolean): number {
@@ -24,10 +26,11 @@ function useSecondTick(active: boolean): number {
   return now;
 }
 
-export function InvoiceAutosaveStatus({ where, state, savedAt, error }: Props) {
+export function InvoiceAutosaveStatus({ where, state, savedAt, error, held }: Props) {
   const onDevice = where === 'device' && state === 'saved' && savedAt !== null;
   const now = useSecondTick(onDevice);
   if (state === null) return null;
+  if (held) return <AutosaveStatus state="error" errorMessage={`Not saved: ${held}`} className="mt-3" />;
   if (!onDevice) return <AutosaveStatus state={state} savedAt={savedAt} {...(error ? { errorMessage: error } : {})} className="mt-3" />;
   return (
     <p role="status" className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">

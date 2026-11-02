@@ -54,6 +54,10 @@ export interface ServerAutosave {
   saveNow: (always?: boolean) => Promise<SaveResult>;
   /** Read at the moment of asking: a change not yet saved, or a save out. */
   unsaved: () => boolean;
+  /** Why a change on screen is not being saved (the body `problem`), while there is one; null otherwise. */
+  held: string | null;
+  /** The newest body as sent, at the moment of asking (Approve & email compares it before and after). */
+  currentBody: () => string | null;
 }
 
 interface Failure { json: string; message: string }
@@ -77,6 +81,19 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
 
   // First: what the timers and the guard read. Then the body the page loaded with is what the server holds.
   useCommitEffect(() => { latest.current = { json, armed, done: Boolean(opts?.done) }; });
+  // Another invoice opened in place: nothing it shows has been saved by this page yet, and a reply for the old one is stale.
+  const invoiceId = opts?.invoiceId ?? null;
+  const shownFor = useRef(invoiceId);
+  useCommitEffect(() => {
+    if (shownFor.current === invoiceId) return;
+    shownFor.current = invoiceId;
+    seq.current++;
+    lastSaved.current = null;
+    setSavedJson(null);
+    setSavedAt(null);
+    setFailure(null);
+    setSaving(false);
+  }, [invoiceId]);
   useCommitEffect(() => {
     if (json === null || lastSaved.current !== null) return;
     lastSaved.current = json;
@@ -134,10 +151,12 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const unsaved = useCallback(() => !latest.current.done && (inFlight.current !== null
     || (lastSaved.current !== null && latest.current.json !== lastSaved.current)), []);
 
+  const currentBody = useCallback(() => latest.current.json, []);
   const state: AutosaveState | null = !opts || json === null ? null
     : failed ? 'error'
       : saving ? 'saving'
         : savedJson !== null && json !== savedJson ? 'dirty'
           : savedAt !== null ? 'saved' : null;
-  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved };
+  const held = state === 'dirty' && opts?.problem && !opts.paused ? opts.problem : null;
+  return { state, savedAt, error: failed?.message ?? null, savedCount, saveNow, unsaved, held, currentBody };
 }

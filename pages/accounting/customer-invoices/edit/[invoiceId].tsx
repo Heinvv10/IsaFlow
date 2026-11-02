@@ -21,7 +21,7 @@ import { useInvoiceDateValidity, type InvoiceHeaderForm } from '@/components/acc
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 import { useCustomerLookup } from '@/components/accounting/customer-invoices/useCustomerLookup';
 import { effectiveTaxRate, inclusiveTypedTotal, lineTotalForMode, linesForModeChange, vatTypeWarning, type TaxMode } from '@/components/accounting/customer-invoices/taxMode';
-import { autosaveProblem, invoicePutBody, saveProblem, type EditLine } from '@/components/accounting/customer-invoices/invoicePutBody';
+import { autosaveProblem, invoicePutBody, saveProblem, type EditLine, type StoredDates } from '@/components/accounting/customer-invoices/invoicePutBody';
 import { useInvoiceAutosave } from '@/components/accounting/customer-invoices/useInvoiceAutosave';
 import { InvoiceAutosaveStatus } from '@/components/accounting/customer-invoices/InvoiceAutosaveStatus';
 import { InvoicePdfPreview } from '@/components/accounting/customer-invoices/InvoicePdfPreview';
@@ -64,10 +64,14 @@ export default function EditCustomerInvoicePage() {
   const customer = useCustomerLookup(form.clientId, CUSTOMER_FAILED);
   const [rateEditing, setRateEditing] = useState(false);
   const [approved, setApproved] = useState(false);
+  // Which invoice the form holds, and which of its dates were stored (the server keeps one the body leaves out).
+  const [loadedFor, setLoadedFor] = useState('');
+  const [storedDates, setStoredDates] = useState<StoredDates>({});
 
   useEffect(() => {
     if (!invoiceId) return;
     const id = String(invoiceId);
+    setLoading(true); setInvoiceNumber(''); setError(''); setApproved(false); // another invoice opened in place starts again
     void Promise.all([
       apiFetch('/api/accounting/currencies', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load currencies - try again'); return r.json(); }),
       apiFetch(`/api/accounting/customer-invoices-detail?id=${id}`, { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load the invoice - try again'); return r.json(); }),
@@ -81,6 +85,8 @@ export default function EditCustomerInvoicePage() {
         return;
       }
       setInvoiceNumber(invoice.invoice_number);
+      setLoadedFor(id);
+      setStoredDates({ dueDate: Boolean(invoice.due_date), billingPeriodStart: Boolean(invoice.billing_period_start), billingPeriodEnd: Boolean(invoice.billing_period_end) });
       const refusal = takeApproveRefusal(id); // Approve & email on the new page landed here: say why
       if (refusal) setError(refusal);
       // No VAT at rate 0 prices exactly as Excluding VAT at rate 0, and says what the invoice is. The form keeps the
@@ -148,25 +154,27 @@ export default function EditCustomerInvoicePage() {
   // One render's form, lines and mode, together: the Save button, autosave and Approve & email all send this body.
   const id = String(invoiceId ?? '');
   const draft = { form, lines, taxMode };
+  // Approve & email first: autosave waits while it runs (the form is disabled then too). Its save reads `autosave`
+  // only when clicked, after this render has made it.
+  const approve = useApproveAndEmail({
+    save: async () => (await saveDraft(false) ? { id, invoiceNumber } : null),
+    onRefused: (_id, message) => setError(message),
+    onApproved: () => setApproved(true),
+    bodyNow: () => autosave.currentBody(),
+  });
   const autosave = useInvoiceAutosave({
-    mode: 'server', invoiceId: id, body: !loading && invoiceNumber ? invoicePutBody(id, draft) : null,
-    problem: autosaveProblem(draft, dates.refused), paused: rateEditing, done: approved,
+    mode: 'server', invoiceId: id, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
+    problem: autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved,
   });
 
   const saveDraft = async (always: boolean): Promise<boolean> => {
-    const problem = saveProblem(draft, dates.refused);
+    const problem = saveProblem(draft, dates.refused, storedDates);
     if (problem) { setError(problem); return false; }
     setError('');
     const saved = await autosave.saveNow(always);
     if (!saved.ok) setError(saved.message);
     return saved.ok;
   };
-  const approve = useApproveAndEmail({
-    save: async () => (await saveDraft(false) ? { id, invoiceNumber } : null),
-    onRefused: (_id, message) => setError(message),
-    onApproved: () => setApproved(true),
-  });
-
   const handleSubmit = async () => {
     setSubmitting(true);
     let saved = false;
@@ -211,6 +219,7 @@ export default function EditCustomerInvoicePage() {
             <div className="min-w-0 space-y-5">
               {(error || customer.error) && <div role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error || customer.error}</div>}
 
+              <fieldset disabled={approve.busy} className="min-w-0 space-y-5">
               <InvoiceHeaderFields form={form} onChange={patch => setForm(p => ({ ...p, ...patch }))} currencies={currencies} options={codingOptions}
                 onProjectChange={v => setForm(p => ({ ...p, projectId: v }))} onDateValidity={dates.report} refused={dates.refused} taxMode={taxMode} onTaxModeChange={pickTaxMode} vatWarning={vatTypeWarning(customer.defaults?.vatType, taxRate)} onRateEditing={setRateEditing} />
 
@@ -220,12 +229,13 @@ export default function EditCustomerInvoicePage() {
               </div>
 
               <InvoiceNotesCard value={form.notes} onChange={notes => setForm(p => ({ ...p, notes }))} placeholder="Notes or payment instructions…" />
+              </fieldset>
               {id && <InvoicePdfPreview invoiceId={id} version={autosave.savedCount} />}
             </div>
 
             <div className="lg:sticky lg:top-6 space-y-4">
               <InvoiceSummaryCard subtotal={subtotal} tax={tax} total={total} taxRate={taxRate} currencyCode={form.currencyCode} {...(taxMode === 'inclusive' ? { typedTotal: inclusiveTypedTotal(lines) } : {})}>
-                <InvoiceAutosaveStatus where="server" state={autosave.state} savedAt={autosave.savedAt} error={autosave.error} />
+                <InvoiceAutosaveStatus where="server" state={autosave.state} savedAt={autosave.savedAt} error={autosave.error} held={autosave.held} />
                 <button onClick={handleSubmit} disabled={submitting || approve.busy || approved || (customer.pending && form.clientId !== loadedClient)} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                   {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
                 </button>
