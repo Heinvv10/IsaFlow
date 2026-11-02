@@ -9,7 +9,31 @@ import { MAX_SLOT_GENERATION, SOURCE_COMPANY_ID, assertSlotCompanyId, slotCompan
 
 /** What retireSlotCompany puts in front of a retired company's name. */
 const RETIRED_PREFIX = 'RETIRED';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const say = (line: string): void => { process.stdout.write(`${line}\n`); };
+
+/** Uses the configured id when valid; otherwise recovers the sole live generation from the database. */
+export async function resolveSlotCompanyId(db: ClientBase, n: number, configured: string | undefined): Promise<string> {
+  if (configured && UUID.test(configured)) {
+    assertSlotCompanyId(n, configured);
+    return configured;
+  }
+  const ids = Array.from({ length: MAX_SLOT_GENERATION + 1 }, (_, generation) => slotCompanyId(n, generation));
+  const found = await db.query<{ id: string; name: string }>(
+    'SELECT id::text AS id, name FROM companies WHERE id = ANY($1::uuid[]) ORDER BY id', [ids]);
+  const live = found.rows.filter(({ name }) => !name.startsWith(RETIRED_PREFIX));
+  if (live.length > 1) {
+    throw new Error(`slot ${n}: multiple live generations found (${live.map(({ id }) => id).join(', ')}); repair GOLDEN_SLOT_${n}_COMPANY_ID manually`);
+  }
+  if (live[0]) {
+    assertSlotCompanyId(n, live[0].id);
+    return live[0].id;
+  }
+  if (found.rows.length) {
+    throw new Error(`slot ${n}: every existing generation is retired; repair GOLDEN_SLOT_${n}_COMPANY_ID manually`);
+  }
+  return slotCompanyId(n);
+}
 
 /** @returns true when this run created the company */
 export async function ensureCompany(db: ClientBase, n: number, id: string, generation: number): Promise<boolean> {
