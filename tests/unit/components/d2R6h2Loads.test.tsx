@@ -68,7 +68,7 @@ describe('VatPeriodLockForm', () => {
 
 describe('admin settings', () => {
   it('a failing alert-settings load hides the editable forms (Save must not write blanks back)', async () => {
-    vi.mocked(apiFetch).mockImplementation(async (url) => (String(url).includes('alert-settings') ? empty500() : ok({ maintenance_mode: false, registration_enabled: true, default_trial_days: 14, max_companies_per_user: 3, smtp_configured: true })));
+    vi.mocked(apiFetch).mockImplementation(async (url) => (String(url).includes('alert-settings') ? empty500() : ok({ maintenance_mode: false, registration_enabled: true, max_companies_per_user: 3, smtp_configured: true })));
     render(<AdminSettings />);
     expect(await screen.findByText('Could not load the alert settings - try again')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /save alert settings/i })).toBeNull();

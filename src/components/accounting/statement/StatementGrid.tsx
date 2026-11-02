@@ -32,9 +32,12 @@ export interface StatementGridProps {
   /** Budget vs Actual only: a budgeted zero prints 0.00 (absent stays "—"), Var % of a zero budget
    *  prints "—", and a line's Var R cell opens its drill like the label. Off on every other surface. */
   budgetTracking?: boolean;
+  /** A statement page's Budget column (budgets P3 PR-C): a budgeted zero prints 0.00, absent "—", and Var %
+   *  of a zero budget "—" uncoloured, as on Budget vs Actual; no drill on Var R, no other column changed. */
+  budgetCells?: boolean;
 }
 
-export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false, sticky = false, projectionTitle, budgetTracking = false }: StatementGridProps) {
+export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false, sticky = false, projectionTitle, budgetTracking = false, budgetCells = false }: StatementGridProps) {
   const active = COMPARATORS.filter(c => columns[c.key]);
   // One bar scale PER COMPARATOR. Sharing one scale across prior and budget
   // would draw a small budget movement at the size of a large prior one.
@@ -83,6 +86,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
               <StatementRowView key={row.id} row={row} columns={columns} maxVariance={maxVariance} cents={cents}
                 stickyFirst={sticky}
                 tracking={budgetTracking}
+                budgetCells={budgetCells}
                 expanded={expanded}
                 onToggle={onToggleAccount}
                 onEvidence={onEvidence}

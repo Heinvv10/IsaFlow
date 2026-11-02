@@ -224,8 +224,21 @@ describe('/api/mcp transport', () => {
   it('tools/list → registry manifest', async () => {
     const res = makeRes();
     await route(makeReq('POST', rpc('tools/list')) as never, res);
-    const result = (res.body as { result: { tools: Array<{ name: string }> } }).result;
+    const result = (res.body as {
+      result: {
+        tools: Array<{
+          name: string;
+          annotations: Record<string, boolean>;
+        }>;
+      };
+    }).result;
     expect(result.tools.map((t) => t.name)).toContain('echo_ctx');
+    expect(result.tools.find((t) => t.name === 'echo_ctx')?.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
   });
 
   it('tools/call builds ctx from the REQUEST — params cannot inject a company', async () => {

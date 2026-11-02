@@ -74,7 +74,8 @@ export function FieldHelp({ help, textId, subject }: FieldHelpProps) {
           if (!refocusing.current) setOpen(true);
         }}
         onClick={() => setOpen(true)}
-        className="ff-focus-ring inline-flex rounded-full p-0.5 text-gray-600 hover:text-teal-700 dark:text-gray-400 dark:hover:text-teal-300"
+        // 24 px target for a 14 px icon; the negative margin keeps the 18 px it always took in the row.
+        className="ff-focus-ring -m-[3px] inline-flex rounded-full p-[5px] text-gray-600 hover:text-teal-700 dark:text-gray-400 dark:hover:text-teal-300"
       >
         <Info size={14} aria-hidden="true" />
       </button>

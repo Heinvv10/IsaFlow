@@ -67,10 +67,14 @@ describe('suggestedPlanCode', () => {
 });
 
 describe('trialEndsAt', () => {
+  it('is 30 days, as the pricing page promises', () => {
+    expect(TRIAL_DAYS).toBe(30);
+  });
+
   it(`is exactly ${TRIAL_DAYS} days after creation`, () => {
     const from = new Date('2026-08-19T10:00:00.000Z');
     const end = trialEndsAt(from);
-    expect(end.toISOString()).toBe('2026-09-02T10:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-09-18T10:00:00.000Z');
     expect((end.getTime() - from.getTime()) / 86_400_000).toBe(TRIAL_DAYS);
   });
 });
@@ -124,7 +128,7 @@ describe('provisionTenant', () => {
     expect(result.companyId).toBe('company-1');
     expect(result.subscriptionId).toBe('sub-1');
     expect(result.paygEligible).toBe(true);
-    expect(result.trialEndsAt.toISOString()).toBe('2026-09-02T10:00:00.000Z');
+    expect(result.trialEndsAt.toISOString()).toBe('2026-09-18T10:00:00.000Z');
 
     const statements = calls.map((c) => c.text).join('\n---\n');
     expect(statements).toMatch(/INSERT INTO companies/i);
@@ -153,7 +157,7 @@ describe('provisionTenant', () => {
     expect(subInsert.text).toMatch(/'trial'/);
     expect(subInsert.values).toContain(now);
     expect(subInsert.values.map(String)).toContain(
-      new Date('2026-09-02T10:00:00.000Z').toString(),
+      new Date('2026-09-18T10:00:00.000Z').toString(),
     );
   });
 

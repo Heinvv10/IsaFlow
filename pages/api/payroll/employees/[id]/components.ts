@@ -16,7 +16,7 @@ import {
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   assignComponentToEmployee,
-  isCalendarDay,
+  EmployeeComponentRefused,
   endEmployeeComponent,
   listEmployeeComponentAssignments,
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
@@ -52,21 +52,23 @@ async function handler(
     if (!componentId) return apiResponse.badRequest(res, 'componentId is required');
     if (amount === undefined || amount === null) return apiResponse.badRequest(res, 'amount is required');
     if (!effectiveFrom) return apiResponse.badRequest(res, 'effectiveFrom is required');
-    if (!isCalendarDay(effectiveFrom)) return apiResponse.badRequest(res, 'effectiveFrom must be a date written YYYY-MM-DD');
-    if (effectiveTo && !isCalendarDay(effectiveTo)) return apiResponse.badRequest(res, 'effectiveTo must be a date written YYYY-MM-DD');
 
-    const assignment = await assignComponentToEmployee(
-      companyId,
-      id,
-      componentId,
-      Number(amount),
-      effectiveFrom,
-      effectiveTo || undefined,
-      isRecurring !== false, // default true
-    );
-
-    res.status(201).json({ success: true, data: assignment });
-    return;
+    try {
+      const assignment = await assignComponentToEmployee(
+        companyId,
+        id,
+        componentId,
+        Number(amount),
+        effectiveFrom,
+        effectiveTo || undefined,
+        isRecurring !== false, // default true
+      );
+      res.status(201).json({ success: true, data: assignment });
+      return;
+    } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   // DELETE — end an assignment (set effective_to)
@@ -77,11 +79,17 @@ async function handler(
     if (typeof aid !== 'string') return apiResponse.badRequest(res, 'aid (assignment ID) query param is required');
     if (!effectiveTo) return apiResponse.badRequest(res, 'effectiveTo is required');
 
-    await endEmployeeComponent(companyId, aid, new Date(effectiveTo));
-    return apiResponse.success(res, { ended: aid });
+    try {
+      await endEmployeeComponent(companyId, aid, effectiveTo);
+      return apiResponse.success(res, { ended: aid });
+    } catch (err) {
+      if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));
+// The URL names the employee, so a logged amount is what that person earns.
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler)), { maskBodyKeys: ['amount'] }));

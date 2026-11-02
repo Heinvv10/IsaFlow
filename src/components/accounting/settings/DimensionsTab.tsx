@@ -68,7 +68,7 @@ export function DimensionsTab({ enableCC, enableBU, dimLoaded, onCCChange, onBUC
                 </a>
               )}
             </div>
-            <Toggle checked={enableCC} disabled={saving} onChange={v => { void save('enable_cost_centres', v, onCCChange); }} label="" />
+            <Toggle checked={enableCC} disabled={saving} onChange={v => { void save('enable_cost_centres', v, onCCChange); }} label="" ariaLabel="Cost centre tracking" />
           </div>
 
           {/* Business Units */}
@@ -85,7 +85,7 @@ export function DimensionsTab({ enableCC, enableBU, dimLoaded, onCCChange, onBUC
                 </a>
               )}
             </div>
-            <Toggle checked={enableBU} disabled={saving} onChange={v => { void save('enable_business_units', v, onBUChange); }} label="" />
+            <Toggle checked={enableBU} disabled={saving} onChange={v => { void save('enable_business_units', v, onBUChange); }} label="" ariaLabel="Business unit tracking" />
           </div>
         </div>
       )}

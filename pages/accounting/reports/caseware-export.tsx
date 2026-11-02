@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { DateField } from '@/components/ui/DateField';
+import { FixDateNotice, GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
@@ -36,6 +36,7 @@ export default function CaseWareExportPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const dates = useDateGate();
 
   const [mappings, setMappings] = useState<AccountMapping[]>([]);
   const [edits, setEdits] = useState<Record<string, { code: string; label: string }>>({});
@@ -171,18 +172,19 @@ export default function CaseWareExportPage() {
             <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-3">Export Trial Balance</h3>
             <div className="flex flex-wrap items-end gap-4">
               <div>
-                <DateField label="Period From" value={periodStart || null} onChange={(iso, v) => { if (v.valid) setPeriodStart(iso ?? ''); }} />
+                <GatedDateField gate={dates} gateKey="from" label="Period From" value={periodStart || null} onValue={setPeriodStart} />
               </div>
               <div>
-                <DateField label="Period To" value={periodEnd || null} onChange={(iso, v) => { if (v.valid) setPeriodEnd(iso ?? ''); }} />
+                <GatedDateField gate={dates} gateKey="to" label="Period To" value={periodEnd || null} onValue={setPeriodEnd} />
               </div>
-              <button onClick={handleExport}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
+              <button onClick={handleExport} disabled={dates.blocked}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>
           </div>
 
+          <FixDateNotice gate={dates} message="Fix the date marked in red before exporting." />
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}

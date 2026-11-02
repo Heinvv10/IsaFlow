@@ -189,3 +189,17 @@ describe.each(cases.filter((c) => c.required))('$page: required date', (c) => {
     expect(writes()).toHaveLength(0);
   });
 });
+
+describe.each(cases.filter((c) => /quotes|sales-orders/.test(c.page)))('$page: Create button', (c) => {
+  it('is disabled while the date is refused and enabled again once it is fixed', async () => {
+    respond = c.data ?? (() => undefined);
+    render(c.element);
+    await c.ready();
+    const create = (): HTMLButtonElement => screen.getAllByRole('button', { name: /create (quote|sales order)/i }).at(-1) as HTMLButtonElement;
+    expect(create().disabled).toBe(false);
+    typeDate(box(c.field), 'zz');
+    expect(create().disabled).toBe(true);
+    typeDate(box(c.field), '6 Oct 2031');
+    expect(create().disabled).toBe(false);
+  });
+});

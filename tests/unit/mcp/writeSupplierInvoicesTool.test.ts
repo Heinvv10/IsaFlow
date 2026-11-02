@@ -165,7 +165,7 @@ describe('create_supplier_invoice', () => {
   });
 
   it('surfaces service validation but generic-ifies a pg error', async () => {
-    vi.mocked(createSupplierInvoice).mockRejectedValueOnce(new Error('Line "x": quantity must be positive'));
+    vi.mocked(createSupplierInvoice).mockRejectedValueOnce(new Error('Line 1: quantity must be positive'));
     expect(errText(await createSupplierInvoiceTool.handler(createArgs(), ctx())))
       .toContain('quantity must be positive');
 

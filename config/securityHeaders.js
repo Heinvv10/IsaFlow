@@ -71,7 +71,8 @@ function buildCsp(nodeEnv) {
     `img-src 'self' data: blob: ${ISAFLOW_APP} ${ISAFLOW_ADMIN} ${GRAVATAR}`,
     "font-src 'self' data:",
     connectSrc,
-    `frame-src 'self' ${SIGNUM}`,
+    // blob: is the invoice PDF preview's iframe. Framing IsaFlow itself stays refused (frame-ancestors, X-Frame-Options).
+    `frame-src 'self' blob: ${SIGNUM}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
@@ -93,12 +94,55 @@ function buildCsp(nodeEnv) {
 }
 
 /**
+ * blob: on frame-src is for the invoice PDF preview, an authenticated page. The
+ * two public pages frame no blob:, so they do not inherit it. img-src keeps its
+ * own blob:.
+ *
+ * @param {string} csp
+ * @returns {string}
+ */
+function withoutBlobFrames(csp) {
+  return csp
+    .split('; ')
+    .map((directive) => directive.startsWith('frame-src ') ? directive.replace(' blob:', '') : directive)
+    .join('; ');
+}
+
+/**
+ * The OAuth consent page may show a manually trusted app's remote logo. With
+ * Next image optimisation disabled the browser loads that URL directly, so
+ * this response alone permits the exact HTTPS origin that owns the logo.
+ *
+ * @param {string} [nodeEnv] - process.env.NODE_ENV.
+ * @param {string | null} logoUrl - trusted app logo URL.
+ * @returns {string}
+ */
+function buildOauthAuthorizeCsp(nodeEnv, logoUrl) {
+  const csp = withoutBlobFrames(buildCsp(nodeEnv));
+  if (!logoUrl) return csp;
+
+  let origin;
+  try {
+    const url = new URL(logoUrl);
+    if (url.protocol !== 'https:') return csp;
+    origin = url.origin;
+  } catch {
+    return csp;
+  }
+
+  return csp
+    .split('; ')
+    .map((directive) => directive.startsWith('img-src ') ? `${directive} ${origin}` : directive)
+    .join('; ');
+}
+
+/**
  * The Content-Security-Policy for the PUBLIC SHARE PAGE (`/share/<token>`).
  *
  * Derived from `buildCsp` by SUBTRACTION rather than written out again, so the
  * share page can never quietly fall behind the policy every other route gets.
- * What it removes is Cloudflare Web Analytics: the beacon script host and the
- * host it reports to.
+ * What it removes is Cloudflare Web Analytics, the beacon script host and the
+ * host it reports to, and blob: frames (`withoutBlobFrames`).
  *
  * Why only here: on `/share/<token>` the pathname IS the credential. If the
  * Cloudflare zone has Web Analytics switched on, the edge injects the beacon
@@ -118,7 +162,7 @@ function buildCsp(nodeEnv) {
  * @returns {string}
  */
 function buildSharePageCsp(nodeEnv) {
-  return buildCsp(nodeEnv)
+  return withoutBlobFrames(buildCsp(nodeEnv))
     .split('; ')
     .map((directive) =>
       directive
@@ -148,4 +192,4 @@ function securityHeaders(nodeEnv) {
   ];
 }
 
-module.exports = { buildCsp, buildSharePageCsp, securityHeaders };
+module.exports = { buildCsp, buildOauthAuthorizeCsp, buildSharePageCsp, securityHeaders };

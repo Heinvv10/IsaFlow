@@ -8,9 +8,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowUpDown, Plus, Loader2, Check } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
-import { DateField } from '@/components/ui';
-import { useDateGate } from '@/hooks/useDateGate';
+import { GatedDateField, useDateGate } from '@/components/forms/GatedDateField';
 
+const FIX_DATE = 'Fix the date marked in red before saving.';
 const fmtQty = (n: number) => new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 4 }).format(n);
 
 interface StockItem {
@@ -51,7 +51,7 @@ export default function ItemAdjustmentsPage() {
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (dates.blocked) return;
+    if (dates.blocked) { setErr(FIX_DATE); setMsg(''); return; }
     setSaving(true); setMsg(''); setErr('');
     let written = false;
     try {
@@ -116,8 +116,8 @@ export default function ItemAdjustmentsPage() {
                   <input type="number" step="0.0001" min="0" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} className="ff-input w-full" required />
                 </div>
                 <div>
-                  <DateField label="Date" name="adjustmentDate" value={form.date || null}
-                    onChange={dates.bind('date', iso => setForm(f => ({ ...f, date: iso })), form.date)} />
+                  <GatedDateField gate={dates} gateKey="date" label="Date" name="adjustmentDate" value={form.date || null}
+                    onValue={iso => setForm(f => ({ ...f, date: iso }))} />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Reason</label>

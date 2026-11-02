@@ -15,12 +15,13 @@ import { useEffect, useRef, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, AlertCircle, Plus, AlertTriangle, CheckCircle } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { KpiStrip, PageHeader } from '@/components/ui';
+import { Drawer, KpiStrip, PageHeader } from '@/components/ui';
 import Link from 'next/link';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { ARFilterBar } from '@/components/accounting/customer-invoices/ARFilterBar';
 import { CustomerInvoiceTable, type CustomerInvoiceRow } from '@/components/accounting/customer-invoices/CustomerInvoiceTable';
+import { InvoiceDrawerBody } from '@/components/accounting/customer-invoices/InvoiceDrawerBody';
 import { useCustomerInvoiceListState } from '@/components/accounting/customer-invoices/useCustomerInvoiceListState';
 import { arFiltersToApiParams } from '@/components/accounting/customer-invoices/listQuery';
 import { ListSkeleton } from '@/components/ui/ListSkeleton';
@@ -38,6 +39,7 @@ export default function CustomerInvoicesPage() {
   const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
   const [arSummary, setArSummary] = useState<AROutstandingSummary | null>(null);
+  const [drawerInvoiceId, setDrawerInvoiceId] = useState<string | null>(null);
   const haveSummary = useRef(false);
   const filtersActive = filters.status !== 'all' || !!(filters.search || filters.customerId || filters.from || filters.to) || filters.aging.length > 0;
 
@@ -135,10 +137,17 @@ export default function CustomerInvoicesPage() {
               }}
             />
           ) : (
-            <CustomerInvoiceTable invoices={invoices} page={filters.page} limit={LIMIT} total={total} onPage={state.setPage} />
+            <CustomerInvoiceTable invoices={invoices} page={filters.page} limit={LIMIT} total={total} onPage={state.setPage} onOpen={setDrawerInvoiceId} />
           )}
         </div>
       </div>
+      <Drawer
+        open={drawerInvoiceId !== null}
+        onClose={() => setDrawerInvoiceId(null)}
+        title={`Invoice ${invoices.find((i) => i.id === drawerInvoiceId)?.invoice_number ?? ''}`.trim()}
+      >
+        {drawerInvoiceId && <InvoiceDrawerBody invoiceId={drawerInvoiceId} />}
+      </Drawer>
     </AppLayout>
   );
 }

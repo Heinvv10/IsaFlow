@@ -285,8 +285,9 @@
  * "1111111111" measures 60 px and "0000000000" 140 px at 20 px), so a right-aligned column of amounts
  * did not line up digit for digit. The digits alone (U+0030-0039) come from IBM Plex Sans, whose
  * digits are all 600/1000 em wide, and every other glyph stays DM Sans. The three faces are the
- * self-hosted Plex files cut down to those ten glyphs (about 1 KB each, public/fonts/figures; OFL as
- * public/fonts/OFL.txt). The family is first in the `sans` stack (tailwind.config.mjs), so it applies
+ * self-hosted Plex files cut down to those ten glyphs and the slashed zero `font-id` asks for (about
+ * 1 KB each, public/fonts/figures; OFL as public/fonts/OFL.txt). It stays out of the way until asked:
+ * `zero` is the only OpenType feature kept, and the glyph is 600/1000 em like the rest. The family is first in the `sans` stack (tailwind.config.mjs), so it applies
  * wherever the app face does. It is declared under its own name so the board pack's 'IBM Plex Sans'
  * faces and their readiness gate are untouched.
  *
@@ -340,6 +341,12 @@
 }
 
 @layer utilities {
+  /* An ID (invoice, journal or employee number) in the app face: font-mono is for code alone. */
+  .font-id {
+    font-family: inherit;
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
   /* Thin scrollbar */
   .scrollbar-thin::-webkit-scrollbar {
     width: 8px;

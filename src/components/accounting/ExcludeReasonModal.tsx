@@ -59,6 +59,9 @@ export function ExcludeReasonModal({ transaction, onClose, onExclude }: Props) {
   return (
     /* Backdrop */
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Exclude transaction"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={onClose}
     >

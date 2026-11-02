@@ -107,7 +107,7 @@ export function markQuotaUsedUnlessNoWork(kind: QuotaKind, err: unknown): void {
 }
 
 /**
- * nodemailer 8 codes (lib/smtp-connection, lib/errors.js) for failures that
+ * nodemailer 9 codes (lib/smtp-connection, lib/errors.js) for failures that
  * leave the message unsent: DNS, TLS set-up, login, missing credentials, an
  * envelope or message the server refused, a bad configuration.
  */

@@ -10,6 +10,7 @@
  */
 
 import { sql, withTransaction } from '@/lib/neon';
+import { UNKNOWN_SUPPLIER } from './apAgingInvoices';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type {
@@ -28,6 +29,7 @@ import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
+import { SUPPLIER_INVOICE_LINE_ORDER_BY } from './supplierInvoiceLineOrder';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -51,9 +53,9 @@ export async function getSupplierInvoiceById(
 ): Promise<(SupplierInvoice & { items: SupplierInvoiceItem[] }) | null> {
   try {
     const rows = (await sql`
-      SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
+      SELECT si.*, COALESCE(s.name, ${UNKNOWN_SUPPLIER}) AS supplier_name, NULL::text AS po_number
       FROM supplier_invoices si
-      LEFT JOIN suppliers s ON s.id = si.supplier_id
+      LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
       WHERE si.id = ${id} AND si.company_id = ${companyId}::UUID
     `) as Row[];
     if (rows.length === 0) return null;
@@ -63,13 +65,7 @@ export async function getSupplierInvoiceById(
       FROM supplier_invoice_items sii
       LEFT JOIN gl_accounts a ON a.id = sii.gl_account_id
       WHERE sii.supplier_invoice_id = ${id}
-      -- Posting order: buildExpenseLines puts the rounding residual on the LAST
-      -- line. Lines inserted together tie on created_at, so the content (then
-      -- id) breaks the tie instead of heap order. approval_document_digest
-      -- (migration 708) hashes the lines in exactly this order — keep them equal.
-      ORDER BY sii.created_at, sii.description, sii.gl_account_id, sii.quantity,
-               sii.unit_price, sii.tax_rate, sii.tax_amount, sii.line_total,
-               sii.project_id, sii.cost_center_id, sii.vat_classification, sii.id
+      ${sql.unsafe(SUPPLIER_INVOICE_LINE_ORDER_BY)}
     `) as Row[];
 
     return { ...mapInvoiceRow(rows[0]!), items: itemRows.map(mapItemRow) };

@@ -33,6 +33,7 @@ import { consentAppView } from '@/lib/auth/consentAppView';
 import { rejectionForUnknownScope } from '@/lib/auth/consentRejection';
 import { log } from '@/lib/logger';
 import type { AuthorizePageProps as Props, AuthorizePageErrorProps as ErrorProps } from '@/lib/auth/authorizePageProps';
+import { buildOauthAuthorizeCsp } from '../../config/securityHeaders';
 
 export default function AuthorizePage(props: Props | ErrorProps) {
   const [submitting, setSubmitting] = useState(false);
@@ -197,6 +198,8 @@ export default function AuthorizePage(props: Props | ErrorProps) {
 }
 
 export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async (ctx) => {
+  // First, so the error pages below carry it too: next.config.js's policy frames blob:.
+  ctx.res.setHeader('Content-Security-Policy', buildOauthAuthorizeCsp(process.env.NODE_ENV, null));
   // Auth gate — if the user has no valid session cookie, bounce to /login
   // with a returnTo so they come straight back here after signing in.
   const cookies = parseCookies(ctx.req as unknown as Parameters<typeof parseCookies>[0]);
@@ -270,12 +273,20 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   const choice = resolveConsentCompany(await connectorEnabledMemberships(memberships), cookies[ACTIVE_COMPANY_COOKIE]);
   if (!choice) return { props: { ok: false, error: NO_CONNECTOR_COMPANY_MESSAGE } };
 
+  const appView = consentAppView(app);
+  if (appView.logoUrl) {
+    ctx.res.setHeader(
+      'Content-Security-Policy',
+      buildOauthAuthorizeCsp(process.env.NODE_ENV, appView.logoUrl),
+    );
+  }
+
   return {
     props: {
       ok: true,
       companies: choice.companies,
       selectedCompanyId: choice.selectedCompanyId,
-      app: consentAppView(app),
+      app: appView,
       clientId,
       redirectUri,
       scopes,

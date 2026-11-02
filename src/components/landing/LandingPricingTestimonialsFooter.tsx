@@ -90,6 +90,9 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
             <div key={i} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
               <button
                 onClick={() => onToggle(i)}
+                id={`faq-q-${i}`}
+                aria-expanded={openFaq === i}
+                aria-controls={`faq-a-${i}`}
                 className="w-full flex items-center justify-between px-6 py-5 text-left"
               >
                 <span className="font-semibold text-gray-900 text-sm">{item.q}</span>
@@ -97,11 +100,10 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
                   className={`w-5 h-5 text-gray-600 dark:text-gray-400 flex-shrink-0 ml-4 transition-transform duration-200 ${ openFaq === i ? 'rotate-180' : '' }`}
                 />
               </button>
-              {openFaq === i && (
-                <div className="px-6 pb-5">
-                  <p className="text-sm text-gray-600 leading-relaxed">{item.a}</p>
-                </div>
-              )}
+              {/* Always in the DOM (hidden when closed) so the answer text is crawlable. */}
+              <div className="px-6 pb-5" id={`faq-a-${i}`} role="region" aria-labelledby={`faq-q-${i}`} hidden={openFaq !== i}>
+                <p className="text-sm text-gray-600 leading-relaxed">{item.a}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -151,6 +153,7 @@ export function LandingFooter() {
             <span className="text-sm text-gray-500">© {new Date().getFullYear()} Brightsphere Technologies (Pty) Ltd, trading as IsaFlow. All rights reserved.</span>
           </div>
           <div className="flex gap-6 text-sm text-gray-500">
+            <a href="/help" className="hover:text-white transition-colors">Help</a>
             <a href="/privacy" className="hover:text-white transition-colors">Privacy</a>
             <a href="/terms" className="hover:text-white transition-colors">Terms</a>
             <a href="/security" className="hover:text-white transition-colors">Security</a>

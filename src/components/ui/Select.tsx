@@ -47,6 +47,8 @@ interface SelectBaseProps {
   hint?: string;
   /** Replaces the default label classes (merged, so a later size/spacing class wins) to match a neighbouring form's labels. */
   labelClassName?: string;
+  /** The id of text that describes the current value, e.g. a note under the field. */
+  describedBy?: string;
 }
 
 const CREATE_VALUE = '__select_create_new__';
@@ -68,7 +70,7 @@ export type SelectProps = SingleSelectProps | MultiSelectProps;
 // WORKING: Select component (single and multi-select)
 export function Select(props: SelectProps) {
   const { options, placeholder = 'Select…', label, error, disabled = false, clearable = false, className, id: externalId } = props;
-  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName } = props;
+  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName, describedBy } = props;
   const searchable = props.searchable === true || onSearch !== undefined;
 
   const autoId = useId();
@@ -84,6 +86,7 @@ export function Select(props: SelectProps) {
   const triggerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const isMulti = props.multiple === true;
   const selectedValues: string[] = isMulti ? (props.value as string[]) : props.value ? [props.value as string] : [];
@@ -147,7 +150,11 @@ export function Select(props: SelectProps) {
 
   useEffect(() => {
     if (!open) return;
-    const onClick = (e: MouseEvent) => { if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) closeDropdown(); };
+    // The panel is portalled out of the trigger: a press inside it is not outside. Closing here would unmount the option before its click.
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current && !triggerRef.current.contains(target) && !panelRef.current?.contains(target)) closeDropdown();
+    };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [open, closeDropdown]);
@@ -182,6 +189,7 @@ export function Select(props: SelectProps) {
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-labelledby={label ? labelId : undefined}
+        aria-describedby={describedBy}
         aria-disabled={disabled}
         tabIndex={disabled ? -1 : 0}
         onClick={() => (open ? closeDropdown() : openDropdown())}
@@ -231,6 +239,7 @@ export function Select(props: SelectProps) {
               pos={pos}
               searchRef={searchRef}
               listRef={listRef}
+              panelRef={panelRef}
               onSearchChange={(v) => { setSearch(v); setActiveIndex(-1); onSearch?.(v); }}
               searchLabel={label ? `Search ${label}` : undefined}
               emptyText={emptyText}

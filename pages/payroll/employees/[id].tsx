@@ -173,7 +173,7 @@ export default function EmployeeDetailPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-3">
-            <Link href="/payroll/employees" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
+            <Link href="/payroll/employees" aria-label="Back to employees" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
               <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
             </Link>
             <div className="p-2 rounded-lg bg-teal-500/10">

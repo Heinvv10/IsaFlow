@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, CreditCard, Loader2, Plus, Trash2, Info, Receipt } from 'lucide-react';
+import { CreditCard, Loader2, Plus, Trash2, Info, Receipt } from 'lucide-react';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -13,7 +13,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { DateField } from '@/components/ui';
+import { PageHeader, DateField } from '@/components/ui';
 import { useDateGate } from '@/hooks/useDateGate';
 
 interface Client { id: string; name: string }
@@ -148,22 +148,13 @@ export default function NewCustomerPaymentPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/customer-payments" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Payments
-            </Link>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-white">Record Customer Payment</h1>
-              </div>
-              <ScanAndFillButton onExtracted={handleExtracted} label="Scan Document" />
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={CreditCard}
+          title="Record Customer Payment"
+          breadcrumb={[{ label: 'Customer Payments', href: '/accounting/customer-payments' }, { label: 'New payment' }]}
+          className="mb-0"
+          actions={<ScanAndFillButton onExtracted={handleExtracted} label="Scan Document" />}
+        />
 
         <form onSubmit={handleSubmit} className="p-6 xl:p-8">
           <div className="max-w-6xl mx-auto flex gap-6 items-start">
@@ -257,7 +248,7 @@ export default function NewCustomerPaymentPage() {
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Allocations</span>
-                      <span className="font-mono text-slate-900 dark:text-slate-100">{allocations.filter(a => a.invoiceId && a.amount > 0).length}</span>
+                      <span className="tabular-nums text-slate-900 dark:text-slate-100">{allocations.filter(a => a.invoiceId && a.amount > 0).length}</span>
                     </div>
                     <div className="h-px bg-slate-100 dark:bg-slate-800" />
                     <div className="flex justify-between">

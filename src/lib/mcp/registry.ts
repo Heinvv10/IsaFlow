@@ -10,13 +10,14 @@
 import { withSavepoint } from '@/lib/neon';
 import { runAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
-import type { McpTool, McpToolContext, McpToolResult } from './types';
+import type { McpTool, McpToolContext, McpToolManifest, McpToolResult } from './types';
 import { roleFenceRefusal } from './roleFence';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 import { insufficientFlowsText } from './flowRefusal';
 import { insufficientScopeMessage } from './scopeRemediation';
 import { thrownToolErrorText } from './thrownToolErrorText';
+import { toolAnnotationsFor } from './toolAnnotations';
 
 /**
  * The SAVEPOINT name a write tool runs under.
@@ -55,11 +56,12 @@ export class McpRegistry {
    * into each tool's schema, so a new write tool cannot ship without it. It is
    * a guard, never a selector — see companyAssert.ts.
    */
-  getManifest(): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
+  getManifest(): McpToolManifest[] {
     return [...this.tools.values()].map((t) => ({
       name: t.name,
       description: t.description,
       inputSchema: t.write ? withCompanyAssert(t.inputSchema) : t.inputSchema,
+      annotations: toolAnnotationsFor(t),
     }));
   }
 

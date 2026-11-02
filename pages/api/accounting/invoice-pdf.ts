@@ -1,6 +1,7 @@
 /**
  * Invoice PDF API
- * GET ?invoiceId=UUID — returns PDF as downloadable file
+ * GET ?invoiceId=UUID[&disposition=inline|attachment] — returns the PDF, as a
+ * download unless the preview asks for it inline
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -8,10 +9,11 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { checkReportRateLimit, INTERACTIVE_REPORT_LIMIT } from '@/lib/rateLimit';
 import { generateInvoicePdf, getInvoicePdfFilename } from '@/modules/accounting/services/ar/invoicePdfService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -22,6 +24,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'invoiceId query parameter is required');
   }
 
+  const { disposition = 'attachment' } = req.query;
+  if (disposition !== 'attachment' && disposition !== 'inline') {
+    return apiResponse.badRequest(res, 'disposition must be inline or attachment');
+  }
+
+  // Each member's own bucket, at the interactive limit: the preview renders on every saved edit.
+  if (!(await checkReportRateLimit(companyId, `invoice-pdf:u:${user.id}`, INTERACTIVE_REPORT_LIMIT))) {
+    log.warn('Invoice PDF rate limit exceeded', { companyId, userId: user.id }, 'rateLimit');
+    return apiResponse.tooManyRequests(res, 'Too many PDF requests. Please try again shortly.');
+  }
+
   try {
     const [pdfBuffer, filename] = await Promise.all([
       generateInvoicePdf(companyId, invoiceId),
@@ -29,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     ]);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', `${disposition}; filename="${filename}"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.status(200).end(pdfBuffer);
   } catch (err) {

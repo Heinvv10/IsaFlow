@@ -62,14 +62,14 @@ describe('GL import: a dimension refusal names its own row', () => {
       new PreWriteDimensionRefusal('CC1 must name an active CC1 cost centre in this company', 1));
     const err = await run();
     expect(err).toBeInstanceOf(ImportValidationError);
-    expect(err!.message).toBe('Import row "under an inactive fno" (2026-08-13): CC1 must name an active CC1 cost centre in this company');
+    expect(err!.message).toBe('Import row 3 (2026-08-13): CC1 must name an active CC1 cost centre in this company');
     expect(createJournalEntry).not.toHaveBeenCalled();
   });
 
   it('a refusal that is not about a cost centre is not called one, and loses its own "Line N:" for the row\'s name', async () => {
     vi.mocked(assertNewJournalDimensions).mockRejectedValue(
       new PreWriteDimensionRefusal('Line 3: Business unit must be active and belong to this company', 2));
-    expect((await run())!.message).toBe('Import row "ap" (2026-08-13): Business unit must be active and belong to this company');
+    expect((await run())!.message).toBe('Import row 4 (2026-08-13): Business unit must be active and belong to this company');
   });
 
   it('a refusal about no single line names the group', async () => {
@@ -82,7 +82,7 @@ describe('GL import: a dimension refusal names its own row', () => {
   it('a pick that cannot be placed still names its row and its code', async () => {
     const err = await run([{ ...ROWS[2]!, credit: 40 }, { ...ROWS[1]!, description: 'untyped', costCentre: 'UNT' }]);
     expect(err!.message).toBe(
-      'Import row "untyped" (2026-08-13): cost centre "UNT" cannot be used — CC1 must name an active CC1 cost centre in this company');
+      'Import row 3 (2026-08-13): cost centre "UNT" cannot be used — CC1 must name an active CC1 cost centre in this company');
     expect(assertNewJournalDimensions).not.toHaveBeenCalled();
   });
 

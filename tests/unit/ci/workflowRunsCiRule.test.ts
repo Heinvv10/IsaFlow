@@ -23,11 +23,11 @@ function edit(from: string, to: string): string {
   return REAL.replace(from, to);
 }
 
-/** static and velo share their hosted setup steps: edit the nth (0 = static's, 1 = velo's) of exactly two. */
+/** static, velo and golden-paths share their hosted setup steps: edit the nth (0 = static's, 1 = velo's) of exactly three (golden-paths' steps are not pinned by the rule). */
 function editNth(from: string, to: string, nth: 0 | 1): string {
   const parts = REAL.split(from);
-  expect(parts.length - 1, `fixture anchor must occur twice: ${from}`).toBe(2);
-  return nth === 0 ? parts[0] + to + parts[1] + from + parts[2] : parts[0] + from + parts[1] + to + parts[2];
+  expect(parts.length - 1, `fixture anchor must occur three times: ${from}`).toBe(3);
+  return parts.reduce((acc, part, i) => (i === 0 ? part : acc + (i - 1 === nth ? to : from) + part), '');
 }
 
 const GATE_STEP = [
@@ -48,7 +48,7 @@ const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun in
 // Unique to static: the hosted-setup comment follows its checkout.
 const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # GitHub-hosted only';
 const VELO_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # As in static.';
-const GOLDEN_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # A push';
+const GOLDEN_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # Hosted golden-paths setup';
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
 const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
@@ -59,7 +59,7 @@ const VELO_HEADER = '  velo:\n    name: Browser & integration\n';
 const AGGREGATE = '          [ "$ROUTE" = "success" ] && [ "$STATIC" = "success" ] && [ "$VELO" = "success" ]\n';
 const LIGHT = `\${{ vars.CI_HOSTED == 'off' && fromJSON('["self-hosted","linux","velo"]') || 'ubuntu-24.04' }}`;
 const STATIC_RUNS_ON = `\${{ fromJSON(needs.route.outputs.hosted == 'true' && '"ubuntu-24.04"' || '["self-hosted","linux","velo"]') }}`;
-const GOLDEN_GROUP = "      group: golden-paths-dev-demo${{ needs.golden-lane.outputs.lane == 'queue' && '-queue' || '' }}\n";
+const GOLDEN_GROUP = "      group: ${{ vars.CI_HOSTED == 'off' && format('golden-paths-{0}{1}', github.ref, needs.golden-lane.outputs.lane == 'queue' && '-queue' || '') || format('golden-paths-hosted-{0}', github.run_id) }}\n";
 
 describe('the committed workflow', () => {
   it('passes', () => {
@@ -152,8 +152,8 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['a cap just under the floor', 'timeout-minutes: 59'],
     ['no timeout at all (key removed)', null],
   ])('golden-paths with %s: every run is cut short and ends cancelled', (_label, line) => {
-    const from = '    timeout-minutes: 60\n    # The suite writes to the SHARED';
-    const to = line === null ? '    # The suite writes to the SHARED' : `    ${line}\n    # The suite writes to the SHARED`;
+    const from = '    timeout-minutes: 60\n    # Velo (CI_HOSTED=off): each runner owns';
+    const to = line === null ? '    # Velo (CI_HOSTED=off): each runner owns' : `    ${line}\n    # Velo (CI_HOSTED=off): each runner owns`;
     expect(check(edit(from, to)).length).toBeGreaterThan(0);
   });
 
@@ -175,11 +175,25 @@ describe('refuses every way found to keep the job green while skipping gates', (
   });
 
   it("golden-paths moved into the workflow's own ci- group (deadlock cancels the run)", () => {
-    expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}`, '    concurrency:\n      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(GOLDEN_GROUP, '      group: ci-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+    expect(check(edit(GOLDEN_GROUP, '      group: ci-golden\n')).length).toBeGreaterThan(0);
   });
 
-  it("golden-paths back on the one shared group (every PR push cancels the queue's pending run, #938)", () => {
-    expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-dev-demo\n')).length).toBeGreaterThan(0);
+  it("golden-paths without the -queue lane (an ordinary run cancels the queue's pending run, #938)", () => {
+    expect(check(edit(GOLDEN_GROUP, '      group: golden-paths-${{ github.ref }}\n')).length).toBeGreaterThan(0);
+  });
+
+  it('golden-paths hosted runs on a group shared across runs (they would queue behind each other)', () => {
+    expect(check(edit(GOLDEN_GROUP, GOLDEN_GROUP.replace('github.run_id', 'github.ref'))).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['velo only (the hosted lane is gone)', '[self-hosted, linux, velo]'],
+    ['a label no runner has', 'ubuntu-latest-xl'],
+    ['hosted only (CI_HOSTED=off no longer reaches velo)', 'ubuntu-24.04'],
+  ])('golden-paths runs-on %s', (_label, runsOn) => {
+    const from = `    name: Golden Paths E2E (blocking)\n    runs-on: ${LIGHT}\n`;
+    expect(check(edit(from, `    name: Golden Paths E2E (blocking)\n    runs-on: ${runsOn}\n`)).length).toBeGreaterThan(0);
   });
 
   it('golden-lane taking a concurrency group (the ci- one would cancel quality)', () => {
@@ -189,6 +203,18 @@ describe('refuses every way found to keep the job green while skipping gates', (
   it('golden-paths concurrency removed or set to cancel', () => {
     expect(check(edit(`    concurrency:\n${GOLDEN_GROUP}      cancel-in-progress: false\n`, '')).length).toBeGreaterThan(0);
     expect(check(edit('      cancel-in-progress: false\n', '      cancel-in-progress: true\n')).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['the old fixed group, which serialises every ref onto one slot', 'golden-paths-dev-demo'],
+    ['a per-sha group, which a fallback push would not share with PR runs', 'golden-paths-${{ github.sha }}'],
+    ['a per-runner group, which queues a job on a busy runner instead of an idle one', 'golden-paths-${{ runner.name }}'],
+  ])('golden-paths group set to %s', (_label, group) => {
+    expect(check(edit(GOLDEN_GROUP, `      group: ${group}\n`)).length).toBeGreaterThan(0);
+  });
+
+  it('golden-paths concurrency given an extra key', () => {
+    expect(check(edit(`${GOLDEN_GROUP}      cancel-in-progress: false\n`, `${GOLDEN_GROUP}      cancel-in-progress: false\n      queue: max\n`)).length).toBeGreaterThan(0);
   });
 
   it('actions: write on the workflow token (any job could then cancel the run)', () => {

@@ -129,8 +129,8 @@ export function ComplianceTab() {
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Key Dates</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className={LABEL_CLS}>Financial Year-End Month</label>
-            <select
+            <label htmlFor="compliance-tab-financial-year-end-month" className={LABEL_CLS}>Financial Year-End Month</label>
+            <select id="compliance-tab-financial-year-end-month"
               className={INPUT_CLS}
               value={config.yearEndMonth}
               onChange={e => setConfig(prev => ({ ...prev, yearEndMonth: Number(e.target.value) }))}
@@ -141,8 +141,8 @@ export function ComplianceTab() {
           </div>
           {config.cipcEnabled && (
             <div>
-              <label className={LABEL_CLS}>CIPC Anniversary Month</label>
-              <select
+              <label htmlFor="compliance-tab-cipc-anniversary-month" className={LABEL_CLS}>CIPC Anniversary Month</label>
+              <select id="compliance-tab-cipc-anniversary-month"
                 className={INPUT_CLS}
                 value={config.cipcAnniversaryMonth ?? ''}
                 onChange={e => setConfig(prev => ({

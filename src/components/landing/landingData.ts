@@ -50,9 +50,14 @@ export const BRAND = {
   description:
     'Cloud accounting software for South African businesses — invoicing, bank reconciliation, VAT and payroll compliance, and payroll, in one platform.',
   countryCode: 'ZA',
+  // City and province only: the street address is deliberately not published.
+  addressLocality: 'Pretoria',
+  addressRegion: 'Gauteng',
   applicationCategory: 'FinanceApplication',
   operatingSystem: 'Web',
   freeTrialDays: 30,
+  // Kept equal to freeTrialDays / TRIAL_DAYS by trialLengthCopy.test.ts.
+  freeTrialLabel: '30-day free trial',
 } as const;
 
 // External profiles linked from Organization.sameAs to help AI engines and
@@ -75,7 +80,7 @@ export const FEATURE_PILLARS: FeaturePillar[] = [
   {
     icon: RefreshCw,
     title: 'Always reconciled',
-    desc: 'Connect your bank, match transactions automatically, close your books with confidence.',
+    desc: 'Import your bank statements (CSV, OFX, QFX, QIF, MT940, PDF), match transactions automatically, close your books with confidence.',
   },
   {
     icon: Shield,
@@ -146,7 +151,7 @@ export const PRICING_TIERS: PricingTier[] = [
     features: [
       'Full General Ledger',
       'Invoicing, Quotes & Statements',
-      'Bank Reconciliation & Feeds (1 bank)',
+      'Bank Reconciliation & Statement Import (1 bank)',
       'VAT201 & Tax Compliance',
       'Financial Reports',
       'Full Audit Trail',
@@ -161,14 +166,14 @@ export const PRICING_TIERS: PricingTier[] = [
     name: 'Business',
     price: 'R 549',
     period: '/month',
-    desc: 'Everything Sage charges extra for, included. For growing businesses.',
+    desc: 'Debtors management, inventory and multi-currency included. For growing businesses.',
     features: [
       'Everything in Starter, plus:',
       'Debtors / AR management & dunning',
       'Purchases & Supplier Invoices (AP)',
       'Inventory — products & stock levels',
       'Multi-Currency & Exchange Rates',
-      'Unlimited bank accounts & feeds',
+      'Unlimited bank accounts & statement imports',
       'AI Document Capture & Smart Categorisation',
       'All 30+ Reports & Executive Dashboard',
       'Up to 5 users',
@@ -195,25 +200,4 @@ export const PRICING_TIERS: PricingTier[] = [
   },
 ];
 
-export const FAQ_ITEMS: FAQItem[] = [
-  {
-    q: 'Can I try ISAFlow for free?',
-    a: 'Yes. Every plan comes with a 30-day free trial — no credit card required. You get full access to all features in your selected tier so you can evaluate ISAFlow with your real data before committing.',
-  },
-  {
-    q: 'Can I import data from other software?',
-    a: 'Absolutely. ISAFlow includes dedicated migration wizards for Sage, Xero, QuickBooks, and Pastel. Import your chart of accounts, customers, suppliers, and opening balances with automatic account mapping and balance verification.',
-  },
-  {
-    q: 'Which banks are supported for statement import?',
-    a: 'ISAFlow supports statement imports from major banks in CSV and PDF formats, plus OFX and QIF for others. For ABSA, the browser import extension lets you import from your signed-in bank session yourself, without exporting a file. Our AI auto-detects the bank format.',
-  },
-  {
-    q: 'Is my data secure?',
-    a: 'Enterprise-grade security: two-factor authentication (TOTP + backup codes), granular module-level permissions, field masking for sensitive data, SSL/TLS encryption, bcrypt password hashing, and signed JWT sessions.',
-  },
-  {
-    q: 'Does it handle tax compliance?',
-    a: 'Yes. ISAFlow supports VAT calculations on every transaction, generates VAT returns, handles payroll tax submissions, and maintains a field-level audit trail on every financial record. Full compliance out of the box.',
-  },
-];
+export { FAQ_ITEMS } from './faqData';

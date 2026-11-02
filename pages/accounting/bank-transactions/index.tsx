@@ -8,7 +8,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
 import {
   BankTxTable,
   type AllocType, type BankTx, type SelectOption, type RowSelection,
@@ -20,6 +19,8 @@ import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxMo
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
+import { useBankTxColumnPrefs } from '@/components/accounting/bank-transactions/useBankTxColumnPrefs';
+import { useBankLineDetail } from '@/components/accounting/bank-transactions/useBankLineDetail';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
@@ -30,14 +31,12 @@ import { BankTxTabs, type BankTxTab as Tab } from '@/components/accounting/bank-
 import { useLlmResultPoll } from '@/components/accounting/bank-transactions/useLlmResultPoll';
 import { suggestedRowSelections } from '@/components/accounting/bank-transactions/suggestedRowSelections';
 import { bankTxQueryParams } from '@/components/accounting/bank-transactions/bankTxQuery';
-import { BankTxListFrame } from '@/components/accounting/bank-transactions/BankTxListFrame';
+import { BankTxListFrame, BANK_TX_PAGE_SIZE as PAGE_SIZE } from '@/components/accounting/bank-transactions/BankTxListFrame';
+import { bankTxPastEnd, usePageClamp } from '@/components/accounting/bank-transactions/usePageClamp';
 import { exportAllBankTx, exportLoadedBankTx } from '@/components/accounting/bank-transactions/bankTxExport';
-
-const PAGE_SIZE = 25;
 
 export default function BankTransactionsPage() {
   const router = useRouter();
-  // Reference / lookup data
   const [glAccounts, setGlAccounts] = useState<SelectOption[]>([]);
   const [suppliers, setSuppliers] = useState<SelectOption[]>([]);
   const [customers, setCustomers] = useState<SelectOption[]>([]);
@@ -69,7 +68,7 @@ export default function BankTransactionsPage() {
   // Filter / pagination
   const [tab, setTab] = useState<Tab>('new');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [loaded, setLoaded] = useState({ page: 1, total: 0 }), total = loaded.total; // total + the page it was counted for (past-the-end skeleton)
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -89,51 +88,48 @@ export default function BankTransactionsPage() {
   const [showBatchEdit, setShowBatchEdit] = useState(false);
   const [batchType, setBatchType] = useState<AllocType>('account');
   const [batchSearch, setBatchSearch] = useState('');
-  const [showCC, setShowCC] = useState(false);
-  const [showBU, setShowBU] = useState(false);
+  const { showCC, showBU, toggleCC, toggleBU } = useBankTxColumnPrefs();
   // Modal triggers
   const [splitTxId, setSplitTxId] = useState<string | null>(null);
   const [excludingTxId, setExcludingTxId] = useState<string | null>(null);
   const [findMatchTxId, setFindMatchTxId] = useState<string | null>(null);
   const [attachmentsTxId, setAttachmentsTxId] = useState<string | null>(null);
   const [queryTx, setQueryTx] = useState<BankTx | null>(null);
+  const { detailTx, openDetail, closeDetail } = useBankLineDetail(transactions);
   const [linkTx, setLinkTx] = useState<BankTx | null>(null);
   const [createRuleTx, setCreateRuleTx] = useState<BankTx | null>(null);
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
   const [createEntityTxId, setCreateEntityTxId] = useState<string | null>(null);
   const [createEntityType, setCreateEntityType] = useState<AllocType | null>(null);
-  // Column visibility — company settings + localStorage override
+  // Debounce search — 500ms. Only a changed search resets to page 1 (the mount timer used to undo a page-3 click).
   useEffect(() => {
-    const readSetting = (key: string) => apiFetch(`/api/accounting/accounting-settings?key=${key}`).then(async r => { await assertOk(r, 'Could not load the column settings'); return r.json(); });
-    Promise.all([readSetting('enable_cost_centres'), readSetting('enable_business_units')]).then(([ccJson, buJson]) => {
-      const ccLocal = localStorage.getItem('isaflow_bank_showCC');
-      const buLocal = localStorage.getItem('isaflow_bank_showBU');
-      setShowCC(ccLocal !== null ? ccLocal !== 'false' : ccJson.data?.value === 'true');
-      setShowBU(buLocal !== null ? buLocal !== 'false' : buJson.data?.value === 'true');
-    }).catch(err => log.warn('Column settings unavailable, using defaults', { error: err }, 'bank-transactions'));
-  }, []);
-  // Debounce search — 500ms
-  useEffect(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (searchTerm === debouncedSearch) return;
     debounceTimer.current = setTimeout(() => { setDebouncedSearch(searchTerm); setPage(1); }, 500);
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
-  }, [searchTerm]);
-  // Load transactions
+  }, [searchTerm, debouncedSearch]);
+  // Load transactions. Only the latest request writes state: a slow older response must not overwrite a newer one.
+  const loadSeq = useRef(0);
   const loadTransactions = useCallback(async () => {
-    if (!selectedBank) { setIsLoading(false); setTransactions([]); setTotal(0); return; }
+    const seq = ++loadSeq.current, latest = () => seq === loadSeq.current;
+    if (!selectedBank) { setIsLoading(false); setTransactions([]); setLoaded({ page, total: 0 }); return; }
     setIsLoading(true); setError('');
     try {
       const params = bankTxQueryParams({ bankAccountId: selectedBank, tab, page, pageSize: PAGE_SIZE, fromDate, toDate, fromAmount, toAmount,
         search: debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion });
       const res = await apiFetch(`/api/accounting/bank-transactions?${params}`); await assertOk(res, 'Could not load transactions - try again');
       const json = await res.json();
+      if (!latest()) return;
       const data = json.data || json;
-      setTransactions(data.transactions || []); setTotal(data.total || 0);
-    } catch (err) { setTransactions([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load transactions - try again')); }
-    finally { setIsLoading(false); }
+      setTransactions(data.transactions || []); setLoaded({ page, total: data.total || 0 });
+    } catch (err) { if (latest()) { setTransactions([]); setLoaded({ page, total: 0 }); setError(apiErrorMessage(err, 'Could not load transactions - try again')); } }
+    finally { if (latest()) setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
   useEffect(() => { void loadTransactions(); }, [loadTransactions]);
+  // A toast's Undo outlives the render that offered it: an old loadTransactions would put that view's rows on this one.
+  const loadLatest = useRef(loadTransactions);
+  useEffect(() => { loadLatest.current = loadTransactions; });
+  usePageClamp({ page, total, pageSize: PAGE_SIZE, isLoading, failed: error !== '', setPage });
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const { aiPolling, pollForLlmResults } = useLlmResultPoll(transactions, loadTransactions);
@@ -162,10 +158,11 @@ export default function BankTransactionsPage() {
 
   // ---- Build action handlers ----
   const actions = buildBankTxActions({
-    transactions, glAccounts, selectedBank, selectedIds, rowSelections, batchType,
+    transactions, glAccounts, bankAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
     setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,
+    reloadCurrentView: () => { void loadLatest.current(); refreshBankAccounts(); },
     onLlmResidual: pollForLlmResults,
   });
 
@@ -212,8 +209,7 @@ export default function BankTransactionsPage() {
           onRefresh={loadTransactions} onBulkAccept={actions.handleBulkAccept}
           onBatchAccept={actions.handleBatchAccept} onBatchDelete={actions.handleBatchDelete}
           onToggleBatchEdit={() => { setShowBatchEdit(s => !s); setBatchSearch(''); }}
-          onExport={() => exportLoadedBankTx(transactions, bank?.accountCode, bank?.accountName)}
-          onExportAll={() => exportAllBankTx(fromDate, toDate)}
+          onExport={() => exportLoadedBankTx(transactions, bank?.accountCode, bank?.accountName)} onExportAll={() => exportAllBankTx(fromDate, toDate)}
           onApplyRules={actions.handleApplyRules}
           onDownloadReport={() => actions.handleDownloadReport(bank?.accountCode)}
           onSearchChange={setSearchTerm}
@@ -222,8 +218,7 @@ export default function BankTransactionsPage() {
           onSortOrderChange={withReset(setSortOrder)} onAllocationFilterChange={withReset(setAllocationFilter)}
           onTxTypeChange={withReset(setTxType)} onAllocTypeChange={withReset(setAllocType)}
           onHasSuggestionChange={withReset(setHasSuggestion)}
-          onToggleCC={() => { const v = !showCC; setShowCC(v); localStorage.setItem('isaflow_bank_showCC', String(v)); }}
-          onToggleBU={() => { const v = !showBU; setShowBU(v); localStorage.setItem('isaflow_bank_showBU', String(v)); }}
+          onToggleCC={toggleCC} onToggleBU={toggleBU}
         />
 
         <BankTxSuppliersNotice status={suppliersStatus} />
@@ -245,7 +240,8 @@ export default function BankTransactionsPage() {
           <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
           <BankTxListFrame relinkFailed={relinkFailed} aiPolling={aiPolling} isLoading={isLoading} error={error}
-            empty={transactions.length === 0} tab={tab}>
+            empty={transactions.length === 0} pastEnd={bankTxPastEnd(loaded.page, total, PAGE_SIZE)} tab={tab}
+            detailTx={detailTx} onDetailClose={closeDetail}>
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
               customers={customers} transferTargets={transferTargets}
@@ -263,7 +259,7 @@ export default function BankTransactionsPage() {
               onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
               onCreateRule={tx => setCreateRuleTx(tx)}
               onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
-              onLink={tx => setLinkTx(tx)}
+              onLink={tx => setLinkTx(tx)} onOpenDetails={openDetail}
             />
           </BankTxListFrame>
         </div>

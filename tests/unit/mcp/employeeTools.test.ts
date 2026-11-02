@@ -243,10 +243,10 @@ describe('assign_employee_component', () => {
     expect(vi.mocked(assignComponentToEmployee).mock.calls[0]![6]).toBe(true);
   });
 
-  it('passes the dates through as the YYYY-MM-DD given, never a Date (a local-midnight Date lost a day in SAST, PAYE 4c)', async () => {
-    await assignEmployeeComponentTool.handler(args({ effective_from: '2026-10-01', effective_to: '2026-10-31', is_recurring: false }), ctx());
-    const call = vi.mocked(assignComponentToEmployee).mock.calls[0]!;
-    expect([call[4], call[5]]).toEqual(['2026-10-01', '2026-10-31']);
+  it('hands the service the day strings as given, never a Date', async () => {
+    await assignEmployeeComponentTool.handler(args({ effective_from: '2026-03-01', effective_to: '2026-06-30' }), ctx());
+    const [, , , , from, to] = vi.mocked(assignComponentToEmployee).mock.calls[0]!;
+    expect([from, to]).toEqual(['2026-03-01', '2026-06-30']);
   });
 
   it('honours is_recurring: false for a once-off', async () => {
@@ -292,7 +292,7 @@ describe('end_employee_component', () => {
     const [companyId, id, date] = vi.mocked(endEmployeeComponent).mock.calls[0]!;
     expect(companyId).toBe(COMPANY);
     expect(id).toBe(ASSIGNMENT);
-    expect(fmtDate(date)).toBe('2025-12-31');
+    expect(date).toBe('2025-12-31');
   });
 
   it('refuses a malformed id or date before the write', async () => {

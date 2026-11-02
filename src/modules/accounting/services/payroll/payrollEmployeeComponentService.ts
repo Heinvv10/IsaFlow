@@ -1,7 +1,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { fmtDate } from '@/lib/fmtDate';
+import { isUuidParam } from '@/lib/validation';
 import { endOfMonthIso } from './leaveAccrualService';
 
 type Row = DbRow;
@@ -19,6 +19,8 @@ export interface EmployeeComponentAssignment {
 export type EmployeeComponentAssignmentWithMeta = EmployeeComponentAssignment & {
   componentName: string;
   componentType: string;
+  /** False: the component was switched off, and a run does not pay it (getEmployeeComponents) though the row is open. */
+  componentActive: boolean;
 };
 
 function mapAssignment(r: Row): EmployeeComponentAssignment {
@@ -45,21 +47,40 @@ async function assertEmployeeInCompany(employeeId: string, companyId: string): P
   }
 }
 
-/** A real calendar day written YYYY-MM-DD (2026-02-30 is not one). */
-export function isCalendarDay(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [y, m, d] = value.split('-').map(Number) as [number, number, number];
-  const utc = new Date(Date.UTC(y, m - 1, d));
-  return utc.getUTCFullYear() === y && utc.getUTCMonth() === m - 1 && utc.getUTCDate() === d;
+/** Raised before the insert, so the caller can answer it as a 400 (a 4xx commits). */
+export class EmployeeComponentRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmployeeComponentRefused';
+  }
+}
+
+/** A user in two companies sees both through RLS and the foreign key is not tenant-aware, so only this predicate holds. */
+export async function assertComponentInCompany(componentId: string, companyId: string): Promise<void> {
+  const rows = isUuidParam(componentId) ? (await sql`
+    SELECT id FROM payroll_components
+    WHERE id = ${componentId}::uuid AND company_id = ${companyId}::uuid
+  `) as Row[] : [];
+  if (rows.length === 0) throw new EmployeeComponentRefused('That pay component was not found in this company');
 }
 
 /**
- * The dates are the date column's own 'YYYY-MM-DD', stored as given: no Date
- * and so no timezone to shift them. They were Dates rendered with
- * toISOString(), and the MCP tool's local-midnight Date lost a day east of
- * UTC: a once-off dated the 1st was stored on the previous day and closed at
- * the previous month-end, so it dropped out of its run (PAYE 4c).
+ * A calendar day travels as a plain `YYYY-MM-DD` string from the caller to the column. A `Date` has a zone
+ * and `toISOString()` reports it in UTC, which stored a local-midnight date one day early east of UTC.
  */
+function dayOf(value: string, field: string): string {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  let real = false;
+  if (day && +day[1]! >= 1) {
+    // setUTCFullYear, not Date.UTC: Date.UTC reads years 0-99 as 1900-1999. Same rule as isRealCalendarDate.
+    const dt = new Date(0);
+    dt.setUTCFullYear(+day[1]!, +day[2]! - 1, +day[3]!);
+    real = dt.getUTCFullYear() === +day[1]! && dt.getUTCMonth() === +day[2]! - 1 && dt.getUTCDate() === +day[3]!;
+  }
+  if (!real) throw new EmployeeComponentRefused(`${field} must be a real date (YYYY-MM-DD)`);
+  return value;
+}
+
 export async function assignComponentToEmployee(
   companyId: string,
   employeeId: string,
@@ -69,18 +90,20 @@ export async function assignComponentToEmployee(
   effectiveTo?: string,
   isRecurring: boolean = true,
 ): Promise<EmployeeComponentAssignment> {
-  for (const [field, day] of [['effectiveFrom', effectiveFrom], ['effectiveTo', effectiveTo]] as const) {
-    if (day !== undefined && !isCalendarDay(day)) throw new Error(`${field} must be a calendar date written YYYY-MM-DD (got ${String(day)})`);
-  }
   await assertEmployeeInCompany(employeeId, companyId);
+  await assertComponentInCompany(componentId, companyId);
 
   log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 
+  const effectiveFromStr = dayOf(effectiveFrom, 'effectiveFrom');
   // Once-off → auto-cap effective_to at end of effective_from's month so the
   // assignment dies after the period it was captured for. Caller-supplied
   // effectiveTo wins if provided.
-  const [fromYear, fromMonth] = effectiveFrom.split('-').map(Number) as [number, number];
-  const effectiveToStr = effectiveTo ?? (isRecurring ? null : endOfMonthIso(fromYear, fromMonth));
+  const effectiveToStr = effectiveTo
+    ? dayOf(effectiveTo, 'effectiveTo')
+    : isRecurring
+    ? null
+    : endOfMonthIso(Number(effectiveFromStr.slice(0, 4)), Number(effectiveFromStr.slice(5, 7)));
 
   const rows = (await sql`
     INSERT INTO payroll_employee_components (
@@ -89,7 +112,7 @@ export async function assignComponentToEmployee(
       ${employeeId}::uuid,
       ${componentId}::uuid,
       ${amount},
-      ${effectiveFrom},
+      ${effectiveFromStr},
       ${effectiveToStr},
       ${isRecurring}
     )
@@ -112,9 +135,9 @@ export async function assignComponentToEmployee(
 export async function endEmployeeComponent(
   companyId: string,
   assignmentId: string,
-  effectiveTo: Date,
+  effectiveTo: string,
 ): Promise<boolean> {
-  const effectiveToStr = fmtDate(effectiveTo);
+  const effectiveToStr = dayOf(effectiveTo, 'effectiveTo');
 
   log.info('Ending employee component', { companyId, assignmentId, effectiveTo: effectiveToStr }, 'payrollEmployeeComponentService');
 
@@ -142,7 +165,8 @@ export async function listEmployeeComponentAssignments(
       pec.id, pec.employee_id, pec.component_id, pec.amount,
       pec.effective_from, pec.effective_to, pec.is_recurring,
       pc.name AS component_name,
-      pc.component_type
+      pc.component_type,
+      pc.is_active AS component_active
     FROM payroll_employee_components pec
     JOIN payroll_components pc ON pc.id = pec.component_id
     WHERE pec.employee_id = ${employeeId}::uuid
@@ -153,5 +177,6 @@ export async function listEmployeeComponentAssignments(
     ...mapAssignment(r),
     componentName: String(r.component_name),
     componentType: String(r.component_type),
+    componentActive: Boolean(r.component_active),
   }));
 }
