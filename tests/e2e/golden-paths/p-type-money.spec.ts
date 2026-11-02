@@ -16,12 +16,16 @@ const STATEMENT_FIGURE = /^\(?-?\d{1,3}(?:(?:[\xa0 ]\d{3})+(?:\.\d{2})?|\.\d{2})
 const DISPLAY_DATE = /^\d{2} [A-Z][a-z]{2} \d{4}$/;
 const NUMERIC_DATE = /\b\d{4}[/-]\d{2}[/-]\d{2}\b/;
 
+// The window runs to today: the slots' seed (scripts/ci/golden/seedSlotData.ts) is dated in the last 10 complete months,
+// so a fixed end would one day leave a fresh slot's income statement with no posted amounts to read.
+const TODAY = new Date().toISOString().slice(0, 10);
+
 const SCREENS = [
   { name: 'dashboard', path: '/accounting', amount: MONEY },
   { name: 'invoice list', path: '/accounting/customer-invoices', amount: MONEY },
   {
     name: 'income statement',
-    path: '/accounting/reports/income-statement?period_start=2025-03-01&period_end=2026-10-24',
+    path: `/accounting/reports/income-statement?period_start=2025-03-01&period_end=${TODAY}`,
     amount: STATEMENT_FIGURE,
   },
 ];
