@@ -35,6 +35,7 @@ import {
   setLocalLockTimeout,
 } from './payrollRunLoanApplication';
 import { lockJournalChain } from './payrollJournalChain';
+import { PAYROLL_CALCULATION_VERSION } from './payrollCalculationVersion';
 
 export type PayrollRunStatus = 'draft' | 'calculated' | 'approved' | 'paid' | 'cancelled';
 
@@ -175,7 +176,11 @@ export async function saveCalculatedRunTotals(runId: string, companyId: string, 
       total_eti      = ${t.eti},
       total_net      = ${t.net},
       employee_count = ${t.employeeCount},
-      updated_at     = NOW()
+      updated_at     = NOW(),
+      -- clock_timestamp(), not the transaction's start: taken under the company lock the calculation holds, so a
+      -- component change after it (which waits for that lock) is stamped later (payrollRunRecalcGate).
+      calculated_at  = clock_timestamp(),
+      calculation_version = ${PAYROLL_CALCULATION_VERSION}
     WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
       AND status NOT IN ('approved', 'paid', 'cancelled')
     RETURNING *

@@ -42,6 +42,10 @@ export interface EmployeeComponent {
   amount: number;
   /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
   directive?: DirectiveFigures;
+  /** The assignment's is_recurring, when read from payroll_employee_components (the termination base takes recurring rows only). */
+  isRecurring?: boolean;
+  /** The payroll_employee_components row it was read from (the pro-rata guard asks which rows the reader paid). */
+  assignmentId?: string;
 }
 
 export interface PayrollPeriod {
