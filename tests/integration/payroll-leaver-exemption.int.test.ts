@@ -19,6 +19,7 @@ import components from '../../pages/api/payroll/employees/[id]/components';
 import approve from '../../pages/api/payroll/runs/[id]/approve';
 import journalPlan from '../../pages/api/payroll/runs/[id]/journal-plan';
 import { updatePayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { applyPackageToEmployee } from '@/modules/accounting/services/payroll/payPackageService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -30,6 +31,7 @@ let bonus = '';
 const emp: Record<string, string> = {};
 const row: Record<string, string> = {};
 let march = '';
+const pkg = crypto.randomUUID();
 
 async function employee(key: string, start: string, end: string | null) {
   emp[key] = String((await pool.query(
@@ -98,12 +100,25 @@ beforeAll(async () => {
   await add('vr2', 'voidedReplacement', salary, 23000, '2026-03-28', '2026-03-27', true, '2026-03-02T00:00:00Z');
   await employee('startEnd', '2026-03-28', '2026-03-30');
   await add('se', 'startEnd', salary, 21670, '2026-03-28', '2026-03-30', true);
+  // Mixed (review of 485fc14f2): the same pre-953 shape (S to 29 March, O 30-31 March), then after deploy the same
+  // package is re-applied from the 30th: it voids O and inserts a new once-off N. S must not be paid beside N.
+  await employee('mixed953', '2020-01-01', '2026-03-29');
+  for (const [name, amount, from, to, recurring] of [['mxS', 21670, '2020-01-01', '2026-03-29', true], ['mxO', 2500, '2026-03-30', '2026-03-31', false]] as const) {
+    row[name] = String((await pool.query(
+      `INSERT INTO payroll_employee_components(employee_id,component_id,amount,effective_from,effective_to,is_recurring,supersede_inferred)
+       VALUES($1,$2,$3,$4::date,$5::date,$6,TRUE) RETURNING id`, [emp.mixed953, salary, amount, from, to, recurring])).rows[0]!.id);
+  }
+  await pool.query("INSERT INTO pay_packages(id,company_id,code,name) VALUES($1,$2,'LX-PKG','Leaver package')", [pkg, company]);
+  await pool.query('INSERT INTO pay_package_components(package_id,component_id,amount,is_recurring) VALUES($1,$2,2600,false)', [pkg, salary]);
+  await applyPackageToEmployee(company, pkg, emp.mixed953!, '2026-03-30', admin);
   march = await calculatedRun(call, 3);
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM audit_log WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM pay_package_components WHERE package_id=$1', [pkg]);
+    await pool.query('DELETE FROM pay_packages WHERE id=$1', [pkg]);
     await cleanPayrollCompanies(pool, [company]);
     await pool.query('DELETE FROM users WHERE id=$1', [admin]);
   } finally { await pool.end(); }
@@ -152,6 +167,17 @@ describe(`1-3: the leaver exemption is the band only (TZ=${process.env.TZ ?? 'un
     const l = await line(march, 'legacyPkg');
     expect(l.paid).toEqual([['Basic Salary', 2500]]);
     expect(flaggedEnding(l, '2026-03-29')).toBe(true);
+    // The same shape is a hand End plus a hand arrears once-off: running the salary to the month end would overlap the
+    // once-off (Edit dates refuses it), so the flag names the exit that works.
+    expect(l.flags.find(f => f.code === 'RECURRING_NEEDS_PRO_RATA')?.message).toMatch(/move that once-off by a day, or end it/);
+  });
+
+  it('pre-953 S and O, then the package re-applied from the 30th after deploy (voids O, inserts N): N paid, S flagged', async () => {
+    const l = await line(march, 'mixed953');
+    expect(l.paid).toEqual([['Basic Salary', 2600]]);
+    expect(flaggedEnding(l, '2026-03-29')).toBe(true);
+    const s = (await pool.query('SELECT superseded_at FROM payroll_employee_components WHERE id=$1', [row.mxS])).rows[0];
+    expect(s.superseded_at).not.toBeNull();
   });
 
   it('a replacement that was cancelled is not a successor: the 27 March leaver is paid in full, not flagged', async () => {

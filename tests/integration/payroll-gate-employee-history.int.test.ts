@@ -159,6 +159,10 @@ describe('3 (L): a role that may not read the history gets null (the gate then r
       await pool.query(`GRANT ${role} TO current_user`);
       await pool.query(`GRANT SELECT (company_id, entity_type, entity_id, changed, before, after, recorded_at) ON entity_changes TO ${role}`);
       await pool.query(`GRANT SELECT ON payroll_run_headers TO ${role}`);
+      // Kept on purpose: the query names app.current_company_id(), and Postgres checks USAGE on every schema a statement
+      // references while planning it, whichever CASE branch runs. Without it this role gets "permission denied for
+      // schema app" (an error that also refuses the approval); with it the test reaches the branch under test and
+      // shows a non-app_user role gets null.
       await pool.query(`GRANT USAGE ON SCHEMA app, auth TO ${role}`);
       expect(await asRole(role, { activeCompany: company })).toBeNull();
     } finally {
