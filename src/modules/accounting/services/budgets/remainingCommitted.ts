@@ -11,9 +11,8 @@
  *   in the approve path's line order (`SUPPLIER_INVOICE_LINE_ORDER_BY`). A bill whose lines are
  *   stored gross (Σ line_total ≈ total_amount) is scaled to its subtotal, the last line takes the
  *   rounding residual, and a sub-cent overshoot or a R0 line is folded/dropped there exactly as
- *   posted (census finding 3). Never the stored `line_total`, never `quantity_invoiced`. Each posted
- *   line carries its account, dims and the bill's month: it releases the PO line's commitment only
- *   where it landed in the PO line's own slice (the core's `billedInSliceCents`, P5-3 security review).
+ *   posted (census finding 3). Never the stored `line_total`, never `quantity_invoiced`. All of a PO
+ *   line's linked billing releases it, wherever it posted (decision 8a; the core's `openPoLineCents`).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -56,9 +55,9 @@ const NO_ACCOUNT = 'unused';
 
 /**
  * The posted ex-VAT lines of the bills that count as billed (`BILLED_STATUSES`, plus `own`), per linked PO line
- * (lower-case ids): account and CC1 / CC2 / BU as `buildExpenseLines` posts them, the bill's month. The PO approval
- * nets a PO line, and committed (`readCommitments`) releases it, only by those that landed in its own budget slice
- * (`remainingBudgetCore.billedInSliceCents`, P5-3 security review).
+ * (lower-case ids): account and CC1 / CC2 / BU as `buildExpenseLines` posts them, the bill's month. Committed
+ * (`readCommitments`) and the PO approval (`ap/purchaseOrderBudget`) both net a PO line by all of them
+ * (`remainingBudgetCore.openPoLineCents`).
  */
 export async function billedLinesByPoItem(companyId: string, poItemIds: string[], own: string[]): Promise<Map<string, BilledPosting[]>> {
   const out = new Map<string, BilledPosting[]>();
@@ -92,8 +91,6 @@ export async function billedLinesByPoItem(companyId: string, poItemIds: string[]
   }
   return out;
 }
-
-
 
 export async function readCommitments(
   companyId: string, accounts: string[], start: string, end: string, opts: CommittedOptions,

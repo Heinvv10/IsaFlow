@@ -155,27 +155,3 @@ export async function remainingFor(
     commitments: await readCommitments(companyId, accounts, start, end, opts),
   });
 }
-
-/**
- * The account's budget grain in the primary version of each key's month, or null (no primary version, no budget for
- * the account in it, a month outside YEAR_MIN..YEAR_MAX). Months may span any number of years. P5-3: the PO
- * approval nets a line by linked billing at this grain (`remainingBudgetCore.billedInSliceCents`), as committed does.
- */
-export async function budgetGrains(companyId: string, rawKeys: ReadonlyArray<{ glAccountId: string; month: string }>): Promise<(RemainingGrain | null)[]> {
-  const keys = rawKeys.map((k) => ({ glAccountId: k.glAccountId.toLowerCase(), month: k.month }));
-  const valid = keys.filter((k) => remainingKeysProblem([k.month]) === null);
-  if (valid.length === 0) return keys.map(() => null);
-  const months = [...new Set(valid.map((k) => k.month))].sort();
-  const { scope } = await primaryVersionScopeAndYears(companyId, monthKeyToDate(months[0]!), monthEnd(monthKeyToDate(months[months.length - 1]!)));
-  const versionOf = (month: string): string | null => {
-    const d = monthKeyToDate(month);
-    return scope.find((x) => x.first <= d && d <= x.last)?.versionId?.toLowerCase() ?? null;
-  };
-  const versions = [...new Set(months.map(versionOf).filter((v): v is string => v !== null))];
-  const grains = await readGrains(companyId, versions, [...new Set(valid.map((k) => k.glAccountId))]);
-  return keys.map((k) => {
-    if (remainingKeysProblem([k.month]) !== null) return null;
-    const v = versionOf(k.month);
-    return (v === null ? undefined : grains.get(`${v}|${k.glAccountId}`)) ?? null;
-  });
-}

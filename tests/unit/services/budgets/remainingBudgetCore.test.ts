@@ -96,15 +96,15 @@ describe('computeRemaining', () => {
     expect(r!.committed).toBe(60);
   });
 
-  it('linked billing nets a PO line only where it posted into the PO line\'s own slice (P5-3 security review)', () => {
-    const off = [posted(100, { glAccountId: 'wages' }), posted(100, { month: '2026-05' })];
-    const [company] = computeRemaining([key()], inputs({ commitments: [item({ billed: [...off, posted(30)] })] }));
-    expect(company!.committed).toBe(70); // only the 30 on rent / 2026-04 nets
-    // At CC1 grain: a bill on another CC1 does not net the PO line's slice; one on the same CC1 does.
+  it('linked billing releases a PO line wherever it posted: another account, month or slice (decision 8a)', () => {
+    const anywhere = [posted(20, { glAccountId: 'wages' }), posted(30, { month: '2026-05' }), posted(10)];
+    const [company] = computeRemaining([key()], inputs({ commitments: [item({ billed: anywhere })] }));
+    expect(company!.committed).toBe(40);
+    // At CC1 grain the PO line's slice is released by a bill on another CC1 as much as by one on its own.
     const grains = new Map([[`${V}|rent`, 'cc1' as const]]);
     const po = item({ cc1Id: 'ct', billed: [posted(60, { cc1Id: 'other' }), posted(25, { cc1Id: 'ct' })] });
     const [slice] = computeRemaining([key({ cc1Id: 'ct' })], inputs({ grains, budgets: [budget({ cc1Id: 'ct' })], commitments: [po] }));
-    expect(slice!.committed).toBe(75);
+    expect(slice!.committed).toBe(15);
   });
 
   it('only the key\'s account and month count; another grain\'s actual rows are ignored', () => {

@@ -200,9 +200,7 @@ describe('remainingFor: committed PO spend', () => {
     };
     await asA(async () => {
       const [ft, bare] = await remainingFor(f.a, [key(f.acc.opex, '2026-04', { cc1Id: f.cc.FT }), key(f.acc.opex, '2026-04')]);
-      // P5-3 security review: the approved bill linked to PO-1's FT line posted with NO CC1 (the unassigned slice), so
-      // at CC1 grain it no longer releases the FT commitment: FT stays committed in full (it netted 400 at company grain).
-      expect(ft).toMatchObject({ grain: 'cc1', budget: 2000, committed: 1000 });
+      expect(ft).toMatchObject({ grain: 'cc1', budget: 2000, committed: 600 });
       expect(bare).toMatchObject({ grain: 'cc1', unassigned: true, budget: null, committed: 0 });
     }, regrain);
   });

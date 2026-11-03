@@ -4,13 +4,11 @@
  * `po_items`, mig 246b + 954's line dimensions).
  *
  * - Lines: every `po_items` row, its account and CC1 / CC2 / BU, at its OPEN amount: ex-VAT `line_total` (qty × unit
- *   price on both writers) less what approved / paid bills linked by `po_item_id` posted INTO THE SAME BUDGET SLICE
- *   (account, month, member at the account's grain: `remainingBudgetCore.billedInSliceCents`, the rule committed
- *   uses too), floored at 0. That billed
- *   part is already in the slice's actuals; judging the gross refused approvals that never go over (review r2,
- *   BRK-1). A linked bill that posted to another account, month or slice nets nothing here (security review): its
- *   actual landed elsewhere, so the PO line counts in full. The posted lines are `remainingCommitted.billedLinesByPoItem`
- *   (buildExpenseLines' account / dims, the bill's month), the same read committed sums.
+ *   price on both writers) less ALL the billing approved / paid bills linked by `po_item_id` posted against it, wherever
+ *   it posted (decision 8a), floored at 0 (`remainingBudgetCore.openPoLineCents`, the formula committed uses: approving
+ *   adds exactly what committed will count). The billed part is actual where the bill posted, checked there when the
+ *   bill was approved; judging the gross refused approvals that never go over (review r2, BRK-1). A bill may only
+ *   link its own company's PO line (`supplierInvoicePoLinks`).
  * - A line with NO account (every line the create route writes: census 7) cannot meet a budget: it is "No budget",
  *   never over, never refused. It is not checked and no account is invented for it; the preview lists it as
  *   "No account".
@@ -22,8 +20,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { toCents } from '../budgets/grid/cents';
 import { billedLinesByPoItem } from '../budgets/remainingCommitted';
-import { budgetGrains } from '../budgets/remainingBudget';
-import { billedInSliceCents } from '../budgets/remainingBudgetCore';
+import { openPoLineCents } from '../budgets/remainingBudgetCore';
 import {
   checkDocumentBudget, evaluateDocumentLines, labelBudgetLines, readCheckPolicy,
 } from '../budgets/budgetCheck';
@@ -68,7 +65,7 @@ interface PoBudgetLines {
 const id = (v: unknown): string | null => (v == null ? null : String(v).toLowerCase());
 
 /** The PO's lines, through the parent's company (po_items has no company_id). */
-async function readPoBudgetLines(companyId: string, poId: string, month: string): Promise<PoBudgetLines> {
+async function readPoBudgetLines(companyId: string, poId: string): Promise<PoBudgetLines> {
   const rows = (await sql`
     SELECT pi.id, pi.gl_account_id, pi.cc1_id, pi.cc2_id, pi.bu_id, pi.line_total::TEXT AS line_total
       FROM po_items pi
@@ -77,30 +74,14 @@ async function readPoBudgetLines(companyId: string, poId: string, month: string)
      ORDER BY pi.sort_order, pi.id
   `) as DbRow[];
   const out: PoBudgetLines = { lines: [], noAccount: [], itemIds: [] };
-  const sameSlice = await sameSliceBilledCents(companyId, rows, month);
+  const billed = await billedLinesByPoItem(companyId, rows.map((r) => String(id(r.id))), []);
   for (const r of rows) {
     const item = String(id(r.id));
     out.itemIds.push(item);
-    const open = Math.max(0, toCents(Number(r.line_total)) - (sameSlice.get(item) ?? 0)) / 100;
+    const open = openPoLineCents(Number(r.line_total), billed.get(item) ?? []) / 100;
     const line = { glAccountId: id(r.gl_account_id) ?? '', cc1Id: id(r.cc1_id), cc2Id: id(r.cc2_id), buId: id(r.bu_id), amount: open };
     (line.glAccountId === '' ? out.noAccount : out.lines).push(line);
   }
-  return out;
-}
-
-/**
- * Per PO line (with an account), the cents of linked billing that posted into its own budget slice at the account's
- * grain (company grain when it has none: it is "No budget" then, and committed is reported at company level).
- */
-async function sameSliceBilledCents(companyId: string, rows: readonly DbRow[], month: string): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  const accounted = rows.filter((r) => r.gl_account_id != null);
-  const billed = await billedLinesByPoItem(companyId, accounted.map((r) => String(id(r.id))), []);
-  if (billed.size === 0) return out;
-  const linked = accounted.filter((r) => billed.has(String(id(r.id))))
-    .map((r) => ({ item: String(id(r.id)), glAccountId: String(id(r.gl_account_id)), cc1Id: id(r.cc1_id), cc2Id: id(r.cc2_id), buId: id(r.bu_id), month }));
-  const grains = await budgetGrains(companyId, linked);
-  linked.forEach((l, i) => out.set(l.item, billedInSliceCents(l, billed.get(l.item) ?? [], grains[i] ?? 'company')));
   return out;
 }
 
@@ -126,7 +107,7 @@ function noAccountLines(lines: readonly DocumentLine[], month: string): Unlabell
 export async function checkPurchaseOrderBudget(
   companyId: string, po: PoHeader, gate: BudgetGate, ctx: BudgetCheckContext, actorId: string,
 ): Promise<BudgetCheckResult> {
-  const { lines, itemIds } = await readPoBudgetLines(companyId, po.id, po.month);
+  const { lines, itemIds } = await readPoBudgetLines(companyId, po.id);
   return checkDocumentBudget(companyId, {
     type: 'purchase_order', id: po.id, ref: po.poNumber, month: po.month, lines, excludePoItemIds: itemIds,
   }, ctx, gate, actorId);
@@ -154,7 +135,7 @@ export async function previewPurchaseOrderBudget(companyId: string, poId: string
   const policy = await readCheckPolicy(companyId);
   const approvable = APPROVABLE_PO_STATUSES.includes(po.status);
   if (policy === 'off') return { policy, checks: false, status: po.status, approvable, lines: [], overCount: 0 };
-  const { lines, noAccount, itemIds } = await readPoBudgetLines(companyId, po.id, po.month);
+  const { lines, noAccount, itemIds } = await readPoBudgetLines(companyId, po.id);
   const checked = await evaluateDocumentLines(companyId, lines, po.month, { excludePoItemIds: itemIds, labelAlways: true });
   const none = await labelBudgetLines(companyId, noAccountLines(noAccount, po.month));
   return { policy, checks: true, status: po.status, approvable, lines: [...checked, ...none], overCount: checked.filter((l) => l.over).length };

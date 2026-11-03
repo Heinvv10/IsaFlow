@@ -11,11 +11,11 @@
  *   never 0. A budgeted zero is 0 (D5).
  * - Actual: posted movement at the grain (rows from P3's `readTrackingActuals`, one read per
  *   grain level), picked by (account, month, member); the untagged member is the unassigned slice.
- * - Committed: per PO line, `line_total − billed IN ITS OWN SLICE` floored at 0, mapped onto the grain
- *   the same way, summed per slice. Linked billing nets a PO line only where it posted into the PO
- *   line's slice at that grain (same account, same month, same member: `billedInSliceCents`, the one
- *   rule the PO approval check uses too); billing posted elsewhere is that slice's actual, not a release
- *   of this commitment (P5-3 security review).
+ * - Committed: per PO line, `line_total − billed` floored at 0 (`openPoLineCents`, the one formula the
+ *   PO approval check uses too), mapped onto the grain the same way, summed per slice. Once a PO line is
+ *   billed its commitment is consumed WHEREVER the bill posted (decision 8a): the bill's own spend is
+ *   actual on its own slice and is checked there when the bill is approved. A bill may name only its
+ *   own company's PO line (`ap/supplierInvoicePoLinks`).
  * - No grain (the account holds no budget in the version, or there is no version): actual and
  *   committed are reported at company level, budget and remaining are null.
  *
@@ -91,18 +91,11 @@ export interface CommitmentRow extends Dims {
 }
 
 /**
- * Cents of `billed` that posted into the PO line's own budget slice at `grain`: same account, same month, same
- * member at the grain (company grain: account and month). The one netting rule for committed and for the PO approval.
+ * A PO line's open (still committed) amount in cents: `line_total` less ALL its linked billing, wherever it posted,
+ * floored at 0 (decision 8a). The one formula for committed and for the PO approval's checked amount.
  */
-export function billedInSliceCents(
-  line: Dims & { glAccountId: string; month: string }, billed: readonly BilledPosting[], grain: RemainingGrain,
-): number {
-  const member = memberOnGrain(line, grain).member;
-  let cents = 0;
-  for (const b of billed) {
-    if (b.glAccountId === line.glAccountId && b.month === line.month && memberOnGrain(b, grain).member === member) cents += toCents(b.amount);
-  }
-  return cents;
+export function openPoLineCents(lineTotal: number, billed: readonly BilledPosting[]): number {
+  return Math.max(0, toCents(lineTotal) - billed.reduce((s, b) => s + toCents(b.amount), 0));
 }
 
 export interface RemainingInputs {
@@ -147,10 +140,9 @@ export function computeRemaining(keys: readonly RemainingKey[], inputs: Remainin
   const committedBy = new Map<string, number>();
   const grainsUsed = new Set<RemainingGrain>(['company', ...inputs.grains.values()]);
   for (const c of inputs.commitments) {
-    for (const g of grainsUsed) {
-      const cents = Math.max(0, toCents(c.lineTotal) - billedInSliceCents(c, c.billed, g));
-      if (cents > 0) add(committedBy, `${g}|${cell(c.glAccountId, c.month, memberOnGrain(c, g).member)}`, cents);
-    }
+    const cents = openPoLineCents(c.lineTotal, c.billed);
+    if (cents === 0) continue;
+    for (const g of grainsUsed) add(committedBy, `${g}|${cell(c.glAccountId, c.month, memberOnGrain(c, g).member)}`, cents);
   }
   const committedAt = (grain: RemainingGrain, account: string, month: string, member: string | null): number =>
     committedBy.get(`${grain}|${cell(account, month, member)}`) ?? 0;
