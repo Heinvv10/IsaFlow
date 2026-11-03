@@ -71,14 +71,16 @@ export async function estimateAnnualRemuneration(
   const rows = (await sql`
     WITH runs AS (
       SELECT prh.period_year * 12 + prh.period_month AS idx,
-             COALESCE(prh.total_gross, 0) + COALESCE((
+             -- The breakdown is read only inside the window: an older run counts only for the first
+             -- month of history, which its cash gross decides (a run of benefits alone is not one).
+             COALESCE(prh.total_gross, 0) + CASE WHEN prh.period_year * 12 + prh.period_month < ${windowStart} THEN 0 ELSE COALESCE((
                SELECT SUM((item->>'amount')::numeric)
                  FROM payroll_run_lines prl
                  CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array'
                    THEN prl.component_breakdown ELSE '[]'::jsonb END) item
                 WHERE prl.run_id = prh.id
                   AND item->>'isNonCash' = 'true'
-             ), 0) AS remuneration
+             ), 0) END AS remuneration
         FROM payroll_run_headers prh
        WHERE prh.company_id = ${companyId}::uuid
          AND prh.status IN ('calculated', 'approved', 'paid')

@@ -14,6 +14,8 @@ export interface RunDetailLine {
   employeeNumber: string;
   employeeName: string;
   grossPay: number;
+  /** Non-cash benefits (taxed and levied, not paid): not in grossPay. */
+  nonCashBenefits?: number;
   taxableIncome: number;
   paye: number;
   uifEmployee: number;

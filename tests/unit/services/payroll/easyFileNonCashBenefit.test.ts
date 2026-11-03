@@ -70,3 +70,10 @@ describe('EMP501 CSV: the benefit in its own column, after the existing ones', (
     ]);
   });
 });
+
+describe('e@syFile: the income check matches what the writer writes', () => {
+  it('a benefit under R1 alone is no income code (the writer drops it), so the certificate is refused', () => {
+    expect(() => buildEmployeeRecord({ ...base, grossSalary3601: 0, paye4102: 100, fringeBenefits: [{ sourceCode: '3801', amount: 0.5 }] }))
+      .toThrow(/At least one income code/);
+  });
+});

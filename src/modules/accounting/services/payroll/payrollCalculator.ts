@@ -200,18 +200,21 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // run, and refusing it would stop every employee's pay over one leaver's last month.
   if (netPay < 0) {
     const fromLoan = round2(netPay + loanInstalments) >= 0;
+    // A non-cash benefit is taxed but not paid: its PAYE comes out of the cash, which may be why.
+    const nonCash = round2(remuneration - grossPay);
+    const benefitNote = nonCash > 0 ? ` PAYE includes the tax on ${formatMoney(nonCash)} of non-cash benefits, which are taxed but not paid.` : '';
     warnings.push(fromLoan ? {
       code: 'LOAN_INSTALMENT_EXCEEDS_PAY',
       severity: 'warning',
       rawNet: netPay,
       message: `The loan instalment takes ${formatMoney(-netPay)} more than this employee's pay, so net pay shows as nil and `
-        + 'the deductions payable are understated by that amount.',
+        + `the deductions payable are understated by that amount.${benefitNote}`,
     } : {
       code: 'DEDUCTIONS_EXCEED_PAY',
       severity: 'error',
       rawNet: netPay,
       message: `Deductions and tax come to ${formatMoney(-netPay)} more than this employee's pay, so net pay shows as nil and `
-        + 'the deductions payable are understated by that amount. Reduce the deductions, then recalculate.',
+        + `the deductions payable are understated by that amount.${benefitNote} Reduce the deductions, then recalculate.`,
     });
   }
 

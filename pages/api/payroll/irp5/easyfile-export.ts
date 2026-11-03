@@ -37,7 +37,9 @@ import {
   ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
-import { listRunNonCashBenefits, nonCashTotal } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
+import {
+  listRunNonCashBenefits, listRunUnflaggedFringe, nonCashTotal, unflaggedFringeWarning,
+} from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -62,7 +64,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, fringeByEmployee] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, fringeByEmployee, unflaggedFringe] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -104,6 +106,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     loadMedicalRecord(companyId, bounds),
     // Non-cash benefits: outside gross_pay, so outside 3601; under their own code (3801).
     listRunNonCashBenefits(companyId, bounds),
+    // 3801 items paid in cash (no flag): in 3601, and said so below.
+    listRunUnflaggedFringe(companyId, bounds),
   ]);
 
   const company = companyRows[0];
@@ -158,6 +162,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const medical = medicalByEmployee.get(String(row.id));
     const age = ageAtYearEnd(taxYear, row.date_of_birth, row.id_number);
     warnings.push(...medicalCertificateWarnings(who, medical, { age, dateOfBirthMissing: !row.date_of_birth }));
+    const inCash = unflaggedFringe.get(String(row.id));
+    if (inCash) warnings.push(unflaggedFringeWarning(who, inCash));
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);

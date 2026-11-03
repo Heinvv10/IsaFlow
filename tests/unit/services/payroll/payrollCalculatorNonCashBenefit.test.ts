@@ -87,3 +87,20 @@ describe('a non-cash 3801 benefit on a pay line [Fourth Schedule para 1; SDL Act
     expect(line([salary(5_000)], young).eti.monthlyEti).toBe(1_500);
   });
 });
+
+describe('a shortfall on a line with a non-cash benefit', () => {
+  // R1 000 cash, R20 000 benefit: PAYE on R21 000 is more than the cash, with no other deduction.
+  const short = line([salary(1_000), benefit(20_000)]);
+  const warning = short.validationResults.find((w) => w.code === 'DEDUCTIONS_EXCEED_PAY');
+
+  it('says the PAYE includes tax on the benefit, which is taxed but not paid', () => {
+    expect(warning?.message).toMatch(/PAYE includes the tax on R.?20.?000\.00 of non-cash benefits/);
+  });
+
+  it('says nothing of a benefit when there is none', () => {
+    const plain = line([salary(1_000), { ...salary(5_000), component: { ...salary(0).component, id: 'd', componentType: 'deduction', sarsSourceCode: '4018', isTaxable: false } }]);
+    const w = plain.validationResults.find((x) => x.code === 'DEDUCTIONS_EXCEED_PAY');
+    expect(w?.message).toBeDefined();
+    expect(w?.message).not.toMatch(/non-cash/);
+  });
+});

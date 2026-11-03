@@ -144,6 +144,16 @@ export async function generateEMP201(
         prh.total_uif,
         prh.total_sdl,
         prh.total_eti,
+        -- Non-cash fringe benefits (the 3801 loan benefit): remuneration, but outside total_gross (cash).
+        -- The breakdown items flagged isNonCash, as estimateAnnualRemuneration reads them; a line from
+        -- before the flag has the benefit inside gross_pay and no flag, so it counts once.
+        COALESCE((
+          SELECT SUM((item->>'amount')::numeric)
+            FROM payroll_run_lines prl
+            CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array'
+              THEN prl.component_breakdown ELSE '[]'::jsonb END) item
+           WHERE prl.run_id = prh.id AND item->>'isNonCash' = 'true'
+        ), 0) AS non_cash,
         -- Lines have no company_id; the header's company predicate below scopes them.
         ARRAY(SELECT DISTINCT l.employee_id::text FROM payroll_run_lines l WHERE l.run_id = prh.id) AS employee_ids
       FROM payroll_run_headers prh
@@ -166,6 +176,7 @@ export async function generateEMP201(
     let totalUIF = 0;
     let totalSDL = 0;
     let totalGross = directivePayments.reduce((t, p) => t + p.gross, 0);
+    let totalNonCash = 0;
     // A payment whose directive names no employee here still paid someone: counted by its directive. It
     // cannot be matched to a run employee, so such a person counts twice (legacy rows only: applyTaxDirective
     // refuses a directive with no employee).
@@ -179,6 +190,7 @@ export async function generateEMP201(
       const uif = Number(r.total_uif) || 0;
       const sdl = Number(r.total_sdl) || 0;
       const gross = Number(r.total_gross) || 0;
+      totalNonCash += Number(r.non_cash) || 0;
       const count = Number(r.employee_count) || 0;
 
       totalPAYE += paye;
@@ -222,7 +234,8 @@ export async function generateEMP201(
       totalUIF: roundCents(totalUIF),
       totalSDL: roundCents(totalSDL),
       employeeCount: paid.size,
-      totalTaxableRemuneration: roundCents(totalGross),
+      // Cash gross plus the non-cash benefits: the remuneration taxed.
+      totalTaxableRemuneration: roundCents(totalGross + totalNonCash),
       // Total remitted to SARS — PAYE net of ETI, plus UIF and SDL.
       totalDeductions: roundCents(payePayable + totalUIF + totalSDL),
       payrollRuns,

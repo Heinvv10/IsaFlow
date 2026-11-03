@@ -128,7 +128,8 @@ export async function resolveAccountsById(
  * where mappings exist. Lifted wholesale from the poster so both paths split
  * identically.
  *
- * K-079: each employee carries a gross-share of the cost BEFORE ETI
+ * K-079: each employee carries a gross-share (its SDL by remuneration share, with
+ * a non-cash benefit in the run) of the cost BEFORE ETI
  * (labourDebit + etiUsed) less their own share of `etiUsed`, apportioned by
  * the ETI on their run line — ETI is earned by the low-wage staff, so spreading
  * it by gross moved cost between cost-centre accounts. The per-employee
@@ -164,7 +165,10 @@ export async function buildLabourLines(
   if (labourDebit === 0 || totalGross === 0) return fallback;
 
   const lineRows = (await sql`
-    SELECT prl.employee_id, prl.gross_pay, prl.eti, e.cost_centre_id
+    SELECT prl.employee_id, prl.gross_pay, prl.eti, prl.sdl, e.cost_centre_id, COALESCE((SELECT SUM((item->>'amount')::numeric)
+                       FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array'
+                         THEN prl.component_breakdown ELSE '[]'::jsonb END) item
+                      WHERE item->>'isNonCash' = 'true'), 0) AS non_cash
       FROM payroll_run_lines prl
       JOIN payroll_employees e ON e.id = prl.employee_id
      WHERE prl.run_id = ${runId}::uuid
@@ -186,13 +190,23 @@ export async function buildLabourLines(
   const runLines: RunLabourLine[] = [];
   const costBeforeEti = labourDebit + etiUsed;
   const lineEti = lineRows.reduce((s, r) => s + (Number(r.eti) || 0), 0);
+  // SDL is levied on remuneration, which a non-cash benefit (isNonCash items) is, outside gross: with one in the
+  // run the lines' SDL splits by remuneration share. With none sdlPart is nil: the gross-share split as before.
+  const remunerationOf = (r: Row) => (Number(r.gross_pay) || 0) + (Number(r.non_cash) || 0);
+  const totalNonCash = lineRows.reduce((s, r) => s + (Number(r.non_cash) || 0), 0);
+  const totalRemuneration = totalGross + totalNonCash;
+  const sdlPart = totalNonCash > 0 ? lineRows.reduce((s, r) => s + (Number(r.sdl) || 0), 0) : 0;
   for (const r of lineRows) {
     const employeeId = String(r.employee_id);
     const grossShare = (Number(r.gross_pay) || 0) / totalGross;
+    const remunerationShare = sdlPart > 0 ? remunerationOf(r) / totalRemuneration : 0;
     // No ETI on the lines (an imported or hand-edited header): fall back to gross.
     const etiShare = lineEti > 0 ? (Number(r.eti) || 0) / lineEti : grossShare;
     employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
-    runLines.push({ employeeId, labourAmount: round2(grossShare * costBeforeEti - etiShare * etiUsed) });
+    runLines.push({
+      employeeId,
+      labourAmount: round2(grossShare * (costBeforeEti - sdlPart) + remunerationShare * sdlPart - etiShare * etiUsed),
+    });
   }
   // Both reads are ORDER BY'd (the allocation split puts its own residual on
   // the LAST share), and the rounding tie is broken by employee — so the split,

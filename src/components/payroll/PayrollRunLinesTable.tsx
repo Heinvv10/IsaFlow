@@ -7,6 +7,9 @@
  * same residual the payroll journal credits to 2175, so the column is the
  * voluntary deductions (medical aid, pension, RA, loans) the calculator took.
  *
+ * A non-cash benefit (the 3801 loan benefit) is taxed and SDL-levied but not paid, so it is not
+ * in Gross or Net: it is shown under the Gross figure, so PAYE and SDL on more than Gross read right.
+ *
  * `edit` adds the review grid's columns (PayRunReviewGrid); the figures stay these.
  */
 import type { ReactNode } from 'react';
@@ -18,6 +21,8 @@ export interface RunLineAmounts {
   employeeNumber: string;
   employeeName: string;
   grossPay: number;
+  /** Taxed and levied, not paid: not in grossPay. */
+  nonCashBenefits?: number;
   paye: number;
   uifEmployee: number;
   uifEmployer: number;
@@ -99,6 +104,19 @@ interface RunLinesColumn {
   cell: (line: RunLineAmounts, row: number) => ReactNode;
 }
 
+/** Gross (cash); a non-cash benefit beneath it, which PAYE and SDL are on but Net does not pay. */
+function GrossCell({ line: l }: { line: RunLineAmounts }) {
+  const benefit = l.nonCashBenefits ?? 0;
+  if (benefit <= 0) return <td className={`${num} text-[var(--ff-text-primary)]`}>{formatCurrency(l.grossPay)}</td>;
+  return (
+    <td className={`${num} text-[var(--ff-text-primary)]`}
+      title={`${formatCurrency(l.grossPay)} paid in cash, plus a ${formatCurrency(benefit)} non-cash benefit that is taxed (PAYE) and levied (SDL) but not paid`}>
+      {formatCurrency(l.grossPay)}
+      <span className="block text-xs text-[var(--ff-text-tertiary)]">+ {formatCurrency(benefit)} non-cash</span>
+    </td>
+  );
+}
+
 export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[]; edit?: RunLinesEdit }) {
   const t = sumRunLines(lines);
   return (
@@ -132,7 +150,7 @@ export function PayrollRunLinesTable({ lines, edit }: { lines: RunLineAmounts[];
             <td className="py-2 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
             <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}{edit?.statusCell(l)}</td>
             {edit && <td className={num}>{edit.earning.cell(l, row)}</td>}
-            <td className={`${num} text-[var(--ff-text-primary)]`}>{formatCurrency(l.grossPay)}</td>
+            <GrossCell line={l} />
             <td className={`${num} text-[var(--ff-text-secondary)] border-l border-[var(--ff-border-primary)]`}>{formatCurrency(l.paye)}</td>
             <td className={`${num} text-[var(--ff-text-secondary)]`}>{formatCurrency(l.uifEmployee)}</td>
             {edit?.deduction && <td className={num}>{edit.deduction.cell(l, row)}</td>}

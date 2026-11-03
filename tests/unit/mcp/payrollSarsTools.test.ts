@@ -81,6 +81,7 @@ const IRP5 = {
     detail: '3 payroll runs fall in this tax year but are not declarable', amount: 335800,
   }],
   postedThrough: '2026-02-28T10:00:00.000Z',
+  warnings: ['Thandi Mokoena: R 1 000.00 under code 3801 was costed before the benefit was non-cash; it was paid in cash and is in 3601.'],
 };
 
 beforeEach(() => {
@@ -185,6 +186,15 @@ describe('irp5_data', () => {
     ]);
     // The non-cash loan benefit: NOT in gross_salary (cash), certified under its own code.
     expect(env.rows[0].fringe_benefits).toEqual([{ source_code: '3801', amount: 10000 }]);
+    expect(env.totals).toMatchObject({ gross_salary: 480000, fringe_benefits: 10000 });
+    expect(env.warnings).toEqual(IRP5.warnings);
+  });
+
+  it('describes gross_salary as cash pay, not gross remuneration, in its first sentence', () => {
+    const first = irp5DataTool.description.split('. ')[0]!;
+    expect(first).not.toMatch(/gross remuneration/);
+    expect(first).toMatch(/cash gross pay/);
+    expect(first).toMatch(/non-cash fringe benefits/);
   });
 
   it('masks identity numbers by default and reveals them only on request', async () => {

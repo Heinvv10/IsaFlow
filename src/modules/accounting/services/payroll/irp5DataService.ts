@@ -29,7 +29,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import type { LumpSumFiling } from './payrollLumpSumFiling';
 import { listCertificateLumpSums } from './directivePaymentFiling';
-import { listRunNonCashBenefits, type NonCashBenefitFiling } from './payrollNonCashFiling';
+import { listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeWarning, type NonCashBenefitFiling } from './payrollNonCashFiling';
 
 type Row = DbRow;
 
@@ -85,6 +85,8 @@ export interface Irp5Dataset {
   excludedTotal: number;
   excluded: Irp5Exclusion[];
   postedThrough: string | null;
+  /** Each employee whose 3801 items were paid in cash (no flag), so are in grossSalary / 3601. */
+  warnings: string[];
 }
 
 /** Excluded employees are listed individually up to this many; beyond it the
@@ -186,6 +188,7 @@ export async function getIrp5EmployeeTotals(
   // added here, and an employee paid ONLY that way gets a row of their own.
   const { byEmployee: lumpSums, standaloneTotals } = await listCertificateLumpSums(companyId, { start, end }, employeeId);
   const fringeBenefits = await listRunNonCashBenefits(companyId, { start, end }, employeeId);
+  const unflagged = await listRunUnflaggedFringe(companyId, { start, end }, employeeId);
   const standaloneIds = [...standaloneTotals.keys()];
   const withRuns = new Set(rows.map(r => String(r.id)));
   const onlyStandalone = standaloneIds.filter(id => !withRuns.has(id));
@@ -275,5 +278,7 @@ export async function getIrp5EmployeeTotals(
     excludedTotal,
     excluded,
     postedThrough,
+    warnings: rows.filter((r) => unflagged.has(String(r.id))).map((r) =>
+      unflaggedFringeWarning(`${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(), unflagged.get(String(r.id))!)),
   };
 }

@@ -38,19 +38,21 @@ const pay = (cash: number, benefit: number, nonCash: boolean): EmployeeComponent
   },
 ];
 
+const ELEVEN = Array.from({ length: 11 }, (_, i) => ({ back: i + 1, status: 'approved' }));
+
 /**
  * A company with eleven approved months before PERIOD, each one line costed by the real
  * calculator. `nonCash` false is a line from before the benefit was non-cash: in gross, no flag.
  * `breakdown` overrides what the line stored (an unreadable one).
  */
-async function history(nonCash: boolean, breakdown?: unknown): Promise<string> {
+async function history(nonCash: boolean, breakdown?: unknown, months: Array<{ back: number; status: string }> = ELEVEN): Promise<string> {
   const company = crypto.randomUUID();
   companies.push(company);
   await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [company, 'SDL non-cash history']);
   const emp = (await pool.query(
     `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status)
      VALUES ($1, 'SDL-NC', 'Test', 'Employee', '2020-01-01', 'active') RETURNING id`, [company])).rows[0]!.id as string;
-  for (let back = 1; back <= 11; back += 1) {
+  for (const { back, status } of months) {
     const index = PERIOD.year * 12 + PERIOD.month - back;
     const period = { month: ((index - 1) % 12) + 1, year: Math.floor((index - 1) / 12) };
     const line = calculatePayrollLine({
@@ -59,7 +61,7 @@ async function history(nonCash: boolean, breakdown?: unknown): Promise<string> {
     });
     const run = (await pool.query(
       `INSERT INTO payroll_run_headers (company_id, period_month, period_year, status, total_gross)
-       VALUES ($1, $2, $3, 'approved', $4) RETURNING id`, [company, period.month, period.year, line.grossPay])).rows[0]!.id;
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`, [company, period.month, period.year, status, line.grossPay])).rows[0]!.id;
     await pool.query(
       `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, net_pay, component_breakdown)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
@@ -91,6 +93,24 @@ describe('SDL threshold: non-cash benefits in earlier months [SDL Act s4(b); Fou
   it('counts a benefit from before it was non-cash once: it is already in that month\'s gross', async () => {
     const company = await history(false);
     expect(await estimateAnnualRemuneration(company, PERIOD, 42_000, crypto.randomUUID())).toBe(504_000);
+  });
+
+  it('ignores a cancelled run in the window and a draft before it, whatever benefit they carry', async () => {
+    // Approved 1..10 months back; a cancelled run 11 back and a draft 12 back, each R42 000 with a
+    // R1 000 benefit. Counted, they would add to the sum or move the first month (and the
+    // divisor): (10 x 42 000 + 42 000) / 11 x 12 = R504 000 only when both are ignored.
+    const months = [...ELEVEN.slice(0, 10), { back: 11, status: 'cancelled' }, { back: 12, status: 'draft' }];
+    const company = await history(true, undefined, months);
+    expect(await estimateAnnualRemuneration(company, PERIOD, 42_000, crypto.randomUUID())).toBe(504_000);
+  });
+
+  it('reads only its own company: other tenants\' benefits are not in an empty company\'s basis', async () => {
+    await history(true);
+    const empty = crypto.randomUUID();
+    companies.push(empty);
+    await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [empty, 'SDL non-cash, no history']);
+    // No history: this month alone, annualised (x 12 / 1).
+    expect(await estimateAnnualRemuneration(empty, PERIOD, 42_000, crypto.randomUUID())).toBe(504_000);
   });
 
   it('reads a line whose breakdown is not an array as holding no benefit, without failing', async () => {

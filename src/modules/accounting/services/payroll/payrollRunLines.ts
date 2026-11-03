@@ -17,6 +17,8 @@ export interface PayrollRunLine {
   employeeNumber: string;
   employeeName: string;
   grossPay: number;
+  /** The breakdown's items flagged isNonCash (the 3801 loan benefit): taxed and levied, not in grossPay. */
+  nonCashBenefits: number;
   taxableIncome: number;
   paye: number;
   uifEmployee: number;
@@ -247,6 +249,10 @@ export async function getPayrollRunLines(
     employeeNumber: String(r.employee_number),
     employeeName: `${r.first_name} ${r.last_name}`,
     grossPay: Number(r.gross_pay),
+    nonCashBenefits: Array.isArray(r.component_breakdown)
+      ? Math.round((r.component_breakdown as Array<{ isNonCash?: boolean; amount?: unknown }>)
+        .reduce((s, i) => s + (i?.isNonCash === true ? Number(i.amount) || 0 : 0), 0) * 100) / 100
+      : 0,
     taxableIncome: Number(r.taxable_income),
     paye: Number(r.paye),
     uifEmployee: Number(r.uif_employee),
