@@ -31,6 +31,16 @@ describe('yearToDatePeriods', () => {
 });
 
 describe('loadPayeYearToDate with a pre-948 line reduced to nil', () => {
+  it('counts periods from the original taxable earnings split, before deductions', async () => {
+    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    await loadPayeYearToDate(COMPANY, RUN, { year: 2026, month: 4 }, [EMP]);
+    const query = (sqlMock.mock.calls[0]![0] as TemplateStringsArray).join('?');
+    expect(query).toContain('GREATEST(b.original_taxable - b.annual_3605, 0)');
+    expect(query).toContain('COUNT(*) FILTER (WHERE periodic_before_deductions > 0)::int AS periods');
+    expect(query).toContain('periodic_before_deductions > 0 OR annual_before_deductions > 0');
+    expect(query).toContain('FILTER (WHERE periodic_before_deductions <= 0) AS unpaid_lines');
+  });
+
   it('restores excess legacy deductions to the annual payment they reduced', async () => {
     sqlMock
       .mockResolvedValueOnce([{

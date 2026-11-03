@@ -9,9 +9,11 @@
  * employee was paid and what EMP201 and the IRP5 declare, so the cumulative
  * deduction trues up to exactly those.
  *
- * - periods: lines with periodic pay (a severance-only line has none);
- * - retirementCapPeriods: lines with periodic pay or an annual payment, so
- *   each bonus-only period advances the pro-rated s11F cap;
+ * - periods: lines with taxable periodic earnings before deductions, from
+ *   original_taxable less annual_3605 in the stored breakdown (a severance-only
+ *   or donation-correction-only line has none);
+ * - retirementCapPeriods: those lines or a line with a pre-deduction annual
+ *   payment, so each bonus-only period advances the pro-rated s11F cap;
  * - periodicTaxable / annualPayments: the line's periodic_taxable /
  *   annual_taxable (migration 913). A line written before 913 has NULLs, and
  *   its split is derived from the stored breakdown: annual payments = its
@@ -62,6 +64,13 @@ export async function loadPayeYearToDate(
       SELECT l.id AS line_id, l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic,
+             CASE WHEN jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
+               THEN GREATEST(b.original_taxable - b.annual_3605, 0)
+               ELSE COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income))
+             END AS periodic_before_deductions,
+             CASE WHEN jsonb_array_length(COALESCE(l.component_breakdown, '[]'::jsonb)) > 0
+               THEN b.annual_3605 ELSE COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income))
+             END AS annual_before_deductions,
              b.annual_3605, b.original_taxable, b.donations
       FROM payroll_run_lines l
       JOIN payroll_run_headers h ON h.id = l.run_id
@@ -90,11 +99,10 @@ export async function loadPayeYearToDate(
         AND l.employee_id = ANY(${employeeIds}::uuid[])
     )
     SELECT employee_id,
-           -- Donations are inside periodic: add the full signed amount back to recover remuneration.
-           COUNT(*) FILTER (WHERE periodic + donations > 0)::int AS periods,
-           COUNT(*) FILTER (WHERE periodic + donations > 0 OR annual > 0)::int AS retirement_cap_periods,
+           COUNT(*) FILTER (WHERE periodic_before_deductions > 0)::int AS periods,
+           COUNT(*) FILTER (WHERE periodic_before_deductions > 0 OR annual_before_deductions > 0)::int AS retirement_cap_periods,
            -- Lines with no stored periodic pay: a pre-948 one may have had it before its taxable retirement deduction.
-           jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic <= 0) AS unpaid_lines,
+           jsonb_object_agg(line_id::text, periodic) FILTER (WHERE periodic_before_deductions <= 0) AS unpaid_lines,
            jsonb_object_agg(line_id::text, jsonb_build_object(
              'periodic', periodic, 'annual', annual, 'annualGross', annual_3605,
              'originalTaxable', original_taxable

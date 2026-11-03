@@ -115,6 +115,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     periodicTaxable += annualPayments;
     annualPayments = 0;
   }
+  const periodicRemuneration = Math.max(0, periodicTaxable);
+  const annualPaymentRemuneration = Math.max(0, annualPayments);
   const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
   const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
 
@@ -136,6 +138,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit, retirementDeduction } = calculateCumulativePaye({
     regularTaxable,
     annualPayments: annualTaxable,
+    periodicRemuneration,
+    annualPaymentRemuneration,
     ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
     taxYear,
     rebateAge,
@@ -196,6 +200,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     taxableIncome: Math.round(taxableIncome * 100) / 100,
     periodicTaxable: round2(regularTaxable),
     annualTaxable: round2(annualTaxable),
+    periodicRemuneration: round2(periodicRemuneration),
+    annualPaymentRemuneration: round2(annualPaymentRemuneration),
     paye,
     payeSplit,
     medicalCredit,

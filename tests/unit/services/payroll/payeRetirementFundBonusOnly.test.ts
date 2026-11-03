@@ -20,10 +20,15 @@ interface Month { salary: number; contribution: number; bonus?: number; donation
 function year(months: Month[]) {
   let ytd: PayeYearToDate = NONE;
   return months.map((month) => {
+    const donation = month.donation ?? 0;
+    const bonus = month.bonus ?? 0;
+    const periodicAfterDeductions = Math.max(0, month.salary - donation);
+    const annualAfterDeductions = Math.max(0, bonus - Math.max(0, donation - month.salary));
     const result = calculateCumulativePaye({
       taxYear: 2027, rebateAge: 40, monthlyMedicalBeneficiaries: 0, medicalSchemeFees: 0,
-      regularTaxable: month.salary - (month.donation ?? 0), annualPayments: month.bonus ?? 0,
-      retirementContributions: month.contribution, donations: month.donation ?? 0, ytd,
+      regularTaxable: periodicAfterDeductions, annualPayments: annualAfterDeductions,
+      periodicRemuneration: month.salary, annualPaymentRemuneration: bonus,
+      retirementContributions: month.contribution, donations: donation, ytd,
     });
     const totalPaye = r2(result.regular.monthlyPaye + result.annualPaymentPaye);
     const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
@@ -32,8 +37,8 @@ function year(months: Month[]) {
       ...ytd,
       periods: result.periods,
       retirementCapPeriods: capPeriods,
-      periodicTaxable: ytd.periodicTaxable + month.salary - (month.donation ?? 0),
-      annualPayments: ytd.annualPayments + (month.bonus ?? 0),
+      periodicTaxable: ytd.periodicTaxable + periodicAfterDeductions,
+      annualPayments: ytd.annualPayments + annualAfterDeductions,
       tablePaye: r2(ytd.tablePaye + totalPaye),
       retirementContributions: r2((ytd.retirementContributions ?? 0) + month.contribution),
       retirementDeduction: r2((ytd.retirementDeduction ?? 0) + result.retirementDeduction),
@@ -165,6 +170,48 @@ describe('PAYE 4c: salary, bonus-only periods and signed corrections', () => {
     expect([months[1]!.retirementDeduction, months[1]!.deductedToDate, months[1]!.totalPaye]).toEqual([
       5_500, 11_000, 1_305,
     ]);
+    expectLimits(months);
+  });
+
+  it('counts a fully donated salary month when annualising later PAYE and s11F', () => {
+    // March remuneration is R100 000 before the R100 000 donation, so it is a paid period with nil taxable pay.
+    // April brings periodic taxable pay to R100 000 over two periods: AE = R600 000. Contributions annualise to
+    // R120 000 and the donation is added back to the s11F base, so D = R120 000. Tax on R480 000 for 2/12 is
+    // R15 369.50. Counting only April would annualise both pay and contributions over one period and charge R22 657.75.
+    const months = year([
+      { salary: 100_000, contribution: 0, donation: 100_000 },
+      { salary: 100_000, contribution: 20_000 },
+    ]);
+    expect([
+      months[0]!.periods,
+      months[0]!.annualEquivalent,
+      months[0]!.totalPaye,
+      months[1]!.periods,
+      months[1]!.annualEquivalent,
+      months[1]!.retirementDeduction,
+      months[1]!.totalPaye,
+    ]).toEqual([1, 0, 0, 2, 600_000, 20_000, 15_369.50]);
+    expectLimits(months);
+  });
+
+  it('does not count a fully donated bonus as periodic pay, but advances the cap period', () => {
+    // March has only a R100 000 annual payment, wholly offset by the R100 000 donation: n stays zero,
+    // but the annual-payment month advances the s11F cap. April is the first periodic month, so
+    // AE = R20 000 x 12 = R240 000 and PAYE is (R240 000 x 18% - R17 820) / 12 = R2 115.
+    // Treating March as periodic would make April's AE R120 000 and incorrectly deduct nil PAYE.
+    const months = year([
+      { salary: 0, contribution: 0, bonus: 100_000, donation: 100_000 },
+      { salary: 20_000, contribution: 0 },
+    ]);
+    expect([
+      months[0]!.periods,
+      months[0]!.capPeriods,
+      months[0]!.totalPaye,
+      months[1]!.periods,
+      months[1]!.capPeriods,
+      months[1]!.annualEquivalent,
+      months[1]!.totalPaye,
+    ]).toEqual([0, 1, 0, 1, 2, 240_000, 2_115]);
     expectLimits(months);
   });
 

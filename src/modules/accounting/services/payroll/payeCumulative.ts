@@ -121,6 +121,10 @@ export interface CumulativePayeInput {
   regularTaxable: number;
   /** This period's annual payments (3605), after any excess taxable deductions. */
   annualPayments: number;
+  /** Taxable periodic earnings before taxable deductions, used only to decide whether this is a pay period. */
+  periodicRemuneration: number;
+  /** Taxable annual payments before taxable deductions, used only to advance the pro-rated s11F cap period. */
+  annualPaymentRemuneration: number;
   /** Earlier periods of the tax year (declarable runs, before this period). */
   ytd: PayeYearToDate;
   taxYear: number;
@@ -154,9 +158,7 @@ const PERIODS_IN_YEAR = 12;
 
 export function calculateCumulativePaye(input: CumulativePayeInput): CumulativePayeResult {
   const { ytd } = input;
-  // Donations are already inside regularTaxable: add the full signed amount
-  // back to recover remuneration without making a correction-only line a period.
-  const hasPeriodic = input.regularTaxable + (input.donations ?? 0) > 0;
+  const hasPeriodic = input.periodicRemuneration > 0;
   const periods = ytd.periods + (hasPeriodic ? 1 : 0);
   const feesToDate = Math.max(0, ytd.medicalSchemeFees + input.medicalSchemeFees);
   const annualMedicalSchemeFees = periods > 0 ? (feesToDate * PERIODS_IN_YEAR) / periods : feesToDate;
@@ -186,7 +188,8 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // only an annual payment counts as one.
   const offPeriodic = Math.min(deduction, annualEquivalent);
   const periodicToDate = (offPeriodic * periods) / PERIODS_IN_YEAR;
-  const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods) + (hasPeriodic || annualNow > 0 ? 1 : 0);
+  const capPeriods = (ytd.retirementCapPeriods ?? ytd.periods)
+    + (hasPeriodic || input.annualPaymentRemuneration > 0 ? 1 : 0);
   const capToDate = (getTaxYearConfig(input.taxYear).retirementDeductionCap * Math.max(capPeriods, 1)) / PERIODS_IN_YEAR;
   const offAnnual = Math.max(0, Math.min(deduction - offPeriodic, annualBefore + annualNow,
     contributions - periodicToDate, capToDate - periodicToDate));

@@ -35,6 +35,8 @@ function period(ytd: PayeYearToDate, input: Period) {
     monthlyMedicalBeneficiaries: input.beneficiaries ?? 1,
     regularTaxable: input.salary,
     annualPayments: 0,
+    periodicRemuneration: input.salary,
+    annualPaymentRemuneration: 0,
     medicalSchemeFees: input.fees,
     ytd,
   });
@@ -94,6 +96,41 @@ describe('signed medical scheme fee corrections', () => {
       correction.result.additionalMedicalCredit,
       correction.tablePaye,
     ]).toEqual([1, 0, 0, -623.38, 0]);
+  });
+
+  it('combines medical and retirement reversals in a correction-only no-pay month', () => {
+    const result = calculateCumulativePaye({
+      taxYear: 2027,
+      rebateAge: 67,
+      monthlyMedicalBeneficiaries: 1,
+      regularTaxable: 0,
+      annualPayments: 0,
+      periodicRemuneration: 0,
+      annualPaymentRemuneration: 0,
+      medicalSchemeFees: -3_000,
+      retirementContributions: -8_000,
+      ytd: {
+        periods: 1,
+        retirementCapPeriods: 1,
+        periodicTaxable: 30_000,
+        annualPayments: 0,
+        tablePaye: 2_867.87,
+        medicalCredit: 376,
+        additionalMedicalCredit: 623.38,
+        medicalSchemeFees: 3_000,
+        retirementContributions: 8_000,
+        retirementDeduction: 8_000,
+      },
+    });
+
+    expect([
+      result.periods,
+      result.regular.monthlyPaye,
+      result.annualPaymentPaye,
+      result.medicalCredit,
+      result.additionalMedicalCredit,
+      result.retirementDeduction,
+    ]).toEqual([1, 0, 0, 0, -623.38, -8_000]);
   });
 
   it('does not grow a credit in a positive fee-only no-pay month', () => {

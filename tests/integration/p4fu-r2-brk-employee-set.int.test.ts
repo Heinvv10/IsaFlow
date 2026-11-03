@@ -147,6 +147,29 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     ok(await approveRun(f, jan));
   });
 
+  it('a back-filled fully donated salary is warned, and the gate refuses it if that warning is absent', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 fully donated salary', 20_000);
+    const donation = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Full donation', '4030', 'deduction', true) RETURNING id`, [f.company])).rows[0]!.id);
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
+       VALUES ($1, $2, 20000, '2027-01-01', '2027-01-31')`, [f.employee, donation]);
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb);
+    ok(await approveRun(f, feb));
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan);
+    const line = await runLine(pool, jan, f.employee);
+    expect([Number(line.periodic_taxable), Number(line.annual_taxable)]).toEqual([0, 0]);
+    expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');
+
+    await pool.query(`UPDATE payroll_run_lines SET validation_results = '[]'::jsonb WHERE run_id = $1`, [jan]);
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode, JSON.stringify(refused.body).slice(0, 300)).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02.*Recalculate the run/);
+  });
+
   /** January reopened, February calculated while it was (missing it), January recalculated (no warning), February approved. */
   async function febMissedJan(name: string, beforeFeb?: (f: SeveranceFixture) => Promise<void>) {
     const f = await seedEmployee(pool, fixtures, name, 20_000);

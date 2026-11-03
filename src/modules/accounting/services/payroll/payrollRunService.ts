@@ -233,8 +233,9 @@ export async function calculatePayrollRun(
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
         ...line.validationResults, ...terminationWarnings,
-        // Only a line taxed from the tables feeds the later months' cumulative PAYE.
-        ...((line.periodicTaxable > 0 || line.annualTaxable > 0) && laterApproved.has(employee.id) ? [laterApproved.get(employee.id)!] : []),
+        // Remuneration before taxable deductions feeds later months even when a deduction reduced this line to nil.
+        ...((line.periodicRemuneration > 0 || line.annualPaymentRemuneration > 0) && laterApproved.has(employee.id)
+          ? [laterApproved.get(employee.id)!] : []),
       ]),
     });
 
