@@ -20,6 +20,7 @@ const { nothing } = vi.hoisted(() => ({ nothing: () => null }));
 vi.mock('@/components/layout/CompanySwitcher', () => ({ CompanySwitcher: nothing }));
 vi.mock('@/components/layout/CreateNewMenu', () => ({ CreateNewMenu: nothing }));
 vi.mock('@/components/layout/SettingsMenu', () => ({ SettingsMenu: nothing }));
+vi.mock('@/components/layout/NotificationBell', () => ({ NotificationBell: nothing }));
 vi.mock('@/components/ui/TableDensityToggle', () => ({ TableDensityToggle: nothing }));
 vi.mock('@/components/layout/SidebarNav', () => ({ SidebarNav: nothing }));
 vi.mock('@/components/accounting/SecondaryModuleNav', () => ({ SecondaryModuleNav: nothing }));
