@@ -25,6 +25,8 @@ import { notifyPostingWarnings, type PostingWarningsBody } from '@/components/ac
 import { SupplierInvoiceApprovalPanel } from '@/components/accounting/ap/SupplierInvoiceApprovalPanel';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 import { useDateGate } from '@/hooks/useDateGate';
+import { BudgetApproveDialog } from '@/components/accounting/ap/BudgetApproveDialog';
+import { useBudgetApprove } from '@/components/accounting/ap/useBudgetApprove';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -105,6 +107,14 @@ export default function SupplierInvoiceDetailPage() {
     }
   }, [invoiceId, loadInvoice]);
 
+  // Budgets P5-2: approve goes through the budget preview, and the dialog when a line meets a budget.
+  const onApproved = useCallback(async (json: unknown) => {
+    notifyLateClaims(json as PostingWarningsBody);
+    notifyPostingWarnings(json as PostingWarningsBody);
+    await loadInvoice();
+  }, [loadInvoice]);
+  const budgetApprove = useBudgetApprove(invoiceId as string, onApproved, setError);
+
   const handleSaveEdit = async () => {
     if (dates.blocked) { setError('Fix the date marked in red before saving.'); return; }
     setActionLoading('save');
@@ -127,10 +137,10 @@ export default function SupplierInvoiceDetailPage() {
 
   const { groups, overflowActions } = useSupplierInvoiceActions(
     invoice ? {
-      invoiceId: invoiceId as string, invoice, actionLoading, editing,
+      invoiceId: invoiceId as string, invoice, actionLoading: budgetApprove.busy ? 'approve' : actionLoading, editing,
       onStartEdit: () => { setEditing(true); setEditForm({ invoiceNumber: invoice.invoiceNumber, dueDate: invoice.dueDate || '', paymentTerms: invoice.paymentTerms || '', notes: invoice.notes || '' }); },
       onSaveEdit: () => { void handleSaveEdit(); },
-      onAction: (action) => { void handleAction(action); },
+      onAction: (action) => { setError(''); void (action === 'approve' ? budgetApprove.start() : handleAction(action)); },
       onShowCancelConfirm: () => setShowCancelConfirm(true),
     } : null,
   );
@@ -217,6 +227,8 @@ export default function SupplierInvoiceDetailPage() {
             ]}
           />
         </div>
+
+        <BudgetApproveDialog {...budgetApprove.dialog} />
 
         <ConfirmDialog
           open={showCancelConfirm}

@@ -194,6 +194,7 @@ describe('approve_supplier_invoice', () => {
       .toEqual({
         postingAgent: 'mcp:approve_supplier_invoice:v1', actorType: 'agent', actorTokenJti: 'jti',
         allowLateInputClaim: false, // no allow_late_input_claim argument: no late claim
+        budget: { channel: 'mcp', lock: 'take' }, // P5-2: an agent's approval is checked on the mcp channel, never overridden
       });
   });
 

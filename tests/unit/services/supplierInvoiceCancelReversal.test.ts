@@ -64,6 +64,12 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 // The plan's refusals on the shared path are pinned against a real ledger by
 // tests/integration/cancel-supplier-invoice-shared-path.int.test.ts; stubbed so
 // the sql queue below stays positional.
+// Budgets P5-2: the budget check is its own module, pinned on real PostgreSQL by the
+// budgets-p5-bill-check* integration suites; stubbed (policy off) so the sql queue stays positional.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceBudgetCheck', () => ({
+  openBillBudgetGate: vi.fn(async () => ({ policy: null, locked: false, mode: 'none' })),
+  checkBillBudget: vi.fn(async () => ({ policy: 'off', outcome: null, lines: [], warnings: [] })),
+}));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceCancelPlan', () => ({
   planSupplierInvoiceCancel: vi.fn(async () => ({ journal: { id: 'dddddddd-0000-4000-8000-dddddddddddd' } })),
   SupplierInvoiceCancelRefusal: class SupplierInvoiceCancelRefusal extends Error {},

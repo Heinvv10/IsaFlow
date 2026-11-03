@@ -28,8 +28,13 @@ import { claimEvidencedProvisional, settleClaimedProvisional } from './provision
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
+import { checkBillBudget, openBillBudgetGate } from './supplierInvoiceBudgetCheck';
+import type { BudgetCheckContext } from '../budgets/budgetCheckTypes';
 
 type Row = DbRow;
+/** `budget`: the caller's budget-check channel and lock mode (P5-2, `supplierInvoiceBudgetCheck.ts`). */
+type BudgetOpts = { budget?: BudgetCheckContext };
+type ApprovedBill = SupplierInvoice & { lateClaim?: LateClaimInfo; warnings?: string[]; budgetWarnings?: string[] };
 
 export async function approveSupplierInvoice(
   companyId: string,
@@ -42,8 +47,8 @@ export async function approveSupplierInvoice(
   // and invisible to list_agent_postings, which filters posting_agent LIKE
   // 'mcp:%'. That review surface is the control the whole agent-write model
   // rests on. `allowLateInputClaim`: human-initiated callers only (gl/vatLateClaimPlan.ts).
-  opts?: PostingActorOpts & PostJournalOpts,
-): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo; warnings?: string[] }> {
+  opts?: PostingActorOpts & PostJournalOpts & BudgetOpts,
+): Promise<ApprovedBill> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // All-or-nothing (R-127): the provisional settlement runs AFTER the journal and
   // the status UPDATE, and every route answers a throw 4xx, which withAuth COMMITs.
@@ -51,9 +56,11 @@ export async function approveSupplierInvoice(
 }
 
 async function approveInner(
-  companyId: string, id: string, userId: string, opts?: PostingActorOpts & PostJournalOpts,
-): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo; warnings?: string[] }> {
+  companyId: string, id: string, userId: string, opts?: PostingActorOpts & PostJournalOpts & BudgetOpts,
+): Promise<ApprovedBill> {
   try {
+    // P5-2: the company budget lock (block policy only) is taken FIRST, before the invoice row lock (spec §3c).
+    const budgetGate = await openBillBudgetGate(companyId, opts?.budget);
     // Serialise concurrent approvals of the SAME invoice before reading its
     // status. Without this the check-then-act window below is wide open: two
     // callers both read 'draft', both post an Expense/VAT/AP journal, and the
@@ -98,6 +105,7 @@ async function approveInner(
     // genuinely unapproved, and the lines this function would build are the
     // ones already posted, so the correct completion of "approve" is to flip the
     // status and keep the journal that is already in the ledger.
+    // No budget check here (P5-2, census finding 2): that journal is posted, so its spend is already in actuals.
     if (invoice.glJournalEntryId) {
       const reused = (await sql`
         UPDATE supplier_invoices
@@ -122,6 +130,8 @@ async function approveInner(
     const { lines, warnings } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id), { storedPosting: true });
     // What the pick added follows the stored items' rule: approving refuses an inactive CC1 / CC2 (an inactive FNO too); Post to GL copies.
     await assertPostsStoredDimensions(companyId, invoice.status, lines, (i) => `Supplier invoice ${invoice.invoiceNumber} line ${i + 1}`);
+    // P5-2: on the expense lines about to post, before the first write (a refusal throws; this savepoint rolls back).
+    const budget = await checkBillBudget(companyId, invoice, lines, budgetGate, opts?.budget, userId);
 
     if (invoice.taxAmount > 0) {
       lines.push({
@@ -162,7 +172,8 @@ async function approveInner(
     const settled = await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
-    return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}), ...(warnings.length > 0 ? { warnings } : {}) };
+    return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}), ...(warnings.length > 0 ? { warnings } : {}),
+      ...(budget.warnings.length > 0 ? { budgetWarnings: budget.warnings } : {}) };
   } catch (err) {
     log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
     throw err;
@@ -177,16 +188,18 @@ export async function postSupplierInvoiceToGL(
   companyId: string,
   id: string,
   userId: string,
-  opts?: PostingActorOpts,
-): Promise<{ journalEntryId: string; alreadyPosted: boolean; warnings?: string[] }> {
+  opts?: PostingActorOpts & BudgetOpts,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean; warnings?: string[]; budgetWarnings?: string[] }> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // All-or-nothing, as approveSupplierInvoice (R-127).
   return withSavepoint('post_supplier_invoice_gl', () => postToGLInner(companyId, id, userId, opts));
 }
 
 async function postToGLInner(
-  companyId: string, id: string, userId: string, opts?: PostingActorOpts,
-): Promise<{ journalEntryId: string; alreadyPosted: boolean; warnings?: string[] }> {
+  companyId: string, id: string, userId: string, opts?: PostingActorOpts & BudgetOpts,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean; warnings?: string[]; budgetWarnings?: string[] }> {
+  // P5-2: the budget gate first, as in approve. Capture's auto-approval reaches here (census finding 1).
+  const budgetGate = await openBillBudgetGate(companyId, opts?.budget);
   // Same check-then-act window approveSupplierInvoice closes at :95, and the
   // same reason: this function decides on `glJournalEntryId` below and then
   // overwrites it. Unlocked, two overlapping "Post to GL" calls both read NULL,
@@ -242,6 +255,7 @@ async function postToGLInner(
 
   await assertBillPostable(companyId, invoice);
   const { lines, warnings } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id), { storedPosting: true });
+  const budget = await checkBillBudget(companyId, invoice, lines, budgetGate, opts?.budget, userId); // P5-2, before the first write
 
   if (invoice.taxAmount > 0) {
     lines.push({
@@ -280,7 +294,8 @@ async function postToGLInner(
   await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
-  return { journalEntryId: journalEntry.id, alreadyPosted: false, ...(warnings.length > 0 ? { warnings } : {}) };
+  return { journalEntryId: journalEntry.id, alreadyPosted: false, ...(warnings.length > 0 ? { warnings } : {}),
+    ...(budget.warnings.length > 0 ? { budgetWarnings: budget.warnings } : {}) };
 }
 
 export async function cancelSupplierInvoice(

@@ -4,11 +4,13 @@
  * fan-out from the client.
  */
 
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 import { log } from '@/lib/logger';
+import type { BudgetPolicy } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { BulkBudgetModal } from './BulkBudgetModal';
 
 type BulkAction = 'approve' | 'post_gl' | 'cancel';
 
@@ -41,19 +43,46 @@ const COULD_NOT: Record<BulkAction, string> = {
 };
 const PLURAL: Record<BulkAction, string> = { approve: 'approves', post_gl: 'GL postings', cancel: 'cancels' };
 
+/** Budgets P5-2: how many of the selected bills are over budget, each judged on its own. Null when it cannot be read. */
+async function budgetPreview(ids: string[]): Promise<{ policy: BudgetPolicy; overBills: number } | null> {
+  try {
+    const res = await apiFetch('/api/accounting/budgets/remaining', { method: 'POST', body: JSON.stringify({ supplierInvoiceIds: ids }) });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return (json.data || json) as { policy: BudgetPolicy; overBills: number };
+  } catch (err) {
+    // Not a refusal: the server checks every bill again when the action runs.
+    log.warn('Bulk budget preview failed', { error: err }, 'supplier-invoices');
+    return null;
+  }
+}
+
 export function BulkActionBar({
   selected, busy, onBusyChange, onError, onComplete, onClear,
 }: Props) {
+  const [budgetAsk, setBudgetAsk] = useState<{ action: BulkAction; overBills: number; policy: BudgetPolicy } | null>(null);
   if (selected.size === 0) return null;
 
   async function run(action: BulkAction) {
+    const ids = Array.from(selected);
+    if (action !== 'cancel' && ids.length <= 200) {
+      const preview = await budgetPreview(ids);
+      if (preview && preview.policy !== 'off' && preview.overBills > 0) {
+        setBudgetAsk({ action, overBills: preview.overBills, policy: preview.policy });
+        return;
+      }
+    }
     if (!window.confirm(`${VERB[action]} ${selected.size} invoice(s)?`)) return;
+    await execute(action);
+  }
+
+  async function execute(action: BulkAction, budgetReason?: string) {
     onBusyChange(action);
     onError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-invoices-bulk-action', {
         method: 'POST',
-        body: JSON.stringify({ action, invoiceIds: Array.from(selected) }),
+        body: JSON.stringify({ action, invoiceIds: Array.from(selected), ...(budgetReason ? { budgetReason } : {}) }),
       });
       await assertOk(res, COULD_NOT[action]);
       const json = await res.json();
@@ -91,6 +120,14 @@ export function BulkActionBar({
   }
 
   return (
+    <>
+    {budgetAsk && (
+      <BulkBudgetModal
+        open total={selected.size} overBills={budgetAsk.overBills} policy={budgetAsk.policy} verb={VERB[budgetAsk.action]}
+        onCancel={() => setBudgetAsk(null)}
+        onConfirm={(reason) => { const { action } = budgetAsk; setBudgetAsk(null); void execute(action, reason); }}
+      />
+    )}
     <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-4 py-2.5">
       <span className="text-sm text-amber-700 dark:text-amber-300 font-medium">
         {selected.size} selected
@@ -114,6 +151,7 @@ export function BulkActionBar({
         </button>
       </div>
     </div>
+    </>
   );
 }
 
