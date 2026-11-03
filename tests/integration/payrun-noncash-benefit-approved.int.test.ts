@@ -14,6 +14,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { inputsFixture } from './payrun-period-inputs.helpers';
 import { approvedMonths, benefitFromJanuary } from './payrun-noncash-benefit.helpers';
+import { getPayrollRunLines } from '@/modules/accounting/services/payroll/payrollRunLines';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -41,5 +42,7 @@ describe('a non-cash 3801 benefit through approved pay runs', () => {
     // 1% of R42 000: levied, since R504 000 > R500 000. On cash gross history it was nil.
     expect(nov.sdl).toBe(420);
     expect(await header(state.nov)).toMatchObject({ gross: 41_000 });
+    // What the run page shows under Gross (PayrollRunLinesTable), read from the line's breakdown.
+    expect((await getPayrollRunLines(state.nov, state.coA))[0]).toMatchObject({ grossPay: 41_000, nonCashBenefits: 1_000 });
   });
 });
