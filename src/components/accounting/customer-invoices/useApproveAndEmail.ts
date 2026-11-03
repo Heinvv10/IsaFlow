@@ -124,6 +124,8 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, shown
 
   const send = useCallback(async () => {
     if (!email || !email.emailTo.trim() || sending || sent) return;
+    const mine = run.current; // a dismissal (another invoice opened in place) moves it on: this answer is not that form's
+    const current = () => mine === run.current;
     setSending(true);
     setResult('');
     try {
@@ -133,12 +135,13 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, shown
       });
       await assertOk(res, SEND_FAILED);
       const json = await res.json() as { data?: { sent?: boolean }; message?: string };
+      if (!current()) return;
       markSent(Boolean(json.data?.sent));
       setResult(json.data?.sent ? 'Invoice emailed successfully!' : (json.message || 'Email could not be sent.'));
     } catch (err) {
-      setResult(apiErrorMessage(err, SEND_FAILED));
+      if (current()) setResult(apiErrorMessage(err, SEND_FAILED));
     } finally {
-      setSending(false);
+      if (current()) setSending(false);
     }
   }, [email, sending, sent]);
 
@@ -157,7 +160,7 @@ export function useApproveAndEmail({ save, onRefused, onApproved, bodyNow, shown
   /** Drops the email form without navigating (the page was opened again in place). */
   const dismiss = useCallback(() => {
     run.current++;
-    setBusy(false); setEmail(null); setResult(''); sentNow.current = false; setSent(false);
+    setBusy(false); setEmail(null); setResult(''); setSending(false); sentNow.current = false; setSent(false);
   }, []);
 
   return {

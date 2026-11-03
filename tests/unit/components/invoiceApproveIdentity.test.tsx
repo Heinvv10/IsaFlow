@@ -6,7 +6,7 @@
  * - The invoice page and the edit page ignore a load for an invoice that is no longer the one open, and the invoice
  *   page approves and cancels the invoice it shows.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -121,6 +121,34 @@ describe('a STALE_VIEW sentence', () => {
     await settle();
     expect(calls('customer-invoices-detail?id=inv-2', 'GET').length).toBeGreaterThan(0); // B is what loaded
     expect(screen.queryByText('Changed elsewhere')).toBeNull();
+  });
+});
+
+describe('a send for A still out when B opens in place', () => {
+  it('B\'s email form is not "Sending…", and A\'s late success does not mark B emailed', async () => {
+    let sendA: (r: Response) => void = () => undefined;
+    serveInvoice((u) => {
+      if (u.includes('invoice-email')) return new Promise<Response>((r) => { sendA = r; });
+      if (u.includes('customer-invoices-detail?id=inv-2')) return ok({ ...DRAFT, id: 'inv-2', invoice_number: 'INV-B' });
+      return undefined;
+    });
+    const { rerender } = render(<EditPage />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /approve & email/i }));
+    await settle();
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Email Invoice' })).getByRole('button', { name: /send email/i }));
+    await settle();
+    h.query = { invoiceId: 'inv-2' };
+    rerender(<EditPage />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /approve & email/i }));
+    await settle();
+    const sendB = () => within(screen.getByRole('dialog', { name: 'Email Invoice' })).getByRole('button', { name: /send email/i });
+    expect(sendB()).not.toBeDisabled();
+    sendA(ok({ sent: true }));
+    await settle();
+    expect(sendB()).not.toBeDisabled();
+    expect(screen.queryByText(/emailed successfully/i)).toBeNull();
   });
 });
 
