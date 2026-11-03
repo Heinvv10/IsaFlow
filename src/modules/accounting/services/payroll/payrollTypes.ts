@@ -201,7 +201,7 @@ export interface PayeSplit {
 export interface PayrollLineResult {
   employeeId: string;
   grossPay: number;
-  /** All earning remuneration, including non-cash benefits, for the employer SDL threshold. */
+  /** Every earning, non-cash benefits included (grossPay is cash only): the ETI base and the employer SDL threshold basis. */
   remuneration: number;
   /** Regular plus annual-payment remuneration: what the tax tables were applied to. Lump sums are not in it. */
   taxableIncome: number;

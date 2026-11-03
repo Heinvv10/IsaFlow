@@ -15,6 +15,28 @@ import type {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+/*
+ * Non-cash fringe benefits (design, Hein 2026-11-03: settle it once, end to end).
+ * Today the one non-cash earning is the low-interest loan benefit, SARS 3801, which
+ * appendLoanComponents injects with `isNonCash` (a cash equivalent, Seventh Schedule
+ * para 11; nothing is paid). Any earning carrying `isNonCash` is treated so:
+ *  - PAYE: remuneration (Fourth Schedule para 1 (a) takes in para (i) of "gross income"),
+ *    so it is periodic taxable pay like cash. loadLoanComponents takes only a taxable 3801.
+ *  - UIF: the component's is_uif_applicable flag, as for every earning; setup-components
+ *    creates the 3801 with it off. Whether UIF's "remuneration" takes in a benefit is not
+ *    settled here (no SARS/UIF source fetched): the flag is the one switch.
+ *  - SDL: leviable when is_sdl_applicable (setup default on; SDL Act s3(4) is para 1
+ *    remuneration), and part of the employer's s4(b) threshold basis, `remuneration`.
+ *  - ETI: in "monthly remuneration" (the para 1 remuneration), as when it was paid as cash.
+ *  - Cash: NOT in grossPay, so not in netPay or the journal (DR labour = gross = cash),
+ *    though the PAYE on it is withheld from the cash.
+ * Stored per line: gross_pay (and the header's total_gross) = cash earnings only;
+ * taxable_income / periodic_taxable include the benefit; sdl is on it; the benefit itself
+ * is the breakdown item flagged `isNonCash: true`. A line costed before the flag existed
+ * has the benefit inside gross_pay and no flag. Readers that need remuneration rather than
+ * cash add the flagged items (findOverdrawnLines leaves them out of deductions;
+ * estimateAnnualRemuneration adds them to each earlier month's total_gross).
+ */
 export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult {
   const { employee, components, period, taxYear, annualPayrollEstimate } = input;
 
@@ -145,8 +167,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   // Missing dates are reported as indeterminate, never fabricated into a
   // determination of "not eligible" — see resolveEtiForEmployee.
-  // The ETI base stays the whole gross, annual payments and lump sums included,
-  // unchanged by P3: "monthly remuneration" is the Fourth Schedule paragraph 1
+  // The ETI base stays the whole remuneration, annual payments, lump sums and
+  // non-cash benefits included, unchanged by P3: "monthly remuneration" is the Fourth Schedule paragraph 1
   // remuneration ("salary, leave pay, wage, overtime pay, bonus, gratuity, ...")
   // paid or payable in the month (SARS Guide to the Employment Tax Incentive,
   // Issue 5, §2.4 "Monthly remuneration",
@@ -155,7 +177,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     dateOfBirth: employee.dateOfBirth,
     employmentStartDate: employee.startDate,
     periodDate,
-    monthlyRemuneration: grossPay,
+    monthlyRemuneration: remuneration,
     isUifExcluded: employee.uifExcluded,
   }, taxYear);
   // A leaver paid after leaving worked no hours in the period, and ETI is
