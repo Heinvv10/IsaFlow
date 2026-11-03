@@ -141,6 +141,7 @@ export async function calculatePayrollRun(
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
+  let totalRemuneration = 0;
   let totalPaye = 0;
   let totalUifEmployee = 0;
   let totalUifEmployer = 0;
@@ -244,6 +245,7 @@ export async function calculatePayrollRun(
     });
 
     totalGross += line.grossPay;
+    totalRemuneration += line.remuneration;
     totalPaye += line.paye.monthlyPaye;
     totalUifEmployee += line.uif.employeeContribution;
     totalUifEmployer += line.uif.employerContribution;
@@ -260,7 +262,7 @@ export async function calculatePayrollRun(
   // threshold by employee count alone, exempting any single employee however
   // much they earned and levying any two however little.
   const annualRemuneration = await estimateAnnualRemuneration(
-    companyId, period, r(totalGross), runId,
+    companyId, period, r(totalRemuneration), runId,
   );
   const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 

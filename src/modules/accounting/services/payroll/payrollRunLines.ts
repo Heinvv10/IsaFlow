@@ -71,9 +71,10 @@ export interface OverdrawnLine {
  * The run's overdrawn lines. A line calculated since the codes existed carries DEDUCTIONS_EXCEED_PAY or
  * LOAN_INSTALMENT_EXCEEDS_PAY with its raw net, and that decides. A line with neither predates them (or is
  * not overdrawn): its raw net is rebuilt from what the line stored, never from the catalogue as it reads
- * today. Deductions are the breakdown's total less gross pay, which is every earning: the breakdown
- * carries no component type, and a type re-assigned since must not change what the line took (no
- * employer_contribution component can exist: the column holds 20 characters). The instalment is the
+ * today. Deductions are the breakdown's cash total less gross pay: newer non-cash earnings carry
+ * `isNonCash`, while older breakdowns treated every earning as cash. The breakdown carries no component
+ * type, and a type re-assigned since must not change what the line took (no employer_contribution
+ * component can exist: the column holds 20 characters). The instalment is the
  * breakdown's items coded LOAN after the calculator's own trim (normaliseSarsCode), exact case. Both
  * rebuilt figures are rounded to the cent first, as the calculator rounds net, so a float tail in a
  * stored amount is no R0.01 shortfall. Only a line at nil is rebuilt: one that paid anything was not
@@ -95,14 +96,15 @@ export async function findOverdrawnLines(companyId: string, runId: string): Prom
         -- CASE, not AND: jsonb_array_length raises on a non-array, and SQL does not promise to short-circuit.
         CASE WHEN jsonb_typeof(prl.component_breakdown) IS DISTINCT FROM 'array' THEN TRUE
              ELSE jsonb_array_length(prl.component_breakdown) = 0 AND prl.gross_pay <> 0 END AS unreadable,
-        ROUND(prl.gross_pay - prl.paye - prl.uif_employee - (stored.total - prl.gross_pay), 2) AS derived_raw_net,
-        ROUND(prl.gross_pay - prl.paye - prl.uif_employee - (stored.total - prl.gross_pay) + stored.loan, 2) AS derived_without_loan
+        ROUND(prl.gross_pay - prl.paye - prl.uif_employee - (stored.cash_total - prl.gross_pay), 2) AS derived_raw_net,
+        ROUND(prl.gross_pay - prl.paye - prl.uif_employee - (stored.cash_total - prl.gross_pay) + stored.loan, 2) AS derived_without_loan
       FROM payroll_run_lines prl
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
       LEFT JOIN LATERAL (
         SELECT
-          COALESCE(SUM((item->>'amount')::numeric), 0) AS total,
+          COALESCE(SUM((item->>'amount')::numeric)
+            FILTER (WHERE item->>'isNonCash' IS DISTINCT FROM 'true'), 0) AS cash_total,
           COALESCE(SUM((item->>'amount')::numeric) FILTER (WHERE BTRIM(item->>'sarsSourceCode', E' \t\r\n') = 'LOAN'), 0) AS loan
         FROM jsonb_array_elements(CASE WHEN jsonb_typeof(prl.component_breakdown) = 'array' THEN prl.component_breakdown ELSE '[]'::jsonb END) item
       ) stored ON true

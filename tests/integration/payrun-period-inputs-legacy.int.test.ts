@@ -94,6 +94,20 @@ describe('a run from before the codes', () => {
     expect(await judged()).toEqual({ blocker: null, loan: undefined });
   });
 
+  it('does not reconstruct a non-cash benefit as a deduction', async () => {
+    await atNil();
+    await pool.query(
+      `UPDATE payroll_run_lines
+          SET component_breakdown = component_breakdown || $2::jsonb
+        WHERE run_id = $1`,
+      [state.nov, JSON.stringify([{
+        componentId: 'loan-fringe', componentName: 'Loan fringe', sarsSourceCode: '3801',
+        amount: 100, isTaxable: true, isUifApplicable: false, isNonCash: true,
+      }])],
+    );
+    expect(await judged()).toEqual({ blocker: null, loan: undefined });
+  });
+
   it('a line with a code is judged by its raw net, not the stored figures', async () => {
     await addRow(comp.union!, 30000, '2026-01-01', null, true);
     await recalculate(state.nov);

@@ -38,13 +38,23 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({
   journalInForceOrNull: vi.fn(async () => null),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollComponentService', () => ({
-  getEmployeeComponents: vi.fn(async () => [{
-    component: {
-      id: 'c1', name: 'Salary', sarsSourceCode: '3601', componentType: 'earning',
-      isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
+  getEmployeeComponents: vi.fn(async () => [
+    {
+      component: {
+        id: 'c1', name: 'Salary', sarsSourceCode: '3601', componentType: 'earning',
+        isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
+      },
+      amount: 3_000,
     },
-    amount: 3_000,
-  }]),
+    {
+      component: {
+        id: 'c2', name: 'Loan fringe', sarsSourceCode: '3801', componentType: 'earning',
+        isTaxable: true, isUifApplicable: false, isSdlApplicable: true,
+      },
+      amount: 100,
+      isNonCash: true,
+    },
+  ]),
 }));
 vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
@@ -67,6 +77,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { estimateAnnualRemuneration } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
 
 const codesWritten = (): string[] =>
   (JSON.parse(String(inserts[0]!.at(-1))) as Array<{ code: string }>).map((w) => w.code);
@@ -95,6 +106,14 @@ describe('calculatePayrollRun - unconfirmed ETI table warning', () => {
     await calculate(6, 2026);
     expect(listPayrollRunEmployees).toHaveBeenLastCalledWith(
       '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 },
+    );
+  });
+
+  it('includes non-cash remuneration in the employer SDL threshold basis', async () => {
+    await calculate(6, 2026);
+    expect(estimateAnnualRemuneration).toHaveBeenLastCalledWith(
+      '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 }, 3_100,
+      '22222222-2222-4222-8222-222222222222',
     );
   });
 });

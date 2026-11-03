@@ -165,6 +165,8 @@ export interface ComponentBreakdownItem {
   amount: number;
   isTaxable: boolean;
   isUifApplicable: boolean;
+  /** True when the earning is taxable remuneration but is not paid in cash. */
+  isNonCash?: true;
   directive?: DirectiveFigures;
 }
 
@@ -199,6 +201,8 @@ export interface PayeSplit {
 export interface PayrollLineResult {
   employeeId: string;
   grossPay: number;
+  /** All earning remuneration, including non-cash benefits, for the employer SDL threshold. */
+  remuneration: number;
   /** Regular plus annual-payment remuneration: what the tax tables were applied to. Lump sums are not in it. */
   taxableIncome: number;
   /** taxableIncome split: periodic and annual payments (stored on the line for the next period's year-to-date). */

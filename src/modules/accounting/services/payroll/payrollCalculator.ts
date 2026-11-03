@@ -26,6 +26,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
   let grossPay = 0;
+  let remuneration = 0;
   // Taxable earnings by how PAYE treats them (payeTreatment): periodic pay is
   // taxed cumulatively to date (payeCumulative), annual payments (3605) by the
   // SARS annual-payment method on top of it, lump sums (39xx) carry only their
@@ -56,10 +57,12 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       // As the line was costed: a LOAN deduction is never taxable (below), whatever the catalogue says.
       isTaxable: component.isTaxable && !(component.componentType === 'deduction' && normaliseSarsCode(component.sarsSourceCode) === 'LOAN'),
       isUifApplicable: component.isUifApplicable,
+      ...(isNonCash ? { isNonCash: true } : {}),
       ...(directive ? { directive } : {}),
     });
 
     if (component.componentType === 'earning') {
+      remuneration += amount;
       if (!isNonCash) grossPay += amount;
       if (component.isUifApplicable) uifLeviable += amount;
       if (component.isSdlApplicable) sdlLeviable += amount;
@@ -193,6 +196,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   return {
     employeeId: employee.id,
     grossPay: Math.round(grossPay * 100) / 100,
+    remuneration: round2(remuneration),
     taxableIncome: Math.round(taxableIncome * 100) / 100,
     periodicTaxable: round2(regularTaxable),
     annualTaxable: round2(annualTaxable),

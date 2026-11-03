@@ -128,6 +128,8 @@ describe('payrollCalculator — property tests', () => {
     const result = calculatePayrollLine(input);
 
     expect(result.grossPay).toBe(base.grossPay);
+    expect(result.remuneration).toBe(base.remuneration + 1_000);
+    expect(result.sdlLeviable).toBe(base.sdlLeviable + 1_000);
     expect(result.taxableIncome).toBe(base.taxableIncome + 1_000);
     expect(result.paye.monthlyPaye).toBeGreaterThan(base.paye.monthlyPaye);
     expect(result.netPay).toBeCloseTo(base.netPay - (result.paye.monthlyPaye - base.paye.monthlyPaye), 2);
