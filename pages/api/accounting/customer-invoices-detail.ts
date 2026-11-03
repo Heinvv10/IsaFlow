@@ -35,6 +35,7 @@ import {
 import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/customerInvoiceReadService';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
+import { WIP_LINK_REFUSED } from '@/modules/accounting/services/ar/customerInvoiceWipLinks';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
@@ -103,6 +104,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
     if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
     if (result.kind === 'bad_line') return apiResponse.badRequest(res, result.message, { code: 'INVOICE_LINE_CODING_REFUSED' });
+    if (result.kind === 'wip_link_refused') return apiResponse.badRequest(res, result.message, { code: WIP_LINK_REFUSED });
     if (result.kind === 'currency_refused') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_amount') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);

@@ -6,18 +6,40 @@
  * billed state (`time_entries.status = 'billed'`, `invoice_id`, `billed_at`) is set then and is not touched by an
  * edit; the line link is not in the approval digest (migration 865). Only a link this invoice's lines already carry
  * may be sent back, each on one line: an edit can keep or drop a link, never make one (no billing a time entry, of
- * this company or another, by hand).
+ * this company or another, by hand). A PUT whose lines leave links out drops them: allowed (a WIP line removed), but
+ * logged, so a client that does not carry them is seen.
  */
 import type { TxSql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 
-/** Why the lines' links are refused, or null. Read under the caller's row lock, before any write. */
-export async function wipLinkRefusal(tx: TxSql, invoiceId: string, items: readonly { timeEntryId?: string | null }[]): Promise<string | null> {
+/** The refusal's code at the route: not a coding refusal (INVOICE_LINE_CODING_REFUSED). */
+export const WIP_LINK_REFUSED = 'INVOICE_WIP_LINK_REFUSED';
+
+export interface WipLinkCheck {
+  /** Why the lines' links are refused, or null. */
+  refusal: string | null;
+  /** Links this invoice's lines carry that the new lines do not: dropped by the PUT. */
+  dropped: number;
+}
+
+/** Read under the caller's row lock, before any write; the links are read through the invoice's own company. */
+export async function wipLinks(
+  tx: TxSql, companyId: string, invoiceId: string, items: readonly { timeEntryId?: string | null }[],
+): Promise<WipLinkCheck> {
   const asked = items.map((it) => it.timeEntryId?.toLowerCase() ?? null).filter((t): t is string => t !== null);
-  if (asked.length === 0) return null;
-  if (new Set(asked).size !== asked.length) return 'A time entry can be billed on one line only';
+  if (new Set(asked).size !== asked.length) return { refusal: 'A time entry can be billed on one line only', dropped: 0 };
   const rows = (await tx`
-    SELECT time_entry_id FROM customer_invoice_items WHERE invoice_id = ${invoiceId}::UUID AND time_entry_id IS NOT NULL
+    SELECT cii.time_entry_id
+      FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
+     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId} AND cii.time_entry_id IS NOT NULL
   `) as { time_entry_id: string }[];
   const linked = new Set(rows.map((r) => String(r.time_entry_id).toLowerCase()));
-  return asked.every((t) => linked.has(t)) ? null : 'A line can keep the time entry it bills, not take another';
+  if (!asked.every((t) => linked.has(t))) return { refusal: 'A line can keep the time entry it bills, not take another', dropped: 0 };
+  return { refusal: null, dropped: linked.size - asked.length };
+}
+
+/** After the lines are replaced: a PUT that dropped links says so (invoice id and how many), never silently. */
+export function noteDroppedWipLinks(invoiceId: string, check: WipLinkCheck | null): void {
+  if (!check || check.dropped <= 0) return;
+  log.warn('Draft edit dropped WIP time-entry links', { invoiceId, dropped: check.dropped }, 'customerInvoiceWipLinks');
 }
