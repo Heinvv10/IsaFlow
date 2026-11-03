@@ -31,6 +31,9 @@ beforeAll(async () => {
     await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)", [id, `${id}@test.local`]);
     await pool.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [f.a, id, role]);
   }
+  // A's owner is also a member of B, so RLS (company_id IN the user's companies) lets B's rows through:
+  // only the services' own company_id predicates keep B's ids out of A's request.
+  await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')", [f.b, f.userA]);
 }, 120_000);
 afterAll(async () => {
   try {
