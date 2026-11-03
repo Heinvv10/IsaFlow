@@ -72,11 +72,19 @@ vi.mock('@/modules/accounting/services/budgets/budgetCheck', () => ({
   recordBudgetRefusal: vi.fn(async () => undefined),
 }));
 const BUDGET = { channel: 'bulk', lock: 'held', gate: GATE, reason: null };
+// The Login-as guard runs its own query; covered by its own suites. P5-2 R4: the route asks it before the gate.
+const { impersonationMock } = vi.hoisted(() => ({ impersonationMock: vi.fn(async () => undefined) }));
+vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
+  assertNotImpersonating: impersonationMock,
+}));
 
 import handler from '../../../pages/api/accounting/supplier-invoices-bulk-action';
 import { als } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { openBudgetGate } from '@/modules/accounting/services/budgets/budgetCheck';
+import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
 const USER_ID = 'bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb';
@@ -108,6 +116,15 @@ describe('supplier-invoices-bulk-action', () => {
     sqlMock.mockResolvedValue([
       { id: ID_A, invoice_number: 'INV-A' }, { id: ID_B, invoice_number: 'INV-B' }, { id: ID_C, invoice_number: 'INV-C' },
     ]);
+  });
+
+  it('a Login-as session is refused before the budget gate: no budget lock is taken or waited on (P5-2 R4)', async () => {
+    impersonationMock.mockRejectedValueOnce(new ImpersonationForbiddenError());
+    await expect((handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+      req('POST', { action: 'approve', invoiceIds: [ID_A] }), res(),
+    )).rejects.toBeInstanceOf(ImpersonationForbiddenError);
+    expect(openBudgetGate).not.toHaveBeenCalled();
+    expect(approveMock).not.toHaveBeenCalled();
   });
 
   it('returns 405 for non-POST requests', async () => {

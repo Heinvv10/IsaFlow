@@ -30,7 +30,8 @@ afterAll(async () => {
   try { await dropBillFixture(pool, f); } finally { await pool.end(); }
 }, 60_000);
 
-const ctx = (): McpToolContext => ({ companyId: f.co, userId: f.owner, companyRole: 'owner', scopes: ['write:invoices', 'write:post'], tokenJti: 'jti-p52', oauthAppId: null });
+// read:reports: these tests read the figures in the messages (without it they are worded without amounts: -mcp suite).
+const ctx = (): McpToolContext => ({ companyId: f.co, userId: f.owner, companyRole: 'owner', scopes: ['write:invoices', 'write:post', 'read:reports'], tokenJti: 'jti-p52', oauthAppId: null });
 const bill = (month: string, amount: number, acct: 'opex' | 'travel' = 'opex') =>
   makeBill(pool, f, [{ acct: f.acc[acct], amount, cc1: acct === 'opex' ? f.cc.FT : null }], { date: `${month}-15` });
 /** Runs `fn` as one committed request of the owner. */

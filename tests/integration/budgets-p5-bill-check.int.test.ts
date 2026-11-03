@@ -51,7 +51,8 @@ describe('warn policy, UI channel', () => {
     for (const extra of [{}, { budgetReason: '   ' }]) {
       const r = await approve(f.owner, bill, extra);
       expect(r.statusCode).toBe(400);
-      expect(r.body.error?.details).toMatchObject({ code: 'BUDGET_REASON_REQUIRED' });
+      expect(r.body.error?.message).toMatch(/^Give a reason to approve over budget — BB-6100 Opex · FT Fibertime · 2026-05/);
+      expect(r.body.error?.details).toMatchObject({ code: 'BUDGET_REASON_REQUIRED', lines: [expect.objectContaining({ over: true, amount: 1500 })] });
     }
     expect(await billState(pool, bill)).toEqual(before);
     expect(await eventsFor(pool, bill)).toHaveLength(0);
@@ -82,6 +83,15 @@ describe('block policy, UI channel', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ outcome: 'refused', policy: 'block', channel: 'ui', decided_by: f.manager, reason: 'please' });
     expect((await auditFor(pool, bill))[0]).toMatchObject({ action: 'reject', user_id: f.manager });
+  });
+
+  it('a refusal retried at once by the same person records ONE refused event (review S2); another person\'s is recorded', async () => {
+    await setPolicy(pool, f, 'block');
+    const bill = await overBill('2027-01');
+    for (let i = 0; i < 3; i += 1) expect((await approve(f.manager, bill)).statusCode).toBe(409);
+    expect((await approve(f.owner, bill)).statusCode).toBe(409);
+    expect((await eventsFor(pool, bill)).map((e) => [e.outcome, e.decided_by])).toEqual([['refused', f.manager], ['refused', f.owner]]);
+    expect(await auditFor(pool, bill)).toHaveLength(2);
   });
 
   it('owner override with a reason: approved, event override', async () => {

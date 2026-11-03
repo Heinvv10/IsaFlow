@@ -27,7 +27,7 @@ import { claimEvidencedProvisional, settleClaimedProvisional } from './provision
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
-import { budgetWarningsOf, checkBillBudget, lockBillAfterBudgetGate, placeCheckedBillLines, type BillBudgetOpts, type BudgetWarned } from './supplierInvoiceBudgetCheck';
+import { budgetWarningsOf, checkBillBudget, lockBillAfterBudgetGate, logApproveFailure, placeCheckedBillLines, type BillBudgetOpts, type BudgetWarned } from './supplierInvoiceBudgetCheck';
 
 type Row = DbRow;
 
@@ -121,7 +121,7 @@ async function approveInner(
     const { lines, warnings } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id), { storedPosting: true });
     // What the pick added follows the stored items' rule: approving refuses an inactive CC1 / CC2 (an inactive FNO too); Post to GL copies.
     await assertPostsStoredDimensions(companyId, invoice.status, lines, (i) => `Supplier invoice ${invoice.invoiceNumber} line ${i + 1}`);
-    const budget = await checkBillBudget(companyId, invoice, lines, budgetGate, opts?.budget, userId); // P5-2: before the first write
+    const budget = await checkBillBudget(companyId, invoice, lines, budgetGate, opts?.budget, userId, provisional); // P5-2: before the first write
     if (invoice.taxAmount > 0) {
       lines.push({
         glAccountId: vatAccount.id,
@@ -163,7 +163,7 @@ async function approveInner(
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
     return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}), ...(warnings.length > 0 ? { warnings } : {}), ...budgetWarningsOf(budget) };
   } catch (err) {
-    log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
+    logApproveFailure(id, err); // a budget refusal at info without its figures (P5-2 S3); every other failure an error
     throw err;
   }
 }
@@ -239,7 +239,7 @@ async function postToGLInner(
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
   await assertBillPostable(companyId, invoice);
-  const { lines, warnings, budget } = await placeCheckedBillLines(companyId, invoice, defaultExpenseAccount.id, budgetGate, opts?.budget, userId); // P5-2
+  const { lines, warnings, budget } = await placeCheckedBillLines(companyId, invoice, defaultExpenseAccount.id, budgetGate, opts?.budget, userId, provisional); // P5-2
 
   if (invoice.taxAmount > 0) {
     lines.push({

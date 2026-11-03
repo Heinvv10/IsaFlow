@@ -51,7 +51,8 @@ export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel
         </p>
         <BudgetLinesTable lines={lines} />
         {over > 0 && (
-          <div className="flex items-start gap-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-500" role="status">
+          <div id="budget-over-note" className="flex items-start gap-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-500"
+            role={blocked ? 'alert' : 'status'}>
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
             <span>
               {over === 1 ? 'One line is' : `${over} lines are`} over budget.{' '}
@@ -76,6 +77,8 @@ export function BudgetApproveDialog({ open, policy, lines, error, busy, onCancel
               onChange={(e) => setReason(e.target.value.slice(0, REASON_MAX))}
               rows={3}
               required
+              aria-required="true"
+              aria-describedby="budget-over-note"
               disabled={busy}
               className="w-full rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] px-3 py-2 text-sm"
               placeholder="Why this bill should be approved over budget"

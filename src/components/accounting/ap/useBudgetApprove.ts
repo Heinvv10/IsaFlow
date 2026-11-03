@@ -55,7 +55,11 @@ export function useBudgetApprove(
         const body = budgetErrorBody(await res.clone().text());
         const code = body.error?.details?.code;
         if (code === 'BUDGET_REASON_REQUIRED' || code === 'BUDGET_EXCEEDED') {
-          if (!inDialog && body.error?.details?.lines) { setLines(body.error.details.lines); setPolicy(code === 'BUDGET_EXCEEDED' ? 'block' : 'warn'); }
+          // The server's policy wins over the preview's (it may have flipped warn → block since): a 409 is block, so the
+          // dialog offers an owner/admin Override. A 400 opened from outside the dialog is warn (a missing reason).
+          if (code === 'BUDGET_EXCEEDED') setPolicy('block');
+          else if (!inDialog) setPolicy('warn');
+          if (!inDialog && body.error?.details?.lines) setLines(body.error.details.lines);
           setError(body.error?.message ?? FALLBACK);
           setOpen(true);
           return;

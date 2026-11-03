@@ -25,7 +25,10 @@ import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 import {
   checkDocumentBudget, evaluateDocumentLines, gateFor, readCheckPolicy,
 } from '../budgets/budgetCheck';
-import { sliceKey, type DocumentLine } from '../budgets/budgetCheckCore';
+import type { DocumentLine } from '../budgets/budgetCheckCore';
+import { log } from '@/lib/logger';
+import type { ProvisionalClaim } from './provisionalSettlementClaim';
+import { peekProvisionalReclassLines, provisionalReclassLines } from './supplierInvoiceBudgetProvisional';
 import type {
   BudgetCheckContext, BudgetCheckLine, BudgetCheckResult, BudgetGate, BudgetPolicy,
 } from '../budgets/budgetCheckTypes';
@@ -66,23 +69,27 @@ function documentLines(expense: readonly JournalLineInput[]): DocumentLine[] {
   }));
 }
 
-/** The check, on the expense lines the caller is about to post (before the VAT and AP legs). */
+/**
+ * The check, on the expense lines the caller is about to post (before the VAT and AP legs) and, when the bill
+ * settles a bank-first provisional it claimed, that provisional's reclass (negative, its own month; review B1).
+ */
 export function checkBillBudget(
   companyId: string, invoice: SupplierInvoice, expense: readonly JournalLineInput[],
-  gate: BudgetGate, ctx: BudgetCheckContext | undefined, actorId: string,
+  gate: BudgetGate, ctx: BudgetCheckContext | undefined, actorId: string, provisional?: ProvisionalClaim | null,
 ): Promise<BudgetCheckResult> {
   return checkDocumentBudget(companyId, {
     type: 'supplier_invoice', id: invoice.id, ref: invoice.invoiceNumber, month: billMonth(invoice),
-    lines: documentLines(expense), excludeInvoiceId: invoice.id,
+    lines: [...documentLines(expense), ...provisionalReclassLines(provisional)], excludeInvoiceId: invoice.id,
   }, ctx ?? DEFAULT_BILL_BUDGET_CONTEXT, gate, actorId);
 }
 
 /** Post to GL's expense lines (the legacy pick placed, as approve) and the check on them, before its first write. */
 export async function placeCheckedBillLines(
   companyId: string, invoice: SupplierInvoice, defaultExpenseId: string, gate: BudgetGate, ctx: BudgetCheckContext | undefined, actorId: string,
+  provisional: ProvisionalClaim | null,
 ) {
   const placed = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseId), { storedPosting: true });
-  return { ...placed, budget: await checkBillBudget(companyId, invoice, placed.lines, gate, ctx, actorId) };
+  return { ...placed, budget: await checkBillBudget(companyId, invoice, placed.lines, gate, ctx, actorId, provisional) };
 }
 
 export interface BillBudgetPreview {
@@ -91,37 +98,41 @@ export interface BillBudgetPreview {
   checks: boolean;
   lines: BudgetCheckLine[];
   overCount: number;
-  /**
-   * Per budget slice (`sliceKey`), the open PO commitment this bill releases once approved (its PO-linked
-   * lines count as billed): set only with `withRelease` and a bill that links a PO line.
-   */
-  released?: Map<string, number>;
 }
 
 /**
- * What the approve dialog shows: the same lines and remaining approve would check, read without
- * any lock (a preview; the approval decides again under its locks). Null when the bill is not this
- * company's.
+ * What the approve dialog shows: the same lines and remaining approve would check (the bill's lines and the
+ * reclass of a bank-first provisional behind its slip), read without any lock (a preview; the approval decides
+ * again under its locks). Null when the bill is not this company's. `policy`: read once by a caller previewing
+ * many bills. `alsoBilledInvoiceIds`: earlier bills of a batch, counted as billed against their PO lines.
  */
 export async function previewBillBudget(
-  companyId: string, invoiceId: string, opts: { withRelease?: boolean } = {},
+  companyId: string, invoiceId: string, opts: { policy?: BudgetPolicy; alsoBilledInvoiceIds?: readonly string[] } = {},
 ): Promise<BillBudgetPreview | null> {
   const invoice = await getSupplierInvoiceById(companyId, invoiceId);
   if (!invoice) return null;
-  const policy = await readCheckPolicy(companyId);
+  const policy = opts.policy ?? await readCheckPolicy(companyId);
   if (policy === 'off' || invoice.glJournalEntryId || invoice.status === 'cancelled') {
     return { policy, checks: false, lines: [], overCount: 0 };
   }
   const defaultExpense = await getSystemAccount('default_expense', companyId);
   const { lines } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpense.id), { storedPosting: true });
-  const docLines = documentLines(lines);
-  const checked = await evaluateDocumentLines(companyId, docLines, billMonth(invoice), { excludeInvoiceId: invoice.id, labelAlways: true });
-  const preview: BillBudgetPreview = { policy, checks: true, lines: checked, overCount: checked.filter((l) => l.over).length };
-  if (opts.withRelease && (invoice.items ?? []).some((i) => i.poItemId)) {
-    // Read as if the bill were still unbilled: the difference in committed is what approving it releases.
-    const unbilled = await evaluateDocumentLines(companyId, docLines, billMonth(invoice));
-    const own = new Map(checked.map((l) => [sliceKey(l), l.committed]));
-    preview.released = new Map(unbilled.map((l) => [sliceKey(l), Math.max(0, l.committed - (own.get(sliceKey(l)) ?? l.committed))]));
-  }
-  return preview;
+  const month = billMonth(invoice);
+  const docLines = [...documentLines(lines), ...await peekProvisionalReclassLines(companyId, invoice.id, month)];
+  const checked = await evaluateDocumentLines(companyId, docLines, month, {
+    excludeInvoiceId: invoice.id, alsoBilledInvoiceIds: opts.alsoBilledInvoiceIds, labelAlways: true,
+  });
+  return { policy, checks: true, lines: checked, overCount: checked.filter((l) => l.over).length };
+}
+
+const BUDGET_REFUSALS = new Set(['BUDGET_EXCEEDED', 'BUDGET_REASON_REQUIRED', 'BUDGET_CHECK_LOCK_TIMEOUT']);
+
+/**
+ * approve's catch: a budget refusal is an answer, not a fault — logged at info with its code only (its lines carry
+ * the company's budget figures; security review S3). Everything else stays an error. The caller always re-throws.
+ */
+export function logApproveFailure(id: string, err: unknown): void {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && BUDGET_REFUSALS.has(code)) log.info('Supplier invoice approval refused by the budget check', { id, code }, 'accounting');
+  else log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
 }

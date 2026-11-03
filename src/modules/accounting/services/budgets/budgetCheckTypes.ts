@@ -41,6 +41,11 @@ export interface BudgetCheckContext {
   actorRole?: string | null;
   /** Required for `held`: the gate the caller opened before its loop. */
   gate?: BudgetGate;
+  /**
+   * False when the caller may not see budget figures (an MCP token without read:reports): refusals and
+   * warnings name the over lines (account, slice, month) without remaining or amounts. Default true.
+   */
+  figures?: boolean;
 }
 
 /** One budget slice the document hits, with the document's own amount on it. */

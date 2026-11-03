@@ -19,6 +19,7 @@ import {
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
 import { BudgetExceededError } from '@/modules/accounting/services/budgets/budgetCheckTypes';
+import { mayReadBudgetFigures } from './budgetFigures';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
@@ -201,7 +202,7 @@ export const approveSupplierInvoiceTool: McpTool = {
       updated = await approveSupplierInvoice(ctx.companyId, invoiceId, ctx.userId, {
         ...mcpPostingOpts(ctx, 'approve_supplier_invoice'),
         allowLateInputClaim: allowLateInputClaim(args),
-        budget: { channel: 'mcp', lock: 'take' },
+        budget: { channel: 'mcp', lock: 'take', figures: mayReadBudgetFigures(ctx) },
       });
     } catch (err) {
       if (!(err instanceof BudgetExceededError)) throw err;

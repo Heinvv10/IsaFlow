@@ -25,6 +25,8 @@ export interface DocumentLine {
   cc2Id: string | null;
   buId: string | null;
   amount: number;
+  /** 'YYYY-MM' when the line posts in another month than the document (a provisional's reclass). */
+  month?: string;
 }
 
 export type UnlabelledLine = Omit<BudgetCheckLine, 'accountLabel' | 'sliceLabel'>;
@@ -79,10 +81,13 @@ export function sliceLines(
   }));
 }
 
-/** "6100 Opex · FT Fibertime · 2026-06: remaining R 100.00, this bill R 150.00" (the one ZAR format, `formatMoney`). */
-export function describeOverLine(l: BudgetCheckLine, documentNoun = 'this bill'): string {
+/**
+ * "6100 Opex · FT Fibertime · 2026-06: remaining R 100.00, this bill R 150.00" (the one ZAR format, `formatMoney`).
+ * `figures: false` (a caller not entitled to budget figures, e.g. an MCP token without read:reports): "…: over budget".
+ */
+export function describeOverLine(l: BudgetCheckLine, documentNoun = 'this bill', figures = true): string {
   const where = [l.accountLabel, l.sliceLabel, l.month].filter((s) => s !== '').join(' · ');
-  return `${where}: remaining ${formatMoney(l.remaining ?? 0)}, ${documentNoun} ${formatMoney(l.amount)}`;
+  return figures ? `${where}: remaining ${formatMoney(l.remaining ?? 0)}, ${documentNoun} ${formatMoney(l.amount)}` : `${where}: over budget`;
 }
 
 /** A budget slice's identity across documents (account, month, grain, slice dims). */
@@ -104,12 +109,16 @@ export function applyPriorConsumption(lines: readonly BudgetCheckLine[], consume
   });
 }
 
-/** Records what an approved document consumes per budgeted slice: its amount less the PO commitment it releases. */
-export function addConsumption(consumed: Map<string, number>, lines: readonly BudgetCheckLine[], released?: ReadonlyMap<string, number>): void {
+/**
+ * Records what an approved document adds to ACTUAL per budgeted slice (its posted amount, a reclass negative).
+ * The PO commitment it releases is not here: the batch preview reads committed with the earlier bills counted
+ * as billed (`alsoBilledInvoiceIds`), per PO line, on the PO line's own account and slice.
+ */
+export function addConsumption(consumed: Map<string, number>, lines: readonly BudgetCheckLine[]): void {
   for (const l of lines) {
     if (l.remaining === null) continue;
     const k = sliceKey(l);
-    consumed.set(k, (consumed.get(k) ?? 0) + toCents(l.amount) - toCents(released?.get(k) ?? 0));
+    consumed.set(k, (consumed.get(k) ?? 0) + toCents(l.amount));
   }
 }
 
@@ -127,6 +136,8 @@ export interface DecisionInput {
   override?: boolean;
   actorRole?: string | null;
   documentNoun?: string;
+  /** False: name the over lines without remaining or amounts (default true). */
+  figures?: boolean;
 }
 
 export type BudgetDecision =
@@ -144,8 +155,9 @@ export function decideBudgetOutcome(input: DecisionInput): BudgetDecision {
   if (over.length === 0) return { kind: 'proceed', event: checked ? 'pass' : null, warnings: [], reason: null };
 
   const noun = input.documentNoun ?? 'this bill';
-  const detail = over.map((l) => describeOverLine(l, noun)).join('; ');
-  const warnings = over.map((l) => `Over budget: ${describeOverLine(l, noun)}`);
+  const figures = input.figures !== false;
+  const detail = over.map((l) => describeOverLine(l, noun, figures)).join('; ');
+  const warnings = over.map((l) => `Over budget: ${describeOverLine(l, noun, figures)}`);
 
   if (policy === 'warn') {
     // A person approving in the UI answers for the overspend with a reason; bulk, MCP and system

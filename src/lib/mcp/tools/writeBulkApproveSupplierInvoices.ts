@@ -27,6 +27,7 @@ import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approval
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
 import { billBudgetDryRun } from '@/modules/accounting/services/ap/supplierInvoiceBudgetDryRun';
+import { mayReadBudgetFigures } from './budgetFigures';
 import { BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import {
   type BulkApproveAdapter,
@@ -127,7 +128,7 @@ const adapter: BulkApproveAdapter<ApprovedRow> = {
 async function postWithGate(ctx: Parameters<BulkApproveAdapter<ApprovedRow>['postOne']>[0], id: string, gate: BudgetGate): Promise<ApprovedRow> {
   const updated = await approveSupplierInvoice(ctx.companyId, id, ctx.userId, {
     ...mcpPostingOpts(ctx, TOOL),
-    budget: { channel: 'mcp', lock: 'held', gate },
+    budget: { channel: 'mcp', lock: 'held', gate, figures: mayReadBudgetFigures(ctx) },
   });
   return {
     // Filled in by the caller, which knows the agent's own index.
@@ -212,7 +213,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
 
     if (args.dry_run === true) {
       // Budgets P5-2: judged in the live loop's order (by id), each bill against what the earlier ones consume.
-      const budget = await billBudgetDryRun(ctx.companyId, postable.map((p) => p.id).sort(), 'mcp');
+      const budget = await billBudgetDryRun(ctx.companyId, postable.map((p) => p.id).sort(), 'mcp', { figures: mayReadBudgetFigures(ctx) });
       const refused = (id: string) => budget.get(id)?.refusal !== undefined;
       const wouldPost = postable.filter((p) => !refused(p.id));
       const warned = wouldPost.filter((p) => budget.get(p.id)?.warnings)
@@ -279,10 +280,10 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     const allSkipped = [...skipped, ...raced].sort((a, b) => a.index - b.index);
 
     if (rows.length === 0) {
-      // Every postable bill lost its race. Nothing was written, so the key is
-      // left free — same reasoning as the dry run.
+      // Every postable bill lost its race: nothing posted, so the key is left free, as for the dry run — unless
+      // budget refusals were recorded (P5-2 review R5): then the call wrote, and the key stays held.
       const nothing = ok({ posted: 0, invoices: [], skipped: allSkipped });
-      nothing.wroteNothing = true;
+      nothing.wroteNothing = budgetRefusals.length === 0;
       nothing.billable = false;
       return nothing;
     }

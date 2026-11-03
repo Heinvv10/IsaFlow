@@ -11,6 +11,18 @@ import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNo
 import { log } from '@/lib/logger';
 import type { BudgetPolicy } from '@/modules/accounting/services/budgets/budgetCheckTypes';
 import { BulkBudgetModal } from './BulkBudgetModal';
+import { notify } from '@/utils/toast';
+
+/** The bulk preview's cap (`@/lib/budgetBillPreview`): a larger selection is approved without the modal; the server still checks every bill. */
+const MAX_BUDGET_PREVIEW = 50;
+
+/** Budgets P5-2 (warn): the bills approved over budget, named, so the person sees what they just approved. */
+function notifyBudgetWarnings(data: BulkActionResult): void {
+  const over = data.results.filter((r) => r.ok && r.budgetWarnings && r.budgetWarnings.length > 0);
+  if (over.length === 0) return;
+  const names = over.map((r) => r.invoiceNumber || 'a bill').join(', ');
+  notify.warning(`${over.length === 1 ? '1 bill' : `${over.length} bills`} approved over budget`, names);
+}
 
 type BulkAction = 'approve' | 'post_gl' | 'cancel';
 
@@ -18,7 +30,7 @@ interface BulkActionResult {
   total: number;
   succeeded: number;
   failed: number;
-  results: Array<{ invoiceId: string; invoiceNumber?: string | null; ok: boolean; error?: string }>;
+  results: Array<{ invoiceId: string; invoiceNumber?: string | null; ok: boolean; error?: string; budgetWarnings?: string[] }>;
 }
 
 interface Props {
@@ -65,8 +77,15 @@ export function BulkActionBar({
 
   async function run(action: BulkAction) {
     const ids = Array.from(selected);
-    if (action !== 'cancel' && ids.length <= 200) {
-      const preview = await budgetPreview(ids);
+    if (action !== 'cancel' && ids.length <= MAX_BUDGET_PREVIEW) {
+      // Busy while the preview reads, so a second click cannot start a second preview (or a second modal).
+      onBusyChange(action);
+      let preview: Awaited<ReturnType<typeof budgetPreview>>;
+      try {
+        preview = await budgetPreview(ids);
+      } finally {
+        onBusyChange(null);
+      }
       if (preview && preview.policy !== 'off' && preview.overBills > 0) {
         setBudgetAsk({ action, overBills: preview.overBills, policy: preview.policy });
         return;
@@ -110,6 +129,7 @@ export function BulkActionBar({
       await onComplete();
       notifyLateClaims(json); // bills whose VAT was claimed in a later period (s16(3))
       notifyPostingWarnings(json); // bills posted without a cost centre that could not be applied
+      notifyBudgetWarnings(data); // P5-2 (warn): bills approved over budget
       if (failure) onError((prev) => (prev ? `${prev} — ${failure}` : failure));
     } catch (err) {
       log.warn('Bulk action failed', { action, error: err }, 'supplier-invoices');

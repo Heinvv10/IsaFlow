@@ -89,6 +89,18 @@ describe('supplier invoice page — budget approve dialog', () => {
     await waitFor(() => expect(actionBody()).toEqual({ action: 'approve', invoiceId: 'inv-1', budgetReason: 'Board approved', budgetOverride: true }));
   });
 
+  it('warn preview, then a 409 BUDGET_EXCEEDED (the policy became block): the dialog turns to block and offers Override (review R1)', async () => {
+    await openDialog('warn');
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x' } });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: {
+      code: 'CONFLICT', message: 'Over budget — approval refused: 6100 Opex.', details: { code: 'BUDGET_EXCEEDED', lines: [] } } }), { status: 409 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(await screen.findByRole('button', { name: 'Override and approve' })).toBeTruthy();
+    expect(screen.getByRole('checkbox')).toBeTruthy();
+    expect(screen.getByText('6100 Opex')).toBeTruthy(); // the preview's lines are kept
+    expect(screen.getAllByRole('alert').some((a) => /refused unless you override/.test(a.textContent ?? ''))).toBe(true); // R8: a blocking refusal is an alert
+  });
+
   it('a refusal from the server keeps the dialog open with its words', async () => {
     await openDialog('warn');
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x' } });

@@ -11,10 +11,7 @@
  * Reads nothing but this company's rows. 120 previews a minute per user (429 with Retry-After).
  *
  * Budgets P5-2, the bill approve dialogs (no locks: a preview; the approval decides again under its own):
- * POST { supplierInvoiceId } → { policy, checks, lines: BudgetCheckLine[], overCount } — the lines approve
- *   would POST (`ap/supplierInvoiceBudgetCheck.previewBillBudget`), per budget slice, with this bill's amount.
- * POST { supplierInvoiceIds: [≤200] } → { policy, bills: [{ invoiceId, checks, overCount }], overBills } — the
- *   bulk approve modal's count. Each bill is judged on its own (a batch's bills also draw on each other).
+ * POST { supplierInvoiceId } or { supplierInvoiceIds: [≤50] }: `@/lib/budgetBillPreview` (charged one unit per bill).
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -27,9 +24,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { respondTrackingError } from '@/lib/budgetTrackingResponse';
 import { mapRegistryMiss } from '@/modules/accounting/services/budgets/tracking/trackingWindow';
 import { MAX_REMAINING_KEYS, remainingFor, remainingKeysProblem } from '@/modules/accounting/services/budgets/remainingBudget';
-import { previewBillBudget } from '@/modules/accounting/services/ap/supplierInvoiceBudgetCheck';
-import { readCheckPolicy } from '@/modules/accounting/services/budgets/budgetCheck';
-import { CostCentrePickRefusal } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
+import { billPreviewCost, MAX_BULK_BILL_PREVIEW, respondBillPreview } from '@/lib/budgetBillPreview';
 
 const RemainingSchema = z.object({
   lines: z.array(z.object({
@@ -43,47 +38,20 @@ const RemainingSchema = z.object({
   excludePoItemIds: z.array(UUID).max(1000).optional(),
 });
 
-const BillPreviewSchema = z.union([
-  z.object({ supplierInvoiceId: UUID }).strict(),
-  z.object({ supplierInvoiceIds: z.array(UUID).min(1).max(200) }).strict(),
-]);
-
-/** The bill modes (P5-2). Returns true when it answered. */
-async function billPreview(companyId: string, body: unknown, res: NextApiResponse): Promise<boolean> {
-  if (typeof body !== 'object' || body === null || !('supplierInvoiceId' in body || 'supplierInvoiceIds' in body)) return false;
-  const parsed = BillPreviewSchema.safeParse(body);
-  if (!parsed.success) { apiResponse.zodValidationError(res, parsed.error); return true; }
-  try {
-    if ('supplierInvoiceId' in parsed.data) {
-      const preview = await mapRegistryMiss(() => previewBillBudget(companyId, (parsed.data as { supplierInvoiceId: string }).supplierInvoiceId));
-      if (!preview) apiResponse.notFound(res, 'Supplier invoice');
-      else apiResponse.success(res, preview);
-      return true;
-    }
-    const bills = [];
-    for (const invoiceId of [...new Set(parsed.data.supplierInvoiceIds)]) {
-      const p = await mapRegistryMiss(() => previewBillBudget(companyId, invoiceId));
-      if (p) bills.push({ invoiceId, checks: p.checks, overCount: p.overCount });
-    }
-    apiResponse.success(res, { policy: await readCheckPolicy(companyId), bills, overBills: bills.filter((b) => b.overCount > 0).length });
-  } catch (err) {
-    if (respondTrackingError(res, err)) return true;
-    // A cost-centre pick approve itself would refuse (400 there too).
-    if (err instanceof CostCentrePickRefusal) { apiResponse.badRequest(res, err.message); return true; }
-    throw err;
-  }
-  return true;
-}
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  if (!(await checkRateLimit(`budget-remaining:${userId}`, { max: 120, windowSecs: 60 }))) {
+  // The bulk bill mode's size first (400 before anything is charged or read); it is charged per bill.
+  const ids = (req.body as { supplierInvoiceIds?: unknown } | undefined)?.supplierInvoiceIds;
+  if (Array.isArray(ids) && ids.length > MAX_BULK_BILL_PREVIEW) {
+    return apiResponse.badRequest(res, `At most ${MAX_BULK_BILL_PREVIEW} bills per budget preview`);
+  }
+  if (!(await checkRateLimit(`budget-remaining:${userId}`, { max: 120, windowSecs: 60, cost: billPreviewCost(req.body) }))) {
     res.setHeader('Retry-After', '60');
     return apiResponse.tooManyRequests(res, 'Too many budget previews; wait a minute and try again.');
   }
-  if (await billPreview(companyId, req.body, res)) return;
+  if (await respondBillPreview(companyId, req.body, res)) return;
   // The count first, before zod walks a long array (400, as every bound below).
   const raw = (req.body as { lines?: unknown } | undefined)?.lines;
   if (Array.isArray(raw) && raw.length > MAX_REMAINING_KEYS) {

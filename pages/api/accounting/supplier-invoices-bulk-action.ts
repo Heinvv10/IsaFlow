@@ -44,7 +44,7 @@ import {
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
-import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
+import { assertNotImpersonating, ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { openBudgetGate, recordBudgetRefusal } from '@/modules/accounting/services/budgets/budgetCheck';
 import { BUDGET_REASON_MAX, BudgetExceededError, type BudgetGate } from '@/modules/accounting/services/budgets/budgetCheckTypes';
@@ -128,6 +128,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // taken ONCE here, before the loop and outside every item savepoint. Per item it would be taken
   // after items 1..k-1's journal-number locks (deadlock against a single approve), and a savepoint
   // rolled back would release it. Held → BudgetCheckLockTimeoutError → 503 (withErrorHandler).
+  // A "Login as" session is refused by every approve / Post to GL before its first read; refuse it before the gate
+  // too, so it never takes (or waits on) the company budget lock (P5-2 review R4). Thrown: the whole request is 403.
+  if (action !== 'cancel') await assertNotImpersonating();
   const budgetGate: BudgetGate | null = action === 'cancel' ? null : await openBudgetGate(companyId, 'take');
   const budget = budgetGate ? { channel: 'bulk' as const, lock: 'held' as const, gate: budgetGate, reason: budgetReason ?? null } : undefined;
 

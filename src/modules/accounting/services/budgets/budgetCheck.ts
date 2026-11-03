@@ -100,47 +100,56 @@ async function labels(companyId: string, lines: readonly UnlabelledLine[]): Prom
   }));
 }
 
-/**
- * Remaining budget per slice for the document's lines (one month). Skips every read when no primary
- * version holds a row for these accounts in that month (then every line is "No budget"), so the
- * common no-budget approval pays one indexed EXISTS.
- */
-export async function evaluateDocumentLines(
-  companyId: string, lines: readonly DocumentLine[], month: string,
-  opts: { excludeInvoiceId?: string | null; labelAlways?: boolean } = {},
-): Promise<BudgetCheckLine[]> {
-  const real = lines.filter((l) => l.amount !== 0);
-  if (real.length === 0) return [];
-  const keys = distinctKeys(real, month);
+/** Options of a remaining read: the bills whose PO-linked lines count as billed whatever their status. */
+interface BilledAs { excludeInvoiceId?: string | null; alsoBilledInvoiceIds?: readonly string[] }
+
+/** Remaining per slice for one month's lines. Skips every read when no primary version budgets these accounts that month. */
+async function sliceMonth(companyId: string, lines: readonly DocumentLine[], month: string, billedAs: BilledAs): Promise<UnlabelledLine[]> {
+  const keys = distinctKeys(lines, month);
   const noBudget = (): RemainingResult[] => keys.map((key) => ({
     key, versionId: null, grain: null, slice: { cc1Id: null, cc2Id: null, buId: null }, unassigned: false,
     budget: null, actual: 0, committed: 0, remaining: null,
   }));
-  let results: RemainingResult[];
   // A date outside the bounds the reader accepts cannot carry a budget (and approve refuses it anyway).
-  if (remainingKeysProblem([month]) !== null) {
-    results = noBudget();
-  } else {
-    const any = (await sql`
-      SELECT EXISTS (
-        SELECT 1 FROM budget_month_amounts b JOIN budget_versions v ON v.id = b.version_id AND v.company_id = b.company_id
-         WHERE b.company_id = ${companyId}::UUID AND v.is_primary
-           AND b.gl_account_id = ANY(${keys.map((k) => k.glAccountId)}::UUID[]) AND b.month = ${monthKeyToDate(month)}::DATE
-      ) AS any
-    `) as DbRow[];
-    if (any[0]?.any !== true) {
-      results = noBudget();
-    } else {
-      results = [];
-      for (let i = 0; i < keys.length; i += MAX_REMAINING_KEYS) {
-        results.push(...await remainingFor(companyId, keys.slice(i, i + MAX_REMAINING_KEYS), { excludeInvoiceId: opts.excludeInvoiceId ?? null }));
-      }
-    }
+  if (remainingKeysProblem([month]) !== null) return sliceLines(lines, keys, noBudget());
+  const any = (await sql`
+    SELECT EXISTS (
+      SELECT 1 FROM budget_month_amounts b JOIN budget_versions v ON v.id = b.version_id AND v.company_id = b.company_id
+       WHERE b.company_id = ${companyId}::UUID AND v.is_primary
+         AND b.gl_account_id = ANY(${keys.map((k) => k.glAccountId)}::UUID[]) AND b.month = ${monthKeyToDate(month)}::DATE
+    ) AS any
+  `) as DbRow[];
+  if (any[0]?.any !== true) return sliceLines(lines, keys, noBudget());
+  const results: RemainingResult[] = [];
+  for (let i = 0; i < keys.length; i += MAX_REMAINING_KEYS) {
+    results.push(...await remainingFor(companyId, keys.slice(i, i + MAX_REMAINING_KEYS), {
+      excludeInvoiceId: billedAs.excludeInvoiceId ?? null, alsoBilledInvoiceIds: billedAs.alsoBilledInvoiceIds,
+    }));
   }
-  const sliced = sliceLines(real, keys, results);
+  return sliceLines(lines, keys, results);
+}
+
+/**
+ * Remaining budget per slice for the document's lines: `month` unless a line names its own (a provisional's
+ * reclass, P5-2 review B1). A credit on a slice with no budget (the reclass's VAT, an unbudgeted account) is
+ * dropped: it can make nothing over. `alsoBilledInvoiceIds`: see `CommittedOptions`.
+ */
+export async function evaluateDocumentLines(
+  companyId: string, lines: readonly DocumentLine[], month: string,
+  opts: BilledAs & { labelAlways?: boolean } = {},
+): Promise<BudgetCheckLine[]> {
+  const byMonth = new Map<string, DocumentLine[]>();
+  for (const l of lines) {
+    if (l.amount === 0) continue;
+    const m = l.month ?? month;
+    byMonth.set(m, [...(byMonth.get(m) ?? []), l]);
+  }
+  const sliced: UnlabelledLine[] = [];
+  for (const [m, ls] of [...byMonth].sort(([a], [b]) => a.localeCompare(b))) sliced.push(...await sliceMonth(companyId, ls, m, opts));
+  const kept = sliced.filter((l) => l.budget !== null || l.amount > 0);
   // Nothing checked (every line "No budget"): an approval records nothing, so it reads no names; a preview asks for them.
-  if (!opts.labelAlways && sliced.every((l) => l.budget === null)) return sliced.map((l) => ({ ...l, accountLabel: '', sliceLabel: '' }));
-  return labels(companyId, sliced);
+  if (!opts.labelAlways && kept.every((l) => l.budget === null)) return kept.map((l) => ({ ...l, accountLabel: '', sliceLabel: '' }));
+  return labels(companyId, kept);
 }
 
 export interface CheckedDocument {
@@ -168,7 +177,7 @@ export async function checkDocumentBudget(
 
   const lines = await evaluateDocumentLines(companyId, doc.lines, doc.month, { excludeInvoiceId: doc.excludeInvoiceId });
   const decision = decideBudgetOutcome({
-    policy, lines, channel: ctx.channel, reason: ctx.reason, override: ctx.override, actorRole: ctx.actorRole,
+    policy, lines, channel: ctx.channel, reason: ctx.reason, override: ctx.override, actorRole: ctx.actorRole, figures: ctx.figures,
   });
   if (decision.kind === 'reason_required') throw new BudgetReasonRequiredError(decision.message, lines);
   if (decision.kind === 'refuse') {
@@ -208,7 +217,25 @@ export async function recordBudgetCheckEvent(e: BudgetRefusalEvent, outcome: Bud
   });
 }
 
-/** Records a refusal's `refused` event. Call it OUTSIDE the savepoint the refusal rolled back. */
-export async function recordBudgetRefusal(err: BudgetExceededError): Promise<void> {
-  await recordBudgetCheckEvent(err.event, 'refused');
+/** Window in which a refusal identical to one already recorded (same document, actor, channel, policy, lines) is not written again. */
+export const REFUSAL_DEDUPE_SECONDS = 60;
+
+/**
+ * Records a refusal's `refused` event (and its audit row). Call it OUTSIDE the savepoint the refusal rolled
+ * back. A retry refused for the same reason within REFUSAL_DEDUPE_SECONDS writes nothing (security review S2:
+ * otherwise each click of a refused approve adds an event and an audit row). Returns whether it wrote.
+ */
+export async function recordBudgetRefusal(err: BudgetExceededError): Promise<boolean> {
+  const e = err.event;
+  const same = (await sql`
+    SELECT 1 FROM budget_check_events
+     WHERE company_id = ${e.companyId}::UUID AND document_type = ${e.documentType} AND document_id = ${e.documentId}::UUID
+       AND outcome = 'refused' AND policy = ${e.policy} AND channel = ${e.channel}
+       AND decided_by = COALESCE(auth.uid(), ${e.actorId}) AND lines = ${JSON.stringify(e.lines)}::JSONB
+       AND decided_at > clock_timestamp() - make_interval(secs => ${REFUSAL_DEDUPE_SECONDS})
+     LIMIT 1
+  `) as DbRow[];
+  if (same.length > 0) return false;
+  await recordBudgetCheckEvent(e, 'refused');
+  return true;
 }
