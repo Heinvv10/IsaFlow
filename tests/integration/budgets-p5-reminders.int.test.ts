@@ -93,12 +93,15 @@ describe('the daily run as isaflow_service', () => {
   it('one reminder per slice per stage; reruns the same day add nothing; the next day adds only a new stage', async () => {
     const first = await runSliceRemindersFor([w.u.homeCompanyId], AS_OF);
     expect(first).toMatchObject({ companies: 1, failed: 0, reminded: 3 });
-    const expected = [key('soon', 'due_soon'), key('today', 'due'), key('late', 'overdue')].sort();
-    expect(await reminders(w.u.homeCompanyId, holder.userId)).toEqual(expected);
+    const count = async () => (await reminders(w.u.homeCompanyId, holder.userId)).length;
+    expect(await count()).toBe(3);
     await runSliceRemindersFor([w.u.homeCompanyId], AS_OF);
-    expect(await reminders(w.u.homeCompanyId, holder.userId)).toEqual(expected);
+    expect(await count()).toBe(3);
     await runSliceRemindersFor([w.u.homeCompanyId], day(1));
-    expect(await reminders(w.u.homeCompanyId, holder.userId)).toEqual([...expected, key('today', 'overdue'), key('later', 'due_soon')].sort());
+    // New: 'today' went overdue, 'later' is now 3 days out. 'soon' (2 days out) is still due_soon: nothing new.
+    expect(await count()).toBe(5);
+    const expected = [key('soon', 'due_soon'), key('today', 'due'), key('late', 'overdue'), key('today', 'overdue'), key('later', 'due_soon')];
+    expect(await reminders(w.u.homeCompanyId, holder.userId)).toEqual(expected.sort());
   });
 
   it('one company failing is logged and counted; the next company still runs', async () => {
