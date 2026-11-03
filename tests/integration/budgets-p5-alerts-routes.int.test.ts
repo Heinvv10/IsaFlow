@@ -99,7 +99,8 @@ describe('Evaluate now and the alert list', () => {
     expect(again.status).toBe(200);
     expect(d(again)).toMatchObject({ fired: 0, lastEvaluated: { source: 'manual', fired: 0 } });
     const n = await pool.query(`SELECT user_id FROM user_notifications WHERE company_id = $1 ORDER BY user_id`, [o.u.homeCompanyId]);
-    expect(n.rows.map((r) => r.user_id)).toEqual([admin.userId, admin.userId, o.u.userId, o.u.userId].sort());
+    // 80 and 100 crossed together: each owner/admin is told once (the 100).
+    expect(n.rows.map((r) => r.user_id)).toEqual([admin.userId, o.u.userId].sort());
   });
 
   it('the list: owner/admin only; open alerts with their figures and the last evaluation', async () => {

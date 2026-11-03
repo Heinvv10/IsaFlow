@@ -106,7 +106,7 @@ describe('the daily run, as isaflow_service', () => {
     expect(await count('SELECT COUNT(*)::INT n FROM budget_alerts WHERE company_id = $1', [f.b])).toBe(1);
     const per = async (co: string, u: string) => count(`SELECT COUNT(*)::INT n FROM user_notifications WHERE company_id = $1 AND user_id = $2`, [co, u]);
     expect([await per(f.a, f.ownerA), await per(f.a, f.adminA), await per(f.a, f.managerA), await per(f.b, f.ownerB), await per(f.a, f.ownerB)])
-      .toEqual([2, 2, 0, 1, 0]);
+      .toEqual([1, 1, 0, 1, 0]); // A crossed 80 and 100 in one run: one notification (the 100)
     for (const co of [f.a, f.b]) expect(await lastEvaluated(co)).toMatchObject({ source: 'daily', fired: 0 });
   });
 

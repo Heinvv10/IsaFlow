@@ -49,7 +49,7 @@ const opexSpend = (c: PoolClient, amount: number, date = '2026-04-10') =>
   journal(c, f.a, date, f.ownerA, [[f.acc.opex, amount, 0], [f.acc.bank, 0, amount]]);
 
 describe('evaluateOverspend: one alert and one notification per crossing', () => {
-  it('a rerun writes and announces nothing; owner and admin are notified, the manager is not', async () => {
+  it('80 and 100 crossed in one run: both recorded, ONE notification (the 100) to owner and admin, none to the manager; a rerun announces nothing', async () => {
     await inRequest(pool, f.a, f.ownerA, async ({ client, asSuper }) => {
       notifySpy.mockClear();
       const first = await run();
@@ -58,19 +58,18 @@ describe('evaluateOverspend: one alert and one notification per crossing', () =>
         [f.acc.opex, '2026-04', 80], [f.acc.opex, '2026-04', 100],
       ]);
       expect(first.fired[1]).toMatchObject({ budget: 1000, actual: 1050, committed: 0, pct: 105, refired: false, accountCode: 'P5A-6000' });
-      expect(notifySpy).toHaveBeenCalledTimes(2);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
       for (const _ of [1, 2]) {
         const again = await run();
         expect(again.fired).toEqual([]);
         expect(again.resolved).toEqual([]);
       }
-      expect(notifySpy).toHaveBeenCalledTimes(2);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
       const rows = await alerts(client);
       expect(rows.map((r) => [r.month, r.threshold, r.resolved_at])).toEqual([['2026-04', '80', null], ['2026-04', '100', null]]);
       for (const u of [f.ownerA, f.adminA]) {
         const n = await asSuper((c) => notes(c, u));
-        expect(n.map((x) => x.dedupe_key).sort()).toEqual(rows.map((r) => `budget_alert:${r.id}`).sort());
-        expect(n.map((x) => x.ref_id).sort()).toEqual(rows.map((r) => r.id).sort());
+        expect(n.map((x) => [x.dedupe_key, x.ref_id])).toEqual([[`budget_alert:${rows[1]!.id}`, rows[1]!.id]]);
       }
       expect(await asSuper((c) => notes(c, f.managerA))).toEqual([]);
       const n100 = (await notes(client, f.ownerA)).find((x) => x.dedupe_key === `budget_alert:${rows[1]!.id}`)!;
@@ -109,6 +108,49 @@ describe('evaluateOverspend: one alert and one notification per crossing', () =>
   });
 });
 
+describe('evaluateOverspend: a backlog', () => {
+  it('more than 10 lines crossed in one run: every crossing recorded, ONE summary per owner/admin, and a rerun adds nothing', async () => {
+    const asOf = '2026-09-20';
+    await inRequest(pool, f.a, f.ownerA, async ({ client, asSuper }) => {
+      notifySpy.mockClear();
+      const out = await evaluateOverspend(f.a, { asOf });
+      // Mar-Sep: opex 105% (80, 100) and rent FT 120% (80, 100, 120) every month = 7 × 5 rows, 14 lines.
+      expect(out.fired).toHaveLength(35);
+      expect((await alerts(client))).toHaveLength(35);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+      for (const u of [f.ownerA, f.adminA]) {
+        const n = await asSuper((c) => notes(c, u));
+        expect(n).toEqual([{ dedupe_key: `budget_alert_summary:${asOf}`, ref_id: null, href: '/accounting/budgets/controls',
+          title: '14 budget lines crossed their thresholds — see Budget controls', body: expect.stringContaining('Budget controls lists each one') }]);
+      }
+      expect(await asSuper((c) => notes(c, f.managerA))).toEqual([]);
+      expect((await evaluateOverspend(f.a, { asOf })).fired).toEqual([]);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+    }, async (c) => {
+      for (const m of ['03', '04', '05', '06', '07', '08', '09']) {
+        await opexSpend(c, 1050, `2026-${m}-10`);
+        await journal(c, f.a, `2026-${m}-10`, f.ownerA, [[f.acc.rent, 600, 0, { cc1: f.cc.FT }], [f.acc.bank, 0, 600]]);
+      }
+    });
+  });
+
+  it('exactly 10 lines: no summary, one notification per line (its highest threshold)', async () => {
+    const asOf = '2026-07-20';
+    await inRequest(pool, f.a, f.ownerA, async ({ asSuper }) => {
+      const out = await evaluateOverspend(f.a, { asOf });
+      expect(out.fired).toHaveLength(25);
+      const n = await asSuper((c) => notes(c, f.ownerA));
+      expect(n).toHaveLength(10);
+      expect(n.every((x) => / passed (100|120)% of budget$/.test(x.title))).toBe(true);
+    }, async (c) => {
+      for (const m of ['03', '04', '05', '06', '07']) {
+        await opexSpend(c, 1050, `2026-${m}-10`);
+        await journal(c, f.a, `2026-${m}-10`, f.ownerA, [[f.acc.rent, 600, 0, { cc1: f.cc.FT }], [f.acc.bank, 0, 600]]);
+      }
+    });
+  });
+});
+
 describe('evaluateOverspend: resolve and re-fire', () => {
   it('a reversal resolves the crossings; spending again re-fires the same rows with a new notification', async () => {
     await inRequest(pool, f.a, f.ownerA, async ({ client, asSuper }) => {
@@ -126,15 +168,16 @@ describe('evaluateOverspend: resolve and re-fire', () => {
       notifySpy.mockClear();
       const up = await run();
       expect(up.fired.map((a) => [a.id, a.threshold, a.refired, a.pct])).toEqual(first.fired.map((a) => [a.id, a.threshold, true, 115]));
-      expect(notifySpy).toHaveBeenCalledTimes(2);
+      expect(notifySpy).toHaveBeenCalledTimes(1);
       const back = await alerts(client);
       expect(back.map((r) => r.resolved_at)).toEqual([null, null]);
       expect(back.map((r) => r.id)).toEqual(resolved.map((r) => r.id));
       const owner = await notes(client, f.ownerA);
-      expect(owner).toHaveLength(4);
+      // The first run's 100 and the re-fire's 100: the 80s are recorded, never announced.
+      expect(owner).toHaveLength(2);
       const refires = owner.filter((n) => /^budget_alert:[0-9a-f-]{36}:\d+$/.test(n.dedupe_key));
-      expect(refires).toHaveLength(2);
-      expect(refires.every((n) => n.body.includes('is over again'))).toBe(true);
+      expect(refires.map((n) => [n.ref_id, n.title])).toEqual([[first.fired[1]!.id, 'P5A-6000 Office costs passed 100% of budget']]);
+      expect(refires[0]!.body).toContain('is over again');
       expect((await run()).fired).toEqual([]);
     }, (c) => opexSpend(c, 1050));
   });

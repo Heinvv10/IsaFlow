@@ -12,10 +12,12 @@
  *   `default_thresholds`, else 80/100/120.
  * - Writes (`overspendAlertsWrite`): one `budget_alerts` row per crossing (INSERT ON CONFLICT DO
  *   NOTHING); a resolved crossing crossed again re-fires; an open alert no longer crossed resolves.
- * - Announced: only a row this run inserted or re-fired. Each goes to every owner and admin of the
- *   company (`notifyUsers`, kind 'budget_alert', dedupe key `budget_alert:<alert id>`, or
+ * - Announced: only rows this run inserted or re-fired, and of those only the HIGHEST threshold per
+ *   key (account, slice, month); every row is still recorded. Each goes to every owner and admin
+ *   (`notifyUsers`, kind 'budget_alert', dedupe key `budget_alert:<alert id>`, or
  *   `budget_alert:<alert id>:<fired_at ms>` for a re-fire), linking to Budget vs Actual on the month
- *   and slice. A rerun with unchanged books writes and announces nothing.
+ *   and slice. More than 10 in one run: one summary per user instead (`budget_alert_summary:<asOf>`,
+ *   linking to Budget controls). A rerun with unchanged books writes and announces nothing.
  * - Serialised per company: a transaction advisory lock `budget_alerts:<company>` (seed 954) is taken
  *   FIRST, before any read, with the bounded row-lock wait (5 s → `RowLockTimeoutError`, 503 at the
  *   route; the cron records the company as failed and goes on). Two evaluators (the daily run and
@@ -33,7 +35,8 @@ import { resolvePrimaryVersion } from './budgetVersionScope';
 import { readControlSettings, readThresholdOverrides } from './budgetControlSettings';
 import { remainingForKeys, type RemainingKey } from './remainingBudget';
 import {
-  alertHref, crossingsOf, monthName, pctText, rand, thresholdsFor, type AlertKeyFigures,
+  alertHref, crossingsOf, highestPerKey, MAX_ALERT_NOTIFICATIONS_PER_RUN, monthName, pctText, rand, thresholdsFor,
+  type AlertKeyFigures,
 } from './overspendAlertsCore';
 import { insertCrossings, refireResolved, refreshOpen, resolveUncrossed, type AlertRow } from './overspendAlertsWrite';
 
@@ -134,11 +137,29 @@ export function alertMessage(a: FiredAlert): { title: string; body: string } {
   };
 }
 
-async function announce(companyId: string, alerts: readonly FiredAlert[]): Promise<void> {
-  if (alerts.length === 0) return;
+/** The page every summary points to. */
+export const CONTROLS_HREF = '/accounting/budgets/controls';
+
+/**
+ * Notifies owners and admins of this run's fired alerts, less noisily than one per row (every row
+ * stays in budget_alerts): per key only the HIGHEST newly crossed threshold; and when that still
+ * leaves more than MAX_ALERT_NOTIFICATIONS_PER_RUN, ONE summary per user instead (dedupe key per
+ * run date, `budget_alert_summary:<asOf>`). Every recipient gets the same set, so the cap is per user.
+ */
+async function announce(companyId: string, fired: readonly FiredAlert[], asOf: string): Promise<void> {
+  if (fired.length === 0) return;
   const users = await recipients(companyId);
   if (users.length === 0) {
-    log.warn('budget alerts: no owner or admin to notify', { companyId, alerts: alerts.length }, 'accounting');
+    log.warn('budget alerts: no owner or admin to notify', { companyId, alerts: fired.length }, 'accounting');
+    return;
+  }
+  const alerts = highestPerKey(fired);
+  if (alerts.length > MAX_ALERT_NOTIFICATIONS_PER_RUN) {
+    await notifyUsers(companyId, users, {
+      kind: 'budget_alert', refId: null, href: CONTROLS_HREF, dedupeKey: `budget_alert_summary:${asOf}`,
+      title: `${alerts.length} budget lines crossed their thresholds — see Budget controls`,
+      body: `${alerts.length} budget lines (account, slice and month) passed an alert threshold in this evaluation. Budget controls lists each one.`,
+    });
     return;
   }
   for (const a of alerts) {
@@ -185,7 +206,7 @@ export async function evaluateOverspend(companyId: string, opts: { asOf: string 
   const resolved = await resolveUncrossed(companyId, versionId, crossings, first, last);
 
   const fired = await named(companyId, [...inserted, ...refired], new Set(refired.map((r) => r.id)));
-  await announce(companyId, fired);
+  await announce(companyId, fired, opts.asOf);
   log.info('budget alerts evaluated', {
     companyId, asOf: opts.asOf, fiscalYear: fy.fiscalYear, versionId, keys: keyCount, crossings: crossings.length,
     fired: inserted.length, refired: refired.length, resolved: resolved.length,

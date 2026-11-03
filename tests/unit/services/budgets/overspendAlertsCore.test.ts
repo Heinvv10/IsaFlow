@@ -8,6 +8,8 @@ import {
   alertHref,
   crossingsOf,
   DEFAULT_THRESHOLDS,
+  highestPerKey,
+  MAX_ALERT_NOTIFICATIONS_PER_RUN,
   normaliseThresholds,
   overspendPct,
   thresholdsFor,
@@ -98,5 +100,14 @@ describe('alertHref', () => {
     const h = alertHref({ month: '2026-04', cc1Id: null, cc2Id: CC, buId: null });
     expect(h).toBe(`/accounting/reports/budget-vs-actual?period=month&month=2026-04&cc2_id=${CC}`);
     expect(isInAppPath(h)).toBe(true);
+  });
+});
+
+describe('highestPerKey', () => {
+  it('keeps the highest threshold of each (account, slice, month), in input order', () => {
+    const a = (threshold: number, over: Partial<AlertKeyFigures> = {}) => ({ ...key(over), threshold });
+    const out = highestPerKey([a(80), a(100), a(80, { cc1Id: CC }), a(120, { month: '2026-05' }), a(100, { month: '2026-05' })]);
+    expect(out.map((x) => [x.cc1Id, x.month, x.threshold])).toEqual([[null, '2026-04', 100], [CC, '2026-04', 80], [null, '2026-05', 120]]);
+    expect(MAX_ALERT_NOTIFICATIONS_PER_RUN).toBe(10);
   });
 });

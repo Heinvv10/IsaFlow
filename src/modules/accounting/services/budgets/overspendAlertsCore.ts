@@ -94,6 +94,25 @@ export function crossingsOf(keys: readonly AlertKeyFigures[], thresholdsOf: (k: 
   return out;
 }
 
+/**
+ * One run notifies at most this many alerts per user; above it, one summary instead (spec §10 "alerts
+ * noisy": the first run over a year already overspent).
+ */
+export const MAX_ALERT_NOTIFICATIONS_PER_RUN = 10;
+
+/** Per key (account, slice, month), only the alert with the highest threshold; input order kept. */
+export function highestPerKey<T extends AlertKey & { threshold: number }>(alerts: readonly T[]): T[] {
+  const key = (a: T) => [a.glAccountId, a.cc1Id, a.cc2Id, a.buId, a.month].map((v) => (v ?? '').toLowerCase()).join('|');
+  const best = new Map<string, T>();
+  for (const a of alerts) {
+    const k = key(a);
+    const held = best.get(k);
+    if (!held || a.threshold > held.threshold) best.set(k, a);
+  }
+  const keep = new Set(best.values());
+  return alerts.filter((a) => keep.has(a));
+}
+
 /** Budget vs Actual on the alert's month, filtered to its slice (the report has no account filter). */
 export function alertHref(k: Pick<AlertKey, 'month' | 'cc1Id' | 'cc2Id' | 'buId'>): string {
   const q = new URLSearchParams({ period: 'month', month: k.month });
