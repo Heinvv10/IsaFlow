@@ -166,6 +166,8 @@ export default function EditCustomerInvoicePage() {
   }, [loading, loadedFor, id, invoiceNumber, loadedKey, pricing, storedTotal, total]);
   const stalePriced = storedTotal !== null && pricedAtLoad?.key === loadedKey && pricedAtLoad.stale && pricedAtLoad.pricing === pricing;
   const money = (n: number) => formatCurrencyAmount(n, form.currencyCode);
+  // Saved elsewhere since this page read it (an approve or a PUT refused 409 STALE_VIEW): reload, saying why.
+  const reloadStale = (message: string) => { staleRefusal.current = message; staleFor.current = id; setReloads(n => n + 1); };
   const approve = useApproveAndEmail({
     save: async () => {
       if (stalePriced && storedTotal !== null) { // only Save Changes reprices it
@@ -176,7 +178,7 @@ export default function EditCustomerInvoicePage() {
       return (await saveDraft(false)) ? { id, invoiceNumber, approvalContentDigest: autosave.contentDigest() } : null;
     },
     onRefused: (_id, message, status, reason) => {
-      if (reason === 'STALE_VIEW') { staleRefusal.current = message; staleFor.current = id; setReloads(n => n + 1); return; } // show what is stored, and why
+      if (reason === 'STALE_VIEW') { reloadStale(message); return; } // show what is stored, and why
       setError(message); setErrorStays(status === 409);
     },
     onApproved: () => setApproved(true),
@@ -196,7 +198,8 @@ export default function EditCustomerInvoicePage() {
     setStoredDates((d) => ({ dueDate: d.dueDate || Boolean(b.dueDate), billingPeriodStart: d.billingPeriodStart || Boolean(b.billingPeriodStart), billingPeriodEnd: d.billingPeriodEnd || Boolean(b.billingPeriodEnd) }));
   };
   const autosave = useInvoiceAutosave({
-    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft, wip.releasing) : null,
+    mode: 'server', invoiceId: id, loadKey: reloads, body: !loading && invoiceNumber && loadedFor === id ? invoicePutBody(id, draft) : null,
+    releaseTimeEntryIds: wip.releasing, onStale: reloadStale,
     // Held: a stale-priced draft (an autosaved typo would reprice it and stale an approval); a removed time-entry line.
     problem: stalePriced ? STALE_PRICED_HOLD : wip.problem ?? autosaveProblem(draft, dates.refused, storedDates), paused: rateEditing || approve.busy, done: approved, onSaved: keepStoredDates,
     approvalContentDigest,

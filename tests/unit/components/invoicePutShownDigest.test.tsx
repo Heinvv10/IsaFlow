@@ -8,7 +8,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '@/lib/apiFetch';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { advance, bodyOf, DRAFT, ok, puts, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
+import { advance, bodyOf, calls, DRAFT, ok, puts, refused, routerEvents, serveInvoice, type } from '../helpers/invoiceAutosaveHarness';
 
 const h = vi.hoisted(() => ({ events: null as null | ReturnType<typeof import('../helpers/invoiceAutosaveHarness').routerEvents> }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -38,5 +38,27 @@ describe('a draft PUT carries the shown digest it was edited from', () => {
     expect(puts().map((c) => bodyOf(c).expectedShownDigest)).toEqual(['loaded', 'after-1']);
     await advance(5_000);
     expect(puts()).toHaveLength(2);
+  });
+});
+
+describe('an autosave refused 409 STALE_VIEW (saved elsewhere since this page read it)', () => {
+  it('reloads in place and says why: nothing is typed onto the stale view, and nothing is sent again', async () => {
+    let gets = 0;
+    serveInvoice((u, init) => {
+      if (u.includes('customer-invoices-detail') && init?.method === 'PUT') return refused(409, 'Changed elsewhere: reload', { reason: 'STALE_VIEW' });
+      if (u.includes('customer-invoices-detail?id=') && ++gets > 1) return ok({ ...DRAFT, notes: 'Saved in the other tab', shown_digest: 'theirs' });
+      return undefined;
+    }, { ...DRAFT, shown_digest: 'mine' });
+    render(<EditPage />);
+    for (let i = 0; i < 8; i++) await advance(0);
+    type(screen.getByLabelText('Notes'), 'Typed here');
+    await advance(1_500);
+    for (let i = 0; i < 8; i++) await advance(0);
+    expect(puts()).toHaveLength(1);
+    expect(calls('customer-invoices-detail?id=', 'GET').length).toBe(2); // reloaded
+    expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe('Saved in the other tab');
+    expect(screen.getByText('Changed elsewhere: reload')).toBeTruthy();
+    await advance(5_000);
+    expect(puts()).toHaveLength(1);
   });
 });

@@ -42,6 +42,13 @@ export interface ServerAutosaveOptions {
   done?: boolean;
   /** The body the server just took (JSON). */
   onSaved?: (json: string) => void;
+  /**
+   * The time entries whose lines the user removed (useWipLines): named in the PUT as it is sent, never part of the
+   * body compared (after the save the server holds no such link, and the body must not then look changed).
+   */
+  releaseTimeEntryIds?: readonly string[];
+  /** A PUT refused 409 STALE_VIEW (saved elsewhere since this page read it): the page reloads, with this sentence. */
+  onStale?: (message: string) => void;
   /** Canonical approval digest returned with the loaded invoice. */
   approvalContentDigest?: string;
 }
@@ -79,6 +86,16 @@ export interface ServerAutosave {
 interface Failure { json: string; message: string }
 type Send = 'auto' | 'changed' | 'always';
 
+/** A refusal's reason code (`error.details.reason`), read from a copy so assertOk still reads the body. */
+async function refusalReason(res: Response): Promise<string | undefined> {
+  try {
+    const body = await res.clone().json() as { error?: { details?: { reason?: unknown } } };
+    return typeof body.error?.details?.reason === 'string' ? body.error.details.reason : undefined;
+  } catch {
+    return undefined; // not JSON: no reason to act on; assertOk gives the fallback sentence
+  }
+}
+
 export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): ServerAutosave {
   const json = opts?.body ? JSON.stringify(opts.body) : null;
   const latest = useRef<{ json: string | null; armed: boolean; done: boolean }>({ json: null, armed: false, done: false });
@@ -108,7 +125,9 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const onSaved = useRef(opts?.onSaved);
-  useCommitEffect(() => { onSaved.current = opts?.onSaved; });
+  const onStale = useRef(opts?.onStale);
+  const release = useRef<readonly string[]>([]);
+  useCommitEffect(() => { onSaved.current = opts?.onSaved; onStale.current = opts?.onStale; release.current = opts?.releaseTimeEntryIds ?? []; });
   const failed = failure !== null && failure.json === json ? failure : null;
   const armed = Boolean(opts && json !== null && !opts.done && !opts.paused && !opts.problem && !failed);
 
@@ -194,9 +213,13 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     const forId = shownFor.current;
     setSaving(true);
     sending.current = sent;
+    const named = release.current;
+    const body = named.length > 0 ? JSON.stringify({ ...(JSON.parse(sent) as object), releaseTimeEntryIds: [...named] }) : sent;
+    let stale = false;
     try {
       const put = (async () => {
-        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: withDigest(sent, forId) });
+        const res = await apiFetch('/api/accounting/customer-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: withDigest(body, forId) });
+        if (res.status === 409) stale = await refusalReason(res) === 'STALE_VIEW';
         await assertOk(res, SAVE_FAILED);
         const envelope = await res.json() as { data?: { shownDigest?: unknown }; shownDigest?: unknown };
         const digest = envelope.data?.shownDigest ?? envelope.shownDigest;
@@ -216,6 +239,7 @@ export function useServerInvoiceAutosave(opts: ServerAutosaveOptions | null): Se
     } catch (err) {
       const message = apiErrorMessage(err, SAVE_FAILED);
       if (mine === seq.current) setFailure({ json: sent, message });
+      if (stale && mine === seq.current) onStale.current?.(message); // nothing typed onto a view another save moved
       return { ok: false, message };
     } finally {
       if (sending.current === sent) sending.current = null;

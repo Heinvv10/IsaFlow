@@ -35,6 +35,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 vi.mock('@/components/accounting/customer-invoices/InvoicePdfPreview', () => ({ InvoicePdfPreview: () => null }));
 
 import EditPage from '../../../pages/accounting/customer-invoices/edit/[invoiceId]';
+import { log } from '@/lib/logger';
 import { invoiceSavesSettled } from '@/lib/pendingInvoiceSaves';
 
 useApiJsonOverMock();
@@ -128,6 +129,19 @@ describe('leaving with a change unsaved', () => {
     expect(popTo('previous-entry')).toBe(false); // the next Back asks again
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(() => h.router!.events.emit('routeChangeStart', '/elsewhere')).toThrow(/unsaved/i); // no pass was left behind
+  });
+
+  it('Stay\'s traverseTo fails (rejected promises): handled (no unhandled rejection), logged, and Stay is not left half-done', async () => {
+    const failure = () => Promise.reject(new DOMException('Traversal aborted', 'AbortError'));
+    nav.traverseTo = vi.fn(() => ({ committed: failure(), finished: failure() }));
+    await openHeld();
+    expect(popTo('previous-entry')).toBe(false);
+    await advance(0);
+    expect(log.warn).toHaveBeenCalledWith('Could not return to the invoice after Stay', expect.anything(), 'useInvoiceAutosave');
+    // Not still "restoring": a later move back onto this page's own entry is an ordinary pop, routed by Next.
+    expect(popTo('edit-entry')).toBe(true);
+    expect(popTo('previous-entry')).toBe(false); // and the next Back asks again
+    expect(confirm).toHaveBeenCalledTimes(2);
   });
 
   it.each([

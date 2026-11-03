@@ -82,6 +82,18 @@ describe('a line that bills a time entry', () => {
     expect(bodyOf(puts()[1]!).releaseTimeEntryIds).toBeUndefined(); // released: not named again
   });
 
+  it('removed and saved by Save Changes: nothing else is sent, and the page is not left dirty', async () => {
+    await open();
+    fireEvent.click(removeButtons()[0]!);
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await settle();
+    expect(puts()).toHaveLength(1);
+    expect(bodyOf(puts()[0]!).releaseTimeEntryIds).toEqual(['te-a']);
+    await advance(5_000);
+    expect(puts()).toHaveLength(1); // no second, identical PUT
+    expect(statusText()).not.toMatch(/unsaved|not saved/i);
+  });
+
   it('removing a line without a time entry does not ask', async () => {
     await open();
     fireEvent.click(removeButtons()[1]!);
