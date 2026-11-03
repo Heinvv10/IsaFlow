@@ -62,7 +62,7 @@ beforeAll(async () => {
       ($3,$4,'K2200','VAT output','liability','vat_output','credit',true,true)`,
     [arAcc, revAcc, vatAcc, company]);
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
-    VALUES($1,$2,'K013 monthly retainer',$3,'monthly',CURRENT_DATE - INTERVAL '3 days','Monthly retainer',
+    VALUES($1,$2,'K013 monthly retainer',$3,'monthly','2026-01-31','Monthly retainer',
       $4::jsonb,1000,15,150,1150,$5,'active')`,
     [template, company, customer, JSON.stringify([{ description: 'Monthly retainer', quantity: 1, unitPrice: 1000 }]), user]);
   await pool.query(`INSERT INTO recurring_invoices(id,company_id,template_name,client_id,frequency,next_run_date,description,line_items,subtotal,tax_rate,tax_amount,total_amount,created_by,status)
@@ -124,9 +124,9 @@ it('generates an approved invoice that carries its lines and its GL journal', as
   const ri = (await pool.query(
     'SELECT run_count, next_run_date::text AS next FROM recurring_invoices WHERE id=$1', [template])).rows[0];
   expect(Number(ri.run_count)).toBe(1);
-  const expected = (await pool.query(
-    "SELECT to_char((CURRENT_DATE - INTERVAL '3 days' + INTERVAL '1 month')::date,'YYYY-MM-DD') AS d")).rows[0].d;
-  expect(ri.next).toBe(expected);
+  // A fixed month-end seed (always due), not CURRENT_DATE - 3 days: a seed that lands on a 29th-31st made this test
+  // depend on the day it ran. 31 January + 1 month clamps to 28 February (Postgres agrees: date + interval '1 month').
+  expect(ri.next).toBe('2026-02-28');
 });
 
 it('refuses a template with no line items and leaves the schedule untouched', async () => {
