@@ -146,13 +146,17 @@ export async function saveVarianceNote(
   return { ok: true, note };
 }
 
-/** Owner/admin only. The existing approval (`approveCommentary`), restricted to variance rows. */
+/**
+ * Owner/admin only. The existing approval (`approveCommentary`), restricted to variance rows.
+ * `seenDraft` is the draft text the approver was shown: a note re-drafted since is `invalid_state` (409)
+ * and nothing is approved, so nobody signs a sentence they never read.
+ */
 export async function approveVarianceNote(
-  companyId: string, actor: VarianceActor, id: string, editedText?: string,
+  companyId: string, actor: VarianceActor, id: string, seenDraft: string, editedText?: string,
 ): Promise<VarianceResult> {
   if (!mayApproveVarianceNote(actor.role)) return forbidden('Only an owner or admin can approve a variance note.');
   if (!isValidUUID(id)) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
-  const r = await approveCommentary(companyId, id, actor.userId, editedText, VARIANCE_REPORT_KIND);
+  const r = await approveCommentary(companyId, id, actor.userId, editedText, VARIANCE_REPORT_KIND, seenDraft);
   if (!r.ok) return r;
   const note = noteOfRow(r.row);
   if (!note) throw new Error('approved a variance note whose row_ref it cannot read');

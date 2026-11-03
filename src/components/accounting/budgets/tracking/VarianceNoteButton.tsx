@@ -23,7 +23,8 @@ export interface VarianceNoteButtonProps {
   note: VarianceNote | undefined;
   role: string | null;
   onSave: (slice: VarianceSlice, text: string) => Promise<ActionResult>;
-  onApprove: (id: string) => Promise<ActionResult>;
+  /** Called with the draft text on screen, which the server compares before approving. */
+  onApprove: (id: string, seenDraft: string) => Promise<ActionResult>;
   onReject: (id: string) => Promise<ActionResult>;
 }
 
@@ -54,10 +55,13 @@ export function VarianceNoteButton({ label, slice, note, role, onSave, onApprove
   };
   const run = async (action: () => Promise<ActionResult>) => {
     setBusy(true);
-    const reason = await action();
-    setBusy(false);
-    setProblem(reason);
-    if (reason === null) setOpen(false);
+    try {
+      const reason = await action();
+      setProblem(reason);
+      if (reason === null) setOpen(false);
+    } finally {
+      setBusy(false);
+    }
   };
   const name = status ? `${STATUS_LABEL[status]} variance note on ${label}` : `Add a variance note on ${label}`;
 
@@ -103,7 +107,7 @@ export function VarianceNoteButton({ label, slice, note, role, onSave, onApprove
             {approver && note?.status === 'draft' && (
               <>
                 <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onReject(note.id))}>Reject</Button>
-                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onApprove(note.id))}>Approve</Button>
+                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => onApprove(note.id, note.draftText ?? ''))}>Approve</Button>
               </>
             )}
             {editable && (

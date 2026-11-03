@@ -24,9 +24,17 @@ import { budgetReason, lockAndReadPack, printsOnFixedPage } from './commentaryBu
  * answers `not_found`, so a variance note cannot be approved through the pack
  * route (which does not apply the variance roles), nor a pack row through the
  * variance service.
+ *
+ * `expectedDraft`: the draft text the approver was SHOWN. When given, a row
+ * whose draft is not exactly that text is `invalid_state` ("changed since you
+ * opened it"), and the UPDATE repeats the comparison, so a writer re-drafting
+ * between the approver's load and the click cannot get text approved that the
+ * approver never saw. The variance-note service always passes it.
  */
+const CHANGED = 'This note changed since you opened it, or is no longer a draft. Reload and review the new text.';
+
 export async function approveCommentary(
-  companyId: string, id: string, userId: string, editedText?: string, reportKind = 'pack',
+  companyId: string, id: string, userId: string, editedText?: string, reportKind = 'pack', expectedDraft?: string,
 ): Promise<CommentaryResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const edited = editedText === undefined ? undefined : normaliseEditedText(editedText);
@@ -48,6 +56,7 @@ export async function approveCommentary(
 
   const t = nextStatus(row.status, 'approve');
   if (!t.ok) return { ok: false, code: 'invalid_state', reason: t.reason };
+  if (expectedDraft !== undefined && row.draftText !== expectedDraft) return { ok: false, code: 'invalid_state', reason: CHANGED };
 
   if (!printsOnFixedPage(row)) {
     // No layout bounds this pack's text, only the request size: a generous ceiling.
@@ -89,6 +98,13 @@ export async function approveCommentary(
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
       AND status = 'draft' AND btrim(draft_text) <> '' AND draft_text = ${row.draftText}
     RETURNING *
+  ` : expectedDraft !== undefined ? await sql`
+    UPDATE report_commentary
+    SET status = 'approved', approved_text = ${edited}, approved_by = ${userId},
+        approved_at = NOW(), updated_at = NOW()
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+      AND status = 'draft' AND btrim(${edited}) <> '' AND draft_text = ${expectedDraft}
+    RETURNING *
   ` : await sql`
     UPDATE report_commentary
     SET status = 'approved', approved_text = ${edited}, approved_by = ${userId},
@@ -100,7 +116,7 @@ export async function approveCommentary(
   if (!rows[0]) {
     return {
       ok: false, code: 'invalid_state',
-      reason: edited === undefined
+      reason: expectedDraft !== undefined ? CHANGED : edited === undefined
         ? 'This commentary is no longer a draft, or its draft text changed. Reload and review the new text.'
         : 'This commentary is no longer a draft.',
     };

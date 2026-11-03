@@ -59,7 +59,7 @@ export default function BudgetVsActualPage() {
       cc2Id: report.filter.cc2?.id ?? null, buId: report.filter.bu?.id ?? null };
     return (
       <VarianceNoteButton label={`${line.accountCode} ${line.accountName}`} slice={slice} role={companyRole}
-        note={notes.notes.get(varianceRowRef(slice))} onSave={notes.save} onApprove={(id) => notes.approve(id)} onReject={notes.reject} />
+        note={notes.notes.get(varianceRowRef(slice))} onSave={notes.save} onApprove={notes.approve} onReject={notes.reject} />
     );
   };
 

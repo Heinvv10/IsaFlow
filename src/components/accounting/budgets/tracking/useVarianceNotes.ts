@@ -20,7 +20,8 @@ export interface UseVarianceNotes {
   notes: ReadonlyMap<string, VarianceNote>;
   error: string | null;
   save: (slice: VarianceSlice, text: string) => Promise<ActionResult>;
-  approve: (id: string, text?: string) => Promise<ActionResult>;
+  /** `seenDraft`: the draft text on screen; a note changed since is refused (409) and the notes reload. */
+  approve: (id: string, seenDraft: string) => Promise<ActionResult>;
   reject: (id: string) => Promise<ActionResult>;
 }
 
@@ -69,8 +70,12 @@ export function useVarianceNotes(scope: VarianceNotesScope | null): UseVarianceN
     if (versionId === null || month === null) return Promise.resolve('Choose a single month to write a variance note.');
     return post({ action: 'save', versionId, month, ...slice, text }, 'Could not save the note - try again');
   }, [post, versionId, month]);
-  const approve = useCallback((id: string, text?: string) =>
-    post({ action: 'approve', id, ...(text === undefined ? {} : { text }) }, 'Could not approve the note - try again'), [post]);
+  const approve = useCallback(async (id: string, seenDraft: string) => {
+    const reason = await post({ action: 'approve', id, draft: seenDraft }, 'Could not approve the note - try again');
+    // A refusal (most likely the note changed since it was shown) reloads, so the dialog shows the current text.
+    if (reason !== null) await load();
+    return reason;
+  }, [post, load]);
   const reject = useCallback((id: string) => post({ action: 'reject', id }, 'Could not reject the note - try again'), [post]);
 
   return { notes, error, save, approve, reject };

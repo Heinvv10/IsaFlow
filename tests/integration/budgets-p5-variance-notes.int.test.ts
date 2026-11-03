@@ -80,11 +80,11 @@ describe('roles: write, approve, reject', () => {
       const mine = await listVarianceNotes(f.a, 'manager', f.v.primary27, MONTH);
       expect(mine.ok && mine.notes.map((n) => [n.status, n.draftText])).toEqual([['draft', 'Rent rose with the new lease.']]);
 
-      expect(await approveVarianceNote(f.a, manager, saved.note.id)).toMatchObject({ ok: false, code: 'forbidden' });
-      expect(await approveVarianceNote(f.a, viewer, saved.note.id)).toMatchObject({ ok: false, code: 'forbidden' });
+      expect(await approveVarianceNote(f.a, manager, saved.note.id, 'Rent rose with the new lease.')).toMatchObject({ ok: false, code: 'forbidden' });
+      expect(await approveVarianceNote(f.a, viewer, saved.note.id, 'Rent rose with the new lease.')).toMatchObject({ ok: false, code: 'forbidden' });
       expect((await rowOf(saved.note.id)).status).toBe('draft');
 
-      const approved = await approveVarianceNote(f.a, owner(), saved.note.id);
+      const approved = await approveVarianceNote(f.a, owner(), saved.note.id, 'Rent rose with the new lease.');
       expect(approved).toMatchObject({ ok: true, note: { status: 'approved', approvedText: 'Rent rose with the new lease.', approvedBy: f.userA } });
       const seen = await listVarianceNotes(f.a, 'viewer', f.v.primary27, MONTH);
       expect(seen.ok && seen.notes).toEqual([expect.objectContaining({
@@ -108,7 +108,7 @@ describe('roles: write, approve, reject', () => {
     await asA(async () => {
       const saved = await saveVarianceNote(f.a, manager, input('Approved wording.'));
       if (!saved.ok) throw new Error(saved.reason);
-      expect((await approveVarianceNote(f.a, owner(), saved.note.id)).ok).toBe(true);
+      expect((await approveVarianceNote(f.a, owner(), saved.note.id, 'Approved wording.')).ok).toBe(true);
       expect(await saveVarianceNote(f.a, manager, input('Manager rewrite.'))).toMatchObject({ ok: false, code: 'invalid_state' });
       expect((await rowOf(saved.note.id)).status).toBe('approved');
       expect(await saveVarianceNote(f.a, admin, input('Admin rewrite.'))).toMatchObject({ ok: true, note: { status: 'draft' } });
@@ -127,6 +127,22 @@ describe('roles: write, approve, reject', () => {
   });
 });
 
+describe('an approver signs only the text they were shown', () => {
+  it('a note re-drafted between the approver\'s load and the click is refused (409) and nothing is approved', async () => {
+    await asA(async () => {
+      const saved = await saveVarianceNote(f.a, manager, input('What the owner read.'));
+      if (!saved.ok) throw new Error(saved.reason);
+      const seen = saved.note.draftText!;
+      expect((await saveVarianceNote(f.a, manager, input('Swapped in after the owner opened it.'))).ok).toBe(true);
+      expect(await approveVarianceNote(f.a, owner(), saved.note.id, seen)).toMatchObject({ ok: false, code: 'invalid_state' });
+      expect(await approveVarianceNote(f.a, owner(), saved.note.id, seen, 'Owner wording.')).toMatchObject({ ok: false, code: 'invalid_state' });
+      expect(await rowOf(saved.note.id)).toMatchObject({ status: 'draft', approved_text: null, draft_text: 'Swapped in after the owner opened it.' });
+      expect(await approveVarianceNote(f.a, owner(), saved.note.id, 'Swapped in after the owner opened it.'))
+        .toMatchObject({ ok: true, note: { approvedText: 'Swapped in after the owner opened it.' } });
+    });
+  });
+});
+
 describe('a variance approval is not a board-pack approval', () => {
   it('takes no pack lock and no page-4 ems charge: two notes each larger than the whole page-4 budget both approve', async () => {
     const big = [sized(1.6, 'Opex'), sized(1.6, 'Sales')];
@@ -139,9 +155,9 @@ describe('a variance approval is not a board-pack approval', () => {
       const small = await saveVarianceNote(f.a, owner(), input('Interest was lower.', { glAccountId: f.acc.interest, buId: f.bu.B1 }));
       if (!small.ok) throw new Error(small.reason);
       // The small one first: as a board row it would fit the page and take the pack lock.
-      const tiny = await approveVarianceNote(f.a, owner(), small.note.id);
-      const plain = await approveVarianceNote(f.a, owner(), a.note.id);
-      const edited = await approveVarianceNote(f.a, owner(), b.note.id, big[1]!);
+      const tiny = await approveVarianceNote(f.a, owner(), small.note.id, 'Interest was lower.');
+      const plain = await approveVarianceNote(f.a, owner(), a.note.id, big[0]!);
+      const edited = await approveVarianceNote(f.a, owner(), b.note.id, 'short', big[1]!);
       expect([tiny.ok, plain.ok, edited.ok]).toEqual([true, true, true]);
       // commentaryBudget.lockAndReadPack's pg_advisory_xact_lock(…, 611) is the pack lock: none is held.
       const locks = (await sql`SELECT COUNT(*)::INT n FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()`) as DbRow[];
@@ -165,7 +181,7 @@ describe('the generic pack commentary approve / reject cannot act on a variance 
   it('nor can the variance service act on a pack row', async () => {
     const pack = crypto.randomUUID();
     await asA(async () => {
-      expect(await approveVarianceNote(f.a, owner(), pack)).toMatchObject({ ok: false, code: 'not_found' });
+      expect(await approveVarianceNote(f.a, owner(), pack, 'pack draft')).toMatchObject({ ok: false, code: 'not_found' });
       expect(await rejectVarianceNote(f.a, owner(), pack)).toMatchObject({ ok: false, code: 'not_found' });
       expect((await rowOf(pack)).status).toBe('draft');
     }, (c) => c.query(`INSERT INTO report_commentary (id, company_id, report_kind, params_hash, period_start, period_end, section_ref,
@@ -195,7 +211,7 @@ describe('every id is the company\'s', () => {
   it('another company\'s note id cannot be approved or rejected, and its notes are never listed', async () => {
     const theirs = crypto.randomUUID();
     await asA(async () => {
-      expect(await approveVarianceNote(f.a, owner(), theirs)).toMatchObject({ ok: false, code: 'not_found' });
+      expect(await approveVarianceNote(f.a, owner(), theirs, 'B SECRET')).toMatchObject({ ok: false, code: 'not_found' });
       expect(await rejectVarianceNote(f.a, owner(), theirs)).toMatchObject({ ok: false, code: 'not_found' });
       const listed = await listVarianceNotes(f.a, 'owner', f.v.primary27, MONTH);
       expect(listed).toEqual({ ok: true, notes: [] });

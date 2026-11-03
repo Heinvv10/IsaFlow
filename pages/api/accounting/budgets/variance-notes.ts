@@ -6,7 +6,8 @@
  *      see drafts and rejected notes (labelled by `status`).
  * POST { action: 'save', versionId, month, glAccountId, cc1Id, cc2Id, buId, text } → { note } — owner/admin/manager:
  *      the slice's draft (an approved note: owner/admin only, withdrawing the approval).
- * POST { action: 'approve', id, text? } → { note } — owner/admin; `text` approves the approver's own wording.
+ * POST { action: 'approve', id, draft, text? } → { note } — owner/admin; `draft` is the draft text the approver was
+ *      shown (409 when the note changed since, nothing approved); `text` approves the approver's own wording.
  * POST { action: 'reject', id } → { note } — owner/admin.
  *
  * Every id is the company's or the answer is 404 (another tenant's id reads as missing). 403 for a role,
@@ -32,7 +33,8 @@ const BodySchema = z.discriminatedUnion('action', [
     cc1Id: UUID.nullable().default(null), cc2Id: UUID.nullable().default(null), buId: UUID.nullable().default(null),
     text: Text,
   }).strict(),
-  z.object({ action: z.literal('approve'), id: UUID, text: Text.optional() }).strict(),
+  // `draft`: the draft text the approver was shown; a note changed since answers 409 and nothing is approved.
+  z.object({ action: z.literal('approve'), id: UUID, draft: Text, text: Text.optional() }).strict(),
   z.object({ action: z.literal('reject'), id: UUID }).strict(),
 ]);
 const QuerySchema = z.object({ versionId: UUID, month: z.string().max(7) });
@@ -44,8 +46,9 @@ function fail(res: NextApiResponse, code: VarianceFailureCode, reason: string): 
   return apiResponse.badRequest(res, reason);
 }
 
-async function limited(res: NextApiResponse, key: string, max: number): Promise<boolean> {
-  if (await checkRateLimit(key, { max, windowSecs: 60 })) return false;
+/** Answers 429 when `allowed` is false; true when it did. */
+function limited(res: NextApiResponse, allowed: boolean): boolean {
+  if (allowed) return false;
   res.setHeader('Retry-After', '60');
   apiResponse.tooManyRequests(res, 'Too many variance-note requests; wait a minute and try again.');
   return true;
@@ -54,7 +57,7 @@ async function limited(res: NextApiResponse, key: string, max: number): Promise<
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   if (req.method === 'GET') {
-    if (await limited(res, `variance-notes-read:${user.id}`, 240)) return;
+    if (limited(res, await checkRateLimit(`variance-notes-read:${user.id}`, { max: 240, windowSecs: 60 }))) return;
     const q = QuerySchema.safeParse({ versionId: req.query.versionId, month: req.query.month });
     if (!q.success) return apiResponse.zodValidationError(res, q.error);
     const out = await listVarianceNotes(companyId, companyRole, q.data.versionId, q.data.month);
@@ -62,7 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { notes: out.notes });
   }
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
-  if (await limited(res, `variance-notes-write:${user.id}`, 60)) return;
+  if (limited(res, await checkRateLimit(`variance-notes-write:${user.id}`, { max: 60, windowSecs: 60 }))) return;
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const actor = { userId: user.id, role: companyRole };
@@ -70,7 +73,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const out = body.action === 'save'
     ? await saveVarianceNote(companyId, actor, body)
     : body.action === 'approve'
-      ? await approveVarianceNote(companyId, actor, body.id, body.text)
+      ? await approveVarianceNote(companyId, actor, body.id, body.draft, body.text)
       : await rejectVarianceNote(companyId, actor, body.id);
   if (!out.ok) return fail(res, out.code, out.reason);
   return apiResponse.success(res, { note: out.note });
