@@ -78,3 +78,27 @@ describe('portal notification HTML escaping', () => {
     expect(lastHtml()).not.toContain(XSS);
   });
 });
+
+describe('portal notification wording follows the document type', () => {
+  function lastSubject(): string {
+    return (sendEmailMock.mock.calls.at(-1)?.[0] as { subject: string }).subject;
+  }
+  it('signing request: a pack says Management Pack, an AFS keeps its wording', async () => {
+    await notifySigningRequested(contactWith('Jo'), 'd1', 'https://app/sign', 'management_pack');
+    expect(lastSubject()).toBe('Management Pack — Signature Required');
+    expect(lastHtml()).toContain('<h2>Management Pack — Signature Required</h2>');
+    expect(lastHtml()).toContain('The management pack for your company');
+    expect(lastHtml()).not.toContain('nnual');
+    await notifySigningRequested(contactWith('Jo'), 'd1', 'https://app/sign');
+    expect(lastSubject()).toBe('Annual Financial Statements — Signature Required');
+    expect(lastHtml()).toContain('The annual financial statements for your company');
+  });
+  it('signed off: a pack says Management Pack, an AFS keeps its wording', async () => {
+    sqlMock.mockResolvedValue([{ id: 'r1', name: 'Jo', email: 'd@e.co' }]);
+    await notifyDocumentSignedOff('co-1', 'd1', 'management_pack');
+    expect(lastSubject()).toBe('Management Pack — Signed Off');
+    expect(lastHtml()).toContain('<h2>Management Pack — Signed Off</h2>');
+    await notifyDocumentSignedOff('co-1', 'd1');
+    expect(lastSubject()).toBe('Annual Financial Statements — Signed Off');
+  });
+});

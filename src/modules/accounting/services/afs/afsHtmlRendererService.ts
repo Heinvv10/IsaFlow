@@ -2,6 +2,7 @@
 
 import type { AfsDocument, AfsSection, BrandProfile } from './afsTypes';
 import { renderCoverHtml } from './afsHtmlCoverTemplates';
+import { afsDocumentTitle, packPeriodPhrase } from './afsDocumentTitle';
 import { renderSectionContent, escapeHtml } from './afsHtmlTableRenderer';
 import type { AfsTemplateKey } from '@/lib/entityTypes';
 
@@ -176,9 +177,6 @@ function buildWatermark(text: string): string {
   return `<div class="watermark">${text}</div>`;
 }
 
-const AFS_TITLE = 'Annual Financial Statements';
-const PACK_TITLE = 'Management Pack';
-
 // ── Main orchestrator ─────────────────────────────────────────────────────────
 
 export function renderAfsToHtml(
@@ -189,10 +187,8 @@ export function renderAfsToHtml(
 
   // A management pack names itself; an AFS is entity-aware (trusts drop "Annual").
   const isPack = document.documentType === 'management_pack';
-  const coverTitle = isPack ? PACK_TITLE : AFS_TITLE;
-  const statementsTitle = isPack
-    ? PACK_TITLE
-    : entityType === 'trust' ? 'Financial Statements' : AFS_TITLE;
+  const coverTitle = afsDocumentTitle(document.documentType);
+  const statementsTitle = !isPack && entityType === 'trust' ? 'Financial Statements' : coverTitle;
 
   const css = buildCss(brandProfile);
   const periodEnd = resolvePeriodEnd(document);
@@ -205,7 +201,7 @@ export function renderAfsToHtml(
     companyName,
     registrationNumber,
     periodEnd,
-    periodPhrase: periodPhrase ?? (isPack ? `month of ${periodEnd}` : undefined),
+    periodPhrase: isPack ? packPeriodPhrase(periodEnd) : periodPhrase,
     coverPhotoUrl,
   });
 

@@ -7,22 +7,31 @@ vi.mock('@/modules/accounting/services/afs/afsReportingPeriod', () => ({
   findReportingPeriod: vi.fn().mockResolvedValue({ current: { phrase: 'year ended 2026-02-28' } }),
 }));
 
-async function documentXml(doc: Partial<AfsDocument>): Promise<string> {
+async function parts(doc: Partial<AfsDocument>): Promise<{ xml: string; core: string; paragraphs: string[] }> {
   const buf = await renderToDocx({ id: 'd', companyId: 'c', ...doc } as AfsDocument, [], 'Acme');
   const zip = await JSZip.loadAsync(buf);
-  return zip.file('word/document.xml')!.async('string');
+  const xml = await zip.file('word/document.xml')!.async('string');
+  const core = await zip.file('docProps/core.xml')!.async('string');
+  const paragraphs = [...xml.matchAll(/<w:p[ >].*?<\/w:p>/gs)].map((m) =>
+    [...m[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((t) => t[1]).join(''));
+  return { xml, core, paragraphs };
 }
 
 describe('DOCX cover title', () => {
-  it('management pack says Management Pack and the month', async () => {
-    const xml = await documentXml({ documentType: 'management_pack', fiscalYear: null, period: '2026-10' });
-    expect(xml).toContain('Management Pack');
-    expect(xml).toContain('2026-10');
-    expect(xml).not.toContain('Annual Financial Statements');
+  it('management pack: cover paragraphs, file title and description name the pack and the month', async () => {
+    const { paragraphs, core } = await parts({ documentType: 'management_pack', fiscalYear: null, period: '2026-10' });
+    expect(paragraphs.slice(0, 12)).toEqual(expect.arrayContaining(['Acme', 'Management Pack', 'For the month of October 2026']));
+    expect(core).toContain('Acme — Management Pack');
+    expect(core).toContain('Management pack for October 2026');
+    expect(paragraphs).not.toContain('Annual Financial Statements');
+    expect(core).not.toContain('Annual Financial Statements');
+    expect(core).not.toContain('AFS for');
   });
   it('AFS unchanged', async () => {
-    const xml = await documentXml({ documentType: 'afs', fiscalYear: 2026, period: null });
-    expect(xml).toContain('Annual Financial Statements');
-    expect(xml).not.toContain('Management Pack');
+    const { paragraphs, core } = await parts({ documentType: 'afs', fiscalYear: 2026, period: null });
+    expect(paragraphs).toEqual(expect.arrayContaining(['Annual Financial Statements', 'For the year ended 2026-02-28']));
+    expect(core).toContain('Acme — Annual Financial Statements');
+    expect(core).toContain('AFS for fiscal year 2026');
+    expect(paragraphs).not.toContain('Management Pack');
   });
 });

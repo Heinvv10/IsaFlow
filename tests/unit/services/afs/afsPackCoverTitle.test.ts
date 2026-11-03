@@ -31,7 +31,7 @@ describe('cover title follows the document type', () => {
       const html = renderAfsToHtml(ctx(PACK, style));
       expect(html).toContain('<h1 class="cover-title"');
       expect(html).toMatch(/<h1 class="cover-title"[^>]*>Management Pack<\/h1>/);
-      expect(html).toContain('2026-10');
+      expect(html).toContain('For the month of October 2026');
       expect(html).not.toContain('year ended 2026-10');
       expect(html).not.toContain('Annual Financial Statements');
       expect(html).toContain('<title>Management Pack — Acme (Pty) Ltd</title>');
