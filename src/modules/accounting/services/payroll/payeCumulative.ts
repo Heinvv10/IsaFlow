@@ -95,7 +95,9 @@
  * to date or the cap × n ÷ 12 (each less the AE part × n ÷ 12). Donations (4030, s18A) are added back to the
  * base (G21 2027 p. 10). The line records the deduction inside
  * the liability to date ((D − excess) × n ÷ 12 + excess) less what the earlier
- * lines recorded (ytd.retirementDeduction), as the credits are recorded.
+ * lines recorded (ytd.retirementDeduction), as the credits are recorded. A
+ * no-pay correction can reverse an earlier record, but cannot grow the
+ * deduction without periodic pay or an annual payment.
  * periodicTaxable / annualPayments (in and in ytd) are remuneration BEFORE the
  * deduction.
  *
@@ -189,12 +191,14 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const annualEarlier = Math.max(0, annualBefore - offAnnual);
 
   const regularInfo = calculatePAYE({ ...base, annualTaxableIncome: taxedAE });
-  // A period with neither periodic pay nor an annual payment (a severance-only
-  // line) deducts nothing from the tables: there is nothing to deduct it from.
+  // A period with neither periodic pay nor an annual payment deducts nothing
+  // from the tables. It can still reverse an earlier retirement deduction when
+  // signed contribution corrections reduce the cumulative allowed deduction.
   if (!hasPeriodic && annualNow <= 0) {
     return {
       regular: { ...regularInfo, monthlyPaye: 0 }, annualPaymentPaye: 0, periods, annualEquivalent,
-      medicalCredit: 0, additionalMedicalCredit: 0, retirementDeduction: 0,
+      medicalCredit: 0, additionalMedicalCredit: 0,
+      retirementDeduction: Math.min(0, round2(periodicToDate + offAnnual - (ytd.retirementDeduction ?? 0))),
     };
   }
   const taxAE = tax(taxedAE);

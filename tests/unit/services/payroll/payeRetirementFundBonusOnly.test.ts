@@ -124,6 +124,36 @@ describe('PAYE 4c: salary, bonus-only periods and signed corrections', () => {
     expectLimits(months);
   });
 
+  it('records the retirement deduction reversal in a correction-only no-pay period', () => {
+    // Month 1 records D-to-date = 5 500. The no-pay correction nets contributions to zero,
+    // so the line reverses that deduction without advancing the pay or cap periods.
+    const months = year([
+      { salary: 20_000, contribution: 8_000 },
+      { salary: 0, contribution: -8_000 },
+    ]);
+    expect([
+      months[1]!.periods,
+      months[1]!.capPeriods,
+      months[1]!.contributedToDate,
+      months[1]!.retirementDeduction,
+      months[1]!.deductedToDate,
+      months[1]!.totalPaye,
+    ]).toEqual([1, 1, 0, -5_500, 0, 0]);
+    expectLimits(months);
+  });
+
+  it('does not grow the retirement deduction in a contribution-only no-pay period', () => {
+    const months = year([{ salary: 0, contribution: 8_000 }]);
+    expect([
+      months[0]!.periods,
+      months[0]!.capPeriods,
+      months[0]!.retirementDeduction,
+      months[0]!.deductedToDate,
+      months[0]!.totalPaye,
+    ]).toEqual([0, 0, 0, 0, 0]);
+    expectLimits(months);
+  });
+
   it('also nets signed donation corrections before using donations in the 27.5% base', () => {
     // Month 1 adds the R1 000 donation back: D-to-date = 27.5% x 240 000 / 12 = 5 500.
     // Month 2 reverses it, so cumulative donations are zero and D-to-date = 27.5% x 240 000 x 2/12 = 11 000.
