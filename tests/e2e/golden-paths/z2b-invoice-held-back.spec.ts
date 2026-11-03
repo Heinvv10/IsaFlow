@@ -36,7 +36,7 @@ test('a change autosave is holding: Forward, Back and a two-step jump ask; Stay 
     const answers = [false, false, false, true]; // Stay, Stay, Stay, Leave
     const asked: string[] = [];
     page.on('dialog', async (d) => { asked.push(d.message()); await (answers.shift() ? d.accept() : d.dismiss()); });
-    // The address moves before the question: wait for the question, then for Stay's history.go to bring it back.
+    // The address moves before the question: wait for the question, then for Stay's navigation.traverseTo to bring it back.
     const stay = async (n: number) => {
       await expect.poll(() => asked.length, { timeout: 10_000 }).toBe(n);
       await expect(page).toHaveURL(edit, { timeout: 10_000 });
