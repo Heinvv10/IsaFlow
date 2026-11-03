@@ -248,8 +248,8 @@ export async function applyPackageToEmployee(
   const compRows = (await sql`
     SELECT component_id, amount, is_recurring
       FROM pay_package_components
-     WHERE package_id = ${packageId}::uuid
-  `) as DbRow[];
+     WHERE package_id = ${packageId}::uuid ORDER BY component_id
+  `) as DbRow[]; // a fixed order: which component refuses first, and so the refusal, does not depend on the heap
   if (compRows.length === 0) return { inserted: 0, ended: 0 };
 
   log.info(
@@ -271,7 +271,7 @@ export async function applyPackageToEmployee(
     await lockCompanyPayrollForComponentChange(tx, companyId);
     const actor: ComponentChangeActor = { userId, channel: 'rest' };
     const paid = await paidPeriodsOf(tx, companyId, employeeId);
-    const foreignAll = await foreignOnceOffsOf(tx, companyId, packageId, employeeId, compRows.map((r) => String(r.component_id)), effectiveFrom); // every component's: a named date must clear them all
+    const foreignAll = await foreignOnceOffsOf(tx, { companyId, packageId, employeeId, effectiveFrom }, compRows);
     let ended = 0;
     for (const r of compRows) {
       const componentId = String(r.component_id);

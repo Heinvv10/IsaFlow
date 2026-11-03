@@ -19,7 +19,8 @@ const user = crypto.randomUUID();
 const pkg = crypto.randomUUID();
 const pkg2 = crypto.randomUUID();
 const actor = { userId: user, channel: 'service' as const };
-const comp = { salary: crypto.randomUUID(), bonus: crypto.randomUUID() };
+// Fixed ids: package lines are applied in component_id order, and these tests assume the salary is processed first.
+const comp = { salary: 'aaaaaaaa-0000-4000-8000-0000000000d1', bonus: 'bbbbbbbb-0000-4000-8000-0000000000d1' };
 const emp: Record<string, string> = {};
 
 async function employee(key: string) {

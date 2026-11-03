@@ -120,14 +120,16 @@ async function recordRevivedLegacyOnceOffs(
  * overlap: what the date a refusal names has to clear, whichever component refuses first.
  */
 export async function foreignOnceOffsOf(
-  tx: TxSql, companyId: string, packageId: string, employeeId: string, componentIds: string[], effectiveFrom: string,
+  tx: TxSql, apply: { companyId: string; packageId: string; employeeId: string; effectiveFrom: string }, packageLines: DbRow[],
 ): Promise<DbRow[]> {
+  const { companyId, packageId, employeeId, effectiveFrom } = apply;
   const foreign: DbRow[] = [];
-  for (const componentId of componentIds) {
+  for (const componentId of packageLines.map((line) => String(line.component_id))) {
     const rows = (await tx`
-      SELECT id, amount, effective_from, effective_to, is_recurring, superseded_at
-        FROM payroll_employee_components
-       WHERE employee_id = ${employeeId}::uuid AND component_id = ${componentId}::uuid AND is_recurring = false AND superseded_at IS NULL
+      SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at
+        FROM payroll_employee_components c
+        JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid
+       WHERE c.employee_id = ${employeeId}::uuid AND c.component_id = ${componentId}::uuid AND c.is_recurring = false AND c.superseded_at IS NULL
     `) as DbRow[];
     const live = rows.filter((row) => (row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom)
       && (row.effective_to == null || isoDate(row.effective_to) >= isoDate(row.effective_from)));
@@ -147,12 +149,12 @@ export async function supersedeForPackage(tx: TxSql, input: SupersedeInput): Pro
   // row and leave two overlapping windows — getEmployeeComponents returns
   // both and the run pays the component twice.
   const all = (await tx`
-    SELECT id, amount, effective_from, effective_to, is_recurring, superseded_at, supersede_inferred,
-           (SELECT end_date FROM payroll_employees WHERE id = employee_id) AS employee_end
-      FROM payroll_employee_components
-     WHERE employee_id = ${employeeId}::uuid
-       AND component_id = ${componentId}::uuid
-     ORDER BY id FOR UPDATE
+    SELECT c.id, c.amount, c.effective_from, c.effective_to, c.is_recurring, c.superseded_at, c.supersede_inferred, e.end_date AS employee_end
+      FROM payroll_employee_components c
+      JOIN payroll_employees e ON e.id = c.employee_id AND e.company_id = ${companyId}::uuid
+     WHERE c.employee_id = ${employeeId}::uuid
+       AND c.component_id = ${componentId}::uuid
+     ORDER BY c.id FOR UPDATE OF c
   `) as DbRow[];
   const overlapped = all.filter((row) => row.effective_to == null || isoDate(row.effective_to) >= effectiveFrom);
   // A recurring row is the package's to replace. A once-off is only if the package wrote it (a re-apply); one entered
