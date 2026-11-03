@@ -72,6 +72,7 @@ const IRP5 = {
     uifEmployee: 2124, uifEmployer: 2124, sdl: 4800, eti: 0, netPay: 381876,
     runsIncluded: 12,
     lumpSums: [{ sourceCode: '3901', directiveNumber: '1234567890', directiveIssuedDate: '2025-11-03', amount: 30000, paye: 3000 }],
+    fringeBenefits: [{ sourceCode: '3801', amount: 10000 }],
   }],
   rowsTotal: 1,
   universeTotal: 2,
@@ -182,6 +183,8 @@ describe('irp5_data', () => {
     expect(env.rows[0].lump_sums).toEqual([
       { source_code: '3901', directive_number: '1234567890', directive_issued_date: '2025-11-03', amount: 30000, paye: 3000 },
     ]);
+    // The non-cash loan benefit: NOT in gross_salary (cash), certified under its own code.
+    expect(env.rows[0].fringe_benefits).toEqual([{ source_code: '3801', amount: 10000 }]);
   });
 
   it('masks identity numbers by default and reveals them only on request', async () => {

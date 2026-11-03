@@ -29,6 +29,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import type { LumpSumFiling } from './payrollLumpSumFiling';
 import { listCertificateLumpSums } from './directivePaymentFiling';
+import { listRunNonCashBenefits, type NonCashBenefitFiling } from './payrollNonCashFiling';
 
 type Row = DbRow;
 
@@ -41,6 +42,7 @@ export interface Irp5EmployeeTotals {
   idNumber: string | null;
   taxNumber: string | null;
   identityNumbersMasked: boolean;
+  /** Cash only: a non-cash benefit is not in it (fringeBenefits). */
   grossSalary: number;
   taxableIncome: number;
   paye: number;
@@ -57,6 +59,12 @@ export interface Irp5EmployeeTotals {
    * PAYE under `payeCode`.
    */
   lumpSums: LumpSumFiling[];
+  /**
+   * Non-cash fringe benefits (the 3801 loan benefit), NOT in grossSalary; in taxableIncome and
+   * paye. The certificate shows them under their own code (payrollNonCashFiling), so
+   * grossSalary + these is the remuneration.
+   */
+  fringeBenefits: NonCashBenefitFiling[];
 }
 
 export interface Irp5Exclusion {
@@ -177,6 +185,7 @@ export async function getIrp5EmployeeTotals(
   // Directives paid outside payroll are in no run line: their gross and PAYE are
   // added here, and an employee paid ONLY that way gets a row of their own.
   const { byEmployee: lumpSums, standaloneTotals } = await listCertificateLumpSums(companyId, { start, end }, employeeId);
+  const fringeBenefits = await listRunNonCashBenefits(companyId, { start, end }, employeeId);
   const standaloneIds = [...standaloneTotals.keys()];
   const withRuns = new Set(rows.map(r => String(r.id)));
   const onlyStandalone = standaloneIds.filter(id => !withRuns.has(id));
@@ -209,6 +218,7 @@ export async function getIrp5EmployeeTotals(
       netPay: round2((Number(r.net_pay) || 0) + t.gross - t.paye),
       runsIncluded: Number(r.runs_included) || 0,
       lumpSums: lumpSums.get(String(r.id)) ?? [],
+      fringeBenefits: fringeBenefits.get(String(r.id)) ?? [],
     };
   });
 

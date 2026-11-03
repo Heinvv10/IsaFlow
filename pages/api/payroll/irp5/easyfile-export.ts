@@ -37,6 +37,7 @@ import {
   ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import { listRunNonCashBenefits, nonCashTotal } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -61,7 +62,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, fringeByEmployee] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -101,6 +102,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
     loadMedicalRecord(companyId, bounds),
+    // Non-cash benefits: outside gross_pay, so outside 3601; under their own code (3801).
+    listRunNonCashBenefits(companyId, bounds),
   ]);
 
   const company = companyRows[0];
@@ -141,7 +144,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const agg = aggMap.get(String(row.id)) ?? (standalone.gross > 0 ? ({} as DbRow) : undefined);
     if (!agg) continue;
     const gross = Number(agg.total_gross ?? 0) + standalone.gross;
-    if (gross <= 0) continue; // skip non-active employees
+    const fringeBenefits = fringeByEmployee.get(String(row.id)) ?? [];
+    if (gross + nonCashTotal(fringeBenefits) <= 0) continue; // skip non-active employees
 
     const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
     const split = splitCertificateIncome({
@@ -172,6 +176,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       ...split,
+      fringeBenefits,
       lumpSums: employeeLumpSums.map(l => ({
         sourceCode: l.sourceCode,
         directiveNumber: l.directiveNumber ?? '',
