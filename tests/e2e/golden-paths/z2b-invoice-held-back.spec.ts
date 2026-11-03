@@ -74,7 +74,8 @@ test('the PDF preview refreshing (two saves) adds no history entry: a held chang
     await push(`/accounting/customer-invoices/edit/${id}`);
     await expect(page.getByPlaceholder('Item description').first()).not.toHaveValue('', { timeout: 60_000 });
     const preview = page.getByTitle('Invoice PDF preview');
-    if (!(await preview.isVisible())) await page.getByRole('button', { name: 'Preview PDF' }).click();
+    const toggle = page.getByRole('button', { name: 'Preview PDF' });
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click(); // open it if collapsed; never toggle an open one shut
     await expect(preview).toHaveAttribute('src', /^blob:/, { timeout: 60_000 });
     for (const n of [1, 2]) { // two saves, each refreshing the preview
       const before = await preview.getAttribute('src');
