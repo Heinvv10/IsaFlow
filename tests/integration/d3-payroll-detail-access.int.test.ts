@@ -182,7 +182,8 @@ describe('writes the gate newly closes — viewer 403 and nothing written, owner
 
   it('components POST: viewer 403, no assignment written; owner 201 writes one', async () => {
     const before = await assigns();
-    const body = { componentId: allowanceId, amount: 100, effectiveFrom: '2026-01-01' };
+    // After the approved March run: a recurring row dated in a paid month is refused (every writer judges the company).
+    const body = { componentId: allowanceId, amount: 100, effectiveFrom: '2026-04-01' };
     const v = await call(components as Route, 'POST', url(), employeeId, { user: viewer, body });
     expect(v.statusCode).toBe(403);
     expect(await assigns()).toBe(before);

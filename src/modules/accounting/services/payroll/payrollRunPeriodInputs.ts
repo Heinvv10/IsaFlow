@@ -30,6 +30,10 @@
  * lines therefore always reflect the inputs, and approve cannot read a stale
  * calculation produced here. Anything else thrown after the write is NOT a
  * PayrollRunInputRefusedError, so the route lets it become a 500 and rolls back.
+ *
+ * AS EVERY WRITER of payroll_employee_components (#1117): the company lock, the run's read day (payrollRunReadDate),
+ * refuseAssignmentWrite before an INSERT (a backstop: the month is unpaid while the run is editable), and an audit
+ * row per write in the savepoint, before the recalculation stamps the run (payrollRunRecalcGate reads it).
  */
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
@@ -47,6 +51,10 @@ import {
   calculatePayrollRun, getPayrollRun, getPayrollRunLines, type PayrollRunLine, type PayrollRunSummary,
 } from './payrollRunService';
 import { findOverdrawnLines } from './payrollRunLines';
+import { payrollRunReadDate } from './payrollRunReadDate';
+import { auditComponentChange, type ComponentChangeActor } from './payrollComponentAudit';
+import { refuseAssignmentWrite } from './payrollAssignmentWriteGuard';
+import { EmployeeComponentRefused } from './payrollEmployeeComponentRefused';
 import { getTaxYear, getTaxYearConfig, UnsupportedTaxYearError } from './taxTables';
 
 const EDITABLE_EARNING_CODES: ReadonlySet<string> = new Set(['3601', '3606', '3607']);
@@ -116,7 +124,6 @@ const monthBounds = ({ year, month }: Period) => ({
 });
 
 /** The date getEmployeeComponents reads a run's rows at: calculatePayrollRun's periodDate, as that reader turns it into a date. */
-const paidOn = ({ year, month }: Period) => new Date(year, month - 1, 28).toISOString().split('T')[0]!;
 
 async function listEditableComponents(companyId: string): Promise<RunInputComponent[]> {
   const rows = (await sql`
@@ -139,7 +146,7 @@ async function listEditableComponents(companyId: string): Promise<RunInputCompon
 
 async function readAmounts(companyId: string, period: Period, componentIds: string[]) {
   const { from, to } = monthBounds(period);
-  const payDay = paidOn(period);
+  const payDay = payrollRunReadDate(period); // the run's own read day: the grid edits what the run pays
   const rows = (await sql`
     SELECT pec.employee_id, pec.component_id,
            COUNT(*) FILTER (WHERE NOT pec.is_recurring)::int AS matches,
@@ -204,7 +211,7 @@ const centsOf = (rand: number) => Math.round(rand * 100);
 /** The once-off rows this run pays for the cell, locked, with whether each sits exactly on the row key. */
 async function lockPaidRows(tx: TxSql, companyId: string, employeeId: string, componentId: string, period: Period): Promise<DbRow[]> {
   const { from, to } = monthBounds(period);
-  const payDay = paidOn(period);
+  const payDay = payrollRunReadDate(period); // the run's own read day: the grid edits what the run pays
   return (await tx`
     SELECT pec.id, pec.amount, (pec.effective_from = ${from}::date AND pec.effective_to = ${to}::date) AS on_key
     FROM payroll_employee_components pec
@@ -230,6 +237,7 @@ export async function setRunPeriodAmount(
   componentId: string,
   amount: number,
   expectedAmount: number,
+  actor: ComponentChangeActor,
 ): Promise<RunInputsState> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   assertAmount(amount);
@@ -256,15 +264,25 @@ export async function setRunPeriodAmount(
     // From a calculation, not the stored line: another writer may have moved the inputs since it was stored.
     await calculatePayrollRun(runId, companyId);
     const shortfallBefore = await shortfallOf(companyId, runId, employeeId);
+    const window = { from, to, recurring: false };
     if (rowId && amount === 0) {
       await tx`DELETE FROM payroll_employee_components WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
+      await auditComponentChange(tx, companyId, rowId, window, window, 'run_input_remove', actor);
     } else if (rowId) {
       await tx`UPDATE payroll_employee_components SET amount = ${amount} WHERE id = ${rowId}::uuid AND employee_id = ${employeeId}::uuid`;
+      await auditComponentChange(tx, companyId, rowId, window, window, 'run_input', actor);
     } else if (amount !== 0) {
-      await tx`
+      try {
+        await refuseAssignmentWrite(tx, companyId, { employeeId, componentId, ...window });
+      } catch (err) {
+        if (err instanceof EmployeeComponentRefused) throw new PayrollRunInputRefusedError(400, err.message);
+        throw err;
+      }
+      const inserted = (await tx`
         INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to, is_recurring)
-        VALUES (${employeeId}::uuid, ${componentId}::uuid, ${amount}, ${from}, ${to}, FALSE)
-      `;
+        VALUES (${employeeId}::uuid, ${componentId}::uuid, ${amount}, ${from}, ${to}, FALSE) RETURNING id
+      `) as DbRow[];
+      await auditComponentChange(tx, companyId, String(inserted[0]!.id), null, window, 'run_input', actor);
     }
     await calculatePayrollRun(runId, companyId);
     // Only what this edit makes worse. Refusing every flagged line would refuse the edits that repair one.

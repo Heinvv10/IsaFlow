@@ -42,6 +42,7 @@ import {
   listRunNonCashBenefits, listRunUnflaggedFringe, unflaggedFringeSummary,
 } from '@/modules/accounting/services/payroll/payrollNonCashFiling';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
+import { loadRetirementContributions } from '@/modules/accounting/services/payroll/payrollRetirementRecord';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -65,7 +66,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, fringeByEmployee, unflaggedFringe] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee, retirementByEmployee, fringeByEmployee, unflaggedFringe] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -105,6 +106,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
     loadMedicalRecord(companyId, bounds),
+    loadRetirementContributions(companyId, bounds),
     // Non-cash benefits: outside gross_pay, so outside 3601; under their own code (3801).
     listRunNonCashBenefits(companyId, bounds),
     // 3801 items paid in cash (no flag): in 3601, and said so below.
@@ -215,6 +217,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       medical: medical && {
         fees: medical.fees, credit: medical.credit, additionalCredit: medical.additionalCredit, age65OrOlder: age != null && age >= 65, recorded: medical.recorded,
       },
+      // 4001 / 4003 / 4006 (PAYE 4c, easyFileRetirementFields).
+      retirementFund: retirementByEmployee.get(String(row.id)),
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),

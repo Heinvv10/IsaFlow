@@ -88,7 +88,11 @@ describe('payrollCalculator — property tests', () => {
       taxYear: 2025,
       annualPayrollEstimate: 1_000_000,
     });
-    expect(result.taxableIncome).toBeCloseTo(23_000, 2);
+    // PAYE 4c: a pension contribution (4001) is the s11F deduction, its own figure; taxable income is stored
+    // before it, and the tax is the tax on 23 000.
+    expect(result.retirementDeduction).toBeCloseTo(2_000, 2);
+    expect(result.taxableIncome).toBeCloseTo(25_000, 2);
+    expect(result.paye.monthlyPaye).toBe(calculatePayrollLine(makeInput(23_000)).paye.monthlyPaye);
     expect(result.grossPay).toBeCloseTo(25_000, 2);
   });
 

@@ -134,3 +134,20 @@ describe('advanceDate — a frequency it has not been taught', () => {
     expect(() => advanceDate('2026-03-31', 'toString')).toThrow(/unsupported recurring frequency/);
   });
 });
+
+describe('advanceDate — month ends around #1106', () => {
+  it.each([
+    ['monthly', '2026-10-31', '2026-11-30'],
+    ['monthly', '2026-11-30', '2026-12-31'],
+    ['monthly', '2027-01-29', '2027-02-28'],
+    ['monthly', '2027-01-30', '2027-02-28'],
+    ['monthly', '2027-01-31', '2027-02-28'],
+    ['monthly', '2028-01-29', '2028-02-29'],
+    ['monthly', '2028-01-31', '2028-02-29'],
+    ['quarterly', '2026-08-31', '2026-11-30'],
+    ['quarterly', '2026-11-30', '2027-02-28'],
+    ['quarterly', '2027-11-30', '2028-02-29'],
+  ])('%s from %s is %s', (frequency, from, to) => {
+    expect(advanceDate(from, frequency)).toBe(to);
+  });
+});

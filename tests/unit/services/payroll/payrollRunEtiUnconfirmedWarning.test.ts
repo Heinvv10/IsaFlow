@@ -56,6 +56,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollComponentService', () => (
     },
   ]),
 }));
+// No recurring row needs a pro-rata (payroll-run-pro-rata-guard.int covers the guard).
+vi.mock('@/modules/accounting/services/payroll/payrollRecurringProRata', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollRecurringProRata')>()),
+  recurringRowsNeedingProRata: vi.fn(async () => []),
+}));
 vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
   applySdlToLines: vi.fn(() => 0),
@@ -78,6 +83,8 @@ import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payro
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { estimateAnnualRemuneration } from '@/modules/accounting/services/payroll/sdlLeviabilityService';
+import { getEmployeeComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
+import { laterPeriodsWarnings } from '@/modules/accounting/services/payroll/payrollYearToDate';
 
 const codesWritten = (): string[] =>
   (JSON.parse(String(inserts[0]!.at(-1))) as Array<{ code: string }>).map((w) => w.code);
@@ -115,5 +122,31 @@ describe('calculatePayrollRun - unconfirmed ETI table warning', () => {
       '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 }, 3_100,
       '22222222-2222-4222-8222-222222222222',
     );
+  });
+
+  it('warns a fully donated salary line when a later period is approved', async () => {
+    vi.mocked(getEmployeeComponents).mockResolvedValueOnce([
+      {
+        component: {
+          id: 'salary', name: 'Salary', sarsSourceCode: '3601', componentType: 'earning',
+          isTaxable: true, isUifApplicable: true, isSdlApplicable: true,
+        },
+        amount: 20_000,
+      },
+      {
+        component: {
+          id: 'donation', name: 'Donation', sarsSourceCode: '4030', componentType: 'deduction',
+          isTaxable: true, isUifApplicable: false, isSdlApplicable: false,
+        },
+        amount: 20_000,
+      },
+    ] as never);
+    vi.mocked(laterPeriodsWarnings).mockResolvedValueOnce(new Map([['e1', {
+      code: 'PAYE_LATER_PERIODS_APPROVED', severity: 'warning', periods: ['2027-02'], message: 'later',
+    }]]));
+
+    await calculate(1, 2027);
+
+    expect(codesWritten()).toContain('PAYE_LATER_PERIODS_APPROVED');
   });
 });

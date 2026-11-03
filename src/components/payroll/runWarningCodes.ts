@@ -18,14 +18,20 @@ export const GROUP_LABEL: Record<string, string> = {
   LOAN_INSTALMENT_EXCEEDS_PAY: 'Loan instalment exceeds pay — reduce or defer it, close the loan, or pay final pay first; then recalculate',
   LOAN_DEDUCTION_MISSING: 'Loan instalment not taken — no active LOAN deduction; add it under Setup → Pay Components, then recalculate',
   LOAN_FRINGE_NOT_RECORDED: 'Loan fringe benefit not recorded — add the 3801 earning under Setup → Pay Components, then recalculate',
+  RECURRING_NEEDS_PRO_RATA: 'A recurring component starts after the 27th or ends before month end — needs a manual pro-rata: use Edit dates on the employee\'s Pay Components, then recalculate',
 };
 
 /** Codes whose message carries the employee's own figures (a loan, an amount): shown per employee. */
-export const OWN_FIGURES: ReadonlySet<string> = new Set(['DEDUCTIONS_EXCEED_PAY', 'LOAN_INSTALMENT_EXCEEDS_PAY', 'LOAN_DEDUCTION_MISSING', 'LOAN_FRINGE_NOT_RECORDED']);
+export const OWN_FIGURES: ReadonlySet<string> = new Set([
+  'DEDUCTIONS_EXCEED_PAY', 'LOAN_INSTALMENT_EXCEEDS_PAY', 'LOAN_DEDUCTION_MISSING', 'LOAN_FRINGE_NOT_RECORDED',
+  'RECURRING_NEEDS_PRO_RATA', // the component and its dates
+]);
 
-/** Line results the approval gate refuses on (payrollLineBlockers): blocking, not warnings. */
+/** Line results the approval gate refuses on (payrollLineBlockers, payrollRecurringProRata): blocking, not warnings. */
 export const BLOCKING_LINE_CODES: ReadonlySet<string> = new Set([
   'DEDUCTIONS_EXCEED_PAY', 'LOAN_DEDUCTION_MISSING', 'LOAN_INSTALMENT_EXCEEDS_PAY', 'LOAN_FRINGE_NOT_RECORDED',
+  // payrollRecurringProRata.runProRataBlocker (the gate refuses a line carrying it, even once the row is fixed: recalculate).
+  'RECURRING_NEEDS_PRO_RATA',
 ]);
 
 /** Every code the page labels or treats specially. */

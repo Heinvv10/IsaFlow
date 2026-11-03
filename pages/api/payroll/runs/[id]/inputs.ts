@@ -44,7 +44,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (typeof expectedAmount !== 'number') return apiResponse.badRequest(res, 'expectedAmount must be a number');
 
   try {
-    return apiResponse.success(res, await setRunPeriodAmount(companyId, id, employeeId, componentId, amount, expectedAmount));
+    return apiResponse.success(res, await setRunPeriodAmount(
+      companyId, id, employeeId, componentId, amount, expectedAmount, { userId: req.user.id, userEmail: req.user.email, channel: 'rest' },
+    ));
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof PayrollRunInputRefusedError) {

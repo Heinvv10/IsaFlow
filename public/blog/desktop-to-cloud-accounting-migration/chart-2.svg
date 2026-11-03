@@ -376,8 +376,8 @@ z
     </g>
    </g>
    <g id="text_2">
-    <!-- CSV or xlsx -->
-    <g style="fill: #5b6b7f" transform="translate(71.938317 201.388904) scale(0.115 -0.115)">
+    <!-- CSV -->
+    <g style="fill: #5b6b7f" transform="translate(91.491012 201.388904) scale(0.115 -0.115)">
      <defs>
       <path id="Inter-Regular-49" d="M 2447 -63 
 Q 1850 -63 1383 226 
@@ -591,14 +591,6 @@ z
      <use xlink:href="#Inter-Regular-49"/>
      <use xlink:href="#Inter-Regular-18d" transform="translate(73.046875 0)"/>
      <use xlink:href="#Inter-Regular-1c8" transform="translate(137.203125 0)"/>
-     <use xlink:href="#Inter-Regular-6ef" transform="translate(206.203125 0)"/>
-     <use xlink:href="#Inter-Regular-316" transform="translate(234.328125 0)"/>
-     <use xlink:href="#Inter-Regular-354" transform="translate(294.296875 0)"/>
-     <use xlink:href="#Inter-Regular-6ef" transform="translate(331.9375 0)"/>
-     <use xlink:href="#Inter-Regular-3df" transform="translate(360.0625 0)"/>
-     <use xlink:href="#Inter-Regular-2e0" transform="translate(414.65625 0)"/>
-     <use xlink:href="#Inter-Regular-367" transform="translate(438.875 0)"/>
-     <use xlink:href="#Inter-Regular-3df" transform="translate(491.65625 0)"/>
     </g>
     <!-- export -->
     <g style="fill: #5b6b7f" transform="translate(85.881169 220.110432) scale(0.115 -0.115)">

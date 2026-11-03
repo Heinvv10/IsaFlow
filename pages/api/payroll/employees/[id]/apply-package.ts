@@ -5,8 +5,9 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
-import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentRefused';
+import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
@@ -41,6 +42,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.success(res, result);
   } catch (err) {
     if (err instanceof PayPackageNotFoundError) return apiResponse.notFound(res, err.message);
+    // A package that would cut what a paid run paid (payPackageService): the reason is the user's to read.
+    if (err instanceof EmployeeComponentRefused) return apiResponse.badRequest(res, err.message);
+    // The company's payroll lock was held past its 5s wait (an approval in flight): retry, not a bad request.
     if (respondIfLockTimeout(res, err)) return;
     return apiResponse.badRequestFromError(res, err, 'Apply failed');
   }

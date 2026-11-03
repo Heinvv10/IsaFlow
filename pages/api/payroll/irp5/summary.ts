@@ -93,6 +93,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         prl.employee_id,
         SUM(prl.gross_pay)                       AS total_gross,
         SUM(prl.taxable_income)                  AS total_taxable,
+        SUM(COALESCE(prl.retirement_deduction, 0)) AS retirement_deduction,
         SUM(prl.paye)                            AS total_paye,
         SUM(prl.uif_employee + prl.uif_employer) AS total_uif,
         SUM(prl.sdl)                             AS total_sdl
@@ -199,7 +200,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       endDate: emp.end_date ? fmtDate(emp.end_date) : null,
       totalGross,
       totalFringeBenefits,
-      totalTaxable: agg ? Number(agg.total_taxable) : 0,
+      totalTaxable: agg
+        ? Number(agg.total_taxable) - Number(agg.retirement_deduction)
+        : 0,
       totalPaye,
       totalUif,
       totalSdl,

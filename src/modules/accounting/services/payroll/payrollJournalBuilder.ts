@@ -19,7 +19,7 @@
  *   DR 5200 Labour = gross + employer UIF + SDL − ETI used, split by cost centre
  *     (the mapping picks the account; the centre is the line's CC1 — payrollJournalParts#buildLabourLines)
  *   CR 2140 PAYE = PAYE − ETI used   CR 2150 UIF (both halves)   CR 2160 SDL
- *   CR 2175 Other employee deductions (residual)   CR 1110 Bank (net pay)
+ *   CR 2175 deductions, or DR 2175 for a net reversal   CR 1110 Bank (net pay)
  *
  * ETI (K-079, Hein 2026-09-26). ETI is an offset against the PAYE remitted, so
  * it reduces the 2140 credit, and it is presented net of labour cost. Only the
@@ -158,10 +158,10 @@ export async function buildPayrollJournalPlan(
       detail: `The company has no GL account for ${missing.join(', ')}. The payroll journal cannot be built without them.`,
     });
   }
-  if (otherDeductions > 0.005 && !accounts.has('2175')) {
+  if (Math.abs(otherDeductions) > 0.005 && !accounts.has('2175')) {
     blockers.push({
       code: 'missing_other_deductions_account',
-      detail: `The run carries R${otherDeductions.toFixed(2)} of voluntary deductions but the company has no GL account 2175 (Other Employee Deductions Payable).`,
+      detail: `The run carries R${otherDeductions.toFixed(2)} of voluntary deductions or reversals but the company has no GL account 2175 (Other Employee Deductions Payable).`,
     });
   }
   if (status !== 'approved') {
@@ -233,6 +233,8 @@ export async function buildPayrollJournalPlan(
   built.push(line('1110', 0, net, 'Net pay — bank disbursement'));
   if (otherDeductions > 0.005) {
     built.push(line('2175', 0, otherDeductions, 'Other employee deductions (medical aid, pension, RA, etc.)'));
+  } else if (otherDeductions < -0.005) {
+    built.push(line('2175', Math.abs(otherDeductions), 0, 'Other employee deductions reversal — amount paid back through payroll'));
   }
 
   const lines = built.filter((l) => l.debit !== 0 || l.credit !== 0);

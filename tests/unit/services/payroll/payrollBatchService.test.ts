@@ -4,22 +4,22 @@ const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
-vi.mock('@/lib/neon', () => ({
-  withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(
-    (strings: TemplateStringsArray, ...values: unknown[]) => {
-      sqlCalls.push({ sql: strings.join('?'), values });
-      return mockImpl(strings, ...values);
-    },
-  ),
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+vi.mock('@/lib/neon', () => {
+  const SQL = (strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
-  },
-}));
-
-vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
-  lockCompanyPayrollApprovals: vi.fn(async () => undefined),
-}));
+  };
+  return {
+  sql: SQL,
+  // assign and batch post now run in a transaction under the company's payroll-approval lock: the lock's two
+  // statements are answered here and not recorded, everything else goes to the recorder above.
+  withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    if (text.includes('pg_advisory_xact_lock') || text.includes("set_config('lock_timeout'")) return Promise.resolve([{ previous: '0' }]);
+    return SQL(strings, ...values);
+  }),
+  };
+});
 
 import { EmployeeComponentRefused } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import {

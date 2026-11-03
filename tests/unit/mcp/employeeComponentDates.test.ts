@@ -13,10 +13,17 @@ const ORIGINAL_TZ = vi.hoisted(() => {
 
 let componentVisibleToSql = true;
 const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
-vi.mock('@/lib/neon', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+// End goes through the guarded change (payrollComponentDateEdit): one transaction, the row and its siblings read
+// first. The mock answers those two reads with one open recurring row; everything else is as before.
+function sqlMock(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> {
     const text = strings.join('?');
     sqlCalls.push({ sql: text, values });
+    if (text.includes('JOIN payroll_employees e ON e.id = pec.employee_id')) {
+      return Promise.resolve([{ id: ASSIGNMENT, employee_id: EMPLOYEE, component_id: COMPONENT }]);
+    }
+    if (text.includes('AS employee_end')) {
+      return Promise.resolve([{ id: ASSIGNMENT, effective_from: '2026-01-01', effective_to: null, is_recurring: true }]);
+    }
     if (text.includes('FROM payroll_employees') && text.includes('SELECT id')) return Promise.resolve([{ id: 'x' }]);
     if (text.includes('FROM payroll_components')) return Promise.resolve(componentVisibleToSql ? [{ id: 'x' }] : []);
     if (text.includes('INSERT INTO payroll_employee_components')) {
@@ -27,11 +34,10 @@ vi.mock('@/lib/neon', () => ({
       return Promise.resolve([{ id: EMPLOYEE, company_id: COMPANY, employee_number: 'E1', first_name: 'A', last_name: 'B', employment_type: 'permanent', start_date: '2026-03-01' }]);
     }
     return Promise.resolve([]);
-  },
-}));
-// The company payroll lock (payrollRunLock), recorded in the same trail, so its place among the statements is judged.
-vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
-  lockCompanyPayrollApprovals: vi.fn(async () => { sqlCalls.push({ sql: 'LOCK company payroll', values: [] }); }),
+}
+vi.mock('@/lib/neon', () => ({
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => sqlMock(strings, ...values),
+  withTransaction: (fn: (tx: typeof sqlMock) => Promise<unknown>) => fn(sqlMock),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (orig) => ({
@@ -70,7 +76,8 @@ describe('assign_employee_component stores the date it was given (SAST)', () => 
   it('recurring from the 1st', async () => {
     const r = await assign({ effective_from: '2026-03-01' });
     expect(r.isError).toBeFalsy();
-    const lock = sqlCalls.findIndex((c) => c.sql.startsWith('LOCK'));
+    // The company payroll-approval lock (payrollCompanyLock), taken in the writer's transaction: in the same trail.
+    const lock = sqlCalls.findIndex((c) => c.sql.includes('pg_advisory_xact_lock(hashtextextended('));
     expect(lock).toBeGreaterThan(-1);
     expect(lock).toBeLessThan(sqlCalls.findIndex((c) => c.sql.includes('INSERT INTO payroll_employee_components')));
     expect(insertValues()).toContain('2026-03-01');
@@ -113,8 +120,9 @@ describe('the other MCP date writes agree (regression pins)', () => {
       { assignment_id: ASSIGNMENT, effective_to: '2026-03-01', idempotency_key: 'k' }, ctx);
     const upd = sqlCalls.find((c) => c.sql.includes('UPDATE payroll_employee_components'))!;
     expect(upd.values).toContain('2026-03-01');
-    expect(sqlCalls.findIndex((c) => c.sql.startsWith('LOCK'))).toBeLessThan(sqlCalls.indexOf(upd));
-    expect(sqlCalls.findIndex((c) => c.sql.startsWith('LOCK'))).toBeGreaterThan(-1);
+    const lock = sqlCalls.findIndex((c) => c.sql.includes('pg_advisory_xact_lock(hashtextextended('));
+    expect(lock).toBeGreaterThan(-1);
+    expect(lock).toBeLessThan(sqlCalls.indexOf(upd));
   });
 
   it('regression pin: create_employee stores start_date, end_date and date_of_birth as given', async () => {

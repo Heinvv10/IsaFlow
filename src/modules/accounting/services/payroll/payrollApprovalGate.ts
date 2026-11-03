@@ -5,7 +5,9 @@
  * what another refuses (W3-01 review).
  *
  * In order:
- *   1. status: draft / calculated / processed, or approved with no journal;
+ *   1. status: draft / calculated / processed, or approved with no journal; then a run calculated by an older
+ *      calculation (`recalculate_required`), and after the directive and year-to-date checks, component dates changed
+ *      since calculation or a leaver with no termination base (payrollRunRecalcGate) — for every approval;
  *   1a. severance lines whose SARS directive was paid by something else, or no
  *      longer matches them (`severance_directive_unavailable`, audit
  *      2026-10-18 P3, payrollRunDirectiveClaim) — re-checked under the
@@ -22,11 +24,11 @@
  *                   `datedForReplacement`;
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
  *   3. for a fresh journal, termination pay-outs another approved or paid run
- *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then
- *      the line refusals of payrollLineBlockers (`run_lines_unreadable`, `loan_payments_off_payslip`,
- *      `loan_deduction_missing`, `loan_fringe_not_recorded`, `loan_instalment_exceeds_pay`,
- *      `deductions_exceed_pay`), then
- *      every journal-plan blocker except
+ *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then a
+ *      recurring row needing a manual pro-rata (`recurring_needs_pro_rata`,
+ *      payrollRecurringProRata), then the line refusals of payrollLineBlockers (`run_lines_unreadable`,
+ *      `loan_payments_off_payslip`, `loan_deduction_missing`, `loan_fringe_not_recorded`,
+ *      `loan_instalment_exceeds_pay`, `deductions_exceed_pay`), then every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
  *      'already_posted', which names the journal being replaced.
  *
@@ -40,13 +42,15 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
-import { comparableLines, sameFigures, type FigureLine } from './payrollLabourComparison';
+import { comparableLines, predatesTagging, sameFigures, type FigureLine } from './payrollLabourComparison';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
 import { findFringeNotRecordedLines, findLoanPaymentsOffPayslip, findOverdrawnLines, findWithheldLoanLines } from './payrollRunLines';
 import { lineBlocker } from './payrollLineBlockers';
+import { runProRataBlocker } from './payrollRecurringProRata';
+import { recalculateRequiredRefusal, runLinesRefusal } from './payrollRunRecalcGate';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -229,10 +233,17 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
     const statusRefusal = approvalStatusRefusal(plan.status, linkedId);
     if (statusRefusal) return { code: 'status_not_approvable', detail: statusRefusal };
+    // Calculated by an older calculation (no stamp, migration 953): recalculate first (payrollRunRecalcGate).
+    const stale = await recalculateRequiredRefusal(companyId, runId);
+    if (stale) return stale;
     // Severance lines whose directive another payer took, or that no longer match it (P3).
     const directives = await judgeRunDirectives(companyId, runId);
     if (directives) return directives;
     if (yearToDate.blocker) return yearToDate.blocker;
+    // Component dates changed since calculation; a leaver with no termination base (payrollRunRecalcGate). Also for a
+    // re-approval onto a journal in force.
+    const lines = await runLinesRefusal(companyId, runId);
+    if (lines) return lines;
     if (linkedId && !out) {
       const numbers = chain?.journals.map((j) => j.entryNumber).join(', ');
       if (!chain || !linked || chain.state === 'unclear') {
@@ -254,10 +265,13 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
         ? comparableLines(plan.lines, plan.labourBySourceCentre, read!.asPosted)
         : { plan: plan.lines, posted: linked.lines };
       if (!sameFigures(compared, perAccount)) {
+        const cause = perAccount && predatesTagging(plan.lines, read!.asPosted)
+          ? 'the journal predates cost-centre tagging and this run now tags its labour by cost centre'
+          : 'it was recalculated, or its pay moved between cost centres, after posting';
         return {
           code: 'recalculated_after_posting',
-          detail: `This run's figures no longer match the journal it posted (${numbers}) — it was recalculated, or its pay moved between `
-            + `cost centres, after posting. Reverse journal ${inForce.entryNumber} first; approving then posts a new one.`,
+          detail: `This run's figures no longer match the journal it posted (${numbers}) — ${cause}. `
+            + `Reverse journal ${inForce.entryNumber} first; approving then posts a new one.`,
         };
       }
       return null;
@@ -272,6 +286,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
           + '. Recalculate this run first; it then leaves them out.',
       };
     }
+    // A recurring row the last-day read pays in full or drops (payrollRecurringProRata): first, it changes the lines.
+    const proRata = await runProRataBlocker(companyId, runId);
+    if (proRata) return proRata;
     // Unreadable lines, loans off the payslip, withheld or above pay, an unrecorded fringe benefit, a shortfall (payrollLineBlockers).
     const fromLines = lineBlocker(overdrawn, await findWithheldLoanLines(companyId, runId), loanPayments.offPayslip,
       [...await findFringeNotRecordedLines(companyId, runId), ...loanPayments.fringeNotRecorded]);
