@@ -1,8 +1,8 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { request } from '@playwright/test';
-import { afterEach, describe, expect, it } from 'vitest';
-import { retryDropped } from '../../e2e/helpers/droppedConnection';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { retryDropped, type Running } from '../../e2e/helpers/droppedConnection';
 
 let server: Server | undefined;
 afterEach(() => { server?.close(); server?.closeAllConnections(); server = undefined; });
@@ -56,5 +56,31 @@ describe('retryDropped', () => {
     const ctx = await request.newContext({ baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}` });
     expect((await retryDropped(() => ctx.get('/x'))).status()).toBe(500);
     await ctx.dispose();
+  });
+
+  describe('inside a test run', () => {
+    const dropOnce = () => {
+      let calls = 0;
+      return { calls: () => calls, call: async () => { calls += 1; if (calls === 1) throw new Error('apiRequestContext.get: read ECONNRESET'); return 'ok'; } };
+    };
+    const ctxAt = (baseURL: string | undefined, notes: string[]): Running => ({ title: 'z4 keyboard', baseURL, note: (t) => notes.push(t) });
+
+    it('logs each re-send with test name, error code and attempt, on stderr and as an annotation', async () => {
+      const notes: string[] = [];
+      const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const d = dropOnce();
+      await expect(retryDropped(d.call, 5000, ctxAt('http://localhost:3447', notes))).resolves.toBe('ok');
+      expect(notes).toEqual(['test="z4 keyboard" code=ECONNRESET attempt=1']);
+      expect(write).toHaveBeenCalledWith('[dropped-connection] test="z4 keyboard" code=ECONNRESET attempt=1\n');
+      write.mockRestore();
+    });
+
+    it.each(['https://app.isaflow.co.za', 'http://10.0.0.5:3101', undefined])('does not re-send against %s (a reset there is an outage signal)', async (baseURL) => {
+      const notes: string[] = [];
+      const d = dropOnce();
+      await expect(retryDropped(d.call, 5000, ctxAt(baseURL, notes))).rejects.toThrow(/ECONNRESET/);
+      expect(d.calls()).toBe(1);
+      expect(notes).toEqual([]);
+    });
   });
 });
