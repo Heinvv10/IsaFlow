@@ -14,7 +14,7 @@ const SERVICES = 'src/modules/accounting/services/payroll/';
 /** file -> the guard it carries. */
 const WRITERS: Record<string, string> = {
   [`${SERVICES}payrollEmployeeComponentService.ts`]: 'assign: refuseAssignmentWrite under the company lock',
-  [`${SERVICES}payrollBatchService.ts`]: 'batch post: refuseAssignmentWrite under the company lock',
+  [`${SERVICES}payrollBatchPost.ts`]: 'batch post: refuseAssignmentWrite under the company lock',
   [`${SERVICES}payPackageService.ts`]: 'package apply: refuseAssignmentWrite under the company lock',
   [`${SERVICES}payPackageSupersede.ts`]: 'package apply cut: paidPeriodChanged under the company lock',
   [`${SERVICES}payrollComponentDateEdit.ts`]: 'Edit dates / End: paid months and overlap under the company lock',
