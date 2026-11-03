@@ -148,7 +148,6 @@ export async function applyTaxDirective(
     SELECT 1 FROM payroll_employees WHERE company_id = ${companyId} AND id = ${dir.employee_id}
   `) as Row[];
   if (employee.length === 0) throw new TaxDirectiveWithoutEmployeeError(directiveId);
-  const split = await refreshDirectiveLabour(companyId, directiveId, first); // the split as it stands now; before any write
   await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 2. Compute amounts
@@ -193,11 +192,48 @@ export async function applyTaxDirective(
     throw new Error('Cannot resolve bank GL account — supply bankAccountId or add GL account 1110');
   }
 
-  // 4. Build journal
+  // 4. Describe the journal; its labour lines are built after the claim wait.
   const employeeName = String(dir.employee_name);
   const directiveNum = dir.directive_number != null ? String(dir.directive_number) : directiveId.slice(0, 8);
   const narrative = `SARS directive ${directiveNum} — ${employeeName}`;
 
+  // 5. CLAIM before posting. UNIQUE (company_id, tax_directive_id) makes
+  // ON CONFLICT matching zero rows the refusal. This replaced a decorative
+  // pre-post read whose loser reached a 23505 only after creating its journal.
+  // The journal link is the only write left after posting.
+  const claimed = await claimUnderLockTimeout('tax directive', async () => (await sql`
+    INSERT INTO tax_directive_payments (
+      company_id, tax_directive_id, payment_date,
+      gross_amount, paye_amount, net_amount,
+      bank_account_id, created_by
+    ) VALUES (
+      ${companyId}, ${directiveId}, ${input.paymentDate},
+      ${gross}, ${paye}, ${net},
+      ${bankAccountId}, ${userId}
+    )
+    ON CONFLICT (company_id, tax_directive_id) DO NOTHING
+    RETURNING id
+  `) as Row[]);
+  if (claimed.length === 0) {
+    // Re-read rather than trusting a row read before the INSERT: the loser of a
+    // double-click needs the payment the winner left behind.
+    // A payroll run that paid a severance directive holds this same row (its
+    // claim, payrollRunDirectiveClaim), so the run is refused here too.
+    const now = (await sql`
+      SELECT id, payroll_run_id FROM tax_directive_payments
+      WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
+      LIMIT 1
+    `) as Row[];
+    const run = now[0]?.payroll_run_id;
+    throw new TaxDirectiveAlreadyAppliedError(directiveId, now[0] ? String(now[0].id) : null, run == null ? null : String(run));
+  }
+  const paymentId = String(claimed[0]!.id);
+
+  // 6. Re-read after acquiring the claim: a rival claim can make the INSERT
+  // wait while allocations or mappings change. Build no journal line from the
+  // pre-wait split. A new centre is still refused by the established lock-order
+  // guard, and the request savepoint rolls this claim back.
+  const split = await refreshDirectiveLabour(companyId, directiveId, first);
   const lines: JournalLineInput[] = [
     ...employeeLabourLines(split, gross, labourAccountId, `${narrative} — gross lump sum`),
     {
@@ -213,7 +249,6 @@ export async function applyTaxDirective(
       description: `${narrative} — net disbursement`,
     },
   ];
-
   const journalInput: JournalEntryCreateInput = {
     entryDate: input.paymentDate,
     description: narrative,
@@ -221,53 +256,17 @@ export async function applyTaxDirective(
     lines,
   };
 
-  // 5. CLAIM the directive before anything is posted. The payment row IS the
-  // claim: `tax_directive_payments` carries UNIQUE (company_id,
-  // tax_directive_id) from migration 403, so `ON CONFLICT DO NOTHING` matching
-  // zero rows is the refusal. What this replaced read the table for an existing
-  // payment and then posted DR 5200 / CR 2140 / CR bank with the INSERT last —
-  // so under concurrency the read was decorative and the loser's posted journal
-  // was unwound only by its 23505 aborting the transaction, an opaque 500 where
-  // the correct answer is a refusal raised before the first posting. The
-  // journal link is written after the posting, the only thing left to record.
-  // Claim to link (taxDirectiveLabour#postOrRetry): a mapped account deactivated since the re-read → retryable 409.
-  const { paymentId, entry } = await postOrRetry(companyId, directiveId, lines, labourAccountId, async () => {
-    const claimed = await claimUnderLockTimeout('tax directive', async () => (await sql`
-      INSERT INTO tax_directive_payments (
-        company_id, tax_directive_id, payment_date,
-        gross_amount, paye_amount, net_amount,
-        bank_account_id, created_by
-      ) VALUES (
-        ${companyId}, ${directiveId}, ${input.paymentDate},
-        ${gross}, ${paye}, ${net},
-        ${bankAccountId}, ${userId}
-      )
-      ON CONFLICT (company_id, tax_directive_id) DO NOTHING
-      RETURNING id
-    `) as Row[]);
-    if (claimed.length === 0) {
-      // Re-read rather than trusting a row read before the INSERT: the loser of a
-      // double-click needs the payment the winner left behind.
-      // A payroll run that paid a severance directive holds this same row (its
-      // claim, payrollRunDirectiveClaim), so the run is refused here too.
-      const now = (await sql`
-        SELECT id, payroll_run_id FROM tax_directive_payments
-        WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
-        LIMIT 1
-      `) as Row[];
-      const run = now[0]?.payroll_run_id;
-      throw new TaxDirectiveAlreadyAppliedError(directiveId, now[0] ? String(now[0].id) : null, run == null ? null : String(run));
-    }
-    const paymentId = String(claimed[0]!.id);
-
-    // 6. Create + post journal entry, then link it to the claimed payment.
+  // 7. Create + post journal entry, then link it to the claimed payment.
+  // A mapped account deactivated since the re-read is a retryable 409
+  // (taxDirectiveLabour#postOrRetry).
+  const entry = await postOrRetry(companyId, directiveId, lines, labourAccountId, async () => {
     const entry = await createJournalEntry(companyId, journalInput, userId);
     await postJournalEntry(companyId, entry.id, userId);
     await sql`
       UPDATE tax_directive_payments SET journal_entry_id = ${entry.id}
       WHERE id = ${paymentId} AND company_id = ${companyId}
     `;
-    return { paymentId, entry };
+    return entry;
   });
 
   log.info('Tax directive applied', {

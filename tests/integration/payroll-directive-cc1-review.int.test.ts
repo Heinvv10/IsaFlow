@@ -12,10 +12,8 @@
  *     (TAX_DIRECTIVE_SPLIT_CHANGED), nothing written;
  *  3. an unapproved directive is refused before any centre lock is waited for;
  *  4. the advisory never prints another company's centre id;
- *  5. (round 2, N1) a mapped account deactivated AFTER the re-read, before the
- *     post — the window a concurrent claim's wait stretches — is the same
- *     retryable 409, with the claim and the draft journal rolled back; the
- *     retry posts to 5200.
+ *  5. (round 2, N1) a mapped account deactivated while a concurrent claim is
+ *     waited for is seen by the post-claim refresh and posts to 5200 directly.
  *
  * Real routes (withAuth, app_user, RLS) on the disposable fixture.
  */
@@ -71,6 +69,30 @@ async function payWhileDirectiveHeld(directive: string, meanwhile: () => Promise
   } finally {
     await peer.query('ROLLBACK').catch(() => undefined);
     peer.release();
+  }
+}
+
+/** Pays `directive` while a rival holds its payment claim; `meanwhile` runs once this payment waits on that claim. */
+async function payWhilePaymentClaimed(directive: string, meanwhile: () => Promise<void>) {
+  const rival = await pool.connect();
+  try {
+    await rival.query('BEGIN');
+    await rival.query(`INSERT INTO tax_directive_payments (company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount)
+                       VALUES ($1,$2,'2026-09-15',1000,180,820)`, [f.company, directive]);
+    const paying = applyStandalone(f, directive);
+    for (let i = 0; ; i++) {
+      const n = (await pool.query(`SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND query ILIKE '%INSERT INTO tax_directive_payments%'`)).rows[0]!.n;
+      if (n > 0) break;
+      if (i > 100) throw new Error('the payment never waited on the claim');
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await meanwhile();
+    await rival.query('ROLLBACK');
+    return await paying;
+  } finally {
+    await rival.query('ROLLBACK').catch(() => undefined);
+    rival.release();
   }
 }
 
@@ -146,6 +168,27 @@ describe('the split is the one standing when the payment is written', () => {
     expect(await labour(String(paid.body.data!.journalEntryId))).toEqual([['5210', cc.b, 100000]]);
   });
 
+  it('an allocation + mapping edit committed while the payment waits on its claim is what posts', async () => {
+    await allocate([[cc.a, 50], [cc.b, 50]]);
+    await map(cc.a, acct5210);
+    await map(cc.b, null);
+    try {
+      const directive = await approvedDirective(f, 1000, 0.18, '2026-08-31', number());
+      const paid = await payWhilePaymentClaimed(directive, async () => {
+        await allocate([[cc.a, 20], [cc.b, 80]]);
+        await map(cc.a, null);
+        await map(cc.b, acct5210);
+      });
+      expect(paid.statusCode).toBe(200);
+      expect(await labour(String(paid.body.data!.journalEntryId))).toEqual([
+        ['5200', cc.a, 20000], ['5210', cc.b, 80000],
+      ]);
+    } finally {
+      await map(cc.a, acct5210);
+      await map(cc.b, null);
+    }
+  });
+
   it('a split that grew a centre while waiting is refused with a retryable 409, nothing written; the retry posts it', async () => {
     await allocate([[cc.a, 100]]);
     await map(cc.c, null);
@@ -180,38 +223,19 @@ describe('the split is the one standing when the payment is written', () => {
     }
   });
 
-  it('N1: a mapped account deactivated after the re-read is a retryable 409, nothing written; the retry posts to 5200', async () => {
+  it('N1: a mapped account deactivated while the payment waits on its claim is refreshed and posts to 5200', async () => {
     await allocate([[cc.a, 100]]);
     await map(cc.a, acct5210);
     const directive = await approvedDirective(f, 1000, 0.18, '2026-08-31', number());
-    const rival = await pool.connect();
     try {
-      // A concurrent claim of the same directive holds its payment row, so this payment waits AFTER its re-read.
-      await rival.query('BEGIN');
-      await rival.query(`INSERT INTO tax_directive_payments (company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount)
-                         VALUES ($1,$2,'2026-09-15',1000,180,820)`, [f.company, directive]);
-      const paying = applyStandalone(f, directive);
-      for (let i = 0; ; i++) {
-        const n = (await pool.query(`SELECT count(*)::int AS n FROM pg_stat_activity
-          WHERE wait_event_type = 'Lock' AND query ILIKE '%INSERT INTO tax_directive_payments%'`)).rows[0]!.n;
-        if (n > 0) break;
-        if (i > 100) throw new Error('the payment never waited on the claim');
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [acct5210]);
-      await rival.query('ROLLBACK');
-      const refused = await paying;
-      expect(refused.statusCode).toBe(409);
-      expect(JSON.stringify(refused.body)).toContain('TAX_DIRECTIVE_SPLIT_CHANGED');
-      expect(await payments(directive)).toBe(0);
-      expect((await pool.query("SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id = $1 AND description LIKE 'SARS directive ' || $2 || '%'",
-        [f.company, (await pool.query('SELECT directive_number FROM tax_directives WHERE id = $1', [directive])).rows[0]!.directive_number])).rows[0]!.n).toBe(0);
-      const retried = await applyStandalone(f, directive);
-      expect(retried.statusCode).toBe(200);
-      expect(await labour(String(retried.body.data!.journalEntryId))).toEqual([['5200', cc.a, 100000]]);
+      const paid = await payWhilePaymentClaimed(directive, async () => {
+        await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [acct5210]);
+      });
+      expect(paid.statusCode).toBe(200);
+      expect(await payments(directive)).toBe(1);
+      expect(await labour(String(paid.body.data!.journalEntryId))).toEqual([['5200', cc.a, 100000]]);
+      expect(JSON.stringify(paid.body.data!.advisories)).toContain('labour_account_inactive');
     } finally {
-      await rival.query('ROLLBACK').catch(() => undefined);
-      rival.release();
       await pool.query('UPDATE gl_accounts SET is_active = true WHERE id = $1', [acct5210]);
     }
   });

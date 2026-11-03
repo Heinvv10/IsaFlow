@@ -9,18 +9,18 @@
  * by the caller, which is what decides. employee_id is set at creation and
  * never updated, so the centres it names are the ones to lock.
  *
- * `refreshDirectiveLabour` runs once the directive row is held, before any
- * write: allocations, own centre and mapping are read again, so an edit that
- * committed while the payment waited is what posts. If the split now names a
- * centre the first read did not lock, locking it here would take a centre
- * after a directive — the order that can close a cycle — so the payment is
- * refused with TaxDirectiveSplitChangedError (409, retryable) instead.
- * A mapping or allocation edit committed after the re-read is not seen (the
- * same window a pay-run plan has); centres cannot change under the share lock.
+ * `refreshDirectiveLabour` runs once the directive row and payment claim are
+ * held: allocations, own centre and mapping are read again, so an edit that
+ * committed while either lock was waited for is what posts. If the split now
+ * names a centre the first read did not lock, locking it here would take a
+ * centre after a directive — the order that can close a cycle — so the
+ * payment is refused with TaxDirectiveSplitChangedError (409, retryable)
+ * instead. The request savepoint rolls back the claim. A mapping or allocation
+ * edit committed after the re-read is not seen (the same window a pay-run plan
+ * has); centres cannot change under the share lock.
  *
- * `postOrRetry` runs the claim, the journal and its link. A mapped labour
- * account deactivated after the re-read (the window a rival claim's wait
- * stretches, review round 2 N1) makes the GL refuse the post with
+ * `postOrRetry` runs the journal and its link after the claim. A mapped labour
+ * account deactivated after the post-claim re-read makes the GL refuse with
  * InactiveAccountError; when EVERY refused account is one of the split's
  * MAPPED labour accounts (used by no credit line) it is answered as
  * TaxDirectiveSplitChangedError (409, retryable): the retry's read routes that

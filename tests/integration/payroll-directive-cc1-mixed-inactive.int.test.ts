@@ -8,9 +8,10 @@
  *  - a mapped 5210 AND 2140 deactivated together;
  *  - labour mapped to the bank account 1110 and 1110 deactivated (the bank
  *    credit line still needs it).
- * The window is a rival claim on the directive's payment row, so both
- * deactivations commit after the payment's re-read. Real routes on the
- * disposable fixture.
+ * The window is a rival claim on the directive's payment row. The split is
+ * refreshed after that wait; non-labour accounts remain plain refusals while
+ * a mapped labour account alone routes to 5200 immediately. Real routes on
+ * the disposable fixture.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -31,7 +32,7 @@ const mapTo = (account: string) =>
 const payments = async (directive: string) => Number((await pool.query(
   'SELECT count(*)::int AS n FROM tax_directive_payments WHERE tax_directive_id = $1', [directive])).rows[0]!.n);
 
-/** Pays `directive` while a rival holds its claim, running `meanwhile` once the payment waits there (after its re-read). */
+/** Pays `directive` while a rival holds its claim, running `meanwhile` once the payment waits there. */
 async function payInWindow(directive: string, meanwhile: () => Promise<unknown>) {
   const rival = await pool.connect();
   try {
@@ -109,14 +110,14 @@ describe('a retry is promised only when the retry can succeed', () => {
     }
   });
 
-  it('control: the mapped 5210 alone is still the retryable 409, and the retry posts to 5200', async () => {
+  it('control: the mapped 5210 alone is refreshed after the claim wait and posts to 5200 directly', async () => {
     await mapTo(acct5210);
     try {
       const directive = await approvedDirective(f, 1000, 0.18, '2026-08-31', number());
-      const refused = await payInWindow(directive, () => deactivate('5210'));
-      expect(refused.statusCode).toBe(409);
-      expect(JSON.stringify(refused.body)).toContain('TAX_DIRECTIVE_SPLIT_CHANGED');
-      expect((await applyStandalone(f, directive)).statusCode).toBe(200);
+      const paid = await payInWindow(directive, () => deactivate('5210'));
+      expect(paid.statusCode).toBe(200);
+      expect(await payments(directive)).toBe(1);
+      expect(JSON.stringify(paid.body.data!.advisories)).toContain('labour_account_inactive');
     } finally {
       await pool.query('UPDATE gl_accounts SET is_active = true WHERE company_id = $1', [f.company]);
     }
