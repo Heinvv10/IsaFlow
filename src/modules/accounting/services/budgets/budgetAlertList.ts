@@ -8,7 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { alertHref } from './overspendAlertsCore';
-import { readLastEvaluated, type LastEvaluated } from './budgetAlertRuns';
+import { readLastEvaluated, type LastEvaluations } from './budgetAlertRuns';
 
 export const ALERT_LIST_LIMIT = 200;
 export const RESOLVED_DAYS = 30;
@@ -39,7 +39,7 @@ export interface BudgetAlertItem {
 export interface BudgetAlertList {
   open: BudgetAlertItem[];
   resolved: BudgetAlertItem[];
-  lastEvaluated: LastEvaluated | null;
+  lastEvaluated: LastEvaluations;
 }
 
 const text = (v: unknown): string | null => (v == null ? null : String(v));

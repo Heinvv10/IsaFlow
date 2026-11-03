@@ -36,6 +36,16 @@ describe('/api/cron/budget-alerts', () => {
     expect((await call({ method: 'POST', headers })).statusCode).toBe(401);
     expect(runBudgetAlertCron).not.toHaveBeenCalled();
   });
+  it('a run where any company failed answers 500 (curl --fail and systemd see it), with every company\'s result', async () => {
+    const result = { asOf: '2026-04-20', companies: 2, failed: 1, fired: 1, resolved: 0, emailsSent: 0,
+      perCompany: [{ companyId: 'a', ok: false, fired: 0, resolved: 0, digest: null, error: 'evaluation failed; see logs' },
+        { companyId: 'b', ok: true, fired: 1, resolved: 0, digest: null }] };
+    runBudgetAlertCron.mockResolvedValueOnce(result as never);
+    const r = await call({ method: 'POST', headers: { 'x-cron-secret': KEY } });
+    expect(r.statusCode).toBe(500);
+    expect(JSON.stringify(r.body)).toContain('"companyId":"b"');
+    expect(JSON.stringify(r.body)).toContain('1 of 2 companies failed');
+  });
   it('GET is 405; an unset CRON_SECRET is 500; neither runs', async () => {
     expect((await call({ method: 'GET', headers: { 'x-cron-secret': KEY } })).statusCode).toBe(405);
     delete process.env.CRON_SECRET;

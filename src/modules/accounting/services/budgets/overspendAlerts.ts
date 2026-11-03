@@ -16,7 +16,7 @@
  *   key (account, slice, month); every row is still recorded. Each goes to every owner and admin
  *   (`notifyUsers`, kind 'budget_alert', dedupe key `budget_alert:<alert id>`, or
  *   `budget_alert:<alert id>:<fired_at ms>` for a re-fire), linking to Budget vs Actual on the month
- *   and slice. More than 10 in one run: one summary per user instead (`budget_alert_summary:<asOf>`,
+ *   and slice. More than 10 in one run: one summary per user instead (`budget_alert_summary:<asOf>:<run uuid>`,
  *   linking to Budget controls). A rerun with unchanged books writes and announces nothing.
  * - Serialised per company: a transaction advisory lock `budget_alerts:<company>` (seed 954) is taken
  *   FIRST, before any read, with the bounded row-lock wait (5 s → `RowLockTimeoutError`, 503 at the
@@ -25,6 +25,7 @@
  * Runs on the caller's connection: app_user under RLS in a request (owner/admin), or the service pool
  * with no claims in the cron. Every statement names the company.
  */
+import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -87,12 +88,30 @@ async function readExpenseKeys(companyId: string, versionId: string, first: stri
   }));
 }
 
-/** Owners and admins of the company: the alert recipients (decision 9). */
+/**
+ * Owners and admins of the company whose account is in use: active, not suspended (the digest's rule,
+ * `overspendDigest.ts`). The cron (service pool, no session user) reads users through 915's mirror.
+ * In a request users RLS shows a member only their own row, so the others come from 714's reviewed
+ * `approval_company_other_members` (bound to the caller and the active company) and the caller's own
+ * row is read directly.
+ */
 async function recipients(companyId: string): Promise<string[]> {
-  const rows = (await sql`
-    SELECT DISTINCT user_id FROM company_users WHERE company_id = ${companyId}::UUID AND role IN ('owner', 'admin') ORDER BY user_id
-  `) as DbRow[];
-  return rows.map((r) => String(r.user_id));
+  const uid = ((await sql`SELECT auth.uid() AS uid`) as DbRow[])[0]?.uid as string | null | undefined;
+  const rows = (uid
+    ? await sql`
+      SELECT m.user_id, m.role, m.is_active, m.status, m.suspended_at
+        FROM public.approval_company_other_members(${companyId}::UUID, ${uid}) m
+      UNION ALL
+      SELECT cu.user_id, cu.role, u.is_active, u.status::TEXT, u.suspended_at
+        FROM company_users cu JOIN users u ON u.id = cu.user_id
+       WHERE cu.company_id = ${companyId}::UUID AND cu.user_id = ${uid}`
+    : await sql`
+      SELECT cu.user_id, cu.role, u.is_active, u.status::TEXT AS status, u.suspended_at
+        FROM company_users cu JOIN users u ON u.id = cu.user_id
+       WHERE cu.company_id = ${companyId}::UUID`) as DbRow[];
+  const users = rows.filter((r) => (r.role === 'owner' || r.role === 'admin') && r.is_active === true
+    && r.status !== 'suspended' && r.suspended_at == null).map((r) => String(r.user_id));
+  return [...new Set(users)].sort();
 }
 
 /** Account and slice names for the announced alerts. */
@@ -144,7 +163,7 @@ export const CONTROLS_HREF = '/accounting/budgets/controls';
  * Notifies owners and admins of this run's fired alerts, less noisily than one per row (every row
  * stays in budget_alerts): per key only the HIGHEST newly crossed threshold; and when that still
  * leaves more than MAX_ALERT_NOTIFICATIONS_PER_RUN, ONE summary per user instead (dedupe key per
- * run date, `budget_alert_summary:<asOf>`). Every recipient gets the same set, so the cap is per user.
+ * run, `budget_alert_summary:<asOf>:<run uuid>`). Every recipient gets the same set, so the cap is per user.
  */
 async function announce(companyId: string, fired: readonly FiredAlert[], asOf: string): Promise<void> {
   if (fired.length === 0) return;
@@ -156,7 +175,8 @@ async function announce(companyId: string, fired: readonly FiredAlert[], asOf: s
   const alerts = highestPerKey(fired);
   if (alerts.length > MAX_ALERT_NOTIFICATIONS_PER_RUN) {
     await notifyUsers(companyId, users, {
-      kind: 'budget_alert', refId: null, href: CONTROLS_HREF, dedupeKey: `budget_alert_summary:${asOf}`,
+      // One summary per RUN: a second backlog the same day (Evaluate now after the daily run) is told too.
+      kind: 'budget_alert', refId: null, href: CONTROLS_HREF, dedupeKey: `budget_alert_summary:${asOf}:${randomUUID()}`,
       title: `${alerts.length} budget lines crossed their thresholds — see Budget controls`,
       body: `${alerts.length} budget lines (account, slice and month) passed an alert threshold in this evaluation. Budget controls lists each one.`,
     });

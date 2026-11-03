@@ -81,7 +81,7 @@ export async function dropAlertFixture(pool: Pool, f: AlertFixture | undefined):
   try {
     await c.query('BEGIN');
     await c.query('SET LOCAL session_replication_role = replica');
-    for (const t of ['user_notifications', 'budget_alerts', 'budget_alert_thresholds', 'budget_control_settings', 'accounting_settings',
+    for (const t of ['email_log', 'user_notifications', 'budget_alerts', 'budget_alert_thresholds', 'budget_control_settings', 'accounting_settings',
       'audit_log', 'budget_month_amounts', 'budget_versions', 'gl_journal_lines', 'gl_journal_entries', 'fiscal_periods', 'fiscal_years',
       'cost_centres', 'gl_accounts', 'company_users']) {
       await c.query(`DELETE FROM ${t} WHERE company_id = ANY($1::UUID[])`, [cos]);

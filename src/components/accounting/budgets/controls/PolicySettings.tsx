@@ -1,9 +1,9 @@
 /**
  * The budget controls' company settings (budgets P5-4, decisions 8/9): the approval check policy
  * with a plain explanation of each, the default alert thresholds, and the email digest switch.
- * Owners and admins edit; a manager reads. The email switch is shown OFF and disabled with
- * "Email sending is switched off on this server" while the server's switch is unset (the server
- * refuses it too).
+ * Owners and admins edit; a manager reads. While the server's switch is unset the email switch says
+ * "Email sending is switched off on this server" and cannot be turned on (the server refuses it too);
+ * one already on can be turned off. A save sends only the fields the user changed.
  */
 import { useEffect, useState } from 'react';
 import { Loader2, Save } from 'lucide-react';
@@ -39,20 +39,30 @@ export function PolicySettings({ view, canEdit, busy, onSave }: PolicySettingsPr
   const [email, setEmail] = useState(settings.alertEmailEnabled);
   const [problem, setProblem] = useState('');
 
+  // The form follows the SAVED settings by value: a refresh that brings the same settings (a new
+  // object after an override write or Evaluate now) keeps the user's unsaved edits; a save, or
+  // someone else's, that changes them resets the form.
+  const saved = JSON.stringify([settings.checkPolicy, settings.defaultThresholds, settings.alertEmailEnabled, settings.updatedAt]);
   useEffect(() => {
     setPolicy(settings.checkPolicy);
     setThresholds(settings.defaultThresholds.join(', '));
     setEmail(settings.alertEmailEnabled);
-  }, [settings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `saved` is these fields by value
+  }, [saved]);
 
   const parsed = parseThresholds(thresholds);
-  const dirty = policy !== settings.checkPolicy || email !== settings.alertEmailEnabled
-    || (parsed.ok && parsed.values.join(',') !== settings.defaultThresholds.join(','));
+  const thresholdsChanged = parsed.ok && parsed.values.join(',') !== settings.defaultThresholds.join(',');
+  const dirty = policy !== settings.checkPolicy || email !== settings.alertEmailEnabled || thresholdsChanged;
 
+  /** Only what the user changed: a stored email flag left alone is never re-sent (409 while the server switch is off). */
   const submit = async () => {
     if (!parsed.ok) { setProblem(parsed.message); return; }
     setProblem('');
-    await onSave({ checkPolicy: policy, defaultThresholds: parsed.values, alertEmailEnabled: email });
+    const patch: Parameters<PolicySettingsProps['onSave']>[0] = {};
+    if (policy !== settings.checkPolicy) patch.checkPolicy = policy;
+    if (thresholdsChanged) patch.defaultThresholds = parsed.values;
+    if (email !== settings.alertEmailEnabled) patch.alertEmailEnabled = email;
+    await onSave(patch);
   };
 
   return (
@@ -69,7 +79,7 @@ export function PolicySettings({ view, canEdit, busy, onSave }: PolicySettingsPr
         </div>
         <div className="min-w-0">
           <label htmlFor="budget-thresholds" className="block text-sm font-medium text-[var(--ff-text-primary)]">Default alert thresholds (% of budget)</label>
-          <input id="budget-thresholds" className={`${INPUT} mt-1`} value={thresholds} disabled={!canEdit || busy} inputMode="numeric"
+          <input id="budget-thresholds" className={`${INPUT} mt-1`} value={thresholds} disabled={!canEdit || busy} inputMode="text"
             aria-describedby="budget-thresholds-help" onChange={(e) => setThresholds(e.target.value)} />
           <p id="budget-thresholds-help" className="mt-1 text-sm text-[var(--ff-text-secondary)]">
             Owners and admins get an alert in the bell when actual spend plus open purchase orders passes each of these percentages of an expense budget (up to 5, e.g. 80, 100, 120).
@@ -78,8 +88,8 @@ export function PolicySettings({ view, canEdit, busy, onSave }: PolicySettingsPr
       </div>
       <div className="mt-4">
         <label className="inline-flex items-start gap-2 text-sm text-[var(--ff-text-primary)]">
-          <input type="checkbox" className="mt-0.5" checked={emailAllowedOnServer && email}
-            disabled={!canEdit || busy || !emailAllowedOnServer} onChange={(e) => setEmail(e.target.checked)} data-testid="budget-email-toggle" />
+          <input type="checkbox" className="mt-0.5" checked={email}
+            disabled={!canEdit || busy || (!emailAllowedOnServer && !email)} onChange={(e) => setEmail(e.target.checked)} data-testid="budget-email-toggle" />
           <span>Also email owners and admins a daily digest of new alerts</span>
         </label>
         {!emailAllowedOnServer && (

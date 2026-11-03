@@ -4,7 +4,7 @@
  *   the same account and slice). An expense account of this company; at most one dimension, this
  *   company's, CC1/CC2 of its kind (400 otherwise). Thresholds: 1-5 whole percentages 1-999.
  * DELETE { id } → { deleted: true } (404 when not this company's).
- * Owner or admin, CSRF. Each change writes one audit row.
+ * Owner or admin, CSRF, 60 writes a minute per user shared with the controls PUT (429). Each change writes one audit row.
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -12,6 +12,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { UUID } from '@/lib/schemas/common';
 import { respondBudgetControlsError } from '@/lib/budgetControlsResponse';
 import { deleteThresholdOverride, upsertThresholdOverride } from '@/modules/accounting/services/budgets/budgetControlSettings';
@@ -29,6 +30,13 @@ const DeleteSchema = z.object({ id: UUID }).strict();
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
+  if (req.method === 'POST' || req.method === 'DELETE') {
+    // One bucket for every budget controls write (this route and ./index PUT), per user.
+    if (!(await checkRateLimit(`budget-controls-write:${userId}`, { max: 60, windowSecs: 60 }))) {
+      res.setHeader('Retry-After', '60');
+      return apiResponse.tooManyRequests(res, 'Too many changes to the budget controls; wait a minute and try again.');
+    }
+  }
   try {
     if (req.method === 'POST') {
       const parsed = UpsertSchema.safeParse(req.body);

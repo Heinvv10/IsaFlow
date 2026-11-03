@@ -8,9 +8,9 @@
  *   defaults; `DEFAULT_CONTROL_SETTINGS` is the same for a company that never saved).
  * - Thresholds: 1-5 whole percentages in 1-999, stored sorted ascending without duplicates.
  * - An override names an EXPENSE account of the company and at most one dimension (the slice).
- * - The email flag can only be switched ON when this server allows budget alert email at all
- *   (env BUDGET_ALERT_EMAIL_ENABLED=1): enabling it is Hein's act (decision 9), and a flag set while
- *   sending is off would read as "on" on the page and do nothing.
+ * - The email flag can only be switched ON (false → true) when this server allows budget alert email
+ *   at all (env BUDGET_ALERT_EMAIL_ENABLED=1): enabling it is Hein's act (decision 9). A flag already
+ *   on may be sent unchanged, and switching it off is always allowed.
  * Every change writes one `audit_log` row (entity `budget`, entity id = the company).
  */
 import { sql } from '@/lib/neon';
@@ -85,10 +85,12 @@ export interface SettingsPatch {
 
 /** Saves the fields given (the rest keep their stored or default values); one audit row naming what changed. */
 export async function saveControlSettings(companyId: string, userId: string, patch: SettingsPatch): Promise<ControlSettings> {
-  if (patch.alertEmailEnabled === true && !alertEmailAllowedOnServer()) {
+  const before = await readControlSettings(companyId);
+  // Only switching it ON is refused while sending is off: a flag already on may be re-sent unchanged
+  // (the form must still save the policy), and switching it off is always allowed.
+  if (patch.alertEmailEnabled === true && !before.alertEmailEnabled && !alertEmailAllowedOnServer()) {
     throw new BudgetControlsError(409, 'Email sending is switched off on this server, so the budget alert email cannot be turned on.');
   }
-  const before = await readControlSettings(companyId);
   const next = {
     checkPolicy: patch.checkPolicy ?? before.checkPolicy,
     alertEmailEnabled: patch.alertEmailEnabled ?? before.alertEmailEnabled,

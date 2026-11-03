@@ -120,12 +120,34 @@ describe('evaluateOverspend: a backlog', () => {
       expect(notifySpy).toHaveBeenCalledTimes(1);
       for (const u of [f.ownerA, f.adminA]) {
         const n = await asSuper((c) => notes(c, u));
-        expect(n).toEqual([{ dedupe_key: `budget_alert_summary:${asOf}`, ref_id: null, href: '/accounting/budgets/controls',
+        expect(n).toEqual([{ dedupe_key: expect.stringMatching(new RegExp(`^budget_alert_summary:${asOf}:[0-9a-f-]{36}$`)), ref_id: null, href: '/accounting/budgets/controls',
           title: '14 budget lines crossed their thresholds — see Budget controls', body: expect.stringContaining('Budget controls lists each one') }]);
       }
       expect(await asSuper((c) => notes(c, f.managerA))).toEqual([]);
       expect((await evaluateOverspend(f.a, { asOf })).fired).toEqual([]);
       expect(notifySpy).toHaveBeenCalledTimes(1);
+    }, async (c) => {
+      for (const m of ['03', '04', '05', '06', '07', '08', '09']) {
+        await opexSpend(c, 1050, `2026-${m}-10`);
+        await journal(c, f.a, `2026-${m}-10`, f.ownerA, [[f.acc.rent, 600, 0, { cc1: f.cc.FT }], [f.acc.bank, 0, 600]]);
+      }
+    });
+  });
+
+  it('a second backlog the same day gets its own summary (one per run, not one per date)', async () => {
+    const asOf = '2026-09-20';
+    await inRequest(pool, f.a, f.ownerA, async ({ asSuper }) => {
+      expect((await evaluateOverspend(f.a, { asOf })).fired).toHaveLength(35);
+      await asSuper(async (c) => {
+        for (const m of ['03', '04', '05', '06', '07', '08', '09']) {
+          await opexSpend(c, 200, `2026-${m}-11`); // opex 125%: crosses 120
+          await journal(c, f.a, `2026-${m}-11`, f.ownerA, [[f.acc.rent, 5, 0, { cc1: f.cc.HT }], [f.acc.bank, 0, 5]]); // R0 budget
+        }
+      });
+      expect((await evaluateOverspend(f.a, { asOf })).fired).toHaveLength(28);
+      const n = await asSuper((c) => notes(c, f.ownerA));
+      expect(n.map((x) => x.title).sort()).toEqual(['14 budget lines crossed their thresholds — see Budget controls',
+        '14 budget lines crossed their thresholds — see Budget controls']);
     }, async (c) => {
       for (const m of ['03', '04', '05', '06', '07', '08', '09']) {
         await opexSpend(c, 1050, `2026-${m}-10`);
@@ -147,6 +169,27 @@ describe('evaluateOverspend: a backlog', () => {
         await opexSpend(c, 1050, `2026-${m}-10`);
         await journal(c, f.a, `2026-${m}-10`, f.ownerA, [[f.acc.rent, 600, 0, { cc1: f.cc.FT }], [f.acc.bank, 0, 600]]);
       }
+    });
+  });
+});
+
+describe('evaluateOverspend: recipients', () => {
+  it('a suspended or deactivated owner/admin is not notified (the digest\'s rule)', async () => {
+    await inRequest(pool, f.a, f.ownerA, async ({ asSuper }) => {
+      expect((await run()).fired).toHaveLength(2);
+      expect(await asSuper((c) => notes(c, f.ownerA))).toHaveLength(1);
+      expect(await asSuper((c) => notes(c, f.adminA))).toEqual([]);
+    }, async (c) => {
+      await opexSpend(c, 1050);
+      await c.query(`UPDATE users SET suspended_at = now(), status = 'suspended' WHERE id = $1`, [f.adminA]);
+    });
+    await inRequest(pool, f.a, f.adminA, async ({ asSuper }) => {
+      expect((await run()).fired).toHaveLength(2);
+      expect(await asSuper((c) => notes(c, f.ownerA))).toEqual([]);
+      expect(await asSuper((c) => notes(c, f.adminA))).toHaveLength(1);
+    }, async (c) => {
+      await opexSpend(c, 1050);
+      await c.query('UPDATE users SET is_active = false WHERE id = $1', [f.ownerA]);
     });
   });
 });

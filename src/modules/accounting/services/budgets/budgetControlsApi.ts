@@ -9,7 +9,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { todayInSast } from '@/lib/saDateParser';
-import { readLastEvaluated, recordEvaluated, type LastEvaluated } from './budgetAlertRuns';
+import { readLastEvaluated, recordEvaluated, type LastEvaluations } from './budgetAlertRuns';
 import {
   alertEmailAllowedOnServer, listThresholdOverrides, readControlSettings, type ControlSettings, type OverrideRow,
 } from './budgetControlSettings';
@@ -35,7 +35,7 @@ export interface ControlsView {
   options: OverrideOptions;
   /** BUDGET_ALERT_EMAIL_ENABLED=1 on this server: without it no budget alert email is sent, whatever the company flag. */
   emailAllowedOnServer: boolean;
-  lastEvaluated: LastEvaluated | null;
+  lastEvaluated: LastEvaluations;
 }
 
 const pick = (rows: DbRow[]): PickOption[] => rows.map((r) => ({ id: String(r.id), code: String(r.code), name: String(r.name) }));
@@ -75,7 +75,7 @@ export interface EvaluateNowResult {
   keys: number;
   fired: number;
   resolved: number;
-  lastEvaluated: LastEvaluated | null;
+  lastEvaluated: LastEvaluations;
 }
 
 export async function evaluateNow(companyId: string): Promise<EvaluateNowResult> {

@@ -23,14 +23,17 @@ vi.mock('@/lib/neon', async (importOriginal) => {
   const m = await importOriginal<typeof import('@/lib/neon')>();
   return { ...m, getPool: () => cron.pool as ReturnType<typeof m.getPool> };
 });
-vi.mock('@/modules/accounting/services/core/emailService', async (importOriginal) => {
-  const m = await importOriginal<typeof import('@/modules/accounting/services/core/emailService')>();
-  return { ...m, sendEmail: vi.fn(async () => ({ success: true, messageId: 'mock' })) };
+// The SMTP transport is stubbed (no mail server is ever reached); sendEmail and its email_log write are real.
+const smtp = vi.hoisted(() => ({ sendMail: null as unknown as ReturnType<typeof import('vitest').vi.fn> }));
+vi.mock('nodemailer', async () => {
+  const { vi: v } = await import('vitest');
+  smtp.sendMail = v.fn(async () => ({ messageId: 'stub' }));
+  const createTransport = v.fn(() => ({ sendMail: smtp.sendMail }));
+  return { default: { createTransport }, createTransport };
 });
 
-import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { loadAlertCompanies, runBudgetAlertsFor } from '@/modules/accounting/services/budgets/budgetAlertCron';
-import { LAST_EVALUATED_KEY } from '@/modules/accounting/services/budgets/budgetAlertRuns';
+import { LAST_EVALUATED_KEYS } from '@/modules/accounting/services/budgets/budgetAlertRuns';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -39,7 +42,9 @@ cronPool.on('connect', (c) => { void c.query('SET ROLE isaflow_service'); });
 let acquired = 0;
 cronPool.on('acquire', () => { acquired += 1; });
 cron.pool = cronPool;
-const sendSpy = vi.mocked(sendEmail);
+const SMTP_ENV = { SMTP_HOST: 'smtp.invalid', SMTP_USER: 'stub', SMTP_PASS: 'stub', SMTP_FROM: 'alerts@test.local' } as const;
+const envBefore = Object.fromEntries(Object.keys(SMTP_ENV).map((k) => [k, process.env[k]]));
+const sent = () => (smtp.sendMail?.mock.calls ?? []).map(([o]) => o as { to: string; subject: string; html: string });
 let f: AlertFixture;
 const noBudget = crypto.randomUUID();
 
@@ -57,8 +62,12 @@ afterAll(async () => {
   }
 });
 beforeEach(() => {
-  sendSpy.mockClear();
+  smtp.sendMail?.mockClear();
   delete process.env.BUDGET_ALERT_EMAIL_ENABLED;
+  Object.assign(process.env, SMTP_ENV);
+});
+afterAll(() => {
+  for (const [k, v] of Object.entries(envBefore)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
 });
 
 /** Commits `fn`'s writes as the fixture's superuser. */
@@ -77,7 +86,7 @@ const spend = (co: string, acct: string, bank: string, user: string, date: strin
   committed((c) => journal(c, co, date, user, [[acct, amount, 0], [bank, 0, amount]]));
 const count = async (text: string, params: unknown[]) => Number((await pool.query(text, params)).rows[0].n);
 const lastEvaluated = async (co: string) => {
-  const r = await pool.query('SELECT value FROM accounting_settings WHERE company_id = $1 AND key = $2', [co, LAST_EVALUATED_KEY]);
+  const r = await pool.query('SELECT value FROM accounting_settings WHERE company_id = $1 AND key = $2', [co, LAST_EVALUATED_KEYS.daily]);
   return r.rows[0] ? JSON.parse(String(r.rows[0].value)) as { at: string; source: string; fired: number } : null;
 };
 
@@ -101,8 +110,10 @@ describe('the daily run, as isaflow_service', () => {
     ]);
     const second = await runBudgetAlertsFor([f.a, f.b], AS_OF);
     expect(second.perCompany.map((r) => [r.ok, r.fired, r.resolved, r.digest?.skipped])).toEqual([[true, 0, 0, 'nothing_fired'], [true, 0, 0, 'nothing_fired']]);
-    expect(sendSpy).not.toHaveBeenCalled();
+    expect(sent()).toEqual([]);
     expect(await count('SELECT COUNT(*)::INT n FROM budget_alerts WHERE company_id = $1', [f.a])).toBe(2);
+    // The daily run keeps its own record; Evaluate now's stays empty.
+    expect(await count(`SELECT COUNT(*)::INT n FROM accounting_settings WHERE company_id = $1 AND key = $2`, [f.a, LAST_EVALUATED_KEYS.manual])).toBe(0);
     expect(await count('SELECT COUNT(*)::INT n FROM budget_alerts WHERE company_id = $1', [f.b])).toBe(1);
     const per = async (co: string, u: string) => count(`SELECT COUNT(*)::INT n FROM user_notifications WHERE company_id = $1 AND user_id = $2`, [co, u]);
     expect([await per(f.a, f.ownerA), await per(f.a, f.adminA), await per(f.a, f.managerA), await per(f.b, f.ownerB), await per(f.a, f.ownerB)])
@@ -136,21 +147,41 @@ describe('the daily run, as isaflow_service', () => {
     await spend(f.a, f.acc.opex, f.acc.bank, f.ownerA, '2026-03-10', 850); // March 85%: crosses 80
     const flagOnly = await runBudgetAlertsFor([f.a], AS_OF);
     expect(flagOnly.perCompany[0]).toMatchObject({ ok: true, fired: 1, digest: { skipped: 'server_off', sent: 0 } });
-    expect(sendSpy).not.toHaveBeenCalled();
+    expect(sent()).toEqual([]);
 
     process.env.BUDGET_ALERT_EMAIL_ENABLED = '1';
     await spend(f.a, f.acc.opex, f.acc.bank, f.ownerA, '2026-03-12', 200); // March 105%: crosses 100
+    const taken = acquired;
     const both = await runBudgetAlertsFor([f.a], AS_OF);
+    // The evaluation's transaction, then the send's own company-context one: both on the cron's role.
+    expect(acquired - taken).toBe(2);
     expect(both.perCompany[0]).toMatchObject({ ok: true, fired: 1, digest: { skipped: null, sent: 2, failed: 0 } });
-    expect(sendSpy).toHaveBeenCalledTimes(2);
-    const to = sendSpy.mock.calls.map(([o]) => o.to).sort();
+    expect(sent()).toHaveLength(2);
+    const to = sent().map((o) => o.to).sort();
     expect(to).toEqual([`${f.ownerA}@test.local`, `${f.adminA}@test.local`].sort());
-    const mail = sendSpy.mock.calls[0]![0];
+    // sendEmail's own email_log write, as the cron's role after the evaluation committed: one 'sent' row per recipient.
+    const logged = await pool.query(`SELECT recipient_email, status, email_type FROM email_log WHERE company_id = $1 ORDER BY recipient_email`, [f.a]);
+    expect(logged.rows).toEqual(to.map((t) => ({ recipient_email: t, status: 'sent', email_type: 'other' })));
+    const mail = sent()[0]!;
     expect(mail.subject).toBe('Budget alerts — P5A <Alerts> & Co: 1 new overspend alert');
     expect(mail.html).toContain('P5A &lt;Alerts&gt; &amp; Co');
     expect(mail.html).not.toContain('<Alerts>');
     expect(mail.html).toContain('P5A-6000 Office costs');
     expect(mail.html).toContain('/accounting/reports/budget-vs-actual?period=month&amp;month=2026-03');
+  });
+
+  it('a deactivated admin is not notified by the daily run', async () => {
+    await pool.query('UPDATE users SET is_active = false WHERE id = $1', [f.adminA]);
+    try {
+      await committed((c) => journal(c, f.a, '2026-03-20', f.ownerA, [[f.acc.rent, 450, 0, { cc1: f.cc.FT }], [f.acc.bank, 0, 450]])); // rent FT March 90%: crosses 80
+      const before = await count(`SELECT COUNT(*)::INT n FROM user_notifications WHERE company_id = $1 AND user_id = $2`, [f.a, f.adminA]);
+      const out = await runBudgetAlertsFor([f.a], AS_OF);
+      expect(out.perCompany[0]).toMatchObject({ ok: true, fired: 1 });
+      expect(await count(`SELECT COUNT(*)::INT n FROM user_notifications WHERE company_id = $1 AND user_id = $2`, [f.a, f.adminA])).toBe(before);
+      expect(await count(`SELECT COUNT(*)::INT n FROM user_notifications WHERE company_id = $1 AND user_id = $2 AND title LIKE 'P5A-6100%'`, [f.a, f.ownerA])).toBe(1);
+    } finally {
+      await pool.query('UPDATE users SET is_active = true WHERE id = $1', [f.adminA]);
+    }
   });
 
   it('takes active companies with a primary version (or an open alert); not a suspended one, not one with no budget', async () => {

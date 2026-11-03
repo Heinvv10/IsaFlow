@@ -94,10 +94,10 @@ describe('Evaluate now and the alert list', () => {
 
     const first = await evaluate.call(o.u, 'POST', {});
     expect(first.status).toBe(200);
-    expect(d(first)).toMatchObject({ fiscalYear: o.label, fired: 2, resolved: 0, lastEvaluated: { source: 'manual', fired: 2 } });
+    expect(d(first)).toMatchObject({ fiscalYear: o.label, fired: 2, resolved: 0, lastEvaluated: { manual: { source: 'manual', fired: 2 }, daily: null } });
     const again = await evaluate.call(admin, 'POST', {});
     expect(again.status).toBe(200);
-    expect(d(again)).toMatchObject({ fired: 0, lastEvaluated: { source: 'manual', fired: 0 } });
+    expect(d(again)).toMatchObject({ fired: 0, lastEvaluated: { manual: { source: 'manual', fired: 0 }, daily: null } });
     const n = await pool.query(`SELECT user_id FROM user_notifications WHERE company_id = $1 ORDER BY user_id`, [o.u.homeCompanyId]);
     // 80 and 100 crossed together: each owner/admin is told once (the 100).
     expect(n.rows.map((r) => r.user_id)).toEqual([admin.userId, o.u.userId].sort());
@@ -107,10 +107,11 @@ describe('Evaluate now and the alert list', () => {
     expect((await alerts.call(manager, 'GET')).status).toBe(403);
     const r = await alerts.call(admin, 'GET');
     expect(r.status).toBe(200);
-    const list = d(r) as { open: Array<Record<string, unknown>>; resolved: unknown[]; lastEvaluated: { source: string } };
+    const list = d(r) as { open: Array<Record<string, unknown>>; resolved: unknown[]; lastEvaluated: { manual: { source: string } | null; daily: unknown } };
     expect(list.open.map((a) => [a.accountCode, a.threshold, a.budget, a.actual, a.pct])).toEqual([['BR-5000', 100, 100, 105, 105], ['BR-5000', 80, 100, 105, 105]]);
     expect(list.resolved).toEqual([]);
-    expect(list.lastEvaluated.source).toBe('manual');
+    expect(list.lastEvaluated.manual?.source).toBe('manual');
+    expect(list.lastEvaluated.daily).toBeNull();
     // Another company sees none of them.
     expect((d(await alerts.call(other.u, 'GET')) as { open: unknown[] }).open).toEqual([]);
   });
@@ -148,6 +149,19 @@ describe('controls settings', () => {
     expect((await controls.call(o.u, 'PUT', { alertEmailEnabled: false })).status).toBe(200);
     const row = await pool.query('SELECT alert_email_enabled FROM budget_control_settings WHERE company_id = $1', [o.u.homeCompanyId]);
     expect(row.rows[0].alert_email_enabled).toBe(false);
+  });
+
+  it('a flag stored ON while the server switch is off does not lock the form: an unchanged true saves, true→false saves, false→true is 409', async () => {
+    const co = o.u.homeCompanyId;
+    await pool.query('UPDATE budget_control_settings SET alert_email_enabled = true WHERE company_id = $1', [co]);
+    const keep = await controls.call(o.u, 'PUT', { checkPolicy: 'off', alertEmailEnabled: true });
+    expect(keep.status).toBe(200);
+    expect(d(keep)).toMatchObject({ settings: { checkPolicy: 'off', alertEmailEnabled: true } });
+    expect((await controls.call(o.u, 'PUT', { defaultThresholds: [90] })).status).toBe(200);
+    expect((await controls.call(admin, 'PUT', { alertEmailEnabled: false })).status).toBe(200);
+    expect((await controls.call(admin, 'PUT', { alertEmailEnabled: true })).status).toBe(409);
+    const row = await pool.query('SELECT alert_email_enabled, check_policy FROM budget_control_settings WHERE company_id = $1', [co]);
+    expect(row.rows[0]).toEqual({ alert_email_enabled: false, check_policy: 'off' });
   });
 });
 

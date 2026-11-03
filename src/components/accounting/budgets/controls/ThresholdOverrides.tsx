@@ -97,7 +97,7 @@ export function ThresholdOverrides({ view, canEdit, busy, onAdd, onRemove }: Thr
             </label>
           )}
           <label className="min-w-0 text-sm text-[var(--ff-text-primary)]">Thresholds (%)
-            <input className={`${INPUT} mt-1`} value={values} disabled={busy} placeholder="e.g. 90, 110" inputMode="numeric"
+            <input className={`${INPUT} mt-1`} value={values} disabled={busy} placeholder="e.g. 90, 110" inputMode="text"
               onChange={(e) => setValues(e.target.value)} />
           </label>
           <div>

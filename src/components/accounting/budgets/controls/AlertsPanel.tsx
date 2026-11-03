@@ -21,21 +21,33 @@ const STALE_MS = 36 * 3600 * 1000;
 const money = formatMoney;
 const pct = (a: BudgetAlertItem) => (a.pct === null ? 'over a R0 budget' : `${Math.round(a.pct * 10) / 10}%`);
 
-function LastEvaluated({ last, now }: { last: BudgetAlertList['lastEvaluated']; now: number }) {
-  if (!last) {
-    return (
-      <p className="flex items-start gap-1.5 text-sm text-[var(--ff-unfav)]" data-testid="alerts-never-evaluated">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> Never evaluated. The daily run may not be set up on this server yet; Evaluate now runs it once.
-      </p>
-    );
-  }
-  const stale = now - Date.parse(last.at) > STALE_MS;
+/**
+ * The daily run's last time (the stale warning reads it alone: a recent Evaluate now must not hide a
+ * timer that never runs), then Evaluate now's, when there is one.
+ */
+function LastEvaluated({ last, now }: { last: BudgetAlertList['lastEvaluated'] | null; now: number }) {
+  const daily = last?.daily ?? null;
+  const manual = last?.manual ?? null;
+  const stale = daily !== null && now - Date.parse(daily.at) > STALE_MS;
   return (
-    <p className={`flex items-start gap-1.5 text-sm ${stale ? 'text-[var(--ff-unfav)]' : 'text-[var(--ff-text-secondary)]'}`} data-testid="alerts-last-evaluated">
-      {stale && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}
-      Last evaluated {formatDisplayDateTime(last.at)} ({last.source === 'daily' ? 'daily run' : 'Evaluate now'}): {last.fired} new, {last.resolved} resolved.
-      {stale && ' The daily run has not run since; check that it is installed.'}
-    </p>
+    <div className="space-y-1">
+      {daily === null ? (
+        <p className="flex items-start gap-1.5 text-sm text-[var(--ff-unfav)]" data-testid="alerts-daily-missing">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> The daily run has never run for this company: it may not be set up on this server yet. Evaluate now runs it once.
+        </p>
+      ) : (
+        <p className={`flex items-start gap-1.5 text-sm ${stale ? 'text-[var(--ff-unfav)]' : 'text-[var(--ff-text-secondary)]'}`} data-testid="alerts-last-daily">
+          {stale && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}
+          Daily run: last {formatDisplayDateTime(daily.at)}, {daily.fired} new, {daily.resolved} resolved.
+          {stale && ' It has not run since; check that it is installed.'}
+        </p>
+      )}
+      {manual !== null && (
+        <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="alerts-last-manual">
+          Evaluate now: last {formatDisplayDateTime(manual.at)}, {manual.fired} new, {manual.resolved} resolved.
+        </p>
+      )}
+    </div>
   );
 }
 

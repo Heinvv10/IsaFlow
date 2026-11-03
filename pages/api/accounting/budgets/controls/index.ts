@@ -5,7 +5,7 @@
  * PUT { checkPolicy?: 'off'|'warn'|'block', defaultThresholds?: number[], alertEmailEnabled?: boolean }
  *   → the same view as GET, after the save. Owner or admin, CSRF. Thresholds: 1-5 whole percentages 1-999 (stored
  *   sorted, without duplicates). The email flag cannot be switched on while the server's
- *   BUDGET_ALERT_EMAIL_ENABLED is not 1 (409). Threshold overrides: ./thresholds.
+ *   BUDGET_ALERT_EMAIL_ENABLED is not 1 (409). 60 writes a minute per user, shared with ./thresholds (429). Threshold overrides: ./thresholds.
  */
 import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,6 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, DEFAULT_WRITE_ROLES, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { respondBudgetControlsError } from '@/lib/budgetControlsResponse';
 import { CHECK_POLICIES, saveControlSettings, type CheckPolicy } from '@/modules/accounting/services/budgets/budgetControlSettings';
 import { readControlsView } from '@/modules/accounting/services/budgets/budgetControlsApi';
@@ -34,9 +35,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, await readControlsView(companyId));
   }
   if (req.method !== 'PUT') return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'PUT']);
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
+  // One bucket for every budget controls write (this route and ./thresholds), per user.
+  if (!(await checkRateLimit(`budget-controls-write:${userId}`, { max: 60, windowSecs: 60 }))) {
+    res.setHeader('Retry-After', '60');
+    return apiResponse.tooManyRequests(res, 'Too many changes to the budget controls; wait a minute and try again.');
+  }
   const parsed = SettingsSchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
-  const userId = (req as AuthenticatedNextApiRequest).user.id;
   try {
     const { checkPolicy, defaultThresholds, alertEmailEnabled } = parsed.data;
     await saveControlSettings(companyId, userId, { checkPolicy: checkPolicy as CheckPolicy | undefined, defaultThresholds, alertEmailEnabled });
